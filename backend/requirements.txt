@@ -1,0 +1,16 @@
+faiss-cpu
+fastapi
+firebase-admin
+google-api-python-client
+google-auth
+google-cloud-firestore
+numpy
+pdfminer.six
+PyPDF2
+python-dotenv
+python-multipart
+python-pptx
+pytesseract
+scikit-learn
+uvicorn
+whisper
