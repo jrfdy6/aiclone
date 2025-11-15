@@ -1,3 +1,4 @@
+import traceback
 import uuid
 from typing import Dict, List
 
@@ -56,64 +57,72 @@ async def ingest_drive_folder(req: DriveIngestRequest):
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    if not files:
+    try:
+        if not files:
+            return {
+                "success": True,
+                "files_ingested": 0,
+                "message": "No files found in the specified folder.",
+            }
+
+        if req.max_files is not None:
+            files = files[: req.max_files]
+
+        ingest_job_id = f"gdrive_{uuid.uuid4().hex}"
+        total_chunks = 0
+        processed_files: List[Dict] = []
+
+        for drive_file in files:
+            try:
+                text_content = client.extract_text(drive_file)
+            except RuntimeError as exc:
+                print(f"Failed to extract text for file {drive_file.id}: {exc}", flush=True)
+                traceback.print_exc()
+                continue
+
+            if not text_content or not text_content.strip():
+                continue
+
+            chunks = chunk_text(text_content)
+            if not chunks:
+                continue
+
+            embeddings = embed_texts(chunks)
+            base_metadata = _base_metadata(req.user_id, req.folder_id, drive_file)
+
+            for idx, (chunk_text_value, embedding) in enumerate(zip(chunks, embeddings)):
+                chunk_metadata = {
+                    **base_metadata,
+                    "chunk_index": idx,
+                }
+                save_chunk(
+                    user_id=req.user_id,
+                    text=chunk_text_value,
+                    embedding=embedding,
+                    metadata=chunk_metadata,
+                    tags=chunk_metadata.get("extra_tags"),
+                )
+                total_chunks += 1
+
+            processed_files.append({"file_id": drive_file.id, "file_name": drive_file.name})
+
+        log_ingest_job(
+            user_id=req.user_id,
+            job_id=ingest_job_id,
+            status="completed",
+            filename=f"Drive folder {req.folder_id}",
+            chunk_count=total_chunks,
+            metadata={"folder_id": req.folder_id, "files": processed_files},
+        )
+
         return {
             "success": True,
-            "files_ingested": 0,
-            "message": "No files found in the specified folder.",
+            "files_ingested": len(processed_files),
+            "chunks_created": total_chunks,
+            "ingest_job_id": ingest_job_id,
+            "message": "Drive folder ingested successfully.",
         }
-
-    if req.max_files is not None:
-        files = files[: req.max_files]
-
-    ingest_job_id = f"gdrive_{uuid.uuid4().hex}"
-    total_chunks = 0
-    processed_files: List[Dict] = []
-
-    for drive_file in files:
-        try:
-            text = client.extract_text(drive_file)
-        except RuntimeError:
-            continue
-        if not text or not text.strip():
-            continue
-
-        chunks = chunk_text(text)
-        if not chunks:
-            continue
-
-        embeddings = embed_texts(chunks)
-        base_metadata = _base_metadata(req.user_id, req.folder_id, drive_file)
-
-        for idx, (chunk_text_value, embedding) in enumerate(zip(chunks, embeddings)):
-            chunk_metadata = {
-                **base_metadata,
-                "chunk_index": idx,
-            }
-            save_chunk(
-                user_id=req.user_id,
-                text=chunk_text_value,
-                embedding=embedding,
-                metadata=chunk_metadata,
-                tags=chunk_metadata.get("extra_tags"),
-            )
-            total_chunks += 1
-
-        processed_files.append({"file_id": drive_file.id, "file_name": drive_file.name})
-
-    log_ingest_job(
-        user_id=req.user_id,
-        job_id=ingest_job_id,
-        status="completed",
-        filename=f"Drive folder {req.folder_id}",
-        chunk_count=total_chunks,
-        metadata={"folder_id": req.folder_id, "files": processed_files},
-    )
-
-    return {
-        "success": True,
-        "files_ingested": len(processed_files),
-        "chunks_created": total_chunks,
-        "ingest_job_id": ingest_job_id,
-        "message": "Drive folder ingested successfully.",
-    }
+    except Exception as exc:
+        print("Unexpected Drive ingestion error:", exc, flush=True)
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Drive ingestion failed.") from exc
