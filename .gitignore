@@ -6,3 +6,8 @@ frontend/node_modules/
 backend/node_modules/
 backend/server.log
 frontend/server.log
+frontend/.next/
+backend/__pycache__/
+backend/app/__pycache__/
+backend/app/**/__pycache__/
+backend/.pytest_cache/
