@@ -5,16 +5,16 @@ import tempfile
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+import requests
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseDownload
+from google.auth.transport.requests import Request
 from PyPDF2 import PdfReader
 
 from app.services.parsers import pptx_parser
 
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 
 
 class DriveConfigurationError(RuntimeError):
@@ -30,7 +30,11 @@ class DriveFile:
 
 class GoogleDriveClient:
     def __init__(self) -> None:
-        self._service = self._build_service()
+        print("🔑 Building Drive credentials...", flush=True)
+        self._credentials = self._build_credentials()
+        print("✅ Credentials built, creating session...", flush=True)
+        self._session = requests.Session()
+        print("✅ Drive client initialized", flush=True)
 
     @staticmethod
     def _build_credentials():
@@ -48,36 +52,60 @@ class GoogleDriveClient:
             "GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE."
         )
 
-    def _build_service(self):
-        credentials = self._build_credentials()
-        return build("drive", "v3", credentials=credentials, cache_discovery=False)
+    def _get_access_token(self) -> str:
+        """Get a valid access token, refreshing if necessary."""
+        if not self._credentials.valid:
+            self._credentials.refresh(Request())
+        return self._credentials.token
+
+    def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+        """Make an authenticated request to the Drive API."""
+        url = f"{DRIVE_API_BASE}/{endpoint}"
+        headers = kwargs.pop("headers", {})
+        headers["Authorization"] = f"Bearer {self._get_access_token()}"
+        # Add timeout to prevent hanging (30 seconds for downloads, 10 for regular requests)
+        timeout = kwargs.pop("timeout", 30 if kwargs.get("stream") else 10)
+        response = self._session.request(method, url, headers=headers, timeout=timeout, **kwargs)
+        response.raise_for_status()
+        return response
 
     def list_files(self, folder_id: str, page_size: int = 100) -> List[DriveFile]:
         try:
-            response = (
-                self._service.files()
-                .list(
-                    q=f"'{folder_id}' in parents and trashed=false",
-                    fields="files(id, name, mimeType)",
-                    pageSize=page_size,
-                )
-                .execute()
-            )
-        except HttpError as exc:
+            params = {
+                "q": f"'{folder_id}' in parents and trashed=false",
+                "fields": "files(id, name, mimeType)",
+                "pageSize": page_size,
+            }
+            response = self._make_request("GET", "files", params=params)
+            data = response.json()
+            files = data.get("files", [])
+            return [DriveFile(id=file["id"], name=file["name"], mime_type=file["mimeType"]) for file in files]
+        except requests.RequestException as exc:
             raise RuntimeError(f"Failed to list files from folder {folder_id}: {exc}") from exc
 
-        files = response.get("files", [])
-        return [DriveFile(id=file["id"], name=file["name"], mime_type=file["mimeType"]) for file in files]
-
     def _download_file_to_bytes(self, file_id: str) -> bytes:
-        request = self._service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        fh.seek(0)
-        return fh.read()
+        """Download a file from Drive as bytes using the media endpoint."""
+        print(f"  → Downloading file {file_id} from Drive...", flush=True)
+        try:
+            params = {"alt": "media"}
+            # Use a longer timeout for file downloads (60 seconds)
+            url = f"{DRIVE_API_BASE}/files/{file_id}"
+            headers = {"Authorization": f"Bearer {self._get_access_token()}"}
+            response = self._session.get(url, params=params, headers=headers, stream=True, timeout=60)
+            response.raise_for_status()
+            # Read content in chunks when streaming
+            content = b""
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    content += chunk
+            print(f"  → Download complete, size: {len(content)} bytes", flush=True)
+            return content
+        except requests.Timeout as exc:
+            print(f"  → ❌ Download timed out after 60 seconds", flush=True)
+            raise RuntimeError(f"Download timed out for file {file_id}") from exc
+        except requests.RequestException as exc:
+            print(f"  → ❌ Download failed: {exc}", flush=True)
+            raise RuntimeError(f"Failed to download file {file_id}: {exc}") from exc
 
     def _download_file_to_temp(self, file_id: str, suffix: str) -> tempfile.NamedTemporaryFile:
         tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -86,14 +114,12 @@ class GoogleDriveClient:
         return tmp_file
 
     def _export_google_doc(self, file_id: str, mime_type: str = "text/plain") -> str:
+        """Export a Google Doc/Slides file as text using the export endpoint."""
         try:
-            exported = (
-                self._service.files()
-                .export(fileId=file_id, mimeType=mime_type)
-                .execute()
-            )
-            return exported.decode("utf-8", errors="ignore")
-        except HttpError as exc:
+            params = {"mimeType": mime_type}
+            response = self._make_request("GET", f"files/{file_id}/export", params=params)
+            return response.text
+        except requests.RequestException as exc:
             raise RuntimeError(f"Failed to export Google Doc {file_id}: {exc}") from exc
 
     def extract_text(self, file: DriveFile) -> str:
