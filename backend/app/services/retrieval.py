@@ -75,11 +75,37 @@ def retrieve_similar(
     if not items:
         return []
 
-    matrix = np.vstack([item["embedding"] for item in items])
-    query_vector = np.array(query_embedding, dtype=np.float32).reshape(1, -1)
-    similarities = cosine_similarity(query_vector, matrix)[0]
+    try:
+        # Filter embeddings to match query dimension and ensure all have the same shape
+        query_dim = len(query_embedding)
+        embeddings_list = []
+        valid_items = []
+        
+        for item in items:
+            emb = item["embedding"]
+            if isinstance(emb, np.ndarray):
+                emb_array = emb
+            else:
+                emb_array = np.array(emb, dtype=np.float32)
+            
+            # Only include embeddings that match the query dimension
+            if emb_array.shape[0] == query_dim:
+                embeddings_list.append(emb_array)
+                valid_items.append(item)
+        
+        if not embeddings_list:
+            return []
+        
+        matrix = np.vstack(embeddings_list)
+        query_vector = np.array(query_embedding, dtype=np.float32).reshape(1, -1)
+        similarities = cosine_similarity(query_vector, matrix)[0]
+    except Exception as e:
+        import traceback
+        print(f"❌ Error in retrieve_similar: {e}", flush=True)
+        traceback.print_exc()
+        raise
 
-    paired = sorted(zip(items, similarities), key=lambda pair: pair[1], reverse=True)
+    paired = sorted(zip(valid_items, similarities), key=lambda pair: pair[1], reverse=True)
     results: List[Dict[str, Any]] = []
     for item, score in paired[:top_k]:
         data = item["data"]

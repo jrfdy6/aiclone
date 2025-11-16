@@ -11,6 +11,7 @@ python-dotenv
 python-multipart
 python-pptx
 pytesseract
+requests
 scikit-learn
 uvicorn
 whisper

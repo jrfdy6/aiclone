@@ -49,16 +49,24 @@ def _base_metadata(user_id: str, folder_id: str, file: DriveFile) -> Dict:
 
 @router.post("/ingest_drive")
 async def ingest_drive_folder(req: DriveIngestRequest):
+    print("🚀 /api/ingest_drive received request", flush=True)
     try:
+        print("📁 Getting Drive client...", flush=True)
         client = _get_drive_client()
+        print("✅ Drive client obtained, listing files...", flush=True)
         files = client.list_files(req.folder_id)
+        print(f"📄 Found {len(files)} files", flush=True)
     except DriveConfigurationError as exc:
+        print(f"❌ DriveConfigurationError: {exc}", flush=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except RuntimeError as exc:
+        print(f"❌ RuntimeError: {exc}", flush=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    print("🔄 Starting file processing...", flush=True)
     try:
         if not files:
+            print("  → No files to process", flush=True)
             return {
                 "success": True,
                 "files_ingested": 0,
@@ -73,23 +81,32 @@ async def ingest_drive_folder(req: DriveIngestRequest):
         processed_files: List[Dict] = []
 
         for drive_file in files:
+            print(f"📄 Processing file: {drive_file.name} ({drive_file.mime_type})", flush=True)
             try:
+                print(f"  → Extracting text...", flush=True)
                 text_content = client.extract_text(drive_file)
+                print(f"  → Extracted {len(text_content)} characters", flush=True)
             except RuntimeError as exc:
                 print(f"Failed to extract text for file {drive_file.id}: {exc}", flush=True)
                 traceback.print_exc()
                 continue
 
             if not text_content or not text_content.strip():
+                print(f"  → No text content, skipping", flush=True)
                 continue
 
+            print(f"  → Chunking text...", flush=True)
             chunks = chunk_text(text_content)
+            print(f"  → Created {len(chunks)} chunks", flush=True)
             if not chunks:
                 continue
 
+            print(f"  → Generating embeddings...", flush=True)
             embeddings = embed_texts(chunks)
+            print(f"  → Generated {len(embeddings)} embeddings", flush=True)
             base_metadata = _base_metadata(req.user_id, req.folder_id, drive_file)
 
+            print(f"  → Saving {len(chunks)} chunks to Firestore...", flush=True)
             for idx, (chunk_text_value, embedding) in enumerate(zip(chunks, embeddings)):
                 chunk_metadata = {
                     **base_metadata,
@@ -103,6 +120,9 @@ async def ingest_drive_folder(req: DriveIngestRequest):
                     tags=chunk_metadata.get("extra_tags"),
                 )
                 total_chunks += 1
+                if (idx + 1) % 10 == 0:
+                    print(f"  → Saved {idx + 1}/{len(chunks)} chunks...", flush=True)
+            print(f"  → Saved all chunks for {drive_file.name}", flush=True)
 
             processed_files.append({"file_id": drive_file.id, "file_name": drive_file.name})
 
