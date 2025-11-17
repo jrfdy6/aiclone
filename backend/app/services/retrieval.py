@@ -44,30 +44,43 @@ def get_all_embeddings_for_user(
     max_documents: int = 1000,  # Limit to prevent timeouts
 ) -> List[Dict[str, Any]]:
     print(f"  [retrieval] Fetching embeddings for user {user_id}...", flush=True)
-    collection = db.collection("users").document(user_id).collection("memory_chunks")
-    query = collection.limit(max_documents)  # Add limit to prevent fetching too many
-    if source_filter:
-        query = query.where("source", "==", source_filter)
+    try:
+        collection = db.collection("users").document(user_id).collection("memory_chunks")
+        query = collection.limit(max_documents)  # Add limit to prevent fetching too many
+        if source_filter:
+            query = query.where("source", "==", source_filter)
 
-    print(f"  [retrieval] Executing Firestore query...", flush=True)
-    documents = query.stream()
-    items: List[Dict[str, Any]] = []
-    count = 0
-    for document in documents:
-        count += 1
-        data = document.to_dict()
-        embedding = data.get("embedding")
-        if not embedding or not _matches_tag_filter(data.get("tags"), tag_filter):
-            continue
-        items.append(
-            {
-                "id": document.id,
-                "embedding": np.array(embedding, dtype=np.float32),
-                "data": data,
-            }
-        )
-    print(f"  [retrieval] Processed {count} documents, returning {len(items)} valid items", flush=True)
-    return items
+        print(f"  [retrieval] Executing Firestore query...", flush=True)
+        documents = query.stream()
+        items: List[Dict[str, Any]] = []
+        count = 0
+        for document in documents:
+            count += 1
+            if count % 100 == 0:
+                print(f"  [retrieval] Processed {count} documents so far...", flush=True)
+            try:
+                data = document.to_dict()
+                embedding = data.get("embedding")
+                if not embedding or not _matches_tag_filter(data.get("tags"), tag_filter):
+                    continue
+                items.append(
+                    {
+                        "id": document.id,
+                        "embedding": np.array(embedding, dtype=np.float32),
+                        "data": data,
+                    }
+                )
+            except Exception as e:
+                print(f"  [retrieval] Error processing document {document.id}: {e}", flush=True)
+                continue
+        print(f"  [retrieval] Processed {count} documents, returning {len(items)} valid items", flush=True)
+        return items
+    except Exception as e:
+        import traceback
+        print(f"  [retrieval] ❌ Error fetching embeddings: {e}", flush=True)
+        traceback.print_exc()
+        # Return empty list on error rather than crashing
+        return []
 
 
 def retrieve_similar(
