@@ -28,3 +28,9 @@ app.include_router(playbook.router, prefix="/api/playbook")
 @app.get("/")
 def root():
     return {"status": "aiclone backend running"}
+
+
+@app.get("/health")
+def health():
+    """Health check endpoint for Railway."""
+    return {"status": "healthy", "service": "aiclone-backend"}
