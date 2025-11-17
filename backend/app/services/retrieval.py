@@ -51,7 +51,9 @@ def get_all_embeddings_for_user(
             query = query.where("source", "==", source_filter)
 
         print(f"  [retrieval] Executing Firestore query...", flush=True)
-        documents = query.stream()
+        # Use get() instead of stream() - faster and less likely to hang
+        documents = query.get()
+        print(f"  [retrieval] Query returned {len(documents)} documents", flush=True)
         items: List[Dict[str, Any]] = []
         count = 0
         for document in documents:
