@@ -41,15 +41,20 @@ def get_all_embeddings_for_user(
     user_id: str,
     tag_filter: Optional[List[str]] = None,
     source_filter: Optional[str] = None,
+    max_documents: int = 1000,  # Limit to prevent timeouts
 ) -> List[Dict[str, Any]]:
+    print(f"  [retrieval] Fetching embeddings for user {user_id}...", flush=True)
     collection = db.collection("users").document(user_id).collection("memory_chunks")
-    query = collection
+    query = collection.limit(max_documents)  # Add limit to prevent fetching too many
     if source_filter:
         query = query.where("source", "==", source_filter)
 
+    print(f"  [retrieval] Executing Firestore query...", flush=True)
     documents = query.stream()
     items: List[Dict[str, Any]] = []
+    count = 0
     for document in documents:
+        count += 1
         data = document.to_dict()
         embedding = data.get("embedding")
         if not embedding or not _matches_tag_filter(data.get("tags"), tag_filter):
@@ -61,6 +66,7 @@ def get_all_embeddings_for_user(
                 "data": data,
             }
         )
+    print(f"  [retrieval] Processed {count} documents, returning {len(items)} valid items", flush=True)
     return items
 
 
