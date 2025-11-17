@@ -20,7 +20,14 @@ else:
     credential = credentials.ApplicationDefault()
 
 if not firebase_admin._apps:
-    firebase_admin.initialize_app(credential)
+    try:
+        firebase_admin.initialize_app(credential)
+    except Exception as e:
+        print(f"❌ Firebase initialization failed: {e}", flush=True)
+        raise
 
-
-db = firestore.client()
+try:
+    db = firestore.client()
+except Exception as e:
+    print(f"❌ Firestore client creation failed: {e}", flush=True)
+    raise
