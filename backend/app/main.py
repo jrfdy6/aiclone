@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -5,6 +6,12 @@ from app.routes import chat, ingest, ingest_drive, knowledge, playbook
 
 
 app = FastAPI()
+
+# Log startup info for debugging
+print(f"🚀 Starting aiclone backend...", flush=True)
+print(f"📊 PORT environment variable: {os.getenv('PORT', 'NOT SET')}", flush=True)
+print(f"📊 FIREBASE_SERVICE_ACCOUNT set: {bool(os.getenv('FIREBASE_SERVICE_ACCOUNT'))}", flush=True)
+print(f"📊 GOOGLE_DRIVE_SERVICE_ACCOUNT set: {bool(os.getenv('GOOGLE_DRIVE_SERVICE_ACCOUNT'))}", flush=True)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,4 +40,11 @@ def root():
 @app.get("/health")
 def health():
     """Health check endpoint for Railway."""
-    return {"status": "healthy", "service": "aiclone-backend"}
+    try:
+        # Test Firebase connection
+        from app.services.firestore_client import db
+        # Just check if db is accessible, don't make a query
+        return {"status": "healthy", "service": "aiclone-backend", "firestore": "connected"}
+    except Exception as e:
+        print(f"❌ Health check failed: {e}", flush=True)
+        return {"status": "unhealthy", "error": str(e)}, 503
