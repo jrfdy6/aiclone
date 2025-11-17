@@ -78,9 +78,28 @@ app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(playbook.router, prefix="/api/playbook")
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Log when the app is fully ready to accept requests."""
+    print(f"✅ FastAPI app is ready to accept requests", flush=True)
+    print(f"📡 Listening on 0.0.0.0:{os.getenv('PORT', '8080')}", flush=True)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Log when the app is shutting down."""
+    print(f"🛑 FastAPI app is shutting down", flush=True)
+
+
 @app.get("/")
 def root():
     return {"status": "aiclone backend running"}
+
+
+@app.get("/test")
+def test():
+    """Simple test endpoint to verify the app is responding."""
+    return {"status": "ok", "message": "App is responding", "timestamp": "now"}
 
 
 @app.get("/health")
