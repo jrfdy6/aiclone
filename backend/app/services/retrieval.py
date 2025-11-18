@@ -46,12 +46,68 @@ def get_all_embeddings_for_user(
     max_documents: int = 1000,  # Limit to prevent timeouts
 ) -> List[Dict[str, Any]]:
     print(f"  [retrieval] Fetching embeddings for user {user_id}...", flush=True)
-    
-    # TEMPORARY WORKAROUND: Skip Firestore queries due to hanging issue
-    # TODO: Fix Firestore connectivity/network issue between Railway and Firestore
-    print(f"  [retrieval] ⚠️ Firestore queries temporarily disabled due to connectivity issues", flush=True)
-    print(f"  [retrieval] Returning empty results - Firestore queries hang on Railway", flush=True)
-    return []
+    try:
+        collection = db.collection("users").document(user_id).collection("memory_chunks")
+        
+        # Test with a small query first to verify connectivity
+        print(f"  [retrieval] Testing Firestore connectivity with small query...", flush=True)
+        test_query = collection.limit(1)
+        
+        import concurrent.futures
+        try:
+            # Use timeout to prevent hanging
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(test_query.get)
+                test_docs = future.result(timeout=3.0)
+            print(f"  [retrieval] ✅ Firestore connectivity OK, found {len(test_docs)} test docs", flush=True)
+        except concurrent.futures.TimeoutError:
+            print(f"  [retrieval] ⚠️ Firestore query timed out (3s) - returning empty results", flush=True)
+            return []
+        except Exception as e:
+            print(f"  [retrieval] ❌ Firestore query error: {e}", flush=True)
+            return []
+        
+        # If test passed but returned 0 docs, collection is empty
+        if len(test_docs) == 0:
+            print(f"  [retrieval] Collection is empty, returning early", flush=True)
+            return []
+        
+        # Now do the full query
+        query = collection.limit(max_documents)
+        if source_filter:
+            query = query.where("source", "==", source_filter)
+
+        print(f"  [retrieval] Executing full Firestore query...", flush=True)
+        documents = query.get()
+        print(f"  [retrieval] Query returned {len(documents)} documents", flush=True)
+        items: List[Dict[str, Any]] = []
+        count = 0
+        for document in documents:
+            count += 1
+            if count % 100 == 0:
+                print(f"  [retrieval] Processed {count} documents so far...", flush=True)
+            try:
+                data = document.to_dict()
+                embedding = data.get("embedding")
+                if not embedding or not _matches_tag_filter(data.get("tags"), tag_filter):
+                    continue
+                items.append(
+                    {
+                        "id": document.id,
+                        "embedding": np.array(embedding, dtype=np.float32),
+                        "data": data,
+                    }
+                )
+            except Exception as e:
+                print(f"  [retrieval] Error processing document {document.id}: {e}", flush=True)
+                continue
+        print(f"  [retrieval] Processed {count} documents, returning {len(items)} valid items", flush=True)
+        return items
+    except Exception as e:
+        import traceback
+        print(f"  [retrieval] ❌ Error fetching embeddings: {e}", flush=True)
+        traceback.print_exc()
+        return []
 
 
 def retrieve_similar(
