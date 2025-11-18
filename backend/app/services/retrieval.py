@@ -48,26 +48,34 @@ def get_all_embeddings_for_user(
     print(f"  [retrieval] Fetching embeddings for user {user_id}...", flush=True)
     try:
         collection = db.collection("users").document(user_id).collection("memory_chunks")
-        query = collection.limit(max_documents)  # Add limit to prevent fetching too many
+        
+        # First, try a simple existence check with a very small limit to test connectivity
+        print(f"  [retrieval] Testing Firestore connectivity with small query...", flush=True)
+        test_query = collection.limit(1)
+        try:
+            # Try to get just 1 document to test if Firestore is responsive
+            test_docs = test_query.get()
+            print(f"  [retrieval] ✅ Firestore connectivity OK, found {len(test_docs)} test docs", flush=True)
+        except Exception as e:
+            print(f"  [retrieval] ❌ Firestore connectivity test failed: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            return []  # Return empty if connectivity test fails
+        
+        # If test passed but returned 0 docs, collection might be empty - return early
+        if len(test_docs) == 0:
+            print(f"  [retrieval] Collection is empty, returning early", flush=True)
+            return []
+        
+        # Now do the full query
+        query = collection.limit(max_documents)
         if source_filter:
             query = query.where("source", "==", source_filter)
 
-        print(f"  [retrieval] Executing Firestore query...", flush=True)
-        # Use get() with timeout to prevent hanging
-        try:
-            # Wrap Firestore query in a timeout (5 seconds)
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(query.get)
-                documents = future.result(timeout=5.0)
-            print(f"  [retrieval] Query returned {len(documents)} documents", flush=True)
-        except concurrent.futures.TimeoutError:
-            print(f"  [retrieval] ❌ Firestore query timed out after 5 seconds", flush=True)
-            return []  # Return empty list on timeout
-        except Exception as e:
-            print(f"  [retrieval] ❌ Firestore query error: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
-            return []  # Return empty list on error
+        print(f"  [retrieval] Executing full Firestore query...", flush=True)
+        # Use get() - if it hangs here, it's a deeper Firestore issue
+        documents = query.get()
+        print(f"  [retrieval] Query returned {len(documents)} documents", flush=True)
         items: List[Dict[str, Any]] = []
         count = 0
         for document in documents:
