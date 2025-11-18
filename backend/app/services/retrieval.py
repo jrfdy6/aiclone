@@ -46,6 +46,15 @@ def get_all_embeddings_for_user(
     max_documents: int = 1000,  # Limit to prevent timeouts
 ) -> List[Dict[str, Any]]:
     print(f"  [retrieval] Fetching embeddings for user {user_id}...", flush=True)
+    
+    # TEMPORARY WORKAROUND: Skip Firestore queries due to hanging issue
+    # TODO: Fix Firestore connectivity/network issue between Railway and Firestore
+    print(f"  [retrieval] ⚠️ Firestore queries temporarily disabled due to connectivity issues", flush=True)
+    print(f"  [retrieval] Returning empty results - Firestore queries hang on Railway", flush=True)
+    return []
+    
+    # Original code below (commented out until Firestore connectivity is fixed)
+    """
     try:
         collection = db.collection("users").document(user_id).collection("memory_chunks")
         
