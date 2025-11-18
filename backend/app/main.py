@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+import time
 
 from app.routes import chat, ingest, ingest_drive, knowledge, playbook
 
@@ -39,6 +40,22 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=True,
 )
+
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    print(f"🌐 {request.method} {request.url.path} - Request received", flush=True)
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        print(f"✅ {request.method} {request.url.path} - {response.status_code} - {process_time:.2f}s", flush=True)
+        return response
+    except Exception as e:
+        process_time = time.time() - start_time
+        print(f"❌ {request.method} {request.url.path} - Error after {process_time:.2f}s: {e}", flush=True)
+        raise
 
 
 # Exception handler middleware for request-level errors
