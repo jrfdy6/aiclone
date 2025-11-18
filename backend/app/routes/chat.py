@@ -17,6 +17,7 @@ class ChatRetrievalRequest(BaseModel):
 @router.post("/")
 async def chat_retrieve(req: ChatRetrievalRequest):
     import traceback
+    print(f"🔥 CHAT HANDLER CALLED - user_id={req.user_id}, query='{req.query[:50]}...'", flush=True)
     try:
         print(f"📨 /api/chat/ received request: user_id={req.user_id}, query='{req.query[:50]}...'", flush=True)
         if not req.query.strip():
