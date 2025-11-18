@@ -54,8 +54,15 @@ def get_all_embeddings_for_user(
         test_query = collection.limit(1)
         try:
             # Try to get just 1 document to test if Firestore is responsive
-            test_docs = test_query.get()
+            # Use ThreadPoolExecutor with timeout as a workaround for blocking Firestore calls
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(test_query.get)
+                test_docs = future.result(timeout=3.0)  # 3 second timeout for test
             print(f"  [retrieval] ✅ Firestore connectivity OK, found {len(test_docs)} test docs", flush=True)
+        except concurrent.futures.TimeoutError:
+            print(f"  [retrieval] ⚠️ Firestore connectivity test timed out (3s) - returning empty results", flush=True)
+            print(f"  [retrieval] This suggests a Firestore network/connectivity issue from Railway", flush=True)
+            return []  # Return empty on timeout
         except Exception as e:
             print(f"  [retrieval] ❌ Firestore connectivity test failed: {e}", flush=True)
             import traceback
