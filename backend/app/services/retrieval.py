@@ -1,4 +1,6 @@
 from typing import Any, Dict, List, Optional
+import concurrent.futures
+import signal
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -51,9 +53,21 @@ def get_all_embeddings_for_user(
             query = query.where("source", "==", source_filter)
 
         print(f"  [retrieval] Executing Firestore query...", flush=True)
-        # Use get() instead of stream() - faster and less likely to hang
-        documents = query.get()
-        print(f"  [retrieval] Query returned {len(documents)} documents", flush=True)
+        # Use get() with timeout to prevent hanging
+        try:
+            # Wrap Firestore query in a timeout (5 seconds)
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(query.get)
+                documents = future.result(timeout=5.0)
+            print(f"  [retrieval] Query returned {len(documents)} documents", flush=True)
+        except concurrent.futures.TimeoutError:
+            print(f"  [retrieval] ❌ Firestore query timed out after 5 seconds", flush=True)
+            return []  # Return empty list on timeout
+        except Exception as e:
+            print(f"  [retrieval] ❌ Firestore query error: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            return []  # Return empty list on error
         items: List[Dict[str, Any]] = []
         count = 0
         for document in documents:
