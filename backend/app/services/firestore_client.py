@@ -10,8 +10,15 @@ _service_account_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 if _service_account_json:
     # Use inline JSON string
-    service_account_dict = json.loads(_service_account_json)
-    credential = credentials.Certificate(service_account_dict)
+    try:
+        service_account_dict = json.loads(_service_account_json)
+        credential = credentials.Certificate(service_account_dict)
+    except json.JSONDecodeError as e:
+        print(f"❌ Failed to parse FIREBASE_SERVICE_ACCOUNT JSON: {e}", flush=True)
+        print(f"   JSON length: {len(_service_account_json)} characters", flush=True)
+        print(f"   First 200 chars: {_service_account_json[:200]}", flush=True)
+        print(f"   Last 200 chars: {_service_account_json[-200:]}", flush=True)
+        raise ValueError(f"Invalid FIREBASE_SERVICE_ACCOUNT JSON format: {e}") from e
 elif _service_account_file and os.path.exists(_service_account_file):
     # Use file path
     credential = credentials.Certificate(_service_account_file)
