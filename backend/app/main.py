@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import time
 
-from app.routes import chat, ingest, ingest_drive, knowledge, playbook
+from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects_manual, outreach_manual
 
 
 app = FastAPI()
@@ -29,13 +29,22 @@ except Exception as e:
     traceback.print_exc()
     firestore_available = False
 
+# CORS configuration - can be extended via environment variable
+# Note: Port 3000 is used by closetgptrenew, so we only allow 3002 for aiclone
+default_cors_origins = [
+    "http://localhost:3002",
+    "http://127.0.0.1:3002",
+    "https://aiclone-production-32dc.up.railway.app",
+]
+
+# Allow additional CORS origins via environment variable (comma-separated)
+additional_origins = os.getenv("CORS_ADDITIONAL_ORIGINS", "")
+if additional_origins:
+    default_cors_origins.extend([origin.strip() for origin in additional_origins.split(",")])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://aiclone-production-32dc.up.railway.app",
-    ],
+    allow_origins=default_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
@@ -94,6 +103,8 @@ app.include_router(ingest.router, prefix="/api/ingest")
 app.include_router(knowledge.router, prefix="/api/knowledge")
 app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(playbook.router, prefix="/api/playbook")
+app.include_router(prospects_manual.router, prefix="/api/prospects/manual")
+app.include_router(outreach_manual.router, prefix="/api/outreach/manual")
 
 
 @app.on_event("startup")
