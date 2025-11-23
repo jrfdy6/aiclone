@@ -17,7 +17,7 @@ app = FastAPI()
 
 # Log startup info for debugging
 print(f"🚀 Starting aiclone backend...", flush=True)
-print(f"🔧 Version: 2025-11-17-07:20 (with Firestore get() fix)", flush=True)
+print(f"🔧 Version: 2025-11-23-12:00 (Perplexity timeout fix: 900s)", flush=True)
 print(f"📊 PORT environment variable: {os.getenv('PORT', 'NOT SET')}", flush=True)
 print(f"📊 FIREBASE_SERVICE_ACCOUNT set: {bool(os.getenv('FIREBASE_SERVICE_ACCOUNT'))}", flush=True)
 print(f"📊 GOOGLE_DRIVE_SERVICE_ACCOUNT set: {bool(os.getenv('GOOGLE_DRIVE_SERVICE_ACCOUNT'))}", flush=True)
