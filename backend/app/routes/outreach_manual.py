@@ -115,6 +115,26 @@ async def generate_outreach_prompt(request: ManualOutreachRequest) -> Dict[str, 
             if request.audience_profile.custom_guidelines:
                 user_prompt_parts.append(f"- Custom Guidelines: {request.audience_profile.custom_guidelines}")
         
+        # NEW: Add research insights if available
+        if prospect_data.get("linked_research_ids"):
+            from app.services.scoring import get_research_insights
+            research_list = get_research_insights(request.user_id, prospect_data.get("linked_research_ids", []))
+            if research_list:
+                research = research_list[0]
+                user_prompt_parts.append("\nRESEARCH INSIGHTS:")
+                if research.get("summary"):
+                    user_prompt_parts.append(f"- Industry Trends: {research.get('summary', '')[:200]}")
+                if research.get("keywords"):
+                    user_prompt_parts.append(f"- Signal Keywords: {', '.join(research.get('keywords', [])[:5])}")
+                if research.get("trending_pains"):
+                    user_prompt_parts.append(f"- Trending Pains: {', '.join(research.get('trending_pains', [])[:3])}")
+        
+        # NEW: Add cached insights if available
+        if prospect_data.get("cached_insights"):
+            cached = prospect_data.get("cached_insights", {})
+            if cached.get("signal_keywords"):
+                user_prompt_parts.append(f"\n- Prospect Signal Keywords: {', '.join(cached.get('signal_keywords', [])[:5])}")
+        
         user_prompt_parts.append(f"\nTone: {request.preferred_tone}")
         
         user_prompt_parts.append("\nGenerate 5 different email options with:")
@@ -201,4 +221,5 @@ async def generate_outreach_prompt(request: ManualOutreachRequest) -> Dict[str, 
     except Exception as e:
         logger.exception(f"Error generating outreach prompt: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate prompt: {str(e)}")
+
 

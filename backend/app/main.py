@@ -6,7 +6,11 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import time
 
-from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects_manual, outreach_manual
+from app.routes import (
+    chat, ingest, ingest_drive, knowledge, playbook, 
+    prospects_manual, outreach_manual, content_marketing,
+    research, prospects, metrics, learning
+)
 
 
 app = FastAPI()
@@ -17,6 +21,10 @@ print(f"🔧 Version: 2025-11-17-07:20 (with Firestore get() fix)", flush=True)
 print(f"📊 PORT environment variable: {os.getenv('PORT', 'NOT SET')}", flush=True)
 print(f"📊 FIREBASE_SERVICE_ACCOUNT set: {bool(os.getenv('FIREBASE_SERVICE_ACCOUNT'))}", flush=True)
 print(f"📊 GOOGLE_DRIVE_SERVICE_ACCOUNT set: {bool(os.getenv('GOOGLE_DRIVE_SERVICE_ACCOUNT'))}", flush=True)
+print(f"📊 GOOGLE_CUSTOM_SEARCH_API_KEY set: {bool(os.getenv('GOOGLE_CUSTOM_SEARCH_API_KEY'))}", flush=True)
+print(f"📊 GOOGLE_CUSTOM_SEARCH_ENGINE_ID set: {bool(os.getenv('GOOGLE_CUSTOM_SEARCH_ENGINE_ID'))}", flush=True)
+print(f"📊 PERPLEXITY_API_KEY set: {bool(os.getenv('PERPLEXITY_API_KEY'))}", flush=True)
+print(f"📊 FIRECRAWL_API_KEY set: {bool(os.getenv('FIRECRAWL_API_KEY'))}", flush=True)
 
 # Startup verification - test Firebase connection
 print(f"🔍 Verifying Firebase connection...", flush=True)
@@ -105,6 +113,13 @@ app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(playbook.router, prefix="/api/playbook")
 app.include_router(prospects_manual.router, prefix="/api/prospects/manual")
 app.include_router(outreach_manual.router, prefix="/api/outreach/manual")
+app.include_router(content_marketing.router, prefix="/api/content")
+
+# New prospecting workflow routes
+app.include_router(research.router, prefix="/api/research")
+app.include_router(prospects.router, prefix="/api/prospects")
+app.include_router(metrics.router, prefix="/api/metrics")
+app.include_router(learning.router, prefix="/api/learning")
 
 
 @app.on_event("startup")
