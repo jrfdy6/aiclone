@@ -587,3 +587,4 @@ curl -X POST http://localhost:8080/api/learning/update-patterns \
 **Ready to use!** All endpoints are implemented and registered in `main.py`.
 
 
+

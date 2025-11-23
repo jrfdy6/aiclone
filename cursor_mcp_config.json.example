@@ -11,9 +11,9 @@
       "command": "perplexity-mcp",
       "args": [
         "--model",
-        "sonar-pro",
+        "sonar",
         "--reasoning-model",
-        "sonar-reasoning-pro"
+        "sonar-reasoning"
       ],
       "env": {
         "PERPLEXITY_API_KEY": "YOUR_PERPLEXITY_API_KEY_HERE"
@@ -21,5 +21,4 @@
     }
   }
 }
-
 

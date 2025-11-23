@@ -145,3 +145,4 @@ curl "http://localhost:8080/api/learning/patterns?user_id=test-user&limit=10"
 
 **Ready to test!** Start your backend and run the test script or test manually.
 
+

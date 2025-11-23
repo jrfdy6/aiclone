@@ -179,3 +179,4 @@ async def get_learning_patterns(
         raise HTTPException(status_code=500, detail=f"Failed to get learning patterns: {str(e)}")
 
 
+

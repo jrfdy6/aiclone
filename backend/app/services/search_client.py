@@ -162,3 +162,4 @@ def get_search_client() -> GoogleCustomSearchClient:
     return _search_client
 
 
+

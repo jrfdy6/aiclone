@@ -163,3 +163,4 @@ async def trigger_research(request: ResearchTriggerRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Research trigger failed: {str(e)}")
 
 
+
