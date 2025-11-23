@@ -244,3 +244,4 @@ async def upload_manual_analysis(batch_result: BatchManualAnalysisResult):
         logger.exception(f"Error uploading manual analysis: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to upload analysis: {str(e)}")
 
+
