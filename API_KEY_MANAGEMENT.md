@@ -64,15 +64,15 @@ You're using **separate API keys** for local development and Railway production.
 ### Local (.env file)
 ```bash
 # Local development - IP-restricted key
-GOOGLE_CUSTOM_SEARCH_API_KEY=AIzaSyABC9gQhf_rWYzIPNruX9yAFgHN8rjhzBA
-GOOGLE_CUSTOM_SEARCH_ENGINE_ID=76b059ca814334c50
+GOOGLE_CUSTOM_SEARCH_API_KEY=YOUR_GOOGLE_CUSTOM_SEARCH_API_KEY_HERE
+GOOGLE_CUSTOM_SEARCH_ENGINE_ID=YOUR_SEARCH_ENGINE_ID_HERE
 ```
 
 ### Railway (Environment Variables)
 ```
 # Railway production - Separate key
 GOOGLE_CUSTOM_SEARCH_API_KEY=[Your Railway-specific key]
-GOOGLE_CUSTOM_SEARCH_ENGINE_ID=76b059ca814334c50  # Can be same or different
+GOOGLE_CUSTOM_SEARCH_ENGINE_ID=YOUR_SEARCH_ENGINE_ID_HERE  # Can be same or different
 ```
 
 ---

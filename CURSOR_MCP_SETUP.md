@@ -28,7 +28,7 @@ Add this configuration:
       "command": "npx",
       "args": ["-y", "firecrawl-mcp"],
       "env": {
-        "FIRECRAWL_API_KEY": "fc-31bfc37a19a244ebae7788f028001d67"
+        "FIRECRAWL_API_KEY": "YOUR_FIRECRAWL_API_KEY_HERE"
       }
     }
   }
@@ -46,7 +46,7 @@ Add this configuration (add to the same `mcpServers` object):
       "command": "npx",
       "args": ["-y", "firecrawl-mcp"],
       "env": {
-        "FIRECRAWL_API_KEY": "fc-31bfc37a19a244ebae7788f028001d67"
+        "FIRECRAWL_API_KEY": "YOUR_FIRECRAWL_API_KEY_HERE"
       }
     },
     "perplexity": {
@@ -71,7 +71,7 @@ Your full MCP configuration in Cursor should look like:
       "command": "npx",
       "args": ["-y", "firecrawl-mcp"],
       "env": {
-        "FIRECRAWL_API_KEY": "fc-31bfc37a19a244ebae7788f028001d67"
+        "FIRECRAWL_API_KEY": "YOUR_FIRECRAWL_API_KEY_HERE"
       }
     },
     "perplexity": {

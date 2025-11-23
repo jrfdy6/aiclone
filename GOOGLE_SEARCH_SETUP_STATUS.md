@@ -12,8 +12,8 @@
 
 **Location**: `backend/.env`
 ```
-GOOGLE_CUSTOM_SEARCH_API_KEY=AIzaSyABC9gQhf_rWYzIPNruX9yAFgHN8rjhzBA
-GOOGLE_CUSTOM_SEARCH_ENGINE_ID=76b059ca814334c50
+GOOGLE_CUSTOM_SEARCH_API_KEY=YOUR_GOOGLE_CUSTOM_SEARCH_API_KEY_HERE
+GOOGLE_CUSTOM_SEARCH_ENGINE_ID=YOUR_SEARCH_ENGINE_ID_HERE
 ```
 
 **Test Command**:
@@ -37,7 +37,7 @@ curl -X POST http://localhost:3001/api/prospects/discover \
 3. Go to "Variables" tab
 4. Add these environment variables:
    - `GOOGLE_CUSTOM_SEARCH_API_KEY` = **[Your Railway-specific API key]** (different from local)
-   - `GOOGLE_CUSTOM_SEARCH_ENGINE_ID` = `76b059ca814334c50` (can be same or different)
+   - `GOOGLE_CUSTOM_SEARCH_ENGINE_ID` = `YOUR_SEARCH_ENGINE_ID_HERE` (can be same or different)
 
 **Railway Setup Steps**:
 1. **Open Railway Dashboard**
