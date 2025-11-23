@@ -83,7 +83,9 @@ class PerplexityClient:
         }
         
         try:
-            response = self.session.post(url, json=payload, timeout=30)
+            # Perplexity research queries can take several minutes, especially with web search
+            # Using 15 minutes (900 seconds) to accommodate comprehensive research queries
+            response = self.session.post(url, json=payload, timeout=900)
             response.raise_for_status()
             data = response.json()
             
