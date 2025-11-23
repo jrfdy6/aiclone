@@ -101,3 +101,4 @@ curl "http://localhost:3001/api/metrics/current?user_id=test&period=weekly"
 
 **All endpoints are now fully functional! 🎉**
 
+

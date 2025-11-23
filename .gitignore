@@ -13,3 +13,4 @@ backend/app/**/__pycache__/
 backend/.pytest_cache/
 backend/.env
 frontend/.env.local
+cursor_mcp_config.json

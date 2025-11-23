@@ -306,3 +306,4 @@ async def score_prospects(request: ProspectScoreRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Prospect scoring failed: {str(e)}")
 
 
+

@@ -176,3 +176,4 @@ If you need better quality for specific queries, you can:
 3. Upgrade to `sonar-pro` only if quality is insufficient
 4. Consider hybrid approach (sonar for most, sonar-pro for complex)
 
+

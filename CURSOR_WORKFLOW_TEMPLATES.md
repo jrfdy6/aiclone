@@ -297,3 +297,4 @@ These templates are starting points. Customize them for:
 **Remember**: These are templates - adapt them to your needs. The key is having a clear process and using the right tools (MCPs, modes, context) for each step.
 
 
+

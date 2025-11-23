@@ -46,3 +46,4 @@ class GetPatternsResponse(BaseModel):
     patterns: List[LearningPattern]
 
 
+
