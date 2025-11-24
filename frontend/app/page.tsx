@@ -61,6 +61,15 @@ const features = [
     iconBg: 'bg-pink-100',
   },
   {
+    id: 'dashboard',
+    title: 'Dashboard',
+    description: 'Unified workspace with quick search, insights, top prospects, and system status.',
+    icon: '📊',
+    href: '/dashboard',
+    color: 'bg-indigo-50 border-indigo-200 hover:bg-indigo-100',
+    iconBg: 'bg-indigo-100',
+  },
+  {
     id: 'content',
     title: 'Content Marketing Tools',
     description: 'Research topics, analyze competitors, generate content ideas, and optimize for SEO.',

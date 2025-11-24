@@ -46,8 +46,45 @@ export default function CalendarPage() {
 
     try {
       setLoading(true);
-      // TODO: Replace with actual API endpoint
-      // For now, use mock data
+      
+      // Calculate date range for current month view
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const startDate = firstDay.toISOString().split('T')[0];
+      const endDate = lastDay.toISOString().split('T')[0];
+
+      const params = new URLSearchParams({
+        user_id: 'dev-user',
+        start_date: startDate,
+        end_date: endDate,
+        limit: '500',
+      });
+
+      const response = await fetch(`${API_URL}/api/calendar/?${params.toString()}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.events) {
+          setEvents(data.events.map((e: any) => ({
+            id: e.id,
+            prospect_id: e.prospect_id,
+            prospect_name: e.prospect_name || 'Unknown',
+            company: e.company,
+            scheduled_date: e.scheduled_date,
+            type: e.type,
+            status: e.status,
+            notes: e.notes,
+            last_contact: e.last_contact,
+            suggested_message: e.suggested_message,
+          })));
+          setError(null);
+          return;
+        }
+      }
+      
+      // Fallback to mock data if API fails or returns no data
       const mockEvents: FollowUpEvent[] = [
         {
           id: '1',
