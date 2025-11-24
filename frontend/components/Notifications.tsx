@@ -39,8 +39,31 @@ export default function Notifications({ userId = 'dev-user' }: NotificationProps
     }
 
     try {
-      // TODO: Replace with actual API endpoint
-      // For now, use mock notifications
+      const params = new URLSearchParams({
+        user_id: userId,
+        limit: '50',
+      });
+
+      const response = await fetch(`${API_URL}/api/notifications/?${params.toString()}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.notifications) {
+          setNotifications(data.notifications.map((n: any) => ({
+            id: n.id,
+            type: n.type,
+            title: n.title,
+            message: n.message,
+            timestamp: n.timestamp,
+            read: n.read,
+            link: n.link,
+            priority: n.priority || 'medium',
+          })));
+          return;
+        }
+      }
+      
+      // Fallback to mock notifications if API fails
       const mockNotifications: Notification[] = [
         {
           id: '1',
@@ -104,14 +127,38 @@ export default function Notifications({ userId = 'dev-user' }: NotificationProps
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
+    // Update UI immediately
     setNotifications(prev =>
       prev.map(n => (n.id === id ? { ...n, read: true } : n))
     );
+    
+    // Update backend
+    if (API_URL) {
+      try {
+        await fetch(`${API_URL}/api/notifications/${id}/read?user_id=${userId}`, {
+          method: 'PUT',
+        });
+      } catch (err) {
+        console.error('Failed to mark notification as read:', err);
+      }
+    }
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
+    // Update UI immediately
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    
+    // Update backend
+    if (API_URL) {
+      try {
+        await fetch(`${API_URL}/api/notifications/mark-all-read?user_id=${userId}`, {
+          method: 'POST',
+        });
+      } catch (err) {
+        console.error('Failed to mark all notifications as read:', err);
+      }
+    }
   };
 
   const getPriorityColor = (priority: string) => {
