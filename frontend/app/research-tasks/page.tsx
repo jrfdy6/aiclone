@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getApiUrl } from '@/lib/api-client';
 import Link from 'next/link';
+import { researchTasksAPI } from '@/lib/api-helpers';
 
 type ResearchTask = {
   id: string;
@@ -42,126 +42,100 @@ export default function ResearchTasksPage() {
   }, []);
 
   const loadTasks = async () => {
-    const apiUrl = getApiUrl();
-    if (!apiUrl) {
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
-      // For now, use mock data - backend endpoint will be implemented
-      const mockTasks: ResearchTask[] = [
-        {
-          id: '1',
-          title: 'AI in K-12 Education Trends',
-          input_source: 'AI education, K-12 technology, personalized learning',
-          source_type: 'keywords',
-          research_engine: 'perplexity',
-          status: 'done',
-          priority: 'high',
-          created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-          completed_at: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-          outputs_available: true,
-        },
-        {
-          id: '2',
-          title: 'EdTech Competitor Analysis',
-          input_source: 'https://example.com/competitor',
-          source_type: 'urls',
-          research_engine: 'firecrawl',
-          status: 'running',
-          priority: 'medium',
-          created_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-          outputs_available: false,
-        },
-        {
-          id: '3',
-          title: 'Prospect Research: Sarah Johnson',
-          input_source: 'LinkedIn profile analysis',
-          source_type: 'profile',
-          research_engine: 'google_search',
-          status: 'queued',
-          priority: 'low',
-          created_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-          outputs_available: false,
-        },
-      ];
-      setTasks(mockTasks);
+      const response = await researchTasksAPI.list('dev-user', { limit: 100 });
+      if (response.success) {
+        setTasks(response.tasks.map(task => ({
+          id: task.id,
+          title: task.title,
+          input_source: task.input_source,
+          source_type: task.source_type as 'keywords' | 'urls' | 'profile',
+          research_engine: task.research_engine as 'perplexity' | 'firecrawl' | 'google_search',
+          status: task.status as 'queued' | 'running' | 'done' | 'failed',
+          priority: task.priority as 'high' | 'medium' | 'low',
+          created_at: task.created_at,
+          completed_at: task.completed_at || undefined,
+          outputs_available: task.outputs_available,
+          error: task.error || undefined,
+        })));
+      }
     } catch (error) {
       console.error('Failed to load tasks:', error);
+      // Fallback to empty array on error
+      setTasks([]);
     } finally {
       setLoading(false);
     }
   };
 
   const handleViewInsights = async (task: ResearchTask) => {
+    if (!task.outputs_available) return;
+    
     setSelectedTask(task);
-    // Mock insights - will be replaced with API call
-    const mockInsights: ResearchInsight = {
-      summary: 'AI adoption in K-12 education is accelerating, with schools increasingly using AI tools for personalized learning, administrative tasks, and student engagement.',
-      pain_points: [
-        'Teacher workload and burnout',
-        'Student engagement challenges',
-        'Budget constraints for technology',
-        'Privacy and data security concerns',
-      ],
-      opportunities: [
-        'AI-powered tutoring systems',
-        'Automated administrative tools',
-        'Personalized learning platforms',
-        'Student progress tracking',
-      ],
-      suggested_outreach: [
-        'Highlight how AI can reduce teacher workload',
-        'Emphasize student engagement improvements',
-        'Discuss ROI and cost savings',
-        'Address privacy and security features',
-      ],
-      content_angles: [
-        'Case study: How AI improved student outcomes',
-        'ROI analysis: Cost savings with AI tools',
-        'Privacy-first AI solutions for education',
-        'Teacher testimonials on AI adoption',
-      ],
-    };
-    setInsights(mockInsights);
-    setShowInsightsModal(true);
+    try {
+      const response = await researchTasksAPI.getInsights(task.id);
+      if (response.success) {
+        setInsights({
+          summary: response.insights.summary,
+          pain_points: response.insights.pain_points || [],
+          opportunities: response.insights.opportunities || [],
+          suggested_outreach: response.insights.suggested_outreach || [],
+          content_angles: response.insights.content_angles || [],
+        });
+        setShowInsightsModal(true);
+      }
+    } catch (error) {
+      console.error('Failed to load insights:', error);
+      alert('Failed to load research insights. Please try again.');
+    }
   };
 
   const handleRunTask = async (taskId: string) => {
-    // Mock implementation - will be replaced with API call
-    setTasks(prev => prev.map(t => 
-      t.id === taskId ? { ...t, status: 'running' as const } : t
-    ));
-    
-    // Simulate task completion
-    setTimeout(() => {
+    try {
+      // Update UI optimistically
       setTasks(prev => prev.map(t => 
-        t.id === taskId ? { ...t, status: 'done' as const, outputs_available: true } : t
+        t.id === taskId ? { ...t, status: 'running' as const } : t
       ));
-    }, 2000);
+      
+      await researchTasksAPI.run(taskId);
+      
+      // Reload tasks to get updated status
+      await loadTasks();
+    } catch (error) {
+      console.error('Failed to run task:', error);
+      alert('Failed to run research task. Please try again.');
+      // Reload to get actual status
+      await loadTasks();
+    }
   };
 
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim() || !newTaskInput.trim()) return;
 
-    const newTask: ResearchTask = {
-      id: Date.now().toString(),
-      title: newTaskTitle,
-      input_source: newTaskInput,
-      source_type: newTaskInput.includes('http') ? 'urls' : 'keywords',
-      research_engine: newTaskEngine,
-      status: 'queued',
-      priority: 'medium',
-      created_at: new Date().toISOString(),
-      outputs_available: false,
-    };
-
-    setTasks(prev => [newTask, ...prev]);
-    setNewTaskTitle('');
-    setNewTaskInput('');
-    setShowCreateModal(false);
+    try {
+      const sourceType = newTaskInput.includes('http') ? 'urls' : 
+                        newTaskInput.includes('@') ? 'profile' : 'keywords';
+      
+      await researchTasksAPI.create({
+        user_id: 'dev-user',
+        title: newTaskTitle,
+        input_source: newTaskInput,
+        source_type: sourceType,
+        research_engine: newTaskEngine,
+        priority: 'medium',
+      });
+      
+      setNewTaskTitle('');
+      setNewTaskInput('');
+      setShowCreateModal(false);
+      
+      // Reload tasks to show the new one
+      await loadTasks();
+    } catch (error) {
+      console.error('Failed to create task:', error);
+      alert('Failed to create research task. Please try again.');
+    }
   };
 
   const getStatusColor = (status: string) => {
