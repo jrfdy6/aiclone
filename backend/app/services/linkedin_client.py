@@ -363,23 +363,52 @@ class LinkedInClient:
         Returns:
             List of LinkedInPost objects
         """
-        # Build Google search query for LinkedIn posts with industry targeting
-        base_query = f'site:linkedin.com/posts "{query}"'
+        # Build optimized Google search query for LinkedIn posts
+        # Best practices: Use multiple query patterns for better results
+        query_terms = query.strip()
+        
+        # Try different LinkedIn post URL patterns for better coverage
+        # LinkedIn posts can be at: /posts/, /feed/update/, /activity/
+        # Using OR operator to search across different LinkedIn post URL patterns
+        base_query = f'site:linkedin.com ("/posts/" OR "/feed/update/" OR "/activity/") "{query_terms}"'
+        
+        # Build industry-enhanced query (this will add industry terms)
         linkedin_query = self._build_industry_query(base_query, industry)
         
         if industry:
             print(f"  [LinkedIn] Industry targeting: {industry}", flush=True)
         print(f"  [LinkedIn] Searching with query: {linkedin_query}", flush=True)
         
-        # Search for LinkedIn post URLs
+        # Search for LinkedIn post URLs with retry logic
+        search_results = []
         try:
+            # Try the optimized query first
             search_results = self.search_client.search(
                 query=linkedin_query,
                 num_results=min(max_results * 3, 50),  # Get more URLs to account for scraping failures
+                max_retries=3,  # Enable retry logic
             )
             print(f"  [LinkedIn] Found {len(search_results)} search results", flush=True)
+            
+            # If no results, try a simpler query pattern
+            if len(search_results) == 0:
+                print(f"  [LinkedIn] No results with complex query, trying simpler pattern...", flush=True)
+                simple_query = f'site:linkedin.com/posts {query_terms}'
+                search_results = self.search_client.search(
+                    query=simple_query,
+                    num_results=min(max_results * 3, 30),
+                    max_retries=2,
+                )
+                print(f"  [LinkedIn] Simple query found {len(search_results)} results", flush=True)
+                
         except Exception as e:
-            print(f"  [LinkedIn] Search failed: {e}", flush=True)
+            error_msg = str(e)
+            # Check for quota/rate limit errors
+            if "quotaExceeded" in error_msg or "rateLimitExceeded" in error_msg:
+                print(f"  [LinkedIn] ⚠️ Search quota/rate limit reached: {error_msg}", flush=True)
+                print(f"  [LinkedIn] Continuing without LinkedIn post inspiration...", flush=True)
+            else:
+                print(f"  [LinkedIn] Search failed: {e}", flush=True)
             return []
         
         # Filter to only LinkedIn post URLs (multiple patterns)
