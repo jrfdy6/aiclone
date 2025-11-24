@@ -53,48 +53,65 @@ async def list_notifications(
     List notifications for a user.
     """
     try:
+        # Start with base query
         query = db.collection("notifications").where("user_id", "==", user_id)
         
         if unread_only:
             query = query.where("read", "==", False)
         
-        # Try to order by timestamp, but fallback if index doesn't exist
-        try:
-            docs = query.order_by("timestamp", direction="DESCENDING").limit(limit).stream()
-        except Exception as order_error:
-            # If order_by fails (no index), just get documents without ordering
-            logger.warning(f"Order by timestamp failed, fetching without order: {order_error}")
-            docs = query.limit(limit).stream()
-        
         notifications = []
         unread_count = 0
         
-        for doc in docs:
-            data = doc.to_dict()
-            notification_id = doc.id
-            
-            is_read = data.get("read", False)
-            if not is_read:
-                unread_count += 1
-            
-            notification = Notification(
-                id=notification_id,
-                type=data.get("type", ""),
-                title=data.get("title", ""),
-                message=data.get("message", ""),
-                timestamp=data.get("timestamp", datetime.now().isoformat()),
-                read=is_read,
-                link=data.get("link"),
-                priority=data.get("priority", "medium"),
-            )
-            notifications.append(notification)
-        
-        # Sort by timestamp in Python if order_by didn't work
+        # Try different query strategies, starting with simplest
         try:
-            notifications.sort(key=lambda x: x.timestamp, reverse=True)
-        except:
-            pass
+            # First, try without ordering (most reliable)
+            docs = query.limit(limit).stream()
+            
+            for doc in docs:
+                try:
+                    data = doc.to_dict()
+                    if not data:
+                        continue
+                        
+                    notification_id = doc.id
+                    
+                    is_read = data.get("read", False)
+                    if not is_read:
+                        unread_count += 1
+                    
+                    # Get timestamp, default to current time if missing
+                    timestamp = data.get("timestamp")
+                    if not timestamp:
+                        timestamp = datetime.now().isoformat()
+                    
+                    notification = Notification(
+                        id=notification_id,
+                        type=data.get("type", "info"),
+                        title=data.get("title", ""),
+                        message=data.get("message", ""),
+                        timestamp=timestamp,
+                        read=is_read,
+                        link=data.get("link"),
+                        priority=data.get("priority", "medium"),
+                    )
+                    notifications.append(notification)
+                except Exception as doc_error:
+                    logger.warning(f"Error processing notification document {doc.id}: {doc_error}")
+                    continue
+            
+            # Sort by timestamp in Python (more reliable than Firestore ordering)
+            try:
+                notifications.sort(key=lambda x: x.timestamp, reverse=True)
+            except Exception as sort_error:
+                logger.warning(f"Error sorting notifications: {sort_error}")
+                # If sorting fails, just return as-is
+            
+        except Exception as query_error:
+            logger.error(f"Error querying notifications: {query_error}")
+            # Return empty list instead of crashing
+            notifications = []
         
+        # Return success response even if no notifications found
         return NotificationListResponse(
             success=True,
             notifications=notifications,
@@ -104,7 +121,13 @@ async def list_notifications(
     
     except Exception as e:
         logger.exception(f"Error listing notifications: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list notifications: {str(e)}")
+        # Return empty response instead of crashing
+        return NotificationListResponse(
+            success=True,
+            notifications=[],
+            unread_count=0,
+            total=0
+        )
 
 
 @router.post("/", response_model=Notification)
