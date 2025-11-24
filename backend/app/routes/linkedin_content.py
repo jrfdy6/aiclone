@@ -29,9 +29,20 @@ from app.models.linkedin_content import (
     OutreachResponse,
     StoreDraftRequest,
     StoreDraftResponse,
+    GenerateDailyPacerRequest,
+    GenerateDailyPacerResponse,
+    GenerateWeeklyPacerRequest,
+    GenerateWeeklyPacerResponse,
+    DraftSummary,
+    EngagementDMRequest,
+    EngagementDMResponse,
+    WeeklySummaryRequest,
+    WeeklySummaryResponse,
     ContentPillar,
     ContentStatus,
 )
+from app.services.content_topic_library import select_topic_for_generation, get_topics_for_pillar
+from app.services.content_post_templates import get_template_for_pillar
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -773,4 +784,784 @@ async def update_learning_patterns_from_content(
     except Exception as e:
         logger.exception(f"Error updating learning patterns: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update learning patterns: {str(e)}")
+
+
+def get_recent_draft_topics(user_id: str, days: int = 30) -> List[str]:
+    """Get topics from recently created drafts to avoid duplicates."""
+    try:
+        cutoff_time = time.time() - (days * 24 * 60 * 60)
+        collection = db.collection("users").document(user_id).collection("content_drafts")
+        query = collection.where("created_at", ">=", cutoff_time).order_by("created_at", direction="DESCENDING").limit(50)
+        docs = query.get()
+        topics = []
+        for doc in docs:
+            data = doc.to_dict()
+            if data.get("topic"):
+                topics.append(data["topic"])
+        return topics
+    except Exception as e:
+        logger.warning(f"Error fetching recent draft topics: {e}")
+        return []
+
+
+def get_preferred_topics_from_research(user_id: str) -> List[str]:
+    """Get preferred topics from recent research insights."""
+    try:
+        collection = db.collection("users").document(user_id).collection("research_insights")
+        query = collection.order_by("created_at", direction="DESCENDING").limit(5)
+        docs = query.get()
+        topics = []
+        for doc in docs:
+            data = doc.to_dict()
+            if data.get("summary"):
+                keywords = data.get("keywords", [])
+                topics.extend(keywords[:3])
+        return topics
+    except Exception as e:
+        logger.warning(f"Error fetching preferred topics from research: {e}")
+        return []
+
+
+def get_top_hashtags_from_learning(user_id: str, limit: int = 10) -> List[str]:
+    """Get top-performing hashtags from learning patterns."""
+    try:
+        collection = db.collection("users").document(user_id).collection("learning_patterns")
+        docs = collection.stream()
+        hashtag_patterns = []
+        for doc in docs:
+            data = doc.to_dict()
+            pattern_id = data.get("pattern_id", "")
+            if pattern_id.startswith("hashtag_"):
+                avg_engagement = data.get("avg_engagement", 0)
+                hashtag_patterns.append({
+                    "hashtag": data.get("hashtag", ""),
+                    "avg_engagement": avg_engagement,
+                })
+        hashtag_patterns.sort(key=lambda x: x["avg_engagement"], reverse=True)
+        return [h["hashtag"] for h in hashtag_patterns[:limit] if h["hashtag"]]
+    except Exception as e:
+        logger.warning(f"Error fetching top hashtags from learning: {e}")
+        return []
+
+
+def build_structured_llm_prompt(
+    pillar: ContentPillar,
+    topic: str,
+    audience: str,
+    primary_goal: str,
+    top_hashtags: List[str] = None,
+    research_context: str = None,
+    avoid_stealth_keywords: bool = False,
+) -> str:
+    """
+    Build a structured, deterministic LLM prompt for LinkedIn post generation.
+    Uses the enhanced template from the spec.
+    """
+    system_prompt = """You are an expert LinkedIn copywriter who writes concise, high-engagement posts for education leaders. Tone: expert, direct, inspiring. Max 180 words. Output JSON only."""
+    
+    # Pillar-specific defaults
+    pillar_configs = {
+        ContentPillar.REFERRAL: {
+            "audience": "private school administrators, mental health professionals, treatment centers",
+            "primary_goal": "drive referrals and build partnership networks",
+            "cta_type": "question",
+        },
+        ContentPillar.THOUGHT_LEADERSHIP: {
+            "audience": "EdTech business leaders, AI-savvy executives",
+            "primary_goal": "establish thought leadership and start meaningful conversations",
+            "cta_type": "question",
+        },
+        ContentPillar.STEALTH_FOUNDER: {
+            "audience": "early adopters, investors, stealth founders",
+            "primary_goal": "connect authentically with like-minded entrepreneurs",
+            "cta_type": "question",
+        },
+    }
+    
+    config = pillar_configs.get(pillar, pillar_configs[ContentPillar.THOUGHT_LEADERSHIP])
+    
+    user_prompt_parts = [
+        "{",
+        f'  "pillar": "{pillar.value}",',
+        f'  "topic": "{topic}",',
+        f'  "audience": "{audience or config["audience"]}",',
+        f'  "primary_goal": "{primary_goal or config["primary_goal"]}",',
+        "  \"constraints\": {",
+        "    \"length_words_max\": 180,",
+        "    \"include_hashtags\": true,",
+        "    \"hashtags_max\": 5,",
+        f'    "avoid_stealth_keywords": {str(avoid_stealth_keywords).lower()},',
+        f'    "cta_type": "{config["cta_type"]}"',
+        "  }",
+        "}",
+        "",
+        "TASK:",
+        "1) Output JSON only (no extra text) with fields:",
+        "{",
+        '  "content": "<post text>",',
+        '  "suggested_hashtags": ["#...", "#..."],',
+        '  "engagement_hook": "<question or CTA>",',
+        '  "estimated_read_time_secs": 10',
+        "}",
+        "",
+        "2) Use template structure: Hook -> Insight -> Practical takeaways (1–3 bullets) -> CTA",
+        "",
+        "3) Keep founder mentions subtle when pillar=stealth_founder (if enabled)",
+    ]
+    
+    if research_context:
+        user_prompt_parts.insert(-3, f"\nResearch Context: {research_context[:300]}")
+    
+    if top_hashtags:
+        user_prompt_parts.insert(-3, f"\nConsider these high-performing hashtags: {', '.join(top_hashtags[:5])}")
+    
+    user_prompt = "\n".join(user_prompt_parts)
+    
+    return f"{system_prompt}\n\nUSER:\n{user_prompt}\n\nEND"
+
+
+@router.post("/drafts/generate_daily_pacer", response_model=GenerateDailyPacerResponse)
+async def generate_daily_pacer(request: GenerateDailyPacerRequest) -> Dict[str, Any]:
+    """
+    Generate daily PACER content mix (40% referral, 50% thought leadership, 10% stealth founder).
+    
+    This is the scrape-free version that uses:
+    - Topic libraries (pre-built topics per pillar)
+    - Post templates (proven LinkedIn frameworks)
+    - Research insights from Firestore
+    - Learning patterns from engagement data
+    - LLM generation via Perplexity
+    
+    No LinkedIn scraping required.
+    """
+    try:
+        logger.info(f"🚀 Generating daily PACER content for user {request.user_id}, num_posts={request.num_posts}")
+        
+        # Step 1: Calculate PACER pillar distribution
+        num_referral = int(request.num_posts * 0.4)
+        num_thought_leadership = int(request.num_posts * 0.5)
+        num_stealth_founder = int(request.num_posts * 0.1) if request.include_stealth_founder else 0
+        
+        total_assigned = num_referral + num_thought_leadership + num_stealth_founder
+        if total_assigned < request.num_posts:
+            num_thought_leadership += (request.num_posts - total_assigned)
+        
+        pillar_distribution = {
+            "referral": num_referral,
+            "thought_leadership": num_thought_leadership,
+            "stealth_founder": num_stealth_founder,
+        }
+        
+        logger.info(f"  → Pillar distribution: {pillar_distribution}")
+        
+        # Step 2: Gather context for topic selection
+        recent_topics = get_recent_draft_topics(request.user_id)
+        preferred_topics = get_preferred_topics_from_research(request.user_id)
+        top_hashtags = get_top_hashtags_from_learning(request.user_id)
+        
+        logger.info(f"  → Found {len(recent_topics)} recent topics, {len(preferred_topics)} preferred topics, {len(top_hashtags)} top hashtags")
+        
+        # Step 3: Auto-discover research insights by pillar (immediate usability)
+        research_insights = []
+        try:
+            from app.services.rmk_automation import discover_insights_for_content
+            
+            # Discover insights for each pillar we're generating
+            for pillar, count in pillar_posts:
+                if count > 0 and pillar:
+                    insights = discover_insights_for_content(
+                        user_id=request.user_id,
+                        pillar=pillar.value if hasattr(pillar, 'value') else pillar,
+                        limit=2,  # Get top 2 per pillar
+                    )
+                    research_insights.extend([insight.model_dump() if hasattr(insight, 'model_dump') else insight for insight in insights])
+            
+            # Remove duplicates by insight_id
+            seen_ids = set()
+            unique_insights = []
+            for insight in research_insights:
+                insight_id = insight.get("insight_id") or insight.get("research_id")
+                if insight_id and insight_id not in seen_ids:
+                    seen_ids.add(insight_id)
+                    unique_insights.append(insight)
+            research_insights = unique_insights[:5]  # Limit to top 5
+            
+            logger.info(f"  → Auto-discovered {len(research_insights)} insights for content generation")
+        except Exception as e:
+            logger.warning(f"Auto-discovery failed, falling back to recent insights: {e}")
+            # Fallback to recent insights
+            try:
+                collection = db.collection("users").document(request.user_id).collection("research_insights")
+                query = collection.order_by("date_collected", direction="DESCENDING").limit(3)
+                docs = query.get()
+                research_insights = [doc.to_dict() for doc in docs]
+            except Exception as e2:
+                logger.warning(f"Error fetching fallback research insights: {e2}")
+        
+        # Step 4: Generate posts for each pillar
+        generated_drafts = []
+        draft_ids = []
+        current_time = time.time()
+        perplexity_client = get_perplexity_client()
+        
+        pillar_posts = [
+            (ContentPillar.REFERRAL, num_referral),
+            (ContentPillar.THOUGHT_LEADERSHIP, num_thought_leadership),
+            (ContentPillar.STEALTH_FOUNDER, num_stealth_founder),
+        ]
+        
+        for pillar, count in pillar_posts:
+            if count == 0:
+                continue
+            
+            logger.info(f"  → Generating {count} posts for pillar: {pillar.value}")
+            
+            for i in range(count):
+                # Select topic
+                topic = select_topic_for_generation(
+                    pillar=pillar,
+                    used_topics=recent_topics,
+                    preferred_topics=preferred_topics if preferred_topics else None,
+                )
+                
+                # Select template
+                template = get_template_for_pillar(pillar.value, used_templates=[])
+                
+                logger.info(f"    → Post {i+1}/{count}: topic='{topic[:50]}...', template='{template['name']}'")
+                
+                # Build generation prompt for Perplexity
+                prompt_parts = [
+                    f"You are an expert LinkedIn content creator. Generate a LinkedIn post using the following template and topic.",
+                    f"\nTemplate Structure: {template['structure']}",
+                    f"\nTopic: {topic}",
+                    f"\nContent Pillar: {pillar.value}",
+                ]
+                
+                # Add pillar-specific guidance
+                if pillar == ContentPillar.REFERRAL:
+                    prompt_parts.append("\nTarget Audience: Private school administrators, mental health professionals, treatment centers")
+                    prompt_parts.append("Goal: Build referral network, share insights about educational support services")
+                    prompt_parts.append("Tone: Helpful, empathetic, professional")
+                elif pillar == ContentPillar.THOUGHT_LEADERSHIP:
+                    prompt_parts.append("\nTarget Audience: EdTech business leaders, AI-savvy executives")
+                    prompt_parts.append("Goal: Establish thought leadership, share industry insights")
+                    prompt_parts.append("Tone: Insightful, forward-thinking, authoritative")
+                elif pillar == ContentPillar.STEALTH_FOUNDER:
+                    prompt_parts.append("\nTarget Audience: Early adopters, investors, stealth founders")
+                    prompt_parts.append("Goal: Connect with like-minded entrepreneurs (authentic, not salesy)")
+                    prompt_parts.append("Tone: Authentic, vulnerable, genuine")
+                
+                # Add research insights if available
+                if research_insights:
+                    prompt_parts.append("\nResearch Context:")
+                    for insight in research_insights[:2]:
+                        if insight.get("summary"):
+                            prompt_parts.append(f"- {insight['summary'][:200]}")
+                        if insight.get("keywords"):
+                            prompt_parts.append(f"- Keywords: {', '.join(insight['keywords'][:5])}")
+                
+                # Add hashtag suggestions if available
+                if top_hashtags:
+                    prompt_parts.append(f"\nConsider using these high-performing hashtags: {', '.join(top_hashtags[:5])}")
+                
+                prompt_parts.append("\nRequirements:")
+                prompt_parts.append("- Fill in the template with engaging, authentic content based on the topic")
+                prompt_parts.append("- Keep it LinkedIn-optimized (1500-3000 characters ideal)")
+                prompt_parts.append("- Include 1-2 engagement hooks/questions")
+                prompt_parts.append("- Suggest 5-8 relevant hashtags")
+                prompt_parts.append("- Make it valuable, not promotional")
+                prompt_parts.append("- Ensure it matches the template structure but adapt it naturally")
+                
+                prompt_parts.append("\nRespond with ONLY a JSON object in this format:")
+                prompt_parts.append("""{
+  "content": "Full post content with template filled in...",
+  "suggested_hashtags": ["tag1", "tag2", ...],
+  "engagement_hook": "Question or hook to drive comments"
+}""")
+                
+                generation_prompt = "\n".join(prompt_parts)
+                
+                # Generate content using Perplexity
+                try:
+                    logger.info(f"      → Calling Perplexity API for content generation...")
+                    result = perplexity_client.search(
+                        query=generation_prompt,
+                        model="sonar",
+                        return_sources=False,
+                    )
+                    
+                    # Parse JSON response
+                    import json
+                    import re
+                    answer = result.answer
+                    json_match = re.search(r'\{.*\}', answer, re.DOTALL)
+                    if json_match:
+                        content_data = json.loads(json_match.group())
+                    else:
+                        content_data = {
+                            "content": answer,
+                            "suggested_hashtags": top_hashtags[:5] if top_hashtags else ["EdTech", "Education", "AI"],
+                            "engagement_hook": "What's your take on this?",
+                        }
+                    
+                    post_content = content_data.get("content", answer)
+                    suggested_hashtags = content_data.get("suggested_hashtags", top_hashtags[:5] if top_hashtags else ["EdTech", "Education", "AI"])
+                    engagement_hook = content_data.get("engagement_hook", "What's your experience with this?")
+                    
+                except Exception as e:
+                    logger.warning(f"      ⚠️ Perplexity generation failed: {e}, using fallback")
+                    post_content = f"[{pillar.value.title()} Post: {topic}]\n\nThis is a placeholder. In production, this would be fully generated content based on the template and topic."
+                    suggested_hashtags = top_hashtags[:5] if top_hashtags else ["EdTech", "Education"]
+                    engagement_hook = "What's your experience with this?"
+                
+                # Create draft
+                draft_id = f"draft_{int(current_time)}_{pillar.value}_{i}"
+                draft = ContentDraft(
+                    draft_id=draft_id,
+                    user_id=request.user_id,
+                    title=f"{pillar.value.replace('_', ' ').title()} - {topic[:50]}",
+                    content=post_content,
+                    pillar=pillar,
+                    topic=topic,
+                    suggested_hashtags=suggested_hashtags,
+                    engagement_hook=engagement_hook,
+                    stealth_founder_mention=(pillar == ContentPillar.STEALTH_FOUNDER),
+                    linked_research_ids=[r.get("research_id") for r in research_insights if r.get("research_id")],
+                    linked_post_ids=[],
+                    metadata={
+                        "template_used": template["id"],
+                        "template_name": template["name"],
+                        "generation_method": "daily_pacer_scrape_free",
+                        "generated_at": current_time,
+                    },
+                    status=ContentStatus.DRAFT,
+                    created_at=current_time,
+                    updated_at=current_time,
+                )
+                
+                # Store in Firestore
+                try:
+                    doc_ref = db.collection("users").document(request.user_id).collection("content_drafts").document(draft_id)
+                    doc_ref.set(draft.model_dump())
+                    logger.info(f"      ✅ Saved draft {draft_id}")
+                except Exception as e:
+                    logger.error(f"      ❌ Error saving draft to Firestore: {e}")
+                    raise
+                
+                generated_drafts.append(draft)
+                draft_ids.append(draft_id)
+                recent_topics.append(topic)
+        
+        logger.info(f"✅ Successfully generated {len(generated_drafts)} drafts")
+        
+        return GenerateDailyPacerResponse(
+            success=True,
+            posts_generated=len(generated_drafts),
+            draft_ids=draft_ids,
+            drafts=generated_drafts,
+            pillar_distribution=pillar_distribution,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error generating daily PACER content: {e}")
+        raise HTTPException(status_code=500, detail=f"Daily PACER generation failed: {str(e)}")
+
+
+@router.post("/drafts/generate_weekly_pacer", response_model=GenerateWeeklyPacerResponse)
+async def generate_weekly_pacer(request: GenerateWeeklyPacerRequest) -> Dict[str, Any]:
+    """
+    Generate weekly PACER content mix with enhanced options.
+    
+    Enhanced features:
+    - topic_overrides: Prioritize specific topics
+    - use_cached_research: Prefer Firestore cache to save API calls
+    - Structured LLM prompt for deterministic output
+    - Enhanced response with summary array
+    """
+    try:
+        logger.info(f"🚀 Generating weekly PACER content for user {request.user_id}, num_posts={request.num_posts}")
+        
+        # Step 1: Calculate PACER pillar distribution
+        num_referral = int(request.num_posts * 0.4)
+        num_thought_leadership = int(request.num_posts * 0.5)
+        num_stealth_founder = int(request.num_posts * 0.1) if request.include_stealth_founder else 0
+        
+        total_assigned = num_referral + num_thought_leadership + num_stealth_founder
+        if total_assigned < request.num_posts:
+            num_thought_leadership += (request.num_posts - total_assigned)
+        
+        logger.info(f"  → Pillar distribution: referral={num_referral}, thought_leadership={num_thought_leadership}, stealth_founder={num_stealth_founder}")
+        
+        # Step 2: Gather context
+        recent_topics = get_recent_draft_topics(request.user_id, days=7)  # Weekly: last 7 days
+        preferred_topics = request.topic_overrides if request.topic_overrides else get_preferred_topics_from_research(request.user_id)
+        top_hashtags = get_top_hashtags_from_learning(request.user_id)
+        
+        # Step 3: Get research insights (cached if requested)
+        research_insights = []
+        research_context = ""
+        if request.use_cached_research:
+            try:
+                collection = db.collection("users").document(request.user_id).collection("research_insights")
+                query = collection.order_by("created_at", direction="DESCENDING").limit(3)
+                docs = query.get()
+                research_insights = [doc.to_dict() for doc in docs]
+                if research_insights:
+                    # Build research context string
+                    context_parts = []
+                    for insight in research_insights[:2]:
+                        if insight.get("summary"):
+                            context_parts.append(insight["summary"][:200])
+                        if insight.get("keywords"):
+                            context_parts.append(f"Keywords: {', '.join(insight['keywords'][:5])}")
+                    research_context = " | ".join(context_parts)
+                    logger.info(f"  → Using cached research insights (use_cached_research=True)")
+            except Exception as e:
+                logger.warning(f"Error fetching cached research: {e}")
+        
+        # Step 4: Generate posts
+        generated_drafts = []
+        draft_ids = []
+        summary_list = []
+        current_time = time.time()
+        perplexity_client = get_perplexity_client()
+        
+        pillar_posts = [
+            (ContentPillar.REFERRAL, num_referral),
+            (ContentPillar.THOUGHT_LEADERSHIP, num_thought_leadership),
+            (ContentPillar.STEALTH_FOUNDER, num_stealth_founder),
+        ]
+        
+        for pillar, count in pillar_posts:
+            if count == 0:
+                continue
+            
+            logger.info(f"  → Generating {count} posts for pillar: {pillar.value}")
+            
+            for i in range(count):
+                # Select topic (prioritize overrides if provided)
+                if preferred_topics and i < len(preferred_topics):
+                    topic = preferred_topics[i]
+                else:
+                    topic = select_topic_for_generation(
+                        pillar=pillar,
+                        used_topics=recent_topics,
+                        preferred_topics=preferred_topics if preferred_topics else None,
+                    )
+                
+                logger.info(f"    → Post {i+1}/{count}: topic='{topic[:50]}...'")
+                
+                # Build structured prompt
+                pillar_configs = {
+                    ContentPillar.REFERRAL: ("private school administrators, mental health professionals, treatment centers", "drive referrals and build partnership networks"),
+                    ContentPillar.THOUGHT_LEADERSHIP: ("EdTech business leaders, AI-savvy executives", "establish thought leadership and start meaningful conversations"),
+                    ContentPillar.STEALTH_FOUNDER: ("early adopters, investors, stealth founders", "connect authentically with like-minded entrepreneurs"),
+                }
+                
+                audience, goal = pillar_configs.get(pillar, pillar_configs[ContentPillar.THOUGHT_LEADERSHIP])
+                
+                generation_prompt = build_structured_llm_prompt(
+                    pillar=pillar,
+                    topic=topic,
+                    audience=audience,
+                    primary_goal=goal,
+                    top_hashtags=top_hashtags,
+                    research_context=research_context if research_context else None,
+                    avoid_stealth_keywords=not request.include_stealth_founder and pillar != ContentPillar.STEALTH_FOUNDER,
+                )
+                
+                # Generate content using Perplexity
+                try:
+                    logger.info(f"      → Calling Perplexity API...")
+                    result = perplexity_client.search(
+                        query=generation_prompt,
+                        model="sonar",
+                        return_sources=False,
+                    )
+                    
+                    # Parse JSON response
+                    import json
+                    import re
+                    answer = result.answer
+                    
+                    # Extract JSON (handle markdown code blocks)
+                    json_match = re.search(r'\{[\s\S]*\}', answer)
+                    if json_match:
+                        content_data = json.loads(json_match.group())
+                    else:
+                        # Fallback
+                        content_data = {
+                            "content": answer,
+                            "suggested_hashtags": top_hashtags[:5] if top_hashtags else ["EdTech", "Education", "AI"],
+                            "engagement_hook": "What's your take on this?",
+                            "estimated_read_time_secs": 10,
+                        }
+                    
+                    post_content = content_data.get("content", answer)
+                    suggested_hashtags = content_data.get("suggested_hashtags", top_hashtags[:5] if top_hashtags else ["EdTech", "Education", "AI"])
+                    engagement_hook = content_data.get("engagement_hook", "What's your experience with this?")
+                    
+                except Exception as e:
+                    logger.warning(f"      ⚠️ Perplexity generation failed: {e}, using fallback")
+                    post_content = f"[{pillar.value.replace('_', ' ').title()} Post: {topic}]\n\nThis is a placeholder. In production, this would be fully generated content based on the structured template."
+                    suggested_hashtags = top_hashtags[:5] if top_hashtags else ["EdTech", "Education"]
+                    engagement_hook = "What's your experience with this?"
+                
+                # Create draft
+                draft_id = f"draft_{int(current_time)}_{pillar.value}_{i}"
+                draft = ContentDraft(
+                    draft_id=draft_id,
+                    user_id=request.user_id,
+                    title=f"{pillar.value.replace('_', ' ').title()} - {topic[:50]}",
+                    content=post_content,
+                    pillar=pillar,
+                    topic=topic,
+                    suggested_hashtags=suggested_hashtags,
+                    engagement_hook=engagement_hook,
+                    stealth_founder_mention=(pillar == ContentPillar.STEALTH_FOUNDER),
+                    linked_research_ids=[r.get("research_id") for r in research_insights if r.get("research_id")],
+                    linked_post_ids=[],
+                    metadata={
+                        "generation_method": "weekly_pacer_enhanced",
+                        "generated_at": current_time,
+                        "use_cached_research": request.use_cached_research,
+                        "topic_override": i < len(request.topic_overrides) if request.topic_overrides else False,
+                    },
+                    status=ContentStatus.DRAFT,
+                    created_at=current_time,
+                    updated_at=current_time,
+                )
+                
+                # Store in Firestore
+                try:
+                    doc_ref = db.collection("users").document(request.user_id).collection("content_drafts").document(draft_id)
+                    doc_ref.set(draft.model_dump())
+                    logger.info(f"      ✅ Saved draft {draft_id}")
+                except Exception as e:
+                    logger.error(f"      ❌ Error saving draft: {e}")
+                    raise
+                
+                generated_drafts.append(draft)
+                draft_ids.append(draft_id)
+                summary_list.append(DraftSummary(
+                    draft_id=draft_id,
+                    pillar=pillar.value,
+                    topic=topic,
+                ))
+                recent_topics.append(topic)
+        
+        logger.info(f"✅ Successfully generated {len(generated_drafts)} drafts")
+        
+        return GenerateWeeklyPacerResponse(
+            success=True,
+            generated=len(generated_drafts),
+            draft_ids=draft_ids,
+            summary=summary_list,
+            drafts=generated_drafts,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error generating weekly PACER content: {e}")
+        raise HTTPException(status_code=500, detail=f"Weekly PACER generation failed: {str(e)}")
+
+
+@router.post("/engagement/generate_dm", response_model=EngagementDMResponse)
+async def generate_engagement_dm(request: EngagementDMRequest) -> Dict[str, Any]:
+    """
+    Generate DM templates for engagement conversion.
+    
+    Converts LinkedIn engagement (comments, connections, likes) into personalized DM templates
+    for moving conversations forward.
+    """
+    try:
+        logger.info(f"📩 Generating DM templates for {request.engagement_type} engagement, prospect: {request.prospect_name}")
+        
+        variants = []
+        
+        if request.engagement_type == "comment":
+            # Comment → Move to DM variants
+            variants = [
+                {
+                    "variant": 1,
+                    "message": f"Hi {request.prospect_name}, thanks for the comment — I appreciated your perspective on {request.topic or 'that topic'}. If you're open, I'd love a 15-minute chat to learn how your team approaches this and share a resource we've used. Would next Wed or Thu work?"
+                },
+                {
+                    "variant": 2,
+                    "message": f"Thanks, {request.prospect_name}. Your note made me think — we've tested a small intervention that helped similar schools. Want a quick call so I can share the one-pager?"
+                },
+            ]
+            
+        elif request.engagement_type == "connection":
+            # New connection (referral network)
+            variants = [
+                {
+                    "variant": 1,
+                    "message": f"Hi {request.prospect_name}, appreciate the connect. I work with schools and partners supporting neurodivergent learners — curious how your org is approaching referrals right now. Can I send a quick resource that might be helpful?"
+                },
+                {
+                    "variant": 2,
+                    "message": f"Thanks for connecting, {request.prospect_name}. Would you be open to a short intro call to explore alignment? I focus on partnership models that simplify referral pathways."
+                },
+            ]
+            
+        elif request.engagement_type == "like":
+            # Like → Gentle engagement
+            variants = [
+                {
+                    "variant": 1,
+                    "message": f"Hi {request.prospect_name}, noticed you liked my post about {request.topic or 'that topic'}. Sounds like it resonated. If you're interested, I'd be happy to share more resources on this. What's your biggest challenge in this area right now?"
+                },
+                {
+                    "variant": 2,
+                    "message": f"Thanks for the like, {request.prospect_name}. If you're exploring {request.topic or 'this topic'} for your team, I have a one-pager that might be helpful. Interested?"
+                },
+            ]
+        
+        else:
+            # Generic engagement
+            variants = [
+                {
+                    "variant": 1,
+                    "message": f"Hi {request.prospect_name}, thanks for the engagement. Would love to connect and learn more about your work. Open to a quick call?"
+                },
+            ]
+        
+        # Limit to requested number of variants
+        variants = variants[:request.num_variants]
+        
+        return EngagementDMResponse(
+            success=True,
+            engagement_type=request.engagement_type,
+            variants=variants,
+        )
+        
+    except Exception as e:
+        logger.exception(f"Error generating engagement DM: {e}")
+        raise HTTPException(status_code=500, detail=f"DM generation failed: {str(e)}")
+
+
+@router.post("/metrics/generate-weekly-summary", response_model=WeeklySummaryResponse)
+async def generate_weekly_summary(request: WeeklySummaryRequest) -> Dict[str, Any]:
+    """
+    Generate weekly summary of content performance and learning insights.
+    
+    Run every Sunday night to analyze:
+    - Top pillar performance
+    - Top hashtags
+    - Suggested topics for next week
+    - Average engagement rates
+    """
+    try:
+        logger.info(f"📊 Generating weekly summary for user {request.user_id}")
+        
+        # Calculate week range
+        if request.week_start_date:
+            week_start = request.week_start_date
+            week_end = week_start + (7 * 24 * 60 * 60)
+        else:
+            # Default: last 7 days
+            week_end = time.time()
+            week_start = week_end - (7 * 24 * 60 * 60)
+        
+        # Get published posts from this week
+        collection = db.collection("users").document(request.user_id).collection("content_drafts")
+        query = collection.where("created_at", ">=", week_start).where("created_at", "<=", week_end)
+        docs = query.get()
+        
+        posts = []
+        pillar_engagement = {}
+        hashtag_engagement = {}
+        total_engagement = 0
+        total_impressions = 0
+        
+        for doc in docs:
+            draft_data = doc.to_dict()
+            if draft_data.get("status") == "published":
+                posts.append(draft_data)
+                pillar = draft_data.get("pillar", "unknown")
+                
+                # Get metrics for this draft
+                metrics_collection = db.collection("users").document(request.user_id).collection("linkedin_metrics")
+                metrics_query = metrics_collection.where("draft_id", "==", doc.id).order_by("recorded_at", direction="DESCENDING").limit(1)
+                metrics_docs = metrics_query.get()
+                
+                if metrics_docs:
+                    metrics = metrics_docs[0].to_dict()
+                    engagement = metrics.get("likes", 0) + metrics.get("comments", 0) * 2 + metrics.get("shares", 0) * 3
+                    impressions = metrics.get("impressions", 0)
+                    
+                    # Track pillar performance
+                    if pillar not in pillar_engagement:
+                        pillar_engagement[pillar] = {"total": 0, "count": 0, "impressions": 0}
+                    pillar_engagement[pillar]["total"] += engagement
+                    pillar_engagement[pillar]["count"] += 1
+                    pillar_engagement[pillar]["impressions"] += impressions
+                    
+                    # Track hashtag performance
+                    hashtags = draft_data.get("suggested_hashtags", [])
+                    for hashtag in hashtags:
+                        hashtag_clean = hashtag.replace("#", "").lower()
+                        if hashtag_clean not in hashtag_engagement:
+                            hashtag_engagement[hashtag_clean] = {"total": 0, "count": 0}
+                        hashtag_engagement[hashtag_clean]["total"] += engagement
+                        hashtag_engagement[hashtag_clean]["count"] += 1
+                    
+                    total_engagement += engagement
+                    total_impressions += impressions if impressions else 0
+        
+        # Determine top pillar
+        top_pillar = None
+        top_pillar_avg = 0
+        for pillar, data in pillar_engagement.items():
+            avg = data["total"] / data["count"] if data["count"] > 0 else 0
+            if avg > top_pillar_avg:
+                top_pillar_avg = avg
+                top_pillar = pillar
+        
+        # Get top hashtags
+        top_hashtags = []
+        for hashtag, data in sorted(hashtag_engagement.items(), key=lambda x: x[1]["total"], reverse=True)[:10]:
+            avg_engagement = data["total"] / data["count"] if data["count"] > 0 else 0
+            top_hashtags.append({
+                "hashtag": f"#{hashtag}",
+                "total_engagement": data["total"],
+                "avg_engagement": round(avg_engagement, 2),
+                "used_in_posts": data["count"],
+            })
+        
+        # Calculate average engagement rate
+        avg_engagement_rate = None
+        if total_impressions > 0:
+            avg_engagement_rate = round((total_engagement / total_impressions) * 100, 2)
+        
+        # Generate suggested topics (based on top-performing pillar)
+        suggested_topics = []
+        if top_pillar:
+            try:
+                pillar_enum = ContentPillar(top_pillar)
+                topics = get_topics_for_pillar(pillar_enum, limit=5)
+                suggested_topics = topics
+            except Exception as e:
+                logger.warning(f"Error getting suggested topics: {e}")
+        
+        logger.info(f"  → Summary: {len(posts)} posts, top pillar: {top_pillar}, top hashtags: {len(top_hashtags)}")
+        
+        return WeeklySummaryResponse(
+            success=True,
+            week_start=week_start,
+            week_end=week_end,
+            total_posts=len(posts),
+            top_pillar=top_pillar,
+            top_hashtags=top_hashtags,
+            suggested_topics=suggested_topics,
+            avg_engagement_rate=avg_engagement_rate,
+        )
+        
+    except Exception as e:
+        logger.exception(f"Error generating weekly summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Weekly summary generation failed: {str(e)}")
 

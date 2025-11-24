@@ -79,3 +79,4 @@ echo "Note: Some tests may fail if backend isn't running or API keys aren't set.
 echo "Start backend with: cd backend && uvicorn app.main:app --reload --port 3001"
 
 
+

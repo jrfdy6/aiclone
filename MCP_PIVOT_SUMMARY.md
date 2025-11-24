@@ -128,3 +128,4 @@ Use MCPs in Cursor + `/api/research/store` instead.
 
 **Ready to test?** See `MCP_WORKFLOW_GUIDE.md` for step-by-step instructions.
 
+
