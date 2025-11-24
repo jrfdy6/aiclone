@@ -3,7 +3,7 @@ Multi-Format Content Generation Service
 Generate content in various formats: blogs, emails, video scripts, white papers
 """
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.services.perplexity_client import get_perplexity_client
 
 logger = logging.getLogger(__name__)
