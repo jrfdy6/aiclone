@@ -7,14 +7,17 @@
  * Get the API base URL, ensuring it's a complete absolute URL
  */
 export function getApiUrl(): string {
+  if (typeof window === 'undefined') {
+    // Server-side: use env var directly
+    return process.env.NEXT_PUBLIC_API_URL || '';
+  }
+  
+  // Client-side: get from env var (Next.js injects this at build time)
   const url = process.env.NEXT_PUBLIC_API_URL || '';
   
   if (!url) {
     // Fallback for local development
-    if (typeof window !== 'undefined') {
-      return 'http://localhost:8080';
-    }
-    return '';
+    return 'http://localhost:8080';
   }
   
   // If URL already has protocol, return as-is
