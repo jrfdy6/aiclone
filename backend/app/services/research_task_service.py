@@ -3,7 +3,7 @@ Research Task Service - Manages research task execution and status
 """
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, List, Dict, Any
 from app.services.firestore_client import db
 from app.models.research_tasks import (
     ResearchTask, ResearchTaskStatus, ResearchEngine, SourceType, TaskPriority
