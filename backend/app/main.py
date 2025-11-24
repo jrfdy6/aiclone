@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import time
 
-from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects, prospects_manual, outreach_manual, calendar, notifications
+from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects, prospects_manual, outreach_manual, calendar, notifications, research_tasks, activity
 
 
 app = FastAPI()
@@ -112,6 +112,8 @@ app.include_router(prospects_manual.router, prefix="/api/prospects/manual")
 app.include_router(outreach_manual.router, prefix="/api/outreach/manual")
 app.include_router(calendar.router, prefix="/api/calendar")
 app.include_router(notifications.router, prefix="/api/notifications")
+app.include_router(research_tasks.router, prefix="/api/research-tasks")
+app.include_router(activity.router, prefix="/api/activity")
 
 
 @app.on_event("startup")
