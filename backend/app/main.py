@@ -37,6 +37,7 @@ default_cors_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://aiclone-production-32dc.up.railway.app",
+    "https://aiclone-frontend-production.up.railway.app",
     # Railway frontend URLs (wildcard pattern - will be added via environment variable)
 ]
 
