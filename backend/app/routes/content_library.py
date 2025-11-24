@@ -87,7 +87,7 @@ async def approve_content_endpoint(
 @router.post("/{content_id}/publish", response_model=Dict[str, bool])
 async def publish_content_endpoint(
     content_id: str,
-    platforms: List[str] = Query(..., description="List of platforms to publish to"),
+    platforms: List[str] = Body(..., description="List of platforms to publish to"),
     user_id: str = Query(..., description="User identifier")
 ) -> Dict[str, bool]:
     """Publish content to platforms"""
