@@ -6,6 +6,7 @@ Searches for LinkedIn posts using Google Custom Search and scrapes content using
 
 import os
 import re
+import time
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
@@ -432,6 +433,10 @@ class LinkedInClient:
         successful_scrapes = 0
         failed_scrapes = 0
         
+        # Track consecutive 403 errors to detect systematic blocking
+        consecutive_403s = 0
+        max_consecutive_403s = 3
+        
         for i, url in enumerate(linkedin_urls[:max_results * 2], 1):  # Try more URLs to get enough posts
             try:
                 print(f"  [LinkedIn] Scraping {i}/{len(linkedin_urls[:max_results * 2])}: {url[:80]}...", flush=True)
@@ -441,6 +446,9 @@ class LinkedInClient:
                     formats=["markdown"],
                     exclude_tags=["script", "style", "nav", "footer", "header"]
                 )
+                
+                # Reset 403 counter on success
+                consecutive_403s = 0
                 
                 # Validate that we got meaningful content
                 if not scraped.content or len(scraped.content.strip()) < 50:
@@ -473,11 +481,35 @@ class LinkedInClient:
                     break
                     
             except Exception as e:
-                print(f"  [LinkedIn] ❌ Failed to scrape {url}: {e}", flush=True)
+                error_msg = str(e)
+                
+                # Detect 403 errors specifically
+                is_403_error = "403" in error_msg or "Forbidden" in error_msg
+                
+                if is_403_error:
+                    consecutive_403s += 1
+                    if consecutive_403s >= max_consecutive_403s:
+                        print(f"  [LinkedIn] ⚠️ Multiple 403 errors detected ({consecutive_403s}). "
+                              f"Firecrawl may be blocked by LinkedIn or API key may have restrictions. "
+                              f"Stopping further scrape attempts.", flush=True)
+                        break
+                
+                print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
                 failed_scrapes += 1
+                
+                # Add small delay between failed requests to avoid hammering the API
+                if is_403_error:
+                    time.sleep(1)  # Brief pause after 403 errors
+                
                 continue
         
         print(f"  [LinkedIn] Scraping complete: {successful_scrapes} successful, {failed_scrapes} failed", flush=True)
+        
+        # Warn if we got mostly 403 errors
+        if failed_scrapes > 0 and successful_scrapes == 0:
+            print(f"  [LinkedIn] ⚠️ Warning: All scraping attempts failed. "
+                  f"This may indicate Firecrawl API issues or LinkedIn blocking. "
+                  f"Check your FIRECRAWL_API_KEY and Firecrawl account status.", flush=True)
         
         # Sort posts
         if sort_by == "engagement":

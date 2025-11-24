@@ -83,6 +83,29 @@ class FirecrawlClient:
         
         try:
             response = self.session.post(endpoint, json=payload, timeout=60)
+            
+            # Handle specific HTTP status codes
+            if response.status_code == 403:
+                error_detail = response.text
+                # Try to get more details from response
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get("error", {}).get("message", error_detail)
+                except:
+                    error_message = error_detail
+                
+                raise Exception(
+                    f"Firecrawl API returned 403 Forbidden for {url}. "
+                    f"This may indicate: API key restrictions, rate limiting, or LinkedIn blocking. "
+                    f"Details: {error_message[:200]}"
+                )
+            
+            if response.status_code == 429:
+                raise Exception(
+                    f"Firecrawl API rate limit exceeded for {url}. "
+                    f"Please wait before retrying."
+                )
+            
             response.raise_for_status()
             data = response.json()
             
@@ -100,6 +123,15 @@ class FirecrawlClient:
                     "author": result.get("author"),
                 }
             )
+        except requests.exceptions.HTTPError as e:
+            if e.response and e.response.status_code == 403:
+                error_detail = e.response.text[:200] if e.response.text else "No details"
+                raise Exception(
+                    f"Firecrawl API 403 Forbidden for {url}. "
+                    f"Possible causes: Invalid API key, expired key, rate limit, or LinkedIn blocking. "
+                    f"Details: {error_detail}"
+                )
+            raise Exception(f"Firecrawl scrape failed for {url}: {str(e)}")
         except requests.exceptions.RequestException as e:
             raise Exception(f"Firecrawl scrape failed for {url}: {str(e)}")
     

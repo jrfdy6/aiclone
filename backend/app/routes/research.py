@@ -4,7 +4,7 @@ Research Routes - Manual research trigger
 
 import logging
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -161,6 +161,104 @@ async def trigger_research(request: ResearchTriggerRequest) -> Dict[str, Any]:
     except Exception as e:
         logger.exception(f"Error triggering research: {e}")
         raise HTTPException(status_code=500, detail=f"Research trigger failed: {str(e)}")
+
+
+class ResearchStoreRequest(BaseModel):
+    """Request to store MCP-generated research."""
+    user_id: str = Field(..., description="User ID")
+    title: str = Field(..., description="Research topic/title")
+    industry: Optional[str] = Field(None, description="Industry")
+    summary: str = Field(..., description="Research summary from MCP")
+    keywords: List[str] = Field(default_factory=list, description="Extracted keywords")
+    job_titles: List[str] = Field(default_factory=list, description="Relevant job titles")
+    trending_pains: Optional[List[str]] = Field(default_factory=list, description="Trending pain points")
+    industry_trends: Optional[List[str]] = Field(default_factory=list, description="Industry trends")
+    sources: List[Dict[str, str]] = Field(default_factory=list, description="Source URLs and titles")
+
+
+@router.post("/store", response_model=ResearchTriggerResponse)
+async def store_research(request: ResearchStoreRequest) -> Dict[str, Any]:
+    """
+    Store research data generated via MCP (Perplexity/Firecrawl in Cursor).
+    
+    This endpoint accepts research data that was generated using MCPs directly in Cursor,
+    avoiding Railway timeout issues and enabling interactive research workflows.
+    
+    Process:
+    1. Accept structured research data from MCP
+    2. Store lightweight summary in Firestore
+    3. Return research ID for use in scoring/outreach
+    """
+    try:
+        # Extract insights if not provided
+        if not request.keywords or not request.job_titles:
+            insights = extract_insights_from_research(request.summary, request.sources)
+            keywords = request.keywords or insights.get("keywords", [])
+            job_titles = request.job_titles or insights.get("job_titles", [])
+            trending_pains = request.trending_pains or insights.get("trending_pains", [])
+            industry_trends = request.industry_trends or insights.get("industry_trends", [])
+        else:
+            keywords = request.keywords
+            job_titles = request.job_titles
+            trending_pains = request.trending_pains or []
+            industry_trends = request.industry_trends or []
+        
+        # Convert sources to ResearchSource objects
+        research_sources = []
+        for source in request.sources:
+            if isinstance(source, dict):
+                research_sources.append(ResearchSource(
+                    url=source.get("url", ""),
+                    title=source.get("title", "")
+                ))
+            else:
+                research_sources.append(ResearchSource(url=str(source), title=""))
+        
+        # Build research insight document
+        research_insight = ResearchInsight(
+            title=request.title,
+            industry=request.industry or request.title.split()[0] if request.title else "General",
+            summary=request.summary[:500],  # Lightweight summary
+            keywords=keywords[:10],  # Limit to top 10
+            job_titles=job_titles[:10],
+            sources=research_sources[:10],  # Limit to top 10 sources
+            created_at=time.time(),
+            updated_at=time.time(),
+        )
+        
+        # Store in Firestore
+        research_id = f"research_{int(time.time())}"
+        research_doc = {
+            "research_id": research_id,
+            "title": research_insight.title,
+            "industry": research_insight.industry,
+            "summary": research_insight.summary,
+            "keywords": research_insight.keywords,
+            "job_titles": research_insight.job_titles,
+            "trending_pains": trending_pains[:10],
+            "industry_trends": industry_trends[:10],
+            "linked_research_ids": [],
+            "sources": [{"url": s.url, "title": s.title} for s in research_insight.sources],
+            "created_at": research_insight.created_at,
+            "updated_at": research_insight.updated_at,
+            "source": "mcp",  # Mark as MCP-generated
+        }
+        
+        doc_ref = db.collection("users").document(request.user_id).collection("research_insights").document(research_id)
+        doc_ref.set(research_doc)
+        
+        logger.info(f"Stored MCP research: {research_id} for user {request.user_id}")
+        
+        return ResearchTriggerResponse(
+            success=True,
+            research_id=research_id,
+            status="success",
+            summary=research_insight
+        )
+        
+    except Exception as e:
+        logger.exception(f"Error storing research: {e}")
+        raise HTTPException(status_code=500, detail=f"Research storage failed: {str(e)}")
 
 
 
