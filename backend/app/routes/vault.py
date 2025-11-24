@@ -2,6 +2,8 @@
 Knowledge Vault Routes
 """
 import logging
+from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
 from app.models.vault import (
@@ -196,9 +198,6 @@ async def get_trendlines(
         items = list_vault_items(user_id=user_id, limit=1000)
         
         # Group by date and category
-        from collections import defaultdict
-        from datetime import datetime, timedelta
-        
         trend_data: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
         
         for item in items:
