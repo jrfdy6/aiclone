@@ -91,7 +91,6 @@ async def publish_content_endpoint(
     user_id: str = Query(..., description="User identifier")
 ) -> Dict[str, bool]:
     """Publish content to platforms"""
-    platforms = request.get("platforms", [])
     success = publish_content(user_id, content_id, platforms)
     if not success:
         raise HTTPException(status_code=404, detail="Content not found")
