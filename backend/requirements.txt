@@ -13,5 +13,13 @@ python-pptx
 pytesseract
 requests
 scikit-learn
-uvicorn
+uvicorn[standard]
 whisper
+websockets
+python-jose[cryptography]
+slowapi
+aiofiles
+pydantic[email]
+passlib[bcrypt]
+bcrypt
+httpx
