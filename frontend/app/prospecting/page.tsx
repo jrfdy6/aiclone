@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-export default function ProspectingPage() {
+function ProspectingContent() {
   const [activeTab, setActiveTab] = useState<'analyze' | 'outreach'>('analyze');
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -498,4 +498,10 @@ export default function ProspectingPage() {
   );
 }
 
-
+export default function ProspectingPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+      <ProspectingContent />
+    </Suspense>
+  );
+}
