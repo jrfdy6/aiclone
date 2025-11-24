@@ -21,7 +21,7 @@ aiclone/
       routes/   # API route handlers
       services/ # Business logic and external API clients
       utils/    # Utilities (chunking, etc.)
-  frontend/      # Next.js 14 app router frontend (Vercel deploy target)
+  frontend/      # Next.js 14 app router frontend (Railway deploy target)
     app/         # Pages and routes
     components/  # React components
 ```
