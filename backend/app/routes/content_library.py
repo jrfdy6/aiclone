@@ -2,7 +2,7 @@
 Content Library Routes
 """
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, Query
 from app.models.content_library import (
     ContentCreate, ContentUpdate, ContentResponse,
@@ -87,7 +87,7 @@ async def approve_content_endpoint(
 @router.post("/{content_id}/publish", response_model=Dict[str, bool])
 async def publish_content_endpoint(
     content_id: str,
-    platforms: list = Query(..., description="List of platforms to publish to"),
+    platforms: List[str] = Query(..., description="List of platforms to publish to"),
     user_id: str = Query(..., description="User identifier")
 ) -> Dict[str, bool]:
     """Publish content to platforms"""

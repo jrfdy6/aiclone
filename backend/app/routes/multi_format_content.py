@@ -2,7 +2,7 @@
 Multi-Format Content Generation Routes
 """
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from fastapi import APIRouter, HTTPException, Query, Body
 from app.services.multi_format_content_service import (
     generate_blog_post, generate_email,
@@ -62,7 +62,7 @@ async def generate_video_script_endpoint(
 @router.post("/white-paper", response_model=Dict[str, Any])
 async def generate_white_paper_endpoint(
     topic: str = Body(..., description="White paper topic"),
-    sections: list = Body(default_factory=list, description="Optional custom sections")
+    sections: List[str] = Body(default_factory=list, description="Optional custom sections")
 ) -> Dict[str, Any]:
     """Generate a white paper"""
     try:
