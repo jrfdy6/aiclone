@@ -1,0 +1,607 @@
+"""
+LinkedIn Post Search Client
+
+Searches for LinkedIn posts using Google Custom Search and scrapes content using Firecrawl.
+"""
+
+import os
+import re
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+from urllib.parse import urlparse, parse_qs
+
+from app.services.search_client import get_search_client, SearchResult
+from app.services.firecrawl_client import get_firecrawl_client, ScrapedContent
+from app.models.linkedin import LinkedInPost
+
+
+class LinkedInClient:
+    """Client for searching and scraping LinkedIn posts."""
+    
+    # Industry-specific keywords and search terms
+    INDUSTRY_KEYWORDS = {
+        "SaaS": ["SaaS", "software as a service", "cloud software", "subscription software", "B2B software"],
+        "FinTech": ["FinTech", "financial technology", "fintech", "banking technology", "payments", "cryptocurrency"],
+        "Healthcare": ["healthcare", "health tech", "medical technology", "healthcare innovation", "digital health"],
+        "E-commerce": ["e-commerce", "ecommerce", "online retail", "digital commerce", "online shopping"],
+        "AI/ML": ["artificial intelligence", "machine learning", "AI", "ML", "deep learning", "neural networks"],
+        "Marketing": ["marketing", "digital marketing", "content marketing", "growth marketing", "B2B marketing"],
+        "Real Estate": ["real estate", "property", "real estate tech", "proptech", "real estate investment"],
+        "Education": ["education", "edtech", "online learning", "educational technology", "e-learning"],
+        "Cybersecurity": ["cybersecurity", "cyber security", "information security", "data security", "network security"],
+        "Biotech": ["biotech", "biotechnology", "life sciences", "pharmaceutical", "biomedical"],
+        "Gaming": ["gaming", "video games", "game development", "esports", "gaming industry"],
+        "Energy": ["energy", "renewable energy", "solar", "wind energy", "clean energy", "sustainability"],
+    }
+    
+    def __init__(self):
+        self.search_client = get_search_client()
+        self.firecrawl_client = get_firecrawl_client()
+    
+    def _build_industry_query(self, base_query: str, industry: Optional[str] = None) -> str:
+        """Build a search query with industry-specific terms."""
+        if not industry:
+            return base_query
+        
+        industry_lower = industry.lower()
+        
+        # Check if industry is in our keyword mapping
+        if industry_lower in [k.lower() for k in self.INDUSTRY_KEYWORDS.keys()]:
+            # Get the canonical industry name
+            canonical_industry = next(
+                (k for k in self.INDUSTRY_KEYWORDS.keys() if k.lower() == industry_lower),
+                industry
+            )
+            keywords = self.INDUSTRY_KEYWORDS[canonical_industry]
+            # Add industry keywords to query
+            industry_terms = " OR ".join(f'"{kw}"' for kw in keywords[:3])  # Use top 3 keywords
+            return f'{base_query} ({industry_terms})'
+        else:
+            # Use industry name directly
+            return f'{base_query} "{industry}"'
+    
+    def _is_industry_relevant(
+        self,
+        post: LinkedInPost,
+        industry: Optional[str] = None,
+        filter_by_company: bool = False
+    ) -> bool:
+        """Check if a post is relevant to the target industry."""
+        if not industry:
+            return True
+        
+        industry_lower = industry.lower()
+        content_lower = post.content.lower()
+        company_lower = (post.author_company or "").lower()
+        title_lower = (post.author_title or "").lower()
+        
+        # Get industry keywords
+        if industry_lower in [k.lower() for k in self.INDUSTRY_KEYWORDS.keys()]:
+            canonical_industry = next(
+                (k for k in self.INDUSTRY_KEYWORDS.keys() if k.lower() == industry_lower),
+                industry
+            )
+            keywords = [kw.lower() for kw in self.INDUSTRY_KEYWORDS[canonical_industry]]
+        else:
+            keywords = [industry_lower]
+        
+        # Check if content contains industry keywords
+        content_match = any(keyword in content_lower for keyword in keywords)
+        
+        # Check if company/title matches (if filtering by company)
+        company_match = False
+        if filter_by_company:
+            company_match = any(keyword in company_lower or keyword in title_lower for keyword in keywords)
+            return company_match  # If filtering by company, must match company/title
+        else:
+            # If not filtering by company, content match is enough
+            return content_match
+    
+    def _extract_post_id_from_url(self, url: str) -> Optional[str]:
+        """Extract LinkedIn post ID from URL."""
+        # LinkedIn post URLs can be in various formats:
+        # - https://www.linkedin.com/posts/username_activity-1234567890-abcdef
+        # - https://www.linkedin.com/feed/update/urn:li:activity:1234567890
+        # - https://www.linkedin.com/posts/topic_activity-1234567890
+        
+        # Try to extract from activity ID
+        activity_match = re.search(r'activity[_-](\d+)', url)
+        if activity_match:
+            return activity_match.group(1)
+        
+        # Try to extract from URN
+        urn_match = re.search(r'urn:li:activity:(\d+)', url)
+        if urn_match:
+            return urn_match.group(1)
+        
+        # Fallback: use URL hash
+        return url.split('/')[-1].split('?')[0] if '/' in url else None
+    
+    def _extract_author_info(self, content: str, url: str) -> Dict[str, Optional[str]]:
+        """Extract author information from scraped content."""
+        author_info = {
+            "author_name": None,
+            "author_profile_url": None,
+            "author_title": None,
+            "author_company": None,
+        }
+        
+        # Try multiple patterns to extract author info
+        # Pattern 1: "Name | Title at Company"
+        name_pattern1 = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*[|•]\s*([^|•\n]+)'
+        match = re.search(name_pattern1, content[:1000])
+        if match:
+            author_info["author_name"] = match.group(1).strip()
+            title_company = match.group(2).strip()
+            if " at " in title_company.lower():
+                parts = re.split(r'\s+at\s+', title_company, flags=re.IGNORECASE)
+                author_info["author_title"] = parts[0].strip()
+                author_info["author_company"] = parts[1].strip() if len(parts) > 1 else None
+            elif " @ " in title_company:
+                parts = title_company.split(" @ ", 1)
+                author_info["author_title"] = parts[0].strip()
+                author_info["author_company"] = parts[1].strip() if len(parts) > 1 else None
+            else:
+                author_info["author_title"] = title_company
+        
+        # Pattern 2: Extract from URL if available
+        # LinkedIn post URLs sometimes contain username: linkedin.com/posts/username_activity-...
+        url_match = re.search(r'linkedin\.com/posts/([^_/]+)', url)
+        if url_match and not author_info["author_name"]:
+            # Username might be in URL, but we can't get full name from it
+            pass
+        
+        # Pattern 3: Try to extract profile URL from links in content
+        profile_patterns = [
+            r'linkedin\.com/in/([a-zA-Z0-9\-]+)',
+            r'linkedin\.com/feed/update/.*?/([a-zA-Z0-9\-]+)',
+        ]
+        for pattern in profile_patterns:
+            profile_match = re.search(pattern, content)
+            if profile_match:
+                username = profile_match.group(1)
+                author_info["author_profile_url"] = f"https://www.linkedin.com/in/{username}"
+                break
+        
+        # Pattern 4: Look for "Title at Company" pattern even without name
+        if not author_info["author_title"]:
+            title_company_pattern = r'([A-Z][^|•\n]{10,50})\s+(?:at|@)\s+([A-Z][^|•\n]{5,50})'
+            match = re.search(title_company_pattern, content[:1000])
+            if match:
+                author_info["author_title"] = match.group(1).strip()
+                author_info["author_company"] = match.group(2).strip()
+        
+        return author_info
+    
+    def _extract_engagement_metrics(self, content: str) -> Dict[str, int]:
+        """Extract engagement metrics from scraped content."""
+        metrics = {
+            "likes": 0,
+            "comments": 0,
+            "shares": 0,
+            "reactions": 0,
+        }
+        
+        # Enhanced patterns for engagement metrics
+        # Look for patterns like "123 likes", "45 comments", "12 shares", etc.
+        # Also handle formats like "123" followed by "Like", "Comment", etc.
+        
+        # Likes - multiple patterns
+        likes_patterns = [
+            r'(\d+)\s*(?:like|👍|reaction)',  # "123 likes" or "123 👍"
+            r'(\d+)\s*Like',  # "123 Like"
+            r'Like[:\s]+(\d+)',  # "Like: 123"
+        ]
+        for pattern in likes_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                try:
+                    metrics["likes"] = max(metrics["likes"], int(match.group(1)))
+                except (ValueError, IndexError):
+                    continue
+        
+        # Comments - multiple patterns
+        comments_patterns = [
+            r'(\d+)\s*comment',  # "45 comments"
+            r'(\d+)\s*Comment',  # "45 Comment"
+            r'Comment[:\s]+(\d+)',  # "Comment: 45"
+        ]
+        for pattern in comments_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                try:
+                    metrics["comments"] = max(metrics["comments"], int(match.group(1)))
+                except (ValueError, IndexError):
+                    continue
+        
+        # Shares - multiple patterns
+        shares_patterns = [
+            r'(\d+)\s*share',  # "12 shares"
+            r'(\d+)\s*Share',  # "12 Share"
+            r'Share[:\s]+(\d+)',  # "Share: 12"
+        ]
+        for pattern in shares_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                try:
+                    metrics["shares"] = max(metrics["shares"], int(match.group(1)))
+                except (ValueError, IndexError):
+                    continue
+        
+        # Try to find engagement numbers in common LinkedIn UI patterns
+        # Pattern: "123 45 12" where numbers might be likes, comments, shares
+        engagement_numbers = re.findall(r'\b(\d{1,6})\b', content[:500])
+        if engagement_numbers and len(engagement_numbers) >= 2:
+            # If we found numbers but no specific metrics, try to infer
+            # (This is a fallback - not always accurate)
+            if metrics["likes"] == 0 and metrics["comments"] == 0:
+                try:
+                    # Assume first number might be likes if it's larger
+                    potential_likes = int(engagement_numbers[0])
+                    if potential_likes > 0:
+                        metrics["likes"] = potential_likes
+                except (ValueError, IndexError):
+                    pass
+        
+        # Calculate total reactions (likes + other reactions)
+        metrics["reactions"] = metrics["likes"]
+        
+        return metrics
+    
+    def _calculate_engagement_score(
+        self,
+        likes: int,
+        comments: int,
+        shares: int,
+        reactions: int = 0
+    ) -> float:
+        """Calculate engagement score for a post."""
+        # Weighted scoring: comments and shares are worth more than likes
+        score = (
+            likes * 1.0 +
+            comments * 3.0 +
+            shares * 5.0 +
+            reactions * 1.0
+        )
+        return round(score, 2)
+    
+    def _extract_hashtags(self, content: str) -> List[str]:
+        """Extract hashtags from post content."""
+        hashtag_pattern = r'#(\w+)'
+        hashtags = re.findall(hashtag_pattern, content)
+        return list(set(hashtags))  # Remove duplicates
+    
+    def _extract_mentions(self, content: str) -> List[str]:
+        """Extract @mentions from post content."""
+        mention_pattern = r'@(\w+)'
+        mentions = re.findall(mention_pattern, content)
+        return list(set(mentions))  # Remove duplicates
+    
+    def _parse_linkedin_post(
+        self,
+        url: str,
+        scraped: ScrapedContent,
+        is_connection: Optional[bool] = None
+    ) -> LinkedInPost:
+        """Parse scraped LinkedIn content into a LinkedInPost model."""
+        post_id = self._extract_post_id_from_url(url) or f"post_{hash(url)}"
+        
+        # Extract information from scraped content
+        author_info = self._extract_author_info(scraped.content, url)
+        engagement_metrics = self._extract_engagement_metrics(scraped.content)
+        engagement_score = self._calculate_engagement_score(
+            engagement_metrics["likes"],
+            engagement_metrics["comments"],
+            engagement_metrics["shares"],
+            engagement_metrics["reactions"]
+        )
+        
+        # Extract post content (clean up markdown)
+        post_content = scraped.content
+        # Remove excessive markdown formatting
+        post_content = re.sub(r'#{1,6}\s+', '', post_content)  # Remove headers
+        post_content = re.sub(r'\*\*([^*]+)\*\*', r'\1', post_content)  # Remove bold
+        post_content = post_content.strip()
+        
+        # Extract hashtags and mentions
+        hashtags = self._extract_hashtags(post_content)
+        mentions = self._extract_mentions(post_content)
+        
+        # Extract media URLs from links
+        media_urls = []
+        if scraped.links:
+            for link in scraped.links:
+                if any(ext in link.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.mp4', '.mov']):
+                    media_urls.append(link)
+        
+        return LinkedInPost(
+            post_id=post_id,
+            post_url=url,
+            author_name=author_info["author_name"],
+            author_profile_url=author_info["author_profile_url"],
+            author_title=author_info["author_title"],
+            author_company=author_info["author_company"],
+            content=post_content[:5000],  # Limit content length
+            engagement_metrics=engagement_metrics,
+            engagement_score=engagement_score,
+            post_date=None,  # Would need to parse from content
+            is_connection=is_connection,
+            hashtags=hashtags if hashtags else None,
+            mentions=mentions if mentions else None,
+            media_urls=media_urls if media_urls else None,
+            scraped_at=datetime.utcnow().isoformat() + "Z",
+            metadata={
+                "title": scraped.title,
+                "scraped_url": url,
+            }
+        )
+    
+    def search_posts(
+        self,
+        query: str,
+        industry: Optional[str] = None,
+        include_connections: bool = True,
+        include_non_connections: bool = True,
+        max_results: int = 20,
+        min_engagement_score: Optional[float] = None,
+        sort_by: str = "engagement",
+        filter_by_company: bool = False,
+    ) -> List[LinkedInPost]:
+        """
+        Search for LinkedIn posts matching the query.
+        
+        Args:
+            query: Search query
+            industry: Target industry (e.g., 'SaaS', 'FinTech', 'Healthcare')
+            include_connections: Include posts from connections
+            include_non_connections: Include posts from non-connections
+            max_results: Maximum number of posts to return
+            min_engagement_score: Minimum engagement score filter
+            sort_by: Sort order ('engagement', 'recent', 'relevance')
+            filter_by_company: Filter to only companies in target industry
+            
+        Returns:
+            List of LinkedInPost objects
+        """
+        # Build Google search query for LinkedIn posts with industry targeting
+        base_query = f'site:linkedin.com/posts "{query}"'
+        linkedin_query = self._build_industry_query(base_query, industry)
+        
+        if industry:
+            print(f"  [LinkedIn] Industry targeting: {industry}", flush=True)
+        print(f"  [LinkedIn] Searching with query: {linkedin_query}", flush=True)
+        
+        # Search for LinkedIn post URLs
+        try:
+            search_results = self.search_client.search(
+                query=linkedin_query,
+                num_results=min(max_results * 3, 50),  # Get more URLs to account for scraping failures
+            )
+            print(f"  [LinkedIn] Found {len(search_results)} search results", flush=True)
+        except Exception as e:
+            print(f"  [LinkedIn] Search failed: {e}", flush=True)
+            return []
+        
+        # Filter to only LinkedIn post URLs (multiple patterns)
+        linkedin_urls = []
+        for result in search_results:
+            url = result.link
+            if any(pattern in url for pattern in [
+                'linkedin.com/posts/',
+                'linkedin.com/feed/update/',
+                'linkedin.com/activity/',
+            ]):
+                linkedin_urls.append(url)
+        
+        print(f"  [LinkedIn] Filtered to {len(linkedin_urls)} LinkedIn post URLs", flush=True)
+        
+        if not linkedin_urls:
+            return []
+        
+        # Scrape posts using Firecrawl
+        posts = []
+        successful_scrapes = 0
+        failed_scrapes = 0
+        
+        for i, url in enumerate(linkedin_urls[:max_results * 2], 1):  # Try more URLs to get enough posts
+            try:
+                print(f"  [LinkedIn] Scraping {i}/{len(linkedin_urls[:max_results * 2])}: {url[:80]}...", flush=True)
+                
+                scraped = self.firecrawl_client.scrape_url(
+                    url=url,
+                    formats=["markdown"],
+                    exclude_tags=["script", "style", "nav", "footer", "header"]
+                )
+                
+                # Validate that we got meaningful content
+                if not scraped.content or len(scraped.content.strip()) < 50:
+                    print(f"  [LinkedIn] Skipping {url}: content too short", flush=True)
+                    failed_scrapes += 1
+                    continue
+                
+                # Parse into LinkedInPost
+                post = self._parse_linkedin_post(url, scraped)
+                
+                # Apply filters
+                if min_engagement_score and post.engagement_score:
+                    if post.engagement_score < min_engagement_score:
+                        print(f"  [LinkedIn] Post {post.post_id} filtered out (score {post.engagement_score} < {min_engagement_score})", flush=True)
+                        failed_scrapes += 1
+                        continue
+                
+                # Apply industry filter
+                if industry and not self._is_industry_relevant(post, industry, filter_by_company):
+                    print(f"  [LinkedIn] Post {post.post_id} filtered out (not relevant to {industry})", flush=True)
+                    failed_scrapes += 1
+                    continue
+                
+                posts.append(post)
+                successful_scrapes += 1
+                print(f"  [LinkedIn] ✅ Successfully scraped post {post.post_id} (engagement: {post.engagement_score})", flush=True)
+                
+                # Stop if we have enough posts
+                if len(posts) >= max_results:
+                    break
+                    
+            except Exception as e:
+                print(f"  [LinkedIn] ❌ Failed to scrape {url}: {e}", flush=True)
+                failed_scrapes += 1
+                continue
+        
+        print(f"  [LinkedIn] Scraping complete: {successful_scrapes} successful, {failed_scrapes} failed", flush=True)
+        
+        # Sort posts
+        if sort_by == "engagement":
+            posts.sort(key=lambda p: p.engagement_score or 0, reverse=True)
+        elif sort_by == "recent":
+            # Would need post_date for proper sorting
+            posts.sort(key=lambda p: p.scraped_at, reverse=True)
+        # 'relevance' is default order from search
+        
+        return posts[:max_results]
+    
+    def search_posts_by_topic(
+        self,
+        topics: List[str],
+        industry: Optional[str] = None,
+        max_results: int = 20,
+        min_engagement_score: Optional[float] = None,
+        filter_by_company: bool = False,
+    ) -> List[LinkedInPost]:
+        """
+        Search for LinkedIn posts by topics/keywords.
+        
+        Args:
+            topics: List of topics/keywords to search for
+            industry: Target industry for filtering
+            max_results: Maximum number of posts to return
+            min_engagement_score: Minimum engagement score filter
+            filter_by_company: Filter to only companies in target industry
+            
+        Returns:
+            List of LinkedInPost objects
+        """
+        # Combine topics into search query
+        query = " OR ".join(f'"{topic}"' for topic in topics)
+        return self.search_posts(
+            query=query,
+            industry=industry,
+            max_results=max_results,
+            min_engagement_score=min_engagement_score,
+            filter_by_company=filter_by_company,
+        )
+    
+    def get_industry_insights(
+        self,
+        industry: str,
+        query: Optional[str] = None,
+        max_results: int = 30,
+    ) -> Dict[str, Any]:
+        """
+        Get insights about what works in a specific industry.
+        
+        Analyzes high-engaging posts in the industry to identify patterns.
+        
+        Args:
+            industry: Target industry
+            query: Optional specific query (defaults to industry keywords)
+            max_results: Number of posts to analyze
+            
+        Returns:
+            Dictionary with industry insights
+        """
+        if not query:
+            # Use industry keywords as query
+            if industry.lower() in [k.lower() for k in self.INDUSTRY_KEYWORDS.keys()]:
+                canonical_industry = next(
+                    (k for k in self.INDUSTRY_KEYWORDS.keys() if k.lower() == industry.lower()),
+                    industry
+                )
+                keywords = self.INDUSTRY_KEYWORDS[canonical_industry]
+                query = " OR ".join(keywords[:3])
+            else:
+                query = industry
+        
+        # Search for posts in the industry
+        posts = self.search_posts(
+            query=query,
+            industry=industry,
+            max_results=max_results,
+            min_engagement_score=50.0,  # Focus on high-engaging posts
+            sort_by="engagement",
+        )
+        
+        if not posts:
+            return {
+                "industry": industry,
+                "total_posts_analyzed": 0,
+                "insights": "No posts found for this industry",
+            }
+        
+        # Analyze patterns
+        all_hashtags = {}
+        all_companies = {}
+        all_titles = {}
+        engagement_scores = []
+        content_lengths = []
+        
+        for post in posts:
+            # Hashtags
+            if post.hashtags:
+                for tag in post.hashtags:
+                    all_hashtags[tag] = all_hashtags.get(tag, 0) + 1
+            
+            # Companies
+            if post.author_company:
+                all_companies[post.author_company] = all_companies.get(post.author_company, 0) + 1
+            
+            # Titles
+            if post.author_title:
+                all_titles[post.author_title] = all_titles.get(post.author_title, 0) + 1
+            
+            # Metrics
+            if post.engagement_score:
+                engagement_scores.append(post.engagement_score)
+            content_lengths.append(len(post.content))
+        
+        # Calculate insights
+        top_hashtags = sorted(all_hashtags.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_companies = sorted(all_companies.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_titles = sorted(all_titles.items(), key=lambda x: x[1], reverse=True)[:10]
+        
+        return {
+            "industry": industry,
+            "total_posts_analyzed": len(posts),
+            "average_engagement_score": round(sum(engagement_scores) / len(engagement_scores), 2) if engagement_scores else 0,
+            "average_content_length": round(sum(content_lengths) / len(content_lengths), 0) if content_lengths else 0,
+            "top_hashtags": [{"tag": tag, "count": count} for tag, count in top_hashtags],
+            "top_companies": [{"company": company, "count": count} for company, count in top_companies],
+            "top_job_titles": [{"title": title, "count": count} for title, count in top_titles],
+            "engagement_range": {
+                "min": min(engagement_scores) if engagement_scores else 0,
+                "max": max(engagement_scores) if engagement_scores else 0,
+            },
+            "sample_posts": [
+                {
+                    "post_id": post.post_id,
+                    "author": post.author_name,
+                    "company": post.author_company,
+                    "engagement_score": post.engagement_score,
+                    "content_preview": post.content[:150] + "..." if len(post.content) > 150 else post.content,
+                }
+                for post in posts[:5]  # Top 5 posts
+            ],
+        }
+
+
+# Singleton instance
+_linkedin_client: Optional[LinkedInClient] = None
+
+
+def get_linkedin_client() -> LinkedInClient:
+    """Get or create LinkedIn client instance."""
+    global _linkedin_client
+    if _linkedin_client is None:
+        _linkedin_client = LinkedInClient()
+    return _linkedin_client
+
