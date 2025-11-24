@@ -1,10 +1,14 @@
 import os
 import traceback
+import warnings
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import time
+
+# Suppress Firestore positional argument warnings (harmless, just noise in logs)
+warnings.filterwarnings('ignore', category=UserWarning, message='.*Detected filter using positional arguments.*')
 
 from app.routes import (
     chat, ingest, ingest_drive, knowledge, playbook, 
