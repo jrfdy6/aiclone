@@ -16,7 +16,8 @@ def log_activity(
     title: str,
     message: str,
     metadata: Optional[Dict[str, Any]] = None,
-    link: Optional[str] = None
+    link: Optional[str] = None,
+    broadcast: bool = True
 ) -> str:
     """
     Log an activity event.
@@ -39,6 +40,22 @@ def log_activity(
         
         activity_ref.set(activity_data)
         logger.info(f"Logged activity {activity_id}: {title}")
+        
+        # Broadcast via WebSocket if enabled
+        if broadcast:
+            try:
+                from app.services.websocket_manager import broadcast_activity
+                import asyncio
+                asyncio.create_task(broadcast_activity(
+                    user_id=user_id,
+                    activity_type=activity_type.value,
+                    title=title,
+                    message=message,
+                    metadata=metadata
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to broadcast activity: {e}")
+        
         return activity_id
         
     except Exception as e:

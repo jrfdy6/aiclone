@@ -6,14 +6,20 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import time
 
-from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects, prospects_manual, outreach_manual, calendar, notifications, research_tasks, activity, templates, vault, personas, system_logs, automations
+from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects, prospects_manual, outreach_manual, calendar, notifications, research_tasks, activity, templates, vault, personas, system_logs, automations, websocket, analytics, auth, webhooks
 
 
-app = FastAPI()
+app = FastAPI(
+    title="AI Clone API",
+    description="Comprehensive AI-powered platform for knowledge management, prospecting, and content marketing",
+    version="2.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+)
 
 # Log startup info for debugging
 print(f"🚀 Starting aiclone backend...", flush=True)
-print(f"🔧 Version: 2025-11-17-07:20 (with Firestore get() fix)", flush=True)
+print(f"🔧 Version: 2025-11-24 (Phase 5 - Production Excellence)", flush=True)
 print(f"📊 PORT environment variable: {os.getenv('PORT', 'NOT SET')}", flush=True)
 print(f"📊 FIREBASE_SERVICE_ACCOUNT set: {bool(os.getenv('FIREBASE_SERVICE_ACCOUNT'))}", flush=True)
 print(f"📊 GOOGLE_DRIVE_SERVICE_ACCOUNT set: {bool(os.getenv('GOOGLE_DRIVE_SERVICE_ACCOUNT'))}", flush=True)
@@ -119,6 +125,10 @@ app.include_router(vault.router, prefix="/api/vault")
 app.include_router(personas.router, prefix="/api/personas")
 app.include_router(system_logs.router, prefix="/api/system/logs")
 app.include_router(automations.router, prefix="/api/automations")
+app.include_router(websocket.router, prefix="/api")
+app.include_router(analytics.router, prefix="/api/analytics")
+app.include_router(auth.router, prefix="/api/auth")
+app.include_router(webhooks.router, prefix="/api/webhooks")
 
 
 @app.on_event("startup")
@@ -126,6 +136,7 @@ async def startup_event():
     """Log when the app is fully ready to accept requests."""
     print(f"✅ FastAPI app is ready to accept requests", flush=True)
     print(f"📡 Listening on 0.0.0.0:{os.getenv('PORT', '8080')}", flush=True)
+    print(f"📚 API Documentation available at /api/docs", flush=True)
 
 
 @app.on_event("shutdown")
@@ -136,7 +147,11 @@ async def shutdown_event():
 
 @app.get("/")
 def root():
-    return {"status": "aiclone backend running"}
+    return {
+        "status": "aiclone backend running",
+        "version": "2.0.0",
+        "docs": "/api/docs"
+    }
 
 
 @app.get("/test")
@@ -151,5 +166,6 @@ def health():
     return {
         "status": "healthy",
         "service": "aiclone-backend",
+        "version": "2.0.0",
         "firestore": "available" if firestore_available else "unavailable",
     }
