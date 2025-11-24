@@ -4,8 +4,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getApiUrl } from '@/lib/api-client';
 
-const API_URL = getApiUrl();
-
 type FollowUpEvent = {
   id: string;
   prospect_id: string;
