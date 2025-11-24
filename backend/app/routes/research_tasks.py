@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from app.models.research_tasks import (
     ResearchTaskCreate, ResearchTask, ResearchTaskListResponse,
     ResearchTaskResponse, ResearchInsightsResponse, ResearchInsight,
-    ResearchEngine, ResearchTaskStatus, TaskPriority
+    ResearchEngine, ResearchTaskStatus, TaskPriority, SourceType
 )
 from app.services.research_task_service import (
     create_research_task, get_research_task, list_research_tasks,
