@@ -43,6 +43,15 @@ const features = [
     iconBg: 'bg-orange-100',
   },
   {
+    id: 'prospects',
+    title: 'Prospect Management',
+    description: 'View, manage, and track your prospects with intelligent scoring and filtering.',
+    icon: '👥',
+    href: '/prospects',
+    color: 'bg-teal-50 border-teal-200 hover:bg-teal-100',
+    iconBg: 'bg-teal-100',
+  },
+  {
     id: 'content',
     title: 'Content Marketing Tools',
     description: 'Research topics, analyze competitors, generate content ideas, and optimize for SEO.',
