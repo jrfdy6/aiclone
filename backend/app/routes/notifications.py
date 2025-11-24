@@ -107,9 +107,61 @@ async def list_notifications(
                 # If sorting fails, just return as-is
             
         except Exception as query_error:
+            error_str = str(query_error)
             logger.error(f"Error querying notifications: {query_error}")
-            # Return empty list instead of crashing
-            notifications = []
+            
+            # Check if this is an index error - if so, try simpler query
+            if "requires an index" in error_str.lower() or "index" in error_str.lower():
+                logger.info("Index required, trying simpler query without filters...")
+                try:
+                    # Try querying all notifications for this user without any additional filters
+                    simple_query = db.collection("notifications").where("user_id", "==", user_id)
+                    docs = simple_query.limit(limit).stream()
+                    
+                    for doc in docs:
+                        try:
+                            data = doc.to_dict()
+                            if not data:
+                                continue
+                            
+                            # Filter by read status in Python if needed
+                            if unread_only and data.get("read", False):
+                                continue
+                            
+                            notification_id = doc.id
+                            is_read = data.get("read", False)
+                            if not is_read:
+                                unread_count += 1
+                            
+                            timestamp = data.get("timestamp") or datetime.now().isoformat()
+                            
+                            notification = Notification(
+                                id=notification_id,
+                                type=data.get("type", "info"),
+                                title=data.get("title", ""),
+                                message=data.get("message", ""),
+                                timestamp=timestamp,
+                                read=is_read,
+                                link=data.get("link"),
+                                priority=data.get("priority", "medium"),
+                            )
+                            notifications.append(notification)
+                        except Exception as doc_error:
+                            logger.warning(f"Error processing notification document {doc.id}: {doc_error}")
+                            continue
+                    
+                    # Sort by timestamp
+                    try:
+                        notifications.sort(key=lambda x: x.timestamp, reverse=True)
+                    except:
+                        pass
+                        
+                except Exception as fallback_error:
+                    logger.error(f"Fallback query also failed: {fallback_error}")
+                    notifications = []
+            else:
+                # For other errors, just return empty list
+                notifications = []
         
         # Return success response even if no notifications found
         return NotificationListResponse(
