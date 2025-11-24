@@ -106,6 +106,7 @@ app.include_router(ingest.router, prefix="/api/ingest")
 app.include_router(knowledge.router, prefix="/api/knowledge")
 app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(playbook.router, prefix="/api/playbook")
+app.include_router(prospects.router, prefix="/api/prospects")
 app.include_router(prospects_manual.router, prefix="/api/prospects/manual")
 app.include_router(outreach_manual.router, prefix="/api/outreach/manual")
 

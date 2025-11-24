@@ -34,7 +34,7 @@ export default function ProspectsPage() {
 
   useEffect(() => {
     loadProspects();
-  }, []);
+  }, [statusFilter, sortBy, sortOrder]);
 
   const loadProspects = async () => {
     if (!API_URL) {
@@ -45,9 +45,49 @@ export default function ProspectsPage() {
 
     try {
       setLoading(true);
-      // TODO: Replace with actual API endpoint when available
-      // For now, we'll use mock data to demonstrate the UI
-      const mockProspects: Prospect[] = [
+      const params = new URLSearchParams({
+        user_id: 'dev-user',
+        limit: '500',
+        sort_by: sortBy === 'fit_score' ? 'fit_score' : sortBy === 'company' ? 'company' : 'updated_at',
+        sort_order: sortOrder,
+      });
+      
+      if (statusFilter !== 'all') {
+        params.append('status', statusFilter);
+      }
+
+      const response = await fetch(`${API_URL}/api/prospects/?${params.toString()}`);
+      
+      if (!response.ok) {
+        // If no prospects found or error, fall back to empty array
+        if (response.status === 404) {
+          setProspects([]);
+          setError(null);
+          return;
+        }
+        throw new Error(`Failed to load prospects: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success && data.prospects) {
+        setProspects(data.prospects.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          company: p.company,
+          job_title: p.job_title,
+          email: p.email,
+          fit_score: p.fit_score,
+          status: p.status,
+          tags: p.tags || [],
+          last_action: p.last_action,
+          summary: p.summary || (p.analysis?.summary),
+          pain_points: p.pain_points || [],
+        })));
+        setError(null);
+      } else {
+        // Fallback to mock data if structure is unexpected
+        const mockProspects: Prospect[] = [
         {
           id: '1',
           name: 'Sarah Johnson',
@@ -99,10 +139,11 @@ export default function ProspectsPage() {
         },
       ];
 
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setProspects(mockProspects);
-      setError(null);
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 500));
+        setProspects(mockProspects);
+        setError(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load prospects');
     } finally {
