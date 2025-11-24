@@ -132,7 +132,7 @@ export default function Home() {
             {results.map((result) => (
               <li key={`${result.source_id}-${result.chunk_index}`} className="rounded border p-3">
                 <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
-                  <span>{result.metadata?.file_name ?? result.source_id}</span>
+                  <span>{(result.metadata as any)?.file_name ?? result.source_id}</span>
                   <span>score: {result.similarity_score.toFixed(3)}</span>
                 </div>
                 <p className="mt-2 whitespace-pre-line">{result.chunk}</p>

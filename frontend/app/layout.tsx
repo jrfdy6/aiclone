@@ -1,6 +1,8 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import React from 'react';
+import { Providers } from './providers';
+import Navigation from '@/components/Navigation';
 
 export const metadata: Metadata = {
   title: 'AI Clone',
@@ -14,7 +16,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Providers>
+          <Navigation />
+          {children}
+        </Providers>
+      </body>
     </html>
   );
 }

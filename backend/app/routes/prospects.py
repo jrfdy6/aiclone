@@ -251,6 +251,42 @@ async def approve_prospects(request: ProspectApproveRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Prospect approval failed: {str(e)}")
 
 
+@router.get("/list")
+async def list_prospects(
+    user_id: str = Query(..., description="User identifier"),
+    status: Optional[str] = Query(None, description="Filter by approval_status"),
+    limit: int = Query(100, ge=1, le=500),
+) -> Dict[str, Any]:
+    """
+    List prospects for a user, optionally filtered by status.
+    """
+    try:
+        collection = db.collection("users").document(user_id).collection("prospects")
+        
+        if status:
+            query = collection.where("approval_status", "==", status).limit(limit)
+        else:
+            query = collection.limit(limit)
+        
+        docs = query.get()
+        prospects = []
+        
+        for doc in docs:
+            data = doc.to_dict()
+            data["prospect_id"] = doc.id
+            prospects.append(Prospect(**data))
+        
+        return {
+            "success": True,
+            "prospects": [p.model_dump() for p in prospects],
+            "total": len(prospects),
+        }
+        
+    except Exception as e:
+        logger.exception(f"Error listing prospects: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list prospects: {str(e)}")
+
+
 @router.post("/score", response_model=ProspectScoreResponse)
 async def score_prospects(request: ProspectScoreRequest) -> Dict[str, Any]:
     """
