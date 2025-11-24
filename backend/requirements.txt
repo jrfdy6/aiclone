@@ -23,3 +23,7 @@ pydantic[email]
 passlib[bcrypt]
 bcrypt
 httpx
+transformers
+sentencepiece
+textblob
+nltk

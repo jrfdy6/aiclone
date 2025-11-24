@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import time
 
-from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects, prospects_manual, outreach_manual, calendar, notifications, research_tasks, activity, templates, vault, personas, system_logs, automations, websocket, analytics, auth, webhooks
+from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects, prospects_manual, outreach_manual, calendar, notifications, research_tasks, activity, templates, vault, personas, system_logs, automations, websocket, analytics, auth, webhooks, predictive, recommendations, nlp, content_optimization, bi, advanced_reporting, predictive_insights, multi_format_content, content_library, cross_platform_analytics
 
 
 app = FastAPI(
@@ -129,6 +129,16 @@ app.include_router(websocket.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api/analytics")
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(webhooks.router, prefix="/api/webhooks")
+app.include_router(predictive.router, prefix="/api/predictive")
+app.include_router(recommendations.router, prefix="/api/recommendations")
+app.include_router(nlp.router, prefix="/api/nlp")
+app.include_router(content_optimization.router, prefix="/api/content-optimization")
+app.include_router(bi.router, prefix="/api/bi")
+app.include_router(advanced_reporting.router, prefix="/api/reporting")
+app.include_router(predictive_insights.router, prefix="/api/predictive-insights")
+app.include_router(multi_format_content.router, prefix="/api/content/generate")
+app.include_router(content_library.router, prefix="/api/content-library")
+app.include_router(cross_platform_analytics.router, prefix="/api/analytics/cross-platform")
 
 
 @app.on_event("startup")
