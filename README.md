@@ -39,12 +39,19 @@ aiclone/
 - **Semantic Search**: Cosine similarity search over embedded chunks
 - **Provenance Tracking**: Full metadata (file ID, folder, timestamps, tags)
 
-### 2. Prospecting Workflow
+### 2. Prospecting Workflow (Phases 1-2, Enhanced in Phase 4)
 - **Research Trigger**: Industry/topic research using Perplexity + Firecrawl
 - **Prospect Discovery**: Google Custom Search + web scraping for contact discovery
 - **Hybrid Scoring**: Multi-dimensional fit scoring (fit_score, referral_capacity, signal_strength)
 - **Outreach Generation**: Personalized outreach angles based on research insights
 - **Learning Loop**: Pattern recognition from engagement data to improve targeting
+
+### 2a. Outreach Engine & Automation (Phase 4)
+- **Prospect Segmentation**: Automatic segmentation by audience type (Private school admins, EdTech leaders, Stealth founders)
+- **Outreach Sequences**: Automated multi-step sequences (connection requests, DMs, follow-ups)
+- **Message Personalization**: Segment-specific message variations with pain point targeting
+- **Engagement Tracking**: Comprehensive tracking of outreach response rates and conversions
+- **Calendar & Cadence**: Weekly outreach cadence management and follow-up scheduling
 
 ### 3. Content Marketing
 - **Content Research**: Comprehensive topic research with comparison tables
@@ -553,11 +560,11 @@ The frontend will be available at `http://localhost:3002` (or the port configure
 - System logs
 
 ### ✅ Phase 4: Outreach Engine & Metrics
-- Prospect segmentation
-- Outreach sequences
-- Scoring & prioritization
-- Engagement metrics
-- Learning patterns
+- **Prospect Segmentation**: Divide audience into segments (Private school admins/mental health/referral network, EdTech/AI-savvy leaders, Stealth founder/early adopters)
+- **Outreach Sequences**: Semi-automated DMs, connection requests, and follow-up sequences with variations per segment
+- **Scoring & Prioritization**: Multi-dimensional scoring (Fit, Referral capacity, Signal strength)
+- **Engagement Metrics**: Track LinkedIn posts & reels engagement, prospect & outreach metrics
+- **Learning Patterns**: Pattern recognition from engagement data to improve targeting
 
 ### ✅ Phase 5: Production Excellence
 - WebSocket real-time features
