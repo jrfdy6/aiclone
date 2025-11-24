@@ -4,8 +4,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getApiUrl } from '@/lib/api-client';
 
-const API_URL = getApiUrl();
-
 type Notification = {
   id: string;
   type: 'high_fit' | 'follow_up_overdue' | 'messages_ready' | 'top_prospects' | 'weekly_insights';
@@ -34,7 +32,9 @@ export default function Notifications({ userId = 'dev-user' }: NotificationProps
   }, [userId]);
 
   const loadNotifications = async () => {
-    if (!API_URL) {
+    const apiUrl = getApiUrl();
+    if (!apiUrl) {
+      console.error('NEXT_PUBLIC_API_URL is not configured');
       setLoading(false);
       return;
     }
@@ -45,7 +45,7 @@ export default function Notifications({ userId = 'dev-user' }: NotificationProps
         limit: '50',
       });
 
-      const response = await fetch(`${API_URL}/api/notifications/?${params.toString()}`);
+      const response = await fetch(`${apiUrl}/api/notifications/?${params.toString()}`);
       
       if (response.ok) {
         const data = await response.json();
@@ -135,9 +135,10 @@ export default function Notifications({ userId = 'dev-user' }: NotificationProps
     );
     
     // Update backend
-    if (API_URL) {
+    const apiUrl = getApiUrl();
+    if (apiUrl) {
       try {
-        await fetch(`${API_URL}/api/notifications/${id}/read?user_id=${userId}`, {
+        await fetch(`${apiUrl}/api/notifications/${id}/read?user_id=${userId}`, {
           method: 'PUT',
         });
       } catch (err) {
@@ -151,9 +152,10 @@ export default function Notifications({ userId = 'dev-user' }: NotificationProps
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     
     // Update backend
-    if (API_URL) {
+    const apiUrl = getApiUrl();
+    if (apiUrl) {
       try {
-        await fetch(`${API_URL}/api/notifications/mark-all-read?user_id=${userId}`, {
+        await fetch(`${apiUrl}/api/notifications/mark-all-read?user_id=${userId}`, {
           method: 'POST',
         });
       } catch (err) {
