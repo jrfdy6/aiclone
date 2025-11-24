@@ -180,3 +180,4 @@ async def get_learning_patterns(
 
 
 
+

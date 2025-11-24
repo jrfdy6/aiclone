@@ -1,0 +1,39 @@
+{
+  "instructions": "These are the 3 sample drafts ready to persist to Firestore. Use POST /api/linkedin/content/drafts/store with user_id and these drafts.",
+  
+  "sample_request_for_store_endpoint": {
+    "user_id": "your-user-id",
+    "drafts": [
+      {
+        "title": "Thought Leadership - AI as a co-teacher in K-12",
+        "content": "AI won't replace teachers — but it can amplify the one-to-one care our students need.\n\nIn classrooms with constrained staffing, small automation wins free teachers to do what humans do best: read, observe, and respond. Practical starts I recommend:\n\n1. Use AI to surface early behavioral patterns (5–10 min weekly reports).\n2. Automate administrative notes so teachers spend less time on logging.\n3. Run quick A/B experiments on learning prompts and scale what works.\n\nIf you lead a school, what's one small admin task you'd offload today to reclaim teacher time?",
+        "pillar": "thought_leadership",
+        "topic": "AI as a co-teacher in K–12",
+        "suggested_hashtags": ["#EdTech", "#AIinEducation", "#K12", "#Neurodiversity", "#Education"],
+        "engagement_hook": "What's one small admin task you'd offload today?",
+        "status": "draft"
+      },
+      {
+        "title": "Thought Leadership - Ethical guardrails when using AI in specialized education",
+        "content": "When we bring AI into schools that serve neurodivergent students, ethics can't be an afterthought. Design guardrails that protect dignity and context:\n\n• Consent + transparency: students, families, and therapists should know what's tracked.\n• Human-in-the-loop: every recommendation needs a teacher/clinician check.\n• Data minimization: collect only what improves outcomes.\n\nThese are practical, not philosophical. If your district had to adopt 1 rule today, which would you pick?",
+        "pillar": "thought_leadership",
+        "topic": "Ethical guardrails when using AI in specialized education",
+        "suggested_hashtags": ["#EthicalAI", "#EdLeaders", "#SpecialEducation", "#AIinEducation", "#K12"],
+        "engagement_hook": "Which single rule would you adopt first?",
+        "status": "draft"
+      },
+      {
+        "title": "Referral - Practical referral step for mental health pros",
+        "content": "Referral systems fail when they're friction-heavy. For partners: a one-page referral summary (student goal + current supports + contact) reduces back-and-forth and speeds placement.\n\nQuick checklist for partners to build today:\n\n1. One-paragraph student summary.\n2. Three current accommodations.\n3. Two prioritized goals for school placement.\n\nIf you work in referrals — do you have a one-pager already, or is it still a wish-list?",
+        "pillar": "referral",
+        "topic": "Practical referral step for mental health pros",
+        "suggested_hashtags": ["#SchoolReferrals", "#MentalHealth", "#EducationPartners", "#K12", "#Neurodiversity"],
+        "engagement_hook": "Do you have a one-pager, or is it still a wish-list?",
+        "status": "draft"
+      }
+    ]
+  },
+  
+  "curl_command_example": "curl -X POST 'https://your-backend.up.railway.app/api/linkedin/content/drafts/store' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"user_id\": \"your-user-id\",\n    \"drafts\": [\n      {\n        \"title\": \"Thought Leadership - AI as a co-teacher in K-12\",\n        \"content\": \"AI won'\''t replace teachers — but it can amplify the one-to-one care our students need...\",\n        \"pillar\": \"thought_leadership\",\n        \"topic\": \"AI as a co-teacher in K–12\",\n        \"suggested_hashtags\": [\"#EdTech\", \"#AIinEducation\", \"#K12\", \"#Neurodiversity\", \"#Education\"],\n        \"engagement_hook\": \"What'\''s one small admin task you'\''d offload today?\",\n        \"status\": \"draft\"\n      },\n      {\n        \"title\": \"Thought Leadership - Ethical guardrails when using AI in specialized education\",\n        \"content\": \"When we bring AI into schools that serve neurodivergent students, ethics can'\''t be an afterthought...\",\n        \"pillar\": \"thought_leadership\",\n        \"topic\": \"Ethical guardrails when using AI in specialized education\",\n        \"suggested_hashtags\": [\"#EthicalAI\", \"#EdLeaders\", \"#SpecialEducation\", \"#AIinEducation\", \"#K12\"],\n        \"engagement_hook\": \"Which single rule would you adopt first?\",\n        \"status\": \"draft\"\n      },\n      {\n        \"title\": \"Referral - Practical referral step for mental health pros\",\n        \"content\": \"Referral systems fail when they'\''re friction-heavy. For partners: a one-page referral summary...\",\n        \"pillar\": \"referral\",\n        \"topic\": \"Practical referral step for mental health pros\",\n        \"suggested_hashtags\": [\"#SchoolReferrals\", \"#MentalHealth\", \"#EducationPartners\", \"#K12\", \"#Neurodiversity\"],\n        \"engagement_hook\": \"Do you have a one-pager, or is it still a wish-list?\",\n        \"status\": \"draft\"\n      }\n    ]\n  }'"
+}
+

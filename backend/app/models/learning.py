@@ -47,3 +47,4 @@ class GetPatternsResponse(BaseModel):
 
 
 
+

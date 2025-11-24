@@ -192,3 +192,4 @@ Use Firecrawl MCP to scrape https://example.com and summarize the main content.
 **Ready to update?** Replace the placeholders in `cursor_mcp_config.json` with your new keys, then follow the steps above!
 
 
+

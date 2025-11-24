@@ -9,7 +9,8 @@ import time
 from app.routes import (
     chat, ingest, ingest_drive, knowledge, playbook, 
     prospects_manual, outreach_manual, content_marketing,
-    research, prospects, metrics, learning, linkedin, linkedin_content
+    research, prospects, metrics, learning, linkedin, linkedin_content,
+    comprehensive_content, enhanced_research, outreach_engine, enhanced_metrics
 )
 
 
@@ -117,6 +118,7 @@ app.include_router(content_marketing.router, prefix="/api/content")
 
 # New prospecting workflow routes
 app.include_router(research.router, prefix="/api/research")
+app.include_router(enhanced_research.router, prefix="/api/research/enhanced")
 app.include_router(prospects.router, prefix="/api/prospects")
 app.include_router(metrics.router, prefix="/api/metrics")
 app.include_router(learning.router, prefix="/api/learning")
@@ -126,6 +128,15 @@ app.include_router(linkedin.router, prefix="/api/linkedin")
 
 # LinkedIn content management routes (PACER strategy)
 app.include_router(linkedin_content.router, prefix="/api/linkedin/content")
+
+# Comprehensive content generation routes (100+ variations, 20+ types)
+app.include_router(comprehensive_content.router, prefix="/api/content")
+
+# Outreach Engine routes (segmentation, sequences, scoring, cadence)
+app.include_router(outreach_engine.router, prefix="/api/outreach")
+
+# Enhanced Metrics & Learning routes (content metrics, prospect metrics, learning patterns, weekly reports)
+app.include_router(enhanced_metrics.router, prefix="/api/metrics/enhanced")
 
 
 @app.on_event("startup")

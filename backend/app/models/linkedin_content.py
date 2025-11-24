@@ -144,3 +144,78 @@ class StoreDraftResponse(BaseModel):
     stored_count: int
     drafts: List[ContentDraft]
 
+
+class GenerateDailyPacerRequest(BaseModel):
+    """Request to generate daily PACER content."""
+    user_id: str = Field(..., description="User ID")
+    num_posts: int = Field(3, ge=1, le=10, description="Number of posts to generate (default: 3)")
+    include_stealth_founder: bool = Field(False, description="Include stealth founder content (10% of mix)")
+
+
+class GenerateDailyPacerResponse(BaseModel):
+    """Response from daily PACER generation."""
+    success: bool
+    posts_generated: int
+    draft_ids: List[str]
+    drafts: List[ContentDraft] = Field(default_factory=list, description="Full draft objects")
+    pillar_distribution: Dict[str, int] = Field(default_factory=dict, description="Count of posts per pillar")
+
+
+class GenerateWeeklyPacerRequest(BaseModel):
+    """Request to generate weekly PACER content with enhanced options."""
+    user_id: str = Field(..., description="User ID")
+    num_posts: int = Field(3, ge=1, le=10, description="Number of posts to generate (default: 3)")
+    include_stealth_founder: bool = Field(False, description="Include stealth founder content (10% of mix)")
+    topic_overrides: List[str] = Field(default_factory=list, description="Optional list of preferred topics to prioritize")
+    use_cached_research: bool = Field(True, description="Prefer Firestore cache to save API calls")
+
+
+class DraftSummary(BaseModel):
+    """Summary of a generated draft."""
+    draft_id: str
+    pillar: str
+    topic: str
+
+
+class GenerateWeeklyPacerResponse(BaseModel):
+    """Response from weekly PACER generation with enhanced summary."""
+    success: bool
+    generated: int
+    draft_ids: List[str]
+    summary: List[DraftSummary] = Field(default_factory=list, description="Summary of generated drafts")
+    drafts: List[ContentDraft] = Field(default_factory=list, description="Full draft objects (optional)")
+
+
+class EngagementDMRequest(BaseModel):
+    """Request to generate DM templates for engagement conversion."""
+    user_id: str = Field(..., description="User ID")
+    prospect_name: str = Field(..., description="First name of the prospect")
+    engagement_type: str = Field(..., description="Type: 'comment', 'connection', 'like'")
+    topic: Optional[str] = Field(None, description="Topic they engaged with")
+    num_variants: int = Field(2, ge=1, le=5, description="Number of DM variants to generate")
+
+
+class EngagementDMResponse(BaseModel):
+    """Response with DM template variants."""
+    success: bool
+    engagement_type: str
+    variants: List[Dict[str, str]] = Field(default_factory=list, description="List of DM variants with 'variant' and 'message' fields")
+
+
+class WeeklySummaryRequest(BaseModel):
+    """Request to generate weekly summary."""
+    user_id: str = Field(..., description="User ID")
+    week_start_date: Optional[float] = Field(None, description="Unix timestamp for week start (default: last 7 days)")
+
+
+class WeeklySummaryResponse(BaseModel):
+    """Response with weekly summary data."""
+    success: bool
+    week_start: float
+    week_end: float
+    total_posts: int
+    top_pillar: Optional[str] = None
+    top_hashtags: List[Dict[str, Any]] = Field(default_factory=list)
+    suggested_topics: List[str] = Field(default_factory=list)
+    avg_engagement_rate: Optional[float] = None
+

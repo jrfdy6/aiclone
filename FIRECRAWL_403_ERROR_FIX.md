@@ -151,3 +151,4 @@ If 403 errors persist:
 - `backend/app/services/firecrawl_client.py` - Enhanced error handling
 - `backend/app/services/linkedin_client.py` - 403 detection and graceful degradation
 
+
