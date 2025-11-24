@@ -84,7 +84,7 @@ def list_research_tasks(
     user_id: str,
     status: Optional[str] = None,
     limit: int = 100
-) -> list[ResearchTask]:
+) -> List[ResearchTask]:
     """List research tasks for a user."""
     try:
         query = db.collection("research_tasks").where("user_id", "==", user_id)
