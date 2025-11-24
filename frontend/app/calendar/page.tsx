@@ -37,7 +37,8 @@ export default function CalendarPage() {
   }, [currentDate]);
 
   const loadEvents = async () => {
-    if (!API_URL) {
+    const apiUrl = getApiUrl();
+    if (!apiUrl) {
       setError('API URL not configured');
       setLoading(false);
       return;
@@ -61,7 +62,7 @@ export default function CalendarPage() {
         limit: '500',
       });
 
-      const response = await fetch(`${API_URL}/api/calendar/?${params.toString()}`);
+      const response = await fetch(`${apiUrl}/api/calendar/?${params.toString()}`);
       
       if (response.ok) {
         const data = await response.json();
