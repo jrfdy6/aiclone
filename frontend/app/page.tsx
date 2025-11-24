@@ -52,6 +52,15 @@ const features = [
     iconBg: 'bg-teal-100',
   },
   {
+    id: 'calendar',
+    title: 'Follow-Up Calendar',
+    description: 'Schedule, track, and manage your outreach follow-ups with drag-and-drop calendar.',
+    icon: '📅',
+    href: '/calendar',
+    color: 'bg-pink-50 border-pink-200 hover:bg-pink-100',
+    iconBg: 'bg-pink-100',
+  },
+  {
     id: 'content',
     title: 'Content Marketing Tools',
     description: 'Research topics, analyze competitors, generate content ideas, and optimize for SEO.',
