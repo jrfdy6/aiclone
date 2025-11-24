@@ -1,35 +1,22 @@
 import os
 import traceback
-import warnings
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import time
 
-# Suppress Firestore positional argument warnings (harmless, just noise in logs)
-warnings.filterwarnings('ignore', category=UserWarning, message='.*Detected filter using positional arguments.*')
-
-from app.routes import (
-    chat, ingest, ingest_drive, knowledge, playbook, 
-    prospects_manual, outreach_manual, content_marketing,
-    research, prospects, metrics, learning, linkedin, linkedin_content,
-    comprehensive_content, enhanced_research, outreach_engine, enhanced_metrics
-)
+from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects_manual, outreach_manual
 
 
 app = FastAPI()
 
 # Log startup info for debugging
 print(f"🚀 Starting aiclone backend...", flush=True)
-print(f"🔧 Version: 2025-11-23-12:00 (Perplexity timeout fix: 900s)", flush=True)
+print(f"🔧 Version: 2025-11-17-07:20 (with Firestore get() fix)", flush=True)
 print(f"📊 PORT environment variable: {os.getenv('PORT', 'NOT SET')}", flush=True)
 print(f"📊 FIREBASE_SERVICE_ACCOUNT set: {bool(os.getenv('FIREBASE_SERVICE_ACCOUNT'))}", flush=True)
 print(f"📊 GOOGLE_DRIVE_SERVICE_ACCOUNT set: {bool(os.getenv('GOOGLE_DRIVE_SERVICE_ACCOUNT'))}", flush=True)
-print(f"📊 GOOGLE_CUSTOM_SEARCH_API_KEY set: {bool(os.getenv('GOOGLE_CUSTOM_SEARCH_API_KEY'))}", flush=True)
-print(f"📊 GOOGLE_CUSTOM_SEARCH_ENGINE_ID set: {bool(os.getenv('GOOGLE_CUSTOM_SEARCH_ENGINE_ID'))}", flush=True)
-print(f"📊 PERPLEXITY_API_KEY set: {bool(os.getenv('PERPLEXITY_API_KEY'))}", flush=True)
-print(f"📊 FIRECRAWL_API_KEY set: {bool(os.getenv('FIRECRAWL_API_KEY'))}", flush=True)
 
 # Startup verification - test Firebase connection
 print(f"🔍 Verifying Firebase connection...", flush=True)
@@ -47,7 +34,10 @@ except Exception as e:
 default_cors_origins = [
     "http://localhost:3002",
     "http://127.0.0.1:3002",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "https://aiclone-production-32dc.up.railway.app",
+    # Railway frontend URLs (wildcard pattern - will be added via environment variable)
 ]
 
 # Allow additional CORS origins via environment variable (comma-separated)
@@ -118,29 +108,6 @@ app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(playbook.router, prefix="/api/playbook")
 app.include_router(prospects_manual.router, prefix="/api/prospects/manual")
 app.include_router(outreach_manual.router, prefix="/api/outreach/manual")
-app.include_router(content_marketing.router, prefix="/api/content")
-
-# New prospecting workflow routes
-app.include_router(research.router, prefix="/api/research")
-app.include_router(enhanced_research.router, prefix="/api/research/enhanced")
-app.include_router(prospects.router, prefix="/api/prospects")
-app.include_router(metrics.router, prefix="/api/metrics")
-app.include_router(learning.router, prefix="/api/learning")
-
-# LinkedIn post search routes
-app.include_router(linkedin.router, prefix="/api/linkedin")
-
-# LinkedIn content management routes (PACER strategy)
-app.include_router(linkedin_content.router, prefix="/api/linkedin/content")
-
-# Comprehensive content generation routes (100+ variations, 20+ types)
-app.include_router(comprehensive_content.router, prefix="/api/content")
-
-# Outreach Engine routes (segmentation, sequences, scoring, cadence)
-app.include_router(outreach_engine.router, prefix="/api/outreach")
-
-# Enhanced Metrics & Learning routes (content metrics, prospect metrics, learning patterns, weekly reports)
-app.include_router(enhanced_metrics.router, prefix="/api/metrics/enhanced")
 
 
 @app.on_event("startup")
