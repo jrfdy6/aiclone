@@ -7,6 +7,7 @@ import time
 import re
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from app.services.search_client import get_search_client
 from app.services.firecrawl_client import get_firecrawl_client
@@ -23,6 +24,20 @@ from app.models.prospect import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def get_research_insights(user_id: str, research_ids: List[str]) -> List[Dict[str, Any]]:
+    """Fetch research insights from Firestore."""
+    insights = []
+    for research_id in research_ids:
+        try:
+            doc_ref = db.collection("users").document(user_id).collection("research_insights").document(research_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                insights.append(doc.to_dict())
+        except Exception as e:
+            logger.warning(f"Error fetching research {research_id}: {e}")
+    return insights
 
 
 def extract_prospect_info(html_content: str, url: str) -> Optional[Dict[str, Any]]:
@@ -304,6 +319,140 @@ async def score_prospects(request: ProspectScoreRequest) -> Dict[str, Any]:
     except Exception as e:
         logger.exception(f"Error scoring prospects: {e}")
         raise HTTPException(status_code=500, detail=f"Prospect scoring failed: {str(e)}")
+
+
+class ProspectOutreachRequest(BaseModel):
+    """Request to generate outreach for prospects."""
+    user_id: str = Field(..., description="User ID")
+    prospect_id: str = Field(..., description="Prospect ID")
+    outreach_type: str = Field("dm", description="Type: 'connection_request', 'dm', 'follow_up'")
+    use_research_insights: bool = Field(True, description="Use linked research insights")
+    tone: Optional[str] = Field("professional and authentic", description="Desired tone")
+
+
+class ProspectOutreachResponse(BaseModel):
+    """Response containing generated outreach."""
+    success: bool
+    prospect_id: str
+    outreach_type: str
+    variants: List[Dict[str, str]] = Field(default_factory=list, description="Multiple outreach variants")
+    suggested_timing: Optional[str] = Field(None, description="Suggested send timing")
+
+
+@router.post("/outreach", response_model=ProspectOutreachResponse)
+async def generate_prospect_outreach(request: ProspectOutreachRequest) -> Dict[str, Any]:
+    """
+    Generate personalized outreach (connection requests, DMs, follow-ups) for a prospect.
+    
+    This endpoint integrates with research insights and prospect scoring to create
+    personalized messages that align with the PACER strategy.
+    """
+    try:
+        # Fetch prospect data
+        prospect_ref = db.collection("users").document(request.user_id).collection("prospects").document(request.prospect_id)
+        prospect_doc = prospect_ref.get()
+        
+        if not prospect_doc.exists:
+            raise HTTPException(status_code=404, detail="Prospect not found")
+        
+        prospect_data = prospect_doc.to_dict()
+        
+        # Only generate outreach for approved prospects
+        if prospect_data.get("approval_status") != "approved":
+            raise HTTPException(
+                status_code=400,
+                detail="Prospect must be approved before generating outreach"
+            )
+        
+        # Get research insights if needed
+        research_insights = []
+        if request.use_research_insights and prospect_data.get("linked_research_ids"):
+            research_insights = get_research_insights(request.user_id, prospect_data.get("linked_research_ids", []))
+        
+        # Build outreach generation prompt (similar to linkedin_content endpoint)
+        prompt_parts = [
+            f"Generate personalized LinkedIn {request.outreach_type} for a prospect.",
+            f"\nProspect: {prospect_data.get('name', 'Unknown')}",
+            f"Title: {prospect_data.get('job_title', 'Unknown')}",
+            f"Company: {prospect_data.get('company', 'Unknown')}",
+        ]
+        
+        if prospect_data.get("best_outreach_angle"):
+            prompt_parts.append(f"Suggested Angle: {prospect_data['best_outreach_angle']}")
+        
+        if research_insights:
+            prompt_parts.append("\nResearch Context:")
+            for insight in research_insights[:1]:
+                if insight.get("summary"):
+                    prompt_parts.append(f"- {insight['summary'][:200]}")
+                if insight.get("trending_pains"):
+                    prompt_parts.append(f"- Pain Points: {', '.join(insight['trending_pains'][:3])}")
+        
+        # Generate variants based on outreach type
+        variants = []
+        prospect_name = prospect_data.get("name", "there")
+        company = prospect_data.get("company", "your company")
+        job_title = prospect_data.get("job_title", "")
+        outreach_angle = prospect_data.get("best_outreach_angle", "value-focused approach")
+        
+        if request.outreach_type == "connection_request":
+            variants = [
+                {
+                    "variant": 1,
+                    "message": f"Hi {prospect_name}, I saw your work in {job_title} at {company}. I'd love to connect and share insights about {outreach_angle.lower()}.",
+                },
+                {
+                    "variant": 2,
+                    "message": f"Hi {prospect_name}, I'm also working in the education/EdTech space and would value connecting with someone in your role at {company}.",
+                },
+                {
+                    "variant": 3,
+                    "message": f"Hi {prospect_name}, I noticed we have shared interests in {outreach_angle.lower()}. Would love to connect!",
+                },
+            ]
+        elif request.outreach_type == "dm":
+            variants = [
+                {
+                    "variant": 1,
+                    "message": f"Hi {prospect_name}, I saw your recent post about [relevant topic]. {outreach_angle}. Would you be open to a quick conversation about how we might help {company} with this?",
+                },
+                {
+                    "variant": 2,
+                    "message": f"Hi {prospect_name}, I've been researching {outreach_angle.lower()} and your perspective at {company} would be valuable. Any chance you'd be open to a brief chat?",
+                },
+                {
+                    "variant": 3,
+                    "message": f"Hi {prospect_name}, based on your role at {company}, I thought you might find this relevant: [specific insight from research]. Worth exploring?",
+                },
+            ]
+        else:  # follow_up
+            variants = [
+                {
+                    "variant": 1,
+                    "message": f"Hi {prospect_name}, following up on my previous message. I wanted to share a quick insight about {outreach_angle.lower()} that might be relevant for {company}.",
+                },
+                {
+                    "variant": 2,
+                    "message": f"Hi {prospect_name}, I know you're busy, but this might be worth 5 minutes: [specific value proposition]. Still interested?",
+                },
+            ]
+        
+        # For production, these would be generated by an LLM based on the prompt
+        # For now, return structured variants
+        
+        return ProspectOutreachResponse(
+            success=True,
+            prospect_id=request.prospect_id,
+            outreach_type=request.outreach_type,
+            variants=variants,
+            suggested_timing="Tuesday-Thursday, 9-11am or 2-4pm EST",
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error generating prospect outreach: {e}")
+        raise HTTPException(status_code=500, detail=f"Outreach generation failed: {str(e)}")
 
 
 

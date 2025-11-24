@@ -9,7 +9,7 @@ import time
 from app.routes import (
     chat, ingest, ingest_drive, knowledge, playbook, 
     prospects_manual, outreach_manual, content_marketing,
-    research, prospects, metrics, learning
+    research, prospects, metrics, learning, linkedin, linkedin_content
 )
 
 
@@ -120,6 +120,12 @@ app.include_router(research.router, prefix="/api/research")
 app.include_router(prospects.router, prefix="/api/prospects")
 app.include_router(metrics.router, prefix="/api/metrics")
 app.include_router(learning.router, prefix="/api/learning")
+
+# LinkedIn post search routes
+app.include_router(linkedin.router, prefix="/api/linkedin")
+
+# LinkedIn content management routes (PACER strategy)
+app.include_router(linkedin_content.router, prefix="/api/linkedin/content")
 
 
 @app.on_event("startup")
