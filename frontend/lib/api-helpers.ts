@@ -29,19 +29,71 @@ async function apiRequest<T>(
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
+}
+
+// Type definitions for API responses
+export interface ResearchTask {
+  id: string;
+  user_id: string;
+  title: string;
+  input_source: string;
+  source_type: 'keywords' | 'urls' | 'profile';
+  research_engine: 'perplexity' | 'firecrawl' | 'google_search';
+  status: 'queued' | 'running' | 'done' | 'failed';
+  priority: 'high' | 'medium' | 'low';
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
+  outputs_available: boolean;
+  result_id?: string | null;
+}
+
+export interface ResearchTaskListResponse {
+  success: boolean;
+  tasks: ResearchTask[];
+  total: number;
+}
+
+export interface ResearchTaskResponse {
+  success: boolean;
+  task: ResearchTask;
+}
+
+export interface ResearchInsightsResponse {
+  success: boolean;
+  task_id: string;
+  task_title: string;
+  insights: {
+    summary: string;
+    pain_points: string[];
+    opportunities: string[];
+    suggested_outreach: string[];
+    content_angles: string[];
+    key_findings: string[];
+    sources: Array<{ url: string; title?: string }>;
+  };
 }
 
 // Research Tasks API
 export const researchTasksAPI = {
-  list: (userId: string, params?: { status?: string; limit?: number }) => {
+  list: (userId: string, params?: { status?: string; limit?: number }): Promise<ResearchTaskListResponse> => {
     const query = new URLSearchParams({ user_id: userId, ...params as any });
-    return apiRequest(`/api/research-tasks?${query}`);
+    return apiRequest<ResearchTaskListResponse>(`/api/research-tasks?${query}`);
   },
-  get: (taskId: string) => apiRequest(`/api/research-tasks/${taskId}`),
-  create: (data: any) => apiRequest('/api/research-tasks', { method: 'POST', body: JSON.stringify(data) }),
-  run: (taskId: string) => apiRequest(`/api/research-tasks/${taskId}/run`, { method: 'POST' }),
-  getInsights: (taskId: string) => apiRequest(`/api/research-tasks/${taskId}/insights`),
+  get: (taskId: string): Promise<ResearchTaskResponse> => {
+    return apiRequest<ResearchTaskResponse>(`/api/research-tasks/${taskId}`);
+  },
+  create: (data: any): Promise<ResearchTaskResponse> => {
+    return apiRequest<ResearchTaskResponse>('/api/research-tasks', { method: 'POST', body: JSON.stringify(data) });
+  },
+  run: (taskId: string): Promise<ResearchTaskResponse> => {
+    return apiRequest<ResearchTaskResponse>(`/api/research-tasks/${taskId}/run`, { method: 'POST' });
+  },
+  getInsights: (taskId: string): Promise<ResearchInsightsResponse> => {
+    return apiRequest<ResearchInsightsResponse>(`/api/research-tasks/${taskId}/insights`);
+  },
 };
 
 // Activity API
