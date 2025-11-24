@@ -58,7 +58,13 @@ async def list_notifications(
         if unread_only:
             query = query.where("read", "==", False)
         
-        docs = query.order_by("timestamp", direction="DESCENDING").limit(limit).stream()
+        # Try to order by timestamp, but fallback if index doesn't exist
+        try:
+            docs = query.order_by("timestamp", direction="DESCENDING").limit(limit).stream()
+        except Exception as order_error:
+            # If order_by fails (no index), just get documents without ordering
+            logger.warning(f"Order by timestamp failed, fetching without order: {order_error}")
+            docs = query.limit(limit).stream()
         
         notifications = []
         unread_count = 0
@@ -82,6 +88,12 @@ async def list_notifications(
                 priority=data.get("priority", "medium"),
             )
             notifications.append(notification)
+        
+        # Sort by timestamp in Python if order_by didn't work
+        try:
+            notifications.sort(key=lambda x: x.timestamp, reverse=True)
+        except:
+            pass
         
         return NotificationListResponse(
             success=True,
