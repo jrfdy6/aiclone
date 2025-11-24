@@ -34,6 +34,7 @@ class ContentDraft(BaseModel):
     title: Optional[str] = Field(None, description="Draft title/headline")
     content: str = Field(..., description="Post content/text")
     pillar: ContentPillar = Field(..., description="Content pillar this belongs to")
+    topic: Optional[str] = Field(None, description="Topic/subject of the post")
     suggested_hashtags: List[str] = Field(default_factory=list, description="Suggested hashtags")
     engagement_hook: Optional[str] = Field(None, description="Engagement hook/question")
     stealth_founder_mention: bool = Field(False, description="Whether this includes stealth founder angle")
@@ -129,4 +130,17 @@ class OutreachResponse(BaseModel):
     variants: List[Dict[str, str]] = Field(default_factory=list, description="Multiple outreach variants")
     suggested_timing: Optional[str] = Field(None, description="Suggested send timing")
     personalization_notes: Optional[str] = Field(None, description="Notes on personalization used")
+
+
+class StoreDraftRequest(BaseModel):
+    """Request to store manually generated drafts."""
+    user_id: str = Field(..., description="User ID")
+    drafts: List[Dict[str, Any]] = Field(..., description="List of draft objects with title, content, pillar, etc.")
+
+
+class StoreDraftResponse(BaseModel):
+    """Response from storing drafts."""
+    success: bool
+    stored_count: int
+    drafts: List[ContentDraft]
 

@@ -27,6 +27,8 @@ from app.models.linkedin_content import (
     EngagementMetricsUpdate,
     OutreachRequest,
     OutreachResponse,
+    StoreDraftRequest,
+    StoreDraftResponse,
     ContentPillar,
     ContentStatus,
 )
@@ -177,6 +179,7 @@ async def generate_content_drafts(request: ContentDraftRequest) -> Dict[str, Any
                 title=f"{request.pillar.value.title()} Content Draft {i+1}",
                 content=draft_content,
                 pillar=request.pillar,
+                topic=request.topic,
                 suggested_hashtags=["EdTech", "AI", "Education", "Startup"] if i == 0 else ["MentalHealth", "Education", "Support"],
                 engagement_hook="What's your experience with this?",
                 stealth_founder_mention=request.include_stealth_founder and i == 0,
@@ -211,48 +214,110 @@ async def generate_content_draft_prompt(request: ContentDraftRequest) -> Dict[st
     Generate a prompt for manual content drafting in ChatGPT/Claude.
     
     Returns a formatted prompt that can be copy-pasted into an LLM for content generation.
+    Includes research insights and LinkedIn post inspiration for better results.
     """
     try:
-        # Same logic as generate_content_drafts but return prompt instead
+        # Step 1: Gather context from research insights
         research_insights = []
         if request.linked_research_ids:
             research_insights = get_research_insights(request.user_id, request.linked_research_ids)
         
+        # Step 2: Get LinkedIn post inspiration if needed
+        linkedin_posts = []
+        if not request.linked_research_ids:
+            # Auto-search for high-performing posts in target niches
+            linkedin_client = get_linkedin_client()
+            
+            pillar_queries = {
+                ContentPillar.REFERRAL: "private school admin mental health treatment center education",
+                ContentPillar.THOUGHT_LEADERSHIP: "EdTech business leader AI education technology",
+                ContentPillar.STEALTH_FOUNDER: "stealth startup founder early adopter investor",
+                ContentPillar.MIXED: "EdTech AI education technology startup",
+            }
+            
+            query = pillar_queries.get(request.pillar, "EdTech AI education")
+            try:
+                posts_result = linkedin_client.search_posts(
+                    query=query,
+                    max_results=5,
+                    sort_by="engagement",
+                    min_engagement_score=10.0,
+                )
+                linkedin_posts = posts_result[:5]  # Top 5 posts
+            except Exception as e:
+                logger.warning(f"LinkedIn search failed during prompt generation: {e}")
+                linkedin_posts = []
+        
+        # Step 3: Build comprehensive prompt
         prompt_parts = [
-            "You are an expert LinkedIn content creator specializing in B2B thought leadership.",
+            "You are an expert LinkedIn content creator specializing in B2B thought leadership and authentic engagement.",
             f"\nGenerate {request.num_drafts} LinkedIn post variants for a PACER content strategy.",
             f"\nContent Pillar: {request.pillar.value}",
         ]
         
         if request.topic:
-            prompt_parts.append(f"Topic: {request.topic}")
+            prompt_parts.append(f"\nTopic: {request.topic}")
         
         # Add pillar-specific guidance
-        pillar_guidance = {
-            ContentPillar.REFERRAL: "Target: Private school admins, mental health pros. Goal: Build referral network.",
-            ContentPillar.THOUGHT_LEADERSHIP: "Target: EdTech business leaders. Goal: Establish thought leadership.",
-            ContentPillar.STEALTH_FOUNDER: "Target: Early adopters, investors. Use sparingly (5-10% of content).",
-            ContentPillar.MIXED: "Target: Mixed audience across EdTech, AI, and education.",
-        }
-        prompt_parts.append(pillar_guidance.get(request.pillar, ""))
+        if request.pillar == ContentPillar.REFERRAL:
+            prompt_parts.append("\nTarget Audience: Private school administrators, mental health professionals, treatment centers")
+            prompt_parts.append("Goal: Build referral network, share insights about educational support services")
+        elif request.pillar == ContentPillar.THOUGHT_LEADERSHIP:
+            prompt_parts.append("\nTarget Audience: EdTech business leaders, AI-savvy executives")
+            prompt_parts.append("Goal: Establish thought leadership, share industry insights")
+        elif request.pillar == ContentPillar.STEALTH_FOUNDER:
+            prompt_parts.append("\nTarget Audience: Early adopters, investors, stealth founders")
+            prompt_parts.append("Goal: Connect with like-minded entrepreneurs (use sparingly - 5-10% of content)")
         
         if research_insights:
-            prompt_parts.append("\nResearch Context:")
-            for insight in research_insights:
+            prompt_parts.append("\nResearch Insights:")
+            for insight in research_insights[:2]:  # Use top 2 insights
                 if insight.get("summary"):
-                    prompt_parts.append(f"- {insight['summary']}")
+                    prompt_parts.append(f"- {insight['summary'][:200]}")
                 if insight.get("keywords"):
-                    prompt_parts.append(f"- Keywords: {', '.join(insight['keywords'])}")
+                    prompt_parts.append(f"- Keywords: {', '.join(insight['keywords'][:5])}")
+        
+        if linkedin_posts:
+            prompt_parts.append("\nHigh-Performing Post Inspiration:")
+            for post in linkedin_posts[:2]:
+                prompt_parts.append(f"- Post snippet: {post.content[:200]}...")
+                if post.hashtags:
+                    prompt_parts.append(f"  Hashtags used: {', '.join(post.hashtags[:5])}")
+                if post.engagement_score:
+                    prompt_parts.append(f"  Engagement score: {post.engagement_score}")
+        
+        if request.include_stealth_founder:
+            prompt_parts.append("\nIMPORTANT: Include a subtle stealth founder angle (authentic, not salesy)")
         
         prompt_parts.append(f"\nTone: {request.tone}")
-        prompt_parts.append("\nOutput Format: JSON array with 'title', 'content', 'suggested_hashtags', 'engagement_hook'")
+        prompt_parts.append("\nRequirements:")
+        prompt_parts.append("- Authentic, valuable content (not promotional)")
+        prompt_parts.append("- Include 1-2 engagement hooks/questions")
+        prompt_parts.append("- Suggest 3-8 relevant hashtags")
+        prompt_parts.append("- LinkedIn-optimized length (1500-3000 chars ideal)")
+        prompt_parts.append("- Professional but approachable voice")
+        
+        prompt_parts.append("\nRespond with JSON array of drafts:")
+        prompt_parts.append("""
+[
+  {
+    "title": "Brief title/headline",
+    "content": "Full post content...",
+    "suggested_hashtags": ["tag1", "tag2", ...],
+    "engagement_hook": "Question or hook to drive comments",
+    "pillar": "referral" or "thought_leadership" or "stealth_founder" or "mixed"
+  },
+  ...
+]""")
         
         full_prompt = "\n".join(prompt_parts)
         
         return {
             "success": True,
             "prompt": full_prompt,
-            "instructions": "Copy this prompt into ChatGPT/Claude, then use POST /api/linkedin/content/drafts/store to save results",
+            "instructions": "Copy this prompt into ChatGPT/Claude. After generating drafts, use POST /api/linkedin/content/drafts/store to save them.",
+            "has_linkedin_inspiration": len(linkedin_posts) > 0,
+            "has_research_context": len(research_insights) > 0,
         }
         
     except Exception as e:
@@ -260,46 +325,72 @@ async def generate_content_draft_prompt(request: ContentDraftRequest) -> Dict[st
         raise HTTPException(status_code=500, detail=f"Prompt generation failed: {str(e)}")
 
 
-@router.post("/drafts/store")
-async def store_content_drafts(
-    user_id: str = Query(..., description="User ID"),
-    drafts_json: List[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+@router.post("/drafts/store", response_model=StoreDraftResponse)
+async def store_content_drafts(request: StoreDraftRequest) -> Dict[str, Any]:
     """
     Store manually generated content drafts (after using ChatGPT/Claude with prompt).
+    
+    Accepts a list of draft objects and stores them in Firestore.
     """
     try:
+        if not request.drafts:
+            raise HTTPException(status_code=400, detail="Drafts list cannot be empty")
+        
         stored_drafts = []
         current_time = time.time()
         
-        for i, draft_data in enumerate(drafts_json):
+        for i, draft_data in enumerate(request.drafts):
+            # Generate unique draft ID
             draft_id = f"draft_{int(current_time)}_{i}"
             
+            # Validate required fields
+            if not draft_data.get("content"):
+                logger.warning(f"Draft {i} missing content, skipping")
+                continue
+            
+            # Parse pillar with validation
+            pillar_str = draft_data.get("pillar", "mixed")
+            try:
+                pillar = ContentPillar(pillar_str)
+            except ValueError:
+                logger.warning(f"Invalid pillar '{pillar_str}', defaulting to 'mixed'")
+                pillar = ContentPillar.MIXED
+            
+            # Create draft object
             draft = ContentDraft(
                 draft_id=draft_id,
-                user_id=user_id,
-                title=draft_data.get("title", f"Draft {i+1}"),
+                user_id=request.user_id,
+                title=draft_data.get("title"),
                 content=draft_data.get("content", ""),
-                pillar=ContentPillar(draft_data.get("pillar", "mixed")),
+                pillar=pillar,
+                topic=draft_data.get("topic"),
                 suggested_hashtags=draft_data.get("suggested_hashtags", []),
                 engagement_hook=draft_data.get("engagement_hook"),
                 stealth_founder_mention=draft_data.get("stealth_founder_mention", False),
+                linked_research_ids=draft_data.get("linked_research_ids", []),
+                linked_post_ids=draft_data.get("linked_post_ids", []),
                 status=ContentStatus.DRAFT,
                 created_at=current_time,
                 updated_at=current_time,
             )
             
-            doc_ref = db.collection("users").document(user_id).collection("content_drafts").document(draft_id)
+            # Store in Firestore
+            doc_ref = db.collection("users").document(request.user_id).collection("content_drafts").document(draft_id)
             doc_ref.set(draft.model_dump())
             
             stored_drafts.append(draft)
         
-        return {
-            "success": True,
-            "stored_count": len(stored_drafts),
-            "drafts": [d.model_dump() for d in stored_drafts],
-        }
+        if not stored_drafts:
+            raise HTTPException(status_code=400, detail="No valid drafts to store")
         
+        return StoreDraftResponse(
+            success=True,
+            stored_count=len(stored_drafts),
+            drafts=stored_drafts,
+        )
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error storing drafts: {e}")
         raise HTTPException(status_code=500, detail=f"Draft storage failed: {str(e)}")
