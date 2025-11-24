@@ -1,5 +1,16 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional, Dict, Any
+import logging
+from app.models.playbooks import (
+    PlaybookListResponse, PlaybookResponse, PlaybookRunRequest,
+    PlaybookRunResponse, ExecutionListResponse
+)
+from app.services.playbook_service import (
+    get_playbook, list_playbooks, toggle_favorite,
+    record_execution, list_executions
+)
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PLAYBOOK_SUMMARY = {
@@ -126,3 +137,115 @@ async def get_onboarding_prompt():
 @router.get("/prompts")
 async def get_starter_prompts():
     return {"prompts": STARTER_PROMPTS}
+
+
+# Enhanced endpoints
+
+@router.get("", response_model=PlaybookListResponse)
+async def list_playbooks_endpoint(
+    user_id: Optional[str] = Query(None, description="User identifier"),
+    is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
+) -> Dict[str, Any]:
+    """List all playbooks."""
+    try:
+        playbooks = list_playbooks(user_id=user_id, is_favorite=is_favorite)
+        return PlaybookListResponse(
+            success=True,
+            playbooks=playbooks,
+            total=len(playbooks)
+        )
+    except Exception as e:
+        logger.exception(f"Error listing playbooks: {e}")
+        return PlaybookListResponse(success=True, playbooks=[], total=0)
+
+
+@router.get("/{playbook_id}", response_model=PlaybookResponse)
+async def get_playbook_endpoint(
+    playbook_id: str,
+    user_id: Optional[str] = Query(None, description="User identifier")
+) -> Dict[str, Any]:
+    """Get a playbook by ID."""
+    playbook = get_playbook(playbook_id, user_id=user_id)
+    if not playbook:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    return PlaybookResponse(success=True, playbook=playbook)
+
+
+@router.post("/{playbook_id}/favorite", response_model=PlaybookResponse)
+async def toggle_playbook_favorite(
+    playbook_id: str,
+    user_id: str = Query(..., description="User identifier")
+) -> Dict[str, Any]:
+    """Toggle favorite status of a playbook."""
+    new_status = toggle_favorite(playbook_id, user_id)
+    if new_status is None:
+        raise HTTPException(status_code=500, detail="Failed to toggle favorite")
+    
+    playbook = get_playbook(playbook_id, user_id=user_id)
+    if not playbook:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    
+    return PlaybookResponse(success=True, playbook=playbook)
+
+
+@router.post("/{playbook_id}/run", response_model=PlaybookRunResponse)
+async def run_playbook(
+    playbook_id: str,
+    request: PlaybookRunRequest
+) -> Dict[str, Any]:
+    """Run a playbook with input."""
+    playbook = get_playbook(playbook_id, user_id=request.user_id)
+    if not playbook:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    
+    # For now, return the input as output (would use LLM in production)
+    output = f"Playbook '{playbook.name}' executed with input: {request.input[:100]}..."
+    
+    # Record execution
+    execution_id = record_execution(
+        playbook_id=playbook_id,
+        user_id=request.user_id,
+        input_text=request.input,
+        output_text=output,
+        metadata=request.metadata
+    )
+    
+    return PlaybookRunResponse(
+        success=True,
+        execution_id=execution_id,
+        output=output,
+        playbook_id=playbook_id,
+        playbook_name=playbook.name
+    )
+
+
+@router.get("/{playbook_id}/executions", response_model=ExecutionListResponse)
+async def get_playbook_executions(
+    playbook_id: str,
+    user_id: Optional[str] = Query(None, description="User identifier"),
+    limit: int = Query(50, ge=1, le=500),
+) -> Dict[str, Any]:
+    """Get execution history for a playbook."""
+    playbook = get_playbook(playbook_id, user_id=user_id)
+    if not playbook:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    
+    executions = list_executions(playbook_id=playbook_id, user_id=user_id, limit=limit)
+    return ExecutionListResponse(
+        success=True,
+        executions=executions,
+        total=len(executions)
+    )
+
+
+@router.get("/favorites/list", response_model=PlaybookListResponse)
+async def get_favorite_playbooks(
+    user_id: str = Query(..., description="User identifier")
+) -> Dict[str, Any]:
+    """Get favorited playbooks for a user."""
+    playbooks = list_playbooks(user_id=user_id, is_favorite=True)
+    return PlaybookListResponse(
+        success=True,
+        playbooks=playbooks,
+        total=len(playbooks)
+    )
