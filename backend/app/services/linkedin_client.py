@@ -676,6 +676,20 @@ class LinkedInClient:
             # Only run scraping loop if we have URLs to scrape
             print(f"  [LinkedIn] DEBUG: Starting scraping loop for {len(urls_to_scrape)} URLs", flush=True)
         
+        # Detect if this is an education-related query (more likely to be blocked)
+        # Education queries need more aggressive approach
+        # EXPANDED: Include more education-related terms to catch all relevant queries
+        # MUST BE DEFINED BEFORE THE LOOP so it can be used in delay logic
+        is_education_query = any(term in query_terms.lower() for term in [
+            "education", "enrollment", "admissions", "k-12", "school", 
+            "neurodivergent", "edtech", "post-secondary", "referral networks",
+            "private school", "mental health", "treatment center", "one-to-one",
+            "care model", "fashion tech", "fashion app", "closet", "outfit",
+            "operations education", "program management", "scalable solutions"
+        ])
+        if is_education_query:
+            print(f"  [LinkedIn] 🎓 Detected education-related query - using aggressive scraping strategy", flush=True)
+        
         for i, url in enumerate(urls_to_scrape, 1):
             print(f"  [LinkedIn] DEBUG: Starting scrape attempt {i} for {url[:80]}...", flush=True)
             try:
@@ -713,13 +727,6 @@ class LinkedInClient:
                 
                 scraping_stats["total_attempts"] += 1
                 approach_used = None
-                
-                # Detect if this is an education-related query (more likely to be blocked)
-                # Education queries need more aggressive approach
-                is_education_query = any(term in query_terms.lower() for term in [
-                    "education", "enrollment", "admissions", "k-12", "school", 
-                    "neurodivergent", "edtech", "post-secondary", "referral networks"
-                ])
                 
                 # Approach 1: Try v2 with proxy (stealth for education queries, auto for others)
                 try:
