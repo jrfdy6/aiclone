@@ -200,17 +200,37 @@ class LinkedInClient:
             else:
                 author_info["author_name"] = authors_str
         
+        # Pattern 1b: Look for author names after dates (e.g., "Mar 17, 2025 ... by Author Name")
+        # This handles cases where "by" might be in the snippet but not immediately visible
+        if not author_info["author_name"]:
+            # Look for patterns like "... Author Name" after date patterns
+            after_date_pattern = r'(?:\.\.\.|…)\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)(?:\s+and\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)?'
+            match = re.search(after_date_pattern, snippet)
+            if match:
+                potential_author = match.group(1).strip()
+                # Validate it looks like a name (2-4 words, capitalized)
+                words = potential_author.split()
+                if 2 <= len(words) <= 4 and all(w[0].isupper() for w in words if w):
+                    author_info["author_name"] = potential_author
+        
         # Pattern 2: "View profile for Author Name" (common in LinkedIn snippets)
         profile_pattern = r'View profile for\s+([A-Z][a-z]+(?:\s+[A-Z][a-z\.]+)+)'
         match = re.search(profile_pattern, snippet, re.IGNORECASE)
-        if match and not author_info["author_name"]:
-            author_info["author_name"] = match.group(1).strip()
+        if match:
+            author_name = match.group(1).strip()
+            # Clean up duplicates (e.g., "Bart Banfield. Bart Banfield." -> "Bart Banfield")
+            author_name = re.sub(r'^(.+?)(\s+\1)+$', r'\1', author_name)
+            if not author_info["author_name"]:
+                author_info["author_name"] = author_name
         
-        # Pattern 3: "Author Name | Title at Company"
-        name_title_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*[|•]\s*([^|•\n]+)'
+        # Pattern 3: "Author Name | Title at Company" or "Author Name. Author Name." (handle duplicates)
+        name_title_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z\.]+)+)\s*[|•]\s*([^|•\n]+)'
         match = re.search(name_title_pattern, snippet)
         if match and not author_info["author_name"]:
-            author_info["author_name"] = match.group(1).strip()
+            author_name = match.group(1).strip()
+            # Clean up duplicates (e.g., "Bart Banfield. Bart Banfield." -> "Bart Banfield")
+            author_name = re.sub(r'^(.+?)(\s+\1)+$', r'\1', author_name)
+            author_info["author_name"] = author_name
             title_company = match.group(2).strip()
             if " at " in title_company.lower():
                 parts = re.split(r'\s+at\s+', title_company, flags=re.IGNORECASE)
@@ -218,6 +238,12 @@ class LinkedInClient:
                 author_info["author_company"] = parts[1].strip() if len(parts) > 1 else None
             else:
                 author_info["author_title"] = title_company
+        
+        # Pattern 3b: Handle duplicate author names in snippet (e.g., "Bart Banfield. Bart Banfield.")
+        if author_info["author_name"]:
+            # Remove duplicate patterns like "Name. Name." or "Name Name"
+            author_info["author_name"] = re.sub(r'^(.+?)(\s+\1)+$', r'\1', author_info["author_name"])
+            author_info["author_name"] = re.sub(r'^(.+?)\.\s+\1\.?$', r'\1', author_info["author_name"])
         
         # Pattern 4: Extract from URL if it contains profile info
         profile_match = re.search(r'linkedin\.com/in/([a-zA-Z0-9\-]+)', url)
@@ -252,27 +278,64 @@ class LinkedInClient:
         if not snippet:
             return metrics
         
-        # Look for engagement numbers in snippet (e.g., "123 likes", "45 comments")
-        likes_match = re.search(r'(\d+)\s*(?:like|👍)', snippet, re.IGNORECASE)
-        if likes_match:
-            try:
-                metrics["likes"] = int(likes_match.group(1))
-            except (ValueError, IndexError):
-                pass
+        # Look for engagement numbers in snippet (e.g., "123 likes", "45 comments", "12 shares")
+        # Pattern 1: "123 likes" or "123 👍"
+        likes_patterns = [
+            r'(\d+)\s*(?:like|👍|reaction)',  # "123 likes" or "123 👍"
+            r'(\d+)\s*Like',  # "123 Like"
+            r'Like[:\s]+(\d+)',  # "Like: 123"
+        ]
+        for pattern in likes_patterns:
+            match = re.search(pattern, snippet, re.IGNORECASE)
+            if match:
+                try:
+                    metrics["likes"] = max(metrics["likes"], int(match.group(1)))
+                except (ValueError, IndexError):
+                    continue
         
-        comments_match = re.search(r'(\d+)\s*comment', snippet, re.IGNORECASE)
-        if comments_match:
-            try:
-                metrics["comments"] = int(comments_match.group(1))
-            except (ValueError, IndexError):
-                pass
+        # Pattern 2: "45 comments" or "45 Comments"
+        comments_patterns = [
+            r'(\d+)\s*comment',  # "45 comments"
+            r'(\d+)\s*Comment',  # "45 Comment"
+            r'Comment[:\s]+(\d+)',  # "Comment: 45"
+        ]
+        for pattern in comments_patterns:
+            match = re.search(pattern, snippet, re.IGNORECASE)
+            if match:
+                try:
+                    metrics["comments"] = max(metrics["comments"], int(match.group(1)))
+                except (ValueError, IndexError):
+                    continue
         
-        shares_match = re.search(r'(\d+)\s*share', snippet, re.IGNORECASE)
-        if shares_match:
-            try:
-                metrics["shares"] = int(shares_match.group(1))
-            except (ValueError, IndexError):
-                pass
+        # Pattern 3: "12 shares" or "12 Shares"
+        shares_patterns = [
+            r'(\d+)\s*share',  # "12 shares"
+            r'(\d+)\s*Share',  # "12 Share"
+            r'Share[:\s]+(\d+)',  # "Share: 12"
+        ]
+        for pattern in shares_patterns:
+            match = re.search(pattern, snippet, re.IGNORECASE)
+            if match:
+                try:
+                    metrics["shares"] = max(metrics["shares"], int(match.group(1)))
+                except (ValueError, IndexError):
+                    continue
+        
+        # Pattern 4: Look for engagement numbers in common formats
+        # Sometimes snippets show "123 45 12" where numbers might be likes, comments, shares
+        # This is a fallback - not always accurate
+        engagement_numbers = re.findall(r'\b(\d{1,6})\b', snippet[:200])  # Look in first 200 chars
+        if engagement_numbers and len(engagement_numbers) >= 2:
+            # If we found numbers but no specific metrics, try to infer
+            # (This is a fallback - not always accurate)
+            if metrics["likes"] == 0 and metrics["comments"] == 0:
+                try:
+                    # Assume first larger number might be likes if it's reasonable
+                    potential_likes = int(engagement_numbers[0])
+                    if 10 <= potential_likes <= 100000:  # Reasonable range
+                        metrics["likes"] = potential_likes
+                except (ValueError, IndexError):
+                    pass
         
         return metrics
     
