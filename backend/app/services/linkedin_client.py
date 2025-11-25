@@ -879,7 +879,7 @@ class LinkedInClient:
                     time.sleep(backoff_delay)
                 else:
                     # Other errors: shorter delay
-                print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
+                    print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
                     time.sleep(random.uniform(2.0, 4.0))
                 
                 scraping_stats["failed_attempts"] += 1
