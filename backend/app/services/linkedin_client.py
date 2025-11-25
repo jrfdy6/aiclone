@@ -711,10 +711,10 @@ class LinkedInClient:
                     proxy_type = "stealth" if is_education_query else "auto"
                     if is_education_query:
                         print(f"  [LinkedIn] Using stealth proxy for education query (more aggressive)...", flush=True)
-                
-                scraped = self.firecrawl_client.scrape_url(
-                    url=url,
-                    formats=["markdown"],
+                    
+                    scraped = self.firecrawl_client.scrape_url(
+                        url=url,
+                        formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
                         wait_for=8000 if is_education_query else 7000,  # Longer wait for education queries
@@ -723,7 +723,7 @@ class LinkedInClient:
                     )
                     approach_used = "approach_1"
                     scraping_stats["approach_1_success"] += 1
-                    print(f"  [LinkedIn] ✅ Successfully scraped with Approach 1 (v2 + auto proxy)", flush=True)
+                    print(f"  [LinkedIn] ✅ Successfully scraped with Approach 1 (v2 + {'stealth' if is_education_query else 'auto'} proxy)", flush=True)
                 except Exception as e1:
                     last_error = e1
                     print(f"  [LinkedIn] ⚠️ Approach 1 failed: {str(e1)[:100]}", flush=True)
