@@ -298,11 +298,29 @@ class LinkedInClient:
             engagement_metrics["reactions"]
         )
         
-        # Extract post content (clean up markdown)
+        # Extract post content (clean up markdown and LinkedIn UI elements)
         post_content = scraped.content
+        
+        # Remove LinkedIn UI elements and navigation
+        post_content = re.sub(r'Agree & Join LinkedIn.*?Cookie Policy.*?', '', post_content, flags=re.DOTALL)
+        post_content = re.sub(r'Skip to main content.*?\]', '', post_content)
+        post_content = re.sub(r'Report this post.*?\]', '', post_content)
+        post_content = re.sub(r'\[Sign up.*?\]', '', post_content)
+        post_content = re.sub(r'\[Like\].*?\[Comment\].*?', '', post_content)
+        post_content = re.sub(r'\[Skip to.*?\]', '', post_content)
+        post_content = re.sub(r'\[.*?\]\(https?://.*?\)', '', post_content)  # Remove markdown links
+        post_content = re.sub(r'https?://[^\s]+', '', post_content)  # Remove plain URLs
+        post_content = re.sub(r'```.*?```', '', post_content, flags=re.DOTALL)  # Remove code blocks
+        
         # Remove excessive markdown formatting
         post_content = re.sub(r'#{1,6}\s+', '', post_content)  # Remove headers
         post_content = re.sub(r'\*\*([^*]+)\*\*', r'\1', post_content)  # Remove bold
+        post_content = re.sub(r'\*([^*]+)\*', r'\1', post_content)  # Remove italic
+        post_content = re.sub(r'`([^`]+)`', r'\1', post_content)  # Remove code formatting
+        
+        # Clean up whitespace
+        post_content = re.sub(r'\n{3,}', '\n\n', post_content)  # Max 2 newlines
+        post_content = re.sub(r' {2,}', ' ', post_content)  # Multiple spaces to single
         post_content = post_content.strip()
         
         # Extract hashtags and mentions
