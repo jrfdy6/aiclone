@@ -658,18 +658,18 @@ class LinkedInClient:
         
         for i, url in enumerate(urls_to_scrape, 1):
             try:
-                # OPTIMIZED DELAY STRATEGY (Balanced for 20-25% success without timeouts)
-                # - First post: Small delay (2-4s) to avoid immediate blocking
-                # - Posts 2-3: Moderate delays (6-12 seconds) - balanced for success
+                # OPTIMIZED DELAY STRATEGY (Increased for better success rates, especially for education queries)
+                # - First post: Moderate delay (3-6s) to avoid immediate blocking
+                # - Posts 2-3: Longer delays (8-15 seconds) - increased for better success
                 # - Posts 4+: Skip to prevent timeout (we focus on quality over quantity)
                 if i == 1:
-                    # First post: small delay to avoid immediate blocking
-                    delay = random.uniform(2.0, 4.0)
+                    # First post: moderate delay to avoid immediate blocking
+                    delay = random.uniform(3.0, 6.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (initial delay for post {i})...", flush=True)
                     time.sleep(delay)
                 elif i <= 3:
-                    # Next 2 posts: moderate delays (6-12 seconds)
-                    delay = random.uniform(6.0, 12.0)
+                    # Next 2 posts: longer delays (8-15 seconds) - increased for better success
+                    delay = random.uniform(8.0, 15.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (moderate delay for post {i})...", flush=True)
                     time.sleep(delay)
                 else:
@@ -698,7 +698,7 @@ class LinkedInClient:
                         formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
-                        wait_for=6000,  # Wait 6 seconds for JavaScript to fully load (balanced)
+                        wait_for=7000,  # Wait 7 seconds for JavaScript to fully load (increased for better success)
                         use_v2=True,  # Use v2 API for better anti-bot features
                         proxy="auto"  # Auto: tries basic first, then stealth if needed (cost-effective)
                     )
