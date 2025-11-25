@@ -273,16 +273,19 @@ export default function APITestPage() {
                           <div className="mb-2 flex items-start justify-between">
                             <div>
                               <h5 className="font-semibold text-gray-900">
-                                {post.author || 'Unknown Author'}
+                                {post.author_name || post.author || 'Unknown Author'}
                               </h5>
-                              {post.title && (
-                                <p className="text-sm text-gray-600">{post.title}</p>
+                              {post.author_title && (
+                                <p className="text-sm text-gray-600">{post.author_title}</p>
                               )}
-                              {post.company && (
+                              {post.author_company && (
+                                <p className="text-xs text-gray-500">{post.author_company}</p>
+                              )}
+                              {post.company && !post.author_company && (
                                 <p className="text-xs text-gray-500">{post.company}</p>
                               )}
                             </div>
-                            {post.engagement_score !== undefined && (
+                            {post.engagement_score !== undefined && post.engagement_score !== null && (
                               <span className="rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
                                 Score: {post.engagement_score}
                               </span>
@@ -338,14 +341,24 @@ export default function APITestPage() {
                           )}
 
                           {/* Post URL */}
-                          {post.url && (
+                          {(post.post_url || post.url) && (
                             <a
-                              href={post.url}
+                              href={post.post_url || post.url}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-xs text-blue-600 hover:underline"
                             >
                               View on LinkedIn →
+                            </a>
+                          )}
+                          {post.author_profile_url && (
+                            <a
+                              href={post.author_profile_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-3 text-xs text-blue-600 hover:underline"
+                            >
+                              View Author Profile →
                             </a>
                           )}
                         </div>
