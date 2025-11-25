@@ -691,16 +691,29 @@ class LinkedInClient:
                 scraping_stats["total_attempts"] += 1
                 approach_used = None
                 
-                # Approach 1: Try v2 with "auto" proxy (tries basic, then stealth if needed - cost-effective)
+                # Detect if this is an education-related query (more likely to be blocked)
+                # Education queries need more aggressive approach
+                is_education_query = any(term in query.lower() for term in [
+                    "education", "enrollment", "admissions", "k-12", "school", 
+                    "neurodivergent", "edtech", "post-secondary", "referral networks"
+                ])
+                
+                # Approach 1: Try v2 with proxy (stealth for education queries, auto for others)
                 try:
+                    # Use stealth proxy directly for education queries (more aggressive)
+                    # Use auto proxy for other queries (cost-effective)
+                    proxy_type = "stealth" if is_education_query else "auto"
+                    if is_education_query:
+                        print(f"  [LinkedIn] Using stealth proxy for education query (more aggressive)...", flush=True)
+                    
                     scraped = self.firecrawl_client.scrape_url(
                         url=url,
                         formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
-                        wait_for=7000,  # Wait 7 seconds for JavaScript to fully load (increased for better success)
+                        wait_for=8000 if is_education_query else 7000,  # Longer wait for education queries
                         use_v2=True,  # Use v2 API for better anti-bot features
-                        proxy="auto"  # Auto: tries basic first, then stealth if needed (cost-effective)
+                        proxy=proxy_type  # Stealth for education, auto for others
                     )
                     approach_used = "approach_1"
                     scraping_stats["approach_1_success"] += 1
