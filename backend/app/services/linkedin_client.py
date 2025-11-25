@@ -693,7 +693,7 @@ class LinkedInClient:
                 
                 # Detect if this is an education-related query (more likely to be blocked)
                 # Education queries need more aggressive approach
-                is_education_query = any(term in query.lower() for term in [
+                is_education_query = any(term in query_terms.lower() for term in [
                     "education", "enrollment", "admissions", "k-12", "school", 
                     "neurodivergent", "edtech", "post-secondary", "referral networks"
                 ])
