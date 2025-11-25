@@ -152,6 +152,7 @@ THEME_SPECIALTIES: Dict[str, List[str]] = {
 
 # Location shortcuts
 LOCATION_SHORTCUTS: Dict[str, str] = {
+    "DC": "District of Columbia",
     "CA": "California",
     "NY": "New York",
     "TX": "Texas",
@@ -160,5 +161,7 @@ LOCATION_SHORTCUTS: Dict[str, str] = {
     "CT": "Connecticut",
     "NJ": "New Jersey",
     "PA": "Pennsylvania",
+    "VA": "Virginia",
+    "MD": "Maryland",
 }
 
