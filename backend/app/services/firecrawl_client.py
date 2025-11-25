@@ -57,6 +57,7 @@ class FirecrawlClient:
         wait_for: Optional[int] = None,
         use_v2: bool = True,
         actions: Optional[List[Dict[str, Any]]] = None,
+        proxy: Optional[str] = None,
     ) -> ScrapedContent:
         """
         Scrape a single URL with enhanced options for difficult sites like LinkedIn.
@@ -94,9 +95,13 @@ class FirecrawlClient:
             payload["waitFor"] = wait_for
         if actions:
             payload["actions"] = actions
+        if proxy:
+            payload["proxy"] = proxy
         
         try:
-            response = self.session.post(endpoint, json=payload, timeout=60)
+            # Increased timeout for LinkedIn (they can be slow)
+            timeout = 90 if "linkedin.com" in url else 60
+            response = self.session.post(endpoint, json=payload, timeout=timeout)
             
             # Handle specific HTTP status codes
             if response.status_code == 403:

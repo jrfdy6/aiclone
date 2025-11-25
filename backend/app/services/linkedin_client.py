@@ -635,7 +635,8 @@ class LinkedInClient:
         # - Scrape first post immediately (no delay) for fast UX
         # - Scrape next 2-3 posts with moderate delays (5-10s)
         # - After that, return URLs only (don't waste time on likely failures)
-        max_posts_to_scrape = min(3, max_results)  # Only scrape top 3 posts
+        # INCREASED: Try to scrape more posts to get better success rate
+        max_posts_to_scrape = min(5, max_results)  # Try to scrape top 5 posts (increased from 3)
         
         # Determine which URLs to actually scrape vs just return
         urls_to_scrape = linkedin_urls[:max_posts_to_scrape * 2]  # Try 2x to account for failures
@@ -670,59 +671,80 @@ class LinkedInClient:
                 scraped = None
                 last_error = None
                 
-                # Approach 1: Try v2 with basic options (fastest)
+                # MULTI-STRATEGY APPROACH: Try multiple techniques with increasing complexity
+                # This maximizes success rate by trying different methods
+                
+                # Approach 1: Try v2 with basic options + longer wait (most reliable for LinkedIn)
                 try:
                     scraped = self.firecrawl_client.scrape_url(
                         url=url,
                         formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
-                        wait_for=3000,  # Wait 3 seconds for JavaScript to load
+                        wait_for=5000,  # Wait 5 seconds for JavaScript to fully load
                         use_v2=True  # Use v2 API for better anti-bot features
                     )
-                    print(f"  [LinkedIn] ✅ Successfully scraped with v2 basic approach", flush=True)
+                    print(f"  [LinkedIn] ✅ Successfully scraped with v2 (5s wait)", flush=True)
                 except Exception as e1:
                     last_error = e1
-                    print(f"  [LinkedIn] ⚠️ Basic v2 approach failed: {str(e1)[:100]}", flush=True)
+                    print(f"  [LinkedIn] ⚠️ Approach 1 failed: {str(e1)[:100]}", flush=True)
                     
-                    # Approach 2: Try with longer wait time and scroll action
+                    # Approach 2: Try with scroll action to trigger lazy loading
                     try:
-                        print(f"  [LinkedIn] Retrying with enhanced options (longer wait + scroll)...", flush=True)
+                        print(f"  [LinkedIn] Retrying with scroll action (triggers lazy loading)...", flush=True)
                         actions = [
-                            {"type": "wait", "milliseconds": 2000},  # Initial wait
+                            {"type": "wait", "milliseconds": 3000},  # Initial wait for page load
                             {"type": "scroll", "direction": "down"},  # Scroll to trigger lazy loading
-                            {"type": "wait", "milliseconds": 2000},  # Wait after scroll
+                            {"type": "wait", "milliseconds": 3000},  # Wait after scroll for content
+                            {"type": "scroll", "direction": "up"},  # Scroll back up
+                            {"type": "wait", "milliseconds": 2000},  # Final wait
                         ]
                         scraped = self.firecrawl_client.scrape_url(
                             url=url,
                             formats=["markdown"],
                             only_main_content=True,
                             exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                            wait_for=5000,  # Longer wait
+                            wait_for=8000,  # Longer wait
                             use_v2=True,
                             actions=actions
                         )
-                        print(f"  [LinkedIn] ✅ Successfully scraped with enhanced approach", flush=True)
+                        print(f"  [LinkedIn] ✅ Successfully scraped with scroll actions", flush=True)
                     except Exception as e2:
                         last_error = e2
-                        print(f"  [LinkedIn] ⚠️ Enhanced approach failed: {str(e2)[:100]}", flush=True)
+                        print(f"  [LinkedIn] ⚠️ Approach 2 failed: {str(e2)[:100]}", flush=True)
                         
-                        # Approach 3: Fallback to v1 API (sometimes works when v2 doesn't)
+                        # Approach 3: Try with even longer wait (some posts need more time)
                         try:
-                            print(f"  [LinkedIn] Retrying with v1 API as fallback...", flush=True)
+                            print(f"  [LinkedIn] Retrying with extended wait time (10s)...", flush=True)
                             scraped = self.firecrawl_client.scrape_url(
                                 url=url,
                                 formats=["markdown"],
                                 only_main_content=True,
                                 exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                                wait_for=3000,
-                                use_v2=False  # Fallback to v1
+                                wait_for=10000,  # Very long wait (10 seconds)
+                                use_v2=True
                             )
-                            print(f"  [LinkedIn] ✅ Successfully scraped with v1 fallback", flush=True)
+                            print(f"  [LinkedIn] ✅ Successfully scraped with extended wait", flush=True)
                         except Exception as e3:
                             last_error = e3
-                            print(f"  [LinkedIn] ❌ All scraping approaches failed", flush=True)
-                            raise last_error
+                            print(f"  [LinkedIn] ⚠️ Approach 3 failed: {str(e3)[:100]}", flush=True)
+                            
+                            # Approach 4: Fallback to v1 API (sometimes works when v2 doesn't)
+                            try:
+                                print(f"  [LinkedIn] Retrying with v1 API as final fallback...", flush=True)
+                                scraped = self.firecrawl_client.scrape_url(
+                                    url=url,
+                                    formats=["markdown"],
+                                    only_main_content=True,
+                                    exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
+                                    wait_for=5000,
+                                    use_v2=False  # Fallback to v1
+                                )
+                                print(f"  [LinkedIn] ✅ Successfully scraped with v1 fallback", flush=True)
+                            except Exception as e4:
+                                last_error = e4
+                                print(f"  [LinkedIn] ❌ All 4 scraping approaches failed", flush=True)
+                                raise last_error
                 
                 if not scraped:
                     raise Exception(f"Failed to scrape after all retry attempts: {str(last_error)}")
