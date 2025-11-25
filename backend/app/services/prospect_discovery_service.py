@@ -19,6 +19,7 @@ from app.models.prospect_discovery import (
     ProspectDiscoveryResponse,
 )
 from app.services.firecrawl_client import get_firecrawl_client
+from app.services.perplexity_client import get_perplexity_client
 from app.services.firestore_client import db
 
 logger = logging.getLogger(__name__)
@@ -29,11 +30,17 @@ class ProspectDiscoveryService:
     
     def __init__(self):
         self.firecrawl = None
+        self.perplexity = None
     
     def _init_clients(self):
         """Lazy init clients"""
         if self.firecrawl is None:
             self.firecrawl = get_firecrawl_client()
+        if self.perplexity is None:
+            try:
+                self.perplexity = get_perplexity_client()
+            except:
+                self.perplexity = None
     
     def build_search_query(
         self,
@@ -449,6 +456,262 @@ class ProspectDiscoveryService:
             doc_ref.set(prospect_doc, merge=True)
         
         logger.info(f"Saved {len(prospects)} prospects to collection")
+    
+    async def scrape_urls(
+        self,
+        user_id: str,
+        urls: List[str],
+        source_type: str = "direct_url"
+    ) -> ProspectDiscoveryResponse:
+        """
+        Scrape specific URLs for prospect data.
+        Use this when you have direct profile URLs (e.g., from Psychology Today).
+        """
+        self._init_clients()
+        
+        discovery_id = f"discovery_urls_{int(time.time())}"
+        all_prospects = []
+        
+        logger.info(f"Scraping {len(urls)} direct URLs")
+        
+        for url in urls[:20]:  # Limit to 20 URLs
+            try:
+                logger.info(f"Scraping: {url}")
+                scraped = self.firecrawl.scrape_url(url)
+                
+                if scraped and scraped.content:
+                    # Determine source from URL
+                    source = ProspectSource.GENERAL_SEARCH
+                    if "psychologytoday.com" in url:
+                        source = ProspectSource.PSYCHOLOGY_TODAY
+                    elif "iecaonline.com" in url:
+                        source = ProspectSource.IECA_DIRECTORY
+                    
+                    prospects = self.extract_prospects_from_content(
+                        content=scraped.content,
+                        url=url,
+                        source=source
+                    )
+                    
+                    # For single profile pages, we might get just one prospect
+                    # Add the URL as additional context
+                    for p in prospects:
+                        p.source_url = url
+                    
+                    all_prospects.extend(prospects)
+                    
+            except Exception as e:
+                logger.warning(f"Failed to scrape {url}: {e}")
+                continue
+        
+        # Calculate fit scores
+        for prospect in all_prospects:
+            prospect.fit_score = self.calculate_fit_score(prospect)
+        
+        # Sort by fit score
+        all_prospects.sort(key=lambda p: p.fit_score, reverse=True)
+        
+        # Store results
+        doc_data = {
+            "discovery_id": discovery_id,
+            "source": "direct_urls",
+            "urls_scraped": urls,
+            "total_found": len(all_prospects),
+            "prospects": [p.dict() for p in all_prospects],
+            "created_at": time.time(),
+        }
+        
+        doc_ref = db.collection("users").document(user_id).collection("prospect_discoveries").document(discovery_id)
+        doc_ref.set(doc_data)
+        
+        return ProspectDiscoveryResponse(
+            success=True,
+            discovery_id=discovery_id,
+            source="direct_urls",
+            total_found=len(all_prospects),
+            prospects=all_prospects,
+            search_query_used=f"Direct scrape of {len(urls)} URLs",
+        )
+    
+    async def find_prospects_with_ai(
+        self,
+        user_id: str,
+        specialty: str,
+        location: str,
+        additional_context: Optional[str] = None,
+        max_results: int = 10
+    ) -> ProspectDiscoveryResponse:
+        """
+        Use Perplexity AI to find real prospects.
+        This asks Perplexity to search and return actual people/organizations.
+        """
+        self._init_clients()
+        
+        if not self.perplexity:
+            return ProspectDiscoveryResponse(
+                success=False,
+                discovery_id="",
+                source="perplexity_ai",
+                total_found=0,
+                error="Perplexity API not configured"
+            )
+        
+        discovery_id = f"discovery_ai_{int(time.time())}"
+        
+        # Build a specific prompt for finding prospects
+        prompt = f"""Find {max_results} real {specialty}s in {location}.
+
+For each person, provide:
+- Full name
+- Title/credentials
+- Organization/practice name
+- Specialties
+- Contact info (website, phone if public)
+- Brief description
+
+{f'Additional context: {additional_context}' if additional_context else ''}
+
+Focus on finding actual practitioners, not articles about the profession.
+Return real, verifiable professionals with their actual contact information."""
+
+        logger.info(f"AI prospect search: {specialty} in {location}")
+        
+        try:
+            # Use Perplexity to search
+            research = self.perplexity.research_topic(
+                topic=prompt,
+                num_results=max_results,
+                include_comparison=False
+            )
+            
+            summary = research.get("summary", "")
+            sources = research.get("sources", [])
+            
+            # Parse the AI response to extract prospects
+            prospects = self._parse_ai_prospect_response(summary, sources, location)
+            
+            # Calculate fit scores
+            for prospect in prospects:
+                prospect.fit_score = self.calculate_fit_score(
+                    prospect,
+                    target_specialty=specialty,
+                    target_location=location
+                )
+            
+            # Sort by fit score
+            prospects.sort(key=lambda p: p.fit_score, reverse=True)
+            prospects = prospects[:max_results]
+            
+            # Store results
+            doc_data = {
+                "discovery_id": discovery_id,
+                "source": "perplexity_ai",
+                "specialty": specialty,
+                "location": location,
+                "prompt": prompt,
+                "ai_response": summary[:2000],
+                "total_found": len(prospects),
+                "prospects": [p.dict() for p in prospects],
+                "created_at": time.time(),
+            }
+            
+            doc_ref = db.collection("users").document(user_id).collection("prospect_discoveries").document(discovery_id)
+            doc_ref.set(doc_data)
+            
+            return ProspectDiscoveryResponse(
+                success=True,
+                discovery_id=discovery_id,
+                source="perplexity_ai",
+                total_found=len(prospects),
+                prospects=prospects,
+                search_query_used=prompt[:200],
+            )
+            
+        except Exception as e:
+            logger.exception(f"AI prospect search failed: {e}")
+            return ProspectDiscoveryResponse(
+                success=False,
+                discovery_id=discovery_id,
+                source="perplexity_ai",
+                total_found=0,
+                error=str(e)
+            )
+    
+    def _parse_ai_prospect_response(
+        self,
+        response: str,
+        sources: List[Dict],
+        location: str
+    ) -> List[DiscoveredProspect]:
+        """Parse Perplexity's response to extract prospect data"""
+        prospects = []
+        
+        # Look for name patterns in the response
+        # Common patterns: "Name, Credentials" or "Dr. Name" or numbered lists
+        
+        # Pattern 1: Numbered list items with names
+        numbered_pattern = r'\d+\.\s*\*?\*?([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\*?\*?'
+        
+        # Pattern 2: Names with credentials
+        cred_pattern = r'([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),?\s+((?:PhD|PsyD|LCSW|LMFT|LPC|MEd|MA|MS|EdD|MD|CEP|IECA)(?:[,\s]+(?:PhD|PsyD|LCSW|LMFT|LPC|MEd|MA|MS|EdD|MD|CEP|IECA))*)'
+        
+        # Pattern 3: Dr. prefix
+        dr_pattern = r'Dr\.\s+([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)'
+        
+        # Extract names
+        names_found = []
+        
+        for pattern in [cred_pattern, dr_pattern, numbered_pattern]:
+            matches = re.findall(pattern, response)
+            for match in matches:
+                if isinstance(match, tuple):
+                    names_found.append({"name": match[0], "credentials": match[1] if len(match) > 1 else ""})
+                else:
+                    names_found.append({"name": match, "credentials": ""})
+        
+        # Extract websites from sources
+        websites = [s.get("url", "") for s in sources if s.get("url")]
+        
+        # Extract phone numbers from response
+        phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', response)
+        
+        # Extract emails from response
+        emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', response)
+        
+        # Build prospects
+        seen_names = set()
+        for i, item in enumerate(names_found):
+            name = item["name"].strip()
+            
+            # Skip duplicates and invalid names
+            if name in seen_names or len(name) < 5:
+                continue
+            
+            # Skip common non-name phrases
+            skip_words = ["educational", "consultant", "therapist", "psychology", "school", "private"]
+            if any(sw in name.lower() for sw in skip_words):
+                continue
+            
+            seen_names.add(name)
+            
+            prospect = DiscoveredProspect(
+                name=name,
+                title=item.get("credentials") or None,
+                location=location,
+                source_url=websites[i] if i < len(websites) else "",
+                source=ProspectSource.GENERAL_SEARCH,
+                contact=ProspectContact(
+                    email=emails[i] if i < len(emails) else None,
+                    phone=phones[i] if i < len(phones) else None,
+                    website=websites[i] if i < len(websites) else None,
+                ),
+            )
+            prospects.append(prospect)
+            
+            if len(prospects) >= 15:
+                break
+        
+        return prospects
 
 
 # Singleton

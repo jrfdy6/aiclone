@@ -5,8 +5,9 @@ Endpoints for finding actual prospects from public directories.
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.models.prospect_discovery import (
     ProspectSource,
@@ -144,6 +145,85 @@ async def get_discovery_by_id(user_id: str, discovery_id: str) -> Dict[str, Any]
     except Exception as e:
         logger.exception(f"Error fetching discovery: {e}")
         raise HTTPException(status_code=500, detail=f"Fetch failed: {str(e)}")
+
+
+class ScrapeUrlsRequest(BaseModel):
+    """Request to scrape specific URLs"""
+    user_id: str
+    urls: List[str]
+
+
+@router.post("/scrape-urls", response_model=ProspectDiscoveryResponse)
+async def scrape_specific_urls(request: ScrapeUrlsRequest) -> Dict[str, Any]:
+    """
+    Scrape specific profile URLs for prospect data.
+    
+    Use this when you have direct URLs to profile pages (e.g., from Psychology Today).
+    
+    Example:
+    ```json
+    {
+      "user_id": "user123",
+      "urls": [
+        "https://www.psychologytoday.com/us/therapists/jane-doe-12345",
+        "https://www.psychologytoday.com/us/therapists/john-smith-67890"
+      ]
+    }
+    ```
+    """
+    try:
+        service = get_prospect_discovery_service()
+        result = await service.scrape_urls(
+            user_id=request.user_id,
+            urls=request.urls
+        )
+        return result
+    except Exception as e:
+        logger.exception(f"URL scraping failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+
+
+class AIProspectSearchRequest(BaseModel):
+    """Request for AI-powered prospect search"""
+    user_id: str
+    specialty: str
+    location: str
+    additional_context: str = None
+    max_results: int = 10
+
+
+@router.post("/ai-search", response_model=ProspectDiscoveryResponse)
+async def ai_prospect_search(request: AIProspectSearchRequest) -> Dict[str, Any]:
+    """
+    Use Perplexity AI to find real prospects.
+    
+    This is the most powerful search - it asks AI to find actual people
+    with their contact information.
+    
+    Example:
+    ```json
+    {
+      "user_id": "user123",
+      "specialty": "educational consultant",
+      "location": "Washington DC",
+      "additional_context": "Focus on those who specialize in private school placement for neurodivergent students",
+      "max_results": 10
+    }
+    ```
+    """
+    try:
+        service = get_prospect_discovery_service()
+        result = await service.find_prospects_with_ai(
+            user_id=request.user_id,
+            specialty=request.specialty,
+            location=request.location,
+            additional_context=request.additional_context,
+            max_results=request.max_results
+        )
+        return result
+    except Exception as e:
+        logger.exception(f"AI prospect search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"AI search failed: {str(e)}")
 
 
 @router.get("/user/{user_id}/prospects/all")
