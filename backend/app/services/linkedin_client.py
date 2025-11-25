@@ -648,7 +648,8 @@ class LinkedInClient:
         # - Scrape next 2-3 posts with moderate delays (5-10s)
         # - After that, return URLs only (don't waste time on likely failures)
         # INCREASED: Try to scrape more posts to get better success rate
-        max_posts_to_scrape = min(3, max_results)  # Reduced to 3 to prevent timeouts while maintaining success rate
+        max_posts_to_scrape = min(3, max_results) if max_results > 0 else 3  # Reduced to 3 to prevent timeouts while maintaining success rate
+        print(f"  [LinkedIn] DEBUG: max_results={max_results}, max_posts_to_scrape={max_posts_to_scrape}", flush=True)
         
         # Determine which URLs to actually scrape vs just return
         urls_to_scrape = linkedin_urls[:max_posts_to_scrape]  # Try exact number to avoid timeout
