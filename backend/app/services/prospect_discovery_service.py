@@ -559,20 +559,19 @@ class ProspectDiscoveryService:
         discovery_id = f"discovery_ai_{int(time.time())}"
         
         # Build a specific prompt for finding prospects
-        prompt = f"""Find {max_results} real {specialty}s in {location}.
+        prompt = f"""List {max_results} specific {specialty}s who work in {location}.
 
-For each person, provide:
-- Full name
-- Title/credentials
-- Organization/practice name
-- Specialties
-- Contact info (website, phone if public)
-- Brief description
+IMPORTANT: Return ACTUAL PEOPLE with their REAL NAMES, not service descriptions.
 
-{f'Additional context: {additional_context}' if additional_context else ''}
+For each person, format exactly like this:
+1. [Full Name], [Credentials like PhD, LCSW, CEP, IECA] - [Organization Name]
+   Specialties: [list their focus areas]
+   Website: [their website URL]
+   Phone: [if publicly available]
 
-Focus on finding actual practitioners, not articles about the profession.
-Return real, verifiable professionals with their actual contact information."""
+{f'Focus on: {additional_context}' if additional_context else ''}
+
+Only include real, verifiable professionals. Do not include generic descriptions like "Admissions Strategy" or "Test Preparation" - I need actual human names like "Jane Smith, CEP" or "Dr. John Doe"."""
 
         logger.info(f"AI prospect search: {specialty} in {location}")
         
