@@ -756,11 +756,24 @@ class LinkedInClient:
                 consecutive_403s = 0
                 
                 # Validate that we got meaningful content
-                if not scraped.content or len(scraped.content.strip()) < 50:
-                    print(f"  [LinkedIn] Skipping {url}: content too short ({len(scraped.content) if scraped.content else 0} chars)", flush=True)
+                # LinkedIn posts should have substantial content
+                content_length = len(scraped.content.strip()) if scraped.content else 0
+                if not scraped.content or content_length < 100:
+                    print(f"  [LinkedIn] ⚠️ Skipping {url}: content too short ({content_length} chars, minimum 100)", flush=True)
                     failed_scrapes += 1
                     urls_without_content.append(url)
                     continue
+                
+                # Check if content looks like a LinkedIn post (has engagement indicators or post-like structure)
+                content_lower = scraped.content.lower()
+                has_linkedin_indicators = any(indicator in content_lower for indicator in [
+                    'like', 'comment', 'share', 'reaction', 'follow', 'connection',
+                    'linkedin', 'post', 'update', 'activity', 'view', 'profile'
+                ])
+                
+                if not has_linkedin_indicators and content_length < 200:
+                    print(f"  [LinkedIn] ⚠️ Content doesn't look like a LinkedIn post ({content_length} chars, no LinkedIn indicators)", flush=True)
+                    # Still try to parse it - might be valid content without indicators
                 
                 # Parse into LinkedInPost
                 post = self._parse_linkedin_post(url, scraped)
