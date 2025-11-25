@@ -697,16 +697,18 @@ class LinkedInClient:
                 # - First post: Longer delay (5-10s) especially for education queries
                 # - Posts 2-3: Very long delays (12-20 seconds) - maximum patience
                 # - Posts 4+: Skip to prevent timeout (we focus on quality over quantity)
+                # REDUCED DELAYS: Previous delays were causing timeouts before scraping could start
+                # - First post: Short delay (2-4s) to avoid immediate blocking
+                # - Posts 2-3: Moderate delays (4-8s)
+                # - Posts 4+: Skip to prevent timeout
                 if i == 1:
-                    # First post: longer delay, especially for education queries
-                    base_delay = 8.0 if is_education_query else 5.0
-                    delay = random.uniform(base_delay, base_delay + 5.0)
+                    # First post: short delay
+                    delay = random.uniform(2.0, 4.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (initial delay for post {i})...", flush=True)
                     time.sleep(delay)
                 elif i <= 3:
-                    # Next 2 posts: very long delays (12-20 seconds) - maximum patience
-                    base_delay = 15.0 if is_education_query else 12.0
-                    delay = random.uniform(base_delay, base_delay + 8.0)
+                    # Next 2 posts: moderate delays
+                    delay = random.uniform(4.0, 8.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (moderate delay for post {i})...", flush=True)
                     time.sleep(delay)
                 else:
