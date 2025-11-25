@@ -658,18 +658,20 @@ class LinkedInClient:
         
         for i, url in enumerate(urls_to_scrape, 1):
             try:
-                # OPTIMIZED DELAY STRATEGY (Increased for better success rates, especially for education queries)
-                # - First post: Moderate delay (3-6s) to avoid immediate blocking
-                # - Posts 2-3: Longer delays (8-15 seconds) - increased for better success
+                # AGGRESSIVE DELAY STRATEGY (Maximum delays for education queries to avoid blocking)
+                # - First post: Longer delay (5-10s) especially for education queries
+                # - Posts 2-3: Very long delays (12-20 seconds) - maximum patience
                 # - Posts 4+: Skip to prevent timeout (we focus on quality over quantity)
                 if i == 1:
-                    # First post: moderate delay to avoid immediate blocking
-                    delay = random.uniform(3.0, 6.0)
+                    # First post: longer delay, especially for education queries
+                    base_delay = 8.0 if is_education_query else 5.0
+                    delay = random.uniform(base_delay, base_delay + 5.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (initial delay for post {i})...", flush=True)
                     time.sleep(delay)
                 elif i <= 3:
-                    # Next 2 posts: longer delays (8-15 seconds) - increased for better success
-                    delay = random.uniform(8.0, 15.0)
+                    # Next 2 posts: very long delays (12-20 seconds) - maximum patience
+                    base_delay = 15.0 if is_education_query else 12.0
+                    delay = random.uniform(base_delay, base_delay + 8.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (moderate delay for post {i})...", flush=True)
                     time.sleep(delay)
                 else:
