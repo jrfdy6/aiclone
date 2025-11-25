@@ -58,6 +58,7 @@ class FirecrawlClient:
         use_v2: bool = True,
         actions: Optional[List[Dict[str, Any]]] = None,
         proxy: Optional[str] = None,
+        proxy_type: Optional[str] = None,
     ) -> ScrapedContent:
         """
         Scrape a single URL with enhanced options for difficult sites like LinkedIn.
@@ -97,6 +98,10 @@ class FirecrawlClient:
             payload["actions"] = actions
         if proxy:
             payload["proxy"] = proxy
+        if proxy_type:
+            # Use stealth proxy for difficult sites like LinkedIn
+            # Options: "residential", "datacenter", "stealth"
+            payload["proxyType"] = proxy_type
         
         try:
             # Increased timeout for LinkedIn (they can be slow)
