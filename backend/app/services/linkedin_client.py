@@ -655,9 +655,13 @@ class LinkedInClient:
         urls_to_return_only = linkedin_urls[max_posts_to_scrape:]  # Return remaining URLs (fixed: was * 2)
         
         print(f"  [LinkedIn] Hybrid strategy: Scraping {len(urls_to_scrape)} URLs, returning {len(urls_to_return_only)} as URLs only", flush=True)
+        print(f"  [LinkedIn] DEBUG: linkedin_urls={len(linkedin_urls)}, max_posts_to_scrape={max_posts_to_scrape}, urls_to_scrape={len(urls_to_scrape)}", flush=True)
         
         if len(urls_to_scrape) == 0:
             print(f"  [LinkedIn] ⚠️ WARNING: urls_to_scrape is empty! linkedin_urls has {len(linkedin_urls)} URLs, max_posts_to_scrape={max_posts_to_scrape}", flush=True)
+            print(f"  [LinkedIn] DEBUG: This means no scraping will be attempted. Creating minimal posts from Google Search snippets only.", flush=True)
+            # If no URLs to scrape, add all to urls_without_content to create minimal posts
+            urls_without_content.extend(linkedin_urls)
         
         for i, url in enumerate(urls_to_scrape, 1):
             print(f"  [LinkedIn] DEBUG: Starting scrape attempt {i} for {url[:80]}...", flush=True)
