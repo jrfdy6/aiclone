@@ -641,7 +641,7 @@ class LinkedInClient:
         
         # Track consecutive 403 errors to detect systematic blocking (circuit breaker pattern)
         consecutive_403s = 0
-        max_consecutive_403s = 2  # Reduced from 3 - fail faster to avoid wasting time
+        max_consecutive_403s = 3  # Increased to 3 - give more chances before circuit breaker
         
         # Smart scraping limits based on research:
         # - Scrape first post immediately (no delay) for fast UX
@@ -658,21 +658,23 @@ class LinkedInClient:
         
         for i, url in enumerate(urls_to_scrape, 1):
             try:
-                # PROGRESSIVE DELAY STRATEGY (Based on research)
-                # - First post: No delay (immediate result for UX)
-                # - Posts 2-3: Moderate delays (5-10 seconds)
-                # - Posts 4+: Longer delays (10-20 seconds) or skip
+                # PROGRESSIVE DELAY STRATEGY (Optimized for better success rates)
+                # - First post: Small delay (2-4s) to avoid immediate blocking
+                # - Posts 2-3: Moderate delays (8-15 seconds) - increased for better success
+                # - Posts 4+: Longer delays (15-25 seconds) - increased to reduce blocking
                 if i == 1:
-                    # First post: no delay for fast first result
-                    delay = 0
+                    # First post: small delay to avoid immediate blocking
+                    delay = random.uniform(2.0, 4.0)
+                    print(f"  [LinkedIn] Waiting {delay:.1f}s (initial delay for post {i})...", flush=True)
+                    time.sleep(delay)
                 elif i <= 3:
-                    # Next 2 posts: moderate delays (5-10 seconds)
-                    delay = random.uniform(5.0, 10.0)
+                    # Next 2 posts: moderate delays (8-15 seconds, increased)
+                    delay = random.uniform(8.0, 15.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (moderate delay for post {i})...", flush=True)
                     time.sleep(delay)
                 else:
-                    # Posts 4+: longer delays (10-20 seconds) or skip
-                    delay = random.uniform(10.0, 20.0)
+                    # Posts 4+: longer delays (15-25 seconds, increased)
+                    delay = random.uniform(15.0, 25.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (extended delay for post {i})...", flush=True)
                     time.sleep(delay)
                 
@@ -696,7 +698,7 @@ class LinkedInClient:
                         formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
-                        wait_for=5000,  # Wait 5 seconds for JavaScript to fully load
+                        wait_for=7000,  # Wait 7 seconds for JavaScript to fully load (increased)
                         use_v2=True,  # Use v2 API for better anti-bot features
                         proxy="auto"  # Auto: tries basic first, then stealth if needed (cost-effective)
                     )
@@ -722,7 +724,7 @@ class LinkedInClient:
                             formats=["markdown"],
                             only_main_content=True,
                             exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                            wait_for=8000,  # Longer wait
+                            wait_for=10000,  # Longer wait (increased)
                             use_v2=True,
                             actions=actions,
                             proxy="auto"  # Auto proxy (tries basic, then stealth)
@@ -742,7 +744,7 @@ class LinkedInClient:
                                 formats=["markdown"],
                                 only_main_content=True,
                                 exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                                wait_for=10000,  # Very long wait (10 seconds)
+                                wait_for=12000,  # Very long wait (12 seconds, increased)
                                 use_v2=True,
                                 proxy="stealth"  # Force stealth proxy (last resort - costs 5 credits)
                             )
