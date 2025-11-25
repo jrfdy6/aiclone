@@ -733,15 +733,16 @@ class LinkedInClient:
                     # Use stealth proxy directly for education queries (more aggressive)
                     # Use auto proxy for other queries (cost-effective)
                     proxy_type = "stealth" if is_education_query else "auto"
+                    wait_time_1 = 12000 if is_education_query else 7000  # Much longer wait for education (12s vs 7s)
                     if is_education_query:
-                        print(f"  [LinkedIn] Using stealth proxy for education query (more aggressive)...", flush=True)
+                        print(f"  [LinkedIn] Using stealth proxy + 12s wait for education query (maximum aggression)...", flush=True)
                     
                     scraped = self.firecrawl_client.scrape_url(
                         url=url,
                         formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
-                        wait_for=8000 if is_education_query else 7000,  # Longer wait for education queries
+                        wait_for=wait_time_1,  # Much longer wait for education queries
                         use_v2=True,  # Use v2 API for better anti-bot features
                         proxy=proxy_type  # Stealth for education, auto for others
                     )
