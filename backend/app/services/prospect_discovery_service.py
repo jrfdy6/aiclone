@@ -71,6 +71,118 @@ class ProspectDiscoveryService:
         """Extract prospect information from scraped content"""
         prospects = []
         
+        # Source-specific extraction
+        if source == ProspectSource.PSYCHOLOGY_TODAY:
+            return self._extract_psychology_today(content, url, source)
+        
+        # Generic extraction for other sources
+        return self._extract_generic(content, url, source)
+    
+    def _extract_psychology_today(
+        self,
+        content: str,
+        url: str,
+        source: ProspectSource
+    ) -> List[DiscoveredProspect]:
+        """Extract prospects specifically from Psychology Today pages"""
+        prospects = []
+        
+        # Psychology Today profile pattern: Name, Credentials on one line
+        # Example: "John Smith, PhD, LCSW" or "Dr. Jane Doe"
+        profile_patterns = [
+            # Name with credentials
+            r'([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),?\s+((?:PhD|PsyD|LCSW|LMFT|LPC|MEd|MA|MS|EdD|MD|NCC|LCPC|LMHC)(?:,?\s*(?:PhD|PsyD|LCSW|LMFT|LPC|MEd|MA|MS|EdD|MD|NCC|LCPC|LMHC))*)',
+            # Dr. prefix
+            r'Dr\.\s+([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
+        ]
+        
+        names_with_creds = []
+        for pattern in profile_patterns:
+            found = re.findall(pattern, content)
+            for match in found:
+                if isinstance(match, tuple):
+                    names_with_creds.append({"name": match[0], "credentials": match[1] if len(match) > 1 else ""})
+                else:
+                    names_with_creds.append({"name": match, "credentials": ""})
+        
+        # Phone extraction
+        phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', content)
+        phones = list(set(phones))  # Dedupe
+        
+        # Extract specialties mentioned
+        specialty_keywords = [
+            "educational consultant", "school", "learning", "ADHD", "autism",
+            "adolescent", "child", "family", "college", "academic"
+        ]
+        
+        # Location from URL or content
+        location = None
+        if "district-of-columbia" in url or "washington-dc" in url:
+            location = "Washington, DC"
+        else:
+            loc_match = re.search(r'/therapists/([a-z-]+)', url)
+            if loc_match:
+                location = loc_match.group(1).replace("-", " ").title()
+        
+        # Filter to likely real names (not navigation elements)
+        skip_words = ["marriage", "eating", "career", "life", "couples", "drug", "substance", 
+                      "behavioral", "mental", "treatment", "counseling", "therapy", "disorders",
+                      "coaching", "health", "care", "network", "center", "abuse"]
+        
+        seen_names = set()
+        for item in names_with_creds:
+            name = item["name"].strip()
+            name_lower = name.lower()
+            
+            # Skip if it's a navigation/category term
+            if any(skip in name_lower for skip in skip_words):
+                continue
+            
+            # Skip if too short or already seen
+            if len(name) < 5 or name in seen_names:
+                continue
+            
+            # Skip if it looks like a title/header
+            if name.isupper() or name.count(" ") > 3:
+                continue
+                
+            seen_names.add(name)
+            
+            # Find specialties in nearby content
+            found_specialties = []
+            for kw in specialty_keywords:
+                if kw.lower() in content.lower():
+                    found_specialties.append(kw)
+            
+            prospect = DiscoveredProspect(
+                name=name,
+                title=item.get("credentials") or "Therapist",
+                organization=None,
+                specialty=found_specialties[:3],
+                location=location,
+                source_url=url,
+                source=source,
+                contact=ProspectContact(
+                    phone=phones[len(prospects)] if len(prospects) < len(phones) else None,
+                ),
+                bio_snippet=None,
+            )
+            prospects.append(prospect)
+            
+            if len(prospects) >= 10:  # Limit per page
+                break
+        
+        return prospects
+    
+    def _extract_generic(
+        self,
+        content: str,
+        url: str,
+        source: ProspectSource
+    ) -> List[DiscoveredProspect]:
+        """Generic extraction for non-Psychology Today sources"""
+        prospects = []
+        
         # Email extraction
         emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', content)
         emails = [e for e in emails if not e.endswith('.png') and not e.endswith('.jpg')]
@@ -90,44 +202,11 @@ class ProspectDiscoveryService:
             found = re.findall(pattern, content)
             names.extend(found)
         
-        # Title extraction
-        title_patterns = [
-            r'((?:Director|Head|Dean|Manager)\s+of\s+\w+(?:\s+\w+)?)',
-            r'(Educational\s+Consultant)',
-            r'(Admissions\s+Director)',
-            r'(School\s+Psychologist)',
-            r'(Licensed\s+\w+\s+Therapist)',
-        ]
-        
-        titles = []
-        for pattern in title_patterns:
-            found = re.findall(pattern, content, re.IGNORECASE)
-            titles.extend(found)
-        
-        # Organization extraction
-        org_patterns = [
-            r'(?:at|with|from)\s+([A-Z][A-Za-z\s]+(?:School|Academy|Center|Consulting|Associates))',
-            r'([A-Z][A-Za-z\s]+(?:School|Academy|Center|Consulting|Associates))',
-        ]
-        
-        orgs = []
-        for pattern in org_patterns:
-            found = re.findall(pattern, content)
-            orgs.extend(found)
-        
-        # Location extraction
-        location_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),?\s+(CA|NY|TX|FL|MA|CT|NJ|PA|California|New York|Texas|Florida)'
-        locations = re.findall(location_pattern, content)
-        
-        # Build prospects from extracted data
-        # If we found names, create a prospect for each
+        # Build prospects
         if names:
-            for i, name in enumerate(list(set(names))[:5]):  # Limit to 5 per page
+            for i, name in enumerate(list(set(names))[:5]):
                 prospect = DiscoveredProspect(
                     name=name.strip(),
-                    title=titles[i] if i < len(titles) else None,
-                    organization=orgs[i] if i < len(orgs) else None,
-                    location=f"{locations[0][0]}, {locations[0][1]}" if locations else None,
                     source_url=url,
                     source=source,
                     contact=ProspectContact(
@@ -137,19 +216,14 @@ class ProspectDiscoveryService:
                     bio_snippet=content[:200] if content else None,
                 )
                 prospects.append(prospect)
-        
-        # If no names but we have emails, create prospects from emails
         elif emails:
             for email in list(set(emails))[:3]:
-                # Try to extract name from email
                 name_from_email = email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
-                
                 prospect = DiscoveredProspect(
                     name=name_from_email,
                     source_url=url,
                     source=source,
                     contact=ProspectContact(email=email),
-                    bio_snippet=content[:200] if content else None,
                 )
                 prospects.append(prospect)
         
@@ -233,12 +307,26 @@ class ProspectDiscoveryService:
             
             # For Psychology Today, construct direct URLs
             if request.source == ProspectSource.PSYCHOLOGY_TODAY:
-                location_slug = request.location.lower().replace(" ", "-") if request.location else "california"
-                specialty_slug = request.specialty.lower().replace(" ", "-") if request.specialty else "therapist"
-                urls_to_scrape = [
-                    f"https://www.psychologytoday.com/us/therapists/{location_slug}?spec={specialty_slug}",
-                    f"https://www.psychologytoday.com/us/therapists/{location_slug}",
-                ]
+                # Handle DC specially
+                if request.location and "dc" in request.location.lower():
+                    location_slug = "district-of-columbia"
+                elif request.location:
+                    location_slug = request.location.lower().replace(" ", "-")
+                else:
+                    location_slug = "district-of-columbia"
+                
+                specialty_slug = request.specialty.lower().replace(" ", "-") if request.specialty else ""
+                
+                # Build URLs - use specialty in query param
+                if specialty_slug:
+                    urls_to_scrape = [
+                        f"https://www.psychologytoday.com/us/therapists/{location_slug}?spec=187",  # 187 = educational consultant
+                        f"https://www.psychologytoday.com/us/therapists/{location_slug}?category=educational-consultant",
+                    ]
+                else:
+                    urls_to_scrape = [
+                        f"https://www.psychologytoday.com/us/therapists/{location_slug}",
+                    ]
             
             # For IECA, use their search
             elif request.source == ProspectSource.IECA_DIRECTORY:
