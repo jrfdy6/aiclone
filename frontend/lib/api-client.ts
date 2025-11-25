@@ -7,26 +7,33 @@
  * Get the API base URL, ensuring it's a complete absolute URL
  */
 export function getApiUrl(): string {
-  if (typeof window === 'undefined') {
-    // Server-side: use env var directly
-    return process.env.NEXT_PUBLIC_API_URL || '';
-  }
-  
-  // Client-side: get from env var (Next.js injects this at build time)
   const url = process.env.NEXT_PUBLIC_API_URL || '';
   
   if (!url) {
     // Fallback for local development
+    if (typeof window !== 'undefined') {
+      // Client-side: try to detect if we're in production
+      const hostname = window.location.hostname;
+      if (hostname.includes('railway.app')) {
+        // In production but env var not set - this is a configuration error
+        console.error('NEXT_PUBLIC_API_URL is not set! Please configure it in Railway.');
+        return '';
+      }
+    }
     return 'http://localhost:8080';
   }
   
+  // Remove trailing slash if present
+  const cleanUrl = url.trim().replace(/\/$/, '');
+  
   // If URL already has protocol, return as-is
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
+  if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+    return cleanUrl;
   }
   
-  // If URL doesn't have protocol, assume https
-  return `https://${url}`;
+  // If URL doesn't have protocol, assume https (for production)
+  // This handles cases where Railway env var is set without protocol
+  return `https://${cleanUrl}`;
 }
 
 /**
