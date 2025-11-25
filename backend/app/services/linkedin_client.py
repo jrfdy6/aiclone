@@ -693,12 +693,12 @@ class LinkedInClient:
                 
                 # Approach 1: Try v2 with "auto" proxy (tries basic, then stealth if needed - cost-effective)
                 try:
-                scraped = self.firecrawl_client.scrape_url(
-                    url=url,
-                    formats=["markdown"],
+                    scraped = self.firecrawl_client.scrape_url(
+                        url=url,
+                        formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
-                        wait_for=8000,  # Wait 8 seconds for JavaScript to fully load (increased further)
+                        wait_for=6000,  # Wait 6 seconds for JavaScript to fully load (balanced)
                         use_v2=True,  # Use v2 API for better anti-bot features
                         proxy="auto"  # Auto: tries basic first, then stealth if needed (cost-effective)
                     )
