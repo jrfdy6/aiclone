@@ -20,6 +20,7 @@ from app.models.prospect_discovery import (
 )
 from app.services.firecrawl_client import get_firecrawl_client
 from app.services.perplexity_client import get_perplexity_client
+from app.services.search_client import get_search_client
 from app.services.firestore_client import db
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class ProspectDiscoveryService:
     def __init__(self):
         self.firecrawl = None
         self.perplexity = None
+        self.google_search = None
     
     def _init_clients(self):
         """Lazy init clients"""
@@ -41,6 +43,11 @@ class ProspectDiscoveryService:
                 self.perplexity = get_perplexity_client()
             except:
                 self.perplexity = None
+        if self.google_search is None:
+            try:
+                self.google_search = get_search_client()
+            except:
+                self.google_search = None
     
     def build_search_query(
         self,
@@ -533,6 +540,132 @@ class ProspectDiscoveryService:
             search_query_used=f"Direct scrape of {len(urls)} URLs",
         )
     
+    async def find_prospects_free(
+        self,
+        user_id: str,
+        specialty: str,
+        location: str,
+        additional_context: Optional[str] = None,
+        max_results: int = 10
+    ) -> ProspectDiscoveryResponse:
+        """
+        Use Google Custom Search (FREE - 100/day) + Firecrawl to find prospects.
+        This is the cost-effective approach.
+        """
+        self._init_clients()
+        
+        if not self.google_search:
+            return ProspectDiscoveryResponse(
+                success=False,
+                discovery_id="",
+                source="google_search",
+                total_found=0,
+                error="Google Custom Search API not configured"
+            )
+        
+        discovery_id = f"discovery_google_{int(time.time())}"
+        
+        # Build search query
+        query_parts = [f'"{specialty}"', f'"{location}"']
+        if additional_context:
+            query_parts.append(additional_context)
+        query_parts.append("contact email")
+        
+        search_query = " ".join(query_parts)
+        
+        logger.info(f"Google Search (FREE): {search_query}")
+        
+        try:
+            # Step 1: Google Search (FREE)
+            search_results = self.google_search.search(search_query, num_results=10)
+            
+            if not search_results:
+                return ProspectDiscoveryResponse(
+                    success=True,
+                    discovery_id=discovery_id,
+                    source="google_search",
+                    total_found=0,
+                    prospects=[],
+                    search_query_used=search_query,
+                )
+            
+            # Step 2: Scrape top URLs with Firecrawl
+            all_prospects = []
+            urls_scraped = []
+            
+            for result in search_results[:5]:  # Limit to 5 URLs to save Firecrawl credits
+                try:
+                    logger.info(f"Scraping: {result.link}")
+                    scraped = self.firecrawl.scrape_url(result.link)
+                    
+                    if scraped and scraped.content:
+                        urls_scraped.append(result.link)
+                        
+                        prospects = self.extract_prospects_from_content(
+                            content=scraped.content,
+                            url=result.link,
+                            source=ProspectSource.GENERAL_SEARCH
+                        )
+                        
+                        # Add search result context
+                        for p in prospects:
+                            p.source_url = result.link
+                            if not p.bio_snippet:
+                                p.bio_snippet = result.snippet
+                        
+                        all_prospects.extend(prospects)
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to scrape {result.link}: {e}")
+                    continue
+            
+            # Calculate fit scores
+            for prospect in all_prospects:
+                prospect.fit_score = self.calculate_fit_score(
+                    prospect,
+                    target_specialty=specialty,
+                    target_location=location
+                )
+            
+            # Sort and limit
+            all_prospects.sort(key=lambda p: p.fit_score, reverse=True)
+            all_prospects = all_prospects[:max_results]
+            
+            # Store results
+            doc_data = {
+                "discovery_id": discovery_id,
+                "source": "google_search_free",
+                "specialty": specialty,
+                "location": location,
+                "search_query": search_query,
+                "urls_scraped": urls_scraped,
+                "total_found": len(all_prospects),
+                "prospects": [p.dict() for p in all_prospects],
+                "created_at": time.time(),
+            }
+            
+            doc_ref = db.collection("users").document(user_id).collection("prospect_discoveries").document(discovery_id)
+            doc_ref.set(doc_data)
+            
+            return ProspectDiscoveryResponse(
+                success=True,
+                discovery_id=discovery_id,
+                source="google_search_free",
+                total_found=len(all_prospects),
+                prospects=all_prospects,
+                search_query_used=search_query,
+            )
+            
+        except Exception as e:
+            logger.exception(f"Google search failed: {e}")
+            return ProspectDiscoveryResponse(
+                success=False,
+                discovery_id=discovery_id,
+                source="google_search_free",
+                total_found=0,
+                error=str(e)
+            )
+    
     async def find_prospects_with_ai(
         self,
         user_id: str,
@@ -542,8 +675,8 @@ class ProspectDiscoveryService:
         max_results: int = 10
     ) -> ProspectDiscoveryResponse:
         """
-        Use Perplexity AI to find real prospects.
-        This asks Perplexity to search and return actual people/organizations.
+        Use Perplexity AI to find real prospects (PAID).
+        Only use this when Google Search free tier is exhausted.
         """
         self._init_clients()
         
