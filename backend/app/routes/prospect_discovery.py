@@ -183,8 +183,8 @@ async def scrape_specific_urls(request: ScrapeUrlsRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
 
 
-class AIProspectSearchRequest(BaseModel):
-    """Request for AI-powered prospect search"""
+class ProspectSearchRequest(BaseModel):
+    """Request for prospect search"""
     user_id: str
     specialty: str
     location: str
@@ -192,13 +192,12 @@ class AIProspectSearchRequest(BaseModel):
     max_results: int = 10
 
 
-@router.post("/ai-search", response_model=ProspectDiscoveryResponse)
-async def ai_prospect_search(request: AIProspectSearchRequest) -> Dict[str, Any]:
+@router.post("/search-free", response_model=ProspectDiscoveryResponse)
+async def free_prospect_search(request: ProspectSearchRequest) -> Dict[str, Any]:
     """
-    Use Perplexity AI to find real prospects.
+    Find prospects using Google Search (FREE - 100 queries/day) + Firecrawl.
     
-    This is the most powerful search - it asks AI to find actual people
-    with their contact information.
+    This is the recommended, cost-effective approach.
     
     Example:
     ```json
@@ -206,7 +205,38 @@ async def ai_prospect_search(request: AIProspectSearchRequest) -> Dict[str, Any]
       "user_id": "user123",
       "specialty": "educational consultant",
       "location": "Washington DC",
-      "additional_context": "Focus on those who specialize in private school placement for neurodivergent students",
+      "additional_context": "private school placement",
+      "max_results": 10
+    }
+    ```
+    """
+    try:
+        service = get_prospect_discovery_service()
+        result = await service.find_prospects_free(
+            user_id=request.user_id,
+            specialty=request.specialty,
+            location=request.location,
+            additional_context=request.additional_context,
+            max_results=request.max_results
+        )
+        return result
+    except Exception as e:
+        logger.exception(f"Free prospect search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+@router.post("/ai-search", response_model=ProspectDiscoveryResponse)
+async def ai_prospect_search(request: ProspectSearchRequest) -> Dict[str, Any]:
+    """
+    Use Perplexity AI to find real prospects (PAID - use when free tier exhausted).
+    
+    Example:
+    ```json
+    {
+      "user_id": "user123",
+      "specialty": "educational consultant",
+      "location": "Washington DC",
+      "additional_context": "Focus on those who specialize in private school placement",
       "max_results": 10
     }
     ```
