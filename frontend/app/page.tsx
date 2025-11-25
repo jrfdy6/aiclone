@@ -87,6 +87,15 @@ const features = [
     color: 'bg-indigo-50 border-indigo-200 hover:bg-indigo-100',
     iconBg: 'bg-indigo-100',
   },
+  {
+    id: 'api-test',
+    title: 'API Test (Google Search)',
+    description: 'Test Google Custom Search functionality in production via the LinkedIn search endpoint.',
+    icon: '🧪',
+    href: '/api-test',
+    color: 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100',
+    iconBg: 'bg-yellow-100',
+  },
 ];
 
 type ChatMessage = {
