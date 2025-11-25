@@ -169,6 +169,7 @@ async def test_linkedin_search(request: LinkedInTestRequest):
                     "author": post.author_name or "Unknown",
                     "title": post.author_title,
                     "company": post.author_company,
+                    "content": post.content,  # Full content
                     "content_preview": post.content[:200] + "..." if len(post.content) > 200 else post.content,
                     "content_length": len(post.content),
                     "engagement_score": post.engagement_score,

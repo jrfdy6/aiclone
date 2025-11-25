@@ -240,25 +240,119 @@ export default function APITestPage() {
             )}
 
             {result.success && result.data && (
-              <div className="mt-4 space-y-2">
-                <h4 className="font-medium text-gray-800">Quick Stats:</h4>
-                <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
-                  {result.data.total_results !== undefined && (
-                    <li>Total Results: {result.data.total_results}</li>
-                  )}
-                  {result.data.total_posts_found !== undefined && (
-                    <li>Posts Found: {result.data.total_posts_found}</li>
-                  )}
-                  {result.data.posts && (
-                    <li>Posts Returned: {result.data.posts.length}</li>
-                  )}
-                  {result.data.test_metadata?.extraction_quality && (
-                    <>
-                      <li>Author Extraction Rate: {result.data.test_metadata.extraction_quality.author_extraction_rate}%</li>
-                      <li>Engagement Extraction Rate: {result.data.test_metadata.extraction_quality.engagement_extraction_rate}%</li>
-                    </>
-                  )}
-                </ul>
+              <div className="mt-4 space-y-4">
+                <div>
+                  <h4 className="font-medium text-gray-800 mb-2">Quick Stats:</h4>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
+                    {result.data.total_results !== undefined && (
+                      <li>Total Results: {result.data.total_results}</li>
+                    )}
+                    {result.data.total_posts_found !== undefined && (
+                      <li>Posts Found: {result.data.total_posts_found}</li>
+                    )}
+                    {result.data.posts && (
+                      <li>Posts Returned: {result.data.posts.length}</li>
+                    )}
+                    {result.data.test_metadata?.extraction_quality && (
+                      <>
+                        <li>Author Extraction Rate: {result.data.test_metadata.extraction_quality.author_extraction_rate}%</li>
+                        <li>Engagement Extraction Rate: {result.data.test_metadata.extraction_quality.engagement_extraction_rate}%</li>
+                        <li>Content Length (avg): {result.data.test_metadata.content_stats?.average_content_length || 0} chars</li>
+                      </>
+                    )}
+                  </ul>
+                </div>
+
+                {/* Display Posts with Content */}
+                {result.data.posts && result.data.posts.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-gray-800 mb-3">Posts Found:</h4>
+                    <div className="space-y-4">
+                      {result.data.posts.map((post: any, index: number) => (
+                        <div key={post.post_id || index} className="rounded-lg border border-gray-200 bg-white p-4">
+                          <div className="mb-2 flex items-start justify-between">
+                            <div>
+                              <h5 className="font-semibold text-gray-900">
+                                {post.author || 'Unknown Author'}
+                              </h5>
+                              {post.title && (
+                                <p className="text-sm text-gray-600">{post.title}</p>
+                              )}
+                              {post.company && (
+                                <p className="text-xs text-gray-500">{post.company}</p>
+                              )}
+                            </div>
+                            {post.engagement_score !== undefined && (
+                              <span className="rounded bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
+                                Score: {post.engagement_score}
+                              </span>
+                            )}
+                          </div>
+                          
+                          {/* Post Content */}
+                          <div className="mb-3 rounded bg-gray-50 p-3">
+                            {post.content_preview ? (
+                              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                {post.content_preview}
+                              </p>
+                            ) : post.content ? (
+                              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                {post.content}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-gray-500 italic">
+                                No content extracted from this post
+                              </p>
+                            )}
+                            {post.content_length !== undefined && (
+                              <p className="mt-2 text-xs text-gray-500">
+                                Content length: {post.content_length} characters
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Engagement Metrics */}
+                          {post.engagement_metrics && (
+                            <div className="mb-2 flex gap-4 text-xs text-gray-600">
+                              {post.engagement_metrics.likes > 0 && (
+                                <span>👍 {post.engagement_metrics.likes}</span>
+                              )}
+                              {post.engagement_metrics.comments > 0 && (
+                                <span>💬 {post.engagement_metrics.comments}</span>
+                              )}
+                              {post.engagement_metrics.shares > 0 && (
+                                <span>🔄 {post.engagement_metrics.shares}</span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Hashtags */}
+                          {post.hashtags && post.hashtags.length > 0 && (
+                            <div className="mb-2 flex flex-wrap gap-1">
+                              {post.hashtags.map((tag: string, i: number) => (
+                                <span key={i} className="rounded bg-purple-100 px-2 py-0.5 text-xs text-purple-700">
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Post URL */}
+                          {post.url && (
+                            <a
+                              href={post.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              View on LinkedIn →
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
