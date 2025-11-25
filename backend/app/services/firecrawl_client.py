@@ -55,15 +55,21 @@ class FirecrawlClient:
         exclude_tags: List[str] = None,
         only_main_content: bool = True,
         wait_for: Optional[int] = None,
+        use_v2: bool = True,
+        actions: Optional[List[Dict[str, Any]]] = None,
     ) -> ScrapedContent:
         """
-        Scrape a single URL.
+        Scrape a single URL with enhanced options for difficult sites like LinkedIn.
         
         Args:
             url: URL to scrape
             formats: Output formats (e.g., ['markdown', 'html'])
             include_tags: HTML tags to include
             exclude_tags: HTML tags to exclude
+            only_main_content: Filter to main content only
+            wait_for: Milliseconds to wait for JavaScript
+            use_v2: Use Firecrawl v2 API (better anti-bot features)
+            actions: List of browser actions (click, scroll, wait, etc.)
             
         Returns:
             ScrapedContent with content and metadata
@@ -71,7 +77,8 @@ class FirecrawlClient:
         if formats is None:
             formats = ["markdown", "html"]
         
-        endpoint = f"{self.BASE_URL}/v1/scrape"
+        # Use v2 API for better anti-bot features (default)
+        endpoint = f"{self.BASE_URL}/v2/scrape" if use_v2 else f"{self.BASE_URL}/v1/scrape"
         
         payload = {
             "url": url,
@@ -85,6 +92,8 @@ class FirecrawlClient:
             payload["excludeTags"] = exclude_tags
         if wait_for:
             payload["waitFor"] = wait_for
+        if actions:
+            payload["actions"] = actions
         
         try:
             response = self.session.post(endpoint, json=payload, timeout=60)
