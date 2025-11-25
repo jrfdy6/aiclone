@@ -641,7 +641,7 @@ class LinkedInClient:
         
         # Track consecutive 403 errors to detect systematic blocking (circuit breaker pattern)
         consecutive_403s = 0
-        max_consecutive_403s = 4  # Increased to 4 - give even more chances before circuit breaker
+        max_consecutive_403s = 2  # Back to 2 - fail faster to avoid timeouts
         
         # Smart scraping limits based on research:
         # - Scrape first post immediately (no delay) for fast UX
@@ -658,26 +658,25 @@ class LinkedInClient:
         
         for i, url in enumerate(urls_to_scrape, 1):
             try:
-                # PROGRESSIVE DELAY STRATEGY (Optimized for 20-25% success rate)
-                # - First post: Moderate delay (5-8s) to avoid immediate blocking
-                # - Posts 2-3: Longer delays (12-20 seconds) - increased significantly
-                # - Posts 4+: Very long delays (20-30 seconds) - maximum patience
-                # Add extra randomization to make patterns less predictable
+                # OPTIMIZED DELAY STRATEGY (Balanced for 20-25% success without timeouts)
+                # - First post: Small delay (2-4s) to avoid immediate blocking
+                # - Posts 2-3: Moderate delays (6-12 seconds) - balanced for success
+                # - Posts 4+: Skip to prevent timeout (we focus on quality over quantity)
                 if i == 1:
-                    # First post: moderate delay with randomization
-                    delay = random.uniform(5.0, 8.0) + random.uniform(0, 2.0)  # 5-10s with jitter
+                    # First post: small delay to avoid immediate blocking
+                    delay = random.uniform(2.0, 4.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (initial delay for post {i})...", flush=True)
                     time.sleep(delay)
                 elif i <= 3:
-                    # Next 2 posts: longer delays with more randomization
-                    delay = random.uniform(12.0, 20.0) + random.uniform(0, 3.0)  # 12-23s with jitter
+                    # Next 2 posts: moderate delays (6-12 seconds)
+                    delay = random.uniform(6.0, 12.0)
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (moderate delay for post {i})...", flush=True)
                     time.sleep(delay)
                 else:
-                    # Posts 4+: very long delays with maximum randomization
-                    delay = random.uniform(20.0, 30.0) + random.uniform(0, 5.0)  # 20-35s with jitter
-                    print(f"  [LinkedIn] Waiting {delay:.1f}s (extended delay for post {i})...", flush=True)
-                    time.sleep(delay)
+                    # Posts 4+: Skip to prevent timeout (focus on first 3 for better success rate)
+                    print(f"  [LinkedIn] Skipping post {i} to prevent timeout (focusing on first 3 posts)...", flush=True)
+                    urls_without_content.append(url)
+                    continue
                 
                 print(f"  [LinkedIn] Scraping {i}/{len(urls_to_scrape)}: {url[:80]}...", flush=True)
                 
