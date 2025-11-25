@@ -265,3 +265,64 @@ async def get_topic_intelligence_by_id(user_id: str, research_id: str) -> Dict[s
         logger.exception(f"Error fetching topic intelligence: {e}")
         raise HTTPException(status_code=500, detail=f"Fetch failed: {str(e)}")
 
+
+@router.get("/user/{user_id}/dork-stats/{theme_id}")
+async def get_dork_performance_stats(user_id: str, theme_id: str) -> Dict[str, Any]:
+    """
+    Get aggregated dork performance stats for a theme.
+    Shows which dorks performed best across all runs.
+    """
+    try:
+        # Get all results for this theme
+        docs = db.collection("users").document(user_id).collection("topic_intelligence").where(
+            "theme", "==", theme_id
+        ).stream()
+        
+        # Aggregate dork performance
+        dork_stats: Dict[int, Dict[str, Any]] = {}
+        
+        for doc in docs:
+            data = doc.to_dict()
+            dork_perf = data.get("dork_performance", [])
+            
+            for perf in dork_perf:
+                idx = perf.get("dork_index", -1)
+                if idx not in dork_stats:
+                    dork_stats[idx] = {
+                        "dork_index": idx,
+                        "dork": perf.get("dork", ""),
+                        "total_runs": 0,
+                        "total_sources": 0,
+                        "avg_sources": 0,
+                        "total_summary_length": 0,
+                        "errors": 0,
+                    }
+                
+                dork_stats[idx]["total_runs"] += 1
+                dork_stats[idx]["total_sources"] += perf.get("sources_found", 0)
+                dork_stats[idx]["total_summary_length"] += perf.get("summary_length", 0)
+                if perf.get("error"):
+                    dork_stats[idx]["errors"] += 1
+        
+        # Calculate averages and sort by performance
+        results = []
+        for idx, stats in dork_stats.items():
+            if stats["total_runs"] > 0:
+                stats["avg_sources"] = round(stats["total_sources"] / stats["total_runs"], 1)
+                stats["avg_summary_length"] = round(stats["total_summary_length"] / stats["total_runs"], 0)
+            results.append(stats)
+        
+        # Sort by avg_sources (best performing first)
+        results.sort(key=lambda x: x["avg_sources"], reverse=True)
+        
+        return {
+            "theme": theme_id,
+            "total_runs": sum(s["total_runs"] for s in results) // 3 if results else 0,  # Divide by 3 dorks per run
+            "dork_rankings": results,
+            "best_dork": results[0] if results else None,
+        }
+        
+    except Exception as e:
+        logger.exception(f"Error fetching dork stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Fetch failed: {str(e)}")
+

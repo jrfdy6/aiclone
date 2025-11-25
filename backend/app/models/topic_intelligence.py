@@ -232,6 +232,9 @@ class TopicIntelligenceResult(BaseModel):
     opportunity_insights: List[OpportunityInsight] = Field(default_factory=list)
     keywords: List[str] = Field(default_factory=list)
     trending_topics: List[str] = Field(default_factory=list)
+    # Dork rotation tracking
+    dorks_used: List[str] = Field(default_factory=list, description="Which dorks were used this run")
+    dork_performance: List[Dict[str, Any]] = Field(default_factory=list, description="Performance metrics per dork")
 
 
 class TopicIntelligenceResponse(BaseModel):

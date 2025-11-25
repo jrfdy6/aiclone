@@ -1,0 +1,51 @@
+{
+  "query": "AI tools",
+  "max_results": 5,
+  "iterations": 1,
+  "results": [
+    {
+      "iteration": 1,
+      "elapsed_seconds": 10.67,
+      "posts_found": 5,
+      "extraction_quality": {
+        "posts_with_author": 1,
+        "author_extraction_rate": 20.0,
+        "posts_with_engagement": 3,
+        "engagement_extraction_rate": 60.0,
+        "posts_with_hashtags": 0,
+        "hashtag_extraction_rate": 0.0,
+        "posts_with_company": 0,
+        "company_extraction_rate": 0.0
+      },
+      "scraping_performance": {},
+      "sample_posts": [
+        {
+          "url": "https://www.linkedin.com/posts/cagan_build-vs-buy-in-the-age-of-ai-silicon-activity-7363561900757934081-IQMK",
+          "author": "Unknown",
+          "content_length": 155,
+          "engagement_score": 20.0,
+          "has_content": true
+        },
+        {
+          "url": "https://www.linkedin.com/posts/naikkrish_ai-generativeai-activity-7275011632341102592-BI7s",
+          "author": "Unknown",
+          "content_length": 158,
+          "engagement_score": 17.0,
+          "has_content": true
+        },
+        {
+          "url": "https://www.linkedin.com/posts/keithrichman_the-ai-admaker-activity-7316478858315083776-NXyd",
+          "author": "More Relevant Posts",
+          "content_length": 156,
+          "engagement_score": 11.0,
+          "has_content": true
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_iterations": 1,
+    "average_posts": 5.0,
+    "average_time": 10.7
+  }
+}

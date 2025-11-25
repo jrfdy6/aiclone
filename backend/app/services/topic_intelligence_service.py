@@ -12,7 +12,8 @@ Orchestrates the Topic Intelligence Pipeline:
 
 import logging
 import time
-from typing import List, Dict, Any, Optional
+import random
+from typing import List, Dict, Any, Optional, Tuple
 
 from app.models.topic_intelligence import (
     IntelligenceTheme,
@@ -30,6 +31,9 @@ from app.services.firecrawl_client import get_firecrawl_client
 from app.services.firestore_client import db
 
 logger = logging.getLogger(__name__)
+
+# Track dork rotation per theme
+_dork_rotation_index: Dict[str, int] = {}
 
 
 class TopicIntelligenceService:
@@ -49,13 +53,47 @@ class TopicIntelligenceService:
     def get_dorks_for_theme(
         self, 
         theme: IntelligenceTheme, 
-        custom_dorks: Optional[List[str]] = None
-    ) -> List[str]:
-        """Get Google dorks for a theme, optionally adding custom ones"""
-        dorks = THEME_DORKS.get(theme, []).copy()
+        custom_dorks: Optional[List[str]] = None,
+        num_dorks: int = 3,
+        rotate: bool = True
+    ) -> Tuple[List[str], List[int]]:
+        """
+        Get rotating Google dorks for a theme.
+        
+        Returns:
+            Tuple of (selected_dorks, dork_indices) for tracking which performed best
+        """
+        global _dork_rotation_index
+        
+        all_dorks = THEME_DORKS.get(theme, []).copy()
+        
         if custom_dorks:
-            dorks.extend(custom_dorks)
-        return dorks
+            # Custom dorks take priority, no rotation
+            return custom_dorks[:num_dorks], list(range(len(custom_dorks[:num_dorks])))
+        
+        if not all_dorks:
+            return [], []
+        
+        # Get current rotation index for this theme
+        theme_key = theme.value
+        current_index = _dork_rotation_index.get(theme_key, 0)
+        
+        # Select 3 dorks starting from rotation index
+        selected_indices = []
+        selected_dorks = []
+        
+        for i in range(num_dorks):
+            idx = (current_index + i) % len(all_dorks)
+            selected_indices.append(idx)
+            selected_dorks.append(all_dorks[idx])
+        
+        # Advance rotation for next call
+        if rotate:
+            _dork_rotation_index[theme_key] = (current_index + num_dorks) % len(all_dorks)
+        
+        logger.info(f"Theme {theme_key}: Using dorks {selected_indices} (rotation index: {current_index})")
+        
+        return selected_dorks, selected_indices
     
     async def run_pipeline(
         self, 
@@ -78,27 +116,45 @@ class TopicIntelligenceService:
         
         theme = request.theme
         theme_display = THEME_DISPLAY_NAMES.get(theme, theme.value)
-        dorks = self.get_dorks_for_theme(theme, request.custom_dorks)
+        dorks, dork_indices = self.get_dorks_for_theme(theme, request.custom_dorks, num_dorks=3)
         
         logger.info(f"Running topic intelligence for theme: {theme_display}")
-        logger.info(f"Using {len(dorks)} Google dorks")
+        logger.info(f"Using {len(dorks)} rotating dorks: indices {dork_indices}")
         
-        # Step 1: Research with Perplexity using top dorks
+        # Step 1: Research with Perplexity using 3 rotating dorks
         all_research = []
         all_sources = []
+        dork_results = []  # Track results per dork for performance analysis
         
-        # Use top 5 dorks to avoid timeout
-        for dork in dorks[:5]:
+        for i, dork in enumerate(dorks):
             try:
                 research = self.perplexity.research_topic(
                     topic=dork,
                     num_results=5,
                     include_comparison=False
                 )
-                all_research.append(research.get("summary", ""))
-                all_sources.extend(research.get("sources", []))
+                summary = research.get("summary", "")
+                sources = research.get("sources", [])
+                
+                all_research.append(summary)
+                all_sources.extend(sources)
+                
+                # Track per-dork performance
+                dork_results.append({
+                    "dork_index": dork_indices[i],
+                    "dork": dork,
+                    "sources_found": len(sources),
+                    "summary_length": len(summary),
+                })
             except Exception as e:
                 logger.warning(f"Failed to research dork '{dork}': {e}")
+                dork_results.append({
+                    "dork_index": dork_indices[i],
+                    "dork": dork,
+                    "sources_found": 0,
+                    "summary_length": 0,
+                    "error": str(e)
+                })
                 continue
         
         # Step 2: Scrape top unique URLs
@@ -163,6 +219,8 @@ class TopicIntelligenceService:
             opportunity_insights=opportunities,
             keywords=keywords,
             trending_topics=trending,
+            dorks_used=dorks,
+            dork_performance=dork_results,
         )
         
         # Store in Firestore
@@ -476,7 +534,7 @@ class TopicIntelligenceService:
         return trends[:10]
     
     def _store_result(self, user_id: str, result: TopicIntelligenceResult):
-        """Store result in Firestore"""
+        """Store result in Firestore with dork performance tracking"""
         doc_data = {
             "research_id": result.research_id,
             "theme": result.theme,
@@ -489,6 +547,8 @@ class TopicIntelligenceService:
             "opportunity_insights": [o.dict() for o in result.opportunity_insights],
             "keywords": result.keywords,
             "trending_topics": result.trending_topics,
+            "dorks_used": result.dorks_used,
+            "dork_performance": result.dork_performance,
             "created_at": time.time(),
         }
         
@@ -496,6 +556,7 @@ class TopicIntelligenceService:
         doc_ref.set(doc_data)
         
         logger.info(f"Stored topic intelligence: {result.research_id}")
+        logger.info(f"Dork performance: {result.dork_performance}")
 
 
 # Singleton
