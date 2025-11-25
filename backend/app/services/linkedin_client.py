@@ -662,6 +662,9 @@ class LinkedInClient:
             print(f"  [LinkedIn] DEBUG: This means no scraping will be attempted. Creating minimal posts from Google Search snippets only.", flush=True)
             # If no URLs to scrape, add all to urls_without_content to create minimal posts
             urls_without_content.extend(linkedin_urls)
+        else:
+            # Only run scraping loop if we have URLs to scrape
+            print(f"  [LinkedIn] DEBUG: Starting scraping loop for {len(urls_to_scrape)} URLs", flush=True)
         
         for i, url in enumerate(urls_to_scrape, 1):
             print(f"  [LinkedIn] DEBUG: Starting scrape attempt {i} for {url[:80]}...", flush=True)
