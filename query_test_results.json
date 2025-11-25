@@ -1,0 +1,92 @@
+[
+  {
+    "query": "enrollment management K-12",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "admissions private school",
+    "success_rate": null,
+    "output": "\n============================================================\nTesting LinkedIn Scraping\n============================================================\nQuery: admissions private school\nMax Results: 3\nIterations: 1\nAPI URL: https://aiclone-production-32dc.up.railway.app\n============================================================\n\n\n--- Iteration 1/1 ---\n  Sending request to https://aiclone-production-32dc.up.railway.app/api/linkedin/test...\n  \u2705 Request completed in 0.3s\n  Posts found: 0\n\n  Extraction Quality:\n    - Author extraction: 0%\n    - Engagement extraction: 0%\n    - Company extraction: 0%\n\n============================================================\nSummary Statistics\n============================================================\n\nAverage Extraction Quality:\n  Author extraction: 0.0%\n  Engagement extraction: 0.0%\n\nPerformance:\n  Average posts per request: 0.0\n  Average time per request: 0.3s\n\n============================================================\nTest Complete!\n============================================================\n\n",
+    "success": true
+  },
+  {
+    "query": "neurodivergent students education",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "AI in education",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "EdTech tools",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "education technology",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "K-12 admissions",
+    "success_rate": 0.0,
+    "output": "\n============================================================\nTesting LinkedIn Scraping\n============================================================\nQuery: K-12 admissions\nMax Results: 3\nIterations: 1\nAPI URL: https://aiclone-production-32dc.up.railway.app\n============================================================\n\n\n--- Iteration 1/1 ---\n  Sending request to https://aiclone-production-32dc.up.railway.app/api/linkedin/test...\n  \u2705 Request completed in 52.9s\n  Posts found: 1\n\n  Extraction Quality:\n    - Author extraction: 0.0%\n    - Engagement extraction: 0.0%\n    - Company extraction: 0.0%\n\n  Scraping Performance:\n    - Total attempts: 1\n    - Successful scrapes: 0\n    - Success rate: 0.0%\n    - Approach 1 success: 0\n    - Approach 2 success: 0\n    - Approach 3 success: 0\n    - Approach 4 success: 0\n    - Content too short: 0\n    - No LinkedIn indicators: 0\n\n============================================================\nSummary Statistics\n============================================================\n\nOverall Scraping Success Rates:\n  Total attempts: 1\n  Approach 1 (v2 + auto): 0 (0.0%)\n  Approach 2 (scroll): 0 (0.0%)\n  Approach 3 (stealth): 0 (0.0%)\n  Approach 4 (v1 fallback): 0 (0.0%)\n\nAverage Extraction Quality:\n  Author extraction: 0.0%\n  Engagement extraction: 0.0%\n\nPerformance:\n  Average posts per request: 1.0\n  Average time per request: 52.9s\n\n============================================================\nTest Complete!\n============================================================\n\n",
+    "success": true
+  },
+  {
+    "query": "post-secondary enrollment",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "fashion tech app",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "entrepreneurship education",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "referral networks education",
+    "success_rate": null,
+    "output": "Timeout",
+    "success": false
+  },
+  {
+    "query": "one-to-one care model",
+    "success_rate": null,
+    "output": "\n============================================================\nTesting LinkedIn Scraping\n============================================================\nQuery: one-to-one care model\nMax Results: 3\nIterations: 1\nAPI URL: https://aiclone-production-32dc.up.railway.app\n============================================================\n\n\n--- Iteration 1/1 ---\n  Sending request to https://aiclone-production-32dc.up.railway.app/api/linkedin/test...\n  \u274c Error: 502\n  Response: {\"status\":\"error\",\"code\":502,\"message\":\"Application failed to respond\",\"request_id\":\"2ewsYVVIT1ad0q5wCx5-qw\"}\n\n============================================================\nTest Complete!\n============================================================\n\n",
+    "success": true
+  },
+  {
+    "query": "AI tools education",
+    "success_rate": null,
+    "output": "\n============================================================\nTesting LinkedIn Scraping\n============================================================\nQuery: AI tools education\nMax Results: 3\nIterations: 1\nAPI URL: https://aiclone-production-32dc.up.railway.app\n============================================================\n\n\n--- Iteration 1/1 ---\n  Sending request to https://aiclone-production-32dc.up.railway.app/api/linkedin/test...\n  \u274c Error: 502\n  Response: {\"status\":\"error\",\"code\":502,\"message\":\"Application failed to respond\",\"request_id\":\"yTiENHpZScC4QbJvozsQ6Q\"}\n\n============================================================\nTest Complete!\n============================================================\n\n",
+    "success": true
+  },
+  {
+    "query": "content marketing education",
+    "success_rate": null,
+    "output": "\n============================================================\nTesting LinkedIn Scraping\n============================================================\nQuery: content marketing education\nMax Results: 3\nIterations: 1\nAPI URL: https://aiclone-production-32dc.up.railway.app\n============================================================\n\n\n--- Iteration 1/1 ---\n  Sending request to https://aiclone-production-32dc.up.railway.app/api/linkedin/test...\n  \u274c Error: 502\n  Response: {\"status\":\"error\",\"code\":502,\"message\":\"Application failed to respond\",\"request_id\":\"bkz4AS_qT8in4o3mCx5-qw\"}\n\n============================================================\nTest Complete!\n============================================================\n\n",
+    "success": true
+  },
+  {
+    "query": "LinkedIn optimization education",
+    "success_rate": null,
+    "output": "\n============================================================\nTesting LinkedIn Scraping\n============================================================\nQuery: LinkedIn optimization education\nMax Results: 3\nIterations: 1\nAPI URL: https://aiclone-production-32dc.up.railway.app\n============================================================\n\n\n--- Iteration 1/1 ---\n  Sending request to https://aiclone-production-32dc.up.railway.app/api/linkedin/test...\n  \u274c Error: 502\n  Response: {\"status\":\"error\",\"code\":502,\"message\":\"Application failed to respond\",\"request_id\":\"U5n8xpoCRGOLmFrjg4a9AQ\"}\n\n============================================================\nTest Complete!\n============================================================\n\n",
+    "success": true
+  }
+]
