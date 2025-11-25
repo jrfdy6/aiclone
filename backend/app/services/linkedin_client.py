@@ -627,6 +627,18 @@ class LinkedInClient:
         failed_scrapes = 0
         urls_without_content = []  # Track URLs we found but couldn't scrape
         
+        # Track which scraping approaches succeeded (for testing/optimization)
+        scraping_stats = {
+            "approach_1_success": 0,  # Basic v2 + auto proxy
+            "approach_2_success": 0,  # Scroll actions
+            "approach_3_success": 0,  # Extended wait + stealth
+            "approach_4_success": 0,  # v1 fallback
+            "total_attempts": 0,
+            "failed_attempts": 0,
+            "content_too_short": 0,
+            "no_linkedin_indicators": 0,
+        }
+        
         # Track consecutive 403 errors to detect systematic blocking (circuit breaker pattern)
         consecutive_403s = 0
         max_consecutive_403s = 2  # Reduced from 3 - fail faster to avoid wasting time
@@ -674,6 +686,9 @@ class LinkedInClient:
                 # MULTI-STRATEGY APPROACH: Try multiple techniques with increasing complexity
                 # This maximizes success rate by trying different methods
                 
+                scraping_stats["total_attempts"] += 1
+                approach_used = None
+                
                 # Approach 1: Try v2 with "auto" proxy (tries basic, then stealth if needed - cost-effective)
                 try:
                     scraped = self.firecrawl_client.scrape_url(
@@ -685,7 +700,9 @@ class LinkedInClient:
                         use_v2=True,  # Use v2 API for better anti-bot features
                         proxy="auto"  # Auto: tries basic first, then stealth if needed (cost-effective)
                     )
-                    print(f"  [LinkedIn] ✅ Successfully scraped with v2 + auto proxy", flush=True)
+                    approach_used = "approach_1"
+                    scraping_stats["approach_1_success"] += 1
+                    print(f"  [LinkedIn] ✅ Successfully scraped with Approach 1 (v2 + auto proxy)", flush=True)
                 except Exception as e1:
                     last_error = e1
                     print(f"  [LinkedIn] ⚠️ Approach 1 failed: {str(e1)[:100]}", flush=True)
@@ -710,7 +727,9 @@ class LinkedInClient:
                             actions=actions,
                             proxy="auto"  # Auto proxy (tries basic, then stealth)
                         )
-                        print(f"  [LinkedIn] ✅ Successfully scraped with scroll actions", flush=True)
+                        approach_used = "approach_2"
+                        scraping_stats["approach_2_success"] += 1
+                        print(f"  [LinkedIn] ✅ Successfully scraped with Approach 2 (scroll actions)", flush=True)
                     except Exception as e2:
                         last_error = e2
                         print(f"  [LinkedIn] ⚠️ Approach 2 failed: {str(e2)[:100]}", flush=True)
@@ -727,7 +746,9 @@ class LinkedInClient:
                                 use_v2=True,
                                 proxy="stealth"  # Force stealth proxy (last resort - costs 5 credits)
                             )
-                            print(f"  [LinkedIn] ✅ Successfully scraped with extended wait", flush=True)
+                            approach_used = "approach_3"
+                            scraping_stats["approach_3_success"] += 1
+                            print(f"  [LinkedIn] ✅ Successfully scraped with Approach 3 (extended wait + stealth)", flush=True)
                         except Exception as e3:
                             last_error = e3
                             print(f"  [LinkedIn] ⚠️ Approach 3 failed: {str(e3)[:100]}", flush=True)
@@ -743,7 +764,9 @@ class LinkedInClient:
                                     wait_for=5000,
                                     use_v2=False  # Fallback to v1
                                 )
-                                print(f"  [LinkedIn] ✅ Successfully scraped with v1 fallback", flush=True)
+                                approach_used = "approach_4"
+                                scraping_stats["approach_4_success"] += 1
+                                print(f"  [LinkedIn] ✅ Successfully scraped with Approach 4 (v1 fallback)", flush=True)
                             except Exception as e4:
                                 last_error = e4
                                 print(f"  [LinkedIn] ❌ All 4 scraping approaches failed", flush=True)
@@ -759,6 +782,7 @@ class LinkedInClient:
                 # LinkedIn posts should have substantial content
                 content_length = len(scraped.content.strip()) if scraped.content else 0
                 if not scraped.content or content_length < 100:
+                    scraping_stats["content_too_short"] += 1
                     print(f"  [LinkedIn] ⚠️ Skipping {url}: content too short ({content_length} chars, minimum 100)", flush=True)
                     failed_scrapes += 1
                     urls_without_content.append(url)
@@ -772,6 +796,7 @@ class LinkedInClient:
                 ])
                 
                 if not has_linkedin_indicators and content_length < 200:
+                    scraping_stats["no_linkedin_indicators"] += 1
                     print(f"  [LinkedIn] ⚠️ Content doesn't look like a LinkedIn post ({content_length} chars, no LinkedIn indicators)", flush=True)
                     # Still try to parse it - might be valid content without indicators
                 
@@ -817,6 +842,8 @@ class LinkedInClient:
                         print(f"  [LinkedIn] ⚠️ Circuit breaker triggered: {consecutive_403s} consecutive 403 errors. "
                               f"LinkedIn is blocking Firecrawl. Stopping scrape attempts. "
                               f"Will return remaining URLs for manual viewing.", flush=True)
+                        # Log current stats before breaking
+                        print(f"  [LinkedIn] Stats before circuit breaker: {scraping_stats}", flush=True)
                         # Add all remaining URLs to return list
                         remaining_urls = urls_to_scrape[i-1:] + urls_to_return_only
                         urls_without_content.extend(remaining_urls)
@@ -830,17 +857,41 @@ class LinkedInClient:
                     print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
                     time.sleep(random.uniform(2.0, 4.0))
                 
+                scraping_stats["failed_attempts"] += 1
                 failed_scrapes += 1
                 urls_without_content.append(url)
                 continue
         
+        # Calculate success rate and prepare metadata
+        total_attempts = scraping_stats["total_attempts"]
+        success_rate = (successful_scrapes / total_attempts * 100) if total_attempts > 0 else 0
+        
         print(f"  [LinkedIn] Scraping complete: {successful_scrapes} successful, {failed_scrapes} failed", flush=True)
+        print(f"  [LinkedIn] Success rate: {success_rate:.1f}% ({successful_scrapes}/{total_attempts})", flush=True)
+        print(f"  [LinkedIn] Scraping stats: {scraping_stats}", flush=True)
+        
+        # Calculate approach success rates
+        if total_attempts > 0:
+            approach_1_rate = (scraping_stats["approach_1_success"] / total_attempts * 100) if total_attempts > 0 else 0
+            approach_2_rate = (scraping_stats["approach_2_success"] / total_attempts * 100) if total_attempts > 0 else 0
+            approach_3_rate = (scraping_stats["approach_3_success"] / total_attempts * 100) if total_attempts > 0 else 0
+            approach_4_rate = (scraping_stats["approach_4_success"] / total_attempts * 100) if total_attempts > 0 else 0
+            print(f"  [LinkedIn] Approach success rates: 1={approach_1_rate:.1f}%, 2={approach_2_rate:.1f}%, 3={approach_3_rate:.1f}%, 4={approach_4_rate:.1f}%", flush=True)
         
         # Warn if we got mostly 403 errors
         if failed_scrapes > 0 and successful_scrapes == 0:
             print(f"  [LinkedIn] ⚠️ Warning: All scraping attempts failed. "
                   f"This may indicate Firecrawl API issues or LinkedIn blocking. "
                   f"Check your FIRECRAWL_API_KEY and Firecrawl account status.", flush=True)
+        
+        # Store stats in metadata for return
+        scraping_metadata = {
+            "scraping_stats": scraping_stats,
+            "success_rate": round(success_rate, 1),
+            "total_attempts": total_attempts,
+            "successful_scrapes": successful_scrapes,
+            "failed_scrapes": failed_scrapes,
+        }
         
         # Add URLs that were meant to be returned only (not scraped)
         urls_without_content.extend(urls_to_return_only)
@@ -906,6 +957,13 @@ class LinkedInClient:
             # Would need post_date for proper sorting
             posts.sort(key=lambda p: p.scraped_at, reverse=True)
         # 'relevance' is default order from search
+        
+        # Store scraping metadata in the first post's metadata (if any posts exist)
+        # This allows the API to return stats without changing the return type
+        if posts and scraping_metadata:
+            if not posts[0].metadata:
+                posts[0].metadata = {}
+            posts[0].metadata["_scraping_metadata"] = scraping_metadata
         
         return posts[:max_results]
     

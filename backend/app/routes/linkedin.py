@@ -157,6 +157,11 @@ async def test_linkedin_search(request: LinkedInTestRequest):
         posts_with_company = sum(1 for p in posts if p.author_company)
         avg_engagement = sum(p.engagement_score or 0 for p in posts) / total if total > 0 else 0
         
+        # Extract scraping metadata from first post (if available)
+        scraping_metadata = None
+        if posts and posts[0].metadata and "_scraping_metadata" in posts[0].metadata:
+            scraping_metadata = posts[0].metadata["_scraping_metadata"]
+        
         # Return detailed test results
         return {
             "success": True,
@@ -200,6 +205,9 @@ async def test_linkedin_search(request: LinkedInTestRequest):
                     "average_content_length": round(sum(len(p.content) for p in posts) / total, 0) if total > 0 else 0,
                     "posts_with_media": sum(1 for p in posts if p.media_urls),
                 }
+            },
+            "scraping_performance": scraping_metadata if scraping_metadata else {
+                "note": "Scraping metadata not available. This may indicate all posts were from Google Search snippets."
             }
         }
         
