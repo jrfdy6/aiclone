@@ -431,8 +431,9 @@ class LinkedInClient:
                 print(f"  [LinkedIn] Search failed: {e}", flush=True)
             return []
         
-        # Filter to only LinkedIn post URLs (multiple patterns)
+        # Filter to only LinkedIn post URLs (multiple patterns) and preserve snippets
         linkedin_urls = []
+        url_to_snippet = {}  # Map URLs to their Google Search snippets for preview
         for result in search_results:
             url = result.link
             if any(pattern in url for pattern in [
@@ -441,40 +442,72 @@ class LinkedInClient:
                 'linkedin.com/activity/',
             ]):
                 linkedin_urls.append(url)
+                # Store snippet for use as preview if scraping fails
+                if result.snippet:
+                    url_to_snippet[url] = result.snippet
         
         print(f"  [LinkedIn] Filtered to {len(linkedin_urls)} LinkedIn post URLs", flush=True)
         
         if not linkedin_urls:
             return []
         
-        # Scrape posts using Firecrawl with human-like behavior
+        # HYBRID SCRAPING STRATEGY (Based on Research Best Practices)
+        # Strategy: Scrape first post immediately (fast UX), then 2-3 more with progressive delays,
+        # return URLs for the rest to avoid overwhelming LinkedIn's anti-bot systems
+        
         posts = []
         successful_scrapes = 0
         failed_scrapes = 0
         urls_without_content = []  # Track URLs we found but couldn't scrape
         
-        # Track consecutive 403 errors to detect systematic blocking
+        # Track consecutive 403 errors to detect systematic blocking (circuit breaker pattern)
         consecutive_403s = 0
-        max_consecutive_403s = 3
+        max_consecutive_403s = 2  # Reduced from 3 - fail faster to avoid wasting time
         
-        # Human-like delay between requests (2-4 seconds, randomized)
-        min_delay = 2.0
-        max_delay = 4.0
+        # Smart scraping limits based on research:
+        # - Scrape first post immediately (no delay) for fast UX
+        # - Scrape next 2-3 posts with moderate delays (5-10s)
+        # - After that, return URLs only (don't waste time on likely failures)
+        max_posts_to_scrape = min(3, max_results)  # Only scrape top 3 posts
         
-        for i, url in enumerate(linkedin_urls[:max_results * 2], 1):  # Try more URLs to get enough posts
+        # Determine which URLs to actually scrape vs just return
+        urls_to_scrape = linkedin_urls[:max_posts_to_scrape * 2]  # Try 2x to account for failures
+        urls_to_return_only = linkedin_urls[max_posts_to_scrape * 2:]  # Return these as URLs
+        
+        print(f"  [LinkedIn] Hybrid strategy: Scraping {len(urls_to_scrape)} URLs, returning {len(urls_to_return_only)} as URLs only", flush=True)
+        
+        for i, url in enumerate(urls_to_scrape, 1):
             try:
-                # Add human-like delay between requests (except for first request)
-                if i > 1:
-                    delay = random.uniform(min_delay, max_delay)
-                    print(f"  [LinkedIn] Waiting {delay:.1f}s (human-like delay)...", flush=True)
+                # PROGRESSIVE DELAY STRATEGY (Based on research)
+                # - First post: No delay (immediate result for UX)
+                # - Posts 2-3: Moderate delays (5-10 seconds)
+                # - Posts 4+: Longer delays (10-20 seconds) or skip
+                if i == 1:
+                    # First post: no delay for fast first result
+                    delay = 0
+                elif i <= 3:
+                    # Next 2 posts: moderate delays (5-10 seconds)
+                    delay = random.uniform(5.0, 10.0)
+                    print(f"  [LinkedIn] Waiting {delay:.1f}s (moderate delay for post {i})...", flush=True)
+                    time.sleep(delay)
+                else:
+                    # Posts 4+: longer delays (10-20 seconds) or skip
+                    delay = random.uniform(10.0, 20.0)
+                    print(f"  [LinkedIn] Waiting {delay:.1f}s (extended delay for post {i})...", flush=True)
                     time.sleep(delay)
                 
-                print(f"  [LinkedIn] Scraping {i}/{len(linkedin_urls[:max_results * 2])}: {url[:80]}...", flush=True)
+                print(f"  [LinkedIn] Scraping {i}/{len(urls_to_scrape)}: {url[:80]}...", flush=True)
                 
+                # Use Firecrawl with enhanced options (v2 features)
+                # - onlyMainContent: True (filters out navigation, ads, etc.)
+                # - exclude_tags: Remove UI elements
+                # - wait_for: Give JavaScript time to load (2 seconds)
                 scraped = self.firecrawl_client.scrape_url(
                     url=url,
                     formats=["markdown"],
-                    exclude_tags=["script", "style", "nav", "footer", "header"]
+                    only_main_content=True,
+                    exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
+                    wait_for=2000  # Wait 2 seconds for JavaScript to load
                 )
                 
                 # Reset 403 counter on success
@@ -482,8 +515,9 @@ class LinkedInClient:
                 
                 # Validate that we got meaningful content
                 if not scraped.content or len(scraped.content.strip()) < 50:
-                    print(f"  [LinkedIn] Skipping {url}: content too short", flush=True)
+                    print(f"  [LinkedIn] Skipping {url}: content too short ({len(scraped.content) if scraped.content else 0} chars)", flush=True)
                     failed_scrapes += 1
+                    urls_without_content.append(url)
                     continue
                 
                 # Parse into LinkedInPost
@@ -494,12 +528,14 @@ class LinkedInClient:
                     if post.engagement_score < min_engagement_score:
                         print(f"  [LinkedIn] Post {post.post_id} filtered out (score {post.engagement_score} < {min_engagement_score})", flush=True)
                         failed_scrapes += 1
+                        urls_without_content.append(url)
                         continue
                 
                 # Apply industry filter
                 if industry and not self._is_industry_relevant(post, industry, filter_by_company):
                     print(f"  [LinkedIn] Post {post.post_id} filtered out (not relevant to {industry})", flush=True)
                     failed_scrapes += 1
+                    urls_without_content.append(url)
                     continue
                 
                 posts.append(post)
@@ -507,7 +543,8 @@ class LinkedInClient:
                 print(f"  [LinkedIn] ✅ Successfully scraped post {post.post_id} (engagement: {post.engagement_score})", flush=True)
                 
                 # Stop if we have enough posts
-                if len(posts) >= max_results:
+                if len(posts) >= max_posts_to_scrape:
+                    print(f"  [LinkedIn] Reached target of {max_posts_to_scrape} scraped posts, stopping scraping", flush=True)
                     break
                     
             except Exception as e:
@@ -518,30 +555,28 @@ class LinkedInClient:
                 
                 if is_403_error:
                     consecutive_403s += 1
+                    # EXPONENTIAL BACKOFF for 403 errors (based on research)
+                    backoff_delay = (2 ** consecutive_403s) + random.uniform(0, 2)  # 2^1=2s, 2^2=4s, etc.
+                    
                     if consecutive_403s >= max_consecutive_403s:
-                        print(f"  [LinkedIn] ⚠️ Multiple 403 errors detected ({consecutive_403s}). "
-                              f"Firecrawl may be blocked by LinkedIn or API key may have restrictions. "
-                              f"Stopping further scrape attempts. Will return URLs for remaining posts.", flush=True)
-                        # Add remaining URLs to the list
-                        remaining_urls = linkedin_urls[i-1:min(i-1+max_results, len(linkedin_urls))]
+                        print(f"  [LinkedIn] ⚠️ Circuit breaker triggered: {consecutive_403s} consecutive 403 errors. "
+                              f"LinkedIn is blocking Firecrawl. Stopping scrape attempts. "
+                              f"Will return remaining URLs for manual viewing.", flush=True)
+                        # Add all remaining URLs to return list
+                        remaining_urls = urls_to_scrape[i-1:] + urls_to_return_only
                         urls_without_content.extend(remaining_urls)
                         break
-                
-                print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
-                failed_scrapes += 1
-                
-                # Store URL even though scraping failed - we can still return it
-                urls_without_content.append(url)
-                
-                # Longer delay after failed requests (especially 403s) - be more human-like
-                if is_403_error:
-                    delay = random.uniform(3.0, 5.0)  # 3-5 seconds after 403
-                    print(f"  [LinkedIn] Waiting {delay:.1f}s after error (human-like pause)...", flush=True)
-                    time.sleep(delay)
+                    
+                    print(f"  [LinkedIn] ❌ 403 error ({consecutive_403s}/{max_consecutive_403s}). "
+                          f"Exponential backoff: waiting {backoff_delay:.1f}s...", flush=True)
+                    time.sleep(backoff_delay)
                 else:
-                    # Shorter delay for other errors
-                    time.sleep(random.uniform(1.0, 2.0))
+                    # Other errors: shorter delay
+                    print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
+                    time.sleep(random.uniform(2.0, 4.0))
                 
+                failed_scrapes += 1
+                urls_without_content.append(url)
                 continue
         
         print(f"  [LinkedIn] Scraping complete: {successful_scrapes} successful, {failed_scrapes} failed", flush=True)
@@ -554,21 +589,31 @@ class LinkedInClient:
         
         # Create minimal post objects from URLs we found but couldn't scrape
         # This ensures we always return at least the URLs even if scraping fails
+        # Use Google Search snippets as preview when available
         if urls_without_content and len(posts) < max_results:
-            print(f"  [LinkedIn] Creating minimal post objects for {len(urls_without_content)} URLs (scraping failed but URLs found)...", flush=True)
+            print(f"  [LinkedIn] Creating minimal post objects for {len(urls_without_content)} URLs (scraping failed but URLs found via Google Search)...", flush=True)
+            
+            # Use pre-stored snippets from Google Search results for better preview
+            
             for url in urls_without_content[:max_results - len(posts)]:
                 # Extract post ID from URL
                 post_id = self._extract_post_id_from_url(url) or f"post_{hash(url) % 10000000000}"
                 
-                # Create minimal LinkedInPost with just the URL
+                # Use Google snippet as preview if available
+                snippet = url_to_snippet.get(url, "")
+                content_preview = snippet if snippet else f"[Content could not be scraped. View original post: {url}]"
+                
+                # Create minimal LinkedInPost with URL and snippet preview
                 minimal_post = LinkedInPost(
                     post_id=str(post_id),
                     post_url=url,
-                    content=f"[Content could not be scraped. View original post: {url}]",
+                    content=content_preview,
                     scraped_at=datetime.utcnow().isoformat() + "Z",
                     metadata={
                         "scrape_failed": True,
-                        "note": "URL found via Google Search but content scraping failed. You can visit the URL manually."
+                        "has_google_snippet": bool(snippet),
+                        "note": "URL found via Google Custom Search. Content scraping was blocked by LinkedIn. "
+                               "You can visit the URL manually to view the full post."
                     }
                 )
                 posts.append(minimal_post)
