@@ -175,6 +175,88 @@ class LinkedInClient:
         
         return author_info
     
+    def _extract_author_info_from_snippet(self, snippet: str, url: str) -> Dict[str, Optional[str]]:
+        """Extract author information from Google Search snippet/title."""
+        author_info = {
+            "author_name": None,
+            "author_profile_url": None,
+            "author_title": None,
+            "author_company": None,
+        }
+        
+        if not snippet:
+            return author_info
+        
+        # Pattern 1: "by Author Name" or "by Author Name | Title"
+        by_pattern = r'by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)(?:\s*[|•]\s*([^|•\n]+))?'
+        match = re.search(by_pattern, snippet, re.IGNORECASE)
+        if match:
+            author_info["author_name"] = match.group(1).strip()
+            if match.group(2):
+                title_company = match.group(2).strip()
+                if " at " in title_company.lower():
+                    parts = re.split(r'\s+at\s+', title_company, flags=re.IGNORECASE)
+                    author_info["author_title"] = parts[0].strip()
+                    author_info["author_company"] = parts[1].strip() if len(parts) > 1 else None
+                else:
+                    author_info["author_title"] = title_company
+        
+        # Pattern 2: "Author Name | Title at Company"
+        name_title_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*[|•]\s*([^|•\n]+)'
+        match = re.search(name_title_pattern, snippet)
+        if match and not author_info["author_name"]:
+            author_info["author_name"] = match.group(1).strip()
+            title_company = match.group(2).strip()
+            if " at " in title_company.lower():
+                parts = re.split(r'\s+at\s+', title_company, flags=re.IGNORECASE)
+                author_info["author_title"] = parts[0].strip()
+                author_info["author_company"] = parts[1].strip() if len(parts) > 1 else None
+            else:
+                author_info["author_title"] = title_company
+        
+        # Pattern 3: Extract from URL if it contains profile info
+        profile_match = re.search(r'linkedin\.com/in/([a-zA-Z0-9\-]+)', url)
+        if profile_match:
+            author_info["author_profile_url"] = f"https://www.linkedin.com/in/{profile_match.group(1)}"
+        
+        return author_info
+    
+    def _extract_engagement_from_snippet(self, snippet: str) -> Dict[str, int]:
+        """Try to extract engagement metrics from Google Search snippet (if mentioned)."""
+        metrics = {
+            "likes": 0,
+            "comments": 0,
+            "shares": 0,
+            "reactions": 0,
+        }
+        
+        if not snippet:
+            return metrics
+        
+        # Look for engagement numbers in snippet (e.g., "123 likes", "45 comments")
+        likes_match = re.search(r'(\d+)\s*(?:like|👍)', snippet, re.IGNORECASE)
+        if likes_match:
+            try:
+                metrics["likes"] = int(likes_match.group(1))
+            except (ValueError, IndexError):
+                pass
+        
+        comments_match = re.search(r'(\d+)\s*comment', snippet, re.IGNORECASE)
+        if comments_match:
+            try:
+                metrics["comments"] = int(comments_match.group(1))
+            except (ValueError, IndexError):
+                pass
+        
+        shares_match = re.search(r'(\d+)\s*share', snippet, re.IGNORECASE)
+        if shares_match:
+            try:
+                metrics["shares"] = int(shares_match.group(1))
+            except (ValueError, IndexError):
+                pass
+        
+        return metrics
+    
     def _extract_engagement_metrics(self, content: str) -> Dict[str, int]:
         """Extract engagement metrics from scraped content."""
         metrics = {
@@ -431,9 +513,10 @@ class LinkedInClient:
                 print(f"  [LinkedIn] Search failed: {e}", flush=True)
             return []
         
-        # Filter to only LinkedIn post URLs (multiple patterns) and preserve snippets
+        # Filter to only LinkedIn post URLs (multiple patterns) and preserve snippets/titles
         linkedin_urls = []
         url_to_snippet = {}  # Map URLs to their Google Search snippets for preview
+        url_to_title = {}  # Map URLs to their Google Search titles for author extraction
         for result in search_results:
             url = result.link
             if any(pattern in url for pattern in [
@@ -442,9 +525,11 @@ class LinkedInClient:
                 'linkedin.com/activity/',
             ]):
                 linkedin_urls.append(url)
-                # Store snippet for use as preview if scraping fails
+                # Store snippet and title for use as preview if scraping fails
                 if result.snippet:
                     url_to_snippet[url] = result.snippet
+                if result.title:
+                    url_to_title[url] = result.title
         
         print(f"  [LinkedIn] Filtered to {len(linkedin_urls)} LinkedIn post URLs", flush=True)
         
@@ -597,24 +682,46 @@ class LinkedInClient:
             print(f"  [LinkedIn] Creating minimal post objects for {len(urls_without_content)} URLs (scraping failed but URLs found via Google Search)...", flush=True)
             
             # Use pre-stored snippets from Google Search results for better preview
-            
+            # Try to extract author info from Google Search result titles/snippets
             for url in urls_without_content[:max_results - len(posts)]:
                 # Extract post ID from URL
                 post_id = self._extract_post_id_from_url(url) or f"post_{hash(url) % 10000000000}"
                 
                 # Use Google snippet as preview if available
                 snippet = url_to_snippet.get(url, "")
+                title = url_to_title.get(url, "")
                 content_preview = snippet if snippet else f"[Content could not be scraped. View original post: {url}]"
+                
+                # Try to extract author info from Google Search result title/snippet
+                # Google Search results often have format: "Author Name | Title at Company" or "Post Title by Author Name"
+                # Combine title and snippet for better extraction
+                combined_text = f"{title} {snippet}".strip()
+                author_info_from_snippet = self._extract_author_info_from_snippet(combined_text, url)
+                
+                # Try to extract basic engagement info from snippet (if mentioned)
+                engagement_from_snippet = self._extract_engagement_from_snippet(snippet)
                 
                 # Create minimal LinkedInPost with URL and snippet preview
                 minimal_post = LinkedInPost(
                     post_id=str(post_id),
                     post_url=url,
+                    author_name=author_info_from_snippet.get("author_name"),
+                    author_title=author_info_from_snippet.get("author_title"),
+                    author_company=author_info_from_snippet.get("author_company"),
+                    author_profile_url=author_info_from_snippet.get("author_profile_url"),
                     content=content_preview,
+                    engagement_metrics=engagement_from_snippet,
+                    engagement_score=self._calculate_engagement_score(
+                        engagement_from_snippet.get("likes", 0),
+                        engagement_from_snippet.get("comments", 0),
+                        engagement_from_snippet.get("shares", 0),
+                        engagement_from_snippet.get("reactions", 0)
+                    ) if any(engagement_from_snippet.values()) else None,
                     scraped_at=datetime.utcnow().isoformat() + "Z",
                     metadata={
                         "scrape_failed": True,
                         "has_google_snippet": bool(snippet),
+                        "source": "google_search_snippet",
                         "note": "URL found via Google Custom Search. Content scraping was blocked by LinkedIn. "
                                "You can visit the URL manually to view the full post."
                     }
