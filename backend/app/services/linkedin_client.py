@@ -641,7 +641,7 @@ class LinkedInClient:
         
         # Track consecutive 403 errors to detect systematic blocking (circuit breaker pattern)
         consecutive_403s = 0
-        max_consecutive_403s = 3  # Increased to 3 - give more chances before circuit breaker
+        max_consecutive_403s = 4  # Increased to 4 - give even more chances before circuit breaker
         
         # Smart scraping limits based on research:
         # - Scrape first post immediately (no delay) for fast UX
@@ -658,23 +658,24 @@ class LinkedInClient:
         
         for i, url in enumerate(urls_to_scrape, 1):
             try:
-                # PROGRESSIVE DELAY STRATEGY (Optimized for better success rates)
-                # - First post: Small delay (2-4s) to avoid immediate blocking
-                # - Posts 2-3: Moderate delays (8-15 seconds) - increased for better success
-                # - Posts 4+: Longer delays (15-25 seconds) - increased to reduce blocking
+                # PROGRESSIVE DELAY STRATEGY (Optimized for 20-25% success rate)
+                # - First post: Moderate delay (5-8s) to avoid immediate blocking
+                # - Posts 2-3: Longer delays (12-20 seconds) - increased significantly
+                # - Posts 4+: Very long delays (20-30 seconds) - maximum patience
+                # Add extra randomization to make patterns less predictable
                 if i == 1:
-                    # First post: small delay to avoid immediate blocking
-                    delay = random.uniform(2.0, 4.0)
+                    # First post: moderate delay with randomization
+                    delay = random.uniform(5.0, 8.0) + random.uniform(0, 2.0)  # 5-10s with jitter
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (initial delay for post {i})...", flush=True)
                     time.sleep(delay)
                 elif i <= 3:
-                    # Next 2 posts: moderate delays (8-15 seconds, increased)
-                    delay = random.uniform(8.0, 15.0)
+                    # Next 2 posts: longer delays with more randomization
+                    delay = random.uniform(12.0, 20.0) + random.uniform(0, 3.0)  # 12-23s with jitter
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (moderate delay for post {i})...", flush=True)
                     time.sleep(delay)
                 else:
-                    # Posts 4+: longer delays (15-25 seconds, increased)
-                    delay = random.uniform(15.0, 25.0)
+                    # Posts 4+: very long delays with maximum randomization
+                    delay = random.uniform(20.0, 30.0) + random.uniform(0, 5.0)  # 20-35s with jitter
                     print(f"  [LinkedIn] Waiting {delay:.1f}s (extended delay for post {i})...", flush=True)
                     time.sleep(delay)
                 
@@ -698,7 +699,7 @@ class LinkedInClient:
                         formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
-                        wait_for=7000,  # Wait 7 seconds for JavaScript to fully load (increased)
+                        wait_for=8000,  # Wait 8 seconds for JavaScript to fully load (increased further)
                         use_v2=True,  # Use v2 API for better anti-bot features
                         proxy="auto"  # Auto: tries basic first, then stealth if needed (cost-effective)
                     )
@@ -724,7 +725,7 @@ class LinkedInClient:
                             formats=["markdown"],
                             only_main_content=True,
                             exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                            wait_for=10000,  # Longer wait (increased)
+                            wait_for=12000,  # Longer wait (increased further)
                             use_v2=True,
                             actions=actions,
                             proxy="auto"  # Auto proxy (tries basic, then stealth)
@@ -737,14 +738,16 @@ class LinkedInClient:
                         print(f"  [LinkedIn] ⚠️ Approach 2 failed: {str(e2)[:100]}", flush=True)
                         
                         # Approach 3: Try with even longer wait (some posts need more time)
+                        # Add delay before retry
+                        time.sleep(random.uniform(3.0, 5.0))  # Delay between approaches
                         try:
-                            print(f"  [LinkedIn] Retrying with extended wait time (10s)...", flush=True)
+                            print(f"  [LinkedIn] Retrying with extended wait time (15s) and stealth proxy...", flush=True)
                             scraped = self.firecrawl_client.scrape_url(
                                 url=url,
                                 formats=["markdown"],
                                 only_main_content=True,
                                 exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                                wait_for=12000,  # Very long wait (12 seconds, increased)
+                                wait_for=15000,  # Very long wait (15 seconds, increased further)
                                 use_v2=True,
                                 proxy="stealth"  # Force stealth proxy (last resort - costs 5 credits)
                             )
@@ -756,6 +759,8 @@ class LinkedInClient:
                             print(f"  [LinkedIn] ⚠️ Approach 3 failed: {str(e3)[:100]}", flush=True)
                             
                             # Approach 4: Fallback to v1 API (sometimes works when v2 doesn't)
+                            # Add delay before final retry
+                            time.sleep(random.uniform(4.0, 6.0))  # Longer delay before final attempt
                             try:
                                 print(f"  [LinkedIn] Retrying with v1 API as final fallback...", flush=True)
                                 scraped = self.firecrawl_client.scrape_url(
@@ -838,7 +843,7 @@ class LinkedInClient:
                 if is_403_error:
                     consecutive_403s += 1
                     # EXPONENTIAL BACKOFF for 403 errors (based on research)
-                    backoff_delay = (2 ** consecutive_403s) + random.uniform(0, 2)  # 2^1=2s, 2^2=4s, etc.
+                    backoff_delay = (2 ** consecutive_403s) + random.uniform(2, 5)  # 2^1=4-7s, 2^2=6-9s, etc. (increased base)
                     
                     if consecutive_403s >= max_consecutive_403s:
                         print(f"  [LinkedIn] ⚠️ Circuit breaker triggered: {consecutive_403s} consecutive 403 errors. "
