@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import time
 
-from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects, prospects_manual, outreach_manual, calendar, notifications, research_tasks, activity, templates, vault, personas, system_logs, automations, websocket, analytics, auth, webhooks, predictive, recommendations, nlp, content_optimization, bi, advanced_reporting, predictive_insights, multi_format_content, content_library, cross_platform_analytics, linkedin
+from app.routes import chat, ingest, ingest_drive, knowledge, playbook, prospects, prospects_manual, outreach_manual, calendar, notifications, research_tasks, activity, templates, vault, personas, system_logs, automations, websocket, analytics, auth, webhooks, predictive, recommendations, nlp, content_optimization, bi, advanced_reporting, predictive_insights, multi_format_content, content_library, cross_platform_analytics, linkedin, topic_intelligence
 
 
 app = FastAPI(
@@ -140,6 +140,7 @@ app.include_router(multi_format_content.router, prefix="/api/content/generate")
 app.include_router(content_library.router, prefix="/api/content-library")
 app.include_router(cross_platform_analytics.router, prefix="/api/analytics/cross-platform")
 app.include_router(linkedin.router, prefix="/api/linkedin")
+app.include_router(topic_intelligence.router, prefix="/api/topic-intelligence")
 
 
 @app.on_event("startup")
