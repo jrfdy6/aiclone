@@ -652,11 +652,20 @@ class LinkedInClient:
         print(f"  [LinkedIn] DEBUG: max_results={max_results}, max_posts_to_scrape={max_posts_to_scrape}", flush=True)
         
         # Determine which URLs to actually scrape vs just return
-        urls_to_scrape = linkedin_urls[:max_posts_to_scrape]  # Try exact number to avoid timeout
-        urls_to_return_only = linkedin_urls[max_posts_to_scrape:]  # Return remaining URLs (fixed: was * 2)
+        # CRITICAL: Ensure we always try to scrape if we have URLs
+        if len(linkedin_urls) > 0 and max_posts_to_scrape > 0:
+            urls_to_scrape = linkedin_urls[:max_posts_to_scrape]  # Try exact number to avoid timeout
+            urls_to_return_only = linkedin_urls[max_posts_to_scrape:]  # Return remaining URLs (fixed: was * 2)
+        else:
+            # Fallback: if calculation failed, try to scrape at least 1 URL
+            urls_to_scrape = linkedin_urls[:1] if linkedin_urls else []
+            urls_to_return_only = linkedin_urls[1:] if len(linkedin_urls) > 1 else []
+            print(f"  [LinkedIn] ⚠️ WARNING: Fallback scraping logic activated! linkedin_urls={len(linkedin_urls)}, max_posts_to_scrape={max_posts_to_scrape}", flush=True)
         
         print(f"  [LinkedIn] Hybrid strategy: Scraping {len(urls_to_scrape)} URLs, returning {len(urls_to_return_only)} as URLs only", flush=True)
         print(f"  [LinkedIn] DEBUG: linkedin_urls={len(linkedin_urls)}, max_posts_to_scrape={max_posts_to_scrape}, urls_to_scrape={len(urls_to_scrape)}", flush=True)
+        if len(urls_to_scrape) > 0:
+            print(f"  [LinkedIn] DEBUG: First URL to scrape: {urls_to_scrape[0][:100]}", flush=True)
         
         if len(urls_to_scrape) == 0:
             print(f"  [LinkedIn] ⚠️ WARNING: urls_to_scrape is empty! linkedin_urls has {len(linkedin_urls)} URLs, max_posts_to_scrape={max_posts_to_scrape}", flush=True)
