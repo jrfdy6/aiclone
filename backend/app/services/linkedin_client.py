@@ -683,7 +683,7 @@ class LinkedInClient:
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
                         wait_for=5000,  # Wait 5 seconds for JavaScript to fully load
                         use_v2=True,  # Use v2 API for better anti-bot features
-                        proxy_type="stealth"  # Use stealth proxy for LinkedIn (better anti-bot bypass)
+                        proxy="stealth"  # Use stealth proxy for LinkedIn (better anti-bot bypass, costs 5 credits)
                     )
                     print(f"  [LinkedIn] ✅ Successfully scraped with v2 + stealth proxy", flush=True)
                 except Exception as e1:
@@ -708,7 +708,7 @@ class LinkedInClient:
                             wait_for=8000,  # Longer wait
                             use_v2=True,
                             actions=actions,
-                            proxy_type="stealth"  # Use stealth proxy
+                            proxy="stealth"  # Use stealth proxy
                         )
                         print(f"  [LinkedIn] ✅ Successfully scraped with scroll actions", flush=True)
                     except Exception as e2:
@@ -725,7 +725,7 @@ class LinkedInClient:
                                 exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
                                 wait_for=10000,  # Very long wait (10 seconds)
                                 use_v2=True,
-                                proxy_type="stealth"  # Use stealth proxy
+                                proxy="stealth"  # Use stealth proxy
                             )
                             print(f"  [LinkedIn] ✅ Successfully scraped with extended wait", flush=True)
                         except Exception as e3:
