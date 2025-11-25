@@ -652,7 +652,7 @@ class LinkedInClient:
         
         # Determine which URLs to actually scrape vs just return
         urls_to_scrape = linkedin_urls[:max_posts_to_scrape]  # Try exact number to avoid timeout
-        urls_to_return_only = linkedin_urls[max_posts_to_scrape * 2:]  # Return these as URLs
+        urls_to_return_only = linkedin_urls[max_posts_to_scrape:]  # Return remaining URLs (fixed: was * 2)
         
         print(f"  [LinkedIn] Hybrid strategy: Scraping {len(urls_to_scrape)} URLs, returning {len(urls_to_return_only)} as URLs only", flush=True)
         
