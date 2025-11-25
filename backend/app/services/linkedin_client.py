@@ -674,7 +674,7 @@ class LinkedInClient:
                 # MULTI-STRATEGY APPROACH: Try multiple techniques with increasing complexity
                 # This maximizes success rate by trying different methods
                 
-                # Approach 1: Try v2 with stealth proxy + longer wait (best for LinkedIn)
+                # Approach 1: Try v2 with "auto" proxy (tries basic, then stealth if needed - cost-effective)
                 try:
                     scraped = self.firecrawl_client.scrape_url(
                         url=url,
@@ -683,9 +683,9 @@ class LinkedInClient:
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
                         wait_for=5000,  # Wait 5 seconds for JavaScript to fully load
                         use_v2=True,  # Use v2 API for better anti-bot features
-                        proxy="stealth"  # Use stealth proxy for LinkedIn (better anti-bot bypass, costs 5 credits)
+                        proxy="auto"  # Auto: tries basic first, then stealth if needed (cost-effective)
                     )
-                    print(f"  [LinkedIn] ✅ Successfully scraped with v2 + stealth proxy", flush=True)
+                    print(f"  [LinkedIn] ✅ Successfully scraped with v2 + auto proxy", flush=True)
                 except Exception as e1:
                     last_error = e1
                     print(f"  [LinkedIn] ⚠️ Approach 1 failed: {str(e1)[:100]}", flush=True)
@@ -708,7 +708,7 @@ class LinkedInClient:
                             wait_for=8000,  # Longer wait
                             use_v2=True,
                             actions=actions,
-                            proxy="stealth"  # Use stealth proxy
+                            proxy="auto"  # Auto proxy (tries basic, then stealth)
                         )
                         print(f"  [LinkedIn] ✅ Successfully scraped with scroll actions", flush=True)
                     except Exception as e2:
@@ -725,7 +725,7 @@ class LinkedInClient:
                                 exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
                                 wait_for=10000,  # Very long wait (10 seconds)
                                 use_v2=True,
-                                proxy="stealth"  # Use stealth proxy
+                                proxy="stealth"  # Force stealth proxy (last resort - costs 5 credits)
                             )
                             print(f"  [LinkedIn] ✅ Successfully scraped with extended wait", flush=True)
                         except Exception as e3:
