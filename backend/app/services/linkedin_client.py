@@ -648,10 +648,10 @@ class LinkedInClient:
         # - Scrape next 2-3 posts with moderate delays (5-10s)
         # - After that, return URLs only (don't waste time on likely failures)
         # INCREASED: Try to scrape more posts to get better success rate
-        max_posts_to_scrape = min(5, max_results)  # Try to scrape top 5 posts (increased from 3)
+        max_posts_to_scrape = min(3, max_results)  # Reduced to 3 to prevent timeouts while maintaining success rate
         
         # Determine which URLs to actually scrape vs just return
-        urls_to_scrape = linkedin_urls[:max_posts_to_scrape * 2]  # Try 2x to account for failures
+        urls_to_scrape = linkedin_urls[:max_posts_to_scrape]  # Try exact number to avoid timeout
         urls_to_return_only = linkedin_urls[max_posts_to_scrape * 2:]  # Return these as URLs
         
         print(f"  [LinkedIn] Hybrid strategy: Scraping {len(urls_to_scrape)} URLs, returning {len(urls_to_return_only)} as URLs only", flush=True)
@@ -694,9 +694,9 @@ class LinkedInClient:
                 
                 # Approach 1: Try v2 with "auto" proxy (tries basic, then stealth if needed - cost-effective)
                 try:
-                    scraped = self.firecrawl_client.scrape_url(
-                        url=url,
-                        formats=["markdown"],
+                scraped = self.firecrawl_client.scrape_url(
+                    url=url,
+                    formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
                         wait_for=8000,  # Wait 8 seconds for JavaScript to fully load (increased further)
@@ -855,13 +855,13 @@ class LinkedInClient:
                         remaining_urls = urls_to_scrape[i-1:] + urls_to_return_only
                         urls_without_content.extend(remaining_urls)
                         break
-                    
+                
                     print(f"  [LinkedIn] ❌ 403 error ({consecutive_403s}/{max_consecutive_403s}). "
                           f"Exponential backoff: waiting {backoff_delay:.1f}s...", flush=True)
                     time.sleep(backoff_delay)
                 else:
                     # Other errors: shorter delay
-                    print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
+                print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
                     time.sleep(random.uniform(2.0, 4.0))
                 
                 scraping_stats["failed_attempts"] += 1
