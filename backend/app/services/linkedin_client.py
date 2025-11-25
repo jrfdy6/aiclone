@@ -656,7 +656,11 @@ class LinkedInClient:
         
         print(f"  [LinkedIn] Hybrid strategy: Scraping {len(urls_to_scrape)} URLs, returning {len(urls_to_return_only)} as URLs only", flush=True)
         
+        if len(urls_to_scrape) == 0:
+            print(f"  [LinkedIn] ⚠️ WARNING: urls_to_scrape is empty! linkedin_urls has {len(linkedin_urls)} URLs, max_posts_to_scrape={max_posts_to_scrape}", flush=True)
+        
         for i, url in enumerate(urls_to_scrape, 1):
+            print(f"  [LinkedIn] DEBUG: Starting scrape attempt {i} for {url[:80]}...", flush=True)
             try:
                 # AGGRESSIVE DELAY STRATEGY (Maximum delays for education queries to avoid blocking)
                 # - First post: Longer delay (5-10s) especially for education queries
@@ -707,10 +711,10 @@ class LinkedInClient:
                     proxy_type = "stealth" if is_education_query else "auto"
                     if is_education_query:
                         print(f"  [LinkedIn] Using stealth proxy for education query (more aggressive)...", flush=True)
-                    
-                    scraped = self.firecrawl_client.scrape_url(
-                        url=url,
-                        formats=["markdown"],
+                
+                scraped = self.firecrawl_client.scrape_url(
+                    url=url,
+                    formats=["markdown"],
                         only_main_content=True,
                         exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form", "div[class*='cookie']", "div[class*='popup']"],
                         wait_for=8000 if is_education_query else 7000,  # Longer wait for education queries
@@ -875,7 +879,7 @@ class LinkedInClient:
                     time.sleep(backoff_delay)
                 else:
                     # Other errors: shorter delay
-                    print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
+                print(f"  [LinkedIn] ❌ Failed to scrape {url}: {error_msg[:150]}", flush=True)
                     time.sleep(random.uniform(2.0, 4.0))
                 
                 scraping_stats["failed_attempts"] += 1
