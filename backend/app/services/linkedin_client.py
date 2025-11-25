@@ -587,6 +587,9 @@ class LinkedInClient:
                   f"This may indicate Firecrawl API issues or LinkedIn blocking. "
                   f"Check your FIRECRAWL_API_KEY and Firecrawl account status.", flush=True)
         
+        # Add URLs that were meant to be returned only (not scraped)
+        urls_without_content.extend(urls_to_return_only)
+        
         # Create minimal post objects from URLs we found but couldn't scrape
         # This ensures we always return at least the URLs even if scraping fails
         # Use Google Search snippets as preview when available
