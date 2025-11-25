@@ -187,21 +187,26 @@ class LinkedInClient:
         if not snippet:
             return author_info
         
-        # Pattern 1: "by Author Name" or "by Author Name | Title"
-        by_pattern = r'by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)(?:\s*[|•]\s*([^|•\n]+))?'
+        # Pattern 1: "by Author Name" or "by Author Name and Author Name" (handle multiple authors)
+        by_pattern = r'by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+(?:\s+and\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)?)'
         match = re.search(by_pattern, snippet, re.IGNORECASE)
         if match:
-            author_info["author_name"] = match.group(1).strip()
-            if match.group(2):
-                title_company = match.group(2).strip()
-                if " at " in title_company.lower():
-                    parts = re.split(r'\s+at\s+', title_company, flags=re.IGNORECASE)
-                    author_info["author_title"] = parts[0].strip()
-                    author_info["author_company"] = parts[1].strip() if len(parts) > 1 else None
-                else:
-                    author_info["author_title"] = title_company
+            # Get the full author string (may include "and Second Author")
+            authors_str = match.group(1).strip()
+            # For now, take the first author (can be enhanced to handle multiple)
+            if " and " in authors_str:
+                authors = authors_str.split(" and ", 1)
+                author_info["author_name"] = authors[0].strip()
+            else:
+                author_info["author_name"] = authors_str
         
-        # Pattern 2: "Author Name | Title at Company"
+        # Pattern 2: "View profile for Author Name" (common in LinkedIn snippets)
+        profile_pattern = r'View profile for\s+([A-Z][a-z]+(?:\s+[A-Z][a-z\.]+)+)'
+        match = re.search(profile_pattern, snippet, re.IGNORECASE)
+        if match and not author_info["author_name"]:
+            author_info["author_name"] = match.group(1).strip()
+        
+        # Pattern 3: "Author Name | Title at Company"
         name_title_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*[|•]\s*([^|•\n]+)'
         match = re.search(name_title_pattern, snippet)
         if match and not author_info["author_name"]:
@@ -214,10 +219,24 @@ class LinkedInClient:
             else:
                 author_info["author_title"] = title_company
         
-        # Pattern 3: Extract from URL if it contains profile info
+        # Pattern 4: Extract from URL if it contains profile info
         profile_match = re.search(r'linkedin\.com/in/([a-zA-Z0-9\-]+)', url)
         if profile_match:
             author_info["author_profile_url"] = f"https://www.linkedin.com/in/{profile_match.group(1)}"
+        
+        # Pattern 5: Look for "Author Name, Title" or "Author Name (Title)" patterns
+        if not author_info["author_name"]:
+            name_title_comma = r'([A-Z][a-z]+(?:\s+[A-Z][a-z\.]+)+),\s*([^,\.]+)'
+            match = re.search(name_title_comma, snippet)
+            if match:
+                author_info["author_name"] = match.group(1).strip()
+                potential_title = match.group(2).strip()
+                if " at " in potential_title.lower():
+                    parts = re.split(r'\s+at\s+', potential_title, flags=re.IGNORECASE)
+                    author_info["author_title"] = parts[0].strip()
+                    author_info["author_company"] = parts[1].strip() if len(parts) > 1 else None
+                else:
+                    author_info["author_title"] = potential_title
         
         return author_info
     
