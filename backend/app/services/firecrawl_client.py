@@ -53,6 +53,8 @@ class FirecrawlClient:
         formats: List[str] = None,
         include_tags: List[str] = None,
         exclude_tags: List[str] = None,
+        only_main_content: bool = True,
+        wait_for: Optional[int] = None,
     ) -> ScrapedContent:
         """
         Scrape a single URL.
@@ -74,12 +76,15 @@ class FirecrawlClient:
         payload = {
             "url": url,
             "formats": formats,
+            "onlyMainContent": only_main_content,
         }
         
         if include_tags:
             payload["includeTags"] = include_tags
         if exclude_tags:
             payload["excludeTags"] = exclude_tags
+        if wait_for:
+            payload["waitFor"] = wait_for
         
         try:
             response = self.session.post(endpoint, json=payload, timeout=60)
