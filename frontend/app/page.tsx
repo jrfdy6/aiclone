@@ -7,6 +7,24 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 const features = [
   {
+    id: 'topic-intelligence',
+    title: 'Topic Intelligence',
+    description: 'Research themes to learn language, pain points, and generate content ideas using AI-powered analysis.',
+    icon: '🧠',
+    href: '/topic-intelligence',
+    color: 'bg-purple-50 border-purple-200 hover:bg-purple-100',
+    iconBg: 'bg-purple-100',
+  },
+  {
+    id: 'prospect-discovery',
+    title: 'Prospect Discovery',
+    description: 'Find real people and organizations using AI-powered search. Get names, contacts, and fit scores.',
+    icon: '🔎',
+    href: '/prospect-discovery',
+    color: 'bg-cyan-50 border-cyan-200 hover:bg-cyan-100',
+    iconBg: 'bg-cyan-100',
+  },
+  {
     id: 'chat',
     title: 'Chat with Your Knowledge Base',
     description: 'Ask questions and get answers from your ingested documents using semantic search.',
@@ -21,8 +39,8 @@ const features = [
     description: 'Search across all your documents, presentations, and files with AI-powered semantic search.',
     icon: '🔍',
     href: '/knowledge',
-    color: 'bg-purple-50 border-purple-200 hover:bg-purple-100',
-    iconBg: 'bg-purple-100',
+    color: 'bg-violet-50 border-violet-200 hover:bg-violet-100',
+    iconBg: 'bg-violet-100',
   },
   {
     id: 'prospecting',
