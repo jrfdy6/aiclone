@@ -690,9 +690,11 @@ class LinkedInClient:
         if is_education_query:
             print(f"  [LinkedIn] 🎓 Detected education-related query - using aggressive scraping strategy", flush=True)
         
+        print(f"  [LinkedIn] DEBUG: About to enter scraping loop. urls_to_scrape length: {len(urls_to_scrape)}", flush=True)
         for i, url in enumerate(urls_to_scrape, 1):
-            print(f"  [LinkedIn] DEBUG: Starting scrape attempt {i} for {url[:80]}...", flush=True)
+            print(f"  [LinkedIn] DEBUG: INSIDE LOOP - attempt {i} for {url[:80]}...", flush=True)
             try:
+                print(f"  [LinkedIn] DEBUG: Inside try block for URL {i}", flush=True)
                 # AGGRESSIVE DELAY STRATEGY (Maximum delays for education queries to avoid blocking)
                 # - First post: Longer delay (5-10s) especially for education queries
                 # - Posts 2-3: Very long delays (12-20 seconds) - maximum patience
@@ -738,7 +740,6 @@ class LinkedInClient:
                     wait_time_1 = 12000 if is_education_query else 7000  # Much longer wait for education (12s vs 7s)
                     if is_education_query:
                         print(f"  [LinkedIn] Using stealth proxy + 12s wait for education query (maximum aggression)...", flush=True)
-                    
                     scraped = self.firecrawl_client.scrape_url(
                         url=url,
                         formats=["markdown"],
