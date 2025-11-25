@@ -746,24 +746,28 @@ class LinkedInClient:
                     print(f"  [LinkedIn] ⚠️ Approach 1 failed: {str(e1)[:100]}", flush=True)
                     
                     # Approach 2: Try with scroll action to trigger lazy loading
+                    # For education queries, use stealth proxy; for others, use auto
+                    time.sleep(random.uniform(2.0, 4.0))  # Delay between approaches
                     try:
-                        print(f"  [LinkedIn] Retrying with scroll action (triggers lazy loading)...", flush=True)
+                        proxy_type_2 = "stealth" if is_education_query else "auto"
+                        wait_time_2 = 15000 if is_education_query else 12000
+                        print(f"  [LinkedIn] Retrying with scroll action (triggers lazy loading, {proxy_type_2} proxy)...", flush=True)
                         actions = [
-                            {"type": "wait", "milliseconds": 3000},  # Initial wait for page load
+                            {"type": "wait", "milliseconds": 4000 if is_education_query else 3000},  # Longer initial wait for education
                             {"type": "scroll", "direction": "down"},  # Scroll to trigger lazy loading
-                            {"type": "wait", "milliseconds": 3000},  # Wait after scroll for content
+                            {"type": "wait", "milliseconds": 4000 if is_education_query else 3000},  # Wait after scroll
                             {"type": "scroll", "direction": "up"},  # Scroll back up
-                            {"type": "wait", "milliseconds": 2000},  # Final wait
+                            {"type": "wait", "milliseconds": 3000 if is_education_query else 2000},  # Final wait
                         ]
                         scraped = self.firecrawl_client.scrape_url(
                             url=url,
                             formats=["markdown"],
                             only_main_content=True,
                             exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                            wait_for=12000,  # Longer wait (increased further)
+                            wait_for=wait_time_2,
                             use_v2=True,
                             actions=actions,
-                            proxy="auto"  # Auto proxy (tries basic, then stealth)
+                            proxy=proxy_type_2  # Stealth for education, auto for others
                         )
                         approach_used = "approach_2"
                         scraping_stats["approach_2_success"] += 1
@@ -773,16 +777,17 @@ class LinkedInClient:
                         print(f"  [LinkedIn] ⚠️ Approach 2 failed: {str(e2)[:100]}", flush=True)
                         
                         # Approach 3: Try with even longer wait (some posts need more time)
-                        # Add delay before retry
-                        time.sleep(random.uniform(3.0, 5.0))  # Delay between approaches
+                        # Always use stealth proxy here (most aggressive)
+                        time.sleep(random.uniform(4.0, 6.0) if is_education_query else random.uniform(3.0, 5.0))  # Longer delay for education
                         try:
-                            print(f"  [LinkedIn] Retrying with extended wait time (15s) and stealth proxy...", flush=True)
+                            wait_time_3 = 20000 if is_education_query else 15000  # Even longer wait for education
+                            print(f"  [LinkedIn] Retrying with extended wait time ({wait_time_3/1000}s) and stealth proxy...", flush=True)
                             scraped = self.firecrawl_client.scrape_url(
                                 url=url,
                                 formats=["markdown"],
                                 only_main_content=True,
                                 exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                                wait_for=15000,  # Very long wait (15 seconds, increased further)
+                                wait_for=wait_time_3,  # Very long wait (20s for education, 15s for others)
                                 use_v2=True,
                                 proxy="stealth"  # Force stealth proxy (last resort - costs 5 credits)
                             )
@@ -793,18 +798,21 @@ class LinkedInClient:
                             last_error = e3
                             print(f"  [LinkedIn] ⚠️ Approach 3 failed: {str(e3)[:100]}", flush=True)
                             
-                            # Approach 4: Fallback to v1 API (sometimes works when v2 doesn't)
-                            # Add delay before final retry
-                            time.sleep(random.uniform(4.0, 6.0))  # Longer delay before final attempt
+                            # Approach 4: Fallback to v1 API with stealth proxy (sometimes works when v2 doesn't)
+                            # For education queries, use stealth proxy even with v1
+                            time.sleep(random.uniform(5.0, 7.0) if is_education_query else random.uniform(4.0, 6.0))  # Longer delay for education
                             try:
-                                print(f"  [LinkedIn] Retrying with v1 API as final fallback...", flush=True)
+                                proxy_type_4 = "stealth" if is_education_query else None  # Use stealth for education even in v1
+                                wait_time_4 = 10000 if is_education_query else 5000
+                                print(f"  [LinkedIn] Retrying with v1 API as final fallback ({'stealth proxy' if proxy_type_4 else 'no proxy'})...", flush=True)
                                 scraped = self.firecrawl_client.scrape_url(
                                     url=url,
                                     formats=["markdown"],
                                     only_main_content=True,
                                     exclude_tags=["script", "style", "nav", "footer", "header", "aside", "button", "form"],
-                                    wait_for=5000,
-                                    use_v2=False  # Fallback to v1
+                                    wait_for=wait_time_4,
+                                    use_v2=False,  # Fallback to v1
+                                    proxy=proxy_type_4  # Stealth for education, None for others
                                 )
                                 approach_used = "approach_4"
                                 scraping_stats["approach_4_success"] += 1
