@@ -41,12 +41,12 @@ CATEGORY_WEIGHT_PROFILES = {
     },
     "personal": {
         "VOICE_PATTERNS": 5,
-        "LINKEDIN_EXAMPLES": 4,
-        "EXPERIENCES": 4,
-        "PHILOSOPHY": 3,
-        "VENTURES": 2,
-        "BIO_FACTS": 1,
-        "STRUGGLES": 5,
+        "LINKEDIN_EXAMPLES": 1,
+        "EXPERIENCES": 7,
+        "PHILOSOPHY": 2,
+        "VENTURES": 3,
+        "BIO_FACTS": 4,
+        "STRUGGLES": 8,
     },
 }
 
