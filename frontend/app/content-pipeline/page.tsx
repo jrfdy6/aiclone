@@ -136,9 +136,11 @@ export default function ContentPipelinePage() {
         }),
       }) as { success?: boolean; options?: string[] };
       
-      if (response?.success && response?.options) {
+      console.log('API Response:', response);
+      if (response?.success && response?.options && response.options.length > 0) {
         setGeneratedContent(response.options);
       } else {
+        console.log('API returned no options, using templates');
         // Fallback to templates if API fails
         const templates = getTemplates(activeCategory, generatorType, { topic, context, pacer: selectedPacer });
         setGeneratedContent(templates);
