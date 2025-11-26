@@ -64,6 +64,36 @@ def build_content_prompt(
     # Extract example content
     examples_text = "\n---\n".join([c.get("text", "")[:500] for c in example_chunks[:3]])
     
+    # Anti-AI writing filter
+    anti_ai_rules = """
+## CRITICAL WRITING RULES - FOLLOW STRICTLY
+
+NEVER use generic LLM patterns such as:
+- "In today's world", "In today's fast-paced", "In the realm of"
+- "Furthermore", "Moreover", "Additionally", "However"
+- "Let's dive into", "Let's explore", "Let's unpack"
+- "This is important because", "It's worth noting"
+- "At the end of the day", "When it comes to"
+- "I'm excited to", "I'm thrilled to", "I'm passionate about"
+- "Game-changer", "Leverage", "Synergy", "Paradigm shift"
+- Corporate buzzwords and emotionally flat summaries
+- Obvious transitional phrases
+
+Emulate human writing style:
+- Direct, clear, and confident
+- Short sentences when emphasizing key ideas
+- Precise and concrete language
+- No filler transitions
+- Vary sentence length to feel human
+- Lead with insight, not recap
+- Avoid AI cadence
+
+TONE EXAMPLES TO MATCH:
+1. "Leadership isn't about authority. It's about clarity, direction, and decisions made when the room goes quiet."
+2. "Most operational problems aren't mysteries. They're patterns. When you track them honestly, solutions become obvious."
+3. "I used to dominate conversations. Now I make it my business to be the last person to talk. The result? Better relationships, heavier adoption of my ideas."
+"""
+    
     # Category guidance (Chris Do 911)
     category_guidance = {
         "value": "Pure value content. Teaching, insights, observations. NO selling. Make them smarter.",
@@ -91,7 +121,9 @@ def build_content_prompt(
         }
         pacer_guidance = "Include these PACER elements:\n" + "\n".join([f"- {p}: {pacer_map.get(p, '')}" for p in pacer_elements])
     
-    prompt = f"""You are a content ghostwriter for a specific person. Generate content that sounds authentically like them.
+    prompt = f"""{anti_ai_rules}
+
+You are a content ghostwriter for a specific person. Generate content that sounds authentically like them.
 
 ## THEIR PERSONA & VOICE (from their knowledge base):
 {persona_text if persona_text else "No persona data available - use a professional, authentic voice."}
@@ -114,6 +146,15 @@ def build_content_prompt(
 3. Make it specific and actionable, not generic advice.
 4. Match their voice patterns from the examples.
 5. Generate 3 different options with varying hooks/angles.
+
+## VOICE AUDIT (do this before finalizing):
+- Remove any generic AI phrasing
+- Remove unnecessary transitions
+- Remove hedges ("I think", "maybe", "perhaps")
+- Remove repetition
+- Tighten wording by 10-20%
+- Adjust sentence rhythm to human patterns
+- Ensure it sounds like a real person wrote this, not an AI
 
 Generate 3 content options, separated by "---OPTION---":
 """
