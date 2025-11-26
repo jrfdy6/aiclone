@@ -58,11 +58,11 @@ def build_content_prompt(
 ) -> str:
     """Build the prompt for content generation."""
     
-    # Extract persona info
-    persona_text = "\n".join([c.get("text", "") for c in persona_chunks[:3]])
+    # Extract persona info (key is 'chunk' not 'text')
+    persona_text = "\n".join([c.get("chunk", "") for c in persona_chunks[:3]])
     
     # Extract example content
-    examples_text = "\n---\n".join([c.get("text", "")[:500] for c in example_chunks[:3]])
+    examples_text = "\n---\n".join([c.get("chunk", "")[:500] for c in example_chunks[:3]])
     
     # Anti-AI writing filter
     anti_ai_rules = """
@@ -334,8 +334,8 @@ async def generate_content(req: ContentGenerationRequest):
         return ContentGenerationResponse(
             success=True,
             options=options[:3],  # Max 3 options
-            persona_context=persona_chunks[0].get("text", "")[:200] if persona_chunks else None,
-            examples_used=[c.get("source", "")[:50] for c in example_chunks[:3]]
+            persona_context=persona_chunks[0].get("chunk", "")[:200] if persona_chunks else None,
+            examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]]
         )
         
     except Exception as e:
