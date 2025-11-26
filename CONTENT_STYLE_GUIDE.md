@@ -122,3 +122,112 @@ Reference this guide for all content creation.
 - Sentences can start with "But" and "And"—but don't overuse.
 - Use periods instead of commas when possible for clarity.
 
+## Audience rules
+
+Define the reader before writing. Choose one per piece.
+
+- **School leaders** → clear, operational insights; no jargon; examples from admissions, enrollment, and family scenarios.
+- **Referral partners** → emphasize trust signals, outcomes, clarity, and process.
+- **EdTech/AI operators** → concrete systems, architecture, and metrics.
+- **Fashion tech audience** → practical UX, data, and product design insights.
+- **General LinkedIn audience** → personal experience, lessons, wins, and failures with clear takeaways.
+
+Each post must answer: "If this person reads this post, what improves for them?"
+
+## Practitioner voice
+
+Show what you did, why, and what happened.
+
+- Default to: problem → decision → system → outcome → lesson.
+- Prioritize real stories over abstract thought.
+- Replace advice with templates, scripts, checklists, and workflows.
+
+## Evidence order (strongest to weakest)
+
+Never publish a claim without at least one of the following:
+
+1. Owned data (metrics from your work, anonymized)
+2. Systems you built (screenshots, workflows, architecture)
+3. Case examples (without naming schools)
+4. Market data (link credible sources)
+5. Experience-based insights (last resort)
+
+## Post structure rules
+
+- First line must earn the second line. Make it short and visual.
+- Use short paragraphs (1–3 lines).
+- Every post must contain one of these frameworks:
+  - Before → After → How
+  - Problem → Mistake → Fix
+  - Myth → Truth → Example
+  - Story → Insight → Playbook
+  - Question → Breakdown → Action
+
+## Hook rules
+
+Hooks must be:
+- Specific
+- Visual
+- Addressing a belief your audience already holds
+
+Examples:
+- "Admissions teams are burning out for one reason: too many signals, not enough systems."
+- "If you only track inquiries and yield, you're flying blind."
+- "AI won't replace admissions work; sloppy process will."
+
+## Helpful clarity
+
+Every post must finish at least one of these:
+
+- **Teach something** (steps, scripts, templates)
+- **Reframe something** (misconception → corrected insight)
+- **Reveal something** (data, behind-the-scenes system)
+- **Challenge something** (wrong industry norm + your alternative)
+
+If it doesn't do one of those, don't post it.
+
+## Personal insight rules
+
+**Share:**
+- Lessons
+- Failures
+- Systems that worked
+- Turning points
+- Things you changed your mind about
+
+**Avoid:**
+- Emotional dumping
+- Motivational speeches
+- Vague "journey" content
+- Content without practical takeaways
+
+## Cross-domain integration
+
+Whenever possible, connect:
+- Education operations → AI systems thinking
+- Admissions workflows → automation & process design
+- Student experience → data mapping & segmentation
+- Fashion tech → personalization & UX patterns
+
+This becomes your signature perspective.
+
+## Anti-LLM specifics
+
+- Vary sentence length; avoid perfect patterns.
+- Write with imperfections—small asymmetries, non-robotic phrasing.
+- Do not restate the question.
+- Don't summarize at the end unless necessary.
+- Avoid "Therefore/Thus/However" at the start of paragraphs.
+
+## Spiky point rule
+
+Every piece needs one line that:
+- States a belief
+- Challenges an industry habit
+- Or fixes a misconception
+
+Examples:
+- "Most enrollment teams don't have a recruitment problem; they have a signal-tracking problem."
+- "AI isn't replacing educators; it's replacing guesswork."
+- "Admissions teams should operate like product teams—weekly sprints, clear metrics, and structured feedback loops."
+
