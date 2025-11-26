@@ -114,87 +114,105 @@ CRITICAL STYLE RULES:
         "linkedin_post": """
 EXAMPLE LINKEDIN POST (match this style EXACTLY):
 ---
-Thanksgiving has a funny way of reminding us what actually shapes people.
-For me, it's always been education and style — two worlds everyone thinks are separate, but they're not.
+Thanksgiving always prompts reflection, but this year I'm thinking about something most people overlook in education:
 
-In education, I've seen something simple but powerful:
-when a student feels good in what they wear, they show up differently.
-More confidence. More presence. More voice.
+**Style is a learning tool.**
 
-Style isn't vanity — it's a form of self-belief.
+When a student wears something that reflects who they are, you can see the shift immediately —
+more confidence, more participation, more presence.
 
-And as we head into the holiday season, I'm grateful for the way fashion gives people permission to become a louder version of themselves… and the way education gives them the space to grow into it.
+It's not "just clothes."
+It's identity.
+It's belonging.
+It's agency.
 
-Your outfit tells a story long before you say a word.
-This Thanksgiving, I'm thankful we all get to write our own.
+And in a world where so many students feel unseen, even one outfit that helps them feel *like themselves* can reshape their entire day.
 
-Which story are you wearing into the next season?
+This holiday season, I'm asking myself:
+**How can we use style as a bridge toward stronger learning environments?**
+
+Curious to hear your thoughts — how do you help students express themselves?
 ---
 
-STYLE NOTES:
-- Hook opens with unexpected angle ("funny way of reminding us")
-- Short lines for rhythm and punch
-- Concrete observation ("when a student feels good... they show up differently")
-- Bold statement in its own line ("Style isn't vanity — it's a form of self-belief")
-- Ends with engaging question
-- NO generic openings, NO soft transitions, NO "In today's world"
+STYLE RULES (MANDATORY):
+- Open with reflection + pivot to unexpected insight
+- Use **bold** for key statements
+- Stack short phrases for rhythm ("It's identity. It's belonging. It's agency.")
+- Create emotional resonance ("feel unseen", "feel like themselves")
+- Position yourself as the guide asking a bigger question
+- End with genuine curiosity, not generic CTA
+- NO flat academic tone
+- NO "It's not just X; it's Y" without emotional weight
+- EVERY line must earn its place
 """,
         "cold_email": """
 EXAMPLE EMAIL (match this style):
 ---
-Subject: Your outreach is 80% friction — here's the 20% that matters
+Subject: A Thanksgiving Thought on Style + Education
 
-Hi {Name},
+As we head into Thanksgiving, I've been reflecting on something that often gets overlooked in education: the role of personal style.
 
-Reaching out because I built a tool that solves a problem everyone running sales or content deals with:
+When students wear clothing that reflects who they are, something shifts — their confidence, their engagement, and even the way they participate in class.
 
-Prospecting takes forever because you're stuck doing research, rewriting messages, and personalizing everything manually.
+It's more than fabric.
+It's a way for students to express identity, feel seen, and build connection.
 
-So I built an AI Clone that handles that entire layer automatically — using your tone and your content.
+This season, I'm thinking more intentionally about how we support self-expression in educational spaces.
 
-Teams are using it to:
-• reduce research time by 70%
-• get personalized outreach drafts instantly
-• repurpose posts into emails, DMs, and scripts
-• track competitor chatter online
-
-If you're open to testing it, I can run your website or LinkedIn profile through it and send a sample.
-
-Worth a look?
+How do you see style influencing the way students learn?
 ---
+
+STYLE RULES:
+- Short paragraphs, easy to skim
+- Line breaks for rhythm
+- Ends with genuine question, not hard sell
+- Professional but human
+- NO "I hope this finds you well"
+- NO corporate jargon
 """,
         "linkedin_dm": """
 EXAMPLE LINKEDIN DM (match this style):
 ---
-Hey {Name} — saw your recent post about {topic}.
-Loved your take on it.
+Hey! Quick Thanksgiving reflection — I've been thinking about how style actually plays a real role in education.
 
-Quick note: I'm testing something new called an AI Clone that mirrors your writing style and automates the annoying parts of prospecting (research, rewrites, message drafts, intel summaries).
+When students feel good in what they're wearing, they engage differently. More confidence. More connection.
 
-People are using it to speed up outreach without sounding like a template.
-
-If you want to try it on your own content, I can generate a sample for you.
-Would you like me to run your LinkedIn profile through it?
+Curious how you've seen self-expression show up in your work with students?
 ---
+
+STYLE RULES:
+- Ultra short, under 7 seconds to read
+- Conversational opener
+- One clear question
+- NO pitch, NO ask for a call
+- Feels like a real human message
 """,
         "instagram_post": """
 EXAMPLE INSTAGRAM CAPTION (match this style):
 ---
-I got tired of spending hours rewriting the same message 10 different ways…
+Thanksgiving reflection 🍂
+But make it about *style + education.*
 
-so I built an AI Clone of myself 🤖✨
+I've seen how the right outfit can change a student's whole energy —
+more confidence, more comfort, more connection.
 
-It studies your writing, your posts, your style —
-and drafts content + outreach exactly like you.
+It's not just clothes.
+It's expression.
+It's identity.
+It's a tiny spark that helps them show up as their real selves.
 
-Creators and founders are using it to:
-• repurpose posts
-• prep outreach
-• speed up client responses
-• write captions that actually convert
+This season, I'm grateful for the moments where students feel seen — not just academically, but personally.
 
-If you want your own AI Clone, drop "CLONE" in the comments or DM me 👇
+What part of your style makes you feel most like *you*? 👇✨
 ---
+
+STYLE RULES:
+- Warm, aesthetic tone
+- Short stacked phrases for rhythm
+- Emoji used sparingly but effectively
+- Ends with engaging question
+- Feels personal, not like a brand
+- NO hashtag spam
 """
     }
     
