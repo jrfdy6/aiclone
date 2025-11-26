@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import NavHeader from '@/components/NavHeader';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -339,11 +340,13 @@ export default function ContentMarketingPage() {
   };
 
   return (
-    <main className="space-y-6 p-6 max-w-6xl mx-auto">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-bold">Content Marketing Workflows</h1>
-        <p className="text-gray-600">Vibe Marketing tools powered by MCPs and AI</p>
-      </header>
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
+        <header style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>Content Marketing Workflows</h1>
+          <p style={{ color: '#9ca3af' }}>Vibe Marketing tools powered by MCPs and AI</p>
+        </header>
 
       {/* Tabs */}
       <div className="border-b">

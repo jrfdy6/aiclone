@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import NavHeader from '@/components/NavHeader';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -120,18 +121,15 @@ export default function JumpstartPage() {
   };
 
   return (
-    <main className="space-y-8 p-6">
-      <header className="space-y-3">
-        <p className="text-sm text-gray-500">
-          <Link href="/" className="text-blue-600 underline">
-            ← Back to Home
-          </Link>
-        </p>
-        <h1 className="text-3xl font-bold">AI Jumpstart Playbook</h1>
-        <p className="text-gray-600">
-          Ground your AI clone in Tony Robbins & Dean Graziosi’s human-first system: choose a tool, train it, start with a high-impact prompt, and iterate for quick wins.
-        </p>
-      </header>
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
+        <header style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>AI Jumpstart Playbook</h1>
+          <p style={{ color: '#9ca3af' }}>
+            Ground your AI clone in Tony Robbins & Dean Graziosi's human-first system: choose a tool, train it, start with a high-impact prompt, and iterate for quick wins.
+          </p>
+        </header>
 
       {loading && <p>Loading playbook...</p>}
       {error && <p className="text-red-600">{error}</p>}

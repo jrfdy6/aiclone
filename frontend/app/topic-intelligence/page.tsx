@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api-client';
+import NavHeader from '@/components/NavHeader';
 
 interface Theme {
   id: string;
@@ -118,21 +119,17 @@ export default function TopicIntelligencePage() {
   const selectedThemeData = themes.find(t => t.id === selectedTheme);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
         {/* Header */}
-        <header className="space-y-3">
-          <Link href="/" className="text-purple-400 hover:text-purple-300 text-sm">
-            ← Back to Home
-          </Link>
-          <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-              Topic Intelligence
-            </h1>
-            <p className="mt-2 text-lg text-gray-400">
-              Research themes to learn language, pain points, and generate content ideas
-            </p>
-          </div>
+        <header style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>
+            Topic Intelligence
+          </h1>
+          <p style={{ color: '#9ca3af' }}>
+            Research themes to learn language, pain points, and generate content ideas
+          </p>
         </header>
 
         {error && (

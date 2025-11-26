@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import Link from 'next/link';
+import NavHeader from '@/components/NavHeader';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -210,20 +211,14 @@ function ProspectingContent() {
   };
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <header className="space-y-3">
-          <p className="text-sm text-gray-500">
-            <Link href="/" className="text-blue-600 underline">
-              ← Back to Home
-            </Link>
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
+        <header style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>AI-Assisted Prospecting</h1>
+          <p style={{ color: '#9ca3af' }}>
+            Generate prompts for ChatGPT, analyze prospects, and create outreach drafts
           </p>
-          <div>
-            <h1 className="text-4xl font-bold text-gray-900">AI-Assisted Prospecting</h1>
-            <p className="mt-2 text-lg text-gray-600">
-              Generate prompts for ChatGPT, analyze prospects, and create outreach drafts
-            </p>
-          </div>
         </header>
 
         {statusMessage && (

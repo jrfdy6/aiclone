@@ -3,223 +3,171 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { apiFetch, getApiUrl } from '@/lib/api-client';
+import NavHeader from '@/components/NavHeader';
 
 const API_URL = getApiUrl();
 
-// Johnnie Fields Persona - from JOHNNIE_FIELDS_PERSONA.md
-// Style Guide Reference - from CONTENT_STYLE_GUIDE.md
-const STYLE_GUIDE = {
-  voiceAndTone: [
-    "Write like humans speak. Avoid corporate jargon and marketing fluff.",
-    "Be confident and direct. Avoid softening phrases like 'I think,' 'maybe,' or 'could.'",
-    "Use active voice instead of passive voice.",
-    "Say 'you' more than 'we' when addressing external audiences.",
-    "Use contractions for a warmer tone.",
-  ],
-  bannedWords: [
-    "actually", "agile", "arguably", "battle tested", "best practices", "blazing fast",
-    "business logic", "cognitive load", "delve", "disruptive", "facilitate", "game-changing",
-    "innovative", "just", "leverage", "mission-critical", "modern", "numerous", "out of the box",
-    "performant", "robust", "seamless", "utilize", "webinar",
-  ],
-  bannedPhrases: [
-    "I think/I believe/we believe", "it seems", "sort of/kind of", "pretty much",
-    "By developers, for developers", "We can't wait to see what you'll build",
-    "The future of ___", "Today, we're excited to",
-  ],
-  llmPatternsToAvoid: [
-    "Don't start with 'Great question!' or 'Let me help you.'",
-    "Skip 'Let's dive into...' and 'In today's fast-paced digital world'",
-    "Avoid 'In conclusion,' 'Overall,' or 'To summarize.'",
-    "Don't end with 'Hope this helps!'",
-    "Avoid hedge words: 'might,' 'perhaps,' 'potentially'",
-  ],
-  numbersAndData: [
-    "Spell out one through nine, use numerals for 10+",
-    "Round large numbers (2.3M vs 2,347,892)",
-    "Always cite sources for statistics",
-  ],
+// Chris Do 911 Framework
+const CHRIS_DO_911 = {
+  value: {
+    ratio: 9,
+    description: 'Pure value. Teaching, insights, observations. No selling mixed in.',
+    icon: '📚',
+    color: 'from-blue-600 to-cyan-600',
+    bgColor: 'bg-blue-900/30',
+    borderColor: 'border-blue-500',
+  },
+  sales: {
+    ratio: 1,
+    description: 'Sell unabashedly. "I\'m building X. Here\'s how to get involved."',
+    icon: '💰',
+    color: 'from-green-600 to-emerald-600',
+    bgColor: 'bg-green-900/30',
+    borderColor: 'border-green-500',
+  },
+  personal: {
+    ratio: 1,
+    description: 'Personal/behind-the-scenes. The real me, struggles included.',
+    icon: '🙋',
+    color: 'from-purple-600 to-pink-600',
+    bgColor: 'bg-purple-900/30',
+    borderColor: 'border-purple-500',
+  },
 };
 
+// PACER Framework for LinkedIn
+const PACER_PILLARS = {
+  problem: { label: 'Problem', description: 'Identify the pain point', icon: '🎯' },
+  amplify: { label: 'Amplify', description: 'Make the problem feel urgent', icon: '📢' },
+  credibility: { label: 'Credibility', description: 'Show why you\'re qualified', icon: '🏆' },
+  educate: { label: 'Educate', description: 'Provide value and solutions', icon: '📖' },
+  request: { label: 'Request', description: 'Clear call to action', icon: '👉' },
+};
+
+// Johnnie Fields Persona
 const PERSONA = {
   name: "Johnnie Fields",
   title: "Director of Admissions at Fusion Academy (DC)",
-  positioning: "10+ years in education (AmeriCorps, 2U, Catholic University). Managed $34M portfolios and teams of 15+. Neurodivergent professional helping neurodivergent students. Georgetown Data Science cert, USC Master's in Tech/Business/Design. Building Easy Outfit fashion app. Son of a mechanic from St. Louis.",
-  tone: "Expert + direct, inspiring. Like a top-tier operator who's also rooting for you. Process Champion energy.",
-  writingStyle: "Clear, direct, practical. No fluffy language or jargon. Confident but not arrogant. Vulnerable when appropriate. Work-in-progress energy.",
   northStar: "I can't be put into a box. I'm a work in progress, pivoting into tech and data while leveraging 10+ years in education.",
-  brandVoice: "911 Formula: 9 value posts, 1 sales, 1 personal. Be authentically me. When I sell, sell unabashedly. Show the journey, not just the wins.",
+  tone: "Expert + direct, inspiring. Process Champion energy.",
   coreBeliefs: [
     "There are only 3 things you can influence: People, Process, and Culture.",
     "Teams don't perform because they don't have a clear goal or they don't believe in the plan.",
-    "I'm going to be the manager that solves the problem before it becomes big."
   ],
-  industryFocus: ["K-12 Education", "EdTech", "Neurodivergent Support", "Mental Health Professionals", "Treatment Centers", "Private Schools"],
-  uniqueValue: "Bridge Builder: Education veteran actively pivoting to tech. Lived Experience: Neurodivergent professional serving neurodivergent students. Operator + Builder: Not just using AI - building products with it.",
 };
 
+type ContentCategory = 'value' | 'sales' | 'personal';
 type ContentType = 'cold_email' | 'linkedin_post' | 'linkedin_dm' | 'instagram_post';
 type ContentStatus = 'draft' | 'ready' | 'sent' | 'scheduled';
 
 type ContentItem = {
   id: string;
+  category: ContentCategory;
   type: ContentType;
   title: string;
   content: string;
-  prospect_id?: string;
-  prospect_name?: string;
+  pacer_elements?: string[];
   status: ContentStatus;
   created_at: string;
-  scheduled_for?: string;
   tags?: string[];
 };
 
-const CONTENT_TYPES: { value: ContentType; label: string; icon: string; color: string }[] = [
-  { value: 'cold_email', label: 'Cold Email', icon: '📧', color: 'bg-blue-500' },
-  { value: 'linkedin_post', label: 'LinkedIn Post', icon: '📝', color: 'bg-sky-500' },
-  { value: 'linkedin_dm', label: 'LinkedIn DM', icon: '💬', color: 'bg-indigo-500' },
-  { value: 'instagram_post', label: 'Instagram Post', icon: '📸', color: 'bg-pink-500' },
-];
-
-const STATUS_OPTIONS: { value: ContentStatus; label: string; color: string }[] = [
-  { value: 'draft', label: 'Draft', color: 'bg-gray-100 text-gray-800' },
-  { value: 'ready', label: 'Ready', color: 'bg-green-100 text-green-800' },
-  { value: 'sent', label: 'Sent', color: 'bg-blue-100 text-blue-800' },
-  { value: 'scheduled', label: 'Scheduled', color: 'bg-purple-100 text-purple-800' },
+const CONTENT_TYPES: { value: ContentType; label: string; icon: string }[] = [
+  { value: 'cold_email', label: 'Cold Email', icon: '📧' },
+  { value: 'linkedin_post', label: 'LinkedIn Post', icon: '📝' },
+  { value: 'linkedin_dm', label: 'LinkedIn DM', icon: '💬' },
+  { value: 'instagram_post', label: 'Instagram Post', icon: '📸' },
 ];
 
 export default function ContentPipelinePage() {
-  // Content library state
   const [contentItems, setContentItems] = useState<ContentItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  
-  // Filters
-  const [typeFilter, setTypeFilter] = useState<ContentType | 'all'>('all');
-  const [statusFilter, setStatusFilter] = useState<ContentStatus | 'all'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  // Generator state
+  const [activeCategory, setActiveCategory] = useState<ContentCategory>('value');
   const [showGenerator, setShowGenerator] = useState(false);
-  const [generatorType, setGeneratorType] = useState<ContentType>('cold_email');
   const [generating, setGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string[]>([]);
   
   // Generator inputs
-  const [prospectContext, setProspectContext] = useState('');
+  const [generatorType, setGeneratorType] = useState<ContentType>('linkedin_post');
   const [topic, setTopic] = useState('');
-  const [tone, setTone] = useState('professional');
-  const [purpose, setPurpose] = useState('introduction');
+  const [context, setContext] = useState('');
+  const [selectedPacer, setSelectedPacer] = useState<string[]>([]);
   
-  // Selection
-  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
-  const [editingItem, setEditingItem] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState('');
-  
-  // Style guide
-  const [showStyleGuide, setShowStyleGuide] = useState(false);
 
-  // Load saved content from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('content_pipeline');
+    const saved = localStorage.getItem('content_pipeline_911');
     if (saved) {
       setContentItems(JSON.parse(saved));
     }
   }, []);
 
-  // Save content to localStorage
   const saveContent = (items: ContentItem[]) => {
     setContentItems(items);
-    localStorage.setItem('content_pipeline', JSON.stringify(items));
+    localStorage.setItem('content_pipeline_911', JSON.stringify(items));
+  };
+
+  const stats = useMemo(() => {
+    const value = contentItems.filter(i => i.category === 'value').length;
+    const sales = contentItems.filter(i => i.category === 'sales').length;
+    const personal = contentItems.filter(i => i.category === 'personal').length;
+    const total = value + sales + personal;
+    return { value, sales, personal, total };
+  }, [contentItems]);
+
+  const getCategoryContent = (category: ContentCategory) => {
+    return contentItems.filter(i => i.category === category);
   };
 
   const generateContent = async () => {
     setGenerating(true);
-    setGeneratedContent([]);
-
-    try {
-      if (generatorType === 'cold_email') {
-        const response = await apiFetch('/api/content/email', {
-          method: 'POST',
-          body: JSON.stringify({
-            subject: topic || 'Introduction',
-            recipient_type: prospectContext || 'business professional',
-            purpose: purpose,
-            tone: tone,
-          }),
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.email) {
-            setGeneratedContent([
-              `Subject: ${data.email.subject}\n\n${data.email.body}`,
-            ]);
-          }
-        } else {
-          // Fallback to AI generation prompt
-          generateWithPrompt();
-        }
-      } else {
-        generateWithPrompt();
-      }
-    } catch (err) {
-      generateWithPrompt();
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const generateWithPrompt = () => {
-    // Generate content locally with templates
-    const templates = getTemplates(generatorType, { prospectContext, topic, tone, purpose });
+    
+    const templates = getTemplates(activeCategory, generatorType, { topic, context, pacer: selectedPacer });
     setGeneratedContent(templates);
+    
+    setGenerating(false);
   };
 
-  const getTemplates = (type: ContentType, inputs: any): string[] => {
-    const { prospectContext, topic, tone } = inputs;
+  const getTemplates = (category: ContentCategory, type: ContentType, inputs: any): string[] => {
+    const { topic, context, pacer } = inputs;
     const p = PERSONA;
     
-    switch (type) {
-      case 'cold_email':
+    if (category === 'value') {
+      if (type === 'linkedin_post') {
         return [
-          `Subject: Quick question about ${topic || 'neurodivergent student support'}\n\nHi ${prospectContext || 'there'},\n\nI'm ${p.name}, ${p.title}. I noticed you're working with ${topic || 'students who learn differently'} and wanted to reach out.\n\nI've spent 10+ years in education - from managing $34M portfolios at 2U to now serving neurodivergent students at Fusion Academy. I'm always looking to connect with professionals who share this mission.\n\nWould you be open to a quick conversation about how we might support each other's work?\n\nBest,\nJohnnie`,
-          `Subject: Idea for ${prospectContext || 'your practice'}\n\nHi,\n\nI came across your work in ${topic || 'education/mental health'} and had a thought.\n\nAt Fusion Academy DC, we serve neurodivergent students with 1:1 instruction. I'm building referral relationships with professionals like yourself who work with families seeking alternative education options.\n\nI'd love to share what we're seeing and learn about your approach. No pitch - just genuine curiosity about potential collaboration.\n\nWorth a 15-minute call?\n\nBest,\nJohnnie Fields\nDirector of Admissions, Fusion Academy`,
-          `Subject: ${topic || 'Supporting neurodivergent students'}\n\nHi ${prospectContext || 'there'},\n\nI'll keep this direct - I'm the Director of Admissions at Fusion Academy DC, and I'm reaching out to build relationships with professionals who serve neurodivergent students and their families.\n\nMy background: 10+ years in education, Georgetown Data Science cert, and I'm neurodivergent myself. This work is personal.\n\nIf you ever have families looking for alternative education options, I'd love to be a resource. Either way, wishing you continued success in your work.\n\nJohnnie`,
+          `🎯 ${topic || 'Here\'s what I learned this week'}:\n\nAfter 10+ years in education - from AmeriCorps to managing $34M portfolios at 2U to now Fusion Academy - I've learned one thing:\n\nThere are only 3 things you can influence: People, Process, and Culture.\n\n${context || 'Working with neurodivergent students'} has reinforced this:\n\n1️⃣ PEOPLE: Meet students where they are\n2️⃣ PROCESS: Systems that flex for different learning styles\n3️⃣ CULTURE: An environment where "different" is the norm\n\nWhat's your experience? 👇\n\n#Education #Neurodivergent #Leadership`,
+          `📊 Hot take: ${topic || 'Most advice misses the point'}.\n\nTeams don't perform because:\n• They don't have a clear goal, OR\n• They don't believe in the plan\n\nThat's it. Everything else is noise.\n\nAt Fusion Academy, we serve neurodivergent students 1:1. The "traditional" approach doesn't work for everyone.\n\nWhat I've learned:\n• Process Champion > Hero Ball\n• Constructive dialogue > Power moves\n• Temperature gauge your team\n\nThoughts?\n\n#Leadership #Education #ProcessChampion`,
+          `I used to think ${topic || 'success'} was about following the traditional path.\n\nI was wrong.\n\nAfter 10+ years - AmeriCorps, 2U, Catholic University, now Fusion Academy - here's what actually moves the needle:\n\n→ Relationships first. Power moves damage trust.\n→ Be the last to speak.\n→ Solve problems before they become big.\n\nI'm a work in progress. Can't be put in a box. Neither can you.\n\nAgree or disagree? 👇`,
         ];
-      
-      case 'linkedin_post':
+      } else if (type === 'cold_email') {
         return [
-          `🎯 ${topic || 'Here\'s what I learned this week about neurodivergent education'}:\n\nAfter 10+ years in education - from AmeriCorps to managing $34M portfolios at 2U to now Fusion Academy - I've learned one thing:\n\nThere are only 3 things you can influence: People, Process, and Culture.\n\n${prospectContext || 'Working with neurodivergent students'} has reinforced this:\n\n1️⃣ PEOPLE: Meet students where they are, not where you think they should be\n2️⃣ PROCESS: Systems that flex for different learning styles\n3️⃣ CULTURE: An environment where "different" is the norm\n\nI can't be put into a box. Neither can our students.\n\nWhat's your experience with ${topic || 'alternative education'}? 👇\n\n#Education #Neurodivergent #Leadership #EdTech`,
-          `I used to think ${topic || 'success in education'} was about following the traditional path.\n\nI was wrong.\n\nAfter 10+ years - AmeriCorps, 2U, Catholic University, now Fusion Academy - here's what actually moves the needle:\n\n→ Relationships first. Power moves damage trust.\n→ Be the last to speak. Results in heavier adoption of ideas.\n→ Solve problems before they become big.\n\nI'm a work in progress. Son of a mechanic from St. Louis who fell in love with fashion in a random textile course. Now I'm pivoting into tech while serving neurodivergent students.\n\nCan't be put in a box. Neither can you.\n\nAgree or disagree? 👇`,
-          `📊 Hot take: ${topic || 'Most education advice misses the point'}.\n\nTeams don't perform because:\n• They don't have a clear goal, OR\n• They don't believe in the plan\n\nThat's it. Everything else is noise.\n\nAt Fusion Academy, we serve neurodivergent students 1:1. The "traditional" approach doesn't work for everyone. And that's okay.\n\nI'm neurodivergent myself. This isn't just a job - it's personal.\n\nWhat I've learned:\n• Process Champion > Hero Ball\n• Constructive dialogue > Power moves\n• Temperature gauge your team - never let them cool off\n\nThoughts? What's worked in your experience?\n\n#Leadership #Education #Neurodivergent #ProcessChampion`,
+          `Subject: Quick question about ${topic || 'neurodivergent student support'}\n\nHi ${context || 'there'},\n\nI'm Johnnie Fields, Director of Admissions at Fusion Academy DC. I noticed you're working with ${topic || 'students who learn differently'} and wanted to reach out.\n\nI've spent 10+ years in education - from managing $34M portfolios at 2U to now serving neurodivergent students. I'm always looking to connect with professionals who share this mission.\n\nWould you be open to a quick conversation?\n\nBest,\nJohnnie`,
+          `Subject: Idea for ${context || 'your practice'}\n\nHi,\n\nI came across your work in ${topic || 'education/mental health'} and had a thought.\n\nAt Fusion Academy DC, we serve neurodivergent students with 1:1 instruction. I'm building referral relationships with professionals who work with families seeking alternative education options.\n\nWorth a 15-minute call?\n\nBest,\nJohnnie Fields\nDirector of Admissions, Fusion Academy`,
         ];
-      
-      case 'linkedin_dm':
-        return [
-          `Hi ${prospectContext || 'there'}!\n\nI'm Johnnie, Director of Admissions at Fusion Academy DC. I came across your profile and was impressed by your work with ${topic || 'students/families'}.\n\nI'm building relationships with professionals in the ${topic || 'education/mental health'} space. At Fusion, we serve neurodivergent students with 1:1 instruction - and I'm always looking for referral partners who share this mission.\n\nWould you be open to connecting? No pitch, just exploring potential synergy.`,
-          `Hey ${prospectContext || 'there'},\n\nLoved your recent post about ${topic || 'education'}. Really resonated with me.\n\nI've spent 10+ years in education and I'm now at Fusion Academy DC serving neurodivergent students. I'm also neurodivergent myself - this work is personal.\n\nAlways looking to connect with others in this space. Would love to learn more about your approach.\n\nOpen to a quick chat sometime?`,
-          `Hi ${prospectContext || 'there'},\n\nI noticed we're both passionate about ${topic || 'supporting students who learn differently'}.\n\nI'm Johnnie - Director of Admissions at Fusion Academy DC (1:1 school for neurodivergent students). Background in data science and 10+ years in education.\n\nI'm building my referral network with mental health professionals, treatment centers, and private school admins. Would love to learn about your work and see if there's a way to support each other.\n\nWorth connecting?`,
-        ];
-      
-      case 'instagram_post':
-        return [
-          `✨ ${topic || 'Real talk about education'} ✨\n\nI can't be put into a box.\n\nSon of a mechanic from St. Louis. Fell in love with fashion in a random textile course. 10+ years in education. Now pivoting into tech.\n\nNeurodivergent professional helping neurodivergent students.\n\nThe truth? Most people try to fit into someone else's mold. But here's the secret...\n\nYour "different" is your superpower. 💪\n\nSave this for later! 📌\n\n.\n.\n.\n#Neurodivergent #Education #WorkInProgress #CantBePutInABox`,
-          `POV: You finally figured out ${topic || 'your path'} 🎯\n\nMe at 22: Following the "traditional" path\nMe at 32: Director of Admissions, building tech, can't be put in a box\n\nHere's what changed everything:\n\n1. Stopped trying to fit the mold\n2. Leaned into what makes me different\n3. Found work that's personal (I'm neurodivergent too)\n\nDrop a 🔥 if you've had to forge your own path!\n\n#CareerPivot #Neurodivergent #Education #BuildInPublic`,
-          `${topic || 'This philosophy'} changed my leadership 👇\n\nThere are only 3 things you can influence:\n\n✅ People\n✅ Process  \n✅ Culture\n\nThat's it. Everything else is noise.\n\nI learned this managing $34M portfolios and teams of 15+. Now I apply it serving neurodivergent students at Fusion Academy.\n\nWant the full breakdown? Comment "YES" 💬\n\n#Leadership #Education #ProcessChampion #Mindset`,
-        ];
-      
-      default:
-        return ['Generated content will appear here...'];
+      }
+    } else if (category === 'sales') {
+      return [
+        `🚀 I'm building something.\n\nAfter 10+ years in education and pivoting into tech, I'm creating ${topic || 'Easy Outfit'} - ${context || 'a fashion app that helps you use what you have'}.\n\nWhy? I've always wanted to look good but sometimes missed the mark. This solves my own problem.\n\nLooking for:\n• Beta testers\n• Feedback from people who struggle with styling\n• Connections to fashion/tech folks\n\nDM me if interested. No pitch deck, just building.\n\n#BuildInPublic #Fashion #Tech`,
+        `📣 Let me be direct.\n\nI consult on enrollment management and program launches. 10+ years experience. $34M portfolios. Salesforce migrations.\n\nIf you need help with:\n• Admissions process optimization\n• Team coaching and development\n• Pipeline management\n• Program launches\n\nLet's talk. DM me or comment below.\n\nNo fluff. Just results.\n\n#Consulting #Education #EnrollmentManagement`,
+      ];
+    } else if (category === 'personal') {
+      return [
+        `I can't be put into a box.\n\nSon of a mechanic from St. Louis.\nFell in love with fashion in a random textile course.\n10+ years in education.\nNow pivoting into tech.\nNeurodivergent professional helping neurodivergent students.\n\nI'm a work in progress. And that's the point.\n\nYou're witnessing my journey - the wins, the struggles, the evolution.\n\nWho else refuses to be defined by a single label? 👇\n\n#WorkInProgress #CantBePutInABox #Journey`,
+        `I used to dominate conversations.\n\nI'd talk over people. Interrupt. Make sure my point was heard.\n\nIt made me appear intimidating. And honestly? It hurt my relationships.\n\nSo I changed.\n\nNow I make it my business to be the LAST person to talk.\n\nThe result? More fruitful exchanges. Heavier adoption of my ideas. Better relationships.\n\nGrowth isn't comfortable. But it's worth it.\n\nWhat's something you've had to unlearn? 👇`,
+        `The InspireSTL story.\n\nMy first job out of college wasn't a job - it was a mission.\n\nI helped found a nonprofit to prepare underprivileged youth in St. Louis. I mentored 20+ students. ACT prep. Resume workshops. Mock interviews.\n\nLess than 20% would have made it to a 4-year university without intervention.\n\n100% were admitted.\n\nThat's when I fell in love with coaching and mentoring. That's why I'm still in education 10+ years later.\n\nSome things choose you.\n\n#Education #Mentoring #Purpose`,
+      ];
     }
+    
+    return ['Generated content will appear here...'];
   };
 
   const saveGeneratedContent = (content: string, index: number) => {
     const newItem: ContentItem = {
       id: `content_${Date.now()}_${index}`,
+      category: activeCategory,
       type: generatorType,
-      title: content.split('\n')[0].slice(0, 50) + (content.split('\n')[0].length > 50 ? '...' : ''),
+      title: content.split('\n')[0].slice(0, 50) + '...',
       content: content,
+      pacer_elements: selectedPacer,
       status: 'draft',
       created_at: new Date().toISOString(),
       tags: [topic].filter(Boolean),
@@ -227,20 +175,6 @@ export default function ContentPipelinePage() {
     
     saveContent([newItem, ...contentItems]);
     setGeneratedContent(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const updateItemStatus = (id: string, status: ContentStatus) => {
-    saveContent(contentItems.map(item => 
-      item.id === id ? { ...item, status } : item
-    ));
-  };
-
-  const updateItemContent = (id: string) => {
-    saveContent(contentItems.map(item => 
-      item.id === id ? { ...item, content: editContent } : item
-    ));
-    setEditingItem(null);
-    setEditContent('');
   };
 
   const deleteItem = (id: string) => {
@@ -251,245 +185,286 @@ export default function ContentPipelinePage() {
     navigator.clipboard.writeText(content);
   };
 
-  // Filter content
-  const filteredContent = useMemo(() => {
-    return contentItems.filter(item => {
-      if (typeFilter !== 'all' && item.type !== typeFilter) return false;
-      if (statusFilter !== 'all' && item.status !== statusFilter) return false;
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        if (!item.title.toLowerCase().includes(query) && 
-            !item.content.toLowerCase().includes(query)) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [contentItems, typeFilter, statusFilter, searchQuery]);
-
-  const stats = useMemo(() => ({
-    total: contentItems.length,
-    drafts: contentItems.filter(i => i.status === 'draft').length,
-    ready: contentItems.filter(i => i.status === 'ready').length,
-    sent: contentItems.filter(i => i.status === 'sent').length,
-  }), [contentItems]);
-
-  const getTypeInfo = (type: ContentType) => CONTENT_TYPES.find(t => t.value === type)!;
-  const getStatusInfo = (status: ContentStatus) => STATUS_OPTIONS.find(s => s.value === status)!;
+  const togglePacer = (element: string) => {
+    if (selectedPacer.includes(element)) {
+      setSelectedPacer(selectedPacer.filter(p => p !== element));
+    } else {
+      setSelectedPacer([...selectedPacer, element]);
+    }
+  };
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-[1400px] mx-auto px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-3">
-                <Link href="/" className="text-gray-400 hover:text-gray-600">←</Link>
-                <h1 className="text-2xl font-bold text-gray-900">Content Pipeline</h1>
-              </div>
-              <p className="text-sm text-gray-500 mt-1">Generate and manage outreach content</p>
-            </div>
-            <button
-              onClick={() => setShowGenerator(!showGenerator)}
-              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-medium"
-            >
-              {showGenerator ? 'Hide Generator' : '+ Generate Content'}
-            </button>
-          </div>
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
+        {/* Header */}
+        <div style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>
+            Content Pipeline
+          </h1>
+          <p style={{ color: '#9ca3af' }}>
+            Chris Do 911 Framework: 9 Value • 1 Sales • 1 Personal
+          </p>
+        </div>
 
-          {/* Quick Stats */}
-          <div className="flex items-center gap-6 text-sm">
-            <span className="text-gray-600">{stats.total} total</span>
-            <span className="text-gray-500">|</span>
-            <span className="text-gray-600">{stats.drafts} drafts</span>
-            <span className="text-green-600">{stats.ready} ready</span>
-            <span className="text-blue-600">{stats.sent} sent</span>
+        {/* Persona Banner */}
+        <div style={{
+          background: 'linear-gradient(to right, #1e293b, #334155)',
+          borderRadius: '12px',
+          padding: '16px',
+          marginBottom: '24px',
+          border: '1px solid #475569',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <span style={{ fontSize: '18px', fontWeight: 600, color: 'white' }}>{PERSONA.name}</span>
+                <span style={{ fontSize: '12px', padding: '2px 8px', backgroundColor: 'rgba(59, 130, 246, 0.3)', borderRadius: '4px', color: '#93c5fd' }}>Persona Active</span>
+              </div>
+              <p style={{ fontSize: '14px', color: '#9ca3af' }}>{PERSONA.title}</p>
+              <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px', maxWidth: '600px' }}>{PERSONA.northStar}</p>
+            </div>
+            <div style={{ textAlign: 'right', fontSize: '12px', color: '#6b7280' }}>
+              <div>Tone: {PERSONA.tone}</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-[1400px] mx-auto px-6 py-6">
-        {/* Persona Context */}
-        <div className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-4 mb-6 text-white">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-lg font-semibold">{PERSONA.name}</span>
-                <span className="text-xs px-2 py-0.5 bg-blue-500/30 rounded">Persona Active</span>
-              </div>
-              <p className="text-sm text-gray-300">{PERSONA.title}</p>
-              <p className="text-xs text-gray-400 mt-2 max-w-2xl">{PERSONA.northStar}</p>
-            </div>
-            <div className="text-right text-xs text-gray-400">
-              <div>Tone: {PERSONA.tone.split('.')[0]}</div>
-              <div className="mt-1">911 Formula: 9 value, 1 sales, 1 personal</div>
+        {/* 911 Framework Stats */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: '16px',
+          marginBottom: '24px',
+        }}>
+          {(['value', 'sales', 'personal'] as ContentCategory[]).map((cat) => {
+            const info = CHRIS_DO_911[cat];
+            const count = getCategoryContent(cat).length;
+            const isActive = activeCategory === cat;
+            
+            return (
               <button
-                onClick={() => setShowStyleGuide(!showStyleGuide)}
-                className="mt-2 text-blue-300 hover:text-blue-200 underline"
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                style={{
+                  padding: '20px',
+                  borderRadius: '12px',
+                  border: isActive ? `2px solid ${cat === 'value' ? '#3b82f6' : cat === 'sales' ? '#22c55e' : '#a855f7'}` : '2px solid #475569',
+                  backgroundColor: isActive ? (cat === 'value' ? 'rgba(59, 130, 246, 0.1)' : cat === 'sales' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(168, 85, 247, 0.1)') : '#1e293b',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
               >
-                {showStyleGuide ? 'Hide Style Guide' : 'View Style Guide'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '32px' }}>{info.icon}</span>
+                  <div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'white' }}>{count}</div>
+                    <div style={{ fontSize: '12px', color: '#9ca3af', textTransform: 'uppercase' }}>
+                      {cat} ({info.ratio}x)
+                    </div>
+                  </div>
+                </div>
+                <p style={{ fontSize: '12px', color: '#6b7280' }}>{info.description}</p>
               </button>
-            </div>
-          </div>
+            );
+          })}
         </div>
 
-        {/* Style Guide Reference */}
-        {showStyleGuide && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-amber-900">📝 Content Style Guide</h3>
-              <span className="text-xs text-amber-600">Reference: CONTENT_STYLE_GUIDE.md</span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-              <div>
-                <h4 className="font-medium text-amber-800 mb-2">Voice & Tone</h4>
-                <ul className="space-y-1 text-amber-700">
-                  {STYLE_GUIDE.voiceAndTone.map((item, i) => (
-                    <li key={i} className="text-xs">• {item}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-medium text-amber-800 mb-2">Avoid LLM Patterns</h4>
-                <ul className="space-y-1 text-amber-700">
-                  {STYLE_GUIDE.llmPatternsToAvoid.map((item, i) => (
-                    <li key={i} className="text-xs">• {item}</li>
-                  ))}
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-medium text-amber-800 mb-2">Numbers & Data</h4>
-                <ul className="space-y-1 text-amber-700">
-                  {STYLE_GUIDE.numbersAndData.map((item, i) => (
-                    <li key={i} className="text-xs">• {item}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className="md:col-span-2 lg:col-span-3">
-                <h4 className="font-medium text-amber-800 mb-2">Banned Words & Phrases</h4>
-                <div className="flex flex-wrap gap-1">
-                  {[...STYLE_GUIDE.bannedWords, ...STYLE_GUIDE.bannedPhrases].map((word, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">
-                      {word}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Generator Toggle */}
+        <button
+          onClick={() => setShowGenerator(!showGenerator)}
+          style={{
+            width: '100%',
+            padding: '16px',
+            borderRadius: '12px',
+            border: '2px dashed #475569',
+            backgroundColor: 'transparent',
+            color: '#9ca3af',
+            fontSize: '16px',
+            cursor: 'pointer',
+            marginBottom: '24px',
+          }}
+        >
+          {showGenerator ? '✕ Hide Generator' : `+ Generate ${activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content`}
+        </button>
 
         {/* Generator Panel */}
         {showGenerator && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Generate New Content</h2>
+          <div style={{
+            backgroundColor: '#1e293b',
+            borderRadius: '12px',
+            padding: '24px',
+            marginBottom: '24px',
+            border: '1px solid #475569',
+          }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '16px' }}>
+              Generate {activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content
+            </h3>
             
-            {/* Content Type Selector */}
-            <div className="flex gap-2 mb-6">
-              {CONTENT_TYPES.map(type => (
-                <button
-                  key={type.value}
-                  onClick={() => setGeneratorType(type.value)}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
-                    generatorType === type.value
-                      ? `${type.color} text-white`
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <span>{type.icon}</span>
-                  <span>{type.label}</span>
-                </button>
-              ))}
+            {/* Content Type */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '14px', color: '#9ca3af', marginBottom: '8px' }}>Content Type</label>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {CONTENT_TYPES.map(type => (
+                  <button
+                    key={type.value}
+                    onClick={() => setGeneratorType(type.value)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: generatorType === type.value ? '#3b82f6' : '#374151',
+                      color: 'white',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                    }}
+                  >
+                    {type.icon} {type.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Generator Inputs */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {generatorType === 'cold_email' || generatorType === 'linkedin_dm' ? 'Prospect/Recipient' : 'Context'}
+            {/* PACER Elements (for value content) */}
+            {activeCategory === 'value' && (
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '14px', color: '#9ca3af', marginBottom: '8px' }}>
+                  PACER Framework Elements (optional)
                 </label>
-                <input
-                  type="text"
-                  value={prospectContext}
-                  onChange={(e) => setProspectContext(e.target.value)}
-                  placeholder={generatorType === 'cold_email' ? 'e.g., Marketing Director at SaaS company' : 'e.g., My experience with...'}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {Object.entries(PACER_PILLARS).map(([key, pillar]) => (
+                    <button
+                      key={key}
+                      onClick={() => togglePacer(key)}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: selectedPacer.includes(key) ? '2px solid #22c55e' : '1px solid #475569',
+                        backgroundColor: selectedPacer.includes(key) ? 'rgba(34, 197, 94, 0.2)' : 'transparent',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                      }}
+                    >
+                      {pillar.icon} {pillar.label}
+                    </button>
+                  ))}
+                </div>
               </div>
+            )}
+
+            {/* Inputs */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Topic/Subject</label>
+                <label style={{ display: 'block', fontSize: '14px', color: '#9ca3af', marginBottom: '8px' }}>Topic</label>
                 <input
                   type="text"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="e.g., AI automation, productivity tips"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., neurodivergent education, AI tools"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #475569',
+                    backgroundColor: '#0f172a',
+                    color: 'white',
+                    fontSize: '14px',
+                  }}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tone</label>
-                <select
-                  value={tone}
-                  onChange={(e) => setTone(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="professional">Professional</option>
-                  <option value="casual">Casual</option>
-                  <option value="friendly">Friendly</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="humorous">Humorous</option>
-                </select>
+                <label style={{ display: 'block', fontSize: '14px', color: '#9ca3af', marginBottom: '8px' }}>Context</label>
+                <input
+                  type="text"
+                  value={context}
+                  onChange={(e) => setContext(e.target.value)}
+                  placeholder="e.g., prospect name, specific situation"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #475569',
+                    backgroundColor: '#0f172a',
+                    color: 'white',
+                    fontSize: '14px',
+                  }}
+                />
               </div>
-              {(generatorType === 'cold_email' || generatorType === 'linkedin_dm') && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Purpose</label>
-                  <select
-                    value={purpose}
-                    onChange={(e) => setPurpose(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="introduction">Introduction</option>
-                    <option value="follow_up">Follow-up</option>
-                    <option value="value_add">Value Add</option>
-                    <option value="meeting_request">Meeting Request</option>
-                    <option value="reconnect">Reconnect</option>
-                  </select>
-                </div>
-              )}
             </div>
 
             <button
               onClick={generateContent}
               disabled={generating}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+              style={{
+                padding: '12px 24px',
+                borderRadius: '8px',
+                border: 'none',
+                background: 'linear-gradient(to right, #3b82f6, #8b5cf6)',
+                color: 'white',
+                fontSize: '16px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                opacity: generating ? 0.5 : 1,
+              }}
             >
-              {generating ? 'Generating...' : `Generate ${getTypeInfo(generatorType).label} Options`}
+              {generating ? 'Generating...' : 'Generate Options'}
             </button>
 
             {/* Generated Content */}
             {generatedContent.length > 0 && (
-              <div className="mt-6 space-y-4">
-                <h3 className="font-medium text-gray-900">Generated Options (click to save)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div style={{ marginTop: '24px' }}>
+                <h4 style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '12px' }}>Generated Options</h4>
+                <div style={{ display: 'grid', gap: '16px' }}>
                   {generatedContent.map((content, i) => (
                     <div
                       key={i}
-                      className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all"
+                      style={{
+                        padding: '16px',
+                        borderRadius: '8px',
+                        backgroundColor: '#0f172a',
+                        border: '1px solid #475569',
+                      }}
                     >
-                      <pre className="text-sm text-gray-700 whitespace-pre-wrap mb-4 max-h-48 overflow-y-auto">
+                      <pre style={{
+                        whiteSpace: 'pre-wrap',
+                        fontSize: '14px',
+                        color: '#e2e8f0',
+                        marginBottom: '12px',
+                        fontFamily: 'inherit',
+                        maxHeight: '200px',
+                        overflow: 'auto',
+                      }}>
                         {content}
                       </pre>
-                      <div className="flex gap-2">
+                      <div style={{ display: 'flex', gap: '8px' }}>
                         <button
                           onClick={() => saveGeneratedContent(content, i)}
-                          className="flex-1 px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            backgroundColor: '#22c55e',
+                            color: 'white',
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                          }}
                         >
                           Save to Pipeline
                         </button>
                         <button
                           onClick={() => copyToClipboard(content)}
-                          className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200"
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '6px',
+                            border: '1px solid #475569',
+                            backgroundColor: 'transparent',
+                            color: '#9ca3af',
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                          }}
                         >
                           Copy
                         </button>
@@ -502,177 +477,135 @@ export default function ContentPipelinePage() {
           </div>
         )}
 
-        {/* Filters */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <input
-              type="text"
-              placeholder="Search content..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex-1 min-w-[200px] max-w-md px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Types</option>
-              {CONTENT_TYPES.map(t => (
-                <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
-              ))}
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Status</option>
-              {STATUS_OPTIONS.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
+        {/* Content List for Active Category */}
+        <div style={{
+          backgroundColor: '#1e293b',
+          borderRadius: '12px',
+          border: '1px solid #475569',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            padding: '16px 20px',
+            borderBottom: '1px solid #475569',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'white' }}>
+              {CHRIS_DO_911[activeCategory].icon} {activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content
+            </h3>
+            <span style={{ fontSize: '14px', color: '#6b7280' }}>
+              {getCategoryContent(activeCategory).length} items
+            </span>
           </div>
-        </div>
-
-        {/* Content Table */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-10">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Content</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-28">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-32">Created</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-40">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredContent.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
-                    {contentItems.length === 0 ? (
-                      <>No content yet. Click "Generate Content" to get started.</>
-                    ) : (
-                      <>No content matches your filters.</>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                filteredContent.map(item => {
-                  const typeInfo = getTypeInfo(item.type);
-                  const statusInfo = getStatusInfo(item.status);
-                  const isExpanded = expandedItem === item.id;
-                  const isEditing = editingItem === item.id;
-                  
-                  return (
-                    <>
-                      <tr key={item.id} className={`hover:bg-gray-50 ${isExpanded ? 'bg-blue-50' : ''}`}>
-                        <td className="px-4 py-4">
-                          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg ${typeInfo.color} text-white`}>
-                            {typeInfo.icon}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <button
-                            onClick={() => setExpandedItem(isExpanded ? null : item.id)}
-                            className="text-left w-full"
-                          >
-                            <div className="font-medium text-gray-900 hover:text-blue-600 truncate max-w-xl">
-                              {item.title}
-                            </div>
-                            <div className="text-sm text-gray-500 truncate max-w-xl">
-                              {item.content.slice(0, 100)}...
-                            </div>
-                          </button>
-                        </td>
-                        <td className="px-4 py-4">
-                          <select
-                            value={item.status}
-                            onChange={(e) => updateItemStatus(item.id, e.target.value as ContentStatus)}
-                            className={`text-xs font-medium rounded-full px-2 py-1 border-0 ${statusInfo.color}`}
-                          >
-                            {STATUS_OPTIONS.map(s => (
-                              <option key={s.value} value={s.value}>{s.label}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-4 text-sm text-gray-500">
-                          {new Date(item.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => copyToClipboard(item.content)}
-                              className="text-gray-600 hover:text-gray-800 text-sm"
-                            >
-                              Copy
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingItem(item.id);
-                                setEditContent(item.content);
-                                setExpandedItem(item.id);
-                              }}
-                              className="text-blue-600 hover:text-blue-800 text-sm"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => deleteItem(item.id)}
-                              className="text-red-600 hover:text-red-800 text-sm"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr key={`${item.id}-expanded`} className="bg-blue-50">
-                          <td colSpan={5} className="px-4 py-4">
-                            {isEditing ? (
-                              <div className="space-y-3">
-                                <textarea
-                                  value={editContent}
-                                  onChange={(e) => setEditContent(e.target.value)}
-                                  rows={10}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => updateItemContent(item.id)}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-                                  >
-                                    Save Changes
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setEditingItem(null);
-                                      setEditContent('');
-                                    }}
-                                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-300"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-white p-4 rounded-lg border">
-                                {item.content}
-                              </pre>
-                            )}
-                          </td>
-                        </tr>
+          
+          {getCategoryContent(activeCategory).length === 0 ? (
+            <div style={{ padding: '48px', textAlign: 'center', color: '#6b7280' }}>
+              No {activeCategory} content yet. Generate some above!
+            </div>
+          ) : (
+            <div>
+              {getCategoryContent(activeCategory).map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    padding: '16px 20px',
+                    borderBottom: '1px solid #374151',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <span>{CONTENT_TYPES.find(t => t.value === item.type)?.icon}</span>
+                        <span style={{ fontSize: '14px', fontWeight: 500, color: 'white' }}>{item.title}</span>
+                      </div>
+                      <p style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '8px' }}>
+                        {item.content.slice(0, 120)}...
+                      </p>
+                      {item.pacer_elements && item.pacer_elements.length > 0 && (
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {item.pacer_elements.map(p => (
+                            <span key={p} style={{
+                              fontSize: '10px',
+                              padding: '2px 6px',
+                              backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                              color: '#86efac',
+                              borderRadius: '4px',
+                            }}>
+                              {PACER_PILLARS[p as keyof typeof PACER_PILLARS]?.label}
+                            </span>
+                          ))}
+                        </div>
                       )}
-                    </>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => setExpandedItem(expandedItem === item.id ? null : item.id)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid #475569',
+                          backgroundColor: 'transparent',
+                          color: '#9ca3af',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {expandedItem === item.id ? 'Hide' : 'View'}
+                      </button>
+                      <button
+                        onClick={() => copyToClipboard(item.content)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid #475569',
+                          backgroundColor: 'transparent',
+                          color: '#9ca3af',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Copy
+                      </button>
+                      <button
+                        onClick={() => deleteItem(item.id)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid #ef4444',
+                          backgroundColor: 'transparent',
+                          color: '#ef4444',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  {expandedItem === item.id && (
+                    <div style={{
+                      marginTop: '12px',
+                      padding: '12px',
+                      backgroundColor: '#0f172a',
+                      borderRadius: '8px',
+                    }}>
+                      <pre style={{
+                        whiteSpace: 'pre-wrap',
+                        fontSize: '14px',
+                        color: '#e2e8f0',
+                        fontFamily: 'inherit',
+                      }}>
+                        {item.content}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </main>
   );
 }
-

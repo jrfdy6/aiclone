@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getApiUrl } from '@/lib/api-client';
+import NavHeader from '@/components/NavHeader';
 
 type FollowUpEvent = {
   id: string;
@@ -233,14 +234,12 @@ export default function CalendarPage() {
   }).length;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between" style={{ marginBottom: '24px' }}>
           <div>
-            <Link href="/" className="text-blue-600 hover:underline text-sm mb-2 inline-block">
-              ← Back to Home
-            </Link>
             <h1 className="text-3xl font-bold text-gray-900">Follow-Up Calendar</h1>
             <p className="text-gray-600 mt-1">Schedule and track your outreach follow-ups</p>
           </div>
