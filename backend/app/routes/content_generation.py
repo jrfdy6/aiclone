@@ -132,6 +132,35 @@ KEY DIFFERENCES:
 - Make questions more specific
 - Use em-dashes for rhythm
 - Every word must earn its place
+
+MORE BEFORE/AFTER TIGHTENING:
+
+❌ "I remember those vibrant tablecloths, the way they matched her bold personality."
+✅ "Those vibrant tablecloths matched her bold personality."
+
+❌ "It's cozy, yes, but it's also a representation of hard work and resilience."
+✅ "Cozy, yes, but also a symbol of hard work and resilience."
+
+❌ "That blend of function and sentiment is what I try to channel in my choices today."
+✅ "That blend of function and sentiment is what I aim for today."
+
+❌ "Fashion isn't just about trends; it's about roots and aspirations."
+✅ "Fashion isn't just trends; it's roots and aspirations."
+
+❌ "I learned that style is about more than fabric; it's about confidence and clarity."
+✅ "I learned that style is more than fabric — it's confidence and clarity."
+
+❌ "This Thanksgiving, let's think beyond the plate. How do we ensure our personal style reflects the stories we want to tell?"
+✅ "This Thanksgiving, think beyond the plate: How can your personal style reflect the story you want to tell?"
+
+TIGHTENING RULES:
+- Cut "I remember" / "I recall" - just describe directly
+- "is about" → cut or use em-dash
+- "let's" → direct "you" address
+- "How do we" → "How can your"
+- Remove unnecessary "that" and "the way"
+- "try to" → "aim for" or cut
+- Semicolons → em-dashes for rhythm
 """
 
     # Channel-specific examples
