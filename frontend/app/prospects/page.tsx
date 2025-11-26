@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { getApiUrl, apiFetch } from '@/lib/api-client';
+import NavHeader from '@/components/NavHeader';
 
 const API_URL = getApiUrl();
 
@@ -207,14 +208,15 @@ export default function ProspectsPage() {
   }), [prospects]);
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-gray-900">
+      <NavHeader />
       {/* Sticky Header */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
+      <div className="sticky top-[58px] z-10 bg-slate-800 border-b border-slate-600 shadow-sm">
         <div className="max-w-[1600px] mx-auto px-6 py-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Prospect Pipeline</h1>
-              <p className="text-sm text-gray-500">{filteredProspects.length} of {prospects.length} prospects</p>
+              <h1 className="text-2xl font-bold text-white">Prospect Pipeline</h1>
+              <p className="text-sm text-gray-400">{filteredProspects.length} of {prospects.length} prospects</p>
             </div>
             <div className="flex items-center gap-3">
               {selectedProspects.size > 0 && (
@@ -243,7 +245,7 @@ export default function ProspectsPage() {
                 placeholder="Search name, company, tags..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-slate-600 bg-slate-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -251,7 +253,7 @@ export default function ProspectsPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as ProspectStatus)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-2 border border-slate-600 bg-slate-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Status</option>
               {STATUS_OPTIONS.map(s => (
@@ -261,7 +263,7 @@ export default function ProspectsPage() {
 
             {/* Fit Score Filter */}
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Min Fit:</span>
+              <span className="text-sm text-gray-300">Min Fit:</span>
               <input
                 type="range"
                 min="0"
@@ -270,14 +272,14 @@ export default function ProspectsPage() {
                 onChange={(e) => setMinFitScore(Number(e.target.value))}
                 className="w-24"
               />
-              <span className="text-sm text-gray-900 w-10">{minFitScore}%</span>
+              <span className="text-sm text-white w-10">{minFitScore}%</span>
             </div>
 
             {/* Sort */}
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-3 py-2 border border-slate-600 bg-slate-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="fit_score">Sort: Fit Score</option>
               <option value="name">Sort: Name</option>
@@ -287,7 +289,7 @@ export default function ProspectsPage() {
 
             <button
               onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+              className="px-3 py-2 border border-slate-600 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-600"
             >
               {sortOrder === 'asc' ? '↑' : '↓'}
             </button>
@@ -298,25 +300,25 @@ export default function ProspectsPage() {
       <div className="max-w-[1600px] mx-auto px-6 py-6">
         {/* Quick Stats */}
         <div className="grid grid-cols-5 gap-4 mb-6">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-            <div className="text-sm text-gray-600">Total</div>
+          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
+            <div className="text-2xl font-bold text-white">{stats.total}</div>
+            <div className="text-sm text-gray-400">Total</div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-blue-600">{stats.new}</div>
-            <div className="text-sm text-gray-600">New</div>
+          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
+            <div className="text-2xl font-bold text-blue-400">{stats.new}</div>
+            <div className="text-sm text-gray-400">New</div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-green-600">{stats.contacted}</div>
-            <div className="text-sm text-gray-600">Contacted</div>
+          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
+            <div className="text-2xl font-bold text-green-400">{stats.contacted}</div>
+            <div className="text-sm text-gray-400">Contacted</div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-orange-600">{stats.followUp}</div>
-            <div className="text-sm text-gray-600">Follow-up</div>
+          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
+            <div className="text-2xl font-bold text-orange-400">{stats.followUp}</div>
+            <div className="text-sm text-gray-400">Follow-up</div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-purple-600">{stats.highFit}</div>
-            <div className="text-sm text-gray-600">High Fit (80%+)</div>
+          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
+            <div className="text-2xl font-bold text-purple-400">{stats.highFit}</div>
+            <div className="text-sm text-gray-400">High Fit (80%+)</div>
           </div>
         </div>
 
@@ -334,43 +336,43 @@ export default function ProspectsPage() {
           </div>
         ) : (
           /* Prospects Table */
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="bg-slate-800 rounded-lg border-2 border-slate-600 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-slate-700 border-b-2 border-slate-500">
                   <tr>
-                    <th className="px-4 py-3 text-left w-10">
+                    <th className="px-4 py-4 text-left w-10 border-r border-slate-600">
                       <input
                         type="checkbox"
                         checked={selectedProspects.size === filteredProspects.length && filteredProspects.length > 0}
                         onChange={toggleSelectAll}
-                        className="rounded border-gray-300"
+                        className="rounded"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider border-r border-slate-600">
                       Name
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider border-r border-slate-600">
                       Company
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider w-24 border-r border-slate-600">
                       Fit
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider w-32 border-r border-slate-600">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider border-r border-slate-600">
                       Tags
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider w-40">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-slate-600">
                   {filteredProspects.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
                         {prospects.length === 0 ? (
                           <>
                             No prospects yet.{' '}
@@ -389,33 +391,33 @@ export default function ProspectsPage() {
                       <>
                         <tr
                           key={prospect.id}
-                          className={`hover:bg-gray-50 transition-colors ${expandedRow === prospect.id ? 'bg-blue-50' : ''}`}
+                          className={`hover:bg-slate-700 transition-colors ${expandedRow === prospect.id ? 'bg-slate-700' : ''}`}
                         >
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-4 border-r border-slate-700">
                             <input
                               type="checkbox"
                               checked={selectedProspects.has(prospect.id)}
                               onChange={() => toggleSelect(prospect.id)}
-                              className="rounded border-gray-300"
+                              className="rounded"
                             />
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-4 border-r border-slate-700">
                             <button
                               onClick={() => setExpandedRow(expandedRow === prospect.id ? null : prospect.id)}
                               className="text-left w-full"
                             >
-                              <div className="font-medium text-gray-900 hover:text-blue-600">
+                              <div className="font-medium text-white hover:text-blue-400">
                                 {prospect.name || 'N/A'}
                               </div>
                               {prospect.job_title && (
-                                <div className="text-sm text-gray-500">{prospect.job_title}</div>
+                                <div className="text-sm text-gray-400">{prospect.job_title}</div>
                               )}
                             </button>
                           </td>
-                          <td className="px-4 py-4 text-sm text-gray-900">{prospect.company || '—'}</td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-4 text-sm text-gray-200 border-r border-slate-700">{prospect.company || '—'}</td>
+                          <td className="px-4 py-4 border-r border-slate-700">
                             <div className="flex items-center gap-2">
-                              <div className="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="w-12 h-2 bg-slate-600 rounded-full overflow-hidden">
                                 <div
                                   className={`h-full ${
                                     (prospect.fit_score || 0) >= 0.8
@@ -427,10 +429,10 @@ export default function ProspectsPage() {
                                   style={{ width: `${(prospect.fit_score || 0) * 100}%` }}
                                 />
                               </div>
-                              <span className="text-sm font-medium">{formatFitScore(prospect.fit_score)}</span>
+                              <span className="text-sm font-medium text-white">{formatFitScore(prospect.fit_score)}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-4 border-r border-slate-700">
                             {editingStatus === prospect.id ? (
                               <select
                                 autoFocus
@@ -452,18 +454,18 @@ export default function ProspectsPage() {
                               </button>
                             )}
                           </td>
-                          <td className="px-4 py-4">
+                          <td className="px-4 py-4 border-r border-slate-700">
                             <div className="flex flex-wrap gap-1">
                               {prospect.tags?.slice(0, 2).map((tag, idx) => (
                                 <span
                                   key={idx}
-                                  className="inline-flex px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800 rounded"
+                                  className="inline-flex px-2 py-0.5 text-xs font-medium bg-blue-600 text-white rounded"
                                 >
                                   {tag}
                                 </span>
                               ))}
                               {prospect.tags && prospect.tags.length > 2 && (
-                                <span className="text-xs text-gray-500">+{prospect.tags.length - 2}</span>
+                                <span className="text-xs text-gray-400">+{prospect.tags.length - 2}</span>
                               )}
                             </div>
                           </td>
@@ -498,12 +500,12 @@ export default function ProspectsPage() {
                         </tr>
                         {/* Expanded Row */}
                         {expandedRow === prospect.id && (
-                          <tr key={`${prospect.id}-expanded`} className="bg-blue-50">
+                          <tr key={`${prospect.id}-expanded`} className="bg-slate-700">
                             <td colSpan={7} className="px-4 py-4">
                               <div className="grid grid-cols-2 gap-4 text-sm">
                                 <div>
-                                  <h4 className="font-medium text-gray-900 mb-2">Contact Info</h4>
-                                  <div className="space-y-1 text-gray-600">
+                                  <h4 className="font-medium text-white mb-2">Contact Info</h4>
+                                  <div className="space-y-1 text-gray-300">
                                     {prospect.email && <div>📧 {prospect.email}</div>}
                                     {prospect.source_url && (
                                       <div>
@@ -518,14 +520,14 @@ export default function ProspectsPage() {
                                 <div>
                                   {prospect.summary && (
                                     <>
-                                      <h4 className="font-medium text-gray-900 mb-2">Summary</h4>
-                                      <p className="text-gray-600">{prospect.summary}</p>
+                                      <h4 className="font-medium text-white mb-2">Summary</h4>
+                                      <p className="text-gray-300">{prospect.summary}</p>
                                     </>
                                   )}
                                   {prospect.pain_points && prospect.pain_points.length > 0 && (
                                     <>
-                                      <h4 className="font-medium text-gray-900 mt-3 mb-2">Pain Points</h4>
-                                      <ul className="list-disc list-inside text-gray-600">
+                                      <h4 className="font-medium text-white mt-3 mb-2">Pain Points</h4>
+                                      <ul className="list-disc list-inside text-gray-300">
                                         {prospect.pain_points.map((pp, i) => (
                                           <li key={i}>{pp}</li>
                                         ))}

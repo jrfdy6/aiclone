@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { getApiUrl } from '@/lib/api-client';
+import NavHeader from '@/components/NavHeader';
 
 const API_URL = getApiUrl();
 
@@ -44,30 +45,8 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Navigation Header */}
-      <nav className="sticky top-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="text-xl font-bold text-white">AI Clone</Link>
-          <div className="flex items-center gap-6">
-            <Link href="/prospect-discovery" className="text-sm text-gray-300 hover:text-white transition-colors">
-              Find Prospects
-            </Link>
-            <Link href="/prospects" className="text-sm text-gray-300 hover:text-white transition-colors">
-              Pipeline
-            </Link>
-            <Link href="/content-pipeline" className="text-sm text-gray-300 hover:text-white transition-colors">
-              Content
-            </Link>
-            <Link href="/topic-intelligence" className="text-sm text-gray-300 hover:text-white transition-colors">
-              Intelligence
-            </Link>
-            <Link href="/dashboard" className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-              Dashboard
-            </Link>
-          </div>
-        </div>
-      </nav>
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
 
       {/* Hero */}
       <div className="max-w-5xl mx-auto px-6 pt-12 pb-12">
