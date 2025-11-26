@@ -79,77 +79,78 @@ export default function KnowledgePage() {
           </p>
         </header>
 
-      <form onSubmit={handleSubmit} className="space-y-4 rounded border p-4">
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">User ID</label>
-          <input
-            value={userId}
-            onChange={(event) => setUserId(event.target.value)}
-            className="w-full rounded border px-3 py-2"
-            placeholder="user-123"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Question</label>
-          <textarea
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="h-24 w-full rounded border px-3 py-2"
-            placeholder="What were the key takeaways from my USC grad school slides?"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <label className="block text-sm font-medium">Top K Results</label>
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={topK}
-            onChange={(event) => setTopK(Number(event.target.value))}
-            className="w-24 rounded border px-3 py-2"
-          />
-        </div>
-
-        <button
-          type="submit"
-          className="rounded bg-blue-600 px-4 py-2 font-medium text-white disabled:opacity-50"
-          disabled={isLoading}
-        >
-          {isLoading ? 'Searching...' : 'Search Knowledge'}
-        </button>
-      </form>
-
-      {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-red-700">{error}</div>}
-
-      {response && (
-        <section className="space-y-3">
-          <div className="rounded border p-4">
-            <h2 className="text-lg font-semibold">Answer</h2>
-            <p className="whitespace-pre-line text-gray-800">{response.answer}</p>
+        <form onSubmit={handleSubmit} style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px', marginBottom: '24px' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '8px' }}>User ID</label>
+            <input
+              value={userId}
+              onChange={(event) => setUserId(event.target.value)}
+              style={{ width: '100%', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', padding: '12px' }}
+              placeholder="user-123"
+            />
           </div>
 
-          <div className="space-y-2">
-            <h3 className="text-md font-semibold">Sources</h3>
-            {response.sources.length === 0 ? (
-              <p className="text-sm text-gray-500">No sources returned.</p>
-            ) : (
-              <ul className="space-y-2">
-                {response.sources.map((source) => (
-                  <li key={source.id} className="rounded border p-3">
-                    <div className="flex items-center justify-between text-sm text-gray-500">
-                      <span>{source.data.source ?? 'Unknown source'}</span>
-                      <span>score: {source.score.toFixed(3)}</span>
-                    </div>
-                    <p className="mt-2 text-sm text-gray-700">{source.data.text}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '8px' }}>Question</label>
+            <textarea
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              style={{ width: '100%', height: '96px', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', padding: '12px' }}
+              placeholder="What were the key takeaways from my USC grad school slides?"
+            />
           </div>
-        </section>
-      )}
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '8px' }}>Top K Results</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={topK}
+              onChange={(event) => setTopK(Number(event.target.value))}
+              style={{ width: '96px', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', padding: '12px' }}
+            />
+          </div>
+
+          <button
+            type="submit"
+            style={{ borderRadius: '8px', backgroundColor: '#2563eb', padding: '12px 24px', fontWeight: 500, color: 'white', border: 'none', cursor: 'pointer', opacity: isLoading ? 0.5 : 1 }}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Searching...' : 'Search Knowledge'}
+          </button>
+        </form>
+
+        {error && <div style={{ borderRadius: '8px', border: '1px solid #ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '12px', color: '#f87171', marginBottom: '24px' }}>{error}</div>}
+
+        {response && (
+          <section>
+            <div style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '12px' }}>Answer</h2>
+              <p style={{ whiteSpace: 'pre-line', color: '#e2e8f0' }}>{response.answer}</p>
+            </div>
+
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'white', marginBottom: '12px' }}>Sources</h3>
+              {response.sources.length === 0 ? (
+                <p style={{ fontSize: '14px', color: '#6b7280' }}>No sources returned.</p>
+              ) : (
+                <ul style={{ display: 'flex', flexDirection: 'column', gap: '12px', listStyle: 'none', padding: 0, margin: 0 }}>
+                  {response.sources.map((source) => (
+                    <li key={source.id} style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>
+                        <span>{source.data.source ?? 'Unknown source'}</span>
+                        <span>score: {source.score.toFixed(3)}</span>
+                      </div>
+                      <p style={{ fontSize: '14px', color: '#9ca3af', margin: 0 }}>{source.data.text}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        )}
+      </div>
     </main>
   );
 }

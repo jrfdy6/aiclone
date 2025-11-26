@@ -131,115 +131,116 @@ export default function JumpstartPage() {
           </p>
         </header>
 
-      {loading && <p>Loading playbook...</p>}
-      {error && <p className="text-red-600">{error}</p>}
+        {loading && <p style={{ color: '#9ca3af' }}>Loading playbook...</p>}
+        {error && <p style={{ color: '#f87171' }}>{error}</p>}
 
-      {!loading && !error && summary && (
-        <section className="space-y-3 rounded border p-4">
-          <h2 className="text-2xl font-semibold">Playbook Principles</h2>
-          <p>
-            <strong>Movement:</strong> {summary.movement}
-          </p>
-          <p>
-            <strong>Audience:</strong> {summary.audience}
-          </p>
-          <ul className="list-disc space-y-1 pl-6 text-sm text-gray-700">
-            {summary.principles.map((principle) => (
-              <li key={principle}>{principle}</li>
-            ))}
-          </ul>
-        </section>
-      )}
+        {!loading && !error && summary && (
+          <section style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px', marginBottom: '24px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'white', marginBottom: '16px' }}>Playbook Principles</h2>
+            <p style={{ color: '#e2e8f0', marginBottom: '8px' }}>
+              <strong>Movement:</strong> {summary.movement}
+            </p>
+            <p style={{ color: '#e2e8f0', marginBottom: '16px' }}>
+              <strong>Audience:</strong> {summary.audience}
+            </p>
+            <ul style={{ listStyle: 'disc', paddingLeft: '24px', color: '#9ca3af' }}>
+              {summary.principles.map((principle) => (
+                <li key={principle} style={{ marginBottom: '4px' }}>{principle}</li>
+              ))}
+            </ul>
+          </section>
+        )}
 
-      {!loading && !error && (
-        <section className="space-y-3 rounded border p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">Train My AI Assistant Prompt</h2>
+        {!loading && !error && (
+          <section style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'white' }}>Train My AI Assistant Prompt</h2>
+              <button
+                type="button"
+                style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #475569', backgroundColor: 'transparent', color: '#9ca3af', cursor: 'pointer' }}
+                onClick={() => copyToClipboard(onboardingPrompt)}
+              >
+                Copy Prompt
+              </button>
+            </div>
+            <pre style={{ overflow: 'auto', borderRadius: '8px', backgroundColor: '#0f172a', padding: '16px', fontSize: '14px', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>
+              {onboardingPrompt}
+            </pre>
+          </section>
+        )}
+
+        {!loading && !error && prompts.length > 0 && (
+          <section style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px', marginBottom: '24px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'white', marginBottom: '8px' }}>Starter Prompts</h2>
+            <p style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '16px' }}>
+              Use these plug-and-play prompts to remove roadblocks, reclaim time, improve customer experience, and future-proof your skills.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              {prompts.map((prompt) => (
+                <article key={prompt.id} style={{ backgroundColor: '#0f172a', borderRadius: '8px', padding: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h3 style={{ fontWeight: 600, color: 'white' }}>{prompt.title}</h3>
+                    <button
+                      type="button"
+                      style={{ fontSize: '12px', color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer' }}
+                      onClick={() => copyToClipboard(prompt.prompt)}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '8px' }}>{prompt.description}</p>
+                  <pre style={{ overflow: 'auto', borderRadius: '4px', backgroundColor: '#1e293b', padding: '8px', fontSize: '12px', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>
+                    {prompt.prompt}
+                  </pre>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'white', marginBottom: '8px' }}>Ingest a Google Drive Folder</h2>
+          <p style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '16px' }}>
+            Point the system at a Drive folder to extract Docs/Slides/PDFs, chunk them, embed locally, and store them in Firestore.
+          </p>
+          <form onSubmit={handleIngest}>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '8px' }}>User ID</label>
+              <input
+                style={{ width: '100%', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', padding: '12px' }}
+                value={userId}
+                onChange={(event) => setUserId(event.target.value)}
+              />
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '8px' }}>Google Drive Folder ID</label>
+              <input
+                style={{ width: '100%', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', padding: '12px' }}
+                value={folderId}
+                onChange={(event) => setFolderId(event.target.value)}
+                placeholder="e.g. 1AbCdEfGhIjklmn"
+              />
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '8px' }}>Max Files (optional)</label>
+              <input
+                type="number"
+                min={1}
+                style={{ width: '128px', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', padding: '12px' }}
+                value={maxFiles}
+                onChange={(event) => setMaxFiles(event.target.value === '' ? '' : Number(event.target.value))}
+              />
+            </div>
             <button
-              type="button"
-              className="rounded border px-3 py-1 text-sm"
-              onClick={() => copyToClipboard(onboardingPrompt)}
+              type="submit"
+              style={{ borderRadius: '8px', backgroundColor: '#2563eb', padding: '12px 24px', fontWeight: 500, color: 'white', border: 'none', cursor: 'pointer' }}
             >
-              Copy Prompt
+              Ingest Folder
             </button>
-          </div>
-          <pre className="overflow-x-auto rounded bg-gray-50 p-3 text-sm text-gray-800">
-            {onboardingPrompt}
-          </pre>
+          </form>
+          {ingestStatus && <p style={{ marginTop: '16px', fontSize: '14px', color: '#9ca3af' }}>{ingestStatus}</p>}
         </section>
-      )}
-
-      {!loading && !error && prompts.length > 0 && (
-        <section className="space-y-4 rounded border p-4">
-          <h2 className="text-2xl font-semibold">Starter Prompts</h2>
-          <p className="text-sm text-gray-600">
-            Use these plug-and-play prompts to remove roadblocks, reclaim time, improve customer experience, and future-proof your skills.
-          </p>
-          <div className="grid gap-4 md:grid-cols-2">
-            {prompts.map((prompt) => (
-              <article key={prompt.id} className="space-y-2 rounded border p-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">{prompt.title}</h3>
-                  <button
-                    type="button"
-                    className="text-xs text-blue-600"
-                    onClick={() => copyToClipboard(prompt.prompt)}
-                  >
-                    Copy
-                  </button>
-                </div>
-                <p className="text-sm text-gray-600">{prompt.description}</p>
-                <pre className="overflow-x-auto rounded bg-gray-50 p-2 text-xs text-gray-800">
-                  {prompt.prompt}
-                </pre>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="space-y-4 rounded border p-4">
-        <h2 className="text-2xl font-semibold">Ingest a Google Drive Folder</h2>
-        <p className="text-sm text-gray-600">
-          Point the system at a Drive folder to extract Docs/Slides/PDFs, chunk them, embed locally, and store them in Firestore.
-        </p>
-        <form onSubmit={handleIngest} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium">User ID</label>
-            <input
-              className="mt-1 w-full rounded border px-3 py-2"
-              value={userId}
-              onChange={(event) => setUserId(event.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium">Google Drive Folder ID</label>
-            <input
-              className="mt-1 w-full rounded border px-3 py-2"
-              value={folderId}
-              onChange={(event) => setFolderId(event.target.value)}
-              placeholder="e.g. 1AbCdEfGhIjklmn"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium">Max Files (optional)</label>
-            <input
-              type="number"
-              min={1}
-              className="mt-1 w-32 rounded border px-3 py-2"
-              value={maxFiles}
-              onChange={(event) => setMaxFiles(event.target.value === '' ? '' : Number(event.target.value))}
-            />
-          </div>
-          <button
-            type="submit"
-            className="rounded bg-blue-600 px-4 py-2 font-medium text-white"
-          >
-            Ingest Folder
-          </button>
-        </form>
-        {ingestStatus && <p className="text-sm text-gray-700">{ingestStatus}</p>}
-      </section>
+      </div>
     </main>
   );
 }
