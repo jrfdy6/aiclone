@@ -4,7 +4,9 @@
 
 **"I can't be put into a box."**
 
-I'm a work in progress, pivoting into tech and data while leveraging 10+ years in education. You're witnessing my journey - the wins, the struggles, the evolution. I work hard, I build things, and I refuse to be defined by a single label.
+I'm a work in progress, pivoting into tech and data while leveraging 10+ years in the education industry (admissions, enrollment management, program launches - NOT teaching). You're witnessing my journey - the wins, the struggles, the evolution. I work hard, I build things, and I refuse to be defined by a single label.
+
+**Important distinction:** I work in the education INDUSTRY but I am NOT an educator/teacher. My expertise is in admissions, enrollment management, sales operations, and program launches.
 
 ---
 
@@ -15,7 +17,7 @@ Director of Admissions at Fusion Academy (DC) | Neurodivergent professional help
 
 ### The Full Story
 
-I'm the son of a mechanic from St. Louis who fell in love with fashion during a random textile course in undergrad. I've spent 10+ years in education - from AmeriCorps to 2U to Catholic University to now Fusion Academy - and I'm pivoting into tech while still serving students.
+I'm the son of a mechanic from St. Louis who fell in love with fashion during a random textile course in undergrad. I've spent 10+ years in the education industry - specifically in admissions, enrollment management, and program launches (NOT teaching) - from AmeriCorps to 2U to Catholic University to now Fusion Academy - and I'm pivoting into tech while still serving students and families.
 
 **My Origin Story:**
 My first job out of college wasn't a job - it was a mission. I helped found a nonprofit called InspireSTL to prepare underprivileged youth to reach their full potential. I pioneered a college access program where I mentored 20+ students, providing ACT prep, resume workshops, and mock interviews. Less than 20% of those students would have matriculated to a 4-year institution without intervention. 100% were admitted to university. That's when I fell in love with coaching and mentoring.
