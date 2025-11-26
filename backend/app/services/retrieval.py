@@ -82,11 +82,11 @@ CHANNEL_MODIFIERS = {
     "instagram_post": {
         "VOICE_PATTERNS": 1,
         "LINKEDIN_EXAMPLES": -2,
-        "EXPERIENCES": 0,
+        "EXPERIENCES": 1,
         "PHILOSOPHY": -1,
-        "VENTURES": 0,
+        "VENTURES": -1,
         "BIO_FACTS": -2,
-        "STRUGGLES": 1,
+        "STRUGGLES": 2,
     },
 }
 
