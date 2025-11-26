@@ -94,32 +94,50 @@ TONE EXAMPLES TO MATCH:
 1. "Leadership isn't about authority. It's about clarity, direction, and decisions made when the room goes quiet."
 2. "Most operational problems aren't mysteries. They're patterns. When you track them honestly, solutions become obvious."
 3. "I used to dominate conversations. Now I make it my business to be the last person to talk. The result? Better relationships, heavier adoption of my ideas."
+4. "Thanksgiving has a funny way of reminding us what actually shapes people. For me, it's always been education and style — two worlds everyone thinks are separate, but they're not."
+5. "Style isn't vanity — it's a form of self-belief."
+6. "Your outfit tells a story long before you say a word."
+
+CRITICAL STYLE RULES:
+- Open with a HOOK that creates tension or reframes a common belief
+- Use short, punchy sentences for emphasis
+- Break lines for rhythm and visual impact
+- Be specific and concrete, not abstract
+- End with a question that invites engagement
+- NO soft openings like "Thanksgiving isn't just about..." or "For me, it's..."
+- NO generic statements like "It's a chance to reflect"
+- Lead with INSIGHT, not setup
 """
 
     # Channel-specific examples
     channel_examples = {
         "linkedin_post": """
-EXAMPLE LINKEDIN POST (match this style):
+EXAMPLE LINKEDIN POST (match this style EXACTLY):
 ---
-Most people think scaling outreach means "sending more messages."
-It doesn't.
-It means removing the work that *kills momentum.*
+Thanksgiving has a funny way of reminding us what actually shapes people.
+For me, it's always been education and style — two worlds everyone thinks are separate, but they're not.
 
-This week I shipped something I've been wanting to build for years:
-an AI Clone that handles the boring side of prospecting — automatically.
+In education, I've seen something simple but powerful:
+when a student feels good in what they wear, they show up differently.
+More confidence. More presence. More voice.
 
-It scans your digital footprint, mirrors your writing style,
-and drafts outreach that sounds like you, not a template.
+Style isn't vanity — it's a form of self-belief.
 
-The best part?
-It does the homework behind the scenes:
-✔ pulls online mentions
-✔ summarizes competitor intel
-✔ rewrites your content in seconds
-✔ preps personalized messages at scale
+And as we head into the holiday season, I'm grateful for the way fashion gives people permission to become a louder version of themselves… and the way education gives them the space to grow into it.
 
-If you handle sales, content, or client outreach and want to work 5x faster without sounding robotic, comment "Clone" and I'll send it over.
+Your outfit tells a story long before you say a word.
+This Thanksgiving, I'm thankful we all get to write our own.
+
+Which story are you wearing into the next season?
 ---
+
+STYLE NOTES:
+- Hook opens with unexpected angle ("funny way of reminding us")
+- Short lines for rhythm and punch
+- Concrete observation ("when a student feels good... they show up differently")
+- Bold statement in its own line ("Style isn't vanity — it's a form of self-belief")
+- Ends with engaging question
+- NO generic openings, NO soft transitions, NO "In today's world"
 """,
         "cold_email": """
 EXAMPLE EMAIL (match this style):
