@@ -1,5 +1,6 @@
 faiss-cpu
 fastapi
+openai>=1.0.0
 firebase-admin
 google-api-python-client
 google-auth
