@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import NavHeader from '@/components/NavHeader';
 
 type SourceItem = {
   id: string;
@@ -68,13 +69,15 @@ export default function KnowledgePage() {
   };
 
   return (
-    <main className="mx-auto max-w-2xl space-y-6 p-6">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-bold">Knowledge Inspector</h1>
-        <p className="text-sm text-gray-600">
-          Query your AI clone&apos;s memory with provenance-aware retrieval.
-        </p>
-      </header>
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      <div style={{ maxWidth: '800px', margin: '0 auto', padding: '24px' }}>
+        <header style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>Knowledge Inspector</h1>
+          <p style={{ color: '#9ca3af' }}>
+            Query your AI clone&apos;s memory with provenance-aware retrieval.
+          </p>
+        </header>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded border p-4">
         <div className="space-y-2">

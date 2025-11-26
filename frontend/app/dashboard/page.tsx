@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import NavHeader from '@/components/NavHeader';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -98,34 +99,36 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 p-6">
-        <div className="max-w-7xl mx-auto text-center py-12">
-          <p className="text-gray-600">Loading dashboard...</p>
+      <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+        <NavHeader />
+        <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '48px', textAlign: 'center' }}>
+          <p style={{ color: '#9ca3af' }}>Loading dashboard...</p>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600 mt-1">Your unified AI workspace command center</p>
+        <div style={{ marginBottom: '24px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>Dashboard</h1>
+          <p style={{ color: '#9ca3af' }}>Your unified AI workspace command center</p>
         </div>
 
         {/* Quick Search Widget */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">🔍 Quick Search</h2>
-          <div className="flex space-x-2">
+        <div style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px', marginBottom: '24px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '16px' }}>🔍 Quick Search</h2>
+          <div style={{ display: 'flex', gap: '8px' }}>
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               placeholder="Search your knowledge base..."
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ flex: 1, borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', padding: '12px' }}
             />
             <button
               onClick={handleSearch}
