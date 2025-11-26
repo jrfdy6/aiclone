@@ -339,6 +339,14 @@ def retrieve_weighted(
     paired = sorted(zip(valid_items, weighted_scores, similarities, item_tags), 
                     key=lambda x: x[1], reverse=True)
     
+    # Debug logging
+    print(f"\n[RETRIEVAL DEBUG] {category}/{channel}", flush=True)
+    print(f"Top {min(top_k, len(paired))} Results:", flush=True)
+    for i, (item, w_score, raw_score, tag) in enumerate(paired[:top_k]):
+        multiplier = weights.get(tag, 1.0)
+        preview = item["data"].get("text", "")[:50].replace("\n", " ")
+        print(f"  {i+1}. {tag:20} — sim: {raw_score:.3f} — weight: {multiplier:.2f} — final: {w_score:.3f} — \"{preview}...\"", flush=True)
+    
     results: List[Dict[str, Any]] = []
     tag_distribution = {}
     
