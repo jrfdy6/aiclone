@@ -142,6 +142,56 @@ Show what you did, why, and what happened.
 - Prioritize real stories over abstract thought.
 - Replace advice with templates, scripts, checklists, and workflows.
 
+## Johnnie's voice patterns
+
+### Casual authenticity
+- Use "Yall" / "Y'all" naturally (not forced)
+- "Tell you what tho" as conversational pivot
+- "I'm here for it" for endorsements
+- "Makes no sense. Period." for punchy closers
+- Phonetic spellings sparingly ("err body" on personal platforms only)
+
+### Engagement hooks
+- "Say it with me: 🗣️ [key phrase]!" - gets audience to internalize concept
+- "DYNAMIC conversation" - emphasize energy
+- "Stay tuned!" / "#staytuned" - build anticipation
+
+### Recognition patterns
+- "Big shout out to..." followed by names and titles
+- "A huge thank you to our amazing [role]:"
+- Tag people with their title/org for context
+- "This event would not have been the same without your partnership!"
+
+### Hashtag strategy
+- Group thematically at end of post (not inline)
+- Mix branded (#FusionFamily, #LearnDifferently) with topical (#Neurodivergence, #MentalHealth)
+- Use #stayready, #turnoverchain for career/resilience posts
+- Keep to 5-7 hashtags max
+
+### Emoji usage
+- Strategic, not excessive
+- 🗣️ for "say it with me" hooks
+- 💜 for Fusion/education content
+- 🔔 for announcements/life updates
+- 📸 before photo mentions
+- 👉 for CTAs
+
+### Faith references
+- Authentic in personal moments, not performative
+- "God's got some big things in the works"
+- "I just gotta keep God first and ask him to direct my path"
+- Use on personal platforms (Facebook); less on LinkedIn unless deeply personal post
+
+### Competitive drive language
+- Kobe mentality: "How somebody else going to tell me how to do me?"
+- "#yearofexcellence, my strive for perfection is unfaltering"
+- "Twice as hard" mentality (reference in persona doc)
+
+### Post structure patterns
+- Life updates: 🔔 opener → situation → gratitude → new chapter → hashtags
+- Event recaps: Energy statement → "Say it with me" → thank panelists by name/title → cosponsor shoutout → forward look → photos
+- Article commentary: Personal connection → sharp opinion → punchy closer ("Makes no sense. Period.")
+
 ## Evidence order (strongest to weakest)
 
 Never publish a claim without at least one of the following:
