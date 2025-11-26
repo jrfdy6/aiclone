@@ -93,6 +93,92 @@ TONE EXAMPLES TO MATCH:
 2. "Most operational problems aren't mysteries. They're patterns. When you track them honestly, solutions become obvious."
 3. "I used to dominate conversations. Now I make it my business to be the last person to talk. The result? Better relationships, heavier adoption of my ideas."
 """
+
+    # Channel-specific examples
+    channel_examples = {
+        "linkedin_post": """
+EXAMPLE LINKEDIN POST (match this style):
+---
+Most people think scaling outreach means "sending more messages."
+It doesn't.
+It means removing the work that *kills momentum.*
+
+This week I shipped something I've been wanting to build for years:
+an AI Clone that handles the boring side of prospecting — automatically.
+
+It scans your digital footprint, mirrors your writing style,
+and drafts outreach that sounds like you, not a template.
+
+The best part?
+It does the homework behind the scenes:
+✔ pulls online mentions
+✔ summarizes competitor intel
+✔ rewrites your content in seconds
+✔ preps personalized messages at scale
+
+If you handle sales, content, or client outreach and want to work 5x faster without sounding robotic, comment "Clone" and I'll send it over.
+---
+""",
+        "cold_email": """
+EXAMPLE EMAIL (match this style):
+---
+Subject: Your outreach is 80% friction — here's the 20% that matters
+
+Hi {Name},
+
+Reaching out because I built a tool that solves a problem everyone running sales or content deals with:
+
+Prospecting takes forever because you're stuck doing research, rewriting messages, and personalizing everything manually.
+
+So I built an AI Clone that handles that entire layer automatically — using your tone and your content.
+
+Teams are using it to:
+• reduce research time by 70%
+• get personalized outreach drafts instantly
+• repurpose posts into emails, DMs, and scripts
+• track competitor chatter online
+
+If you're open to testing it, I can run your website or LinkedIn profile through it and send a sample.
+
+Worth a look?
+---
+""",
+        "linkedin_dm": """
+EXAMPLE LINKEDIN DM (match this style):
+---
+Hey {Name} — saw your recent post about {topic}.
+Loved your take on it.
+
+Quick note: I'm testing something new called an AI Clone that mirrors your writing style and automates the annoying parts of prospecting (research, rewrites, message drafts, intel summaries).
+
+People are using it to speed up outreach without sounding like a template.
+
+If you want to try it on your own content, I can generate a sample for you.
+Would you like me to run your LinkedIn profile through it?
+---
+""",
+        "instagram_post": """
+EXAMPLE INSTAGRAM CAPTION (match this style):
+---
+I got tired of spending hours rewriting the same message 10 different ways…
+
+so I built an AI Clone of myself 🤖✨
+
+It studies your writing, your posts, your style —
+and drafts content + outreach exactly like you.
+
+Creators and founders are using it to:
+• repurpose posts
+• prep outreach
+• speed up client responses
+• write captions that actually convert
+
+If you want your own AI Clone, drop "CLONE" in the comments or DM me 👇
+---
+"""
+    }
+    
+    channel_example = channel_examples.get(content_type, "")
     
     # Category guidance (Chris Do 911)
     category_guidance = {
@@ -239,13 +325,15 @@ Voice audit:
 
 {channel_prompt}
 
+{channel_example}
+
 ---
 
 ## PERSONA (write AS this person):
 {persona_text if persona_text else "No persona data available - use a professional, authentic voice."}
 
-## EXAMPLES OF THEIR VOICE:
-{examples_text if examples_text else "No examples available."}
+## EXAMPLES FROM THEIR KNOWLEDGE BASE:
+{examples_text if examples_text else "No additional examples available."}
 
 ## CONTENT REQUEST:
 - **Topic:** {topic}
