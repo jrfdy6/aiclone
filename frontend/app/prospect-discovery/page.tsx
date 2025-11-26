@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api-client';
+import NavHeader from '@/components/NavHeader';
 
 interface Prospect {
   name: string;
@@ -228,27 +229,31 @@ export default function ProspectDiscoveryPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+      <NavHeader />
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
         {/* Header */}
-        <header className="flex items-center justify-between">
-          <div className="space-y-1">
-            <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm">
-              ← Back to Home
-            </Link>
-            <h1 className="text-3xl font-bold text-white">
+        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+          <div>
+            <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>
               Prospect Discovery
             </h1>
-            <p className="text-gray-400">
+            <p style={{ color: '#9ca3af' }}>
               Find and save prospects to your pipeline
             </p>
           </div>
           <Link
             href="/prospects"
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#2563eb',
+              color: 'white',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              fontWeight: 500,
+            }}
           >
-            <span>View Pipeline</span>
-            <span>→</span>
+            View Pipeline →
           </Link>
         </header>
 
@@ -456,71 +461,74 @@ export default function ProspectDiscoveryPage() {
             </div>
 
             {/* Results Table */}
-            <div className="rounded-xl border border-slate-600 bg-slate-800/50 overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-slate-700/50">
-                  <tr>
-                    <th className="px-4 py-3 text-left w-10">
+            <div className="rounded-xl border-2 border-slate-500 bg-slate-900 overflow-hidden shadow-xl">
+              <table className="w-full border-collapse">
+                <thead className="bg-slate-700">
+                  <tr className="border-b-2 border-slate-500">
+                    <th className="px-4 py-4 text-left w-12 border-r border-slate-600">
                       <input
                         type="checkbox"
                         checked={selectedProspects.size === result.prospects.length && result.prospects.length > 0}
                         onChange={selectAll}
-                        className="rounded"
+                        className="rounded w-4 h-4"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Organization</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Specialty</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Fit</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Contact</th>
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600">Name</th>
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600">Organization</th>
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600">Specialty</th>
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600 w-20">Fit</th>
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">Contact</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700">
+                <tbody>
                   {result.prospects.map((prospect, i) => (
-                    <tr key={i} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="px-4 py-3">
+                    <tr 
+                      key={i} 
+                      className={`border-b border-slate-600 hover:bg-slate-800 transition-colors ${i % 2 === 0 ? 'bg-slate-900' : 'bg-slate-850'}`}
+                    >
+                      <td className="px-4 py-4 border-r border-slate-700">
                         <input
                           type="checkbox"
                           checked={selectedProspects.has(i)}
                           onChange={() => toggleProspect(i)}
-                          className="rounded"
+                          className="rounded w-4 h-4"
                         />
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-white">{prospect.name}</div>
-                        {prospect.title && <div className="text-sm text-gray-400">{prospect.title}</div>}
+                      <td className="px-4 py-4 border-r border-slate-700">
+                        <div className="font-semibold text-white text-base">{prospect.name || 'Unknown'}</div>
+                        {prospect.title && <div className="text-sm text-gray-400 mt-1">{prospect.title}</div>}
                       </td>
-                      <td className="px-4 py-3 text-gray-300">{prospect.organization || '—'}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-4 border-r border-slate-700 text-gray-200">{prospect.organization || '—'}</td>
+                      <td className="px-4 py-4 border-r border-slate-700">
                         <div className="flex flex-wrap gap-1">
                           {prospect.specialty.slice(0, 2).map((s, j) => (
-                            <span key={j} className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-xs">
+                            <span key={j} className="px-2 py-1 rounded bg-blue-600 text-white text-xs font-medium">
                               {s}
                             </span>
                           ))}
                           {prospect.specialty.length > 2 && (
-                            <span className="text-xs text-gray-500">+{prospect.specialty.length - 2}</span>
+                            <span className="text-xs text-gray-400">+{prospect.specialty.length - 2}</span>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          prospect.fit_score >= 80 ? 'bg-green-500/20 text-green-400' :
-                          prospect.fit_score >= 60 ? 'bg-yellow-500/20 text-yellow-400' :
-                          'bg-gray-500/20 text-gray-400'
+                      <td className="px-4 py-4 border-r border-slate-700">
+                        <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${
+                          prospect.fit_score >= 80 ? 'bg-green-600 text-white' :
+                          prospect.fit_score >= 60 ? 'bg-yellow-500 text-black' :
+                          'bg-gray-600 text-white'
                         }`}>
                           {prospect.fit_score}%
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
+                      <td className="px-4 py-4">
+                        <div className="flex gap-3">
                           {prospect.contact.email && (
-                            <a href={`mailto:${prospect.contact.email}`} className="text-blue-400 hover:text-blue-300 text-sm">
+                            <a href={`mailto:${prospect.contact.email}`} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 transition-colors">
                               Email
                             </a>
                           )}
                           {prospect.source_url && (
-                            <a href={prospect.source_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-300 text-sm">
+                            <a href={prospect.source_url} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-slate-600 text-white rounded text-sm hover:bg-slate-500 transition-colors">
                               Source
                             </a>
                           )}
