@@ -121,8 +121,34 @@ export default function ContentPipelinePage() {
   const generateContent = async () => {
     setGenerating(true);
     
-    const templates = getTemplates(activeCategory, generatorType, { topic, context, pacer: selectedPacer });
-    setGeneratedContent(templates);
+    try {
+      // Call AI-powered content generation API
+      const response = await apiFetch('/api/content-generation/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: 'johnnie_fields', // TODO: Get from auth
+          topic: topic || 'professional growth',
+          context: context || '',
+          content_type: generatorType,
+          category: activeCategory,
+          pacer_elements: selectedPacer.map(p => p.charAt(0).toUpperCase() + p.slice(1)),
+          tone: 'expert_direct',
+        }),
+      });
+      
+      if (response.success && response.options) {
+        setGeneratedContent(response.options);
+      } else {
+        // Fallback to templates if API fails
+        const templates = getTemplates(activeCategory, generatorType, { topic, context, pacer: selectedPacer });
+        setGeneratedContent(templates);
+      }
+    } catch (error) {
+      console.error('Content generation error:', error);
+      // Fallback to templates
+      const templates = getTemplates(activeCategory, generatorType, { topic, context, pacer: selectedPacer });
+      setGeneratedContent(templates);
+    }
     
     setGenerating(false);
   };
