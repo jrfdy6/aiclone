@@ -73,8 +73,8 @@ def build_content_prompt(
     
     # Build persona text with section labels
     persona_parts = []
-    # Prioritize VOICE_PATTERNS first
-    tag_order = ["VOICE_PATTERNS", "LINKEDIN_EXAMPLES", "STRUGGLES", "EXPERIENCES", "PHILOSOPHY", "VENTURES", "BIO_FACTS"]
+    # Order chunks for narrative flow: voice → struggles → experiences → philosophy
+    tag_order = ["VOICE_PATTERNS", "STRUGGLES", "EXPERIENCES", "PHILOSOPHY", "VENTURES", "BIO_FACTS", "LINKEDIN_EXAMPLES"]
     for tag in tag_order:
         if tag in persona_sections:
             persona_parts.append(f"### {tag.replace('_', ' ').title()}\n" + "\n".join(persona_sections[tag]))
@@ -639,11 +639,17 @@ Voice audit:
 
 {pacer_guidance}
 
+## NARRATIVE ARC (follow this structure):
+1. **HOOK/CONTEXT** - Start with something relatable, surprising, or attention-grabbing. Use voice markers.
+2. **CHALLENGE/JOURNEY** - Share a real struggle, lesson, or experience from the persona chunks. This is the meat.
+3. **REFLECTION/CTA** - Tie it back to the audience with insight or a question. End strong.
+
 ## INSTRUCTIONS:
 1. Write AS this person using their actual experiences and perspectives.
-2. Apply the topic/context to their background - don't repeat bio facts.
-3. Be specific and actionable, not generic.
-4. Generate 3 different options with varying hooks/angles.
+2. Follow the 3-part narrative arc above - each post should feel like a story, not a list of facts.
+3. Apply the topic/context to their background - don't just repeat bio facts.
+4. Be specific and actionable, not generic.
+5. Generate 3 different options with varying hooks/angles.
 
 ## ANTI-HALLUCINATION RULES (CRITICAL):
 - ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
