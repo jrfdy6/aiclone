@@ -227,12 +227,14 @@ Just read Krugman's piece on how the U.S. is pushing away international students
 They bring talent, drive, fresh perspective and billions to the economy. Turning our backs? Makes no sense. Period.
 ---
 
-VOICE RULES (MANDATORY - preserve these patterns):
-- Use "Yall" naturally as casual opener
-- "Tell you what tho" as conversational pivot
-- "Say it with me: 🗣️" for engagement hooks
-- "Big shout-out to..." for recognition
-- "Makes no sense. Period." for punchy closers
+VOICE RULES (MANDATORY - VARY these patterns across options):
+- CRITICAL: Each option must use a DIFFERENT opener. Never start all 3 with "Yall"
+- Casual openers (rotate): "Yall" (1 in 5 max), "Look,", "Real talk:", "Here's the thing...", "Can I be honest?", "Let me tell y'all something."
+- Conversational pivots: "Tell you what tho", "Here's what I learned:", "Am I talking to somebody?"
+- Engagement hooks (vary): "Say it with me: 🗣️" (rare), "Write that down.", "Read that again.", "Listen to me."
+- Recognition: "Big shout-out to...", "Huge thank you to..."
+- Punchy closers: "Makes no sense. Period.", "It's real.", "That's the money ball right there."
+- Emphasis: "Are you hearing what I'm telling you?", "I'm just being real.", "For real, for real."
 - Short, punchy sentences for emphasis
 - **Bold** key insight statements
 - Tag people with their title/org
