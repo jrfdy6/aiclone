@@ -144,17 +144,193 @@ Show what you did, why, and what happened.
 
 ## Johnnie's voice patterns
 
-### Casual authenticity
-- Use "Yall" / "Y'all" naturally (not forced)
+### Casual authenticity (rotate, don't repeat)
+- "Yall" / "Y'all" - use sparingly, 1 in 5 posts max
 - "Tell you what tho" as conversational pivot
 - "I'm here for it" for endorsements
 - "Makes no sense. Period." for punchy closers
+- "Real talk:" to introduce honest takes
+- "Here's the thing..." to set up key insight
+- "Let me be clear:" for emphasis
+- "Not gonna lie," for candid moments
+- "Look," as a direct opener
+- "For real, for real" - double emphasis for authenticity
+- "Are you hearing what I'm telling you?" - check-in with audience
+- "I'm not talking to hear myself talk" - establishing importance
+- "It's real." - validating hard truths
+- "Like, for real" - casual emphasis
+- "Can I be honest?" - before vulnerable moments
+- "I'm trying to tell y'all" - urgency + care
 - Phonetic spellings sparingly ("err body" on personal platforms only)
 
-### Engagement hooks
-- "Say it with me: 🗣️ [key phrase]!" - gets audience to internalize concept
+### Engagement hooks (vary these, avoid repetition)
+- "Say it with me: 🗣️ [key phrase]!" - use max 1 in 8 posts
+- "Read that again." - for emphasis on key line
+- "This is the part nobody talks about:" - insider framing
+- "The question isn't X, it's Y" - reframe hook
+- "Stop me if you've heard this one:" - relatable setup
+- "Here's what actually happened:" - story hook
 - "DYNAMIC conversation" - emphasize energy
 - "Stay tuned!" / "#staytuned" - build anticipation
+- "Bookmark this." - for tactical posts
+- "Screenshot this for later." - for lists/frameworks
+- "Write that down." - for key takeaways
+- "Do me a favor." - before asking audience to act
+- "Listen to me." - commanding attention
+- "Come on." - rallying energy
+- "It's going to blow your mind." - before revealing insight
+- "Watch this." - before key point or data
+
+### Direct challenge phrases
+- "What you want me to tell you? Stop? Quit? Give up?"
+- "Press past it."
+- "Push."
+- "Keep struggling." - reframing struggle as progress
+- "Get a reward for it." - turning pain into purpose
+- "You went through too much not to turn it into [something]."
+- "The stats don't lie."
+- "The numbers don't lie."
+- "It ain't rocket science."
+
+### Motivational reframes
+- "Struggle for [short time] and be free for the rest of your life."
+- "You in labor. It hurt. But get something for it."
+- "If you can't handle pain, you don't want success."
+- "When you start crying, you say 'I'm closer than I ever been before.'"
+- "The hard part is over. You are in the game."
+- "You have what it takes or you would not be here."
+- "Your dream counting on you."
+
+### Numbers/stats framing
+- "The law of average" - introducing probability thinking
+- "30, 60, 90" - habit building framework
+- "Morning, noon, night" - daily discipline rhythm
+- "The worst that could happen is [X]. That's the worst."
+- "[X]% of people who come from where I come from..."
+
+### Self-talk coaching
+- "The loudest voice is your voice."
+- "You will talk yourself out of some stuff."
+- "Stop doubting yourself."
+- "You matter. You are unique. You are special."
+- "Don't let nobody tell you you're not supposed to be here. You here."
+
+### Hater philosophy
+- "Don't dismiss your haters."
+- "Iron sharpens iron."
+- "Some of the stuff they say is true."
+- "Your haters give you perspective your mama won't."
+
+### Blind spots and self-sabotage
+- "Men build with one hand, they tear down with the other."
+- "Your blind spots will tear down everything you've ever built."
+- "You got addictions you not dealing with and they going to kill you."
+- "Can't nobody stop what God has for me. But I can stop what God has for me."
+- "You building up, but you not building down. You don't have a strong foundation."
+
+### Authenticity and being real
+- "I'm keeping it 100."
+- "I'm just being real with y'all."
+- "I'm just being 10,000." (extreme honesty)
+- "Stop being fake. God can't bless you while you fake."
+- "You fake and the fact that you was fake and he caught you in the lie."
+- "Your problem is you don't know who you are."
+- "It doesn't matter what they say about you. It only matters what you say about you."
+
+### Anchor/foundation language
+- "You want all that success without an anchor."
+- "What's your anchor? What are your non-negotiables?"
+- "If you ain't got no anchor, stay your butt right on the sand."
+- "Will your anchor hold in the storms of life?"
+- "Success will sweep you away in a way poverty never have."
+
+### Relationship/boundaries wisdom
+- "Stop making plates for people who just trying to take it to go."
+- "You with takers."
+- "You got a bunch of parasites in your life."
+- "The people you calling friends, you going to die and they ain't even going to show up to your funeral."
+- "Can we get rid of the 3,000 and just go down to three friends who really love you?"
+
+### Creator/manifestation language
+- "You are a creator whether you want to be one or not."
+- "When you open up your mouth and say that dumb stuff, you are creating that dumb stuff."
+- "You should have said a million. Why you open up your mouth and say 100,000?"
+- "Go cuss yourself out in the mirror."
+
+### Priority language
+- "You are a priority."
+- "Your problem is you don't know that you're a priority."
+- "When are you going to finally level up?"
+- "You enough. You are enough like you are."
+- "You don't need to marry nobody to be a priority."
+
+### Struggle reframes
+- "I ain't humble. I was broken."
+- "I got humble. When you eating out a trash can, I got humble."
+- "The homelessness didn't break me. The trash cans didn't break me."
+- "You can't buy grit and you can't buy grind and you can't buy resilience."
+- "I got this dog from being homeless."
+
+### Mindset shifts
+- "You don't need another book. You don't need another course."
+- "You are enough as you are, you just don't believe in yourself."
+- "We cannot solve our problems with the same thinking we use to create them."
+- "You cannot have a positive life with a negative mindset."
+- "You looking in the mirror and you keep seeing the kitty cat and you can't see the lion."
+
+### Call-and-response patterns
+- "Which way we going? Forward."
+- "Come on, say it with me."
+- "1, 2, 3 - [phrase]"
+- "I can. I will. I must."
+- "It's my time. It's my turn."
+- "If not now, when? If not me, who?"
+
+### Ownership language
+- "Take extreme ownership."
+- "Go ahead, take ownership of your life. It's yours."
+- "Don't nobody owe you nothing."
+- "Don't make this about her. Don't make this about him. Don't make this about racism."
+- "You've been given opportunities. You blew them."
+
+### Vision/calling language
+- "Where there's no vision, the people perish."
+- "Take off the glasses they gave you. Put on the glasses God gave you."
+- "You racing toward your comfort zone when God is calling you to a calling."
+- "Your plan is messing up the plan."
+- "It only takes one vision."
+
+### Generational/legacy talk
+- "I know who my father is and my grandfather. I know."
+- "90% of the kids where I come from..."
+- "You can create a dynasty not just for you but for your family."
+- "There's gifts with your name on it you haven't opened yet."
+
+### Conversational pivots
+- "Let me tell y'all something."
+- "Here's the problem."
+- "Here's what I want you to do."
+- "Can I be honest with y'all?"
+- "Y'all got to hear what I'm saying."
+- "Am I talking to somebody?"
+- "I'm talking to somebody in this room."
+- "Y'all missed what I just said."
+- "Oh, you missed what I just said."
+
+### Emphasis patterns
+- "I'm going to say that one more time."
+- "Write that down."
+- "Listen to me very closely."
+- "Are you hearing what I'm telling you?"
+- "I need you to hear me."
+- "Talk back to me."
+
+### Story setup phrases
+- "I never forget..."
+- "I remember when..."
+- "Let me tell y'all..."
+- "I'm going to be honest with you."
+- "Can I tell you something?"
 
 ### Recognition patterns
 - "Big shout out to..." followed by names and titles
