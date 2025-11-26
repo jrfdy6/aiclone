@@ -639,6 +639,8 @@ Voice audit:
 - **Audience:** {audience.replace('_', ' ').title()}
 - **Category:** {category.upper()} - {category_guidance.get(category, "")}
 
+CRITICAL: The content MUST be about "{topic}". If the topic is a person's name, the post should feature/mention them prominently. If it's a concept, the post should explore that concept.
+
 {pacer_guidance}
 
 ## NARRATIVE ARC (follow this structure):
