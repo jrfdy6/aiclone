@@ -736,11 +736,11 @@ CRITICAL RULES:
 
 ANTI-HALLUCINATION: If you cannot find a relevant real story in the persona data, write value-driven content about the topic WITHOUT inventing personal anecdotes. Generic insights are better than fake stories.
 
-VARIETY RULE: Do NOT overuse the same phrases across options. Specifically:
-- "Son of a mechanic" - use sparingly, max 1 option
-- "Can't be put in a box" - use sparingly, max 1 option  
-- Vary your opening hooks across the 3 options
-- Each option should feel fresh, not repetitive
+CONTEXTUAL RELEVANCE: Only include personal details when they're relevant to the topic:
+- "Son of a mechanic" - ONLY use if topic relates to family, work ethic, blue collar values, or personal background
+- "Can't be put in a box" - ONLY use if topic relates to identity, career pivots, or being multifaceted
+- Don't shoehorn personal details into unrelated topics (e.g., don't mention mechanic dad in a post about supply chains)
+- Each option should feel fresh and directly address the user's topic/context
 
 If the persona uses casual language, USE IT. Do not "clean it up" into formal English."""
         
