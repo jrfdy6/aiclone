@@ -277,48 +277,204 @@ STYLE RULES:
     
     channel_example = channel_examples.get(content_type, "")
     
-    # Audience-specific guidance
+    # Audience-specific guidance with examples
     audience_guidance = {
-        "general": "Write for a general professional audience.",
+        "general": """TARGET AUDIENCE: General professional audience
+- Write for smart professionals across industries
+- Use clear, accessible language
+- Focus on universal themes: growth, reflection, connection
+- Avoid niche jargon""",
+
         "education_admissions": """TARGET AUDIENCE: Education & Admissions professionals
-- Use language familiar to enrollment management, admissions counselors, program directors
-- Reference challenges like yield optimization, pipeline management, student recruitment
-- Avoid teaching/classroom language - focus on BUSINESS of education
-- Speak to people who manage teams, hit enrollment targets, work with families""",
+- Speak to enrollment managers, admissions counselors, program directors
+- Reference: yield optimization, pipeline management, student recruitment, family conversations
+- Focus on BUSINESS of education, not teaching/classroom
+- You manage teams, hit enrollment targets, work with families
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Education is changing rapidly in today's world."
+✅ "Enrollment season taught me something about pipeline management that applies everywhere."
+
+❌ "Students need more support than ever."
+✅ "When a family walks into your office unsure if their kid belongs, your first 60 seconds matter more than your brochure."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Managing $34M portfolios at 2U
+- Launching Fordham MSW, Howard MSW programs
+- Salesforce migrations across 3 instances
+- Fusion Academy: 1:1 school for neurodivergent students
+- The "temperature gauge" approach to team management""",
+
         "tech_ai": """TARGET AUDIENCE: Tech & AI professionals
-- Use technical language appropriately but don't over-jargon
-- Reference building, shipping, automation, efficiency
 - Speak to builders, founders, operators who use AI as a tool
-- Focus on practical applications, not hype""",
+- Reference: shipping, automation, building in public, efficiency
+- Focus on practical applications, not hype
+- You build things, you ship, you iterate
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "AI is revolutionizing the way we work."
+✅ "I shipped an AI clone of myself last week. Here's what broke."
+
+❌ "Technology can help us be more productive."
+✅ "Most AI tools promise 10x productivity. Reality: 2x on good days, if you know what to automate."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Building Easy Outfit app
+- Georgetown Data Science certificate
+- USC Master's in Tech/Business/Design
+- Years of Salesforce, Tableau, automation work
+- Using Cursor, Perplexity, ChatGPT to actually build""",
+
         "fashion": """TARGET AUDIENCE: Fashion & Style enthusiasts
 - Use visual, sensory language
-- Reference personal style, wardrobe, looking good
-- Speak to people who care about presentation and self-expression
-- Keep it relatable, not high-fashion exclusive""",
+- Reference: personal style, wardrobe, self-expression, confidence
+- Keep it relatable, not high-fashion exclusive
+- Style is identity, not vanity
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Fashion is an important form of self-expression."
+✅ "That oversized jacket from my dad, a mechanic, taught me more about style than any magazine."
+
+❌ "What you wear matters."
+✅ "Clothes aren't just clothes. They're memories. They're roots."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Dad's mechanic jacket worn on cold school mornings
+- Fell in love with fashion in a random textile course
+- Building Easy Outfit app to solve your own styling problem
+- Buying clothes every weekend trying to figure out style""",
+
         "leadership": """TARGET AUDIENCE: Leaders & Managers
-- Use language of team dynamics, decision-making, influence
-- Reference coaching, developing people, driving results
 - Speak to people who manage teams and navigate organizational complexity
-- Focus on practical leadership, not theoretical""",
+- Reference: coaching, developing people, driving results, decision-making
+- Focus on practical leadership, not theoretical
+- You've managed teams, hit targets, built culture
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Leadership is about inspiring others."
+✅ "I used to dominate conversations. Now I make it my business to be the last person to talk."
+
+❌ "Good managers support their teams."
+✅ "Teams don't perform because they don't have a clear goal or they don't believe in the plan. That's it."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Managing teams of 15+ at 2U
+- "Temperature gauge" approach: never let the team cool off
+- "Process Champion" identity: keeping things documented
+- The defer process story: getting buy-in before formally suggesting
+- Coaching struggling ACs: taking him to lunch as a peer, not a manager""",
+
         "neurodivergent": """TARGET AUDIENCE: Neurodivergent community & supporters
-- Use respectful, informed language about neurodivergence
-- Reference different learning styles, accommodations, finding the right fit
 - Speak to families, professionals, and neurodivergent individuals
-- Be authentic - draw from personal experience as a neurodivergent professional""",
+- Reference: different learning styles, finding the right fit, accommodations
+- Be authentic: you're neurodivergent yourself
+- This isn't just work; it's personal
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Neurodivergent students face unique challenges."
+✅ "I'm neurodivergent. This isn't just a job. It's personal."
+
+❌ "We need to support different learning styles."
+✅ "When a student finally finds an environment where 'different' is the norm, you see the shift immediately."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Being neurodivergent yourself
+- Fusion Academy: 1:1 school serving neurodivergent students
+- Understanding what it's like to learn differently
+- Helping families find the right fit for their kids
+- The moment when students feel seen, not just academically""",
+
         "entrepreneurs": """TARGET AUDIENCE: Entrepreneurs & Founders
-- Use language of building, scaling, problem-solving
-- Reference hustle, pivoting, shipping, customer discovery
 - Speak to people building something from scratch
-- Focus on action and results, not theory"""
+- Reference: shipping, pivoting, customer discovery, building in public
+- Focus on action and results, not theory
+- You're building Easy Outfit, pivoting into tech
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Entrepreneurship requires persistence and vision."
+✅ "I'm building an app to solve my own problem. That's the only validation that matters early on."
+
+❌ "Starting a business is challenging but rewarding."
+✅ "I've spent 10+ years in education. Now I'm pivoting into tech. You're witnessing the messy middle."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Building Easy Outfit app
+- Pivoting from education into tech
+- Founded InspireSTL nonprofit out of college
+- "I can't be put in a box" identity
+- Building in public, sharing the journey"""
     }
     
     audience_context = audience_guidance.get(audience, audience_guidance["general"])
     
-    # Category guidance (Chris Do 911)
+    # Category guidance (Chris Do 911) with examples
     category_guidance = {
-        "value": "Pure value content. Teaching, insights, observations. NO selling. Make them smarter.",
-        "sales": "Sell unashedly. 'I'm building X. Here's how to get involved.' Direct ask.",
-        "personal": "Personal/behind-the-scenes. The real you, struggles included. Vulnerability builds trust."
+        "value": """VALUE CONTENT (9 out of 11 posts)
+Pure value. Teaching, insights, observations. NO selling. Make them smarter.
+
+PURPOSE: Build authority and trust. Give without asking.
+
+EXAMPLE VALUE HOOKS:
+❌ "Here are 5 tips for better leadership."
+✅ "Teams don't perform because they don't have a clear goal or they don't believe in the plan. That's it."
+
+❌ "Communication is key in management."
+✅ "I used to dominate conversations. Now I make it my business to be the last person to talk. Results: more fruitful exchanges, heavier adoption of my ideas."
+
+❌ "Here's what I learned about enrollment management."
+✅ "Enrollment season taught me something: your first 60 seconds with a family matter more than your brochure."
+
+VALUE CONTENT RULES:
+- Lead with the insight, not the setup
+- Share frameworks, not platitudes
+- Use specific numbers and outcomes
+- End with reflection or question, NOT a pitch
+- NO "DM me" or "link in bio" on value posts""",
+
+        "sales": """SALES CONTENT (1 out of 11 posts)
+Sell unabashedly. Direct ask. No apologies.
+
+PURPOSE: Convert attention into action. You've earned the right to ask.
+
+EXAMPLE SALES HOOKS:
+❌ "I'm excited to announce my new project."
+✅ "I'm building Easy Outfit. It solves a problem I've had for years. Here's how to get early access."
+
+❌ "If you're interested in learning more about my services..."
+✅ "I consult on enrollment management and program launches. 10+ years experience. $34M portfolios. If you need help, let's talk."
+
+❌ "I'd love to connect with anyone who might benefit from this."
+✅ "Looking for beta testers. DM me if you want in. No pitch deck, just building."
+
+SALES CONTENT RULES:
+- State what you're building/offering in the first 2 lines
+- Be specific about who it's for
+- Clear CTA: DM, comment, link
+- No hedging ("might be interested", "could potentially")
+- Confidence, not arrogance
+- You've given 9 value posts. You've earned this ask.""",
+
+        "personal": """PERSONAL CONTENT (1 out of 11 posts)
+Behind-the-scenes. The real you. Struggles included. Vulnerability builds trust.
+
+PURPOSE: Humanize yourself. Let people connect with the person, not just the professional.
+
+EXAMPLE PERSONAL HOOKS:
+❌ "I want to share a personal story with you today."
+✅ "I can't be put into a box. Son of a mechanic from St. Louis. Fell in love with fashion in a random textile course. 10+ years in education. Now pivoting into tech."
+
+❌ "I've learned a lot on my journey."
+✅ "I used to dominate conversations. I'd talk over people. Interrupt. Make sure my point was heard. It made me appear intimidating. And honestly? It hurt my relationships."
+
+❌ "Thanksgiving is a time for gratitude."
+✅ "That oversized jacket from my dad, a mechanic, taught me more about style than any magazine. Cozy, yes, but also a symbol of hard work and resilience."
+
+PERSONAL CONTENT RULES:
+- Specific details: names, places, objects, moments
+- Show the struggle, not just the win
+- Vulnerability, not oversharing
+- Connect personal story to broader meaning
+- End with reflection or question that invites others to share"""
     }
     
     # Channel-specific system prompts
