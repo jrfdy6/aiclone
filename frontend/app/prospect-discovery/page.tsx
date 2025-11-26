@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/api-client';
 
 interface Prospect {
@@ -31,10 +32,14 @@ interface DiscoveryResult {
 }
 
 export default function ProspectDiscoveryPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'free' | 'ai' | 'urls'>('free');
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [error, setError] = useState('');
+  const [savedMessage, setSavedMessage] = useState('');
+  const [selectedProspects, setSelectedProspects] = useState<Set<number>>(new Set());
 
   // AI Search form
   const [specialty, setSpecialty] = useState('educational consultant');
@@ -45,7 +50,7 @@ export default function ProspectDiscoveryPage() {
   // URL Scraping form
   const [urls, setUrls] = useState('');
 
-  const runFreeSearch = async () => {
+  const runFreeSearch = async (saveToProspects = false) => {
     if (!specialty || !location) {
       setError('Please enter specialty and location');
       return;
@@ -54,6 +59,7 @@ export default function ProspectDiscoveryPage() {
     setLoading(true);
     setError('');
     setResult(null);
+    setSavedMessage('');
 
     try {
       const response = await apiFetch('/api/prospect-discovery/search-free', {
@@ -64,6 +70,7 @@ export default function ProspectDiscoveryPage() {
           location,
           additional_context: additionalContext || undefined,
           max_results: maxResults,
+          save_to_prospects: saveToProspects,
         }),
       });
 
@@ -71,6 +78,9 @@ export default function ProspectDiscoveryPage() {
       
       if (data.success) {
         setResult(data);
+        if (saveToProspects && data.total_found > 0) {
+          setSavedMessage(`✓ ${data.total_found} prospects saved to your pipeline`);
+        }
       } else {
         setError(data.error || 'Search failed');
       }
@@ -81,7 +91,7 @@ export default function ProspectDiscoveryPage() {
     }
   };
 
-  const runAISearch = async () => {
+  const runAISearch = async (saveToProspects = false) => {
     if (!specialty || !location) {
       setError('Please enter specialty and location');
       return;
@@ -90,6 +100,7 @@ export default function ProspectDiscoveryPage() {
     setLoading(true);
     setError('');
     setResult(null);
+    setSavedMessage('');
 
     try {
       const response = await apiFetch('/api/prospect-discovery/ai-search', {
@@ -100,6 +111,7 @@ export default function ProspectDiscoveryPage() {
           location,
           additional_context: additionalContext || undefined,
           max_results: maxResults,
+          save_to_prospects: saveToProspects,
         }),
       });
 
@@ -107,6 +119,9 @@ export default function ProspectDiscoveryPage() {
       
       if (data.success) {
         setResult(data);
+        if (saveToProspects && data.total_found > 0) {
+          setSavedMessage(`✓ ${data.total_found} prospects saved to your pipeline`);
+        }
       } else {
         setError(data.error || 'Search failed');
       }
@@ -117,7 +132,7 @@ export default function ProspectDiscoveryPage() {
     }
   };
 
-  const scrapeUrls = async () => {
+  const scrapeUrls = async (saveToProspects = false) => {
     const urlList = urls.split('\n').map(u => u.trim()).filter(Boolean);
     
     if (urlList.length === 0) {
@@ -128,6 +143,7 @@ export default function ProspectDiscoveryPage() {
     setLoading(true);
     setError('');
     setResult(null);
+    setSavedMessage('');
 
     try {
       const response = await apiFetch('/api/prospect-discovery/scrape-urls', {
@@ -135,6 +151,7 @@ export default function ProspectDiscoveryPage() {
         body: JSON.stringify({
           user_id: 'dev-user',
           urls: urlList,
+          save_to_prospects: saveToProspects,
         }),
       });
 
@@ -142,6 +159,9 @@ export default function ProspectDiscoveryPage() {
       
       if (data.success) {
         setResult(data);
+        if (saveToProspects && data.total_found > 0) {
+          setSavedMessage(`✓ ${data.total_found} prospects saved to your pipeline`);
+        }
       } else {
         setError(data.error || 'Scraping failed');
       }
@@ -152,27 +172,98 @@ export default function ProspectDiscoveryPage() {
     }
   };
 
+  const saveSelectedProspects = async () => {
+    if (!result || selectedProspects.size === 0) return;
+    
+    setSaving(true);
+    try {
+      const prospectsToSave = result.prospects.filter((_, i) => selectedProspects.has(i));
+      
+      const response = await apiFetch('/api/prospects/', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: 'dev-user',
+          prospects: prospectsToSave.map(p => ({
+            name: p.name,
+            company: p.organization,
+            job_title: p.title,
+            email: p.contact.email,
+            fit_score: p.fit_score / 100,
+            status: 'new',
+            tags: p.specialty,
+            source_url: p.source_url,
+          })),
+        }),
+      });
+
+      if (response.ok) {
+        setSavedMessage(`✓ ${selectedProspects.size} prospects saved to your pipeline`);
+        setSelectedProspects(new Set());
+      }
+    } catch (err: any) {
+      setError('Failed to save prospects');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleProspect = (index: number) => {
+    const newSet = new Set(selectedProspects);
+    if (newSet.has(index)) {
+      newSet.delete(index);
+    } else {
+      newSet.add(index);
+    }
+    setSelectedProspects(newSet);
+  };
+
+  const selectAll = () => {
+    if (result) {
+      if (selectedProspects.size === result.prospects.length) {
+        setSelectedProspects(new Set());
+      } else {
+        setSelectedProspects(new Set(result.prospects.map((_, i) => i)));
+      }
+    }
+  };
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-6">
       <div className="mx-auto max-w-6xl space-y-6">
         {/* Header */}
-        <header className="space-y-3">
-          <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm">
-            ← Back to Home
-          </Link>
-          <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+        <header className="flex items-center justify-between">
+          <div className="space-y-1">
+            <Link href="/" className="text-blue-400 hover:text-blue-300 text-sm">
+              ← Back to Home
+            </Link>
+            <h1 className="text-3xl font-bold text-white">
               Prospect Discovery
             </h1>
-            <p className="mt-2 text-lg text-gray-400">
-              Find real people and organizations using AI-powered search
+            <p className="text-gray-400">
+              Find and save prospects to your pipeline
             </p>
           </div>
+          <Link
+            href="/prospects"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+          >
+            <span>View Pipeline</span>
+            <span>→</span>
+          </Link>
         </header>
 
         {error && (
           <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-400">
             {error}
+          </div>
+        )}
+
+        {savedMessage && (
+          <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-400 flex items-center justify-between">
+            <span>{savedMessage}</span>
+            <Link href="/prospects" className="text-green-300 hover:text-green-200 underline">
+              View in Pipeline →
+            </Link>
           </div>
         )}
 
@@ -196,7 +287,7 @@ export default function ProspectDiscoveryPage() {
                 : 'bg-slate-800 text-gray-400 hover:text-white'
             }`}
           >
-            🤖 AI Search (Paid)
+            🤖 AI Search
           </button>
           <button
             onClick={() => setActiveTab('urls')}
@@ -210,96 +301,17 @@ export default function ProspectDiscoveryPage() {
           </button>
         </div>
 
-        {/* Free Search Form */}
-        {activeTab === 'free' && (
-          <section className="rounded-xl border border-green-500/30 bg-slate-800/50 backdrop-blur p-6">
+        {/* Search Forms */}
+        {(activeTab === 'free' || activeTab === 'ai') && (
+          <section className={`rounded-xl border ${activeTab === 'free' ? 'border-green-500/30' : 'border-blue-500/30'} bg-slate-800/50 backdrop-blur p-6`}>
             <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-xl font-semibold text-white">Free Prospect Search</h2>
-              <span className="px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs">100/day FREE</span>
+              <h2 className="text-xl font-semibold text-white">
+                {activeTab === 'free' ? 'Free Prospect Search' : 'AI-Powered Search'}
+              </h2>
+              <span className={`px-2 py-1 rounded text-xs ${activeTab === 'free' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                {activeTab === 'free' ? '100/day FREE' : '~$0.005/query'}
+              </span>
             </div>
-            <p className="text-gray-400 text-sm mb-6">
-              Uses Google Custom Search (free tier) + Firecrawl to find prospects
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Specialty *</label>
-                <input
-                  type="text"
-                  value={specialty}
-                  onChange={(e) => setSpecialty(e.target.value)}
-                  placeholder="e.g., educational consultant, therapist"
-                  className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-gray-500 focus:border-green-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Location *</label>
-                <input
-                  type="text"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="e.g., Washington DC, California"
-                  className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-gray-500 focus:border-green-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-300 mb-1">Additional Context</label>
-                <input
-                  type="text"
-                  value={additionalContext}
-                  onChange={(e) => setAdditionalContext(e.target.value)}
-                  placeholder="e.g., private school placement, neurodivergent students"
-                  className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-gray-500 focus:border-green-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Max Results</label>
-                <select
-                  value={maxResults}
-                  onChange={(e) => setMaxResults(Number(e.target.value))}
-                  className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:border-green-500 focus:outline-none"
-                >
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                  <option value={15}>15</option>
-                  <option value={20}>20</option>
-                </select>
-              </div>
-            </div>
-
-            <button
-              onClick={runFreeSearch}
-              disabled={loading}
-              className="mt-6 w-full py-3 rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 text-white font-medium hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Searching (Free)...
-                </span>
-              ) : (
-                '🔍 Find Prospects (Free)'
-              )}
-            </button>
-          </section>
-        )}
-
-        {/* AI Search Form (Paid) */}
-        {activeTab === 'ai' && (
-          <section className="rounded-xl border border-blue-500/30 bg-slate-800/50 backdrop-blur p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-xl font-semibold text-white">AI-Powered Prospect Search</h2>
-              <span className="px-2 py-1 rounded bg-yellow-500/20 text-yellow-400 text-xs">~$0.005/query</span>
-            </div>
-            <p className="text-gray-400 text-sm mb-6">
-              Uses Perplexity AI - more powerful but costs money. Use when free tier exhausted.
-            </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -350,23 +362,26 @@ export default function ProspectDiscoveryPage() {
               </div>
             </div>
 
-            <button
-              onClick={runAISearch}
-              disabled={loading}
-              className="mt-6 w-full py-3 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-medium hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Searching with AI...
-                </span>
-              ) : (
-                '🔍 Find Prospects'
-              )}
-            </button>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => activeTab === 'free' ? runFreeSearch(false) : runAISearch(false)}
+                disabled={loading}
+                className="flex-1 py-3 rounded-lg bg-slate-700 text-white font-medium hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {loading ? 'Searching...' : '🔍 Preview Results'}
+              </button>
+              <button
+                onClick={() => activeTab === 'free' ? runFreeSearch(true) : runAISearch(true)}
+                disabled={loading}
+                className={`flex-1 py-3 rounded-lg text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
+                  activeTab === 'free' 
+                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500'
+                    : 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500'
+                }`}
+              >
+                {loading ? 'Searching...' : '🔍 Find & Save to Pipeline'}
+              </button>
+            </div>
           </section>
         )}
 
@@ -383,158 +398,142 @@ export default function ProspectDiscoveryPage() {
               <textarea
                 value={urls}
                 onChange={(e) => setUrls(e.target.value)}
-                placeholder="https://www.psychologytoday.com/us/therapists/jane-doe-12345
-https://www.psychologytoday.com/us/therapists/john-smith-67890"
+                placeholder="https://www.psychologytoday.com/us/therapists/jane-doe-12345"
                 rows={6}
                 className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none font-mono text-sm"
               />
             </div>
 
-            <button
-              onClick={scrapeUrls}
-              disabled={loading}
-              className="mt-6 w-full py-3 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-medium hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Scraping URLs...
-                </span>
-              ) : (
-                '🔗 Scrape URLs'
-              )}
-            </button>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => scrapeUrls(false)}
+                disabled={loading}
+                className="flex-1 py-3 rounded-lg bg-slate-700 text-white font-medium hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {loading ? 'Scraping...' : '🔗 Preview Results'}
+              </button>
+              <button
+                onClick={() => scrapeUrls(true)}
+                disabled={loading}
+                className="flex-1 py-3 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-medium hover:from-blue-500 hover:to-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {loading ? 'Scraping...' : '🔗 Scrape & Save to Pipeline'}
+              </button>
+            </div>
           </section>
         )}
 
         {/* Results */}
         {result && (
-          <section className="space-y-6">
+          <section className="space-y-4">
             {/* Summary */}
-            <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-green-400">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="font-medium">Found {result.total_found} Prospects</span>
-                </div>
-                <span className="text-sm text-gray-400">ID: {result.discovery_id}</span>
+            <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-green-400">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="font-medium">Found {result.total_found} Prospects</span>
               </div>
-              <p className="text-gray-400 text-sm mt-2">Source: {result.source}</p>
+              {result.prospects.length > 0 && !savedMessage && (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={selectAll}
+                    className="text-sm text-gray-400 hover:text-white"
+                  >
+                    {selectedProspects.size === result.prospects.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                  {selectedProspects.size > 0 && (
+                    <button
+                      onClick={saveSelectedProspects}
+                      disabled={saving}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
+                    >
+                      {saving ? 'Saving...' : `Save ${selectedProspects.size} Selected`}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Prospects Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {result.prospects.map((prospect, i) => (
-                <div
-                  key={i}
-                  className="rounded-xl border border-slate-600 bg-slate-800/50 p-6 hover:border-blue-500/50 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-white">{prospect.name}</h3>
-                      {prospect.title && (
-                        <p className="text-sm text-blue-400">{prospect.title}</p>
-                      )}
-                    </div>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      prospect.fit_score >= 80 ? 'bg-green-500/20 text-green-400' :
-                      prospect.fit_score >= 60 ? 'bg-yellow-500/20 text-yellow-400' :
-                      'bg-gray-500/20 text-gray-400'
-                    }`}>
-                      {prospect.fit_score}% fit
-                    </span>
-                  </div>
-
-                  {prospect.organization && (
-                    <p className="text-sm text-gray-400 mb-2">🏢 {prospect.organization}</p>
-                  )}
-
-                  {prospect.location && (
-                    <p className="text-sm text-gray-400 mb-2">📍 {prospect.location}</p>
-                  )}
-
-                  {prospect.specialty.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {prospect.specialty.map((spec, j) => (
-                        <span key={j} className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-xs">
-                          {spec}
+            {/* Results Table */}
+            <div className="rounded-xl border border-slate-600 bg-slate-800/50 overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-slate-700/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedProspects.size === result.prospects.length && result.prospects.length > 0}
+                        onChange={selectAll}
+                        className="rounded"
+                      />
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Organization</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Specialty</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Fit</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Contact</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700">
+                  {result.prospects.map((prospect, i) => (
+                    <tr key={i} className="hover:bg-slate-700/30 transition-colors">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedProspects.has(i)}
+                          onChange={() => toggleProspect(i)}
+                          className="rounded"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-white">{prospect.name}</div>
+                        {prospect.title && <div className="text-sm text-gray-400">{prospect.title}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-300">{prospect.organization || '—'}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {prospect.specialty.slice(0, 2).map((s, j) => (
+                            <span key={j} className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-xs">
+                              {s}
+                            </span>
+                          ))}
+                          {prospect.specialty.length > 2 && (
+                            <span className="text-xs text-gray-500">+{prospect.specialty.length - 2}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          prospect.fit_score >= 80 ? 'bg-green-500/20 text-green-400' :
+                          prospect.fit_score >= 60 ? 'bg-yellow-500/20 text-yellow-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {prospect.fit_score}%
                         </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="border-t border-slate-700 pt-3 mt-3 space-y-1">
-                    {prospect.contact.email && (
-                      <p className="text-sm">
-                        <span className="text-gray-500">Email:</span>{' '}
-                        <a href={`mailto:${prospect.contact.email}`} className="text-blue-400 hover:underline">
-                          {prospect.contact.email}
-                        </a>
-                      </p>
-                    )}
-                    {prospect.contact.phone && (
-                      <p className="text-sm">
-                        <span className="text-gray-500">Phone:</span>{' '}
-                        <span className="text-gray-300">{prospect.contact.phone}</span>
-                      </p>
-                    )}
-                    {prospect.contact.website && (
-                      <p className="text-sm">
-                        <span className="text-gray-500">Website:</span>{' '}
-                        <a href={prospect.contact.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
-                          {prospect.contact.website.replace(/^https?:\/\//, '').slice(0, 40)}...
-                        </a>
-                      </p>
-                    )}
-                    {prospect.source_url && (
-                      <p className="text-sm">
-                        <a href={prospect.source_url} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-300">
-                          View source →
-                        </a>
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          {prospect.contact.email && (
+                            <a href={`mailto:${prospect.contact.email}`} className="text-blue-400 hover:text-blue-300 text-sm">
+                              Email
+                            </a>
+                          )}
+                          {prospect.source_url && (
+                            <a href={prospect.source_url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-300 text-sm">
+                              Source
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-
-            {result.prospects.length === 0 && (
-              <div className="text-center py-12 text-gray-400">
-                No prospects found. Try adjusting your search criteria.
-              </div>
-            )}
           </section>
         )}
-
-        {/* Quick Tips */}
-        <section className="rounded-xl border border-slate-600 bg-slate-800/50 p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">💡 Tips for Better Results</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-400">
-            <div>
-              <h3 className="text-blue-400 font-medium mb-1">AI Search</h3>
-              <ul className="space-y-1">
-                <li>• Be specific with specialty (e.g., "educational consultant" not just "consultant")</li>
-                <li>• Add context like "private school" or "neurodivergent"</li>
-                <li>• Try different locations for more results</li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="text-blue-400 font-medium mb-1">URL Scraping</h3>
-              <ul className="space-y-1">
-                <li>• Works best with individual profile pages</li>
-                <li>• Psychology Today profiles extract well</li>
-                <li>• Paste up to 20 URLs at once</li>
-              </ul>
-            </div>
-          </div>
-        </section>
       </div>
     </main>
   );
 }
-
