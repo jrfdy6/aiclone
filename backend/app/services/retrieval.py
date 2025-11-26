@@ -320,14 +320,30 @@ def retrieve_weighted(
         query_vector = np.array(query_embedding, dtype=np.float32).reshape(1, -1)
         similarities = cosine_similarity(query_vector, matrix)[0]
         
-        # Apply tag-based weight multipliers
-        weighted_scores = []
-        for i, (sim, tag) in enumerate(zip(similarities, item_tags)):
-            multiplier = weights.get(tag, 1.0)
-            weighted_score = sim * multiplier
-            weighted_scores.append(weighted_score)
+        # Apply tag-based weight multipliers with caps and diversity penalty
+        MAX_TAG_MULTIPLIER = 1.8
+        DIVERSITY_PENALTY = 0.05
         
-        weighted_scores = np.array(weighted_scores)
+        weighted_scores = []
+        tag_seen_count = {}
+        
+        # First pass: calculate base weighted scores
+        base_scores = []
+        for sim, tag in zip(similarities, item_tags):
+            multiplier = min(weights.get(tag, 1.0), MAX_TAG_MULTIPLIER)
+            base_scores.append((sim * multiplier, tag))
+        
+        # Sort by base score to apply diversity penalty in rank order
+        indexed_scores = sorted(enumerate(base_scores), key=lambda x: x[1][0], reverse=True)
+        
+        # Second pass: apply diversity penalty
+        final_scores = [0.0] * len(base_scores)
+        for rank, (orig_idx, (score, tag)) in enumerate(indexed_scores):
+            penalty = tag_seen_count.get(tag, 0) * DIVERSITY_PENALTY
+            final_scores[orig_idx] = score * (1 - penalty)
+            tag_seen_count[tag] = tag_seen_count.get(tag, 0) + 1
+        
+        weighted_scores = np.array(final_scores)
         
     except Exception as e:
         import traceback
