@@ -91,6 +91,18 @@ export default function ContentPipelinePage() {
   const [topic, setTopic] = useState('');
   const [context, setContext] = useState('');
   const [selectedPacer, setSelectedPacer] = useState<string[]>([]);
+  const [audience, setAudience] = useState('general');
+  
+  // Audience options based on your niches
+  const AUDIENCE_OPTIONS = [
+    { value: 'general', label: 'General' },
+    { value: 'education_admissions', label: 'Education / Admissions' },
+    { value: 'tech_ai', label: 'Tech / AI' },
+    { value: 'fashion', label: 'Fashion / Style' },
+    { value: 'leadership', label: 'Leadership / Management' },
+    { value: 'neurodivergent', label: 'Neurodivergent Support' },
+    { value: 'entrepreneurs', label: 'Entrepreneurs / Founders' },
+  ];
   
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
@@ -133,6 +145,7 @@ export default function ContentPipelinePage() {
           category: activeCategory,
           pacer_elements: selectedPacer.map(p => p.charAt(0).toUpperCase() + p.slice(1)),
           tone: 'expert_direct',
+          audience: audience,
         }),
       });
       
@@ -386,7 +399,7 @@ export default function ContentPipelinePage() {
             )}
 
             {/* Inputs */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '14px', color: '#9ca3af', marginBottom: '8px' }}>Topic</label>
                 <input
@@ -422,6 +435,26 @@ export default function ContentPipelinePage() {
                     fontSize: '14px',
                   }}
                 />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '14px', color: '#9ca3af', marginBottom: '8px' }}>Audience</label>
+                <select
+                  value={audience}
+                  onChange={(e) => setAudience(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #475569',
+                    backgroundColor: '#0f172a',
+                    color: 'white',
+                    fontSize: '14px',
+                  }}
+                >
+                  {AUDIENCE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
