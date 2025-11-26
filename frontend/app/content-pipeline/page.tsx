@@ -134,9 +134,9 @@ export default function ContentPipelinePage() {
           pacer_elements: selectedPacer.map(p => p.charAt(0).toUpperCase() + p.slice(1)),
           tone: 'expert_direct',
         }),
-      });
+      }) as { success?: boolean; options?: string[] };
       
-      if (response.success && response.options) {
+      if (response?.success && response?.options) {
         setGeneratedContent(response.options);
       } else {
         // Fallback to templates if API fails
