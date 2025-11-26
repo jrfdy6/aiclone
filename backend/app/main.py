@@ -143,6 +143,10 @@ app.include_router(linkedin.router, prefix="/api/linkedin")
 app.include_router(topic_intelligence.router, prefix="/api/topic-intelligence")
 app.include_router(prospect_discovery.router, prefix="/api/prospect-discovery")
 
+# AI Content Generation
+from app.routes import content_generation
+app.include_router(content_generation.router, prefix="/api/content-generation")
+
 
 @app.on_event("startup")
 async def startup_event():
