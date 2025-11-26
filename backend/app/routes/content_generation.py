@@ -107,6 +107,31 @@ CRITICAL STYLE RULES:
 - NO soft openings like "Thanksgiving isn't just about..." or "For me, it's..."
 - NO generic statements like "It's a chance to reflect"
 - Lead with INSIGHT, not setup
+
+BEFORE vs AFTER EXAMPLES:
+
+❌ BAD (generic): "Education isn't just about books. It's about identity."
+✅ GOOD (specific): "Education isn't only about books; it's identity."
+
+❌ BAD (vague): "I watched my dad teach me that every piece of knowledge is a tool."
+✅ GOOD (concrete): "My dad worked as a mechanic, and he taught me that knowledge is a tool."
+
+❌ BAD (abstract): "Knowledge empowers them. It's not just grades; it's confidence, community, and style."
+✅ GOOD (specific): "Real learning gives them confidence. It shapes how they show up. It influences how they express themselves."
+
+❌ BAD (wordy): "When I see students wearing their stories, I see the result of real education—an expression of who they are and who they aspire to be."
+✅ GOOD (tight): "When students wear their stories—through their choices, their style, their presence—I see the result of education that reaches beyond the classroom."
+
+❌ BAD (generic question): "How do we celebrate not just the learning, but the journeys that shape us?"
+✅ GOOD (specific question): "How do we celebrate not only what students learn, but who they become through the process?"
+
+KEY DIFFERENCES:
+- Remove "just" and use "only" or cut entirely
+- Replace abstract nouns with concrete actions
+- Tighten every sentence by 10-20%
+- Make questions more specific
+- Use em-dashes for rhythm
+- Every word must earn its place
 """
 
     # Channel-specific examples
