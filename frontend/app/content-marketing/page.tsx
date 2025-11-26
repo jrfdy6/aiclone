@@ -348,103 +348,98 @@ export default function ContentMarketingPage() {
           <p style={{ color: '#9ca3af' }}>Vibe Marketing tools powered by MCPs and AI</p>
         </header>
 
-      {/* Tabs */}
-      <div className="border-b">
-        <nav className="flex space-x-4">
-          {(['research', 'linking', 'microtool', 'prd'] as TabType[]).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => {
-                setActiveTab(tab);
-                setResults(null);
-                setError(null);
-              }}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-                activeTab === tab
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab === 'research' && 'Content Research'}
-              {tab === 'linking' && 'Internal Linking'}
-              {tab === 'microtool' && 'Micro Tools'}
-              {tab === 'prd' && 'PRD Generator'}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Error Display */}
-      {error && (
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Input Form */}
-        <div className="space-y-4 rounded border p-6">
-          <h2 className="text-xl font-semibold">
-            {activeTab === 'research' && 'Research Content'}
-            {activeTab === 'linking' && 'Analyze Internal Linking'}
-            {activeTab === 'microtool' && 'Generate Micro Tool'}
-            {activeTab === 'prd' && 'Generate PRD'}
-          </h2>
-          {renderTabContent()}
+        {/* Tabs */}
+        <div style={{ borderBottom: '1px solid #475569', marginBottom: '24px' }}>
+          <nav style={{ display: 'flex', gap: '16px' }}>
+            {(['research', 'linking', 'microtool', 'prd'] as TabType[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => {
+                  setActiveTab(tab);
+                  setResults(null);
+                  setError(null);
+                }}
+                style={{
+                  padding: '12px 16px',
+                  fontWeight: 500,
+                  borderBottom: activeTab === tab ? '2px solid #3b82f6' : '2px solid transparent',
+                  color: activeTab === tab ? '#3b82f6' : '#9ca3af',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                {tab === 'research' && 'Content Research'}
+                {tab === 'linking' && 'Internal Linking'}
+                {tab === 'microtool' && 'Micro Tools'}
+                {tab === 'prd' && 'PRD Generator'}
+              </button>
+            ))}
+          </nav>
         </div>
 
-        {/* Results */}
-        <div className="space-y-4 rounded border p-6">
-          <h2 className="text-xl font-semibold">Results</h2>
-          {loading && <div className="text-gray-500">Processing...</div>}
-          {!loading && !results && (
-            <div className="text-gray-400 text-sm">Results will appear here</div>
-          )}
-          {results && (
-            <div className="space-y-4">
-              {activeTab === 'research' && results.research_content && (
-                <div className="prose max-w-none">
-                  <pre className="whitespace-pre-wrap text-sm bg-gray-50 p-4 rounded overflow-auto max-h-96">
+        {/* Error Display */}
+        {error && (
+          <div style={{ borderRadius: '8px', border: '1px solid #ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '12px', color: '#f87171', marginBottom: '24px' }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+          {/* Input Form */}
+          <div style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '16px' }}>
+              {activeTab === 'research' && 'Research Content'}
+              {activeTab === 'linking' && 'Analyze Internal Linking'}
+              {activeTab === 'microtool' && 'Generate Micro Tool'}
+              {activeTab === 'prd' && 'Generate PRD'}
+            </h2>
+            {renderTabContent()}
+          </div>
+
+          {/* Results */}
+          <div style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '16px' }}>Results</h2>
+            {loading && <div style={{ color: '#9ca3af' }}>Processing...</div>}
+            {!loading && !results && (
+              <div style={{ color: '#6b7280', fontSize: '14px' }}>Results will appear here</div>
+            )}
+            {results && (
+              <div>
+                {activeTab === 'research' && results.research_content && (
+                  <pre style={{ whiteSpace: 'pre-wrap', fontSize: '14px', backgroundColor: '#0f172a', padding: '16px', borderRadius: '8px', overflow: 'auto', maxHeight: '400px', color: '#e2e8f0' }}>
                     {results.research_content}
                   </pre>
-                </div>
-              )}
-              {activeTab === 'linking' && results.opportunities && (
-                <div className="space-y-2">
-                  <p className="text-sm text-gray-600">
-                    Found {results.total_opportunities} linking opportunities
-                  </p>
-                  {results.opportunities.map((opp: any, idx: number) => (
-                    <div key={idx} className="border p-3 rounded text-sm">
-                      <p className="font-medium">{opp.source_article} → {opp.target_article}</p>
-                      <p className="text-gray-600 mt-1">{opp.anchor_text}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {activeTab === 'microtool' && results.html_code && (
-                <div className="space-y-2">
-                  <p className="text-sm text-gray-600 mb-2">Generated HTML Tool:</p>
-                  <pre className="whitespace-pre-wrap text-xs bg-gray-50 p-4 rounded overflow-auto max-h-96">
-                    {results.html_code}
-                  </pre>
-                  {results.deployment_instructions && (
-                    <div className="mt-4 p-3 bg-blue-50 rounded text-sm">
-                      <p className="font-medium mb-1">Deployment Instructions:</p>
-                      <p className="text-gray-700">{results.deployment_instructions}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-              {activeTab === 'prd' && results.prd_content && (
-                <div className="prose max-w-none">
-                  <pre className="whitespace-pre-wrap text-sm bg-gray-50 p-4 rounded overflow-auto max-h-96">
+                )}
+                {activeTab === 'linking' && results.opportunities && (
+                  <div>
+                    <p style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '12px' }}>
+                      Found {results.total_opportunities} linking opportunities
+                    </p>
+                    {results.opportunities.map((opp: any, idx: number) => (
+                      <div key={idx} style={{ backgroundColor: '#0f172a', padding: '12px', borderRadius: '8px', marginBottom: '8px' }}>
+                        <p style={{ fontWeight: 500, color: 'white' }}>{opp.source_article} → {opp.target_article}</p>
+                        <p style={{ color: '#9ca3af', marginTop: '4px' }}>{opp.anchor_text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {activeTab === 'microtool' && results.html_code && (
+                  <div>
+                    <p style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '12px' }}>Generated HTML Tool:</p>
+                    <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', backgroundColor: '#0f172a', padding: '16px', borderRadius: '8px', overflow: 'auto', maxHeight: '400px', color: '#e2e8f0' }}>
+                      {results.html_code}
+                    </pre>
+                  </div>
+                )}
+                {activeTab === 'prd' && results.prd_content && (
+                  <pre style={{ whiteSpace: 'pre-wrap', fontSize: '14px', backgroundColor: '#0f172a', padding: '16px', borderRadius: '8px', overflow: 'auto', maxHeight: '400px', color: '#e2e8f0' }}>
                     {results.prd_content}
                   </pre>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </main>
