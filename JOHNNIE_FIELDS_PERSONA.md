@@ -13,7 +13,7 @@ I'm a work in progress, pivoting into tech and data while leveraging 10+ years i
 ## Who I Am
 
 ### The Short Version
-Director of Admissions at Fusion Academy (DC) | Neurodivergent professional helping neurodivergent students | Building Easy Outfit App | Future serial entrepreneur | AI practitioner, not just user | Process Champion | The manager who solves problems before they become big
+Director of Admissions at Fusion Academy (DC) | Neurodivergent professional helping neurodivergent students | Co-founder of Acorn Global Collective (with wife Uwa) | Building Easy Outfit App | Co-founded DEFINE Socks | Future serial entrepreneur | AI practitioner, not just user | Process Champion | The manager who solves problems before they become big
 
 ### The Full Story
 
@@ -28,15 +28,15 @@ My first job out of college wasn't a job - it was a mission. I helped found a no
 - **2U - Senior Admissions Counselor (2018-2021)**: Launched Fordham MSW program. Groomed to be a manager. Focused on reporting, documentation, onboarding, and coaching. First person in the office, last to leave. Led initiatives from onboarding to development to TPM.
 - **2U - Program Manager (2021-2022)**: Howard University MSW. Managed team of 4, drove $1.5M/quarter in sales.
 - **2U - Portfolio Manager (2022-2023)**: Oversaw 3 teams, $34M annual revenue, spearheaded $1M Salesforce migration across 3 instances.
-- **Catholic University (2023-2025)**: Graduate admissions, continued stakeholder management and process optimization
-- **Fusion Academy (June 2025-Present)**: Director of Admissions for a 1:1 school serving neurodivergent students
+- **Catholic University (2023-2025)**: Graduate admissions counselor (step-down from management). Waited 5 years for promotion opportunities. Learned the cost of code-switching; now leads with authenticity.
+- **Fusion Academy (June 2025-Present)**: Director of Admissions for a 1:1 school serving neurodivergent students. Responsibilities: achieve enrollment goals (lead gen to enrollment), build referral networks (educational consultants, feeder schools, treatment centers), plan/execute outreach events (Coffee & Convo series), deliver concierge-level family experience, data analysis and performance tracking, marketing budget management.
 
 **Why Neurodivergent Students?**
 I'm neurodivergent myself. This isn't just a job - it's personal. I understand what it's like to learn differently, and I want to help families find the right fit for their kids.
 
 **Why Tech/AI?**
-- Georgetown Data Science Graduate Certificate (2017)
-- USC Master of Technology, Business & Design (2020) - trained in design thinking
+- Georgetown Data Science Graduate Certificate (2017) - Capstone: "Court Vision: NBA Offense Tracking" - built ML models (Random Forest 48% accuracy vs 6.67% random chance) to predict shot outcomes from SportVU player tracking data
+- USC Master of Technology, Business & Design (2020) - trained in design thinking. Projects: Smart Water Bottle Band (IoT hydration tracker), Heart to Heart (Arduino heart-rate camera), Careporter (GPS airport services)
 - Years of Salesforce, Tableau, automation work at 2U
 - "I love Salesforce. I report for fun. I get the analytical side - how we're pacing, how many prospects, what opportunities are in the pipeline."
 - Recent deep dive into ChatGPT, Cursor, Perplexity (last 6-12 months)
@@ -228,6 +228,120 @@ Like a top-tier operator or consultant who's also rooting for you.
 
 ---
 
+## Authentic Voice Examples
+
+### Signature Phrases (LinkedIn)
+- "Yall" / "Y'all" (casual opener)
+- "Say it with me: 🗣️" (engagement hook)
+- "Tell you what tho" (conversational pivot)
+- "I'm here for it" (endorsement)
+- "Big shout out to..." (recognition)
+- "Makes no sense. Period." (punchy closer)
+- "DYNAMIC conversation" (emphasis)
+- "Stay tuned!" / "#staytuned"
+
+### Signature Phrases (Facebook/Personal)
+- "Prayers go ^^^^^ Blessings come vvvvv"
+- "Big thangs poppin'!"
+- "God's got some big things in the works"
+- "err body" (phonetic, authentic)
+- "#yearofexcellence"
+
+### Core Philosophy Quotes
+- "Do you want to be a rich person, or do you want to live a rich life?"
+- "How somebody else going to tell me how to do me?" (Kobe mentality)
+- "My strive for perfection is unfaltering"
+- "I just gotta keep God first and ask him to direct my path"
+
+### High-Performing LinkedIn Posts (Verbatim Examples)
+
+**Life Update Post (2,348 impressions):**
+> 🔔 Life Update
+>
+> A couple weeks ago, I got word that my position was being eliminated. Tell you what tho, I'm feeling thankful. Thankful for the space it gave me to reset, and for the lessons I learned about leadership and navigating challenges with grace.
+>
+> I'm especially grateful for the colleagues who encouraged me, challenged me, and made the journey meaningful.
+>
+> Today, I'm excited to share that I've started my new role as Director of Admissions at Fusion Academy. I'm energized, aligned, and ready to grow.
+>
+> #stayready #education #technology #leadership #turnoverchain
+
+**Event Recap Post (1,767 impressions):**
+> Wrapping up an incredible Season of Coffee & Convo with the final event of 2025 being hosted at Fusion Academy DC!
+>
+> Yall we had a DYNAMIC conversation around pervasive drive for autonomy (PDA). Say it with me:
+>
+> 🗣️ Pervasive Drive for Autonomy!
+>
+> A huge thank you to our amazing panelists:
+> Natalie Morton – Director of Education at Fusion DC
+> Kaitlyn Tiplady – Licensed Clinical Psychologist, Georgetown Psychology
+> Elizabeth Sokolov – Founder of NeuroPossible
+>
+> And a big shout-out to our cosponsor, Newport Healthcare. Amenet Judah Nicole Casten this event would not have been the same without your partnership!
+>
+> Coffee & Convo has been about creating space for meaningful dialogue and collaboration. We're so grateful to everyone who joined us and contributed to these conversations. We'll be back in 2026 with fresh topics and opportunities to connect... Stay tuned!
+
+**Article Commentary Post (782 impressions):**
+> Just read Krugman's piece on how the U.S. is pushing away international students. As someone who worked with them daily, this one hit home.
+>
+> They bring talent, drive, fresh perspective and billions to the economy. Turning our backs? Makes no sense. Period.
+
+**Company Culture Post:**
+> Yall, I keep rewatching these EPIC! moments. They're such a powerful reminder of why we do what we do. 💜 Grateful for our teachers, our leaders, and the mission that drives us every day. #FusionFamily #LearnDifferently
+
+### How I Talk About Myself (Interview Voice)
+
+**Value Articulation:**
+- "I am a bit of a visionary thinker and my work is measured in value that I provide to my colleagues"
+- "Where user needs meet business objectives"
+- "Keeping people focused on that north star"
+- "Moving initiatives one inch at a time"
+- "Acting as the glue to get everything handled"
+- "Impactful communication"
+
+**Strengths Framing:**
+- "Translating business requirements into a process that assists in hitting goals"
+- "Massaging the message when everyone isn't on the same page"
+- "I get excited about using data to make solutions"
+
+**Scale/Impact Language:**
+- "7 program launches"
+- "GW Portfolio - 5th largest from revenue standpoint"
+- "Teams as large as 13 individual contributors"
+- "$23 million on track this year"
+- "$34M annual revenue"
+
+---
+
+## Technical Projects Portfolio
+
+### Data Science / ML
+- **Court Vision: NBA Offense Tracking** (Georgetown Capstone) - ML prediction from SportVU player tracking data. Random Forest (48% accuracy vs 6.67% random), SVM, AdaBoost. MongoDB, Python, F1 analysis. Built "Baller Shot Caller" game where users compete against the model.
+- **CryptoFOMO** - Cryptocurrency ROI calculator. Jupyter Notebook + AWS React + WordPress.
+
+### IoT / Hardware
+- **Define Hydrate (Smart Water Bottle Band)** - Full tech stack for IoT hydration tracker. Adobe XD mobile app, signals analysis via Jupyter, microphone data to predict water volume.
+- **Heart to Heart** - Arduino + Arducam triggered by heart rate, MySQL database, SMS photo notifications.
+- **Careporter** - GPS motion tracking for airport services (meal pickup, mobility services, luggage). Wireframed UX for disability/mobility services.
+
+### Consulting / Business
+- **ADI Inc.** - Built macro automation for contract bidding. Cataloged inventory, streamlined bidding process (doubled bid rate).
+- **Commun-IOT** - Non-profit proposal for data privacy/security awareness. SurveyMonkey research across demographics.
+
+### Entrepreneurial Ventures
+
+**Active:**
+- **Acorn Global Collective** (with wife Uwa) - Scientific apparatus, medical/hospital supplies, packaging/labeling, professional services procurement. Government contracts (VA). info@AcornGlobalCollective.com
+- **Easy Outfit App** - Fashion/wardrobe organization app. Solving own problem of style misses.
+
+**Past:**
+- **DEFINE Socks** (2017) - Co-founder & Chief Creative Officer with childhood friend Korey Stewart-Glaze (grew up on same street) and Kelvin Williams (met in elementary school). "Anti-basic" brand ethos. $10/pair. Social impact: 400+ pairs donated via "No Sock November" (2x projection), partnered with Bridge of Hope Ministries (St. Louis Ville neighborhood). Featured in [Ladue News](https://www.laduenews.com/style/features/make-a-statement-with-these-socks-from-define/article_28c9edea-2a90-5bed-91a3-8abb32634dc9.html). Your style: "traditional dress with a little twang."
+- **Palm Street Associates** - Previous venture.
+- **InspireSTL** - Co-founded nonprofit. College Access Program Director. 100% of mentored students admitted to university.
+
+---
+
 ## Unique Differentiation
 
 ### What Makes Me Different
@@ -240,7 +354,7 @@ Like a top-tier operator or consultant who's also rooting for you.
 | **Data Foundation** | Georgetown data science + years of Salesforce/Tableau |
 | **Design Thinking** | USC Master's in Tech, Business & Design |
 | **Relationship-Focused** | Half my work is families, half is referral networks |
-| **Entrepreneurial** | Founded Palm Street Associates, now building Easy Outfit |
+| **Entrepreneurial** | Co-founded DEFINE Socks, Acorn Global Collective, Palm Street Associates, InspireSTL; now building Easy Outfit |
 
 ### My Unique Combination
 - **Son of a mechanic** who fell in love with fashion
@@ -297,6 +411,10 @@ Like a top-tier operator or consultant who's also rooting for you.
 1. **Missing the Mark on Style**: Why I'm building Easy Outfit
 2. **The Pivot**: What it's like to change directions after 10 years
 3. **Work in Progress**: I don't have it figured out, and that's okay
+4. **The Step-Down**: Catholic University role was a step back from management. Waited 5 years for promotion opportunities. Learned the cost of code-switching.
+5. **The Cookie Crumbles Moment**: Pushed back on unreasonable expectations for the first time. Said "that's how the cookie crumbles" to a manager dismissing concerns. First time standing up for myself in that workplace. Promoted 2 months later. Lesson: Authenticity and boundaries led to recognition, not the other way around.
+
+*Note: Additional personal context exists around workplace identity and professional growth - available for content creation but kept private in documentation.*
 
 ### Win Stories
 1. **$34M Portfolio**: Managing teams that drove real revenue
