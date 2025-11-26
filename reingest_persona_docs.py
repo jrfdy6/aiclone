@@ -50,7 +50,7 @@ def ingest_document(doc_config: dict) -> dict:
                 f"{BACKEND_URL}/api/ingest/upload",
                 files=files,
                 data=data,
-                timeout=60
+                timeout=120  # Increased timeout for larger files
             )
             response.raise_for_status()
             return response.json()
@@ -72,7 +72,11 @@ def main():
         results.append({"file": doc["path"], "result": result})
         
         if result.get("success"):
-            print(f"  ✓ Success: {result.get('chunks_created', 0)} chunks created")
+            chunks = result.get('chunks_created', 0)
+            tag_counts = result.get('tag_counts')
+            print(f"  ✓ Success: {chunks} chunks created")
+            if tag_counts:
+                print(f"    Tags: {tag_counts}")
         else:
             print(f"  ✗ Failed: {result.get('error', 'Unknown error')}")
         print()

@@ -18,6 +18,97 @@ DEFAULT_METADATA_KEYS = {
     "source_file_id": None,
 }
 
+# Weight profiles for Chris Do content categories
+# Scale: 1-5 (1=low priority, 5=high priority)
+CATEGORY_WEIGHT_PROFILES = {
+    "value": {
+        "VOICE_PATTERNS": 5,
+        "LINKEDIN_EXAMPLES": 3,
+        "EXPERIENCES": 5,
+        "PHILOSOPHY": 4,
+        "VENTURES": 2,
+        "BIO_FACTS": 2,
+        "STRUGGLES": 1,
+    },
+    "sales": {
+        "VOICE_PATTERNS": 5,
+        "LINKEDIN_EXAMPLES": 2,
+        "EXPERIENCES": 3,
+        "PHILOSOPHY": 2,
+        "VENTURES": 5,
+        "BIO_FACTS": 4,
+        "STRUGGLES": 3,
+    },
+    "personal": {
+        "VOICE_PATTERNS": 5,
+        "LINKEDIN_EXAMPLES": 4,
+        "EXPERIENCES": 4,
+        "PHILOSOPHY": 3,
+        "VENTURES": 2,
+        "BIO_FACTS": 1,
+        "STRUGGLES": 5,
+    },
+}
+
+# Channel modifiers (applied to base category weights)
+CHANNEL_MODIFIERS = {
+    "linkedin_post": {
+        "VOICE_PATTERNS": 0,
+        "LINKEDIN_EXAMPLES": 1,
+        "EXPERIENCES": 0,
+        "PHILOSOPHY": 0,
+        "VENTURES": 0,
+        "BIO_FACTS": 0,
+        "STRUGGLES": 0,
+    },
+    "linkedin_dm": {
+        "VOICE_PATTERNS": 1,
+        "LINKEDIN_EXAMPLES": 0,
+        "EXPERIENCES": 0,
+        "PHILOSOPHY": -1,
+        "VENTURES": 0,
+        "BIO_FACTS": -1,
+        "STRUGGLES": 1,
+    },
+    "cold_email": {
+        "VOICE_PATTERNS": 0,
+        "LINKEDIN_EXAMPLES": -1,
+        "EXPERIENCES": 0,
+        "PHILOSOPHY": 0,
+        "VENTURES": 1,
+        "BIO_FACTS": 1,
+        "STRUGGLES": -1,
+    },
+    "instagram_post": {
+        "VOICE_PATTERNS": 1,
+        "LINKEDIN_EXAMPLES": -2,
+        "EXPERIENCES": 0,
+        "PHILOSOPHY": -1,
+        "VENTURES": 0,
+        "BIO_FACTS": -2,
+        "STRUGGLES": 1,
+    },
+}
+
+
+def get_combined_weights(category: str, channel: str) -> Dict[str, float]:
+    """
+    Combine base category weights with channel modifiers.
+    Returns normalized weight multipliers for each tag.
+    """
+    base_weights = CATEGORY_WEIGHT_PROFILES.get(category, CATEGORY_WEIGHT_PROFILES["value"])
+    modifiers = CHANNEL_MODIFIERS.get(channel, CHANNEL_MODIFIERS["linkedin_post"])
+    
+    combined = {}
+    for tag in base_weights:
+        # Apply modifier, clamp to 1-6 range
+        weight = base_weights[tag] + modifiers.get(tag, 0)
+        weight = max(1, min(6, weight))
+        # Normalize to multiplier (1.0 = base, higher = boost)
+        combined[tag] = weight / 3.0  # 3 is middle of 1-5 scale
+    
+    return combined
+
 
 def _matches_tag_filter(doc_tags: Optional[List[str]], tag_filter: Optional[List[str]]) -> bool:
     if not tag_filter:
@@ -166,4 +257,110 @@ def retrieve_similar(
                 "metadata": metadata,
             }
         )
+    return results
+
+
+def retrieve_weighted(
+    user_id: str,
+    query_embedding: List[float],
+    category: str = "value",
+    channel: str = "linkedin_post",
+    top_k: int = 7,
+    tag_filter: Optional[List[str]] = None,
+    source_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve chunks with tag-based weight boosting.
+    
+    Args:
+        user_id: User ID for knowledge base lookup
+        query_embedding: Query vector
+        category: Chris Do category (value, sales, personal)
+        channel: Content channel (linkedin_post, linkedin_dm, cold_email, instagram_post)
+        top_k: Number of results to return
+        tag_filter: Optional list of tags to filter by
+        source_filter: Optional source file filter
+    
+    Returns:
+        List of chunks sorted by weighted similarity score
+    """
+    items = get_all_embeddings_for_user(user_id, tag_filter=tag_filter, source_filter=source_filter)
+    if not items:
+        return []
+
+    # Get weight multipliers for this category + channel combo
+    weights = get_combined_weights(category, channel)
+    print(f"  [retrieval] Using weights for {category}/{channel}: {weights}", flush=True)
+
+    try:
+        query_dim = len(query_embedding)
+        embeddings_list = []
+        valid_items = []
+        item_tags = []
+        
+        for item in items:
+            emb = item["embedding"]
+            if isinstance(emb, np.ndarray):
+                emb_array = emb
+            else:
+                emb_array = np.array(emb, dtype=np.float32)
+            
+            if emb_array.shape[0] == query_dim:
+                embeddings_list.append(emb_array)
+                valid_items.append(item)
+                # Get persona_tag from metadata
+                metadata = item["data"].get("metadata", {})
+                tag = metadata.get("persona_tag", "UNTAGGED")
+                item_tags.append(tag)
+        
+        if not embeddings_list:
+            return []
+        
+        matrix = np.vstack(embeddings_list)
+        query_vector = np.array(query_embedding, dtype=np.float32).reshape(1, -1)
+        similarities = cosine_similarity(query_vector, matrix)[0]
+        
+        # Apply tag-based weight multipliers
+        weighted_scores = []
+        for i, (sim, tag) in enumerate(zip(similarities, item_tags)):
+            multiplier = weights.get(tag, 1.0)
+            weighted_score = sim * multiplier
+            weighted_scores.append(weighted_score)
+        
+        weighted_scores = np.array(weighted_scores)
+        
+    except Exception as e:
+        import traceback
+        print(f"❌ Error in retrieve_weighted: {e}", flush=True)
+        traceback.print_exc()
+        raise
+
+    # Sort by weighted score
+    paired = sorted(zip(valid_items, weighted_scores, similarities, item_tags), 
+                    key=lambda x: x[1], reverse=True)
+    
+    results: List[Dict[str, Any]] = []
+    tag_distribution = {}
+    
+    for item, weighted_score, raw_score, tag in paired[:top_k]:
+        data = item["data"]
+        metadata = _format_metadata(item["id"], data)
+        
+        # Track tag distribution in results
+        tag_distribution[tag] = tag_distribution.get(tag, 0) + 1
+        
+        results.append(
+            {
+                "source_id": data.get("source_id") or data.get("source") or item["id"],
+                "source_file_id": metadata.get("source_file_id"),
+                "chunk_index": data.get("chunk_index"),
+                "chunk": data.get("text"),
+                "similarity_score": float(raw_score),
+                "weighted_score": float(weighted_score),
+                "persona_tag": tag,
+                "metadata": metadata,
+            }
+        )
+    
+    print(f"  [retrieval] Result tag distribution: {tag_distribution}", flush=True)
     return results
