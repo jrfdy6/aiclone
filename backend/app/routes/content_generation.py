@@ -130,7 +130,6 @@ KEY DIFFERENCES:
 - Replace abstract nouns with concrete actions
 - Tighten every sentence by 10-20%
 - Make questions more specific
-- Use em-dashes for rhythm
 - Every word must earn its place
 
 MORE BEFORE/AFTER TIGHTENING:
@@ -148,7 +147,7 @@ MORE BEFORE/AFTER TIGHTENING:
 ✅ "Fashion isn't just trends; it's roots and aspirations."
 
 ❌ "I learned that style is about more than fabric; it's about confidence and clarity."
-✅ "I learned that style is more than fabric — it's confidence and clarity."
+✅ "I learned that style is more than fabric. It's confidence and clarity."
 
 ❌ "This Thanksgiving, let's think beyond the plate. How do we ensure our personal style reflects the stories we want to tell?"
 ✅ "This Thanksgiving, think beyond the plate: How can your personal style reflect the story you want to tell?"
@@ -160,7 +159,7 @@ TIGHTENING RULES:
 - "How do we" → "How can your"
 - Remove unnecessary "that" and "the way"
 - "try to" → "aim for" or cut
-- Semicolons → em-dashes for rhythm
+- Semicolons → periods or colons for clarity
 """
 
     # Channel-specific examples
