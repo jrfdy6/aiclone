@@ -719,9 +719,11 @@ The frontend will be available at `http://localhost:3002` (or the port configure
 - `/dashboard` - Unified workspace with widgets
 - `/prospecting` - Prospecting workflow interface
 - `/prospects` - Prospect management with filtering and sorting
+- `/prospect-discovery` - Prospect discovery pipeline
 - `/outreach` - Outreach automation panel
 - `/calendar` - Follow-up calendar with drag-and-drop
 - `/content-marketing` - Content marketing tools
+- `/content-pipeline` - Content generation pipeline with style guide integration
 - `/research-tasks` - AI Research Task Manager
 - `/activity` - Global activity feed timeline
 - `/playbooks` - Playbooks library
@@ -734,16 +736,19 @@ The frontend will be available at `http://localhost:3002` (or the port configure
 
 ## Deployment
 
+### Production URLs
+- **Backend API**: `https://aiclone-production-32dc.up.railway.app`
+- **Frontend**: `https://aiclone-frontend-production.up.railway.app`
+- **API Docs**: `https://aiclone-production-32dc.up.railway.app/api/docs`
+
 ### Backend (Railway)
 1. Connect GitHub repository
 2. Set environment variables in Railway dashboard
 3. Deploy automatically on push to main
-4. API available at: `https://your-backend.up.railway.app`
-5. API documentation at: `/api/docs`
 
 ### Frontend (Railway)
 1. Connect GitHub repository
-2. Set `NEXT_PUBLIC_API_URL` environment variable
+2. Set `NEXT_PUBLIC_API_URL` = `https://aiclone-production-32dc.up.railway.app`
 3. Deploy automatically on push to main
 
 ## Implementation Phases
@@ -850,6 +855,7 @@ See `MCP_SETUP_GUIDE.md` and `MCP_WORKFLOW_GUIDE.md` for details.
 - `AI_JUMPSTART_PLAYBOOK.md` - Full playbook details
 - `PROSPECTING_WORKFLOW_API_DOCS.md` - Complete prospecting API docs
 - `LINKEDIN_PACER_INTEGRATION.md` - LinkedIn PACER strategy guide
+- `CONTENT_STYLE_GUIDE.md` - Content creation style guide (voice, tone, banned words, audience rules, evidence hierarchy)
 
 ### Phase Documentation
 - `PHASE_3_COMPLETE.md` - Intelligence Layer implementation
