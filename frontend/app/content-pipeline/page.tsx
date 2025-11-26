@@ -123,7 +123,7 @@ export default function ContentPipelinePage() {
     
     try {
       // Call AI-powered content generation API
-      const response = await apiFetch('/api/content-generation/generate', {
+      const res = await apiFetch('/api/content-generation/generate', {
         method: 'POST',
         body: JSON.stringify({
           user_id: 'johnnie_fields', // TODO: Get from auth
@@ -134,9 +134,11 @@ export default function ContentPipelinePage() {
           pacer_elements: selectedPacer.map(p => p.charAt(0).toUpperCase() + p.slice(1)),
           tone: 'expert_direct',
         }),
-      }) as { success?: boolean; options?: string[] };
+      });
       
+      const response = await res.json();
       console.log('API Response:', response);
+      
       if (response?.success && response?.options && response.options.length > 0) {
         setGeneratedContent(response.options);
       } else {
