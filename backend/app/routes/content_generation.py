@@ -726,11 +726,15 @@ async def generate_content(req: ContentGenerationRequest):
 
 CRITICAL RULES:
 1. Use the EXACT voice patterns from the persona data (casual phrases, rhythm, signature expressions)
-2. Pull REAL anecdotes from the persona - never fabricate stories
-3. Preserve casual markers like "Yall", "Tell you what tho", "Say it with me"
-4. Keep punchy rhythm - short sentences, stacked phrases
-5. DO NOT over-polish or make it sound generic/corporate
-6. The output should sound like the person's actual LinkedIn posts
+2. ONLY use stories, anecdotes, and facts EXPLICITLY mentioned in the persona data below
+3. NEVER invent or fabricate stories - if no relevant story exists, speak generally about the topic
+4. DO NOT make up family stories, childhood memories, or personal details not in the persona
+5. Preserve casual markers like "Yall", "Tell you what tho", "Say it with me"
+6. Keep punchy rhythm - short sentences, stacked phrases
+7. DO NOT over-polish or make it sound generic/corporate
+8. Stay focused on the user's TOPIC and CONTEXT - don't drift to unrelated subjects
+
+ANTI-HALLUCINATION: If you cannot find a relevant real story in the persona data, write value-driven content about the topic WITHOUT inventing personal anecdotes. Generic insights are better than fake stories.
 
 If the persona uses casual language, USE IT. Do not "clean it up" into formal English."""
         
