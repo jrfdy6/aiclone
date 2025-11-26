@@ -15,7 +15,7 @@ import os
 import json
 
 from app.services.embedders import embed_text
-from app.services.retrieval import retrieve_similar
+from app.services.retrieval import retrieve_similar, retrieve_weighted
 
 router = APIRouter()
 
@@ -60,9 +60,30 @@ def build_content_prompt(
 ) -> str:
     """Build the prompt for content generation."""
     
-    # Extract persona info (key is 'chunk' not 'text')
-    # Use more chunks (7) to capture both voice patterns AND bio
-    persona_text = "\n".join([c.get("chunk", "") for c in persona_chunks[:7]])
+    # Extract persona info with tag labels for context
+    # Group chunks by tag for better organization in the prompt
+    persona_sections = {}
+    for c in persona_chunks[:7]:
+        tag = c.get("persona_tag", "GENERAL")
+        chunk_text = c.get("chunk", "")
+        if chunk_text:
+            if tag not in persona_sections:
+                persona_sections[tag] = []
+            persona_sections[tag].append(chunk_text)
+    
+    # Build persona text with section labels
+    persona_parts = []
+    # Prioritize VOICE_PATTERNS first
+    tag_order = ["VOICE_PATTERNS", "LINKEDIN_EXAMPLES", "STRUGGLES", "EXPERIENCES", "PHILOSOPHY", "VENTURES", "BIO_FACTS"]
+    for tag in tag_order:
+        if tag in persona_sections:
+            persona_parts.append(f"### {tag.replace('_', ' ').title()}\n" + "\n".join(persona_sections[tag]))
+    # Add any remaining tags
+    for tag, chunks in persona_sections.items():
+        if tag not in tag_order:
+            persona_parts.append(f"### {tag.replace('_', ' ').title()}\n" + "\n".join(chunks))
+    
+    persona_text = "\n\n".join(persona_parts)
     
     # Extract example content
     examples_text = "\n---\n".join([c.get("chunk", "")[:500] for c in example_chunks[:3]])
@@ -655,34 +676,34 @@ async def generate_content(req: ContentGenerationRequest):
     Generate AI-powered content using persona and examples from knowledge base.
     """
     try:
-        # Step 1a: Retrieve VOICE patterns (casual phrases, rhythm, signature expressions)
-        voice_query = "signature phrases casual voice patterns Yall tell you what tho say it with me big shout out LinkedIn post examples high performing"
-        voice_embedding = embed_text(voice_query)
-        voice_chunks = retrieve_similar(
+        # Step 1: Use WEIGHTED retrieval based on category + channel
+        # This automatically prioritizes the right tags for each content type
+        persona_query = f"persona voice style {req.topic} {req.category} content writing"
+        persona_embedding = embed_text(persona_query)
+        
+        persona_chunks = retrieve_weighted(
             user_id=req.user_id,
-            query_embedding=voice_embedding,
-            top_k=4,
+            query_embedding=persona_embedding,
+            category=req.category,  # value, sales, or personal
+            channel=req.content_type,  # linkedin_post, linkedin_dm, cold_email, instagram_post
+            top_k=7,  # Get more chunks since they're now properly weighted
         )
         
-        # Step 1b: Retrieve BIO/background info (career, ventures, accomplishments)
-        bio_query = "career background ventures accomplishments education experience Fusion Academy 2U DEFINE Socks projects"
-        bio_embedding = embed_text(bio_query)
-        bio_chunks = retrieve_similar(
-            user_id=req.user_id,
-            query_embedding=bio_embedding,
-            top_k=3,
-        )
+        # Log what tags were retrieved for debugging
+        if persona_chunks:
+            tag_summary = {}
+            for chunk in persona_chunks:
+                tag = chunk.get("persona_tag", "UNKNOWN")
+                tag_summary[tag] = tag_summary.get(tag, 0) + 1
+            print(f"[content_gen] Retrieved persona chunks by tag: {tag_summary}", flush=True)
         
-        # Merge chunks: voice first (60%), then bio (40%)
-        persona_chunks = voice_chunks + bio_chunks
-        
-        # Step 2: Retrieve high-performing content examples
+        # Step 2: Retrieve high-performing content examples (still use standard retrieval)
         examples_query = f"high performing content example {req.content_type} {req.category} {req.topic}"
         examples_embedding = embed_text(examples_query)
         example_chunks = retrieve_similar(
             user_id=req.user_id,
             query_embedding=examples_embedding,
-            top_k=5,
+            top_k=3,
         )
         
         # Step 3: Build prompt with all context
