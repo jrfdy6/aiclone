@@ -61,7 +61,8 @@ def build_content_prompt(
     """Build the prompt for content generation."""
     
     # Extract persona info (key is 'chunk' not 'text')
-    persona_text = "\n".join([c.get("chunk", "") for c in persona_chunks[:3]])
+    # Use more chunks (7) to capture both voice patterns AND bio
+    persona_text = "\n".join([c.get("chunk", "") for c in persona_chunks[:7]])
     
     # Extract example content
     examples_text = "\n---\n".join([c.get("chunk", "")[:500] for c in example_chunks[:3]])
@@ -162,116 +163,114 @@ TIGHTENING RULES:
 - Semicolons → periods or colons for clarity
 """
 
-    # Channel-specific examples
+    # Channel-specific examples - USE REAL POSTS FROM PERSONA, not fabricated stories
     channel_examples = {
         "linkedin_post": """
-EXAMPLE LINKEDIN POST (match this style EXACTLY):
+REAL LINKEDIN POST EXAMPLES FROM THIS PERSON (match this voice EXACTLY):
+
+EXAMPLE 1 (Life Update - 2,348 impressions):
 ---
-Thanksgiving always pulls me back to the idea of personal style and where it comes from.
+🔔 Life Update
 
-**What we wear is never random. It's a reflection of our journey.**
+A couple weeks ago, I got word that my position was being eliminated. Tell you what tho, I'm feeling thankful. Thankful for the space it gave me to reset, and for the lessons I learned about leadership and navigating challenges with grace.
 
-I think about the oversized jacket I used to borrow from my dad, a mechanic. I wore it on cold school mornings; at the time, I thought it was about staying warm. Looking back, it was identity. It was connection. It was carrying a piece of my story into the world.
+I'm especially grateful for the colleagues who encouraged me, challenged me, and made the journey meaningful.
 
-Style isn't superficial. It's memory, culture, and confidence stitched into fabric.
+Today, I'm excited to share that I've started my new role as Director of Admissions at Fusion Academy. I'm energized, aligned, and ready to grow.
 
-When I see students show up in outfits that feel true to them, I see more than clothes. I see self-expression and belonging.
-
-This Thanksgiving, I'm asking myself:
-
-**How do we give people—especially young people—permission to wear their stories boldly?**
-
-Would love to hear your thoughts.
+#stayready #education #technology #leadership #turnoverchain
 ---
 
-STYLE RULES (MANDATORY):
-- Open with personal reflection that draws reader in
-- **Bold** the key insight statement
-- Include a SPECIFIC PERSONAL STORY (dad's jacket, mechanic, cold mornings)
-- Stack emotional phrases ("It was identity. It was connection.")
-- Connect personal story to broader meaning
-- End with a bold question that invites reflection
-- NO generic observations
-- EVERY line must carry emotional weight
+EXAMPLE 2 (Event Recap - 1,767 impressions):
+---
+Wrapping up an incredible Season of Coffee & Convo with the final event of 2025 being hosted at Fusion Academy DC!
+
+Yall we had a DYNAMIC conversation around pervasive drive for autonomy (PDA). Say it with me:
+
+🗣️ Pervasive Drive for Autonomy!
+
+A huge thank you to our amazing panelists:
+Natalie Morton – Director of Education at Fusion DC
+Kaitlyn Tiplady – Licensed Clinical Psychologist, Georgetown Psychology
+Elizabeth Sokolov – Founder of NeuroPossible
+
+And a big shout-out to our cosponsor, Newport Healthcare. This event would not have been the same without your partnership!
+
+Coffee & Convo has been about creating space for meaningful dialogue and collaboration. We're so grateful to everyone who joined us and contributed to these conversations. We'll be back in 2026 with fresh topics and opportunities to connect... Stay tuned!
+---
+
+EXAMPLE 3 (Commentary - 782 impressions):
+---
+Just read Krugman's piece on how the U.S. is pushing away international students. As someone who worked with them daily, this one hit home.
+
+They bring talent, drive, fresh perspective and billions to the economy. Turning our backs? Makes no sense. Period.
+---
+
+VOICE RULES (MANDATORY - preserve these patterns):
+- Use "Yall" naturally as casual opener
+- "Tell you what tho" as conversational pivot
+- "Say it with me: 🗣️" for engagement hooks
+- "Big shout-out to..." for recognition
+- "Makes no sense. Period." for punchy closers
+- Short, punchy sentences for emphasis
+- **Bold** key insight statements
+- Tag people with their title/org
+- Hashtags grouped at end (5-7 max)
+- 🔔 for announcements, 💜 for Fusion content, 📸 before photos
 """,
         "cold_email": """
-EXAMPLE EMAIL (match this style):
----
-Subject: A Thanksgiving Reflection on Style + Identity
+EMAIL STYLE RULES (based on this person's voice):
 
-Thanksgiving always reminds me how closely personal style ties into our roots.
-
-I've been thinking about the oversized jacket I used to wear from my dad, who worked as a mechanic. I wore it to stay warm, but that wasn't the full story. It was a piece of my identity. It was connection.
-
-Clothing isn't superficial. It holds meaning, memories, and moments that shape us.
-
-When I see students expressing themselves through their style, I'm reminded how powerful it is to let people show who they are before they say a single word.
-
-This season, a question I've been sitting with:
-
-**How do we encourage others to wear their stories proudly?**
-
-Warmly,
-[Your Name]
----
-
-STYLE RULES:
-- Personal story anchors the message
+Structure:
+- Personal connection in opening
 - Short paragraphs, easy to skim
 - Reflective tone, not salesy
-- Ends with genuine question
-- "Warmly" closing feels human
+- One clear CTA
+- "Warmly" or similar human closing
+
+Voice markers to include:
+- Direct, confident language
+- Reference real experiences (Fusion Academy, Coffee & Convo events, neurodivergent students)
 - NO corporate jargon
+- Authentic, not overly polished
+
+PULL REAL ANECDOTES FROM PERSONA DATA - do not fabricate stories.
 """,
         "linkedin_dm": """
-EXAMPLE LINKEDIN DM (match this style):
----
-Hey — quick Thanksgiving reflection I've been thinking about.
+LINKEDIN DM STYLE (based on this person's voice):
 
-Style carries our stories. I used to wear this oversized jacket from my dad, who was a mechanic. At the time it felt practical; now I see it was identity.
-
-It made me realize how much clothing shapes confidence and self-expression, especially for students.
-
-Curious — what's one piece of clothing that tells part of *your* story?
----
-
-STYLE RULES:
-- Opens casual and human ("Hey —")
-- Includes a SPECIFIC personal detail (dad's jacket, mechanic)
+Structure:
+- Opens casual ("Hey —" or similar)
 - Short, under 10 seconds to read
-- Ends with a personal question that invites reply
+- Personal detail from REAL experiences
+- Ends with genuine question
 - NO pitch, NO ask for a call
+
+Voice markers:
+- Casual but professional
+- Can use "Yall" if appropriate
+- Reference real work (Fusion Academy, neurodivergent students, Coffee & Convo)
 - Feels like a message from a friend
+
+PULL REAL ANECDOTES FROM PERSONA DATA - do not fabricate stories.
 """,
         "instagram_post": """
-EXAMPLE INSTAGRAM CAPTION (match this style):
----
-Thanksgiving reminder:
+INSTAGRAM STYLE (based on this person's voice):
 
-**Style holds our stories.**
-
-I still think about the oversized jacket I used to wear from my dad, who worked as a mechanic. At the time it was just for warmth. Now I realize it was identity. It was comfort. It was connection.
-
-Clothes aren't just clothes.
-They're memories.
-They're roots.
-They're the pieces of our journey we carry with us.
-
-When I see students show up in their own style, it makes me want to celebrate that confidence.
-
-This season, ask yourself:
-
-**What story does your style carry?** 🍂✨
----
-
-STYLE RULES:
+Structure:
 - Opens with short punchy line
-- **Bold** the key statement
-- SPECIFIC personal story (dad's jacket, mechanic)
+- **Bold** key statements
 - Stacked short phrases for rhythm
-- Emoji sparingly at the end
-- Ends with bold question
-- Warm, reflective, NOT brand voice
+- Emoji sparingly at end (🙏, 💜, ✨)
+- Ends with question or reflection
+
+Voice markers:
+- Casual, warm, authentic
+- "Yall" acceptable
+- Reference real experiences
+- Personal but not oversharing
+
+PULL REAL ANECDOTES FROM PERSONA DATA - do not fabricate stories.
 """
     }
     
@@ -477,124 +476,106 @@ PERSONAL CONTENT RULES:
 - End with reflection or question that invites others to share"""
     }
     
-    # Channel-specific system prompts
+    # Channel-specific system prompts - PRESERVE AUTHENTIC VOICE
     channel_prompts = {
-        "linkedin_post": """You write LinkedIn posts with clarity, authority, and human rhythm.
-Follow the Content Style Guide strictly:
-- no banned words
-- no banned phrases
-- no LLM patterns
-- no corporate jargon
-- no filler transitions
-- no symmetric paragraphs
-- no fluff
+        "linkedin_post": """You write LinkedIn posts that sound like THIS SPECIFIC PERSON - casual, warm, punchy.
+
+VOICE PRESERVATION (CRITICAL):
+- Keep casual markers: "Yall", "Tell you what tho", "I'm here for it"
+- Keep punchy rhythm: short sentences, stacked phrases
+- Keep engagement hooks: "Say it with me: 🗣️"
+- Keep recognition patterns: "Big shout-out to..."
+- DO NOT over-polish or remove casual language
+- DO NOT make it sound corporate or generic
 
 Tone:
-- confident
-- direct
-- practical
-- grounded in experience
-- warm but not sentimental
-- professional but not corporate
+- confident and direct
+- warm and casual (NOT stiff or formal)
+- grounded in real experience
+- punchy, not verbose
 
 Writing rules:
-- lead with a strong insight, not a recap
-- vary sentence length to feel human
-- keep each paragraph 1–3 sentences max
-- reference concrete examples from real work
-- use specificity over general positivity
-- avoid over-explaining concepts
-- speak to the reader ("you"), not the room
+- lead with insight or hook, not setup
+- vary sentence length
+- short paragraphs (1-3 sentences)
+- use REAL stories from persona data
+- end with question or reflection
+- hashtags grouped at end
 
-Before you finalize the post, perform a voice audit:
-- remove hedging words
-- tighten sentences
-- cut filler transitions
-- ensure rhythm is human
-- remove any phrase that "sounds like AI"
-- ensure insight is front-loaded""",
+Voice audit:
+- Does it sound like the real LinkedIn examples?
+- Are casual markers preserved?
+- Is the rhythm punchy, not flat?
+- Would this person actually post this?""",
 
-        "cold_email": """You write emails that are professional, concise, and easy to read.
-Follow the Content Style Guide strictly.
+        "cold_email": """You write emails that are professional but still sound like THIS PERSON.
+
+VOICE PRESERVATION:
+- Keep direct, confident language
+- Can include casual warmth
+- Reference real experiences from persona
+- NO corporate jargon
 
 Tone:
-- direct
-- calm
-- confident
+- direct and confident
+- warm but professional
 - clean and human
 
 Structure:
-- strong opening sentence (sets purpose immediately)
+- strong opening
 - short paragraphs
-- clean formatting
 - one clear CTA
-- no fluff sentences
+- human closing ("Warmly" etc.)
+
+Voice audit:
+- Does it sound authentic to this person?
+- Is it direct without being cold?""",
+
+        "linkedin_dm": """You write DMs that feel like messages from a friend, not a salesperson.
+
+VOICE PRESERVATION:
+- Casual openers OK ("Hey —")
+- Can use "Yall" if fits context
+- Short and punchy
+- Reference real work from persona
+
+Tone:
+- casual and warm
+- confident, not salesy
+- conversational
 
 Rules:
-- remove corporate language completely
-- avoid stacked hedging ("may potentially")
-- avoid long build-up explanations
-- prioritize clarity over formality
-- write at an 8th–10th grade reading level
-- avoid LLM cadence and transitions
+- under 10 seconds to read
+- one question or insight
+- NO pitch language
+- feels personal
 
 Voice audit:
-- remove filler
-- remove over-politeness
-- tighten every sentence by 10–20%
-- ensure the CTA stands out logically
-- remove clichés ("circle back," "touch base," "I hope this finds you well")""",
+- Would you send this to a friend?
+- Is it too formal or stiff?""",
 
-        "linkedin_dm": """You write outreach messages that feel personal, informed, and respectful of time.
-Follow the Content Style Guide strictly.
+        "instagram_post": """You write Instagram captions that are casual, warm, and authentic.
 
-Tone:
-- concise
-- confident
-- warm but not chatty
-- never salesy
-- always personalized to the recipient's context
-
-Writing rules:
-- keep messages short; remove everything unnecessary
-- no paragraphs over 2 sentences
-- lead with a personalized reference or relevant insight
-- ask one clear question or make one clear offer
-- anchor messages in the recipient's world, not yours
-- no lists, no emojis unless explicitly asked
-- remove every piece of filler ("just," "wanted to," "reaching out because")
-
-Voice audit before finalizing:
-- delete any generic outreach language
-- remove over-politeness
-- replace vague phrases with specifics
-- ensure message can be read in under 7 seconds
-- ensure the ask is clear and light""",
-
-        "instagram_post": """You write Instagram captions that are clean, warm, and human.
-Follow the Content Style Guide strictly.
+VOICE PRESERVATION:
+- Casual language OK ("Yall" etc.)
+- Emojis sparingly (🙏 💜 ✨)
+- Punchy rhythm, stacked phrases
+- Personal but not oversharing
 
 Tone:
-- casual but thoughtful
-- conversational without slang
-- personal but not emotional dumping
-- confident, warm, and visually descriptive
+- casual and thoughtful
+- warm and authentic
+- visually descriptive
 
-Writing rules:
-- short paragraphs, lots of white space
-- open with a hook or vivid moment
-- keep language concrete, visual, and sensory
-- avoid hashtags unless asked
-- avoid "inspirational quote" tone
-- avoid corporate language entirely
-- do not sound like a brand
+Rules:
+- short paragraphs, white space
+- open with hook
+- end with question or reflection
+- NO brand voice, NO corporate
 
 Voice audit:
-- tighten every sentence
-- remove filler transitions
-- adjust rhythm
-- ensure the caption sounds like a human moment, not marketing
-- remove clichés"""
+- Does it sound like a real person?
+- Is the rhythm natural?"""
     }
     
     channel_prompt = channel_prompts.get(content_type, channel_prompts["linkedin_post"])
@@ -643,6 +624,23 @@ Voice audit:
 3. Be specific and actionable, not generic.
 4. Generate 3 different options with varying hooks/angles.
 
+## ANTI-HALLUCINATION RULES (CRITICAL):
+- ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
+- If you need a personal story, pick one from: DEFINE Socks, Coffee & Convo, Fusion Academy, 2U, InspireSTL, Georgetown data science, USC projects
+- NEVER invent stories about family members, objects, or experiences not in the persona
+- If no relevant anecdote exists, use a general reflection instead of fabricating
+- Real ventures to reference: DEFINE Socks, Acorn Global Collective, Easy Outfit App, Coffee & Convo events
+- Real experiences: neurodivergent students, program launches, Salesforce migrations, team coaching
+
+## VOICE MARKERS TO USE:
+- "Yall" / "Y'all" as casual opener
+- "Tell you what tho" as pivot
+- "Say it with me: 🗣️" for engagement
+- "Big shout-out to..." for recognition
+- "Makes no sense. Period." for punchy closer
+- "I'm here for it" for endorsement
+- "#stayready" "#staytuned" for hashtags
+
 Output only the content. No notes, no explanations.
 
 Generate 3 content options, separated by "---OPTION---":
@@ -657,14 +655,26 @@ async def generate_content(req: ContentGenerationRequest):
     Generate AI-powered content using persona and examples from knowledge base.
     """
     try:
-        # Step 1: Retrieve persona information from knowledge base
-        persona_query = "persona voice tone style background experience professional identity"
-        persona_embedding = embed_text(persona_query)
-        persona_chunks = retrieve_similar(
+        # Step 1a: Retrieve VOICE patterns (casual phrases, rhythm, signature expressions)
+        voice_query = "signature phrases casual voice patterns Yall tell you what tho say it with me big shout out LinkedIn post examples high performing"
+        voice_embedding = embed_text(voice_query)
+        voice_chunks = retrieve_similar(
             user_id=req.user_id,
-            query_embedding=persona_embedding,
-            top_k=5,
+            query_embedding=voice_embedding,
+            top_k=4,
         )
+        
+        # Step 1b: Retrieve BIO/background info (career, ventures, accomplishments)
+        bio_query = "career background ventures accomplishments education experience Fusion Academy 2U DEFINE Socks projects"
+        bio_embedding = embed_text(bio_query)
+        bio_chunks = retrieve_similar(
+            user_id=req.user_id,
+            query_embedding=bio_embedding,
+            top_k=3,
+        )
+        
+        # Merge chunks: voice first (60%), then bio (40%)
+        persona_chunks = voice_chunks + bio_chunks
         
         # Step 2: Retrieve high-performing content examples
         examples_query = f"high performing content example {req.content_type} {req.category} {req.topic}"
@@ -690,13 +700,26 @@ async def generate_content(req: ContentGenerationRequest):
         
         # Step 4: Generate content with OpenAI
         client = get_openai_client()
+        
+        system_message = """You are a ghostwriter who perfectly mimics a specific person's voice.
+
+CRITICAL RULES:
+1. Use the EXACT voice patterns from the persona data (casual phrases, rhythm, signature expressions)
+2. Pull REAL anecdotes from the persona - never fabricate stories
+3. Preserve casual markers like "Yall", "Tell you what tho", "Say it with me"
+4. Keep punchy rhythm - short sentences, stacked phrases
+5. DO NOT over-polish or make it sound generic/corporate
+6. The output should sound like the person's actual LinkedIn posts
+
+If the persona uses casual language, USE IT. Do not "clean it up" into formal English."""
+        
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are an expert content ghostwriter. Generate authentic, engaging content that matches the person's voice."},
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.8,
+            temperature=0.85,  # Slightly higher for more natural variation
             max_tokens=2000,
         )
         
