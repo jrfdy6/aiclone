@@ -114,105 +114,111 @@ CRITICAL STYLE RULES:
         "linkedin_post": """
 EXAMPLE LINKEDIN POST (match this style EXACTLY):
 ---
-Thanksgiving always prompts reflection, but this year I'm thinking about something most people overlook in education:
+Thanksgiving always pulls me back to the idea of personal style and where it comes from.
 
-**Style is a learning tool.**
+**What we wear is never random. It's a reflection of our journey.**
 
-When a student wears something that reflects who they are, you can see the shift immediately —
-more confidence, more participation, more presence.
+I think about the oversized jacket I used to borrow from my dad, a mechanic. I wore it on cold school mornings; at the time, I thought it was about staying warm. Looking back, it was identity. It was connection. It was carrying a piece of my story into the world.
 
-It's not "just clothes."
-It's identity.
-It's belonging.
-It's agency.
+Style isn't superficial. It's memory, culture, and confidence stitched into fabric.
 
-And in a world where so many students feel unseen, even one outfit that helps them feel *like themselves* can reshape their entire day.
+When I see students show up in outfits that feel true to them, I see more than clothes. I see self-expression and belonging.
 
-This holiday season, I'm asking myself:
-**How can we use style as a bridge toward stronger learning environments?**
+This Thanksgiving, I'm asking myself:
 
-Curious to hear your thoughts — how do you help students express themselves?
+**How do we give people—especially young people—permission to wear their stories boldly?**
+
+Would love to hear your thoughts.
 ---
 
 STYLE RULES (MANDATORY):
-- Open with reflection + pivot to unexpected insight
-- Use **bold** for key statements
-- Stack short phrases for rhythm ("It's identity. It's belonging. It's agency.")
-- Create emotional resonance ("feel unseen", "feel like themselves")
-- Position yourself as the guide asking a bigger question
-- End with genuine curiosity, not generic CTA
-- NO flat academic tone
-- NO "It's not just X; it's Y" without emotional weight
-- EVERY line must earn its place
+- Open with personal reflection that draws reader in
+- **Bold** the key insight statement
+- Include a SPECIFIC PERSONAL STORY (dad's jacket, mechanic, cold mornings)
+- Stack emotional phrases ("It was identity. It was connection.")
+- Connect personal story to broader meaning
+- End with a bold question that invites reflection
+- NO generic observations
+- EVERY line must carry emotional weight
 """,
         "cold_email": """
 EXAMPLE EMAIL (match this style):
 ---
-Subject: A Thanksgiving Thought on Style + Education
+Subject: A Thanksgiving Reflection on Style + Identity
 
-As we head into Thanksgiving, I've been reflecting on something that often gets overlooked in education: the role of personal style.
+Thanksgiving always reminds me how closely personal style ties into our roots.
 
-When students wear clothing that reflects who they are, something shifts — their confidence, their engagement, and even the way they participate in class.
+I've been thinking about the oversized jacket I used to wear from my dad, who worked as a mechanic. I wore it to stay warm, but that wasn't the full story. It was a piece of my identity. It was connection.
 
-It's more than fabric.
-It's a way for students to express identity, feel seen, and build connection.
+Clothing isn't superficial. It holds meaning, memories, and moments that shape us.
 
-This season, I'm thinking more intentionally about how we support self-expression in educational spaces.
+When I see students expressing themselves through their style, I'm reminded how powerful it is to let people show who they are before they say a single word.
 
-How do you see style influencing the way students learn?
+This season, a question I've been sitting with:
+
+**How do we encourage others to wear their stories proudly?**
+
+Warmly,
+[Your Name]
 ---
 
 STYLE RULES:
+- Personal story anchors the message
 - Short paragraphs, easy to skim
-- Line breaks for rhythm
-- Ends with genuine question, not hard sell
-- Professional but human
-- NO "I hope this finds you well"
+- Reflective tone, not salesy
+- Ends with genuine question
+- "Warmly" closing feels human
 - NO corporate jargon
 """,
         "linkedin_dm": """
 EXAMPLE LINKEDIN DM (match this style):
 ---
-Hey! Quick Thanksgiving reflection — I've been thinking about how style actually plays a real role in education.
+Hey — quick Thanksgiving reflection I've been thinking about.
 
-When students feel good in what they're wearing, they engage differently. More confidence. More connection.
+Style carries our stories. I used to wear this oversized jacket from my dad, who was a mechanic. At the time it felt practical; now I see it was identity.
 
-Curious how you've seen self-expression show up in your work with students?
+It made me realize how much clothing shapes confidence and self-expression, especially for students.
+
+Curious — what's one piece of clothing that tells part of *your* story?
 ---
 
 STYLE RULES:
-- Ultra short, under 7 seconds to read
-- Conversational opener
-- One clear question
+- Opens casual and human ("Hey —")
+- Includes a SPECIFIC personal detail (dad's jacket, mechanic)
+- Short, under 10 seconds to read
+- Ends with a personal question that invites reply
 - NO pitch, NO ask for a call
-- Feels like a real human message
+- Feels like a message from a friend
 """,
         "instagram_post": """
 EXAMPLE INSTAGRAM CAPTION (match this style):
 ---
-Thanksgiving reflection 🍂
-But make it about *style + education.*
+Thanksgiving reminder:
 
-I've seen how the right outfit can change a student's whole energy —
-more confidence, more comfort, more connection.
+**Style holds our stories.**
 
-It's not just clothes.
-It's expression.
-It's identity.
-It's a tiny spark that helps them show up as their real selves.
+I still think about the oversized jacket I used to wear from my dad, who worked as a mechanic. At the time it was just for warmth. Now I realize it was identity. It was comfort. It was connection.
 
-This season, I'm grateful for the moments where students feel seen — not just academically, but personally.
+Clothes aren't just clothes.
+They're memories.
+They're roots.
+They're the pieces of our journey we carry with us.
 
-What part of your style makes you feel most like *you*? 👇✨
+When I see students show up in their own style, it makes me want to celebrate that confidence.
+
+This season, ask yourself:
+
+**What story does your style carry?** 🍂✨
 ---
 
 STYLE RULES:
-- Warm, aesthetic tone
-- Short stacked phrases for rhythm
-- Emoji used sparingly but effectively
-- Ends with engaging question
-- Feels personal, not like a brand
-- NO hashtag spam
+- Opens with short punchy line
+- **Bold** the key statement
+- SPECIFIC personal story (dad's jacket, mechanic)
+- Stacked short phrases for rhythm
+- Emoji sparingly at the end
+- Ends with bold question
+- Warm, reflective, NOT brand voice
 """
     }
     
