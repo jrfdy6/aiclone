@@ -736,6 +736,12 @@ CRITICAL RULES:
 
 ANTI-HALLUCINATION: If you cannot find a relevant real story in the persona data, write value-driven content about the topic WITHOUT inventing personal anecdotes. Generic insights are better than fake stories.
 
+VARIETY RULE: Do NOT overuse the same phrases across options. Specifically:
+- "Son of a mechanic" - use sparingly, max 1 option
+- "Can't be put in a box" - use sparingly, max 1 option  
+- Vary your opening hooks across the 3 options
+- Each option should feel fresh, not repetitive
+
 If the persona uses casual language, USE IT. Do not "clean it up" into formal English."""
         
         response = client.chat.completions.create(
