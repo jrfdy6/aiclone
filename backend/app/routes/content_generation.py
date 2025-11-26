@@ -171,11 +171,18 @@ async def generate_content(req: ContentGenerationRequest):
         
         # Step 5: Parse options
         raw_content = response.choices[0].message.content
-        options = [opt.strip() for opt in raw_content.split("---OPTION---") if opt.strip()]
         
-        # If no separator found, treat as single option
-        if len(options) == 1 and "---" not in raw_content:
-            options = [raw_content]
+        # Try multiple separator patterns
+        if "---OPTION 1---" in raw_content:
+            # Split by numbered options
+            import re
+            options = re.split(r'---OPTION \d+---', raw_content)
+            options = [opt.strip() for opt in options if opt.strip()]
+        elif "---OPTION---" in raw_content:
+            options = [opt.strip() for opt in raw_content.split("---OPTION---") if opt.strip()]
+        else:
+            # No separator found, treat as single option
+            options = [raw_content.strip()]
         
         return ContentGenerationResponse(
             success=True,
