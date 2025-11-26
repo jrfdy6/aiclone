@@ -28,6 +28,7 @@ class ContentGenerationRequest(BaseModel):
     category: str = Field("value", description="Chris Do category: value, sales, personal")
     pacer_elements: List[str] = Field(default_factory=list, description="PACER elements to include: Problem, Amplify, Credibility, Educate, Request")
     tone: str = Field("expert_direct", description="Tone: expert_direct, inspiring, conversational")
+    audience: str = Field("general", description="Target audience: general, education_admissions, tech_ai, fashion, leadership, neurodivergent, entrepreneurs")
 
 
 class ContentGenerationResponse(BaseModel):
@@ -54,7 +55,8 @@ def build_content_prompt(
     pacer_elements: List[str],
     tone: str,
     persona_chunks: List[Dict],
-    example_chunks: List[Dict]
+    example_chunks: List[Dict],
+    audience: str = "general"
 ) -> str:
     """Build the prompt for content generation."""
     
@@ -179,6 +181,43 @@ If you want your own AI Clone, drop "CLONE" in the comments or DM me 👇
     }
     
     channel_example = channel_examples.get(content_type, "")
+    
+    # Audience-specific guidance
+    audience_guidance = {
+        "general": "Write for a general professional audience.",
+        "education_admissions": """TARGET AUDIENCE: Education & Admissions professionals
+- Use language familiar to enrollment management, admissions counselors, program directors
+- Reference challenges like yield optimization, pipeline management, student recruitment
+- Avoid teaching/classroom language - focus on BUSINESS of education
+- Speak to people who manage teams, hit enrollment targets, work with families""",
+        "tech_ai": """TARGET AUDIENCE: Tech & AI professionals
+- Use technical language appropriately but don't over-jargon
+- Reference building, shipping, automation, efficiency
+- Speak to builders, founders, operators who use AI as a tool
+- Focus on practical applications, not hype""",
+        "fashion": """TARGET AUDIENCE: Fashion & Style enthusiasts
+- Use visual, sensory language
+- Reference personal style, wardrobe, looking good
+- Speak to people who care about presentation and self-expression
+- Keep it relatable, not high-fashion exclusive""",
+        "leadership": """TARGET AUDIENCE: Leaders & Managers
+- Use language of team dynamics, decision-making, influence
+- Reference coaching, developing people, driving results
+- Speak to people who manage teams and navigate organizational complexity
+- Focus on practical leadership, not theoretical""",
+        "neurodivergent": """TARGET AUDIENCE: Neurodivergent community & supporters
+- Use respectful, informed language about neurodivergence
+- Reference different learning styles, accommodations, finding the right fit
+- Speak to families, professionals, and neurodivergent individuals
+- Be authentic - draw from personal experience as a neurodivergent professional""",
+        "entrepreneurs": """TARGET AUDIENCE: Entrepreneurs & Founders
+- Use language of building, scaling, problem-solving
+- Reference hustle, pivoting, shipping, customer discovery
+- Speak to people building something from scratch
+- Focus on action and results, not theory"""
+    }
+    
+    audience_context = audience_guidance.get(audience, audience_guidance["general"])
     
     # Category guidance (Chris Do 911)
     category_guidance = {
@@ -329,6 +368,10 @@ Voice audit:
 
 ---
 
+{audience_context}
+
+---
+
 ## PERSONA (write AS this person):
 {persona_text if persona_text else "No persona data available - use a professional, authentic voice."}
 
@@ -338,6 +381,7 @@ Voice audit:
 ## CONTENT REQUEST:
 - **Topic:** {topic}
 - **Context:** {context or "General"}
+- **Audience:** {audience.replace('_', ' ').title()}
 - **Category:** {category.upper()} - {category_guidance.get(category, "")}
 
 {pacer_guidance}
@@ -389,7 +433,8 @@ async def generate_content(req: ContentGenerationRequest):
             pacer_elements=req.pacer_elements,
             tone=req.tone,
             persona_chunks=persona_chunks,
-            example_chunks=example_chunks
+            example_chunks=example_chunks,
+            audience=req.audience
         )
         
         # Step 4: Generate content with OpenAI
