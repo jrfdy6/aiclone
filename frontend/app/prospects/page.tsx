@@ -208,20 +208,20 @@ export default function ProspectsPage() {
   }), [prospects]);
 
   return (
-    <main className="min-h-screen bg-gray-900">
+    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
       <NavHeader />
       {/* Sticky Header */}
-      <div className="sticky top-[58px] z-10 bg-slate-800 border-b border-slate-600 shadow-sm">
-        <div className="max-w-[1600px] mx-auto px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
+      <div style={{ position: 'sticky', top: '58px', zIndex: 10, backgroundColor: '#1e293b', borderBottom: '1px solid #475569', padding: '16px 24px' }}>
+        <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <div>
-              <h1 className="text-2xl font-bold text-white">Prospect Pipeline</h1>
-              <p className="text-sm text-gray-400">{filteredProspects.length} of {prospects.length} prospects</p>
+              <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: 'white', marginBottom: '4px' }}>Prospect Pipeline</h1>
+              <p style={{ fontSize: '14px', color: '#9ca3af' }}>{filteredProspects.length} of {prospects.length} prospects</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               {selectedProspects.size > 0 && (
                 <button
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                  style={{ padding: '8px 16px', backgroundColor: '#22c55e', color: 'white', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '14px' }}
                   onClick={() => alert(`Generate DMs for ${selectedProspects.size} prospects`)}
                 >
                   Generate DMs ({selectedProspects.size})
@@ -229,7 +229,7 @@ export default function ProspectsPage() {
               )}
               <Link
                 href="/prospect-discovery"
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                style={{ padding: '8px 16px', backgroundColor: '#2563eb', color: 'white', borderRadius: '8px', textDecoration: 'none', fontSize: '14px' }}
               >
                 + Find Prospects
               </Link>
@@ -237,15 +237,15 @@ export default function ProspectsPage() {
           </div>
 
           {/* Filters Row */}
-          <div className="flex flex-wrap items-center gap-4">
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '16px' }}>
             {/* Search */}
-            <div className="flex-1 min-w-[200px] max-w-md">
+            <div style={{ flex: 1, minWidth: '200px', maxWidth: '400px' }}>
               <input
                 type="text"
                 placeholder="Search name, company, tags..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-600 bg-slate-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                style={{ width: '100%', padding: '8px 16px', border: '1px solid #475569', backgroundColor: '#334155', color: 'white', borderRadius: '8px', fontSize: '14px' }}
               />
             </div>
 
@@ -253,7 +253,7 @@ export default function ProspectsPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as ProspectStatus)}
-              className="px-3 py-2 border border-slate-600 bg-slate-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ padding: '8px 12px', border: '1px solid #475569', backgroundColor: '#334155', color: 'white', borderRadius: '8px', fontSize: '14px' }}
             >
               <option value="all">All Status</option>
               {STATUS_OPTIONS.map(s => (
@@ -262,24 +262,24 @@ export default function ProspectsPage() {
             </select>
 
             {/* Fit Score Filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-300">Min Fit:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '14px', color: '#9ca3af' }}>Min Fit:</span>
               <input
                 type="range"
                 min="0"
                 max="100"
                 value={minFitScore}
                 onChange={(e) => setMinFitScore(Number(e.target.value))}
-                className="w-24"
+                style={{ width: '96px' }}
               />
-              <span className="text-sm text-white w-10">{minFitScore}%</span>
+              <span style={{ fontSize: '14px', color: 'white', width: '40px' }}>{minFitScore}%</span>
             </div>
 
             {/* Sort */}
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="px-3 py-2 border border-slate-600 bg-slate-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ padding: '8px 12px', border: '1px solid #475569', backgroundColor: '#334155', color: 'white', borderRadius: '8px', fontSize: '14px' }}
             >
               <option value="fit_score">Sort: Fit Score</option>
               <option value="name">Sort: Name</option>
@@ -289,7 +289,7 @@ export default function ProspectsPage() {
 
             <button
               onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              className="px-3 py-2 border border-slate-600 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-600"
+              style={{ padding: '8px 12px', border: '1px solid #475569', backgroundColor: '#334155', color: 'white', borderRadius: '8px', fontSize: '14px', cursor: 'pointer' }}
             >
               {sortOrder === 'asc' ? '↑' : '↓'}
             </button>
@@ -297,86 +297,85 @@ export default function ProspectsPage() {
         </div>
       </div>
 
-      <div className="max-w-[1600px] mx-auto px-6 py-6">
+      <div style={{ maxWidth: '1600px', margin: '0 auto', padding: '24px' }}>
         {/* Quick Stats */}
-        <div className="grid grid-cols-5 gap-4 mb-6">
-          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
-            <div className="text-2xl font-bold text-white">{stats.total}</div>
-            <div className="text-sm text-gray-400">Total</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '24px' }}>
+          <div style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'white' }}>{stats.total}</div>
+            <div style={{ fontSize: '14px', color: '#9ca3af' }}>Total</div>
           </div>
-          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
-            <div className="text-2xl font-bold text-blue-400">{stats.new}</div>
-            <div className="text-sm text-gray-400">New</div>
+          <div style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#60a5fa' }}>{stats.new}</div>
+            <div style={{ fontSize: '14px', color: '#9ca3af' }}>New</div>
           </div>
-          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
-            <div className="text-2xl font-bold text-green-400">{stats.contacted}</div>
-            <div className="text-sm text-gray-400">Contacted</div>
+          <div style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#4ade80' }}>{stats.contacted}</div>
+            <div style={{ fontSize: '14px', color: '#9ca3af' }}>Contacted</div>
           </div>
-          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
-            <div className="text-2xl font-bold text-orange-400">{stats.followUp}</div>
-            <div className="text-sm text-gray-400">Follow-up</div>
+          <div style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fb923c' }}>{stats.followUp}</div>
+            <div style={{ fontSize: '14px', color: '#9ca3af' }}>Follow-up</div>
           </div>
-          <div className="bg-slate-800 rounded-lg border border-slate-600 p-4">
-            <div className="text-2xl font-bold text-purple-400">{stats.highFit}</div>
-            <div className="text-sm text-gray-400">High Fit (80%+)</div>
+          <div style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#c084fc' }}>{stats.highFit}</div>
+            <div style={{ fontSize: '14px', color: '#9ca3af' }}>High Fit (80%+)</div>
           </div>
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-6">
+          <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', borderRadius: '8px', padding: '16px', color: '#f87171', marginBottom: '24px' }}>
             {error}
           </div>
         )}
 
         {/* Loading State */}
         {loading ? (
-          <div className="text-center py-12">
-            <p className="text-gray-600">Loading prospects...</p>
+          <div style={{ textAlign: 'center', padding: '48px' }}>
+            <p style={{ color: '#9ca3af' }}>Loading prospects...</p>
           </div>
         ) : (
           /* Prospects Table */
-          <div className="bg-slate-800 rounded-lg border-2 border-slate-600 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-700 border-b-2 border-slate-500">
+          <div style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '2px solid #475569', overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead style={{ backgroundColor: '#334155', borderBottom: '2px solid #475569' }}>
                   <tr>
-                    <th className="px-4 py-4 text-left w-10 border-r border-slate-600">
+                    <th style={{ padding: '16px', textAlign: 'left', width: '40px', borderRight: '1px solid #475569' }}>
                       <input
                         type="checkbox"
                         checked={selectedProspects.size === filteredProspects.length && filteredProspects.length > 0}
                         onChange={toggleSelectAll}
-                        className="rounded"
                       />
                     </th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider border-r border-slate-600">
+                    <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: 'bold', color: 'white', textTransform: 'uppercase', borderRight: '1px solid #475569' }}>
                       Name
                     </th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider border-r border-slate-600">
+                    <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: 'bold', color: 'white', textTransform: 'uppercase', borderRight: '1px solid #475569' }}>
                       Company
                     </th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider w-24 border-r border-slate-600">
+                    <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: 'bold', color: 'white', textTransform: 'uppercase', width: '96px', borderRight: '1px solid #475569' }}>
                       Fit
                     </th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider w-32 border-r border-slate-600">
+                    <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: 'bold', color: 'white', textTransform: 'uppercase', width: '128px', borderRight: '1px solid #475569' }}>
                       Status
                     </th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider border-r border-slate-600">
+                    <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: 'bold', color: 'white', textTransform: 'uppercase', borderRight: '1px solid #475569' }}>
                       Tags
                     </th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wider w-40">
+                    <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: 'bold', color: 'white', textTransform: 'uppercase', width: '160px' }}>
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-600">
+                <tbody>
                   {filteredProspects.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                      <td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#9ca3af' }}>
                         {prospects.length === 0 ? (
                           <>
                             No prospects yet.{' '}
-                            <Link href="/prospect-discovery" className="text-blue-600 hover:underline">
+                            <Link href="/prospect-discovery" style={{ color: '#3b82f6' }}>
                               Find some prospects
                             </Link>{' '}
                             to get started.
@@ -391,55 +390,51 @@ export default function ProspectsPage() {
                       <>
                         <tr
                           key={prospect.id}
-                          className={`hover:bg-slate-700 transition-colors ${expandedRow === prospect.id ? 'bg-slate-700' : ''}`}
+                          style={{ borderBottom: '1px solid #475569', backgroundColor: expandedRow === prospect.id ? '#334155' : 'transparent' }}
                         >
-                          <td className="px-4 py-4 border-r border-slate-700">
+                          <td style={{ padding: '16px', borderRight: '1px solid #374151' }}>
                             <input
                               type="checkbox"
                               checked={selectedProspects.has(prospect.id)}
                               onChange={() => toggleSelect(prospect.id)}
-                              className="rounded"
                             />
                           </td>
-                          <td className="px-4 py-4 border-r border-slate-700">
+                          <td style={{ padding: '16px', borderRight: '1px solid #374151' }}>
                             <button
                               onClick={() => setExpandedRow(expandedRow === prospect.id ? null : prospect.id)}
-                              className="text-left w-full"
+                              style={{ textAlign: 'left', width: '100%', background: 'none', border: 'none', cursor: 'pointer' }}
                             >
-                              <div className="font-medium text-white hover:text-blue-400">
+                              <div style={{ fontWeight: 500, color: 'white' }}>
                                 {prospect.name || 'N/A'}
                               </div>
                               {prospect.job_title && (
-                                <div className="text-sm text-gray-400">{prospect.job_title}</div>
+                                <div style={{ fontSize: '14px', color: '#9ca3af' }}>{prospect.job_title}</div>
                               )}
                             </button>
                           </td>
-                          <td className="px-4 py-4 text-sm text-gray-200 border-r border-slate-700">{prospect.company || '—'}</td>
-                          <td className="px-4 py-4 border-r border-slate-700">
-                            <div className="flex items-center gap-2">
-                              <div className="w-12 h-2 bg-slate-600 rounded-full overflow-hidden">
+                          <td style={{ padding: '16px', fontSize: '14px', color: '#e2e8f0', borderRight: '1px solid #374151' }}>{prospect.company || '—'}</td>
+                          <td style={{ padding: '16px', borderRight: '1px solid #374151' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div style={{ width: '48px', height: '8px', backgroundColor: '#475569', borderRadius: '4px', overflow: 'hidden' }}>
                                 <div
-                                  className={`h-full ${
-                                    (prospect.fit_score || 0) >= 0.8
-                                      ? 'bg-green-500'
-                                      : (prospect.fit_score || 0) >= 0.6
-                                      ? 'bg-yellow-500'
-                                      : 'bg-red-500'
-                                  }`}
-                                  style={{ width: `${(prospect.fit_score || 0) * 100}%` }}
+                                  style={{ 
+                                    height: '100%', 
+                                    width: `${(prospect.fit_score || 0) * 100}%`,
+                                    backgroundColor: (prospect.fit_score || 0) >= 0.8 ? '#22c55e' : (prospect.fit_score || 0) >= 0.6 ? '#eab308' : '#ef4444'
+                                  }}
                                 />
                               </div>
-                              <span className="text-sm font-medium text-white">{formatFitScore(prospect.fit_score)}</span>
+                              <span style={{ fontSize: '14px', fontWeight: 500, color: 'white' }}>{formatFitScore(prospect.fit_score)}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-4 border-r border-slate-700">
+                          <td style={{ padding: '16px', borderRight: '1px solid #374151' }}>
                             {editingStatus === prospect.id ? (
                               <select
                                 autoFocus
                                 value={prospect.status}
                                 onChange={(e) => updateProspectStatus(prospect.id, e.target.value)}
                                 onBlur={() => setEditingStatus(null)}
-                                className="text-xs rounded border-gray-300 focus:ring-blue-500"
+                                style={{ fontSize: '12px', borderRadius: '4px', padding: '4px 8px', backgroundColor: '#334155', color: 'white', border: '1px solid #475569' }}
                               >
                                 {STATUS_OPTIONS.map(s => (
                                   <option key={s.value} value={s.value}>{s.label}</option>
@@ -448,39 +443,49 @@ export default function ProspectsPage() {
                             ) : (
                               <button
                                 onClick={() => setEditingStatus(prospect.id)}
-                                className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(prospect.status)} hover:opacity-80`}
+                                style={{ 
+                                  display: 'inline-flex', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px', 
+                                  fontWeight: 500, 
+                                  borderRadius: '9999px',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  backgroundColor: prospect.status === 'new' ? '#1e40af' : prospect.status === 'contacted' ? '#166534' : prospect.status === 'follow_up_needed' ? '#9a3412' : '#6b21a8',
+                                  color: 'white'
+                                }}
                               >
                                 {prospect.status?.replace('_', ' ') || 'new'}
                               </button>
                             )}
                           </td>
-                          <td className="px-4 py-4 border-r border-slate-700">
-                            <div className="flex flex-wrap gap-1">
+                          <td style={{ padding: '16px', borderRight: '1px solid #374151' }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                               {prospect.tags?.slice(0, 2).map((tag, idx) => (
                                 <span
                                   key={idx}
-                                  className="inline-flex px-2 py-0.5 text-xs font-medium bg-blue-600 text-white rounded"
+                                  style={{ display: 'inline-flex', padding: '2px 8px', fontSize: '12px', fontWeight: 500, backgroundColor: '#2563eb', color: 'white', borderRadius: '4px' }}
                                 >
                                   {tag}
                                 </span>
                               ))}
                               {prospect.tags && prospect.tags.length > 2 && (
-                                <span className="text-xs text-gray-400">+{prospect.tags.length - 2}</span>
+                                <span style={{ fontSize: '12px', color: '#9ca3af' }}>+{prospect.tags.length - 2}</span>
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-4">
-                            <div className="flex items-center gap-2">
+                          <td style={{ padding: '16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <Link
                                 href={`/outreach/${prospect.id}`}
-                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                style={{ color: '#3b82f6', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}
                               >
                                 DM
                               </Link>
                               {prospect.email && (
                                 <a
                                   href={`mailto:${prospect.email}`}
-                                  className="text-gray-600 hover:text-gray-800 text-sm"
+                                  style={{ color: '#9ca3af', fontSize: '14px', textDecoration: 'none' }}
                                 >
                                   Email
                                 </a>
@@ -490,7 +495,7 @@ export default function ProspectsPage() {
                                   href={prospect.source_url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-gray-400 hover:text-gray-600 text-sm"
+                                  style={{ color: '#6b7280', fontSize: '14px', textDecoration: 'none' }}
                                 >
                                   Source
                                 </a>
@@ -500,17 +505,17 @@ export default function ProspectsPage() {
                         </tr>
                         {/* Expanded Row */}
                         {expandedRow === prospect.id && (
-                          <tr key={`${prospect.id}-expanded`} className="bg-slate-700">
-                            <td colSpan={7} className="px-4 py-4">
-                              <div className="grid grid-cols-2 gap-4 text-sm">
+                          <tr key={`${prospect.id}-expanded`} style={{ backgroundColor: '#334155' }}>
+                            <td colSpan={7} style={{ padding: '16px' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '14px' }}>
                                 <div>
-                                  <h4 className="font-medium text-white mb-2">Contact Info</h4>
-                                  <div className="space-y-1 text-gray-300">
+                                  <h4 style={{ fontWeight: 500, color: 'white', marginBottom: '8px' }}>Contact Info</h4>
+                                  <div style={{ color: '#9ca3af' }}>
                                     {prospect.email && <div>📧 {prospect.email}</div>}
                                     {prospect.source_url && (
                                       <div>
                                         🔗{' '}
-                                        <a href={prospect.source_url} target="_blank" className="text-blue-600 hover:underline">
+                                        <a href={prospect.source_url} target="_blank" style={{ color: '#3b82f6' }}>
                                           {prospect.source_url.slice(0, 50)}...
                                         </a>
                                       </div>
@@ -520,14 +525,14 @@ export default function ProspectsPage() {
                                 <div>
                                   {prospect.summary && (
                                     <>
-                                      <h4 className="font-medium text-white mb-2">Summary</h4>
-                                      <p className="text-gray-300">{prospect.summary}</p>
+                                      <h4 style={{ fontWeight: 500, color: 'white', marginBottom: '8px' }}>Summary</h4>
+                                      <p style={{ color: '#9ca3af' }}>{prospect.summary}</p>
                                     </>
                                   )}
                                   {prospect.pain_points && prospect.pain_points.length > 0 && (
                                     <>
-                                      <h4 className="font-medium text-white mt-3 mb-2">Pain Points</h4>
-                                      <ul className="list-disc list-inside text-gray-300">
+                                      <h4 style={{ fontWeight: 500, color: 'white', marginTop: '12px', marginBottom: '8px' }}>Pain Points</h4>
+                                      <ul style={{ listStyle: 'disc', paddingLeft: '20px', color: '#9ca3af' }}>
                                         {prospect.pain_points.map((pp, i) => (
                                           <li key={i}>{pp}</li>
                                         ))}

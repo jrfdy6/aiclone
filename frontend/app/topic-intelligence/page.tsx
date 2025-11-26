@@ -133,44 +133,48 @@ export default function TopicIntelligencePage() {
         </header>
 
         {error && (
-          <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-400">
+          <div style={{ borderRadius: '8px', border: '1px solid #ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', padding: '16px', color: '#f87171', marginBottom: '24px' }}>
             {error}
           </div>
         )}
 
         {/* Theme Selection */}
-        <section className="rounded-xl border border-purple-500/30 bg-slate-800/50 backdrop-blur p-6">
-          <h2 className="text-xl font-semibold text-white mb-4">Select Intelligence Theme</h2>
+        <section style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px', marginBottom: '24px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'white', marginBottom: '16px' }}>Select Intelligence Theme</h2>
           
           {loadingThemes ? (
-            <div className="text-gray-400">Loading themes...</div>
+            <div style={{ color: '#9ca3af' }}>Loading themes...</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
               {themes.map((theme) => (
                 <button
                   key={theme.id}
                   onClick={() => setSelectedTheme(theme.id)}
-                  className={`p-4 rounded-lg border text-left transition-all ${
-                    selectedTheme === theme.id
-                      ? 'border-purple-500 bg-purple-500/20 text-white'
-                      : 'border-slate-600 bg-slate-700/50 text-gray-300 hover:border-purple-500/50'
-                  }`}
+                  style={{
+                    padding: '16px',
+                    borderRadius: '8px',
+                    border: selectedTheme === theme.id ? '2px solid #a855f7' : '1px solid #475569',
+                    backgroundColor: selectedTheme === theme.id ? 'rgba(168, 85, 247, 0.2)' : '#334155',
+                    color: 'white',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
                 >
-                  <div className="font-medium">{theme.name}</div>
-                  <div className="text-sm text-gray-400 mt-1">{theme.dork_count} search queries</div>
+                  <div style={{ fontWeight: 500 }}>{theme.name}</div>
+                  <div style={{ fontSize: '14px', color: '#9ca3af', marginTop: '4px' }}>{theme.dork_count} search queries</div>
                 </button>
               ))}
             </div>
           )}
 
           {selectedThemeData && (
-            <div className="mt-4 p-4 rounded-lg bg-slate-700/50 border border-slate-600">
-              <h3 className="text-sm font-medium text-purple-400 mb-2">Sources for {selectedThemeData.name}</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div style={{ marginTop: '16px', padding: '16px', borderRadius: '8px', backgroundColor: '#334155', border: '1px solid #475569' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: 500, color: '#a855f7', marginBottom: '8px' }}>Sources for {selectedThemeData.name}</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 {selectedThemeData.sources.map((source, i) => (
-                  <div key={i} className="text-sm">
-                    <span className="text-white">{source.source}</span>
-                    <span className="text-gray-500"> → {source.extracts}</span>
+                  <div key={i} style={{ fontSize: '14px' }}>
+                    <span style={{ color: 'white' }}>{source.source}</span>
+                    <span style={{ color: '#6b7280' }}> → {source.extracts}</span>
                   </div>
                 ))}
               </div>
@@ -180,19 +184,20 @@ export default function TopicIntelligencePage() {
           <button
             onClick={runIntelligence}
             disabled={loading || !selectedTheme}
-            className="mt-6 w-full py-3 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white font-medium hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            style={{
+              marginTop: '24px',
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              background: 'linear-gradient(to right, #9333ea, #ec4899)',
+              color: 'white',
+              fontWeight: 500,
+              border: 'none',
+              cursor: loading || !selectedTheme ? 'not-allowed' : 'pointer',
+              opacity: loading || !selectedTheme ? 0.5 : 1,
+            }}
           >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Running Intelligence (30-60s)...
-              </span>
-            ) : (
-              'Run Topic Intelligence'
-            )}
+            {loading ? 'Running Intelligence (30-60s)...' : 'Run Topic Intelligence'}
           </button>
         </section>
 

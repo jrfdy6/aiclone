@@ -264,43 +264,55 @@ export default function ProspectDiscoveryPage() {
         )}
 
         {savedMessage && (
-          <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-400 flex items-center justify-between">
+          <div style={{ borderRadius: '8px', border: '1px solid #22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)', padding: '16px', color: '#4ade80', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <span>{savedMessage}</span>
-            <Link href="/prospects" className="text-green-300 hover:text-green-200 underline">
+            <Link href="/prospects" style={{ color: '#86efac', textDecoration: 'underline' }}>
               View in Pipeline →
             </Link>
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex gap-2">
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
           <button
             onClick={() => setActiveTab('free')}
-            className={`px-6 py-3 rounded-lg font-medium transition-all ${
-              activeTab === 'free'
-                ? 'bg-green-600 text-white'
-                : 'bg-slate-800 text-gray-400 hover:text-white'
-            }`}
+            style={{
+              padding: '12px 24px',
+              borderRadius: '8px',
+              fontWeight: 500,
+              border: activeTab === 'free' ? '2px solid #22c55e' : '1px solid #475569',
+              backgroundColor: activeTab === 'free' ? '#166534' : '#1e293b',
+              color: activeTab === 'free' ? 'white' : '#9ca3af',
+              cursor: 'pointer',
+            }}
           >
             🆓 Free Search
           </button>
           <button
             onClick={() => setActiveTab('ai')}
-            className={`px-6 py-3 rounded-lg font-medium transition-all ${
-              activeTab === 'ai'
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-800 text-gray-400 hover:text-white'
-            }`}
+            style={{
+              padding: '12px 24px',
+              borderRadius: '8px',
+              fontWeight: 500,
+              border: activeTab === 'ai' ? '2px solid #3b82f6' : '1px solid #475569',
+              backgroundColor: activeTab === 'ai' ? '#1e40af' : '#1e293b',
+              color: activeTab === 'ai' ? 'white' : '#9ca3af',
+              cursor: 'pointer',
+            }}
           >
             🤖 AI Search
           </button>
           <button
             onClick={() => setActiveTab('urls')}
-            className={`px-6 py-3 rounded-lg font-medium transition-all ${
-              activeTab === 'urls'
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-800 text-gray-400 hover:text-white'
-            }`}
+            style={{
+              padding: '12px 24px',
+              borderRadius: '8px',
+              fontWeight: 500,
+              border: activeTab === 'urls' ? '2px solid #3b82f6' : '1px solid #475569',
+              backgroundColor: activeTab === 'urls' ? '#1e40af' : '#1e293b',
+              color: activeTab === 'urls' ? 'white' : '#9ca3af',
+              cursor: 'pointer',
+            }}
           >
             🔗 Scrape URLs
           </button>
@@ -308,56 +320,56 @@ export default function ProspectDiscoveryPage() {
 
         {/* Search Forms */}
         {(activeTab === 'free' || activeTab === 'ai') && (
-          <section className={`rounded-xl border ${activeTab === 'free' ? 'border-green-500/30' : 'border-blue-500/30'} bg-slate-800/50 backdrop-blur p-6`}>
-            <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-xl font-semibold text-white">
+          <section style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: `1px solid ${activeTab === 'free' ? '#22c55e' : '#3b82f6'}`, padding: '24px', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'white' }}>
                 {activeTab === 'free' ? 'Free Prospect Search' : 'AI-Powered Search'}
               </h2>
-              <span className={`px-2 py-1 rounded text-xs ${activeTab === 'free' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+              <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: activeTab === 'free' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(234, 179, 8, 0.2)', color: activeTab === 'free' ? '#4ade80' : '#facc15' }}>
                 {activeTab === 'free' ? '100/day FREE' : '~$0.005/query'}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Specialty *</label>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>Specialty *</label>
                 <input
                   type="text"
                   value={specialty}
                   onChange={(e) => setSpecialty(e.target.value)}
                   placeholder="e.g., educational consultant, therapist"
-                  className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  style={{ width: '100%', padding: '8px 16px', borderRadius: '8px', backgroundColor: '#334155', border: '1px solid #475569', color: 'white' }}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Location *</label>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>Location *</label>
                 <input
                   type="text"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   placeholder="e.g., Washington DC, California"
-                  className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  style={{ width: '100%', padding: '8px 16px', borderRadius: '8px', backgroundColor: '#334155', border: '1px solid #475569', color: 'white' }}
                 />
               </div>
 
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-300 mb-1">Additional Context</label>
+              <div style={{ gridColumn: 'span 2' }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>Additional Context</label>
                 <input
                   type="text"
                   value={additionalContext}
                   onChange={(e) => setAdditionalContext(e.target.value)}
                   placeholder="e.g., private school placement, neurodivergent students"
-                  className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                  style={{ width: '100%', padding: '8px 16px', borderRadius: '8px', backgroundColor: '#334155', border: '1px solid #475569', color: 'white' }}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Max Results</label>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>Max Results</label>
                 <select
                   value={maxResults}
                   onChange={(e) => setMaxResults(Number(e.target.value))}
-                  className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:border-blue-500 focus:outline-none"
+                  style={{ width: '100%', padding: '8px 16px', borderRadius: '8px', backgroundColor: '#334155', border: '1px solid #475569', color: 'white' }}
                 >
                   <option value={5}>5</option>
                   <option value={10}>10</option>
@@ -367,22 +379,18 @@ export default function ProspectDiscoveryPage() {
               </div>
             </div>
 
-            <div className="mt-6 flex gap-3">
+            <div style={{ marginTop: '24px', display: 'flex', gap: '12px' }}>
               <button
                 onClick={() => activeTab === 'free' ? runFreeSearch(false) : runAISearch(false)}
                 disabled={loading}
-                className="flex-1 py-3 rounded-lg bg-slate-700 text-white font-medium hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                style={{ flex: 1, padding: '12px', borderRadius: '8px', backgroundColor: '#334155', color: 'white', fontWeight: 500, border: '1px solid #475569', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}
               >
                 {loading ? 'Searching...' : '🔍 Preview Results'}
               </button>
               <button
                 onClick={() => activeTab === 'free' ? runFreeSearch(true) : runAISearch(true)}
                 disabled={loading}
-                className={`flex-1 py-3 rounded-lg text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
-                  activeTab === 'free' 
-                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500'
-                    : 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500'
-                }`}
+                style={{ flex: 1, padding: '12px', borderRadius: '8px', background: activeTab === 'free' ? 'linear-gradient(to right, #16a34a, #059669)' : 'linear-gradient(to right, #2563eb, #0891b2)', color: 'white', fontWeight: 500, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}
               >
                 {loading ? 'Searching...' : '🔍 Find & Save to Pipeline'}
               </button>
