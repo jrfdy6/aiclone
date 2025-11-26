@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { getApiUrl } from '@/lib/api-client';
+import { getApiUrl, apiFetch } from '@/lib/api-client';
 
 const API_URL = getApiUrl();
 
@@ -19,23 +19,41 @@ type Prospect = {
   notes?: string;
   summary?: string;
   pain_points?: string[];
+  source_url?: string;
+  created_at?: string;
 };
 
 type ProspectStatus = 'all' | 'new' | 'analyzed' | 'contacted' | 'follow_up_needed';
+
+const STATUS_OPTIONS = [
+  { value: 'new', label: 'New', color: 'bg-blue-100 text-blue-800' },
+  { value: 'analyzed', label: 'Analyzed', color: 'bg-purple-100 text-purple-800' },
+  { value: 'contacted', label: 'Contacted', color: 'bg-green-100 text-green-800' },
+  { value: 'follow_up_needed', label: 'Follow-up', color: 'bg-orange-100 text-orange-800' },
+];
 
 export default function ProspectsPage() {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Filters
+  const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProspectStatus>('all');
-  const [sortBy, setSortBy] = useState<'fit_score' | 'company' | 'last_action'>('fit_score');
+  const [minFitScore, setMinFitScore] = useState(0);
+  const [sortBy, setSortBy] = useState<'fit_score' | 'company' | 'name' | 'created_at'>('fit_score');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  
+  // Selection
   const [selectedProspects, setSelectedProspects] = useState<Set<string>>(new Set());
-  const [hoveredProspect, setHoveredProspect] = useState<string | null>(null);
+  
+  // Inline editing
+  const [editingStatus, setEditingStatus] = useState<string | null>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   useEffect(() => {
     loadProspects();
-  }, [statusFilter, sortBy, sortOrder]);
+  }, []);
 
   const loadProspects = async () => {
     if (!API_URL) {
@@ -49,18 +67,11 @@ export default function ProspectsPage() {
       const params = new URLSearchParams({
         user_id: 'dev-user',
         limit: '500',
-        sort_by: sortBy === 'fit_score' ? 'fit_score' : sortBy === 'company' ? 'company' : 'updated_at',
-        sort_order: sortOrder,
       });
-      
-      if (statusFilter !== 'all') {
-        params.append('status', statusFilter);
-      }
 
       const response = await fetch(`${API_URL}/api/prospects/?${params.toString()}`);
       
       if (!response.ok) {
-        // If no prospects found or error, fall back to empty array
         if (response.status === 404) {
           setProspects([]);
           setError(null);
@@ -79,71 +90,17 @@ export default function ProspectsPage() {
           job_title: p.job_title,
           email: p.email,
           fit_score: p.fit_score,
-          status: p.status,
+          status: p.status || 'new',
           tags: p.tags || [],
           last_action: p.last_action,
-          summary: p.summary || (p.analysis?.summary),
+          summary: p.summary || p.analysis?.summary,
           pain_points: p.pain_points || [],
+          source_url: p.source_url,
+          created_at: p.created_at,
         })));
         setError(null);
       } else {
-        // Fallback to mock data if structure is unexpected
-        const mockProspects: Prospect[] = [
-        {
-          id: '1',
-          name: 'Sarah Johnson',
-          company: 'TechEd Solutions',
-          job_title: 'VP of Education',
-          email: 'sarah@teched.com',
-          fit_score: 0.92,
-          status: 'new',
-          tags: ['Founder', 'AI', 'High Priority'],
-          last_action: 'Discovered 2 days ago',
-          summary: 'Educational technology leader interested in AI tools for K-12',
-          pain_points: ['Manual processes', 'Teacher workload'],
-        },
-        {
-          id: '2',
-          name: 'Michael Chen',
-          company: 'InnovateEd',
-          job_title: 'Director of Innovation',
-          email: 'mchen@innovateed.com',
-          fit_score: 0.87,
-          status: 'analyzed',
-          tags: ['AI', 'Inbound'],
-          last_action: 'Analyzed yesterday',
-          summary: 'Actively looking for automation solutions',
-        },
-        {
-          id: '3',
-          name: 'Emily Rodriguez',
-          company: 'Future Schools Inc',
-          job_title: 'CEO',
-          email: 'emily@futureschools.com',
-          fit_score: 0.95,
-          status: 'contacted',
-          tags: ['Founder', 'High Priority', 'Early Adopter'],
-          last_action: 'DM Sent (2 days ago)',
-          summary: 'Stealth founder building AI-powered education platform',
-        },
-        {
-          id: '4',
-          name: 'David Park',
-          company: 'EduTech Ventures',
-          job_title: 'CTO',
-          email: 'david@edutech.com',
-          fit_score: 0.78,
-          status: 'follow_up_needed',
-          tags: ['AI'],
-          last_action: 'Initial contact (5 days ago)',
-          summary: 'Technical leader evaluating AI tools',
-        },
-      ];
-
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-        setProspects(mockProspects);
-        setError(null);
+        setProspects([]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load prospects');
@@ -152,23 +109,67 @@ export default function ProspectsPage() {
     }
   };
 
-  const filteredProspects = prospects
-    .filter(p => statusFilter === 'all' || p.status === statusFilter)
-    .sort((a, b) => {
-      let comparison = 0;
-      switch (sortBy) {
-        case 'fit_score':
-          comparison = (a.fit_score || 0) - (b.fit_score || 0);
-          break;
-        case 'company':
-          comparison = (a.company || '').localeCompare(b.company || '');
-          break;
-        case 'last_action':
-          comparison = (a.last_action || '').localeCompare(b.last_action || '');
-          break;
+  const updateProspectStatus = async (prospectId: string, newStatus: string) => {
+    try {
+      const response = await apiFetch(`/api/prospects/${prospectId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus }),
+      });
+      
+      if (response.ok) {
+        setProspects(prev => prev.map(p => 
+          p.id === prospectId ? { ...p, status: newStatus as any } : p
+        ));
       }
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
+    } catch (err) {
+      console.error('Failed to update status:', err);
+    }
+    setEditingStatus(null);
+  };
+
+  // Filter and sort prospects
+  const filteredProspects = useMemo(() => {
+    return prospects
+      .filter(p => {
+        // Search filter
+        if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          const matchesSearch = 
+            p.name?.toLowerCase().includes(query) ||
+            p.company?.toLowerCase().includes(query) ||
+            p.job_title?.toLowerCase().includes(query) ||
+            p.email?.toLowerCase().includes(query) ||
+            p.tags?.some(t => t.toLowerCase().includes(query));
+          if (!matchesSearch) return false;
+        }
+        
+        // Status filter
+        if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+        
+        // Fit score filter
+        if (minFitScore > 0 && (p.fit_score || 0) < minFitScore / 100) return false;
+        
+        return true;
+      })
+      .sort((a, b) => {
+        let comparison = 0;
+        switch (sortBy) {
+          case 'fit_score':
+            comparison = (a.fit_score || 0) - (b.fit_score || 0);
+            break;
+          case 'company':
+            comparison = (a.company || '').localeCompare(b.company || '');
+            break;
+          case 'name':
+            comparison = (a.name || '').localeCompare(b.name || '');
+            break;
+          case 'created_at':
+            comparison = (a.created_at || '').localeCompare(b.created_at || '');
+            break;
+        }
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
+  }, [prospects, searchQuery, statusFilter, minFitScore, sortBy, sortOrder]);
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selectedProspects);
@@ -189,18 +190,7 @@ export default function ProspectsPage() {
   };
 
   const getStatusColor = (status?: string) => {
-    switch (status) {
-      case 'new':
-        return 'bg-blue-100 text-blue-800';
-      case 'analyzed':
-        return 'bg-purple-100 text-purple-800';
-      case 'contacted':
-        return 'bg-green-100 text-green-800';
-      case 'follow_up_needed':
-        return 'bg-orange-100 text-orange-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+    return STATUS_OPTIONS.find(s => s.value === status)?.color || 'bg-gray-100 text-gray-800';
   };
 
   const formatFitScore = (score?: number) => {
@@ -208,85 +198,131 @@ export default function ProspectsPage() {
     return `${Math.round(score * 100)}%`;
   };
 
+  const stats = useMemo(() => ({
+    total: prospects.length,
+    new: prospects.filter(p => p.status === 'new').length,
+    contacted: prospects.filter(p => p.status === 'contacted').length,
+    followUp: prospects.filter(p => p.status === 'follow_up_needed').length,
+    highFit: prospects.filter(p => (p.fit_score || 0) >= 0.8).length,
+  }), [prospects]);
+
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Prospects</h1>
-            <p className="text-gray-600 mt-1">Manage and track your outreach pipeline</p>
-          </div>
-          <Link
-            href="/prospecting"
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            + Add Prospects
-          </Link>
-        </div>
-
-        {/* Filters and Actions */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex flex-wrap items-center gap-4">
-            {/* Status Filter */}
+    <main className="min-h-screen bg-gray-50">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-[1600px] mx-auto px-6 py-4">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <label className="text-sm font-medium text-gray-700 mr-2">Filter by Status:</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as ProspectStatus)}
-                className="rounded border border-gray-300 px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Prospects</option>
-                <option value="new">New</option>
-                <option value="analyzed">Analyzed</option>
-                <option value="contacted">Contacted</option>
-                <option value="follow_up_needed">Follow-up Needed</option>
-              </select>
+              <h1 className="text-2xl font-bold text-gray-900">Prospect Pipeline</h1>
+              <p className="text-sm text-gray-500">{filteredProspects.length} of {prospects.length} prospects</p>
             </div>
-
-            {/* Sort */}
-            <div>
-              <label className="text-sm font-medium text-gray-700 mr-2">Sort by:</label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="rounded border border-gray-300 px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="fit_score">Fit Score</option>
-                <option value="company">Company</option>
-                <option value="last_action">Last Action</option>
-              </select>
-            </div>
-
-            <div>
-              <button
-                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                className="text-sm text-gray-600 hover:text-gray-900"
-              >
-                {sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
-              </button>
-            </div>
-
-            {/* Bulk Actions */}
-            {selectedProspects.size > 0 && (
-              <div className="ml-auto">
+            <div className="flex items-center gap-3">
+              {selectedProspects.size > 0 && (
                 <button
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm transition-colors"
-                  onClick={() => {
-                    // TODO: Implement bulk DM generation
-                    alert(`Generate DMs for ${selectedProspects.size} prospects`);
-                  }}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                  onClick={() => alert(`Generate DMs for ${selectedProspects.size} prospects`)}
                 >
                   Generate DMs ({selectedProspects.size})
                 </button>
-              </div>
-            )}
+              )}
+              <Link
+                href="/prospect-discovery"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+              >
+                + Find Prospects
+              </Link>
+            </div>
+          </div>
+
+          {/* Filters Row */}
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Search */}
+            <div className="flex-1 min-w-[200px] max-w-md">
+              <input
+                type="text"
+                placeholder="Search name, company, tags..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Status Filter */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as ProspectStatus)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Status</option>
+              {STATUS_OPTIONS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+
+            {/* Fit Score Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Min Fit:</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={minFitScore}
+                onChange={(e) => setMinFitScore(Number(e.target.value))}
+                className="w-24"
+              />
+              <span className="text-sm text-gray-900 w-10">{minFitScore}%</span>
+            </div>
+
+            {/* Sort */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="fit_score">Sort: Fit Score</option>
+              <option value="name">Sort: Name</option>
+              <option value="company">Sort: Company</option>
+              <option value="created_at">Sort: Date Added</option>
+            </select>
+
+            <button
+              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+            >
+              {sortOrder === 'asc' ? '↑' : '↓'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-[1600px] mx-auto px-6 py-6">
+        {/* Quick Stats */}
+        <div className="grid grid-cols-5 gap-4 mb-6">
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+            <div className="text-sm text-gray-600">Total</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-blue-600">{stats.new}</div>
+            <div className="text-sm text-gray-600">New</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-green-600">{stats.contacted}</div>
+            <div className="text-sm text-gray-600">Contacted</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-orange-600">{stats.followUp}</div>
+            <div className="text-sm text-gray-600">Follow-up</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="text-2xl font-bold text-purple-600">{stats.highFit}</div>
+            <div className="text-sm text-gray-600">High Fit (80%+)</div>
           </div>
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 mb-6">
             {error}
           </div>
         )}
@@ -303,7 +339,7 @@ export default function ProspectsPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="px-4 py-3 text-left">
+                    <th className="px-4 py-3 text-left w-10">
                       <input
                         type="checkbox"
                         checked={selectedProspects.size === filteredProspects.length && filteredProspects.length > 0}
@@ -317,19 +353,16 @@ export default function ProspectsPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Company
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Fit Score
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                      Fit
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
                       Status
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Tags
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Last Action
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40">
                       Actions
                     </th>
                   </tr>
@@ -337,98 +370,174 @@ export default function ProspectsPage() {
                 <tbody className="divide-y divide-gray-200">
                   {filteredProspects.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
-                        No prospects found. <Link href="/prospecting" className="text-blue-600 hover:underline">Add some prospects</Link> to get started.
+                      <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                        {prospects.length === 0 ? (
+                          <>
+                            No prospects yet.{' '}
+                            <Link href="/prospect-discovery" className="text-blue-600 hover:underline">
+                              Find some prospects
+                            </Link>{' '}
+                            to get started.
+                          </>
+                        ) : (
+                          'No prospects match your filters.'
+                        )}
                       </td>
                     </tr>
                   ) : (
                     filteredProspects.map((prospect) => (
-                      <tr
-                        key={prospect.id}
-                        className="hover:bg-gray-50 transition-colors"
-                        onMouseEnter={() => setHoveredProspect(prospect.id)}
-                        onMouseLeave={() => setHoveredProspect(null)}
-                      >
-                        <td className="px-4 py-4">
-                          <input
-                            type="checkbox"
-                            checked={selectedProspects.has(prospect.id)}
-                            onChange={() => toggleSelect(prospect.id)}
-                            className="rounded border-gray-300"
-                          />
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="font-medium text-gray-900">{prospect.name || 'N/A'}</div>
-                          {prospect.job_title && (
-                            <div className="text-sm text-gray-500">{prospect.job_title}</div>
-                          )}
-                          {hoveredProspect === prospect.id && prospect.summary && (
-                            <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-gray-700">
-                              <strong>Summary:</strong> {prospect.summary}
-                              {prospect.pain_points && prospect.pain_points.length > 0 && (
-                                <div className="mt-1">
-                                  <strong>Pain Points:</strong> {prospect.pain_points.join(', ')}
-                                </div>
+                      <>
+                        <tr
+                          key={prospect.id}
+                          className={`hover:bg-gray-50 transition-colors ${expandedRow === prospect.id ? 'bg-blue-50' : ''}`}
+                        >
+                          <td className="px-4 py-4">
+                            <input
+                              type="checkbox"
+                              checked={selectedProspects.has(prospect.id)}
+                              onChange={() => toggleSelect(prospect.id)}
+                              className="rounded border-gray-300"
+                            />
+                          </td>
+                          <td className="px-4 py-4">
+                            <button
+                              onClick={() => setExpandedRow(expandedRow === prospect.id ? null : prospect.id)}
+                              className="text-left w-full"
+                            >
+                              <div className="font-medium text-gray-900 hover:text-blue-600">
+                                {prospect.name || 'N/A'}
+                              </div>
+                              {prospect.job_title && (
+                                <div className="text-sm text-gray-500">{prospect.job_title}</div>
                               )}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-4 text-sm text-gray-900">{prospect.company || 'N/A'}</td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm font-medium">{formatFitScore(prospect.fit_score)}</span>
-                            {prospect.fit_score && (
-                              <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            </button>
+                          </td>
+                          <td className="px-4 py-4 text-sm text-gray-900">{prospect.company || '—'}</td>
+                          <td className="px-4 py-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-12 h-2 bg-gray-200 rounded-full overflow-hidden">
                                 <div
                                   className={`h-full ${
-                                    (prospect.fit_score || 0) > 0.8
+                                    (prospect.fit_score || 0) >= 0.8
                                       ? 'bg-green-500'
-                                      : (prospect.fit_score || 0) > 0.6
+                                      : (prospect.fit_score || 0) >= 0.6
                                       ? 'bg-yellow-500'
                                       : 'bg-red-500'
                                   }`}
                                   style={{ width: `${(prospect.fit_score || 0) * 100}%` }}
                                 />
                               </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <span
-                            className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(
-                              prospect.status
-                            )}`}
-                          >
-                            {prospect.status?.replace('_', ' ') || 'Unknown'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex flex-wrap gap-1">
-                            {prospect.tags?.slice(0, 3).map((tag, idx) => (
-                              <span
-                                key={idx}
-                                className="inline-flex px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800 rounded"
+                              <span className="text-sm font-medium">{formatFitScore(prospect.fit_score)}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            {editingStatus === prospect.id ? (
+                              <select
+                                autoFocus
+                                value={prospect.status}
+                                onChange={(e) => updateProspectStatus(prospect.id, e.target.value)}
+                                onBlur={() => setEditingStatus(null)}
+                                className="text-xs rounded border-gray-300 focus:ring-blue-500"
                               >
-                                {tag}
-                              </span>
-                            ))}
-                            {prospect.tags && prospect.tags.length > 3 && (
-                              <span className="text-xs text-gray-500">+{prospect.tags.length - 3}</span>
+                                {STATUS_OPTIONS.map(s => (
+                                  <option key={s.value} value={s.value}>{s.label}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <button
+                                onClick={() => setEditingStatus(prospect.id)}
+                                className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(prospect.status)} hover:opacity-80`}
+                              >
+                                {prospect.status?.replace('_', ' ') || 'new'}
+                              </button>
                             )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-sm text-gray-500">{prospect.last_action || 'N/A'}</td>
-                        <td className="px-4 py-4">
-                          <div className="flex space-x-2">
-                            <Link
-                              href={`/outreach/${prospect.id}`}
-                              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                            >
-                              Generate DM
-                            </Link>
-                          </div>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex flex-wrap gap-1">
+                              {prospect.tags?.slice(0, 2).map((tag, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-flex px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800 rounded"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                              {prospect.tags && prospect.tags.length > 2 && (
+                                <span className="text-xs text-gray-500">+{prospect.tags.length - 2}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href={`/outreach/${prospect.id}`}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                              >
+                                DM
+                              </Link>
+                              {prospect.email && (
+                                <a
+                                  href={`mailto:${prospect.email}`}
+                                  className="text-gray-600 hover:text-gray-800 text-sm"
+                                >
+                                  Email
+                                </a>
+                              )}
+                              {prospect.source_url && (
+                                <a
+                                  href={prospect.source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 hover:text-gray-600 text-sm"
+                                >
+                                  Source
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {/* Expanded Row */}
+                        {expandedRow === prospect.id && (
+                          <tr key={`${prospect.id}-expanded`} className="bg-blue-50">
+                            <td colSpan={7} className="px-4 py-4">
+                              <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                  <h4 className="font-medium text-gray-900 mb-2">Contact Info</h4>
+                                  <div className="space-y-1 text-gray-600">
+                                    {prospect.email && <div>📧 {prospect.email}</div>}
+                                    {prospect.source_url && (
+                                      <div>
+                                        🔗{' '}
+                                        <a href={prospect.source_url} target="_blank" className="text-blue-600 hover:underline">
+                                          {prospect.source_url.slice(0, 50)}...
+                                        </a>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <div>
+                                  {prospect.summary && (
+                                    <>
+                                      <h4 className="font-medium text-gray-900 mb-2">Summary</h4>
+                                      <p className="text-gray-600">{prospect.summary}</p>
+                                    </>
+                                  )}
+                                  {prospect.pain_points && prospect.pain_points.length > 0 && (
+                                    <>
+                                      <h4 className="font-medium text-gray-900 mt-3 mb-2">Pain Points</h4>
+                                      <ul className="list-disc list-inside text-gray-600">
+                                        {prospect.pain_points.map((pp, i) => (
+                                          <li key={i}>{pp}</li>
+                                        ))}
+                                      </ul>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     ))
                   )}
                 </tbody>
@@ -436,34 +545,7 @@ export default function ProspectsPage() {
             </div>
           </div>
         )}
-
-        {/* Stats Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-gray-900">{prospects.length}</div>
-            <div className="text-sm text-gray-600">Total Prospects</div>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-blue-600">
-              {prospects.filter(p => p.status === 'new').length}
-            </div>
-            <div className="text-sm text-gray-600">New</div>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-green-600">
-              {prospects.filter(p => p.status === 'contacted').length}
-            </div>
-            <div className="text-sm text-gray-600">Contacted</div>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <div className="text-2xl font-bold text-orange-600">
-              {prospects.filter(p => p.status === 'follow_up_needed').length}
-            </div>
-            <div className="text-sm text-gray-600">Follow-up Needed</div>
-          </div>
-        </div>
       </div>
     </main>
   );
 }
-
