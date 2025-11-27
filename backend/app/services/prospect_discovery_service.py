@@ -404,7 +404,10 @@ class ProspectDiscoveryService:
                             'marriage', 'anxiety', 'depression', 'trauma', 'addiction']
         
         role_words = ['therapist', 'counselor', 'psychologist', 'psychiatrist', 'coach',
-                      'specialist', 'consultant', 'advisor', 'director', 'manager']
+                      'specialist', 'consultant', 'advisor', 'director', 'manager', 'worker']
+        
+        famous_names = ['maya angelou', 'martin luther', 'oprah winfrey', 'barack obama']
+        job_titles = ['social worker', 'case manager', 'program director', 'clinical director']
         
         def is_valid_person_name(name: str) -> bool:
             """Check if name looks like a real person name."""
@@ -430,6 +433,14 @@ class ProspectDiscoveryService:
             
             # Last word shouldn't be a role
             if words[-1].lower() in role_words:
+                return False
+            
+            # Filter famous people (quotes/testimonials)
+            if name_lower in famous_names:
+                return False
+            
+            # Filter job titles that look like names
+            if name_lower in job_titles:
                 return False
             
             return True
