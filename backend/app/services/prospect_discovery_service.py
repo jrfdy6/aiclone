@@ -439,8 +439,24 @@ class ProspectDiscoveryService:
         logger.info(f"Stored discovery: {discovery_id} with {len(prospects)} prospects")
     
     def _save_to_prospects(self, user_id: str, prospects: List[DiscoveredProspect]):
-        """Save discovered prospects to the main prospects collection"""
+        """Save discovered prospects to the main prospects collection (skip duplicates)"""
+        saved_count = 0
+        
         for prospect in prospects:
+            # Create unique doc ID from email or name
+            if prospect.contact.email:
+                doc_id = prospect.contact.email.replace("@", "_at_").replace(".", "_")
+            else:
+                # Use name-based ID to prevent duplicates
+                doc_id = prospect.name.lower().replace(" ", "_").replace(".", "")
+            
+            doc_ref = db.collection("users").document(user_id).collection("prospects").document(doc_id)
+            
+            # Check if already exists - skip if so
+            if doc_ref.get().exists:
+                logger.debug(f"Skipping duplicate prospect: {prospect.name}")
+                continue
+            
             prospect_doc = {
                 "name": prospect.name,
                 "title": prospect.title,
@@ -455,14 +471,10 @@ class ProspectDiscoveryService:
                 "created_at": time.time(),
             }
             
-            # Use email as document ID if available, otherwise generate one
-            doc_id = prospect.contact.email or f"prospect_{int(time.time() * 1000)}"
-            doc_id = doc_id.replace("@", "_at_").replace(".", "_")
-            
-            doc_ref = db.collection("users").document(user_id).collection("prospects").document(doc_id)
-            doc_ref.set(prospect_doc, merge=True)
+            doc_ref.set(prospect_doc)
+            saved_count += 1
         
-        logger.info(f"Saved {len(prospects)} prospects to collection")
+        logger.info(f"Saved {saved_count} new prospects (skipped {len(prospects) - saved_count} duplicates)")
     
     async def scrape_urls(
         self,

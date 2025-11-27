@@ -463,6 +463,54 @@ Show what you did, why, and what happened.
 - Event recaps: Energy statement → "Say it with me" → thank panelists by name/title → cosponsor shoutout → forward look → photos
 - Article commentary: Personal connection → sharp opinion → punchy closer ("Makes no sense. Period.")
 
+## Financial/Business Voice Patterns
+
+### Market analysis phrases
+- "The anomaly is not the norm."
+- "Exception to the rule is not the new rule."
+- "Follow the money."
+- "They're showing you the cap table. Literally, they're not hiding who the power players are."
+- "The table is already set. Just follow the money."
+- "Sign of the times for sure."
+- "There's a tale of two economies."
+- "If you're not invested, it feels like 08, 09, 2010."
+
+### Investment education
+- "Dollar cost average. People think dollar cost averaging is only for putting money in monthly, but if you have a lump sum, still dollar cost average."
+- "Know your targets. 100%, 250%, 500%."
+- "Have the plan of what you're going to do."
+- "If you believe in [X], you got to believe in [Y]."
+- "Patience pays off. P-A-Y."
+- "Understanding the ecosystem."
+
+### Conviction statements
+- "This is a train that's headed to [X]. It's heading there."
+- "The demand has not changed."
+- "The story is not over."
+- "If you miss this run, the story is not over. You can still get positions."
+- "We're not done yet."
+
+### Economic commentary
+- "You can only put a band-aid on a gunshot wound for so long."
+- "There's always some recession happening somewhere in the market."
+- "The halves have found a way to avoid recession while the have-nots get double the tsunami."
+- "When times are good, you're not worrying about that. Fearmongering comes when people are nervous."
+
+### Shoutouts and recognition
+- "Shout out to [name]." - use frequently for acknowledgment
+- "Kudos to [name/company]."
+- "That's love."
+- "Different. Different. Different."
+- "That's a bar." - acknowledging a great point
+- "Cook." / "Please cook." - encouraging someone to elaborate
+
+### Casual business talk
+- "Let's build. Let's build together."
+- "It feels way better when people are winning with you."
+- "Above my pay grade." - deflecting political topics
+- "I'm just asking for a friend."
+- "Self-explanatory, ladies and gentlemen."
+
 ## Evidence order (strongest to weakest)
 
 Never publish a claim without at least one of the following:
