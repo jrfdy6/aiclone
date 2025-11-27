@@ -635,55 +635,37 @@ class ProspectDiscoveryService:
                     logger.warning(f"Failed to scrape {result.link}: {e}")
                     continue
             
-            # Filter out prospects from wrong locations
+            # Score prospects based on location match (don't filter out, just adjust score)
             if location:
                 location_lower = location.lower()
-                # Handle DC variations
                 dc_variations = ['dc', 'washington dc', 'washington, dc', 'district of columbia', 'd.c.']
                 is_dc_search = any(v in location_lower for v in dc_variations)
                 
-                filtered_prospects = []
                 for p in all_prospects:
-                    # Check if prospect location matches or content mentions target location
                     content_to_check = f"{p.location or ''} {p.bio_snippet or ''} {p.source_url or ''}".lower()
                     
-                    if is_dc_search:
-                        if any(v in content_to_check for v in dc_variations):
-                            filtered_prospects.append(p)
+                    # Boost if location matches
+                    if is_dc_search and any(v in content_to_check for v in dc_variations):
+                        p.fit_score = min((p.fit_score or 50) + 20, 100)
                     elif location_lower in content_to_check:
-                        filtered_prospects.append(p)
-                    # If no location info, still include but with lower priority
-                    elif not p.location:
-                        p.fit_score = max((p.fit_score or 50) - 20, 0)
-                        filtered_prospects.append(p)
-                
-                all_prospects = filtered_prospects
+                        p.fit_score = min((p.fit_score or 50) + 20, 100)
             
-            # Filter for K-12 / middle school / high school focus (exclude higher ed / elementary only)
-            k12_keywords = ['k-12', 'k12', 'middle school', 'high school', 'highschool', 'teenager', 
-                           'adolescent', 'teen', 'secondary', 'junior high', '6th', '7th', '8th', 
-                           '9th', '10th', '11th', '12th', 'grade 6', 'grade 7', 'grade 8', 'grade 9',
-                           'grade 10', 'grade 11', 'grade 12', 'ages 11', 'ages 12', 'ages 13', 
-                           'ages 14', 'ages 15', 'ages 16', 'ages 17', 'ages 18', 'youth',
-                           'boarding school', 'prep school', 'private school', 'independent school']
-            exclude_keywords = ['preschool only', 'college only', 'university only', 
-                               'graduate school', 'adult only', 'seniors only']
+            # Boost K-12 keywords, exclude only obvious non-fits
+            k12_keywords = ['k-12', 'k12', 'middle school', 'high school', 'teenager', 
+                           'adolescent', 'teen', 'youth', 'boarding school', 'prep school', 
+                           'private school', 'independent school', 'education', 'school']
+            exclude_keywords = ['college only', 'university only', 'graduate school only']
             
-            k12_filtered = []
             for p in all_prospects:
                 content_to_check = f"{p.bio_snippet or ''} {p.title or ''} {' '.join(p.specialty or [])}".lower()
                 
-                # Exclude if clearly not K-12
+                # Penalize if clearly not K-12
                 if any(ex in content_to_check for ex in exclude_keywords):
-                    continue
+                    p.fit_score = max((p.fit_score or 50) - 30, 0)
                 
-                # Boost score if K-12 keywords found
+                # Boost if K-12 keywords found
                 if any(kw in content_to_check for kw in k12_keywords):
                     p.fit_score = min((p.fit_score or 50) + 15, 100)
-                
-                k12_filtered.append(p)
-            
-            all_prospects = k12_filtered
             
             # Calculate fit scores
             for prospect in all_prospects:
