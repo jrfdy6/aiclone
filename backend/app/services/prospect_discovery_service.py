@@ -1026,11 +1026,12 @@ Content:
         # Combine terms with OR
         terms_query = " OR ".join(f'"{t}"' for t in search_terms[:5])  # Limit to 5 terms
         
-        # Build final query
+        # Build final query - exclude social media sites
         query_parts = [f"({terms_query})", location_query]
         if additional_context:
             query_parts.append(additional_context)
         query_parts.append("(email OR contact)")
+        query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com")
         
         return " ".join(filter(None, query_parts))
     
@@ -1082,6 +1083,7 @@ Content:
             if additional_context:
                 query_parts.append(additional_context)
             query_parts.append("(email OR contact)")
+            query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com")
             
             search_query = " ".join(query_parts)
         
@@ -1105,7 +1107,16 @@ Content:
             all_prospects = []
             urls_scraped = []
             
-            for result in search_results[:5]:  # Limit to 5 URLs to save Firecrawl credits
+            # Filter out URLs that can't be scraped
+            blocked_domains = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 
+                              'youtube.com', 'tiktok.com', 'pinterest.com']
+            
+            scrapeable_results = [r for r in search_results 
+                                  if not any(domain in r.link.lower() for domain in blocked_domains)]
+            
+            logger.info(f"Filtered {len(search_results)} results to {len(scrapeable_results)} scrapeable URLs")
+            
+            for result in scrapeable_results[:5]:  # Limit to 5 URLs to save Firecrawl credits
                 try:
                     logger.info(f"Scraping: {result.link}")
                     scraped = self.firecrawl.scrape_url(result.link)
