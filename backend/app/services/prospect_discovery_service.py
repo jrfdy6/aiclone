@@ -1167,19 +1167,33 @@ Important: Only return verified, publicly available contact information. Do not 
         education_cats = ['education_consultants', 'school_counselors', 'tutoring_centers']
         community_cats = ['mom_groups', 'parenting_coaches', 'youth_programs']
         
-        # Category-specific search optimization
-        medical_cats = ['pediatricians', 'psychologists', 'psychiatrists', 'treatment_centers']
-        sports_cats = ['youth_sports', 'athletic_academies']
-        education_cats = ['education_consultants', 'school_counselors', 'tutoring_centers']
+        # Category-specific search optimization for ALL categories
         
-        if any(c in categories for c in medical_cats):
-            # Medical professionals - use health directories
-            query_parts.append("site:psychologytoday.com OR site:healthgrades.com OR site:zocdoc.com")
-        elif any(c in categories for c in sports_cats):
-            # Sports - search for coaches/directors with contact
-            query_parts.append("coach OR director email contact")
-        elif any(c in categories for c in education_cats):
-            # Education consultants - search HECA, IECA member directories and consultant sites
+        # Check which categories are selected
+        has_pediatricians = 'pediatricians' in categories
+        has_psychologists = 'psychologists' in categories or 'psychiatrists' in categories
+        has_treatment = 'treatment_centers' in categories
+        has_embassies = 'embassies' in categories or 'diplomats' in categories
+        has_sports = 'youth_sports' in categories or 'athletic_academies' in categories
+        has_mom_groups = 'mom_groups' in categories or 'parent_networks' in categories
+        has_international = 'international_students' in categories
+        has_education = 'education_consultants' in categories or 'school_counselors' in categories
+        
+        if has_pediatricians:
+            query_parts.append("site:healthgrades.com OR site:zocdoc.com OR site:vitals.com")
+        elif has_psychologists:
+            query_parts.append("site:psychologytoday.com OR site:healthgrades.com")
+        elif has_treatment:
+            query_parts.append("site:psychologytoday.com OR \"treatment center\" OR \"rehab\" director email contact")
+        elif has_embassies:
+            query_parts.append("\"embassy\" OR \"cultural attache\" OR \"education officer\" email contact")
+        elif has_sports:
+            query_parts.append("\"youth soccer\" OR \"youth basketball\" OR \"athletic academy\" coach director email")
+        elif has_mom_groups:
+            query_parts.append("\"mom group\" OR \"parents group\" OR \"parenting coach\" leader organizer email")
+        elif has_international:
+            query_parts.append("\"international student\" OR \"student services\" advisor coordinator email")
+        elif has_education:
             query_parts.append("\"educational consultant\" OR \"college consultant\" OR \"admissions consultant\" email contact")
         else:
             query_parts.append("email OR phone OR contact")
