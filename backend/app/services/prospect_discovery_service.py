@@ -1,5 +1,5 @@
 """
-Prospect Discovery Service
+Prospect Discovery Service - v2.1 (Fixed name filtering)
 
 Universal prospect discovery for K-12 decision influencers:
 - Medical: Pediatricians, psychologists, psychiatrists, treatment centers
