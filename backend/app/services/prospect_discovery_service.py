@@ -119,9 +119,10 @@ GENERIC_EMAIL_PREFIXES = ['info', 'contact', 'support', 'hello', 'admin', 'sales
                           'help', 'office', 'mail', 'enquiries', 'inquiries', 'noreply',
                           'webmaster', 'newsletter', 'team', 'careers', 'jobs']
 
-# Domains that can't be scraped
+# Domains that can't be scraped or block bots
 BLOCKED_DOMAINS = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 
-                   'youtube.com', 'tiktok.com', 'pinterest.com']
+                   'youtube.com', 'tiktok.com', 'pinterest.com', 'glassdoor.com',
+                   'indeed.com', 'iecaonline.com']  # These block scraping
 
 
 class ProspectDiscoveryService:
@@ -151,9 +152,15 @@ class ProspectDiscoveryService:
         """Free scraping fallback using requests + BeautifulSoup"""
         try:
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
             }
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
