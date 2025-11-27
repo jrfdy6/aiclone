@@ -13,7 +13,9 @@ import logging
 import time
 import re
 import json
+import requests
 from typing import List, Dict, Any, Optional
+from bs4 import BeautifulSoup
 
 from app.models.prospect_discovery import (
     ProspectSource,
@@ -144,6 +146,32 @@ class ProspectDiscoveryService:
                 self.google_search = get_search_client()
             except:
                 self.google_search = None
+    
+    def _free_scrape(self, url: str) -> Optional[str]:
+        """Free scraping fallback using requests + BeautifulSoup"""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Remove script and style elements
+            for script in soup(["script", "style", "nav", "footer", "header"]):
+                script.decompose()
+            
+            # Get text
+            text = soup.get_text(separator=' ', strip=True)
+            
+            # Clean up whitespace
+            text = re.sub(r'\s+', ' ', text)
+            
+            return text[:50000]  # Limit to 50k chars
+        except Exception as e:
+            logger.warning(f"Free scrape failed for {url}: {e}")
+            return None
     
     def build_search_query(
         self,
@@ -1243,14 +1271,25 @@ Important: Only return verified, publicly available contact information. Do not 
             
             logger.info(f"Filtered {len(search_results)} results to {len(scrapeable_results)} scrapeable URLs")
             
-            for result in scrapeable_results[:5]:  # Limit to 5 URLs to save Firecrawl credits
+            for result in scrapeable_results[:5]:  # Limit to 5 URLs
                 try:
                     logger.info(f"Scraping: {result.link}")
-                    scraped = self.firecrawl.scrape_url(result.link)
                     
-                    if scraped and scraped.content:
+                    # Try Firecrawl first, fallback to free scraping
+                    combined_content = None
+                    try:
+                        scraped = self.firecrawl.scrape_url(result.link)
+                        if scraped and scraped.content:
+                            combined_content = scraped.content
+                    except Exception as fc_error:
+                        logger.warning(f"Firecrawl failed, trying free scrape: {fc_error}")
+                    
+                    # Fallback to free scraping
+                    if not combined_content:
+                        combined_content = self._free_scrape(result.link)
+                    
+                    if combined_content:
                         urls_scraped.append(result.link)
-                        combined_content = scraped.content
                         
                         # =============================================================
                         # MULTI-PAGE SCRAPING: Also scrape /contact, /about, /team pages
@@ -1261,12 +1300,13 @@ Important: Only return verified, publicly available contact information. Do not 
                             base_url = f"{parsed.scheme}://{parsed.netloc}"
                             
                             contact_paths = ['/contact', '/contact-us', '/about', '/about-us', '/team', '/staff', '/our-team']
-                            for path in contact_paths:
+                            for path in contact_paths[:3]:  # Limit to 3 extra pages
                                 try:
                                     contact_url = f"{base_url}{path}"
-                                    contact_scraped = self.firecrawl.scrape_url(contact_url)
-                                    if contact_scraped and contact_scraped.content:
-                                        combined_content += f"\n\n--- FROM {path} ---\n" + contact_scraped.content
+                                    # Use free scrape for contact pages
+                                    contact_content = self._free_scrape(contact_url)
+                                    if contact_content:
+                                        combined_content += f"\n\n--- FROM {path} ---\n" + contact_content
                                         logger.info(f"Also scraped {contact_url}")
                                 except Exception as e:
                                     pass  # Contact page doesn't exist, that's fine
@@ -1299,10 +1339,10 @@ Important: Only return verified, publicly available contact information. Do not 
                 logger.info("No prospects from regex, trying LLM fallback...")
                 for url in urls_scraped[:2]:  # Limit LLM calls
                     try:
-                        scraped = self.firecrawl.scrape_url(url)
-                        if scraped and scraped.content:
+                        content = self._free_scrape(url)
+                        if content:
                             llm_prospects = await self._extract_with_llm(
-                                scraped.content, url, categories
+                                content, url, categories
                             )
                             all_prospects.extend(llm_prospects)
                     except Exception as e:

@@ -13,6 +13,7 @@ python-multipart
 python-pptx
 pytesseract
 requests
+beautifulsoup4
 scikit-learn
 uvicorn[standard]
 whisper
