@@ -1156,12 +1156,14 @@ Important: Only return verified, publicly available contact information. Do not 
         # Combine terms with OR
         terms_query = " OR ".join(f'"{t}"' for t in search_terms[:5])  # Limit to 5 terms
         
-        # Build final query - exclude social media sites
+        # Build final query - prefer scrape-friendly directories
         query_parts = [f"({terms_query})", location_query]
         if additional_context:
             query_parts.append(additional_context)
-        query_parts.append("(email OR contact)")
-        query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com")
+        
+        # Prefer directories that allow scraping and have contact info
+        query_parts.append("site:psychologytoday.com OR site:healthgrades.com OR site:zocdoc.com OR site:vitals.com OR (email contact)")
+        query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
         
         return " ".join(filter(None, query_parts))
     
