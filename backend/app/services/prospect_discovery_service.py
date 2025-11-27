@@ -197,9 +197,13 @@ class ProspectDiscoveryService:
         """Generic extraction for non-Psychology Today sources"""
         prospects = []
         
-        # Email extraction
+        # Email extraction - filter out generic/non-personal emails
         emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', content)
-        emails = [e for e in emails if not e.endswith('.png') and not e.endswith('.jpg')]
+        generic_prefixes = ['info', 'contact', 'support', 'hello', 'admin', 'sales', 'help', 'office', 'mail', 'enquiries', 'inquiries']
+        emails = [e for e in emails 
+                  if not e.endswith('.png') 
+                  and not e.endswith('.jpg')
+                  and not any(e.lower().startswith(prefix + '@') for prefix in generic_prefixes)]
         
         # Phone extraction
         phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', content)
@@ -630,6 +634,30 @@ class ProspectDiscoveryService:
                 except Exception as e:
                     logger.warning(f"Failed to scrape {result.link}: {e}")
                     continue
+            
+            # Filter out prospects from wrong locations
+            if location:
+                location_lower = location.lower()
+                # Handle DC variations
+                dc_variations = ['dc', 'washington dc', 'washington, dc', 'district of columbia', 'd.c.']
+                is_dc_search = any(v in location_lower for v in dc_variations)
+                
+                filtered_prospects = []
+                for p in all_prospects:
+                    # Check if prospect location matches or content mentions target location
+                    content_to_check = f"{p.location or ''} {p.bio_snippet or ''} {p.source_url or ''}".lower()
+                    
+                    if is_dc_search:
+                        if any(v in content_to_check for v in dc_variations):
+                            filtered_prospects.append(p)
+                    elif location_lower in content_to_check:
+                        filtered_prospects.append(p)
+                    # If no location info, still include but with lower priority
+                    elif not p.location:
+                        p.fit_score = max((p.fit_score or 50) - 20, 0)
+                        filtered_prospects.append(p)
+                
+                all_prospects = filtered_prospects
             
             # Calculate fit scores
             for prospect in all_prospects:
