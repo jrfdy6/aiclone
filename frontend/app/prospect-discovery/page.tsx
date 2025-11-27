@@ -20,6 +20,7 @@ interface Prospect {
     website?: string;
   };
   fit_score: number;
+  bio_snippet?: string;
 }
 
 interface DiscoveryResult {
@@ -32,6 +33,18 @@ interface DiscoveryResult {
   error?: string;
 }
 
+// Available prospect categories
+const PROSPECT_CATEGORIES = [
+  { id: 'education_consultants', name: 'Education Consultants', icon: '🎓' },
+  { id: 'pediatricians', name: 'Pediatricians', icon: '👨‍⚕️' },
+  { id: 'psychologists', name: 'Psychologists & Psychiatrists', icon: '🧠' },
+  { id: 'treatment_centers', name: 'Treatment Centers', icon: '🏥' },
+  { id: 'embassies', name: 'Embassies & Diplomats', icon: '🏛️' },
+  { id: 'youth_sports', name: 'Youth Sports Programs', icon: '⚽' },
+  { id: 'mom_groups', name: 'Mom Groups & Parent Networks', icon: '👨‍👩‍👧' },
+  { id: 'international_students', name: 'International Student Services', icon: '🌍' },
+];
+
 export default function ProspectDiscoveryPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'free' | 'ai' | 'urls'>('free');
@@ -42,18 +55,41 @@ export default function ProspectDiscoveryPage() {
   const [savedMessage, setSavedMessage] = useState('');
   const [selectedProspects, setSelectedProspects] = useState<Set<number>>(new Set());
 
-  // AI Search form
-  const [specialty, setSpecialty] = useState('educational consultant');
+  // Search form
+  const [specialty, setSpecialty] = useState('');
   const [location, setLocation] = useState('Washington DC');
   const [additionalContext, setAdditionalContext] = useState('');
   const [maxResults, setMaxResults] = useState(10);
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
 
   // URL Scraping form
   const [urls, setUrls] = useState('');
 
+  const toggleCategory = (categoryId: string) => {
+    const newSet = new Set(selectedCategories);
+    if (newSet.has(categoryId)) {
+      newSet.delete(categoryId);
+    } else {
+      newSet.add(categoryId);
+    }
+    setSelectedCategories(newSet);
+  };
+
+  const selectAllDCInfluencers = () => {
+    // Pre-select all categories for DC search
+    setSelectedCategories(new Set(PROSPECT_CATEGORIES.map(c => c.id)));
+    setLocation('Washington DC');
+    setSpecialty('');
+  };
+
   const runFreeSearch = async (saveToProspects = false) => {
-    if (!specialty || !location) {
-      setError('Please enter specialty and location');
+    // Require either categories or specialty
+    if (selectedCategories.size === 0 && !specialty) {
+      setError('Please select at least one category or enter a specialty');
+      return;
+    }
+    if (!location) {
+      setError('Please enter a location');
       return;
     }
 
@@ -67,11 +103,12 @@ export default function ProspectDiscoveryPage() {
         method: 'POST',
         body: JSON.stringify({
           user_id: 'dev-user',
-          specialty,
+          specialty: specialty || '',
           location,
           additional_context: additionalContext || undefined,
           max_results: maxResults,
           save_to_prospects: saveToProspects,
+          categories: selectedCategories.size > 0 ? Array.from(selectedCategories) : undefined,
         }),
       });
 
@@ -321,18 +358,64 @@ export default function ProspectDiscoveryPage() {
         {/* Search Forms */}
         {(activeTab === 'free' || activeTab === 'ai') && (
           <section style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: `1px solid ${activeTab === 'free' ? '#22c55e' : '#3b82f6'}`, padding: '24px', marginBottom: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'white' }}>
-                {activeTab === 'free' ? 'Free Prospect Search' : 'AI-Powered Search'}
-              </h2>
-              <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: activeTab === 'free' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(234, 179, 8, 0.2)', color: activeTab === 'free' ? '#4ade80' : '#facc15' }}>
-                {activeTab === 'free' ? '100/day FREE' : '~$0.005/query'}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2 style={{ fontSize: '20px', fontWeight: 600, color: 'white' }}>
+                  {activeTab === 'free' ? 'Free Prospect Search' : 'AI-Powered Search'}
+                </h2>
+                <span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '12px', backgroundColor: activeTab === 'free' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(234, 179, 8, 0.2)', color: activeTab === 'free' ? '#4ade80' : '#facc15' }}>
+                  {activeTab === 'free' ? '100/day FREE' : '~$0.005/query'}
+                </span>
+              </div>
+              <button
+                onClick={selectAllDCInfluencers}
+                style={{ padding: '8px 16px', borderRadius: '8px', backgroundColor: '#7c3aed', color: 'white', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 500 }}
+              >
+                🏛️ Search All DC Influencers
+              </button>
+            </div>
+
+            {/* Categories Multiselect */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '8px' }}>
+                Target Categories (select one or more)
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                {PROSPECT_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => toggleCategory(cat.id)}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: selectedCategories.has(cat.id) ? '2px solid #22c55e' : '1px solid #475569',
+                      backgroundColor: selectedCategories.has(cat.id) ? 'rgba(34, 197, 94, 0.2)' : '#334155',
+                      color: selectedCategories.has(cat.id) ? '#4ade80' : '#9ca3af',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <span>{cat.icon}</span>
+                    <span>{cat.name}</span>
+                  </button>
+                ))}
+              </div>
+              {selectedCategories.size > 0 && (
+                <div style={{ marginTop: '8px', fontSize: '13px', color: '#4ade80' }}>
+                  ✓ {selectedCategories.size} categories selected
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>Specialty *</label>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#9ca3af', marginBottom: '4px' }}>
+                  Custom Specialty {selectedCategories.size === 0 ? '*' : '(optional)'}
+                </label>
                 <input
                   type="text"
                   value={specialty}
@@ -359,7 +442,7 @@ export default function ProspectDiscoveryPage() {
                   type="text"
                   value={additionalContext}
                   onChange={(e) => setAdditionalContext(e.target.value)}
-                  placeholder="e.g., private school placement, neurodivergent students"
+                  placeholder="e.g., private school placement, adolescent mental health, elite athletes"
                   style={{ width: '100%', padding: '8px 16px', borderRadius: '8px', backgroundColor: '#334155', border: '1px solid #475569', color: 'white' }}
                 />
               </div>
@@ -482,9 +565,9 @@ export default function ProspectDiscoveryPage() {
                       />
                     </th>
                     <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600">Name</th>
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600">Profession</th>
                     <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600">Organization</th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600">Specialty</th>
-                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600 w-20">Fit</th>
+                    <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide border-r border-slate-600 w-20">Score</th>
                     <th className="px-4 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">Contact</th>
                   </tr>
                 </thead>
@@ -506,33 +589,49 @@ export default function ProspectDiscoveryPage() {
                         <div className="font-semibold text-white text-base">{prospect.name || 'Unknown'}</div>
                         {prospect.title && <div className="text-sm text-gray-400 mt-1">{prospect.title}</div>}
                       </td>
-                      <td className="px-4 py-4 border-r border-slate-700 text-gray-200">{prospect.organization || '—'}</td>
                       <td className="px-4 py-4 border-r border-slate-700">
                         <div className="flex flex-wrap gap-1">
-                          {prospect.specialty.slice(0, 2).map((s, j) => (
-                            <span key={j} className="px-2 py-1 rounded bg-blue-600 text-white text-xs font-medium">
-                              {s}
-                            </span>
-                          ))}
-                          {prospect.specialty.length > 2 && (
-                            <span className="text-xs text-gray-400">+{prospect.specialty.length - 2}</span>
+                          {prospect.specialty && prospect.specialty.length > 0 ? (
+                            prospect.specialty.slice(0, 2).map((s, j) => (
+                              <span key={j} className="px-2 py-1 rounded bg-purple-600 text-white text-xs font-medium">
+                                {s}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-500 text-sm">—</span>
                           )}
                         </div>
+                        {/* Reason tooltip */}
+                        {prospect.bio_snippet && (
+                          <div className="mt-1 group relative">
+                            <span className="text-xs text-blue-400 cursor-help">ℹ️ Why relevant?</span>
+                            <div className="absolute left-0 top-full mt-1 hidden group-hover:block z-10 w-64 p-2 bg-slate-800 border border-slate-600 rounded text-xs text-gray-300 shadow-lg">
+                              {prospect.bio_snippet.slice(0, 150)}...
+                            </div>
+                          </div>
+                        )}
                       </td>
+                      <td className="px-4 py-4 border-r border-slate-700 text-gray-200">{prospect.organization || '—'}</td>
                       <td className="px-4 py-4 border-r border-slate-700">
                         <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${
                           prospect.fit_score >= 80 ? 'bg-green-600 text-white' :
                           prospect.fit_score >= 60 ? 'bg-yellow-500 text-black' :
+                          prospect.fit_score >= 40 ? 'bg-orange-500 text-white' :
                           'bg-gray-600 text-white'
                         }`}>
-                          {prospect.fit_score}%
+                          {prospect.fit_score}
                         </span>
                       </td>
                       <td className="px-4 py-4">
-                        <div className="flex gap-3">
+                        <div className="flex gap-2 flex-wrap">
                           {prospect.contact.email && (
                             <a href={`mailto:${prospect.contact.email}`} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 transition-colors">
                               Email
+                            </a>
+                          )}
+                          {prospect.contact.phone && (
+                            <a href={`tel:${prospect.contact.phone}`} className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-500 transition-colors">
+                              Call
                             </a>
                           )}
                           {prospect.source_url && (
