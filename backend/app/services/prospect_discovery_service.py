@@ -1273,11 +1273,20 @@ Important: Only return verified, publicly available contact information. Do not 
                             source=ProspectSource.GENERAL_SEARCH
                         )
                         
-                        # Add search result context
+                        # Add search result context AND extract from snippet
                         for p in prospects:
                             p.source_url = result.link
                             if not p.bio_snippet:
                                 p.bio_snippet = result.snippet
+                            
+                            # Extract contact from Google snippet if not found
+                            if result.snippet and (not p.contact.phone or not p.contact.email):
+                                snippet_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', result.snippet)
+                                snippet_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', result.snippet)
+                                if snippet_phones and not p.contact.phone:
+                                    p.contact.phone = snippet_phones[0]
+                                if snippet_emails and not p.contact.email:
+                                    p.contact.email = snippet_emails[0]
                         
                         all_prospects.extend(prospects)
                         
@@ -1303,29 +1312,55 @@ Important: Only return verified, publicly available contact information. Do not 
                         logger.warning(f"LLM extraction failed for {url}: {e}")
             
             # =================================================================
-            # CONTACT ENRICHMENT: Use LLM to find contact info for prospects without it
+            # CONTACT ENRICHMENT: Google search for contact info (FREE)
             # =================================================================
             
             prospects_needing_contact = [p for p in all_prospects if not p.contact.email and not p.contact.phone]
             
-            if prospects_needing_contact and self.perplexity:
-                logger.info(f"Using LLM to find contact info for {len(prospects_needing_contact)} prospects...")
+            if prospects_needing_contact and self.google_search:
+                logger.info(f"Searching Google for contact info for {len(prospects_needing_contact)} prospects...")
                 
-                for prospect in prospects_needing_contact[:3]:  # Limit LLM calls
+                for prospect in prospects_needing_contact[:5]:
                     try:
-                        # Ask Perplexity to find contact info
-                        enrichment = await self._enrich_contact_with_llm(prospect, location)
-                        if enrichment:
-                            if enrichment.get("email") and not prospect.contact.email:
-                                prospect.contact.email = enrichment["email"]
-                                logger.info(f"LLM found email for {prospect.name}: {enrichment['email']}")
-                            if enrichment.get("phone") and not prospect.contact.phone:
-                                prospect.contact.phone = enrichment["phone"]
-                                logger.info(f"LLM found phone for {prospect.name}: {enrichment['phone']}")
-                            if enrichment.get("website") and not prospect.contact.website:
-                                prospect.contact.website = enrichment["website"]
+                        # Search Google for this person's contact info
+                        contact_query = f'"{prospect.name}" {location} phone email contact'
+                        contact_results = self.google_search.search(contact_query, num_results=3)
+                        
+                        for cr in contact_results:
+                            # Check snippet for contact info
+                            if cr.snippet:
+                                phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', cr.snippet)
+                                emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', cr.snippet)
+                                
+                                if phones and not prospect.contact.phone:
+                                    prospect.contact.phone = phones[0]
+                                    logger.info(f"Google found phone for {prospect.name}: {phones[0]}")
+                                if emails and not prospect.contact.email:
+                                    # Filter generic emails
+                                    valid_emails = [e for e in emails if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                                    if valid_emails:
+                                        prospect.contact.email = valid_emails[0]
+                                        logger.info(f"Google found email for {prospect.name}: {valid_emails[0]}")
+                            
+                            # If still missing, quick scrape the result page
+                            if not prospect.contact.phone or not prospect.contact.email:
+                                page_content = self._free_scrape(cr.link)
+                                if page_content:
+                                    phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', page_content)
+                                    emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', page_content)
+                                    
+                                    if phones and not prospect.contact.phone:
+                                        prospect.contact.phone = phones[0]
+                                    if emails and not prospect.contact.email:
+                                        valid_emails = [e for e in emails if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                                        if valid_emails:
+                                            prospect.contact.email = valid_emails[0]
+                            
+                            if prospect.contact.phone and prospect.contact.email:
+                                break  # Found both, move to next prospect
+                                
                     except Exception as e:
-                        logger.warning(f"LLM contact enrichment failed for {prospect.name}: {e}")
+                        logger.warning(f"Google contact search failed for {prospect.name}: {e}")
             
             # =================================================================
             # CALCULATE INFLUENCE SCORES
