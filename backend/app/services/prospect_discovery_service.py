@@ -460,6 +460,21 @@ class ProspectDiscoveryService:
                         used_phones.add(phone)
                         break
             
+            # Try to extract website URL from nearby content
+            prospect_website = None
+            website_patterns = [
+                r'https?://(?:www\.)?[\w\.-]+\.\w+(?:/[\w\.-]*)*',
+                r'www\.[\w\.-]+\.\w+',
+            ]
+            for pattern in website_patterns:
+                websites = re.findall(pattern, nearby_content)
+                for site in websites:
+                    if site != url and 'facebook' not in site and 'twitter' not in site and 'linkedin' not in site:
+                        prospect_website = site if site.startswith('http') else f'https://{site}'
+                        break
+                if prospect_website:
+                    break
+            
             prospect = DiscoveredProspect(
                 name=name,
                 title=info.get("title"),
@@ -470,9 +485,13 @@ class ProspectDiscoveryService:
                 contact=ProspectContact(
                     email=prospect_email,
                     phone=prospect_phone,
+                    website=prospect_website,
                 ),
                 bio_snippet=bio_snippet or content[:200],
             )
+            
+            # Log what we found
+            logger.info(f"Extracted prospect: {name} | email: {prospect_email} | phone: {prospect_phone} | website: {prospect_website}")
             
             # Add profession reason as metadata
             if profession_reason:
@@ -882,14 +901,18 @@ Content:
                 "company": prospect.organization,
                 "email": prospect.contact.email,
                 "phone": prospect.contact.phone,
+                "website": prospect.contact.website,
                 "location": prospect.location,
                 "source": f"discovery:{prospect.source.value}",
                 "source_url": prospect.source_url,
                 "fit_score": prospect.fit_score,
                 "status": "new",
+                "tags": prospect.specialty or [],
+                "bio_snippet": prospect.bio_snippet,
                 "created_at": time.time(),
             }
             
+            logger.info(f"Saving prospect: {prospect.name} | email: {prospect.contact.email} | phone: {prospect.contact.phone}")
             doc_ref.set(prospect_doc)
             saved_count += 1
         
