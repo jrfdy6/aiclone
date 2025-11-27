@@ -389,114 +389,68 @@ class ProspectDiscoveryService:
             'call', 'today', 'now', 'schedule', 'book', 'appointment', 'meeting'
         ]
         
+        # Additional non-name words to filter
+        common_non_names = ['internet', 'licensed', 'professional', 'clinical', 'certified',
+                            'registered', 'national', 'american', 'eclectic', 'compassion',
+                            'focused', 'cognitive', 'behavioral', 'mental', 'health',
+                            'therapists', 'therapist', 'family', 'adult', 'couples',
+                            'marriage', 'anxiety', 'depression', 'trauma', 'addiction']
+        
+        role_words = ['therapist', 'counselor', 'psychologist', 'psychiatrist', 'coach',
+                      'specialist', 'consultant', 'advisor', 'director', 'manager']
+        
         def is_valid_person_name(name: str) -> bool:
             """Check if name looks like a real person name."""
             name_lower = name.lower()
             words = name.split()
             
-            # Must be 2-3 words
+            # Must be exactly 2-3 words
             if len(words) < 2 or len(words) > 3:
                 return False
             
-            # No bad words
-            if any(bad in name_lower for bad in bad_name_words):
+            # No bad words (check each word individually)
+            for word in words:
+                if word.lower() in bad_name_words:
+                    return False
+            
+            # Each word should be 2-12 chars
+            if not all(2 <= len(w.replace('.', '')) <= 12 for w in words):
                 return False
             
-            # Each word should be 2-12 chars (typical name length)
-            if not all(2 <= len(w.replace('.', '')) <= 12 for w in words):
+            # First word shouldn't be a common non-name
+            if words[0].lower() in common_non_names:
+                return False
+            
+            # Last word shouldn't be a role
+            if words[-1].lower() in role_words:
                 return False
             
             return True
         
-        # Pattern 1: Name with credentials (expanded)
-        # Matches: "Jane Smith, CEP", "John Doe, PhD, LCSW", "Sarah Kim, Director"
-        cred_name_pattern = rf'([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),?\s+({CRED_PATTERN})'
-        for match in re.findall(cred_name_pattern, content):
+        # Pattern 1: STRICT - "FirstName LastName, CREDENTIAL"
+        # Only match: "John Smith, PhD" or "Jane Doe, LCSW"
+        strict_cred_pattern = rf'\b([A-Z][a-z]{{2,12}}\s+[A-Z][a-z]{{2,12}}),\s*({CRED_PATTERN})\b'
+        for match in re.findall(strict_cred_pattern, content):
             name = match[0].strip()
             if is_valid_person_name(name):
                 names_with_info.append({"name": name, "title": match[1], "source": "credentials"})
         
-        # Pattern 2: Dr./Mr./Ms./Mrs. prefix (handles international names)
-        prefix_pattern = r'(?:Dr\.|Mr\.|Ms\.|Mrs\.|Prof\.)\s+([A-Z][a-z]+(?:[-\s][A-Z]\.?)?(?:\s+[A-Z][a-z]+)+)'
+        # Pattern 2: Dr./Mr./Ms. prefix - STRICT
+        prefix_pattern = r'\b(?:Dr\.|Mr\.|Ms\.|Mrs\.)\s+([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})\b'
         for match in re.findall(prefix_pattern, content):
             name = match.strip()
             if is_valid_person_name(name):
-                names_with_info.append({"name": name, "title": "Dr." if "Dr." in content else None, "source": "prefix"})
+                names_with_info.append({"name": name, "title": "Dr.", "source": "prefix"})
         
-        # Pattern 3: Embassy/diplomatic titles
-        embassy_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),?\s+(?:Ambassador|Attaché|Consul|Cultural Officer|Education Officer)'
-        for match in re.findall(embassy_pattern, content):
-            name = match.strip()
-            if is_valid_person_name(name):
-                names_with_info.append({"name": name, "title": "Diplomatic Staff", "source": "embassy"})
+        # Pattern 3: Extract names from email patterns (john.smith@example.com -> John Smith)
+        email_name_pattern = r'([a-z]+)\.([a-z]+)@'
+        for match in re.findall(email_name_pattern, content.lower()):
+            first, last = match[0].capitalize(), match[1].capitalize()
+            name = f"{first} {last}"
+            if is_valid_person_name(name) and len(first) > 2 and len(last) > 2:
+                names_with_info.append({"name": name, "title": None, "source": "email"})
         
-        # =================================================================
-        # LAYER 2: HEURISTIC NAME DETECTION (Fallback)
-        # =================================================================
-        
-        if len(names_with_info) < 3:
-            # Generic capitalized name pattern (catches more names)
-            # Handles: "John Smith", "Maria Lopez", "Jean-Paul Laurent", "Sarah T. Williams"
-            heuristic_pattern = r'\b([A-Z][a-z]+(?:[-\s][A-Z]\.?)?(?:\s+[A-Z][a-z]+)+)\b'
-            heuristic_names = re.findall(heuristic_pattern, content)
-            
-            # Filter heuristic names by context
-            context_keywords = ['about', 'team', 'staff', 'director', 'founder', 'contact',
-                               'profile', 'bio', 'meet', 'our', 'specialist', 'therapist',
-                               'doctor', 'counselor', 'coach', 'leader', 'coordinator']
-            
-            # Skip common non-name phrases
-            skip_phrases = ['privacy policy', 'terms of', 'all rights', 'copyright',
-                           'read more', 'learn more', 'click here', 'sign up',
-                           'log in', 'contact us', 'about us', 'our team',
-                           'home page', 'main menu', 'site map', 'search results',
-                           'education consultant', 'educational consultant', 'college board',
-                           'customer engagement', 'patient experience', 'human service',
-                           'standardized test', 'featured resources', 'admissions guidance',
-                           'academic tutoring', 'advising available', 'member educational',
-                           'independent educational', 'educational administrative',
-                           'educational outreach', 'grateful parent', 'learn about',
-                           'montgomery county', 'marks education', 'tedeschi educational',
-                           'info', 'county', 'board', 'resources', 'services', 'guidance',
-                           'tutoring', 'available', 'member', 'outreach', 'experience',
-                           'engagement', 'administrative', 'independent', 'featured']
-            
-            content_lower = content.lower()
-            has_context = any(kw in content_lower for kw in context_keywords)
-            
-            for name in heuristic_names:
-                name_lower = name.lower()
-                
-                # Skip if matches skip phrases
-                if any(skip in name_lower for skip in skip_phrases):
-                    continue
-                
-                # Skip if too short or too long
-                if len(name) < 5 or len(name) > 40:
-                    continue
-                
-                # Skip if all caps or no spaces
-                if name.isupper() or ' ' not in name:
-                    continue
-                
-                # Must have exactly 2-4 words (real names)
-                words = name.split()
-                if len(words) < 2 or len(words) > 4:
-                    continue
-                
-                # Each word should be 2-15 chars (real name parts)
-                if not all(2 <= len(w.replace('.', '')) <= 15 for w in words):
-                    continue
-                
-                # Skip if looks like a company/org name
-                org_indicators = ['inc', 'llc', 'corp', 'company', 'group', 'center', 
-                                 'institute', 'foundation', 'association', 'services']
-                if any(ind in name_lower for ind in org_indicators):
-                    continue
-                
-                # Add if has context or we have very few names
-                if has_context or len(names_with_info) < 2:
-                    names_with_info.append({"name": name.strip(), "title": None, "source": "heuristic"})
+        # Layer 2 removed - was causing too many false positives
         
         # =================================================================
         # DETECT PROFESSION FROM CONTENT
