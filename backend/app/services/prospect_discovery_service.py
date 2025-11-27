@@ -303,6 +303,22 @@ class ProspectDiscoveryService:
         
         # Email extraction - filter out generic/non-personal emails
         emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', content)
+        
+        # Also find obfuscated emails: john [at] example [dot] com
+        obfuscated_pattern = r'([a-zA-Z0-9._%+-]+)\s*\[at\]\s*([a-zA-Z0-9.-]+)\s*\[dot\]\s*([a-zA-Z]{2,})'
+        for match in re.findall(obfuscated_pattern, content, re.IGNORECASE):
+            emails.append(f"{match[0]}@{match[1]}.{match[2]}")
+        
+        # Also find: john (at) example (dot) com
+        obfuscated_pattern2 = r'([a-zA-Z0-9._%+-]+)\s*\(at\)\s*([a-zA-Z0-9.-]+)\s*\(dot\)\s*([a-zA-Z]{2,})'
+        for match in re.findall(obfuscated_pattern2, content, re.IGNORECASE):
+            emails.append(f"{match[0]}@{match[1]}.{match[2]}")
+        
+        # Also find: john AT example DOT com
+        obfuscated_pattern3 = r'([a-zA-Z0-9._%+-]+)\s+AT\s+([a-zA-Z0-9.-]+)\s+DOT\s+([a-zA-Z]{2,})'
+        for match in re.findall(obfuscated_pattern3, content):
+            emails.append(f"{match[0]}@{match[1]}.{match[2]}")
+        
         emails = [e for e in emails 
                   if not e.endswith('.png') 
                   and not e.endswith('.jpg')
@@ -724,6 +740,49 @@ Content:
         
         return []
     
+    async def _enrich_contact_with_llm(
+        self,
+        prospect: DiscoveredProspect,
+        location: str
+    ) -> Optional[Dict[str, str]]:
+        """Use Perplexity to find contact info for a prospect."""
+        if not self.perplexity:
+            return None
+        
+        try:
+            prompt = f"""Find the verified contact information for this professional:
+Name: {prospect.name}
+Organization: {prospect.organization or 'Unknown'}
+Title: {prospect.title or 'Unknown'}
+Location: {location}
+
+Search for their official website, email address, and phone number.
+Return ONLY a JSON object with these fields (use null if not found):
+{{"email": "their@email.com", "phone": "123-456-7890", "website": "https://example.com"}}
+
+Important: Only return verified, publicly available contact information. Do not guess."""
+
+            response = await self.perplexity.chat(
+                messages=[{"role": "user", "content": prompt}],
+                model="sonar"
+            )
+            
+            if response and response.choices:
+                text = response.choices[0].message.content
+                # Extract JSON from response
+                json_match = re.search(r'\{[^}]+\}', text)
+                if json_match:
+                    data = json.loads(json_match.group())
+                    # Validate email format
+                    if data.get("email") and "@" not in data["email"]:
+                        data["email"] = None
+                    return data
+                    
+        except Exception as e:
+            logger.warning(f"LLM contact enrichment failed: {e}")
+        
+        return None
+    
     async def discover_prospects(
         self,
         request: ProspectDiscoveryRequest
@@ -1126,9 +1185,31 @@ Content:
                     
                     if scraped and scraped.content:
                         urls_scraped.append(result.link)
+                        combined_content = scraped.content
+                        
+                        # =============================================================
+                        # MULTI-PAGE SCRAPING: Also scrape /contact, /about, /team pages
+                        # =============================================================
+                        try:
+                            from urllib.parse import urlparse
+                            parsed = urlparse(result.link)
+                            base_url = f"{parsed.scheme}://{parsed.netloc}"
+                            
+                            contact_paths = ['/contact', '/contact-us', '/about', '/about-us', '/team', '/staff', '/our-team']
+                            for path in contact_paths:
+                                try:
+                                    contact_url = f"{base_url}{path}"
+                                    contact_scraped = self.firecrawl.scrape_url(contact_url)
+                                    if contact_scraped and contact_scraped.content:
+                                        combined_content += f"\n\n--- FROM {path} ---\n" + contact_scraped.content
+                                        logger.info(f"Also scraped {contact_url}")
+                                except Exception as e:
+                                    pass  # Contact page doesn't exist, that's fine
+                        except Exception as e:
+                            logger.warning(f"Multi-page scraping failed: {e}")
                         
                         prospects = self.extract_prospects_from_content(
-                            content=scraped.content,
+                            content=combined_content,
                             url=result.link,
                             source=ProspectSource.GENERAL_SEARCH
                         )
@@ -1163,52 +1244,29 @@ Content:
                         logger.warning(f"LLM extraction failed for {url}: {e}")
             
             # =================================================================
-            # CONTACT ENRICHMENT: Search for contact info for prospects without it
+            # CONTACT ENRICHMENT: Use LLM to find contact info for prospects without it
             # =================================================================
             
             prospects_needing_contact = [p for p in all_prospects if not p.contact.email and not p.contact.phone]
             
-            if prospects_needing_contact and self.google_search:
-                logger.info(f"Enriching contact info for {len(prospects_needing_contact)} prospects...")
+            if prospects_needing_contact and self.perplexity:
+                logger.info(f"Using LLM to find contact info for {len(prospects_needing_contact)} prospects...")
                 
-                for prospect in prospects_needing_contact[:5]:  # Limit to 5 to save API calls
+                for prospect in prospects_needing_contact[:3]:  # Limit LLM calls
                     try:
-                        # Search for this person's contact info
-                        contact_query = f'"{prospect.name}" {location} (email OR contact OR "@")'
-                        contact_results = self.google_search.search(contact_query, num_results=3)
-                        
-                        if contact_results:
-                            # Filter out social media
-                            contact_results = [r for r in contact_results 
-                                             if not any(d in r.link.lower() for d in BLOCKED_DOMAINS)]
-                            
-                            for cr in contact_results[:2]:
-                                try:
-                                    scraped = self.firecrawl.scrape_url(cr.link)
-                                    if scraped and scraped.content:
-                                        # Extract email from this page
-                                        emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', scraped.content)
-                                        emails = [e for e in emails 
-                                                 if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)
-                                                 and not e.endswith(('.png', '.jpg', '.gif'))]
-                                        
-                                        if emails:
-                                            prospect.contact.email = emails[0]
-                                            logger.info(f"Found email for {prospect.name}: {emails[0]}")
-                                            break
-                                        
-                                        # Extract phone
-                                        phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', scraped.content)
-                                        if phones and not prospect.contact.phone:
-                                            prospect.contact.phone = phones[0]
-                                            logger.info(f"Found phone for {prospect.name}: {phones[0]}")
-                                            
-                                except Exception as e:
-                                    logger.warning(f"Contact enrichment scrape failed: {e}")
-                                    continue
-                                    
+                        # Ask Perplexity to find contact info
+                        enrichment = await self._enrich_contact_with_llm(prospect, location)
+                        if enrichment:
+                            if enrichment.get("email") and not prospect.contact.email:
+                                prospect.contact.email = enrichment["email"]
+                                logger.info(f"LLM found email for {prospect.name}: {enrichment['email']}")
+                            if enrichment.get("phone") and not prospect.contact.phone:
+                                prospect.contact.phone = enrichment["phone"]
+                                logger.info(f"LLM found phone for {prospect.name}: {enrichment['phone']}")
+                            if enrichment.get("website") and not prospect.contact.website:
+                                prospect.contact.website = enrichment["website"]
                     except Exception as e:
-                        logger.warning(f"Contact search failed for {prospect.name}: {e}")
+                        logger.warning(f"LLM contact enrichment failed for {prospect.name}: {e}")
             
             # =================================================================
             # CALCULATE INFLUENCE SCORES
