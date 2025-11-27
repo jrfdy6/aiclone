@@ -195,8 +195,10 @@ export default function ProspectsPage() {
   };
 
   const formatFitScore = (score?: number) => {
-    if (!score) return 'N/A';
-    return `${Math.round(score * 100)}%`;
+    if (score === undefined || score === null) return 'N/A';
+    // Backend now returns 0-100, not 0-1
+    const displayScore = score > 1 ? score : score * 100;
+    return `${Math.round(displayScore)}%`;
   };
 
   const stats = useMemo(() => ({
@@ -419,8 +421,9 @@ export default function ProspectsPage() {
                                 <div
                                   style={{ 
                                     height: '100%', 
-                                    width: `${(prospect.fit_score || 0) * 100}%`,
-                                    backgroundColor: (prospect.fit_score || 0) >= 0.8 ? '#22c55e' : (prospect.fit_score || 0) >= 0.6 ? '#eab308' : '#ef4444'
+                                    // Handle both 0-1 and 0-100 scales
+                                    width: `${(prospect.fit_score || 0) > 1 ? prospect.fit_score : (prospect.fit_score || 0) * 100}%`,
+                                    backgroundColor: ((prospect.fit_score || 0) > 1 ? prospect.fit_score : (prospect.fit_score || 0) * 100) >= 80 ? '#22c55e' : ((prospect.fit_score || 0) > 1 ? prospect.fit_score : (prospect.fit_score || 0) * 100) >= 60 ? '#eab308' : '#ef4444'
                                   }}
                                 />
                               </div>

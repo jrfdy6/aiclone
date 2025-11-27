@@ -1,8 +1,12 @@
 """
 Prospect Discovery Service
 
-Finds actual prospects (people/organizations) from public directories.
-Extracts structured data: name, title, organization, contact info.
+Universal prospect discovery for K-12 decision influencers:
+- Medical: Pediatricians, psychologists, psychiatrists, treatment centers
+- Diplomatic: Embassy education officers, cultural attachés  
+- Sports: Athletic academy directors, elite youth coaches
+- Community: Mom group leaders, parenting coaches, youth program directors
+- Education: Consultants, school counselors, admissions staff
 """
 
 import logging
@@ -24,6 +28,88 @@ from app.services.search_client import get_search_client
 from app.services.firestore_client import db
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# UNIVERSAL CREDENTIALS & TITLES (Layer 1)
+# =============================================================================
+
+CREDENTIALS = [
+    # Medical
+    "MD", "DO", "PhD", "PsyD", "LCSW", "LMFT", "LPC", "NP", "RN", "LMHC", "LCPC",
+    "Pediatrician", "Psychiatrist", "Psychologist", "Neuropsychologist",
+    # Treatment/Admin
+    "Director", "Admin", "Admissions", "Clinical Director", "Program Director",
+    "Executive Director", "Administrator", "Manager", "Coordinator",
+    # Education
+    "CEP", "IEC", "IECA", "MEd", "EdD", "MA", "MS", "MBA", "MSW",
+    "Counselor", "Consultant", "Advisor", "Coach", "Specialist",
+    # Leadership
+    "Founder", "President", "Chair", "Owner", "Principal", "Leader",
+    # Embassy/Diplomatic
+    "Ambassador", "Attaché", "Consul", "Officer", "Diplomat",
+]
+
+CRED_PATTERN = "|".join(re.escape(c) for c in CREDENTIALS)
+
+# =============================================================================
+# PROSPECT CATEGORIES
+# =============================================================================
+
+PROSPECT_CATEGORIES = {
+    "education_consultants": {
+        "name": "Education Consultants",
+        "keywords": ["educational consultant", "college counselor", "IEC", "IECA", "CEP", "school placement"],
+        "search_terms": ["educational consultant", "independent education consultant", "college counselor"],
+    },
+    "pediatricians": {
+        "name": "Pediatricians",
+        "keywords": ["pediatrician", "pediatric", "child doctor", "adolescent medicine"],
+        "search_terms": ["pediatrician adolescent", "pediatric practice", "child doctor"],
+    },
+    "psychologists": {
+        "name": "Psychologists & Psychiatrists",
+        "keywords": ["psychologist", "psychiatrist", "therapist", "mental health", "child psychology"],
+        "search_terms": ["child psychologist", "adolescent psychiatrist", "family therapist"],
+    },
+    "treatment_centers": {
+        "name": "Treatment Centers",
+        "keywords": ["treatment center", "residential treatment", "therapeutic", "rehab", "admissions"],
+        "search_terms": ["treatment center admissions", "residential treatment adolescent", "therapeutic boarding"],
+    },
+    "embassies": {
+        "name": "Embassies & Diplomats",
+        "keywords": ["embassy", "diplomat", "cultural officer", "education attaché", "consulate"],
+        "search_terms": ["embassy education officer", "cultural affairs", "diplomatic family services"],
+    },
+    "youth_sports": {
+        "name": "Youth Sports Programs",
+        "keywords": ["athletic academy", "sports academy", "elite athlete", "youth sports", "travel team"],
+        "search_terms": ["athletic academy director", "elite youth sports", "sports academy high school"],
+    },
+    "mom_groups": {
+        "name": "Mom Groups & Parent Networks",
+        "keywords": ["mom group", "parent network", "PTA", "family", "parenting coach"],
+        "search_terms": ["mom group leader", "parent network", "family services"],
+    },
+    "international_students": {
+        "name": "International Student Services",
+        "keywords": ["international student", "ESL", "foreign student", "visa", "host family"],
+        "search_terms": ["international student services", "foreign student placement", "host family coordinator"],
+    },
+}
+
+# =============================================================================
+# DC AREA LOCATION VARIATIONS
+# =============================================================================
+
+DC_AREA_VARIATIONS = [
+    "Washington DC", "DC", "D.C.", "DMV", "NOVA", "Northern Virginia",
+    "Montgomery County", "Fairfax", "Arlington", "Bethesda", "Silver Spring",
+    "Alexandria", "Chevy Chase", "Georgetown", "Capitol Hill", "Potomac",
+    "McLean", "Tysons", "Rockville", "College Park", "Prince George"
+]
+
+DC_LOCATION_QUERY = '("Washington DC" OR "DC" OR "DMV" OR "NOVA" OR "Montgomery County" OR "Fairfax" OR "Arlington" OR "Bethesda")'
 
 
 class ProspectDiscoveryService:
@@ -194,56 +280,186 @@ class ProspectDiscoveryService:
         url: str,
         source: ProspectSource
     ) -> List[DiscoveredProspect]:
-        """Generic extraction for non-Psychology Today sources"""
+        """
+        Universal extraction using 3-layer approach:
+        Layer 1: Expanded regex with all credentials
+        Layer 2: Heuristic name detection
+        Layer 3: LLM fallback (called separately if needed)
+        """
         prospects = []
+        
+        # =================================================================
+        # CONTACT INFO EXTRACTION
+        # =================================================================
         
         # Email extraction - filter out generic/non-personal emails
         emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', content)
-        generic_prefixes = ['info', 'contact', 'support', 'hello', 'admin', 'sales', 'help', 'office', 'mail', 'enquiries', 'inquiries']
+        generic_prefixes = ['info', 'contact', 'support', 'hello', 'admin', 'sales', 
+                           'help', 'office', 'mail', 'enquiries', 'inquiries', 'noreply',
+                           'webmaster', 'newsletter', 'team', 'careers', 'jobs']
         emails = [e for e in emails 
                   if not e.endswith('.png') 
                   and not e.endswith('.jpg')
+                  and not e.endswith('.gif')
+                  and '@sentry' not in e.lower()
                   and not any(e.lower().startswith(prefix + '@') for prefix in generic_prefixes)]
+        emails = list(set(emails))  # Dedupe
         
         # Phone extraction
         phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', content)
+        phones = list(set(phones))  # Dedupe
         
-        # Name extraction patterns
-        name_patterns = [
-            r'(?:Dr\.|Mr\.|Ms\.|Mrs\.)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)',
-            r'([A-Z][a-z]+\s+[A-Z][a-z]+),?\s+(?:PhD|PsyD|LCSW|LMFT|MEd|MA|MS)',
-            r'([A-Z][a-z]+\s+[A-Z][a-z]+),?\s+(?:Director|Consultant|Therapist|Counselor)',
-        ]
+        # =================================================================
+        # LAYER 1: EXPANDED CREDENTIAL-BASED NAME EXTRACTION
+        # =================================================================
         
-        names = []
-        for pattern in name_patterns:
-            found = re.findall(pattern, content)
-            names.extend(found)
+        names_with_info = []
         
-        # Build prospects
-        if names:
-            for i, name in enumerate(list(set(names))[:5]):
-                prospect = DiscoveredProspect(
-                    name=name.strip(),
-                    source_url=url,
-                    source=source,
-                    contact=ProspectContact(
-                        email=emails[i] if i < len(emails) else None,
-                        phone=phones[i] if i < len(phones) else None,
-                    ),
-                    bio_snippet=content[:200] if content else None,
-                )
-                prospects.append(prospect)
-        elif emails:
-            for email in list(set(emails))[:3]:
+        # Pattern 1: Name with credentials (expanded)
+        # Matches: "Jane Smith, CEP", "John Doe, PhD, LCSW", "Sarah Kim, Director"
+        cred_name_pattern = rf'([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),?\s+({CRED_PATTERN})'
+        for match in re.findall(cred_name_pattern, content):
+            names_with_info.append({"name": match[0].strip(), "title": match[1], "source": "credentials"})
+        
+        # Pattern 2: Dr./Mr./Ms./Mrs. prefix (handles international names)
+        prefix_pattern = r'(?:Dr\.|Mr\.|Ms\.|Mrs\.|Prof\.)\s+([A-Z][a-z]+(?:[-\s][A-Z]\.?)?(?:\s+[A-Z][a-z]+)+)'
+        for match in re.findall(prefix_pattern, content):
+            names_with_info.append({"name": match.strip(), "title": "Dr." if "Dr." in content else None, "source": "prefix"})
+        
+        # Pattern 3: Embassy/diplomatic titles
+        embassy_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),?\s+(?:Ambassador|Attaché|Consul|Cultural Officer|Education Officer)'
+        for match in re.findall(embassy_pattern, content):
+            names_with_info.append({"name": match.strip(), "title": "Diplomatic Staff", "source": "embassy"})
+        
+        # =================================================================
+        # LAYER 2: HEURISTIC NAME DETECTION (Fallback)
+        # =================================================================
+        
+        if len(names_with_info) < 3:
+            # Generic capitalized name pattern (catches more names)
+            # Handles: "John Smith", "Maria Lopez", "Jean-Paul Laurent", "Sarah T. Williams"
+            heuristic_pattern = r'\b([A-Z][a-z]+(?:[-\s][A-Z]\.?)?(?:\s+[A-Z][a-z]+)+)\b'
+            heuristic_names = re.findall(heuristic_pattern, content)
+            
+            # Filter heuristic names by context
+            context_keywords = ['about', 'team', 'staff', 'director', 'founder', 'contact',
+                               'profile', 'bio', 'meet', 'our', 'specialist', 'therapist',
+                               'doctor', 'counselor', 'coach', 'leader', 'coordinator']
+            
+            # Skip common non-name phrases
+            skip_phrases = ['privacy policy', 'terms of', 'all rights', 'copyright',
+                           'read more', 'learn more', 'click here', 'sign up',
+                           'log in', 'contact us', 'about us', 'our team',
+                           'home page', 'main menu', 'site map', 'search results']
+            
+            content_lower = content.lower()
+            has_context = any(kw in content_lower for kw in context_keywords)
+            
+            for name in heuristic_names:
+                name_lower = name.lower()
+                
+                # Skip if matches skip phrases
+                if any(skip in name_lower for skip in skip_phrases):
+                    continue
+                
+                # Skip if too short or too long
+                if len(name) < 5 or len(name) > 40:
+                    continue
+                
+                # Skip if all caps or no spaces
+                if name.isupper() or ' ' not in name:
+                    continue
+                
+                # Skip if looks like a company/org name
+                org_indicators = ['inc', 'llc', 'corp', 'company', 'group', 'center', 
+                                 'institute', 'foundation', 'association', 'services']
+                if any(ind in name_lower for ind in org_indicators):
+                    continue
+                
+                # Add if has context or we have very few names
+                if has_context or len(names_with_info) < 2:
+                    names_with_info.append({"name": name.strip(), "title": None, "source": "heuristic"})
+        
+        # =================================================================
+        # DETECT PROFESSION FROM CONTENT
+        # =================================================================
+        
+        detected_profession = None
+        profession_reason = None
+        
+        for cat_id, cat_info in PROSPECT_CATEGORIES.items():
+            for kw in cat_info["keywords"]:
+                if kw.lower() in content.lower():
+                    detected_profession = cat_info["name"]
+                    profession_reason = f"Found keyword: {kw}"
+                    break
+            if detected_profession:
+                break
+        
+        # =================================================================
+        # BUILD PROSPECT OBJECTS
+        # =================================================================
+        
+        seen_names = set()
+        for i, info in enumerate(names_with_info):
+            name = info["name"]
+            
+            # Skip duplicates
+            if name.lower() in seen_names:
+                continue
+            seen_names.add(name.lower())
+            
+            # Extract bio snippet around the name
+            bio_snippet = None
+            name_pos = content.find(name)
+            if name_pos >= 0:
+                start = max(0, name_pos - 50)
+                end = min(len(content), name_pos + len(name) + 200)
+                bio_snippet = content[start:end].strip()
+            
+            prospect = DiscoveredProspect(
+                name=name,
+                title=info.get("title"),
+                organization=None,
+                specialty=[detected_profession] if detected_profession else [],
+                source_url=url,
+                source=source,
+                contact=ProspectContact(
+                    email=emails[i] if i < len(emails) else None,
+                    phone=phones[i] if i < len(phones) else None,
+                ),
+                bio_snippet=bio_snippet or content[:200],
+            )
+            
+            # Add profession reason as metadata
+            if profession_reason:
+                prospect.bio_snippet = f"{profession_reason}. {prospect.bio_snippet or ''}"
+            
+            prospects.append(prospect)
+            
+            if len(prospects) >= 10:  # Limit per page
+                break
+        
+        # =================================================================
+        # FALLBACK: If no names but have contact info, use email-based name
+        # =================================================================
+        
+        if not prospects and emails:
+            for email in emails[:3]:
                 name_from_email = email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
-                prospect = DiscoveredProspect(
-                    name=name_from_email,
-                    source_url=url,
-                    source=source,
-                    contact=ProspectContact(email=email),
-                )
-                prospects.append(prospect)
+                # Clean up common patterns
+                name_from_email = re.sub(r'\d+', '', name_from_email).strip()
+                
+                if len(name_from_email) >= 3:
+                    prospect = DiscoveredProspect(
+                        name=name_from_email,
+                        title=detected_profession,
+                        source_url=url,
+                        source=source,
+                        contact=ProspectContact(email=email),
+                        bio_snippet=content[:200] if content else None,
+                    )
+                    prospects.append(prospect)
         
         return prospects
     
@@ -251,38 +467,194 @@ class ProspectDiscoveryService:
         self,
         prospect: DiscoveredProspect,
         target_specialty: Optional[str] = None,
-        target_location: Optional[str] = None
+        target_location: Optional[str] = None,
+        categories: List[str] = None
     ) -> int:
-        """Calculate fit score for a prospect (0-100)"""
-        score = 50  # Base score
+        """
+        Calculate influence score for a prospect (0-100)
         
-        # Has email: +20
+        Scoring:
+        - Direct influence on schooling: +40
+        - Has contact info (email/phone): +20
+        - DC/DMV location match: +20
+        - Works with ages 10-18: +10
+        - High socioeconomic clientele: +10
+        - Group leadership role: +10
+        """
+        score = 0
+        content_to_check = f"{prospect.bio_snippet or ''} {prospect.title or ''} {' '.join(prospect.specialty or [])}".lower()
+        
+        # =================================================================
+        # DIRECT INFLUENCE ON K-12 DECISIONS (+40)
+        # =================================================================
+        
+        high_influence_keywords = [
+            'pediatrician', 'psychologist', 'psychiatrist', 'therapist',
+            'educational consultant', 'school counselor', 'admissions',
+            'treatment center', 'embassy', 'education officer', 'cultural officer',
+            'athletic director', 'sports academy', 'coach',
+            'mom group', 'parent network', 'pta', 'family services'
+        ]
+        
+        if any(kw in content_to_check for kw in high_influence_keywords):
+            score += 40
+        elif prospect.title:
+            # Check title for influence indicators
+            title_lower = prospect.title.lower()
+            if any(kw in title_lower for kw in ['director', 'founder', 'president', 'lead', 'chief', 'head']):
+                score += 30
+            else:
+                score += 10  # Base for having any title
+        
+        # =================================================================
+        # CONTACT INFO (+20)
+        # =================================================================
+        
         if prospect.contact.email:
-            score += 20
-        
-        # Has phone: +10
+            score += 15
         if prospect.contact.phone:
-            score += 10
-        
-        # Has title: +10
-        if prospect.title:
-            score += 10
-        
-        # Has organization: +5
-        if prospect.organization:
             score += 5
         
-        # Location match: +10
-        if target_location and prospect.location:
-            if target_location.lower() in prospect.location.lower():
-                score += 10
+        # =================================================================
+        # DC/DMV LOCATION MATCH (+20)
+        # =================================================================
         
-        # Specialty match in bio: +15
-        if target_specialty and prospect.bio_snippet:
-            if target_specialty.lower() in prospect.bio_snippet.lower():
-                score += 15
+        location_content = f"{prospect.location or ''} {prospect.bio_snippet or ''} {prospect.source_url or ''}".lower()
+        
+        dc_keywords = ['washington dc', 'dc', 'd.c.', 'dmv', 'nova', 'northern virginia',
+                      'montgomery county', 'fairfax', 'arlington', 'bethesda', 'silver spring',
+                      'alexandria', 'chevy chase', 'georgetown', 'potomac', 'mclean', 'rockville']
+        
+        if target_location:
+            target_lower = target_location.lower()
+            is_dc_search = any(v in target_lower for v in ['dc', 'washington', 'dmv'])
+            
+            if is_dc_search:
+                if any(kw in location_content for kw in dc_keywords):
+                    score += 20
+            elif target_lower in location_content:
+                score += 20
+        
+        # =================================================================
+        # WORKS WITH AGES 10-18 (+10)
+        # =================================================================
+        
+        age_keywords = ['adolescent', 'teen', 'teenager', 'youth', 'k-12', 'k12',
+                       'middle school', 'high school', 'ages 10', 'ages 11', 'ages 12',
+                       'ages 13', 'ages 14', 'ages 15', 'ages 16', 'ages 17', 'ages 18',
+                       'child', 'children', 'young', 'student']
+        
+        if any(kw in content_to_check for kw in age_keywords):
+            score += 10
+        
+        # =================================================================
+        # HIGH SOCIOECONOMIC CLIENTELE (+10)
+        # =================================================================
+        
+        affluent_keywords = ['private school', 'boarding school', 'prep school', 'independent school',
+                            'embassy', 'diplomat', 'elite', 'premier', 'exclusive', 'luxury',
+                            'concierge', 'executive', 'professional']
+        
+        if any(kw in content_to_check for kw in affluent_keywords):
+            score += 10
+        
+        # =================================================================
+        # GROUP LEADERSHIP (+10)
+        # =================================================================
+        
+        leadership_keywords = ['founder', 'director', 'president', 'chair', 'leader',
+                              'organizer', 'coordinator', 'head of', 'chief']
+        
+        if any(kw in content_to_check for kw in leadership_keywords):
+            score += 10
+        
+        # =================================================================
+        # CATEGORY MATCH BONUS
+        # =================================================================
+        
+        if categories:
+            for cat_id in categories:
+                cat_info = PROSPECT_CATEGORIES.get(cat_id, {})
+                cat_keywords = cat_info.get("keywords", [])
+                if any(kw.lower() in content_to_check for kw in cat_keywords):
+                    score += 5
+                    break
         
         return min(score, 100)
+    
+    async def _extract_with_llm(
+        self,
+        content: str,
+        url: str,
+        categories: List[str] = None
+    ) -> List[DiscoveredProspect]:
+        """
+        Layer 3: LLM fallback extraction using Perplexity free tier.
+        Called only when regex/heuristics fail but contact info exists.
+        """
+        if not self.perplexity:
+            return []
+        
+        # Truncate content to save tokens
+        content_snippet = content[:3000] if len(content) > 3000 else content
+        
+        category_context = ""
+        if categories:
+            cat_names = [PROSPECT_CATEGORIES.get(c, {}).get("name", c) for c in categories]
+            category_context = f"Focus on finding: {', '.join(cat_names)}"
+        
+        prompt = f"""Extract prospect information from this webpage content.
+
+{category_context}
+
+Return ONLY if you find a real person (not a company). Format as JSON:
+{{
+  "name": "Full Name",
+  "title": "Job title or credentials",
+  "organization": "Company or org name",
+  "profession": "e.g. Pediatrician, Educational Consultant, Embassy Officer",
+  "email": "if found",
+  "phone": "if found",
+  "reason": "Why this person influences K-12 education decisions"
+}}
+
+If no individual person is found, return: {{"found": false}}
+
+Content:
+{content_snippet}"""
+
+        try:
+            response = self.perplexity.chat(prompt)
+            
+            # Parse JSON response
+            import json
+            # Try to extract JSON from response
+            json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                
+                if data.get("found") == False or not data.get("name"):
+                    return []
+                
+                prospect = DiscoveredProspect(
+                    name=data.get("name", "Unknown"),
+                    title=data.get("title"),
+                    organization=data.get("organization"),
+                    specialty=[data.get("profession")] if data.get("profession") else [],
+                    source_url=url,
+                    source=ProspectSource.GENERAL_SEARCH,
+                    contact=ProspectContact(
+                        email=data.get("email"),
+                        phone=data.get("phone"),
+                    ),
+                    bio_snippet=data.get("reason"),
+                )
+                return [prospect]
+                
+        except Exception as e:
+            logger.warning(f"LLM extraction failed: {e}")
+        
+        return []
     
     async def discover_prospects(
         self,
@@ -556,17 +928,61 @@ class ProspectDiscoveryService:
             search_query_used=f"Direct scrape of {len(urls)} URLs",
         )
     
+    def build_category_search_query(
+        self,
+        categories: List[str],
+        location: str,
+        additional_context: Optional[str] = None
+    ) -> str:
+        """Build an optimized search query based on selected categories"""
+        
+        # Collect search terms from selected categories
+        search_terms = []
+        for cat_id in categories:
+            cat_info = PROSPECT_CATEGORIES.get(cat_id, {})
+            terms = cat_info.get("search_terms", [])
+            if terms:
+                search_terms.extend(terms[:2])  # Take top 2 from each category
+        
+        # If no categories selected, use general terms
+        if not search_terms:
+            search_terms = ["educational consultant", "pediatrician", "therapist"]
+        
+        # Build location part
+        location_lower = location.lower() if location else ""
+        is_dc = any(v in location_lower for v in ['dc', 'washington', 'dmv'])
+        
+        if is_dc:
+            location_query = DC_LOCATION_QUERY
+        else:
+            location_query = f'"{location}"' if location else ""
+        
+        # Combine terms with OR
+        terms_query = " OR ".join(f'"{t}"' for t in search_terms[:5])  # Limit to 5 terms
+        
+        # Build final query
+        query_parts = [f"({terms_query})", location_query]
+        if additional_context:
+            query_parts.append(additional_context)
+        query_parts.append("(email OR contact)")
+        
+        return " ".join(filter(None, query_parts))
+    
     async def find_prospects_free(
         self,
         user_id: str,
         specialty: str,
         location: str,
         additional_context: Optional[str] = None,
-        max_results: int = 10
+        max_results: int = 10,
+        categories: List[str] = None
     ) -> ProspectDiscoveryResponse:
         """
         Use Google Custom Search (FREE - 100/day) + Firecrawl to find prospects.
-        This is the cost-effective approach.
+        
+        Args:
+            categories: List of category IDs from PROSPECT_CATEGORIES
+                       e.g., ["pediatricians", "psychologists", "embassies"]
         """
         self._init_clients()
         
@@ -581,13 +997,27 @@ class ProspectDiscoveryService:
         
         discovery_id = f"discovery_google_{int(time.time())}"
         
-        # Build search query
-        query_parts = [f'"{specialty}"', f'"{location}"']
-        if additional_context:
-            query_parts.append(additional_context)
-        query_parts.append("contact email")
-        
-        search_query = " ".join(query_parts)
+        # Build search query based on categories or specialty
+        if categories:
+            search_query = self.build_category_search_query(categories, location, additional_context)
+        else:
+            # Legacy: use specialty directly
+            query_parts = [f'"{specialty}"']
+            
+            # Enhanced DC location handling
+            location_lower = location.lower() if location else ""
+            is_dc = any(v in location_lower for v in ['dc', 'washington', 'dmv'])
+            
+            if is_dc:
+                query_parts.append(DC_LOCATION_QUERY)
+            else:
+                query_parts.append(f'"{location}"')
+            
+            if additional_context:
+                query_parts.append(additional_context)
+            query_parts.append("(email OR contact)")
+            
+            search_query = " ".join(query_parts)
         
         logger.info(f"Google Search (FREE): {search_query}")
         
@@ -635,44 +1065,33 @@ class ProspectDiscoveryService:
                     logger.warning(f"Failed to scrape {result.link}: {e}")
                     continue
             
-            # Score prospects based on location match (don't filter out, just adjust score)
-            if location:
-                location_lower = location.lower()
-                dc_variations = ['dc', 'washington dc', 'washington, dc', 'district of columbia', 'd.c.']
-                is_dc_search = any(v in location_lower for v in dc_variations)
-                
-                for p in all_prospects:
-                    content_to_check = f"{p.location or ''} {p.bio_snippet or ''} {p.source_url or ''}".lower()
-                    
-                    # Boost if location matches
-                    if is_dc_search and any(v in content_to_check for v in dc_variations):
-                        p.fit_score = min((p.fit_score or 50) + 20, 100)
-                    elif location_lower in content_to_check:
-                        p.fit_score = min((p.fit_score or 50) + 20, 100)
+            # =================================================================
+            # LLM FALLBACK: If we have URLs but no prospects, try LLM extraction
+            # =================================================================
             
-            # Boost K-12 keywords, exclude only obvious non-fits
-            k12_keywords = ['k-12', 'k12', 'middle school', 'high school', 'teenager', 
-                           'adolescent', 'teen', 'youth', 'boarding school', 'prep school', 
-                           'private school', 'independent school', 'education', 'school']
-            exclude_keywords = ['college only', 'university only', 'graduate school only']
+            if not all_prospects and urls_scraped and self.perplexity:
+                logger.info("No prospects from regex, trying LLM fallback...")
+                for url in urls_scraped[:2]:  # Limit LLM calls
+                    try:
+                        scraped = self.firecrawl.scrape_url(url)
+                        if scraped and scraped.content:
+                            llm_prospects = await self._extract_with_llm(
+                                scraped.content, url, categories
+                            )
+                            all_prospects.extend(llm_prospects)
+                    except Exception as e:
+                        logger.warning(f"LLM extraction failed for {url}: {e}")
             
-            for p in all_prospects:
-                content_to_check = f"{p.bio_snippet or ''} {p.title or ''} {' '.join(p.specialty or [])}".lower()
-                
-                # Penalize if clearly not K-12
-                if any(ex in content_to_check for ex in exclude_keywords):
-                    p.fit_score = max((p.fit_score or 50) - 30, 0)
-                
-                # Boost if K-12 keywords found
-                if any(kw in content_to_check for kw in k12_keywords):
-                    p.fit_score = min((p.fit_score or 50) + 15, 100)
+            # =================================================================
+            # CALCULATE INFLUENCE SCORES
+            # =================================================================
             
-            # Calculate fit scores
             for prospect in all_prospects:
                 prospect.fit_score = self.calculate_fit_score(
                     prospect,
                     target_specialty=specialty,
-                    target_location=location
+                    target_location=location,
+                    categories=categories
                 )
             
             # Sort and limit

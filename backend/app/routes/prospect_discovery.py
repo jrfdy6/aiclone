@@ -186,10 +186,32 @@ async def scrape_specific_urls(request: ScrapeUrlsRequest) -> Dict[str, Any]:
 class ProspectSearchRequest(BaseModel):
     """Request for prospect search"""
     user_id: str
-    specialty: str
+    specialty: str = ""
     location: str
     additional_context: str = None
     max_results: int = 10
+    categories: List[str] = None  # e.g., ["pediatricians", "psychologists", "embassies"]
+
+
+@router.get("/categories")
+async def get_prospect_categories() -> Dict[str, Any]:
+    """
+    Get all available prospect categories for the multiselect UI.
+    """
+    from app.services.prospect_discovery_service import PROSPECT_CATEGORIES
+    
+    categories = []
+    for cat_id, cat_info in PROSPECT_CATEGORIES.items():
+        categories.append({
+            "id": cat_id,
+            "name": cat_info["name"],
+            "keywords": cat_info["keywords"][:3],  # Sample keywords
+        })
+    
+    return {
+        "categories": categories,
+        "total": len(categories)
+    }
 
 
 @router.post("/search-free", response_model=ProspectDiscoveryResponse)
@@ -197,15 +219,23 @@ async def free_prospect_search(request: ProspectSearchRequest) -> Dict[str, Any]
     """
     Find prospects using Google Search (FREE - 100 queries/day) + Firecrawl.
     
-    This is the recommended, cost-effective approach.
+    Now supports category-based search for finding K-12 decision influencers:
+    - education_consultants
+    - pediatricians
+    - psychologists
+    - treatment_centers
+    - embassies
+    - youth_sports
+    - mom_groups
+    - international_students
     
     Example:
     ```json
     {
       "user_id": "user123",
-      "specialty": "educational consultant",
       "location": "Washington DC",
-      "additional_context": "private school placement",
+      "categories": ["pediatricians", "psychologists", "treatment_centers"],
+      "additional_context": "adolescent mental health",
       "max_results": 10
     }
     ```
@@ -217,7 +247,8 @@ async def free_prospect_search(request: ProspectSearchRequest) -> Dict[str, Any]
             specialty=request.specialty,
             location=request.location,
             additional_context=request.additional_context,
-            max_results=request.max_results
+            max_results=request.max_results,
+            categories=request.categories
         )
         return result
     except Exception as e:
