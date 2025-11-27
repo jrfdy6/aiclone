@@ -337,21 +337,58 @@ class ProspectDiscoveryService:
         
         names_with_info = []
         
+        # Global bad name patterns - these are NOT real person names
+        bad_name_words = [
+            'educational', 'administrative', 'outreach', 'experience', 'engagement',
+            'customer', 'patient', 'human', 'service', 'services', 'standardized',
+            'test', 'prep', 'head', 'start', 'reviewer', 'board', 'college',
+            'resources', 'featured', 'guidance', 'admissions', 'tutoring', 'academic',
+            'available', 'advising', 'member', 'independent', 'county', 'montgomery',
+            'tedeschi', 'marks', 'education', 'consultant', 'consulting', 'group',
+            'center', 'institute', 'foundation', 'association', 'program', 'school',
+            'academy', 'learning', 'development', 'training', 'coaching', 'support'
+        ]
+        
+        def is_valid_person_name(name: str) -> bool:
+            """Check if name looks like a real person name."""
+            name_lower = name.lower()
+            words = name.split()
+            
+            # Must be 2-3 words
+            if len(words) < 2 or len(words) > 3:
+                return False
+            
+            # No bad words
+            if any(bad in name_lower for bad in bad_name_words):
+                return False
+            
+            # Each word should be 2-12 chars (typical name length)
+            if not all(2 <= len(w.replace('.', '')) <= 12 for w in words):
+                return False
+            
+            return True
+        
         # Pattern 1: Name with credentials (expanded)
         # Matches: "Jane Smith, CEP", "John Doe, PhD, LCSW", "Sarah Kim, Director"
         cred_name_pattern = rf'([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),?\s+({CRED_PATTERN})'
         for match in re.findall(cred_name_pattern, content):
-            names_with_info.append({"name": match[0].strip(), "title": match[1], "source": "credentials"})
+            name = match[0].strip()
+            if is_valid_person_name(name):
+                names_with_info.append({"name": name, "title": match[1], "source": "credentials"})
         
         # Pattern 2: Dr./Mr./Ms./Mrs. prefix (handles international names)
         prefix_pattern = r'(?:Dr\.|Mr\.|Ms\.|Mrs\.|Prof\.)\s+([A-Z][a-z]+(?:[-\s][A-Z]\.?)?(?:\s+[A-Z][a-z]+)+)'
         for match in re.findall(prefix_pattern, content):
-            names_with_info.append({"name": match.strip(), "title": "Dr." if "Dr." in content else None, "source": "prefix"})
+            name = match.strip()
+            if is_valid_person_name(name):
+                names_with_info.append({"name": name, "title": "Dr." if "Dr." in content else None, "source": "prefix"})
         
         # Pattern 3: Embassy/diplomatic titles
         embassy_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+),?\s+(?:Ambassador|Attaché|Consul|Cultural Officer|Education Officer)'
         for match in re.findall(embassy_pattern, content):
-            names_with_info.append({"name": match.strip(), "title": "Diplomatic Staff", "source": "embassy"})
+            name = match.strip()
+            if is_valid_person_name(name):
+                names_with_info.append({"name": name, "title": "Diplomatic Staff", "source": "embassy"})
         
         # =================================================================
         # LAYER 2: HEURISTIC NAME DETECTION (Fallback)
