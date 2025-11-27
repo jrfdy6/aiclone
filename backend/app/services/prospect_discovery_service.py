@@ -1156,14 +1156,29 @@ Important: Only return verified, publicly available contact information. Do not 
         # Combine terms with OR
         terms_query = " OR ".join(f'"{t}"' for t in search_terms[:5])  # Limit to 5 terms
         
-        # Build final query - prefer scrape-friendly directories
+        # Build final query with category-specific site preferences
         query_parts = [f"({terms_query})", location_query]
         if additional_context:
             query_parts.append(additional_context)
         
-        # Prefer directories that allow scraping and have contact info
-        query_parts.append("site:psychologytoday.com OR site:healthgrades.com OR site:zocdoc.com OR site:vitals.com OR (email contact)")
-        query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
+        # Category-specific directory preferences
+        medical_cats = ['pediatricians', 'psychologists', 'treatment_centers']
+        sports_cats = ['youth_sports', 'athletic_academies']
+        education_cats = ['education_consultants', 'school_counselors', 'tutoring_centers']
+        community_cats = ['mom_groups', 'parenting_coaches', 'youth_programs']
+        
+        if any(c in categories for c in medical_cats):
+            query_parts.append("site:psychologytoday.com OR site:healthgrades.com OR site:zocdoc.com OR site:vitals.com OR (email contact)")
+        elif any(c in categories for c in sports_cats):
+            query_parts.append("site:usyouthsoccer.org OR site:littleleague.org OR site:teamsnap.com OR (coach director email contact)")
+        elif any(c in categories for c in education_cats):
+            query_parts.append("(email contact about)")
+        elif any(c in categories for c in community_cats):
+            query_parts.append("(email contact)")
+        else:
+            query_parts.append("(email contact)")
+        
+        query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com")
         
         return " ".join(filter(None, query_parts))
     
