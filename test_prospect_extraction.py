@@ -139,35 +139,46 @@ def extract_prospects(content: str):
     return names_found, list(set(emails)), list(set(phones))
 
 
-# Test URLs - scrape-friendly directories
-TEST_URLS = [
-    "https://www.psychologytoday.com/us/therapists/dc/washington",
-    "https://www.healthgrades.com/pediatrics-directory/dc-district-of-columbia",
-    "https://www.zocdoc.com/search?address=Washington%2C%20DC&insurance=skip&specialty=pediatrician",
-]
+# Test URLs for different categories
+TEST_URLS = {
+    "psychologist": [
+        "https://www.psychologytoday.com/us/therapists/dc/washington",
+    ],
+    "pediatrician": [
+        "https://www.healthgrades.com/pediatrics-directory/dc-district-of-columbia",
+    ],
+    "education_consultant": [
+        "https://markseducation.com/",
+        "https://www.collegeadmissionsstrategies.com/",
+    ],
+}
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("PROSPECT EXTRACTION TEST")
+    print("PROSPECT EXTRACTION TEST BY CATEGORY")
     print("=" * 60)
     
-    for url in TEST_URLS:
-        print(f"\n🔍 Testing: {url}")
-        try:
-            content = free_scrape(url)
-            print(f"   Scraped {len(content)} chars")
-            
-            names, emails, phones = extract_prospects(content)
-            
-            print(f"   Names found: {len(names)}")
-            for n in names[:5]:
-                print(f"      - {n['name']} ({n['title']})")
-            
-            print(f"   Emails: {emails[:3]}")
-            print(f"   Phones: {phones[:3]}")
-            
-        except Exception as e:
-            print(f"   ❌ Error: {e}")
+    for category, urls in TEST_URLS.items():
+        print(f"\n📁 CATEGORY: {category.upper()}")
+        print("-" * 40)
+        
+        for url in urls:
+            print(f"\n🔍 Testing: {url}")
+            try:
+                content = free_scrape(url)
+                print(f"   Scraped {len(content)} chars")
+                
+                names, emails, phones = extract_prospects(content)
+                
+                print(f"   ✅ Names found: {len(names)}")
+                for n in names[:5]:
+                    print(f"      - {n['name']} ({n['title']})")
+                
+                print(f"   📧 Emails: {emails[:3]}")
+                print(f"   📞 Phones: {phones[:3]}")
+                
+            except Exception as e:
+                print(f"   ❌ Error: {e}")
     
     print("\n" + "=" * 60)
 
