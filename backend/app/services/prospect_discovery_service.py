@@ -111,6 +111,15 @@ DC_AREA_VARIATIONS = [
 
 DC_LOCATION_QUERY = '("Washington DC" OR "DC" OR "DMV" OR "NOVA" OR "Montgomery County" OR "Fairfax" OR "Arlington" OR "Bethesda")'
 
+# Generic email prefixes to filter out
+GENERIC_EMAIL_PREFIXES = ['info', 'contact', 'support', 'hello', 'admin', 'sales', 
+                          'help', 'office', 'mail', 'enquiries', 'inquiries', 'noreply',
+                          'webmaster', 'newsletter', 'team', 'careers', 'jobs']
+
+# Domains that can't be scraped
+BLOCKED_DOMAINS = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 
+                   'youtube.com', 'tiktok.com', 'pinterest.com']
+
 
 class ProspectDiscoveryService:
     """Service for discovering prospects from public directories"""
@@ -294,15 +303,12 @@ class ProspectDiscoveryService:
         
         # Email extraction - filter out generic/non-personal emails
         emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', content)
-        generic_prefixes = ['info', 'contact', 'support', 'hello', 'admin', 'sales', 
-                           'help', 'office', 'mail', 'enquiries', 'inquiries', 'noreply',
-                           'webmaster', 'newsletter', 'team', 'careers', 'jobs']
         emails = [e for e in emails 
                   if not e.endswith('.png') 
                   and not e.endswith('.jpg')
                   and not e.endswith('.gif')
                   and '@sentry' not in e.lower()
-                  and not any(e.lower().startswith(prefix + '@') for prefix in generic_prefixes)]
+                  and not any(e.lower().startswith(prefix + '@') for prefix in GENERIC_EMAIL_PREFIXES)]
         emails = list(set(emails))  # Dedupe
         
         # Phone extraction
@@ -429,7 +435,7 @@ class ProspectDiscoveryService:
             nearby_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', nearby_content)
             for email in nearby_emails:
                 email_lower = email.lower()
-                if email not in used_emails and not any(email_lower.startswith(p + '@') for p in generic_prefixes):
+                if email not in used_emails and not any(email_lower.startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES):
                     if not email.endswith(('.png', '.jpg', '.gif')) and '@sentry' not in email_lower:
                         prospect_email = email
                         used_emails.add(email)
@@ -1108,11 +1114,8 @@ Content:
             urls_scraped = []
             
             # Filter out URLs that can't be scraped
-            blocked_domains = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 
-                              'youtube.com', 'tiktok.com', 'pinterest.com']
-            
             scrapeable_results = [r for r in search_results 
-                                  if not any(domain in r.link.lower() for domain in blocked_domains)]
+                                  if not any(domain in r.link.lower() for domain in BLOCKED_DOMAINS)]
             
             logger.info(f"Filtered {len(search_results)} results to {len(scrapeable_results)} scrapeable URLs")
             
@@ -1177,7 +1180,7 @@ Content:
                         if contact_results:
                             # Filter out social media
                             contact_results = [r for r in contact_results 
-                                             if not any(d in r.link.lower() for d in blocked_domains)]
+                                             if not any(d in r.link.lower() for d in BLOCKED_DOMAINS)]
                             
                             for cr in contact_results[:2]:
                                 try:
@@ -1186,7 +1189,7 @@ Content:
                                         # Extract email from this page
                                         emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', scraped.content)
                                         emails = [e for e in emails 
-                                                 if not any(e.lower().startswith(p + '@') for p in generic_prefixes)
+                                                 if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)
                                                  and not e.endswith(('.png', '.jpg', '.gif'))]
                                         
                                         if emails:
