@@ -12,6 +12,7 @@ Universal prospect discovery for K-12 decision influencers:
 import logging
 import time
 import re
+import json
 from typing import List, Dict, Any, Optional
 
 from app.models.prospect_discovery import (
