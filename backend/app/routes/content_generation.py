@@ -639,7 +639,11 @@ Voice audit:
 - **Audience:** {audience.replace('_', ' ').title()}
 - **Category:** {category.upper()} - {category_guidance.get(category, "")}
 
-CRITICAL: The content MUST be about "{topic}". If the topic is a person's name, the post should feature/mention them prominently. If it's a concept, the post should explore that concept.
+CRITICAL: The content MUST be about "{topic}". 
+- If the topic is a PERSON'S NAME: The post MUST mention them BY NAME multiple times. Feature them prominently - share what you learned from them, celebrate their work, or tell a story involving them. Do NOT write a generic post that ignores the person.
+- If the topic is a concept: The post should explore that concept directly.
+
+IMPORTANT: If Context is provided above (not "General"), you MUST incorporate that specific context into the content. Reference the situation, event, or details mentioned in the context directly.
 
 {pacer_guidance}
 
