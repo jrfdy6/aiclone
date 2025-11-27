@@ -659,6 +659,32 @@ class ProspectDiscoveryService:
                 
                 all_prospects = filtered_prospects
             
+            # Filter for K-12 / middle school / high school focus (exclude higher ed / elementary only)
+            k12_keywords = ['k-12', 'k12', 'middle school', 'high school', 'highschool', 'teenager', 
+                           'adolescent', 'teen', 'secondary', 'junior high', '6th', '7th', '8th', 
+                           '9th', '10th', '11th', '12th', 'grade 6', 'grade 7', 'grade 8', 'grade 9',
+                           'grade 10', 'grade 11', 'grade 12', 'ages 11', 'ages 12', 'ages 13', 
+                           'ages 14', 'ages 15', 'ages 16', 'ages 17', 'ages 18', 'youth',
+                           'boarding school', 'prep school', 'private school', 'independent school']
+            exclude_keywords = ['elementary only', 'preschool only', 'college only', 'university only', 
+                               'graduate school', 'adult only', 'seniors only']
+            
+            k12_filtered = []
+            for p in all_prospects:
+                content_to_check = f"{p.bio_snippet or ''} {p.title or ''} {' '.join(p.specialty or [])}".lower()
+                
+                # Exclude if clearly not K-12
+                if any(ex in content_to_check for ex in exclude_keywords):
+                    continue
+                
+                # Boost score if K-12 keywords found
+                if any(kw in content_to_check for kw in k12_keywords):
+                    p.fit_score = min((p.fit_score or 50) + 15, 100)
+                
+                k12_filtered.append(p)
+            
+            all_prospects = k12_filtered
+            
             # Calculate fit scores
             for prospect in all_prospects:
                 prospect.fit_score = self.calculate_fit_score(
