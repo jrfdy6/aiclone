@@ -47,8 +47,8 @@ async def list_prospects(
     List prospects for a user with optional filtering and sorting.
     """
     try:
-        # Build query
-        query = db.collection("prospects").where("user_id", "==", user_id)
+        # Build query - prospects are stored in users/{user_id}/prospects subcollection
+        query = db.collection("users").document(user_id).collection("prospects")
         
         # Apply status filter if provided
         if status and status != "all":
@@ -150,15 +150,13 @@ async def get_prospect(
     Get a single prospect by ID.
     """
     try:
-        doc_ref = db.collection("prospects").document(prospect_id)
+        doc_ref = db.collection("users").document(user_id).collection("prospects").document(prospect_id)
         doc = doc_ref.get()
         
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Prospect not found")
         
         data = doc.to_dict()
-        if data.get("user_id") != user_id:
-            raise HTTPException(status_code=403, detail="Prospect does not belong to user")
         
         # Extract fields (same logic as list endpoint)
         fit_score = data.get("fit_score") or (data.get("scores", {}) or {}).get("fit_score") or (data.get("analysis", {}) or {}).get("confidence_score")
