@@ -1160,6 +1160,54 @@ Content:
                         logger.warning(f"LLM extraction failed for {url}: {e}")
             
             # =================================================================
+            # CONTACT ENRICHMENT: Search for contact info for prospects without it
+            # =================================================================
+            
+            prospects_needing_contact = [p for p in all_prospects if not p.contact.email and not p.contact.phone]
+            
+            if prospects_needing_contact and self.google_search:
+                logger.info(f"Enriching contact info for {len(prospects_needing_contact)} prospects...")
+                
+                for prospect in prospects_needing_contact[:5]:  # Limit to 5 to save API calls
+                    try:
+                        # Search for this person's contact info
+                        contact_query = f'"{prospect.name}" {location} (email OR contact OR "@")'
+                        contact_results = self.google_search.search(contact_query, num_results=3)
+                        
+                        if contact_results:
+                            # Filter out social media
+                            contact_results = [r for r in contact_results 
+                                             if not any(d in r.link.lower() for d in blocked_domains)]
+                            
+                            for cr in contact_results[:2]:
+                                try:
+                                    scraped = self.firecrawl.scrape_url(cr.link)
+                                    if scraped and scraped.content:
+                                        # Extract email from this page
+                                        emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', scraped.content)
+                                        emails = [e for e in emails 
+                                                 if not any(e.lower().startswith(p + '@') for p in generic_prefixes)
+                                                 and not e.endswith(('.png', '.jpg', '.gif'))]
+                                        
+                                        if emails:
+                                            prospect.contact.email = emails[0]
+                                            logger.info(f"Found email for {prospect.name}: {emails[0]}")
+                                            break
+                                        
+                                        # Extract phone
+                                        phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', scraped.content)
+                                        if phones and not prospect.contact.phone:
+                                            prospect.contact.phone = phones[0]
+                                            logger.info(f"Found phone for {prospect.name}: {phones[0]}")
+                                            
+                                except Exception as e:
+                                    logger.warning(f"Contact enrichment scrape failed: {e}")
+                                    continue
+                                    
+                    except Exception as e:
+                        logger.warning(f"Contact search failed for {prospect.name}: {e}")
+            
+            # =================================================================
             # CALCULATE INFLUENCE SCORES
             # =================================================================
             
