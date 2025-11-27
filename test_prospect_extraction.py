@@ -67,8 +67,18 @@ def is_valid_person_name(name: str) -> bool:
     
     # Last word shouldn't be a title/role
     role_words = ['therapist', 'counselor', 'psychologist', 'psychiatrist', 'coach',
-                  'specialist', 'consultant', 'advisor', 'director', 'manager']
+                  'specialist', 'consultant', 'advisor', 'director', 'manager', 'worker']
     if words[-1].lower() in role_words:
+        return False
+    
+    # Filter famous people (likely quotes/testimonials)
+    famous = ['maya angelou', 'martin luther', 'oprah winfrey', 'barack obama']
+    if name_lower in famous:
+        return False
+    
+    # Filter job titles that look like names
+    job_titles = ['social worker', 'case manager', 'program director', 'clinical director']
+    if name_lower in job_titles:
         return False
     
     return True
@@ -129,12 +139,11 @@ def extract_prospects(content: str):
     return names_found, list(set(emails)), list(set(phones))
 
 
-# Test URLs - educational consultants in DC
+# Test URLs - scrape-friendly directories
 TEST_URLS = [
     "https://www.psychologytoday.com/us/therapists/dc/washington",
-    "https://www.psychologytoday.com/us/therapists/child-adolescent/dc/washington",
-    "https://tedeschieducational.com/about/",
-    "https://www.heca-dc.org/member-directory",
+    "https://www.healthgrades.com/pediatrics-directory/dc-district-of-columbia",
+    "https://www.zocdoc.com/search?address=Washington%2C%20DC&insurance=skip&specialty=pediatrician",
 ]
 
 if __name__ == "__main__":
