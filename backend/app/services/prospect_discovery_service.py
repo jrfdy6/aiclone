@@ -1201,8 +1201,10 @@ Important: Only return verified, publicly available contact information. Do not 
             
             if additional_context:
                 query_parts.append(additional_context)
-            query_parts.append("(email OR contact)")
-            query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com")
+            
+            # Add site preferences for scrape-friendly directories
+            query_parts.append("site:psychologytoday.com OR site:healthgrades.com OR site:zocdoc.com OR site:vitals.com OR (email contact)")
+            query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com")
             
             search_query = " ".join(query_parts)
         
