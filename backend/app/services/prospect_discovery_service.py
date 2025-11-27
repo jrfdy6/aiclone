@@ -776,7 +776,7 @@ Content:
 {content_snippet}"""
 
         try:
-            response = self.perplexity.chat(prompt)
+            response = self.perplexity.search(query=prompt)
             
             # Parse JSON response
             import json
@@ -1167,18 +1167,24 @@ Important: Only return verified, publicly available contact information. Do not 
         education_cats = ['education_consultants', 'school_counselors', 'tutoring_centers']
         community_cats = ['mom_groups', 'parenting_coaches', 'youth_programs']
         
-        if any(c in categories for c in medical_cats):
-            query_parts.append("site:psychologytoday.com OR site:healthgrades.com OR site:zocdoc.com OR site:vitals.com OR (email contact)")
-        elif any(c in categories for c in sports_cats):
-            query_parts.append("site:usyouthsoccer.org OR site:littleleague.org OR site:teamsnap.com OR (coach director email contact)")
-        elif any(c in categories for c in education_cats):
-            query_parts.append("(email contact about)")
-        elif any(c in categories for c in community_cats):
-            query_parts.append("(email contact)")
-        else:
-            query_parts.append("(email contact)")
+        # Category-specific search optimization
+        medical_cats = ['pediatricians', 'psychologists', 'psychiatrists', 'treatment_centers']
+        sports_cats = ['youth_sports', 'athletic_academies']
+        education_cats = ['education_consultants', 'school_counselors', 'tutoring_centers']
         
-        query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com")
+        if any(c in categories for c in medical_cats):
+            # Medical professionals - use health directories
+            query_parts.append("site:psychologytoday.com OR site:healthgrades.com OR site:zocdoc.com")
+        elif any(c in categories for c in sports_cats):
+            # Sports - search for coaches/directors with contact
+            query_parts.append("coach OR director email contact")
+        elif any(c in categories for c in education_cats):
+            # Education consultants - search their own websites
+            query_parts.append("email contact \"about\" OR \"meet\" OR \"team\"")
+        else:
+            query_parts.append("email OR phone OR contact")
+        
+        query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
         
         return " ".join(filter(None, query_parts))
     
@@ -1230,9 +1236,20 @@ Important: Only return verified, publicly available contact information. Do not 
             if additional_context:
                 query_parts.append(additional_context)
             
-            # Add site preferences for scrape-friendly directories
-            query_parts.append("site:psychologytoday.com OR site:healthgrades.com OR site:zocdoc.com OR site:vitals.com OR (email contact)")
-            query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com")
+            # Detect specialty type and optimize search
+            specialty_lower = specialty.lower() if specialty else ""
+            
+            if any(term in specialty_lower for term in ['therapist', 'psychologist', 'psychiatrist', 'counselor', 'mental health']):
+                query_parts.append("site:psychologytoday.com OR site:healthgrades.com")
+            elif any(term in specialty_lower for term in ['pediatrician', 'doctor', 'physician', 'md']):
+                query_parts.append("site:healthgrades.com OR site:zocdoc.com OR site:vitals.com")
+            elif any(term in specialty_lower for term in ['coach', 'sports', 'athletic', 'soccer', 'basketball']):
+                query_parts.append("coach OR director email contact")
+            else:
+                # Education consultants and others - search their websites
+                query_parts.append("email contact \"about\" OR \"meet\"")
+            
+            query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
             
             search_query = " ".join(query_parts)
         
