@@ -346,7 +346,18 @@ class ProspectDiscoveryService:
             'available', 'advising', 'member', 'independent', 'county', 'montgomery',
             'tedeschi', 'marks', 'education', 'consultant', 'consulting', 'group',
             'center', 'institute', 'foundation', 'association', 'program', 'school',
-            'academy', 'learning', 'development', 'training', 'coaching', 'support'
+            'academy', 'learning', 'development', 'training', 'coaching', 'support',
+            # Common website/UI phrases
+            'help', 'how', 'can', 'you', 'your', 'child', 'contact', 'phone', 'number',
+            'email', 'address', 'click', 'here', 'read', 'more', 'learn', 'about',
+            'options', 'certified', 'planner', 'risk', 'lines', 'personal', 'day',
+            'schools', 'what', 'why', 'when', 'where', 'our', 'the', 'and', 'for',
+            'with', 'this', 'that', 'from', 'have', 'been', 'will', 'would', 'could',
+            'should', 'their', 'there', 'which', 'other', 'some', 'many', 'most',
+            'free', 'best', 'top', 'new', 'first', 'last', 'next', 'back', 'home',
+            'page', 'site', 'web', 'online', 'info', 'information', 'details',
+            'submit', 'send', 'get', 'find', 'search', 'browse', 'view', 'see',
+            'call', 'today', 'now', 'schedule', 'book', 'appointment', 'meeting'
         ]
         
         def is_valid_person_name(name: str) -> bool:
