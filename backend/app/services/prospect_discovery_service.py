@@ -372,7 +372,17 @@ class ProspectDiscoveryService:
             skip_phrases = ['privacy policy', 'terms of', 'all rights', 'copyright',
                            'read more', 'learn more', 'click here', 'sign up',
                            'log in', 'contact us', 'about us', 'our team',
-                           'home page', 'main menu', 'site map', 'search results']
+                           'home page', 'main menu', 'site map', 'search results',
+                           'education consultant', 'educational consultant', 'college board',
+                           'customer engagement', 'patient experience', 'human service',
+                           'standardized test', 'featured resources', 'admissions guidance',
+                           'academic tutoring', 'advising available', 'member educational',
+                           'independent educational', 'educational administrative',
+                           'educational outreach', 'grateful parent', 'learn about',
+                           'montgomery county', 'marks education', 'tedeschi educational',
+                           'info', 'county', 'board', 'resources', 'services', 'guidance',
+                           'tutoring', 'available', 'member', 'outreach', 'experience',
+                           'engagement', 'administrative', 'independent', 'featured']
             
             content_lower = content.lower()
             has_context = any(kw in content_lower for kw in context_keywords)
@@ -390,6 +400,15 @@ class ProspectDiscoveryService:
                 
                 # Skip if all caps or no spaces
                 if name.isupper() or ' ' not in name:
+                    continue
+                
+                # Must have exactly 2-4 words (real names)
+                words = name.split()
+                if len(words) < 2 or len(words) > 4:
+                    continue
+                
+                # Each word should be 2-15 chars (real name parts)
+                if not all(2 <= len(w.replace('.', '')) <= 15 for w in words):
                     continue
                 
                 # Skip if looks like a company/org name
