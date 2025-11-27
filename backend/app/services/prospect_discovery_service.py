@@ -1179,8 +1179,8 @@ Important: Only return verified, publicly available contact information. Do not 
             # Sports - search for coaches/directors with contact
             query_parts.append("coach OR director email contact")
         elif any(c in categories for c in education_cats):
-            # Education consultants - search their own websites
-            query_parts.append("email contact \"about\" OR \"meet\" OR \"team\"")
+            # Education consultants - search HECA, IECA member directories and consultant sites
+            query_parts.append("\"educational consultant\" OR \"college consultant\" OR \"admissions consultant\" email contact")
         else:
             query_parts.append("email OR phone OR contact")
         
@@ -1245,9 +1245,10 @@ Important: Only return verified, publicly available contact information. Do not 
                 query_parts.append("site:healthgrades.com OR site:zocdoc.com OR site:vitals.com")
             elif any(term in specialty_lower for term in ['coach', 'sports', 'athletic', 'soccer', 'basketball']):
                 query_parts.append("coach OR director email contact")
+            elif any(term in specialty_lower for term in ['consultant', 'education', 'college', 'admissions']):
+                query_parts.append("\"educational consultant\" OR \"college consultant\" email contact")
             else:
-                # Education consultants and others - search their websites
-                query_parts.append("email contact \"about\" OR \"meet\"")
+                query_parts.append("email contact")
             
             query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
             
