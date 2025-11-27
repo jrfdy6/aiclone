@@ -666,7 +666,7 @@ class ProspectDiscoveryService:
                            'grade 10', 'grade 11', 'grade 12', 'ages 11', 'ages 12', 'ages 13', 
                            'ages 14', 'ages 15', 'ages 16', 'ages 17', 'ages 18', 'youth',
                            'boarding school', 'prep school', 'private school', 'independent school']
-            exclude_keywords = ['elementary only', 'preschool only', 'college only', 'university only', 
+            exclude_keywords = ['preschool only', 'college only', 'university only', 
                                'graduate school', 'adult only', 'seniors only']
             
             k12_filtered = []
