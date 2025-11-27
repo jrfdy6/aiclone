@@ -190,3 +190,22 @@ async def get_prospect(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get prospect: {str(e)}")
+
+
+@router.delete("/clear-all")
+async def clear_all_prospects(
+    user_id: str = Query(..., description="User identifier")
+):
+    """Clear all prospects for a user."""
+    try:
+        prospects_ref = db.collection("users").document(user_id).collection("prospects")
+        docs = prospects_ref.stream()
+        
+        deleted = 0
+        for doc in docs:
+            doc.reference.delete()
+            deleted += 1
+        
+        return {"success": True, "deleted": deleted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear prospects: {str(e)}")
