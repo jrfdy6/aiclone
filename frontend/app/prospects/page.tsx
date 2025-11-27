@@ -418,14 +418,19 @@ export default function ProspectsPage() {
                           <td style={{ padding: '16px', borderRight: '1px solid #374151' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <div style={{ width: '48px', height: '8px', backgroundColor: '#475569', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div
-                                  style={{ 
-                                    height: '100%', 
-                                    // Handle both 0-1 and 0-100 scales
-                                    width: `${(prospect.fit_score || 0) > 1 ? prospect.fit_score : (prospect.fit_score || 0) * 100}%`,
-                                    backgroundColor: ((prospect.fit_score || 0) > 1 ? prospect.fit_score : (prospect.fit_score || 0) * 100) >= 80 ? '#22c55e' : ((prospect.fit_score || 0) > 1 ? prospect.fit_score : (prospect.fit_score || 0) * 100) >= 60 ? '#eab308' : '#ef4444'
-                                  }}
-                                />
+                                {(() => {
+                                  const score = prospect.fit_score || 0;
+                                  const displayScore = score > 1 ? score : score * 100;
+                                  return (
+                                    <div
+                                      style={{ 
+                                        height: '100%', 
+                                        width: `${displayScore}%`,
+                                        backgroundColor: displayScore >= 80 ? '#22c55e' : displayScore >= 60 ? '#eab308' : '#ef4444'
+                                      }}
+                                    />
+                                  );
+                                })()}
                               </div>
                               <span style={{ fontSize: '14px', fontWeight: 500, color: 'white' }}>{formatFitScore(prospect.fit_score)}</span>
                             </div>
