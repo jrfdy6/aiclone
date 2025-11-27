@@ -762,13 +762,10 @@ Return ONLY a JSON object with these fields (use null if not found):
 
 Important: Only return verified, publicly available contact information. Do not guess."""
 
-            response = await self.perplexity.chat(
-                messages=[{"role": "user", "content": prompt}],
-                model="sonar"
-            )
+            response = self.perplexity.search(query=prompt)
             
-            if response and response.choices:
-                text = response.choices[0].message.content
+            if response and response.answer:
+                text = response.answer
                 # Extract JSON from response
                 json_match = re.search(r'\{[^}]+\}', text)
                 if json_match:
