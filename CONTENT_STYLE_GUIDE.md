@@ -191,6 +191,12 @@ Show what you did, why, and what happened.
 - "The stats don't lie."
 - "The numbers don't lie."
 - "It ain't rocket science."
+- "I ain't hanging with nobody that ain't going forward no more."
+- "I don't want to have backwards conversations no more."
+- "We talking forwards."
+- "Which way we going? Forward."
+- "You still in the back. He paid for the front."
+- "Get your butt out the back."
 
 ### Motivational reframes
 - "Struggle for [short time] and be free for the rest of your life."
@@ -207,6 +213,11 @@ Show what you did, why, and what happened.
 - "Morning, noon, night" - daily discipline rhythm
 - "The worst that could happen is [X]. That's the worst."
 - "[X]% of people who come from where I come from..."
+- "12 million of us was taken from Africa and brought here in slavery."
+- "9 million incarcerated."
+- "I make over $100,000 to talk for an hour."
+- "Took me 12 years to get a four-year degree."
+- "41 kids to Super Bowl. 5,800 per ticket."
 
 ### Self-talk coaching
 - "The loudest voice is your voice."
@@ -243,6 +254,10 @@ Show what you did, why, and what happened.
 - "If you ain't got no anchor, stay your butt right on the sand."
 - "Will your anchor hold in the storms of life?"
 - "Success will sweep you away in a way poverty never have."
+- "Don't go all the way out there if you ain't got no anchor."
+- "You can't survive without an anchor."
+- "My anchor is money. That's not my anchor. That's your anchor."
+- "I had to get an anchor cuz I ain't had one."
 
 ### Relationship/boundaries wisdom
 - "Stop making plates for people who just trying to take it to go."
@@ -256,6 +271,38 @@ Show what you did, why, and what happened.
 - "When you open up your mouth and say that dumb stuff, you are creating that dumb stuff."
 - "You should have said a million. Why you open up your mouth and say 100,000?"
 - "Go cuss yourself out in the mirror."
+- "It doesn't matter what they say about you. It only matters what you say about you."
+- "You did exactly what you said you wanted to do. Now you mad cuz somebody else did more."
+
+### Wealth/abundance mindset
+- "Ma, your son not in the working class. I'm in the wealthy class."
+- "I'm a lender. We don't have those kind of conversations."
+- "That's a borrowers conversation - how much something cost."
+- "That's a tax write off. I don't know how much it is."
+- "When we die, they got three. They get two and they split the other one for cash."
+- "God don't give out in ones. He don't do nothing by one."
+- "Your gift shall make room for you."
+- "You still got one stream of income when that's not God's will for you."
+
+### Coachability/humility
+- "You MJ. We know you got it going on. The problem is you ain't coachable."
+- "Mike was putting up 60 points. Wasn't winning no championships."
+- "You've been doing it your way and it's not working, but you keep doing it your way cuz you married to you."
+- "Phil Jackson said, 'I'm gonna need you to stop doing what you was doing and do what I tell you to do.'"
+
+### Programming/mindset blocks
+- "Your programming is stopping you from going where God would have you to go."
+- "You have a demonic connection to your programming that you need to release."
+- "You still really in that relationship. That relationship happened 10 years ago."
+- "Cut the ties. The only person still remembered is you."
+- "You can't let that man go out your spirit. Just cry out and tell God."
+- "God said, 'I'm a jealous God. I can't have you attached to him and attached to me.'"
+
+### Timeline/patience
+- "You give up and you give in because you have your own expectations and your own timeline."
+- "You ain't scared to work. You're tripping on God's timeline versus your timeline."
+- "God's cooking up something."
+- "Depression is when you and God are not in alignment."
 
 ### Priority language
 - "You are a priority."
@@ -263,6 +310,12 @@ Show what you did, why, and what happened.
 - "When are you going to finally level up?"
 - "You enough. You are enough like you are."
 - "You don't need to marry nobody to be a priority."
+- "Priority. The right to take precedent or to proceed before others."
+- "You're where you are because you weren't a priority to the person you wanted to be a priority to."
+- "I have been the person who didn't make the person who was supposed to be the priority the priority."
+- "As soon as he becomes the priority, everything in your life about to change."
+- "You so broke because money is your priority."
+- "Let's make the person who made us a priority a priority."
 
 ### Struggle reframes
 - "I ain't humble. I was broken."
@@ -270,6 +323,10 @@ Show what you did, why, and what happened.
 - "The homelessness didn't break me. The trash cans didn't break me."
 - "You can't buy grit and you can't buy grind and you can't buy resilience."
 - "I got this dog from being homeless."
+- "ADHD. I had a learning disability when I was younger. I overcame all of that with that dog."
+- "I failed English twice in college. I still got a four-year degree."
+- "I went in the dark for 10 years. I ain't watched no TV. I ain't listen to no music."
+- "I bought a dictionary. I bought a thesaurus. And I was learning words."
 
 ### Mindset shifts
 - "You don't need another book. You don't need another course."
@@ -277,6 +334,11 @@ Show what you did, why, and what happened.
 - "We cannot solve our problems with the same thinking we use to create them."
 - "You cannot have a positive life with a negative mindset."
 - "You looking in the mirror and you keep seeing the kitty cat and you can't see the lion."
+- "You believe in God, but you don't believe in the version of you that God created."
+- "When God made you, he stepped back and said, 'That's good.'"
+- "You so dope that when God made you, he didn't even make a duplicate."
+- "Your problem is you know who God is. You don't know who you are."
+- "Stop taking the narrative that people said you were instead of creating your own narrative."
 
 ### Call-and-response patterns
 - "Which way we going? Forward."
@@ -285,6 +347,10 @@ Show what you did, why, and what happened.
 - "I can. I will. I must."
 - "It's my time. It's my turn."
 - "If not now, when? If not me, who?"
+- "On three, opportunity. One, two, three. Opportunity."
+- "Say it with me. I will not destroy this opportunity."
+- "Everybody say it with me. Opportunity."
+- "Come on. Priority. Come on. Priority."
 
 ### Ownership language
 - "Take extreme ownership."
@@ -292,6 +358,11 @@ Show what you did, why, and what happened.
 - "Don't nobody owe you nothing."
 - "Don't make this about her. Don't make this about him. Don't make this about racism."
 - "You've been given opportunities. You blew them."
+- "You need phenomenal skill and you need phenomenal will."
+- "The first one, God gave it to you. The second one, you got to work for it."
+- "Discipline is doing what you said you were going to do when you don't feel like doing it."
+- "You got to have private wins. You got to win in the dark before you can win in the light."
+- "Competence leads to confidence. Get your reps up."
 
 ### Vision/calling language
 - "Where there's no vision, the people perish."
@@ -305,6 +376,12 @@ Show what you did, why, and what happened.
 - "90% of the kids where I come from..."
 - "You can create a dynasty not just for you but for your family."
 - "There's gifts with your name on it you haven't opened yet."
+- "Martin Luther King, Medgar Evers, Malcolm X, Marcus Garvey - each one of them allowed us to go a little bit further."
+- "Be careful who your heroes are."
+- "Don't worship somebody that ain't going to take care of you."
+- "My grandma held down a whole community with a job washing toilets."
+- "These rappers can't hold water against her."
+- "Don't bite the hand that feed you."
 
 ### Conversational pivots
 - "Let me tell y'all something."
@@ -316,6 +393,11 @@ Show what you did, why, and what happened.
 - "I'm talking to somebody in this room."
 - "Y'all missed what I just said."
 - "Oh, you missed what I just said."
+- "I'm talking to somebody today."
+- "God told me to tell you..."
+- "Are you hearing what I'm trying to tell you?"
+- "We not playing victim today. We not doing that."
+- "We not talking about [X]. We're talking about [Y]."
 
 ### Emphasis patterns
 - "I'm going to say that one more time."
@@ -331,6 +413,11 @@ Show what you did, why, and what happened.
 - "Let me tell y'all..."
 - "I'm going to be honest with you."
 - "Can I tell you something?"
+- "So, I was on the plane the other day..."
+- "Last year, I got a call from the 49ers..."
+- "I was talking to my mom yesterday..."
+- "The craziest thing happened..."
+- "I just left Montgomery, Alabama. I just went through the museum."
 
 ### Recognition patterns
 - "Big shout out to..." followed by names and titles
@@ -357,6 +444,14 @@ Show what you did, why, and what happened.
 - "God's got some big things in the works"
 - "I just gotta keep God first and ask him to direct my path"
 - Use on personal platforms (Facebook); less on LinkedIn unless deeply personal post
+- "For God so loved the world that it's all paid for."
+- "God told me to do it. We're not about to have a board meeting about what God told me to do."
+- "It's free when you go God's way. All inclusive when you go God's way."
+- "As soon as you tap out, I'm going to tap in."
+- "If you just do my will, why are you still on your will?"
+- "You will pay the fare when you don't do what God tell you to do."
+- "God can't bless you while you fake."
+- "I'm not operating in the natural no more. We in the spirit."
 
 ### Competitive drive language
 - Kobe mentality: "How somebody else going to tell me how to do me?"

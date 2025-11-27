@@ -647,6 +647,10 @@ class ProspectDiscoveryService:
             doc_ref = db.collection("users").document(user_id).collection("prospect_discoveries").document(discovery_id)
             doc_ref.set(doc_data)
             
+            # Save to main prospects collection so they show in pipeline
+            if all_prospects:
+                self._save_to_prospects(user_id, all_prospects)
+            
             return ProspectDiscoveryResponse(
                 success=True,
                 discovery_id=discovery_id,
