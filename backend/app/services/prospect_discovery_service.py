@@ -397,10 +397,13 @@ class ProspectDiscoveryService:
                 break
         
         # =================================================================
-        # BUILD PROSPECT OBJECTS
+        # BUILD PROSPECT OBJECTS - Match contact info to names by proximity
         # =================================================================
         
         seen_names = set()
+        used_emails = set()
+        used_phones = set()
+        
         for i, info in enumerate(names_with_info):
             name = info["name"]
             
@@ -409,13 +412,53 @@ class ProspectDiscoveryService:
                 continue
             seen_names.add(name.lower())
             
-            # Extract bio snippet around the name
-            bio_snippet = None
+            # Find name position in content
             name_pos = content.find(name)
+            
+            # Extract bio snippet around the name (larger window for contact search)
+            bio_snippet = None
+            nearby_content = ""
             if name_pos >= 0:
-                start = max(0, name_pos - 50)
-                end = min(len(content), name_pos + len(name) + 200)
-                bio_snippet = content[start:end].strip()
+                start = max(0, name_pos - 100)
+                end = min(len(content), name_pos + len(name) + 500)
+                nearby_content = content[start:end]
+                bio_snippet = content[max(0, name_pos - 50):min(len(content), name_pos + len(name) + 200)].strip()
+            
+            # Find email near this name (within nearby_content)
+            prospect_email = None
+            nearby_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', nearby_content)
+            for email in nearby_emails:
+                email_lower = email.lower()
+                if email not in used_emails and not any(email_lower.startswith(p + '@') for p in generic_prefixes):
+                    if not email.endswith(('.png', '.jpg', '.gif')) and '@sentry' not in email_lower:
+                        prospect_email = email
+                        used_emails.add(email)
+                        break
+            
+            # If no nearby email, try from global list
+            if not prospect_email:
+                for email in emails:
+                    if email not in used_emails:
+                        prospect_email = email
+                        used_emails.add(email)
+                        break
+            
+            # Find phone near this name
+            prospect_phone = None
+            nearby_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', nearby_content)
+            for phone in nearby_phones:
+                if phone not in used_phones:
+                    prospect_phone = phone
+                    used_phones.add(phone)
+                    break
+            
+            # If no nearby phone, try from global list
+            if not prospect_phone:
+                for phone in phones:
+                    if phone not in used_phones:
+                        prospect_phone = phone
+                        used_phones.add(phone)
+                        break
             
             prospect = DiscoveredProspect(
                 name=name,
@@ -425,8 +468,8 @@ class ProspectDiscoveryService:
                 source_url=url,
                 source=source,
                 contact=ProspectContact(
-                    email=emails[i] if i < len(emails) else None,
-                    phone=phones[i] if i < len(phones) else None,
+                    email=prospect_email,
+                    phone=prospect_phone,
                 ),
                 bio_snippet=bio_snippet or content[:200],
             )
