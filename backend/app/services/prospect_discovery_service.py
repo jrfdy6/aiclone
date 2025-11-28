@@ -2823,7 +2823,8 @@ Important: Only return verified, publicly available contact information. Do not 
         has_education = 'education_consultants' in categories or 'school_counselors' in categories
         
         if has_pediatricians:
-            query_parts.append("site:healthgrades.com OR site:zocdoc.com OR site:vitals.com")
+            # Prioritize Healthgrades (more accessible), Zocdoc often blocks scraping
+            query_parts.append("site:healthgrades.com OR site:vitals.com OR site:webmd.com")
         elif has_psychologists:
             query_parts.append("site:psychologytoday.com OR site:healthgrades.com")
         elif has_treatment:
@@ -2901,7 +2902,7 @@ Important: Only return verified, publicly available contact information. Do not 
             if any(term in specialty_lower for term in ['therapist', 'psychologist', 'psychiatrist', 'counselor', 'mental health']):
                 query_parts.append("site:psychologytoday.com OR site:healthgrades.com")
             elif any(term in specialty_lower for term in ['pediatrician', 'doctor', 'physician', 'md']):
-                query_parts.append("site:healthgrades.com OR site:zocdoc.com OR site:vitals.com")
+                query_parts.append("site:healthgrades.com OR site:vitals.com OR site:webmd.com")
             elif any(term in specialty_lower for term in ['coach', 'sports', 'athletic', 'soccer', 'basketball']):
                 query_parts.append("coach OR director email contact")
             elif any(term in specialty_lower for term in ['consultant', 'education', 'college', 'admissions']):
