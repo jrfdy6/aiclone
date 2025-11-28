@@ -660,34 +660,33 @@ class ProspectDiscoveryService:
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         
         # Extract profile URLs from listing page
-        # Psychology Today URLs: /us/therapists/dc/washington/[name-slug]
+        # Psychology Today profile URLs: /us/therapists/name-slug-city/ID (e.g., /1234567)
         profile_urls = []
         
-        # Pattern 1: Links in HTML
-        profile_patterns = [
-            r'href=["\'](/us/therapists/[^"\']+)',
-            r'href=["\'](/therapists/[^"\']+)',
-        ]
+        # Pattern 1: Actual therapist profile URLs (have ID number at end)
+        profile_pattern = r'href=["\'](/us/therapists/[a-z0-9-]+/\d{4,})'
+        matches = re.findall(profile_pattern, listing_content, re.IGNORECASE)
+        for match in matches:
+            if not any(skip in match.lower() for skip in ['?category', '/find', '/browse']):
+                profile_urls.append(urljoin(base_url, match))
         
-        for pattern in profile_patterns:
-            matches = re.findall(pattern, listing_content, re.IGNORECASE)
-            for match in matches:
-                if '/therapists/' in match.lower() and not any(skip in match.lower() for skip in ['/find-', '/browse', '/categories']):
-                    if match.startswith('http'):
-                        profile_urls.append(match)
-                    else:
-                        profile_urls.append(urljoin(base_url, match))
+        # Pattern 2: Full URLs
+        profile_pattern2 = r'href=["\'](https://www\.psychologytoday\.com/us/therapists/[a-z0-9-]+/\d{4,})'
+        matches2 = re.findall(profile_pattern2, listing_content, re.IGNORECASE)
+        profile_urls.extend(matches2)
         
-        # Also extract from BeautifulSoup
+        # Also extract from BeautifulSoup with ID number requirement
         try:
             soup = BeautifulSoup(listing_content, 'html.parser')
             for link in soup.find_all('a', href=True):
                 href = link.get('href', '')
-                if '/therapists/' in href.lower() and any(city in href.lower() for city in ['washington', 'dc', 'district']):
-                    if href.startswith('http'):
-                        profile_urls.append(href)
-                    else:
-                        profile_urls.append(urljoin(base_url, href))
+                # Look for therapist profile URLs (must have ID number at end)
+                if '/therapists/' in href and re.search(r'/\d{5,}', href):
+                    if '?category' not in href and '/find' not in href:
+                        if href.startswith('http'):
+                            profile_urls.append(href)
+                        else:
+                            profile_urls.append(urljoin(base_url, href))
         except:
             pass
         
@@ -753,19 +752,37 @@ class ProspectDiscoveryService:
                 # Generic phone pattern
                 phones.extend(re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', profile_content))
                 
-                # Clean and format
+                # Clean and format - validate area codes
                 cleaned_phones = []
                 for p in phones:
                     digits = re.sub(r'[^\d]', '', str(p))
                     if len(digits) == 10:
-                        cleaned_phones.append(f"({digits[:3]}) {digits[3:6]}-{digits[6:]}")
+                        area_code = int(digits[:3])
+                        exchange = int(digits[3:6])
+                        # Validate: area code 200-999, exchange 200-999
+                        if 200 <= area_code <= 999 and 200 <= exchange <= 999:
+                            cleaned_phones.append(f"({digits[:3]}) {digits[3:6]}-{digits[6:]}")
                 phones = list(set(cleaned_phones))
                 phone = phones[0] if phones else None
                 
-                # Extract email
+                # Extract email (filter out image filenames and invalid patterns)
                 emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', profile_content)
-                emails = [e for e in emails if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
-                email = emails[0] if emails else None
+                valid_emails = []
+                for e in emails:
+                    e_lower = e.lower()
+                    # Skip image filenames
+                    if e_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg', '@2x', '@3x')):
+                        continue
+                    # Skip generic prefixes
+                    if any(e_lower.startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES):
+                        continue
+                    # Skip patterns like "account-ro-" (image naming)
+                    if 'account-' in e_lower or '-ro-' in e_lower:
+                        continue
+                    # Must have valid domain extension
+                    if '.' in e.split('@')[1] and len(e.split('@')[1].split('.')[-1]) >= 2:
+                        valid_emails.append(e)
+                email = valid_emails[0] if valid_emails else None
                 
                 # Extract credentials/title
                 title = "Therapist"
