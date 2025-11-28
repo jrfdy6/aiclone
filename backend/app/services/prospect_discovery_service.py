@@ -329,6 +329,93 @@ class ProspectDiscoveryService:
         
         return prospects
     
+    def _extract_profile_urls_from_json(self, html_content: str, base_url: str) -> List[str]:
+        """
+        Extract doctor profile URLs from Next.js __NEXT_DATA__ JSON.
+        Healthgrades embeds profile data in <script id="__NEXT_DATA__"> tags.
+        """
+        from urllib.parse import urljoin
+        
+        profile_urls = []
+        
+        try:
+            # Find the __NEXT_DATA__ script tag
+            json_match = re.search(
+                r'<script[^>]*id=["\']__NEXT_DATA__["\'][^>]*type=["\']application/json["\'][^>]*>(.*?)</script>',
+                html_content,
+                re.DOTALL | re.IGNORECASE
+            )
+            
+            if not json_match:
+                return []
+            
+            json_str = json_match.group(1).strip()
+            data = json.loads(json_str)
+            
+            # Navigate through Next.js data structure
+            # Healthgrades structure: props.pageProps.searchResults or similar
+            def find_profile_urls(obj, path=""):
+                """Recursively search for profile URLs in JSON"""
+                urls = []
+                
+                if isinstance(obj, dict):
+                    # Check for profileUrl or profile_url keys
+                    if 'profileUrl' in obj:
+                        url = obj['profileUrl']
+                        if url and isinstance(url, str) and ('/provider/' in url.lower() or '/doctor/' in url.lower()):
+                            if not url.startswith('http'):
+                                url = urljoin(base_url, url)
+                            urls.append(url)
+                    elif 'profile_url' in obj:
+                        url = obj['profile_url']
+                        if url and isinstance(url, str) and ('/provider/' in url.lower() or '/doctor/' in url.lower()):
+                            if not url.startswith('http'):
+                                url = urljoin(base_url, url)
+                            urls.append(url)
+                    
+                    # Also check searchResults arrays
+                    if 'searchResults' in obj and isinstance(obj['searchResults'], list):
+                        for item in obj['searchResults']:
+                            urls.extend(find_profile_urls(item, path + ".searchResults"))
+                    
+                    # Recurse into nested objects (limit depth to avoid infinite loops)
+                    if len(path.split('.')) < 10:  # Limit recursion depth
+                        for key, value in obj.items():
+                            if key not in ['profileUrl', 'profile_url']:  # Skip already checked
+                                urls.extend(find_profile_urls(value, path + f".{key}"))
+                
+                elif isinstance(obj, list):
+                    for item in obj:
+                        urls.extend(find_profile_urls(item, path + "[]"))
+                
+                return urls
+            
+            profile_urls = find_profile_urls(data)
+            
+            # Also try direct path access for common structures
+            try:
+                if 'props' in data and 'pageProps' in data['props']:
+                    page_props = data['props']['pageProps']
+                    if 'searchResults' in page_props:
+                        for result in page_props['searchResults']:
+                            if 'profileUrl' in result:
+                                url = result['profileUrl']
+                                if not url.startswith('http'):
+                                    url = urljoin(base_url, url)
+                                profile_urls.append(url)
+            except:
+                pass
+            
+            # Dedupe
+            profile_urls = list(set(profile_urls))
+            
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse __NEXT_DATA__ JSON: {e}")
+        except Exception as e:
+            logger.warning(f"Error extracting profile URLs from JSON: {e}")
+        
+        return profile_urls
+    
     def _extract_doctor_directory(
         self,
         directory_content: str,
@@ -348,38 +435,51 @@ class ProspectDiscoveryService:
         parsed = urlparse(directory_url)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         
-        # Pattern for doctor profile URLs - site-specific patterns
-        url_lower = directory_url.lower()
-        profile_patterns = []
-        
-        if 'healthgrades.com' in url_lower:
-            profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)']
-        elif 'zocdoc.com' in url_lower:
-            profile_patterns = [r'href=["\']([^"\']*\/doctors\/[^"\']+)', r'href=["\']([^"\']*\/doctor\/[^"\']+)']
-        elif 'vitals.com' in url_lower:
-            profile_patterns = [r'href=["\']([^"\']*\/provider\/[^"\']+)']
-        elif 'doctor.com' in url_lower:
-            profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/doctors\/[^"\']+)']
-        elif 'webmd.com' in url_lower:
-            profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/find-a-doctor\/[^"\']+)']
-        elif 'ratemds.com' in url_lower:
-            profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/ratings\/[^"\']+)']
-        else:
-            # Generic patterns
-            profile_patterns = [
-                r'href=["\']([^"\']*\/doctor\/[^"\']+)',
-                r'href=["\']([^"\']*\/doctors\/[^"\']+)',
-                r'href=["\']([^"\']*\/provider\/[^"\']+)',
-            ]
-        
         profile_urls = []
-        for pattern in profile_patterns:
-            matches = re.findall(pattern, directory_content, re.IGNORECASE)
-            for match in matches:
-                if match.startswith('http'):
-                    profile_urls.append(match)
-                else:
-                    profile_urls.append(urljoin(base_url, match))
+        
+        # STEP 1: Try JSON extraction (Healthgrades uses Next.js __NEXT_DATA__)
+        url_lower = directory_url.lower()
+        if 'healthgrades.com' in url_lower:
+            json_urls = self._extract_profile_urls_from_json(directory_content, base_url)
+            if json_urls:
+                profile_urls.extend(json_urls)
+                logger.info(f"Extracted {len(json_urls)} profile URLs from JSON")
+        
+        # STEP 2: Fallback to regex patterns if JSON didn't work
+        if not profile_urls:
+            profile_patterns = []
+            
+            if 'healthgrades.com' in url_lower:
+                profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)']
+            elif 'zocdoc.com' in url_lower:
+                profile_patterns = [r'href=["\']([^"\']*\/doctors\/[^"\']+)', r'href=["\']([^"\']*\/doctor\/[^"\']+)']
+            elif 'vitals.com' in url_lower:
+                profile_patterns = [r'href=["\']([^"\']*\/provider\/[^"\']+)']
+            elif 'doctor.com' in url_lower:
+                profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/doctors\/[^"\']+)']
+            elif 'webmd.com' in url_lower:
+                profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/find-a-doctor\/[^"\']+)']
+            elif 'ratemds.com' in url_lower:
+                profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/ratings\/[^"\']+)']
+            else:
+                # Generic patterns
+                profile_patterns = [
+                    r'href=["\']([^"\']*\/doctor\/[^"\']+)',
+                    r'href=["\']([^"\']*\/doctors\/[^"\']+)',
+                    r'href=["\']([^"\']*\/provider\/[^"\']+)',
+                ]
+            
+            # Extract URLs using regex patterns
+            regex_urls = []
+            for pattern in profile_patterns:
+                matches = re.findall(pattern, directory_content, re.IGNORECASE)
+                for match in matches:
+                    if match.startswith('http'):
+                        regex_urls.append(match)
+                    else:
+                        regex_urls.append(urljoin(base_url, match))
+            
+            profile_urls.extend(regex_urls)
         
         # Dedupe and limit
         profile_urls = list(set(profile_urls))[:5]  # Limit to 5 profiles to avoid slow scraping
