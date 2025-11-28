@@ -112,6 +112,26 @@ DC_AREA_VARIATIONS = [
     "McLean", "Tysons", "Rockville", "College Park", "Prince George"
 ]
 
+# DC Neighborhoods - These are valid location names that should NOT be filtered
+# Even though they contain location words, they are legitimate place names
+DC_NEIGHBORHOODS = [
+    "Capitol Heights", "Adams Morgan", "Anacostia", "Barry Farm", "Bellevue",
+    "Benning", "Bloomingdale", "Brightwood", "Brookland", "Burleith",
+    "Capitol Hill", "Chevy Chase", "Chinatown", "Columbia Heights", "Congress Heights",
+    "Crestwood", "Deanwood", "Dupont Circle", "Eckington", "Edgewood",
+    "Foggy Bottom", "Fort Totten", "Foxhall", "Friendship Heights", "Garfield Heights",
+    "Georgetown", "Glover Park", "H Street", "Hillcrest", "Ivy City",
+    "Kalorama", "Kenilworth", "Kingman Park", "Lamond Riggs", "LeDroit Park",
+    "Logan Circle", "Manor Park", "Marshall Heights", "Massachusetts Heights", "Mayfair",
+    "Mount Pleasant", "Navy Yard", "NoMa", "North Cleveland Park", "Northwest",
+    "Palisades", "Park View", "Penn Branch", "Petworth", "Potomac Heights",
+    "Randall Heights", "River Terrace", "Shaw", "Shepherd Park", "Southeast",
+    "Southwest", "Stanton Park", "Takoma", "Tenleytown", "The Palisades",
+    "Trinidad", "Truxton Circle", "Twining", "Union Heights", "Union Station",
+    "U Street", "Washington Heights", "Wesley Heights", "West End", "Woodley Park",
+    "Woodridge", "Woodland", "Woodland Terrace"
+]
+
 DC_LOCATION_QUERY = '("Washington DC" OR "DC" OR "DMV" OR "NOVA" OR "Montgomery County" OR "Fairfax" OR "Arlington" OR "Bethesda")'
 
 # Generic email prefixes to filter out
@@ -702,10 +722,10 @@ class ProspectDiscoveryService:
         # FALLBACK: If no profile URLs found (JS-rendered page), extract names directly
         # Google contact enrichment will find their contact info
         if not profile_urls:
-            logger.info("No profile URLs found - falling back to name extraction from directory page")
+            logger.info(f"[CATEGORY: {category}] No profile URLs found - falling back to name extraction from directory page")
             # Use generic extraction to get names from directory page
             # The Google contact enrichment step will handle finding phones/emails
-            return self._extract_generic(directory_content, directory_url, source)
+            return self._extract_generic(directory_content, directory_url, source, category)
         
         # Step 2: Scrape each profile page
         for profile_url in profile_urls:
@@ -801,11 +821,19 @@ class ProspectDiscoveryService:
                     except:
                         pass
                 
+                # Use category for tagging if provided
+                from app.models.prospect_discovery import PROSPECT_CATEGORIES
+                specialty = []
+                if category and category in PROSPECT_CATEGORIES:
+                    specialty = [PROSPECT_CATEGORIES[category]["name"]]
+                    logger.info(f"[CATEGORY: {category}] Tagging prospect '{name}' with category: {specialty[0]}")
+                
                 # Create prospect
                 prospect = DiscoveredProspect(
                     name=name,
                     title="MD",
                     organization=None,
+                    specialty=specialty,
                     contact=ProspectContact(
                         email=email,
                         phone=phone,
@@ -1388,10 +1416,18 @@ class ProspectDiscoveryService:
                 org = re.sub(r'\s*-\s*(Treatment|Center|Rehab|Recovery|Program).*', '', title, flags=re.I)
                 organization = org.strip()[:100]
             
+            # Use category for tagging if provided
+            from app.models.prospect_discovery import PROSPECT_CATEGORIES
+            specialty = []
+            if category and category in PROSPECT_CATEGORIES:
+                specialty = [PROSPECT_CATEGORIES[category]["name"]]
+                logger.info(f"[CATEGORY: {category}] Tagging prospect '{name}' with category: {specialty[0]}")
+            
             prospect = DiscoveredProspect(
                 name=name,
                 title=item.get("title", "Director"),
                 organization=organization,
+                specialty=specialty,
                 contact=ProspectContact(
                     email=email,
                     phone=phone,
@@ -1713,10 +1749,18 @@ class ProspectDiscoveryService:
                 elif domain.endswith('.gov') or domain.endswith('.org'):
                     organization = domain.split('.')[0].title() + " Embassy"
             
+            # Use category for tagging if provided
+            from app.models.prospect_discovery import PROSPECT_CATEGORIES
+            specialty = []
+            if category and category in PROSPECT_CATEGORIES:
+                specialty = [PROSPECT_CATEGORIES[category]["name"]]
+                logger.info(f"[CATEGORY: {category}] Tagging prospect '{name}' with category: {specialty[0]}")
+            
             prospect = DiscoveredProspect(
                 name=name,
                 title=item.get("title", "Education Officer"),
                 organization=organization,
+                specialty=specialty,
                 contact=ProspectContact(
                     email=email,
                     phone=phone,
@@ -2035,10 +2079,18 @@ class ProspectDiscoveryService:
                         org_part = parts[0].replace('-', ' ').title()
                         organization = org_part + " Academy" if 'academy' not in org_part.lower() else org_part
             
+            # Use category for tagging if provided
+            from app.models.prospect_discovery import PROSPECT_CATEGORIES
+            specialty = []
+            if category and category in PROSPECT_CATEGORIES:
+                specialty = [PROSPECT_CATEGORIES[category]["name"]]
+                logger.info(f"[CATEGORY: {category}] Tagging prospect '{name}' with category: {specialty[0]}")
+            
             prospect = DiscoveredProspect(
                 name=name,
                 title=item.get("title", "Director"),
                 organization=organization,
+                specialty=specialty,
                 contact=ProspectContact(
                     email=email,
                     phone=phone,
@@ -2865,7 +2917,12 @@ Important: Only return verified, publicly available contact information. Do not 
                 logger.info(f"Filtering out invalid prospect (word count: {len(words)} words): {name}")
                 return False
             
-            # Check for bad words
+            # IMPORTANT: Check if name is a DC neighborhood - if so, allow it (but still check other validations)
+            # DC neighborhoods are valid location names and should not be filtered
+            dc_neighborhoods_lower = [n.lower() for n in DC_NEIGHBORHOODS]
+            is_dc_neighborhood = name_lower in dc_neighborhoods_lower
+            
+            # Check for bad words (but skip location-related words if it's a DC neighborhood)
             bad_words = [
                 'areas', 'cities', 'bethesda', 'endorsed', 'endorsement',
                 'north', 'south', 'east', 'west', 'good', 'afternoon',
@@ -2874,32 +2931,38 @@ Important: Only return verified, publicly available contact information. Do not 
                 'administrative', 'outreach', 'experience', 'engagement',
                 'nurse', 'practitioner',  # Job titles, not names
                 'played', 'playing', 'will', 'was', 'were', 'been',  # Verbs
-                'capitol', 'heights'  # Location words
             ]
+            # Only add location words to bad_words if it's NOT a DC neighborhood
+            if not is_dc_neighborhood:
+                bad_words.extend(['capitol', 'heights'])
+            
             if any(w.lower() in bad_words for w in words):
                 logger.info(f"Filtering out invalid prospect (bad words in name): {name}")
                 return False
             
-            # Filter location-only names (but allow location words if they're part of a real person name)
+            # Filter location-only names (but allow DC neighborhoods and location words if they're part of a real person name)
             # Only filter if the name looks like a location phrase, not a person name
             location_phrases = ['areas cities', 'north bethesda', 'south bethesda', 'east bethesda',
                               'west bethesda', 'montgomery county', 'fairfax county', 'north arlington',
-                              'south arlington', 'silver spring', 'chevy chase', 'capitol heights']
+                              'south arlington', 'silver spring', 'chevy chase']
+            # Remove 'capitol heights' from location_phrases since it's a valid DC neighborhood
             name_lower_phrase = name_lower.replace(' ', ' ')
-            if name_lower_phrase in location_phrases or name_lower_phrase.startswith('areas ') or name_lower_phrase.startswith('cities '):
+            if not is_dc_neighborhood and (name_lower_phrase in location_phrases or name_lower_phrase.startswith('areas ') or name_lower_phrase.startswith('cities ')):
                 logger.info(f"Filtering out invalid prospect (location phrase): {name}")
                 return False
             
             # Filter if name starts with location direction words (likely location phrases)
-            location_directions = ['north', 'south', 'east', 'west', 'areas', 'cities']
-            if words[0].lower() in location_directions and len(words) == 2:
-                # Check if second word is also a location (e.g., "North Bethesda")
-                common_location_second_words = ['bethesda', 'arlington', 'fairfax', 'alexandria', 
-                                               'georgetown', 'potomac', 'montgomery', 'cleveland',
-                                               'heights', 'park', 'springs', 'county']
-                if words[1].lower() in common_location_second_words:
-                    logger.info(f"Filtering out invalid prospect (location phrase): {name}")
-                    return False
+            # But skip this check for DC neighborhoods
+            if not is_dc_neighborhood:
+                location_directions = ['north', 'south', 'east', 'west', 'areas', 'cities']
+                if words[0].lower() in location_directions and len(words) == 2:
+                    # Check if second word is also a location (e.g., "North Bethesda")
+                    common_location_second_words = ['bethesda', 'arlington', 'fairfax', 'alexandria', 
+                                                   'georgetown', 'potomac', 'montgomery', 'cleveland',
+                                                   'heights', 'park', 'springs', 'county']
+                    if words[1].lower() in common_location_second_words:
+                        logger.info(f"Filtering out invalid prospect (location phrase): {name}")
+                        return False
             
             # Filter role words at end of name (e.g., "John Counselor", "Jane Director")
             role_words = ['counselor', 'director', 'therapist', 'psychologist', 'psychiatrist', 'coach',
