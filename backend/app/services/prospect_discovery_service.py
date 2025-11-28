@@ -184,6 +184,106 @@ class ProspectDiscoveryService:
             logger.warning(f"Free scrape failed for {url}: {e}")
             return None
     
+    def _extract_organization(self, content: str, url: str) -> Optional[str]:
+        """
+        Extract organization name from multiple sources (comprehensive extraction).
+        
+        Sources checked (in order of priority):
+        1. Meta tags (og:site_name, organization)
+        2. Page title (with cleanup)
+        3. Header sections (h1, h2)
+        4. Breadcrumbs
+        5. Domain name (as fallback)
+        6. Content patterns (Practice Name, Center Name, etc.)
+        """
+        from urllib.parse import urlparse
+        
+        # Source 1: Meta tags (most reliable)
+        meta_patterns = [
+            r'<meta\s+property=["\']og:site_name["\']\s+content=["\']([^"\']+)["\']',
+            r'<meta\s+property=["\']organization["\']\s+content=["\']([^"\']+)["\']',
+            r'<meta\s+name=["\']application-name["\']\s+content=["\']([^"\']+)["\']',
+            r'<meta\s+itemprop=["\']name["\']\s+content=["\']([^"\']+)["\']',
+        ]
+        
+        for pattern in meta_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                org = match.group(1).strip()
+                # Clean up
+                org = re.sub(r'\s*-\s*(Home|Page|Welcome|Official).*', '', org, flags=re.I)
+                if org and len(org) > 2 and len(org) < 100:
+                    return org[:100]
+        
+        # Source 2: Page title (with intelligent cleanup)
+        title_match = re.search(r'<title>([^<]+)</title>', content, re.IGNORECASE)
+        if title_match:
+            title = title_match.group(1).strip()
+            # Remove common suffixes
+            title = re.sub(r'\s*[-|]\s*(Home|Page|Welcome|Official|About|Contact).*', '', title, flags=re.I)
+            # Remove site-specific suffixes
+            title = re.sub(r'\s*[-|]\s*(Psychology Today|Healthgrades|WebMD|Zocdoc).*', '', title, flags=re.I)
+            # Clean up extra spaces
+            title = re.sub(r'\s+', ' ', title).strip()
+            
+            if title and len(title) > 2 and len(title) < 100:
+                # Skip generic titles
+                if not re.match(r'^(Home|Page|Welcome|About|Contact|Error|404)$', title, re.I):
+                    return title[:100]
+        
+        # Source 3: Header sections (h1, h2) - often contain practice/center names
+        header_patterns = [
+            r'<h1[^>]*>([^<]{5,80})</h1>',
+            r'<h2[^>]*>([^<]{5,80})</h2>',
+        ]
+        
+        for pattern in header_patterns:
+            matches = re.findall(pattern, content, re.IGNORECASE)
+            for match in matches:
+                text = match.strip()
+                # Skip generic headers
+                if not re.match(r'^(Home|About|Contact|Services|Team|Welcome|Our|The)$', text, re.I):
+                    # Check if it looks like an organization name (2-5 words, capitalized)
+                    words = text.split()
+                    if 2 <= len(words) <= 5:
+                        # Check if mostly capitalized (organization-like)
+                        if sum(1 for w in words if w and w[0].isupper()) >= len(words) * 0.6:
+                            return text[:100]
+        
+        # Source 4: Content patterns (Practice Name, Center Name, etc.)
+        content_patterns = [
+            r'Practice Name[:\s]+([A-Z][a-zA-Z\s]{5,60})',
+            r'Center Name[:\s]+([A-Z][a-zA-Z\s]{5,60})',
+            r'Organization[:\s]+([A-Z][a-zA-Z\s]{5,60})',
+            r'Clinic[:\s]+([A-Z][a-zA-Z\s]{5,60})',
+            r'Located at[:\s]+([A-Z][a-zA-Z\s]{5,60})',
+        ]
+        
+        for pattern in content_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                org = match.group(1).strip()
+                if org and len(org) > 5 and len(org) < 100:
+                    return org[:100]
+        
+        # Source 5: Domain name (fallback)
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.replace('www.', '')
+            # Extract meaningful part of domain
+            domain_parts = domain.split('.')
+            if len(domain_parts) >= 2:
+                main_part = domain_parts[0]
+                # Skip generic domains
+                if main_part not in ['site', 'www', 'home', 'main']:
+                    # Clean up and capitalize
+                    org_name = main_part.replace('-', ' ').title()
+                    return org_name
+        except:
+            pass
+        
+        return None
+    
     def build_search_query(
         self,
         source: ProspectSource,
@@ -2871,6 +2971,103 @@ Important: Only return verified, publicly available contact information. Do not 
         
         return " ".join(filter(None, query_parts))
     
+    async def _process_search_results(
+        self,
+        search_results: List,
+        category: Optional[str],
+        location: str,
+        max_urls: int = 5
+    ) -> tuple[List[DiscoveredProspect], List[str]]:
+        """
+        Helper method to process Google search results: scrape URLs and extract prospects.
+        Returns tuple of (prospects, scraped_urls).
+        """
+        from app.models.prospect_discovery import DiscoveredProspect, ProspectSource
+        
+        all_prospects = []
+        urls_scraped = []
+        
+        # Filter out URLs that can't be scraped
+        scrapeable_results = [r for r in search_results 
+                              if not any(domain in r.link.lower() for domain in BLOCKED_DOMAINS)]
+        
+        logger.info(f"Filtered {len(search_results)} results to {len(scrapeable_results)} scrapeable URLs")
+        
+        for result in scrapeable_results[:max_urls]:
+            try:
+                logger.info(f"Scraping: {result.link}")
+                
+                # Try Firecrawl first, fallback to free scraping
+                combined_content = None
+                try:
+                    if self.firecrawl:
+                        scraped = self.firecrawl.scrape_url(result.link)
+                        if scraped and scraped.content:
+                            combined_content = scraped.content
+                except Exception as fc_error:
+                    logger.warning(f"Firecrawl failed, trying free scrape: {fc_error}")
+                
+                # Fallback to free scraping
+                if not combined_content:
+                    combined_content = self._free_scrape(result.link)
+                
+                if combined_content:
+                    urls_scraped.append(result.link)
+                    
+                    # Multi-page scraping: Also scrape /contact, /about, /team pages
+                    try:
+                        from urllib.parse import urlparse
+                        parsed = urlparse(result.link)
+                        base_url = f"{parsed.scheme}://{parsed.netloc}"
+                        
+                        contact_paths = ['/contact', '/contact-us', '/about', '/about-us', '/team', '/staff', '/our-team']
+                        for path in contact_paths[:3]:  # Limit to 3 extra pages
+                            try:
+                                contact_url = f"{base_url}{path}"
+                                contact_content = self._free_scrape(contact_url)
+                                if contact_content:
+                                    combined_content += f"\n\n--- FROM {path} ---\n" + contact_content
+                                    logger.info(f"Also scraped {contact_url}")
+                            except Exception:
+                                pass  # Contact page doesn't exist, that's fine
+                    except Exception as e:
+                        logger.warning(f"Multi-page scraping failed: {e}")
+                    
+                    prospects = self.extract_prospects_from_content(
+                        content=combined_content,
+                        url=result.link,
+                        source=ProspectSource.GENERAL_SEARCH
+                    )
+                    
+                    logger.info(f"Extracted {len(prospects)} prospects from {result.link}")
+                    
+                    # Add search result context and extract from snippet
+                    for p in prospects:
+                        p.source_url = result.link
+                        if not p.bio_snippet:
+                            p.bio_snippet = result.snippet
+                        
+                        # Extract contact from Google snippet if not found
+                        if result.snippet and (not p.contact.phone or not p.contact.email):
+                            snippet_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', result.snippet)
+                            snippet_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', result.snippet)
+                            if snippet_phones and not p.contact.phone:
+                                p.contact.phone = snippet_phones[0]
+                            if snippet_emails and not p.contact.email:
+                                p.contact.email = snippet_emails[0]
+                        
+                        # Use improved organization extraction
+                        if not p.organization:
+                            p.organization = self._extract_organization(combined_content, result.link)
+                    
+                    all_prospects.extend(prospects)
+                    
+            except Exception as e:
+                logger.warning(f"Failed to scrape {result.link}: {e}")
+                continue
+        
+        return all_prospects, urls_scraped
+    
     async def find_prospects_free(
         self,
         user_id: str,
@@ -2937,107 +3134,84 @@ Important: Only return verified, publicly available contact information. Do not 
             
             search_query = " ".join(query_parts)
         
-        logger.info(f"Google Search (FREE): {search_query}")
         logger.info(f"Categories selected: {categories}")
         logger.info(f"Location: {location}")
         
         try:
-            # Step 1: Google Search (FREE)
-            search_results = self.google_search.search(search_query, num_results=10)
-            
-            logger.info(f"Google search returned {len(search_results) if search_results else 0} results")
-            
-            if not search_results:
-                logger.warning(f"No Google search results for query: {search_query}")
-                return ProspectDiscoveryResponse(
-                    success=True,
-                    discovery_id=discovery_id,
-                    source="google_search",
-                    total_found=0,
-                    prospects=[],
-                    search_query_used=search_query,
-                )
-            
-            # Step 2: Scrape top URLs with Firecrawl
+            # NEW APPROACH: Run separate search per category for better results
             all_prospects = []
             urls_scraped = []
+            all_search_queries = []
             
-            # Filter out URLs that can't be scraped
-            scrapeable_results = [r for r in search_results 
-                                  if not any(domain in r.link.lower() for domain in BLOCKED_DOMAINS)]
-            
-            logger.info(f"Filtered {len(search_results)} results to {len(scrapeable_results)} scrapeable URLs")
-            
-            for result in scrapeable_results[:5]:  # Limit to 5 URLs
-                try:
-                    logger.info(f"Scraping: {result.link}")
-                    
-                    # Try Firecrawl first, fallback to free scraping
-                    combined_content = None
+            if categories and len(categories) > 1:
+                # Multi-category: Run separate search per category, then merge
+                logger.info(f"Running per-category searches for {len(categories)} categories")
+                results_per_category = max(3, max_results // len(categories))  # Distribute max_results across categories
+                
+                for category in categories:
                     try:
-                        scraped = self.firecrawl.scrape_url(result.link)
-                        if scraped and scraped.content:
-                            combined_content = scraped.content
-                    except Exception as fc_error:
-                        logger.warning(f"Firecrawl failed, trying free scrape: {fc_error}")
-                    
-                    # Fallback to free scraping
-                    if not combined_content:
-                        combined_content = self._free_scrape(result.link)
-                    
-                    if combined_content:
-                        urls_scraped.append(result.link)
+                        # Build category-specific query
+                        category_query = self.build_category_search_query(
+                            categories=[category],  # Single category
+                            location=location,
+                            additional_context=additional_context
+                        )
+                        all_search_queries.append(f"[{category}]: {category_query}")
                         
-                        # =============================================================
-                        # MULTI-PAGE SCRAPING: Also scrape /contact, /about, /team pages
-                        # =============================================================
-                        try:
-                            from urllib.parse import urlparse
-                            parsed = urlparse(result.link)
-                            base_url = f"{parsed.scheme}://{parsed.netloc}"
-                            
-                            contact_paths = ['/contact', '/contact-us', '/about', '/about-us', '/team', '/staff', '/our-team']
-                            for path in contact_paths[:3]:  # Limit to 3 extra pages
-                                try:
-                                    contact_url = f"{base_url}{path}"
-                                    # Use free scrape for contact pages
-                                    contact_content = self._free_scrape(contact_url)
-                                    if contact_content:
-                                        combined_content += f"\n\n--- FROM {path} ---\n" + contact_content
-                                        logger.info(f"Also scraped {contact_url}")
-                                except Exception as e:
-                                    pass  # Contact page doesn't exist, that's fine
-                        except Exception as e:
-                            logger.warning(f"Multi-page scraping failed: {e}")
+                        logger.info(f"Searching category '{category}': {category_query}")
                         
-                        prospects = self.extract_prospects_from_content(
-                            content=combined_content,
-                            url=result.link,
-                            source=ProspectSource.GENERAL_SEARCH
+                        # Search for this category
+                        category_results = self.google_search.search(category_query, num_results=results_per_category)
+                        logger.info(f"Category '{category}' returned {len(category_results) if category_results else 0} results")
+                        
+                        if not category_results:
+                            continue
+                        
+                        # Process this category's results
+                        category_prospects, category_urls = await self._process_search_results(
+                            category_results, category, location
                         )
                         
-                        logger.info(f"Extracted {len(prospects)} prospects from {result.link}")
+                        all_prospects.extend(category_prospects)
+                        urls_scraped.extend(category_urls)
                         
-                        # Add search result context AND extract from snippet
-                        for p in prospects:
-                            p.source_url = result.link
-                            if not p.bio_snippet:
-                                p.bio_snippet = result.snippet
-                            
-                            # Extract contact from Google snippet if not found
-                            if result.snippet and (not p.contact.phone or not p.contact.email):
-                                snippet_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', result.snippet)
-                                snippet_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', result.snippet)
-                                if snippet_phones and not p.contact.phone:
-                                    p.contact.phone = snippet_phones[0]
-                                if snippet_emails and not p.contact.email:
-                                    p.contact.email = snippet_emails[0]
+                        logger.info(f"Category '{category}': Extracted {len(category_prospects)} prospects")
                         
-                        all_prospects.extend(prospects)
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to scrape {result.link}: {e}")
-                    continue
+                    except Exception as e:
+                        logger.warning(f"Error processing category '{category}': {e}")
+                        continue
+                
+                # Combine all queries for logging
+                search_query = " | ".join(all_search_queries)
+                
+            else:
+                # Single category or legacy specialty search: Run single combined search
+                logger.info(f"Google Search (FREE): {search_query}")
+                
+                # Step 1: Google Search (FREE)
+                search_results = self.google_search.search(search_query, num_results=10)
+                
+                logger.info(f"Google search returned {len(search_results) if search_results else 0} results")
+                
+                if not search_results:
+                    logger.warning(f"No Google search results for query: {search_query}")
+                    return ProspectDiscoveryResponse(
+                        success=True,
+                        discovery_id=discovery_id,
+                        source="google_search",
+                        total_found=0,
+                        prospects=[],
+                        search_query_used=search_query,
+                    )
+                
+                # Process single search results
+                all_prospects, urls_scraped = await self._process_search_results(
+                    search_results, 
+                    categories[0] if categories else None,
+                    location
+                )
+            
+            # Continue with existing enrichment/scoring logic below...
             
             # =================================================================
             # LLM FALLBACK: If we have URLs but no prospects, try LLM extraction
