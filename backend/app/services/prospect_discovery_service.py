@@ -237,6 +237,16 @@ class ProspectDiscoveryService:
             # Use 2-hop extraction: directory → profile pages
             return self._extract_doctor_directory(content, url, source)
         
+        # Check if this is a treatment center website
+        is_treatment_center = any(keyword in url.lower() for keyword in [
+            'treatment', 'rehab', 'recovery', 'residential', 'php', 'iop', 
+            'therapeutic', 'wilderness', 'boarding'
+        ]) or any(path in url.lower() for path in ['/team', '/staff', '/leadership', '/admissions', '/about'])
+        
+        if is_treatment_center:
+            # Use treatment center extraction: main page + staff/leadership pages
+            return self._extract_treatment_center(content, url, source)
+        
         # Generic extraction for other sources
         return self._extract_generic(content, url, source)
     
@@ -816,6 +826,135 @@ class ProspectDiscoveryService:
             except Exception as e:
                 logger.warning(f"Failed to extract from Psychology Today profile {profile_url}: {e}")
                 continue
+        
+        return prospects
+    
+    def _extract_treatment_center(
+        self,
+        main_content: str,
+        main_url: str,
+        source: ProspectSource
+    ) -> List[DiscoveredProspect]:
+        """
+        Extract prospects from treatment center websites (RTC + PHP/IOP).
+        Targets: Admissions Director, Clinical Director, Intake Coordinator, etc.
+        Strategy: Scrape main page + staff/leadership/admissions pages.
+        """
+        prospects = []
+        
+        from urllib.parse import urljoin, urlparse
+        parsed = urlparse(main_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # Combine content from main page
+        combined_content = main_content
+        
+        # Target pages for treatment centers
+        target_pages = ['/team', '/staff', '/leadership', '/admissions', '/about', '/contact']
+        
+        # Scrape additional pages
+        for path in target_pages[:4]:  # Limit to 4 pages
+            try:
+                page_url = urljoin(base_url, path)
+                page_content = self._free_scrape(page_url)
+                if page_content:
+                    combined_content += f"\n\n--- FROM {path} ---\n" + page_content
+                    logger.info(f"Also scraped {page_url}")
+            except:
+                pass
+        
+        # Target roles for RTC + PHP/IOP
+        target_roles = [
+            'admissions director', 'admissions manager', 'admissions coordinator',
+            'clinical director', 'program director', 'intake coordinator',
+            'intake manager', 'family therapist', 'head of school',
+            'executive director', 'clinical manager', 'admissions team'
+        ]
+        
+        # Extract names with titles
+        # Pattern: "John Smith, Admissions Director" or "Admissions Director: Jane Doe"
+        name_title_patterns = [
+            r'([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12}),?\s+(Admissions Director|Clinical Director|Program Director|Intake Coordinator|Intake Manager|Family Therapist|Head of School|Executive Director)',
+            r'(Admissions Director|Clinical Director|Program Director|Intake Coordinator|Intake Manager|Family Therapist|Head of School|Executive Director)[:\s]+([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})',
+            r'<h[23][^>]*>([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})[^<]*(Admissions|Clinical|Program|Intake|Director|Coordinator|Manager)',
+        ]
+        
+        names_with_titles = []
+        for pattern in name_title_patterns:
+            matches = re.findall(pattern, combined_content, re.IGNORECASE)
+            for match in matches:
+                if isinstance(match, tuple):
+                    if len(match) == 2:
+                        # Check which is name and which is title
+                        if any(role in match[0].lower() for role in target_roles):
+                            names_with_titles.append({"name": match[1], "title": match[0]})
+                        else:
+                            names_with_titles.append({"name": match[0], "title": match[1]})
+        
+        # Also extract names near role keywords
+        for role in target_roles:
+            role_pattern = rf'{role}[^:]*:?\s*([A-Z][a-z]{{2,12}}\s+[A-Z][a-z]{{2,12}})'
+            matches = re.findall(role_pattern, combined_content, re.IGNORECASE)
+            for name in matches:
+                names_with_titles.append({"name": name, "title": role.title()})
+        
+        # Dedupe by name
+        seen_names = set()
+        for item in names_with_titles:
+            name = item["name"].strip()
+            if name in seen_names or len(name) < 5:
+                continue
+            seen_names.add(name)
+            
+            # Extract email near this name (within 500 chars)
+            email = None
+            name_pos = combined_content.lower().find(name.lower())
+            if name_pos != -1:
+                nearby = combined_content[max(0, name_pos-250):name_pos+250]
+                emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', nearby)
+                valid_emails = [e for e in emails if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                if valid_emails:
+                    email = valid_emails[0]
+            
+            # Extract phone near this name
+            phone = None
+            if name_pos != -1:
+                nearby = combined_content[max(0, name_pos-250):name_pos+250]
+                phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', nearby)
+                if phones:
+                    digits = re.sub(r'[^\d]', '', phones[0])
+                    if len(digits) == 10:
+                        area_code = int(digits[:3])
+                        exchange = int(digits[3:6])
+                        if 200 <= area_code <= 999 and 200 <= exchange <= 999:
+                            phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+            
+            # Extract organization name (usually in page title or h1)
+            org_match = re.search(r'<title>([^<]+)</title>', combined_content, re.IGNORECASE)
+            organization = None
+            if org_match:
+                title = org_match.group(1)
+                # Extract organization name (remove common suffixes)
+                org = re.sub(r'\s*-\s*(Treatment|Center|Rehab|Recovery|Program).*', '', title, flags=re.I)
+                organization = org.strip()[:100]
+            
+            prospect = DiscoveredProspect(
+                name=name,
+                title=item.get("title", "Director"),
+                organization=organization,
+                contact=ProspectContact(
+                    email=email,
+                    phone=phone,
+                    website=main_url
+                ),
+                source=source,
+                source_url=main_url,
+                bio_snippet=None,
+            )
+            prospects.append(prospect)
+            
+            if len(prospects) >= 10:  # Limit per center
+                break
         
         return prospects
     
