@@ -849,12 +849,33 @@ class ProspectDiscoveryService:
         # Combine content from main page
         combined_content = main_content
         
-        # Target pages for treatment centers
-        target_pages = ['/team', '/staff', '/leadership', '/admissions', '/about', '/contact']
+        # Target pages for treatment centers (including common variations)
+        target_pages = [
+            '/team', '/meet-the-team', '/staff', '/our-team', '/leadership', 
+            '/admissions', '/about', '/contact', '/who-we-are'
+        ]
+        
+        # Also try to find team/staff links from the main page
+        try:
+            soup = BeautifulSoup(main_content, 'html.parser')
+            team_links = soup.find_all('a', href=re.compile(r'team|staff|leadership|admissions', re.I))
+            for link in team_links[:3]:  # Limit to 3 additional links
+                href = link.get('href', '')
+                if href.startswith('/') or base_url in href:
+                    if href.startswith('/'):
+                        page_url = urljoin(base_url, href)
+                    else:
+                        page_url = href
+                    if page_url not in [urljoin(base_url, p) for p in target_pages]:
+                        target_pages.append(href if href.startswith('/') else urlparse(href).path)
+        except:
+            pass
         
         # Scrape additional pages
-        for path in target_pages[:4]:  # Limit to 4 pages
+        for path in target_pages[:5]:  # Limit to 5 pages
             try:
+                if not path.startswith('/'):
+                    path = '/' + path.lstrip('/')
                 page_url = urljoin(base_url, path)
                 page_content = self._free_scrape(page_url)
                 if page_content:
@@ -898,27 +919,133 @@ class ProspectDiscoveryService:
             if len(name.split()) == 2 and all(2 <= len(w) <= 12 for w in name.split()):
                 names_with_titles.append({"name": name, "title": title})
         
-        # Pattern 3: Names in staff/team sections (h2, h3 tags)
-        # Common: <h3>John Smith</h3> followed by role text
-        staff_name_pattern = r'<h[23][^>]*>([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})</h[23]>'
-        name_matches = re.findall(staff_name_pattern, combined_content)
-        for name in name_matches:
-            # Look for role near this name (within 200 chars after)
-            # Find the h2/h3 tag containing this name
-            name_pos = -1
-            for match in re.finditer(rf'<h[23][^>]*>{re.escape(name)}</h[23]>', combined_content):
-                name_pos = match.end()
-                break
-            if name_pos == -1:
-                name_pos = combined_content.find(name)
-            if name_pos != -1:
-                nearby = combined_content[name_pos:name_pos+200]
+        # Pattern 3: Names in staff/team sections using BeautifulSoup
+        # Common structures:
+        # - <h3 class="entry-title">John Smith, MBA</h3>
+        # - <h2>John Smith</h2> followed by role
+        # - <div class="team-member"> with name and title
+        try:
+            soup = BeautifulSoup(combined_content, 'html.parser')
+            
+            # Method 3a: Look for h2/h3/h4 with entry-title or similar classes
+            name_headings = soup.find_all(['h2', 'h3', 'h4'], class_=re.compile(r'entry-title|name|staff-name|team-member-name', re.I))
+            for heading in name_headings:
+                text = heading.get_text(strip=True)
+                # Extract name (first part before comma, if any)
+                name_part = text.split(',')[0].strip()
+                # Check if it looks like a name
+                if re.match(r'^[A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12}$', name_part):
+                    # Look for role in position field (common pattern: <p class="team_member_position">)
+                    role_found = None
+                    parent = heading.find_parent(['div', 'section', 'article'])
+                    if parent:
+                        # Look for position field in parent
+                        position_field = parent.find(['p', 'div', 'span'], class_=re.compile(r'position|role|title|team_member_position', re.I))
+                        if position_field:
+                            position_text = position_field.get_text(strip=True)
+                            # Match against target roles (check for full match first)
+                            for role in target_roles:
+                                if role in position_text.lower():
+                                    # Try to get the full title, not just the matched word
+                                    role_found = position_text[:100]  # Use actual position text
+                                    break
+                        
+                        # If no position field, check parent text
+                        if not role_found:
+                            parent_text = parent.get_text(strip=True).lower()
+                            for role in target_roles:
+                                if role in parent_text:
+                                    # Extract the full title phrase
+                                    role_match = re.search(rf'\b{role}[^\.\n]*', parent_text, re.I)
+                                    if role_match:
+                                        role_found = role_match.group(0).title()
+                                    else:
+                                        role_found = role.title()
+                                    break
+                    
+                    # Fallback: check next sibling
+                    if not role_found:
+                        next_elem = heading.find_next_sibling()
+                        if next_elem:
+                            next_text = next_elem.get_text(strip=True).lower()
+                            for role in target_roles:
+                                if role in next_text:
+                                    role_found = role.title()
+                                    break
+                    
+                    if role_found:
+                        names_with_titles.append({"name": name_part, "title": role_found})
+            
+            # Method 3b: Look for divs with team-member or staff classes
+            team_divs = soup.find_all(['div', 'section'], class_=re.compile(r'team-member|staff-member|leadership-member', re.I))
+            for div in team_divs:
+                # Find name in heading within this div
+                name_heading = div.find(['h2', 'h3', 'h4', 'h5'])
+                if name_heading:
+                    name_text = name_heading.get_text(strip=True)
+                    name_part = name_text.split(',')[0].strip()
+                    if re.match(r'^[A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12}$', name_part):
+                        # Look for role in div text
+                        div_text = div.get_text(strip=True).lower()
+                        for role in target_roles:
+                            if role in div_text:
+                                names_with_titles.append({"name": name_part, "title": role.title()})
+                                break
+            
+            # Method 3c: Look for position/role fields near names
+            position_fields = soup.find_all(['p', 'div', 'span'], class_=re.compile(r'position|role|title|team_member_position', re.I))
+            for field in position_fields:
+                position_text = field.get_text(strip=True)
+                if not position_text or len(position_text) < 3:
+                    continue
+                
+                position_lower = position_text.lower()
+                # Check if this position matches our target roles
+                matched_role = None
                 for role in target_roles:
-                    if role in nearby.lower():
-                        names_with_titles.append({"name": name, "title": role.title()})
+                    if role in position_lower:
+                        # Use the full position text, not just the matched word
+                        matched_role = position_text[:100].strip()  # Use actual position text
                         break
+                
+                if matched_role:
+                    # Find name in previous sibling or parent
+                    prev_elem = field.find_previous(['h2', 'h3', 'h4', 'h5'])
+                    if not prev_elem:
+                        parent = field.find_parent(['div', 'section', 'article'])
+                        if parent:
+                            prev_elem = parent.find(['h2', 'h3', 'h4', 'h5'])
+                    
+                    if prev_elem:
+                        name_text = prev_elem.get_text(strip=True)
+                        name_part = name_text.split(',')[0].strip()
+                        if re.match(r'^[A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12}$', name_part):
+                            names_with_titles.append({"name": name_part, "title": matched_role})
+        except Exception as e:
+            logger.warning(f"BeautifulSoup parsing failed: {e}")
+            # Fallback to regex pattern
+            staff_name_pattern = r'<h[23][^>]*>([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})</h[23]>'
+            name_matches = re.findall(staff_name_pattern, combined_content)
+            for name in name_matches:
+                name_pos = combined_content.find(name)
+                if name_pos != -1:
+                    nearby = combined_content[name_pos:name_pos+200]
+                    for role in target_roles:
+                        if role in nearby.lower():
+                            names_with_titles.append({"name": name, "title": role.title()})
+                            break
         
-        # Pattern 4: Role keywords followed by names
+        # Pattern 4: Name directly followed by title (no space/punctuation) - "Blake KinseyVice President"
+        # This handles cases where names and titles are concatenated
+        name_title_concat_pattern = r'([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})(Vice President|President|Director|Manager|Coordinator|Therapist|Head of School)'
+        matches4 = re.findall(name_title_concat_pattern, combined_content)
+        for match in matches4:
+            name = match[0].strip()
+            title = match[1].strip()
+            if len(name.split()) == 2 and all(2 <= len(w) <= 12 for w in name.split()):
+                names_with_titles.append({"name": name, "title": title})
+        
+        # Pattern 5: Role keywords followed by names
         for role in target_roles:
             role_pattern = rf'\b{role}\b[^<]*?([A-Z][a-z]{{2,12}}\s+[A-Z][a-z]{{2,12}})'
             matches = re.findall(role_pattern, combined_content, re.IGNORECASE)
@@ -930,6 +1057,23 @@ class ProspectDiscoveryService:
                     bad_words = ['facebook', 'twitter', 'linkedin', 'instagram', 'youtube', 'programs', 'therapy', 'center']
                     if not any(bad in name.lower() for bad in bad_words):
                         names_with_titles.append({"name": name, "title": role.title()})
+        
+        # Pattern 6: Extract from text blocks - look for name patterns near role keywords
+        # Split content into sentences/paragraphs and look for name + role combinations
+        text_blocks = re.split(r'[\.\n]', combined_content)
+        for block in text_blocks:
+            # Look for name pattern
+            name_match = re.search(r'\b([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})\b', block)
+            if name_match:
+                name = name_match.group(1)
+                # Check if any role is in this block
+                for role in target_roles:
+                    if role in block.lower() and len(name.split()) == 2:
+                        # Validate name
+                        words = name.split()
+                        if all(2 <= len(w) <= 12 for w in words):
+                            names_with_titles.append({"name": name, "title": role.title()})
+                            break
         
         # Dedupe by name and validate
         seen_names = set()
