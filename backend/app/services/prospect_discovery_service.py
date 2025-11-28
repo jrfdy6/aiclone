@@ -924,12 +924,35 @@ class ProspectDiscoveryService:
         
         logger.info(f"Scraped {scraped_count} additional pages for treatment center")
         
+        # If no additional pages scraped, try Google search for team/leadership pages
+        if scraped_count == 0 and self.google_search:
+            try:
+                # Search for team/staff pages on this domain
+                domain = parsed.netloc.replace('www.', '')
+                search_query = f'site:{domain} (team OR staff OR leadership OR "meet the team")'
+                logger.info(f"Searching Google for team pages: {search_query}")
+                
+                search_results = self.google_search.search(query=search_query, num_results=3)
+                for result in search_results:
+                    if result.link and domain in result.link:
+                        # Free scrape the found team page
+                        team_content = self._free_scrape(result.link)
+                        if team_content:
+                            combined_content += f"\n\n--- FROM {result.link} (via Google) ---\n" + team_content
+                            scraped_count += 1
+                            logger.info(f"Found and scraped team page via Google: {result.link}")
+                            break  # Just need one good team page
+            except Exception as e:
+                logger.warning(f"Google search for team pages failed: {e}")
+        
         # Target roles for RTC + PHP/IOP
         target_roles = [
             'admissions director', 'admissions manager', 'admissions coordinator',
             'clinical director', 'program director', 'intake coordinator',
             'intake manager', 'family therapist', 'head of school',
-            'executive director', 'clinical manager', 'admissions team'
+            'executive director', 'clinical manager', 'admissions team',
+            'chief executive officer', 'chief operating officer', 'chief clinical officer',
+            'vice president', 'president'
         ]
         
         # Extract names with titles - STRICT patterns only
@@ -1202,6 +1225,71 @@ class ProspectDiscoveryService:
             
             if len(prospects) >= 10:  # Limit per center
                 break
+        
+        # If prospects found but missing contact info, try Google enrichment
+        if prospects and self.google_search:
+            for prospect in prospects:
+                if not prospect.contact.email and not prospect.contact.phone:
+                    try:
+                        # Search for contact info: "Name Title Organization email phone"
+                        search_query = f'"{prospect.name}" {prospect.title or ""} {prospect.organization or ""} {parsed.netloc} email phone'
+                        logger.info(f"Google contact enrichment for {prospect.name}: {search_query}")
+                        
+                        search_results = self.google_search.search(query=search_query, num_results=3)
+                        for result in search_results:
+                            # Extract email/phone from snippet
+                            snippet = result.snippet or ""
+                            if snippet:
+                                # Extract email
+                                if not prospect.contact.email:
+                                    snippet_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', snippet)
+                                    valid_emails = [e for e in snippet_emails 
+                                                   if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                                    if valid_emails:
+                                        prospect.contact.email = valid_emails[0]
+                                
+                                # Extract phone
+                                if not prospect.contact.phone:
+                                    snippet_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', snippet)
+                                    if snippet_phones:
+                                        digits = re.sub(r'[^\d]', '', snippet_phones[0])
+                                        if len(digits) == 10:
+                                            area_code = int(digits[:3])
+                                            exchange = int(digits[3:6])
+                                            if 200 <= area_code <= 999 and 200 <= exchange <= 999:
+                                                prospect.contact.phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+                            
+                            # If still missing, scrape the result page
+                            if (not prospect.contact.email or not prospect.contact.phone) and result.link:
+                                try:
+                                    page_content = self._free_scrape(result.link)
+                                    if page_content:
+                                        # Extract email
+                                        if not prospect.contact.email:
+                                            page_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', page_content)
+                                            valid_emails = [e for e in page_emails 
+                                                           if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                                            if valid_emails:
+                                                prospect.contact.email = valid_emails[0]
+                                        
+                                        # Extract phone
+                                        if not prospect.contact.phone:
+                                            page_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', page_content)
+                                            if page_phones:
+                                                digits = re.sub(r'[^\d]', '', page_phones[0])
+                                                if len(digits) == 10:
+                                                    area_code = int(digits[:3])
+                                                    exchange = int(digits[3:6])
+                                                    if 200 <= area_code <= 999 and 200 <= exchange <= 999:
+                                                        prospect.contact.phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+                                except:
+                                    pass
+                            
+                            # If we got both, stop searching
+                            if prospect.contact.email and prospect.contact.phone:
+                                break
+                    except Exception as e:
+                        logger.warning(f"Google contact enrichment failed for {prospect.name}: {e}")
         
         return prospects
     
