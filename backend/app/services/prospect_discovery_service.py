@@ -136,7 +136,11 @@ class ProspectDiscoveryService:
     def _init_clients(self):
         """Lazy init clients"""
         if self.firecrawl is None:
-            self.firecrawl = get_firecrawl_client()
+            try:
+                self.firecrawl = get_firecrawl_client()
+            except Exception as e:
+                logger.warning(f"Firecrawl client not available: {e}")
+                self.firecrawl = None
         if self.perplexity is None:
             try:
                 self.perplexity = get_perplexity_client()
