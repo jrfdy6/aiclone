@@ -216,6 +216,13 @@ class ProspectDiscoveryService:
         """Extract prospect information from scraped content"""
         prospects = []
         
+        # Check if this is a Psychology Today listing/directory page
+        is_psychology_today_listing = 'psychologytoday.com' in url.lower() and any(path in url.lower() for path in ['/us/therapists/', '/therapists/', '/find-a-therapist'])
+        
+        if is_psychology_today_listing:
+            # Use 2-hop extraction: listing page → profile pages
+            return self._extract_psychology_today_listing(content, url, source)
+        
         # Source-specific extraction
         if source == ProspectSource.PSYCHOLOGY_TODAY:
             return self._extract_psychology_today(content, url, source)
@@ -309,6 +316,19 @@ class ProspectDiscoveryService:
                 if kw.lower() in content.lower():
                     found_specialties.append(kw)
             
+            # Find phone near this name (within 500 chars)
+            phone = None
+            name_pos = content.find(name)
+            if name_pos != -1:
+                nearby_content = content[max(0, name_pos-250):name_pos+250]
+                nearby_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', nearby_content)
+                if nearby_phones:
+                    phone = nearby_phones[0]
+            
+            # Use first phone if no nearby phone found
+            if not phone and phones:
+                phone = phones[0]
+            
             prospect = DiscoveredProspect(
                 name=name,
                 title=item.get("credentials") or "Therapist",
@@ -318,7 +338,7 @@ class ProspectDiscoveryService:
                 source_url=url,
                 source=source,
                 contact=ProspectContact(
-                    phone=phones[len(prospects)] if len(prospects) < len(phones) else None,
+                    phone=phone,
                 ),
                 bio_snippet=None,
             )
@@ -618,6 +638,166 @@ class ProspectDiscoveryService:
                     
             except Exception as e:
                 logger.warning(f"Failed to extract from profile {profile_url}: {e}")
+                continue
+        
+        return prospects
+    
+    def _extract_psychology_today_listing(
+        self,
+        listing_content: str,
+        listing_url: str,
+        source: ProspectSource
+    ) -> List[DiscoveredProspect]:
+        """
+        2-hop extraction for Psychology Today listing pages:
+        Step 1: Extract profile URLs from listing page
+        Step 2: Scrape each profile page to get contact info
+        """
+        prospects = []
+        
+        from urllib.parse import urljoin, urlparse
+        parsed = urlparse(listing_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # Extract profile URLs from listing page
+        # Psychology Today URLs: /us/therapists/dc/washington/[name-slug]
+        profile_urls = []
+        
+        # Pattern 1: Links in HTML
+        profile_patterns = [
+            r'href=["\'](/us/therapists/[^"\']+)',
+            r'href=["\'](/therapists/[^"\']+)',
+        ]
+        
+        for pattern in profile_patterns:
+            matches = re.findall(pattern, listing_content, re.IGNORECASE)
+            for match in matches:
+                if '/therapists/' in match.lower() and not any(skip in match.lower() for skip in ['/find-', '/browse', '/categories']):
+                    if match.startswith('http'):
+                        profile_urls.append(match)
+                    else:
+                        profile_urls.append(urljoin(base_url, match))
+        
+        # Also extract from BeautifulSoup
+        try:
+            soup = BeautifulSoup(listing_content, 'html.parser')
+            for link in soup.find_all('a', href=True):
+                href = link.get('href', '')
+                if '/therapists/' in href.lower() and any(city in href.lower() for city in ['washington', 'dc', 'district']):
+                    if href.startswith('http'):
+                        profile_urls.append(href)
+                    else:
+                        profile_urls.append(urljoin(base_url, href))
+        except:
+            pass
+        
+        # Dedupe and limit
+        profile_urls = list(set(profile_urls))[:5]  # Limit to 5 profiles
+        
+        logger.info(f"Found {len(profile_urls)} Psychology Today profile URLs in listing")
+        
+        # If no profile URLs found, fall back to name extraction from listing
+        if not profile_urls:
+            logger.info("No profile URLs found - extracting names directly from listing")
+            return self._extract_psychology_today(listing_content, listing_url, source)
+        
+        # Step 2: Scrape each profile page
+        for profile_url in profile_urls:
+            try:
+                profile_content = self._free_scrape(profile_url)
+                if not profile_content:
+                    continue
+                
+                # Extract name from profile page
+                name = None
+                
+                # Psychology Today profile pages usually have name in h1 or title
+                name_patterns = [
+                    r'<h1[^>]*class=["\'][^"\']*name[^"\']*["\'][^>]*>([^<]+)</h1>',
+                    r'<h1[^>]*>([^<]+)</h1>',
+                    r'<title>([^<]+)\s*-\s*Psychology Today</title>',
+                    r'"name":\s*"([^"]+)"',
+                ]
+                
+                for pattern in name_patterns:
+                    match = re.search(pattern, profile_content, re.IGNORECASE)
+                    if match:
+                        name_candidate = match.group(1).strip()
+                        # Extract just name (remove credentials/titles)
+                        name_match = re.search(r'([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})(?:,|\s+MD|\s+PhD|\s+LCSW)?', name_candidate)
+                        if name_match:
+                            name = name_match.group(1)
+                            break
+                
+                if not name:
+                    continue
+                
+                # Extract phone - Psychology Today profiles usually have phone prominently displayed
+                phones = []
+                
+                # Look for phone in specific elements
+                phone_patterns = [
+                    r'<a[^>]*href=["\']tel:([^"\']+)["\'][^>]*>([^<]+)</a>',  # tel: links
+                    r'Phone[^:]*:\s*(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})',
+                    r'phone["\']?\s*:\s*["\']?(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})',
+                ]
+                
+                for pattern in phone_patterns:
+                    matches = re.findall(pattern, profile_content, re.IGNORECASE)
+                    for match in matches:
+                        if isinstance(match, tuple):
+                            phones.append(match[1] if match[1] else match[0])
+                        else:
+                            phones.append(match)
+                
+                # Generic phone pattern
+                phones.extend(re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', profile_content))
+                
+                # Clean and format
+                cleaned_phones = []
+                for p in phones:
+                    digits = re.sub(r'[^\d]', '', str(p))
+                    if len(digits) == 10:
+                        cleaned_phones.append(f"({digits[:3]}) {digits[3:6]}-{digits[6:]}")
+                phones = list(set(cleaned_phones))
+                phone = phones[0] if phones else None
+                
+                # Extract email
+                emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', profile_content)
+                emails = [e for e in emails if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                email = emails[0] if emails else None
+                
+                # Extract credentials/title
+                title = "Therapist"
+                cred_pattern = r'\b(PhD|PsyD|LCSW|LMFT|LPC|MEd|EdD|MD|NCC|LCPC|LMHC)\b'
+                cred_match = re.search(cred_pattern, profile_content, re.IGNORECASE)
+                if cred_match:
+                    title = cred_match.group(1)
+                
+                # Extract bio snippet
+                bio_match = re.search(r'<div[^>]*class=["\'][^"\']*bio[^"\']*["\'][^>]*>([^<]{50,300})</div>', profile_content, re.IGNORECASE | re.DOTALL)
+                bio_snippet = bio_match.group(1).strip()[:200] if bio_match else None
+                
+                prospect = DiscoveredProspect(
+                    name=name,
+                    title=title,
+                    organization=None,
+                    contact=ProspectContact(
+                        email=email,
+                        phone=phone,
+                        website=profile_url
+                    ),
+                    source=source,
+                    source_url=profile_url,
+                    bio_snippet=bio_snippet,
+                )
+                prospects.append(prospect)
+                
+                if len(prospects) >= 5:  # Limit per listing
+                    break
+                    
+            except Exception as e:
+                logger.warning(f"Failed to extract from Psychology Today profile {profile_url}: {e}")
                 continue
         
         return prospects
