@@ -2862,7 +2862,7 @@ Important: Only return verified, publicly available contact information. Do not 
             
             # Must be 2-3 words (proper person names)
             if len(words) < 2 or len(words) > 3:
-                logger.debug(f"Filtering out invalid prospect (word count): {name}")
+                logger.info(f"Filtering out invalid prospect (word count: {len(words)} words): {name}")
                 return False
             
             # Check for bad words
@@ -2872,7 +2872,9 @@ Important: Only return verified, publicly available contact information. Do not 
                 'morning', 'evening', 'powered', 'by', 'engineers',
                 'where', 'children', 'come', 'first', 'educational',
                 'administrative', 'outreach', 'experience', 'engagement',
-                'nurse', 'practitioner'  # Job titles, not names
+                'nurse', 'practitioner',  # Job titles, not names
+                'played', 'playing', 'will', 'was', 'were', 'been',  # Verbs
+                'capitol', 'heights'  # Location words
             ]
             if any(w.lower() in bad_words for w in words):
                 logger.debug(f"Filtering out invalid prospect (bad words): {name}")
@@ -2882,7 +2884,7 @@ Important: Only return verified, publicly available contact information. Do not 
             # Only filter if the name looks like a location phrase, not a person name
             location_phrases = ['areas cities', 'north bethesda', 'south bethesda', 'east bethesda',
                               'west bethesda', 'montgomery county', 'fairfax county', 'north arlington',
-                              'south arlington', 'silver spring', 'chevy chase']
+                              'south arlington', 'silver spring', 'chevy chase', 'capitol heights']
             name_lower_phrase = name_lower.replace(' ', ' ')
             if name_lower_phrase in location_phrases or name_lower_phrase.startswith('areas ') or name_lower_phrase.startswith('cities '):
                 logger.info(f"Filtering out invalid prospect (location phrase): {name}")
@@ -2893,7 +2895,8 @@ Important: Only return verified, publicly available contact information. Do not 
             if words[0].lower() in location_directions and len(words) == 2:
                 # Check if second word is also a location (e.g., "North Bethesda")
                 common_location_second_words = ['bethesda', 'arlington', 'fairfax', 'alexandria', 
-                                               'georgetown', 'potomac', 'montgomery', 'cleveland']
+                                               'georgetown', 'potomac', 'montgomery', 'cleveland',
+                                               'heights', 'park', 'springs', 'county']
                 if words[1].lower() in common_location_second_words:
                     logger.info(f"Filtering out invalid prospect (location phrase): {name}")
                     return False
@@ -2926,9 +2929,10 @@ Important: Only return verified, publicly available contact information. Do not 
             if p.organization:
                 org_lower = p.organization.lower()
                 template_phrases = ['powered by', 'built with', 'designed by', 'is powered by',
-                                   'in the united states', 'where children come first']
+                                   'in the united states', 'where children come first',
+                                   'in united states', 'the united states']
                 if any(phrase in org_lower for phrase in template_phrases):
-                    logger.debug(f"Filtering out invalid prospect (template organization): {name} | {p.organization}")
+                    logger.info(f"Filtering out invalid prospect (template organization): {name} | {p.organization}")
                     return False
                 # Filter out generic organization names
                 if org_lower in ['psychologytoday', 'psychology today']:
