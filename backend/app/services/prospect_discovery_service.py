@@ -871,39 +871,102 @@ class ProspectDiscoveryService:
             'executive director', 'clinical manager', 'admissions team'
         ]
         
-        # Extract names with titles
-        # Pattern: "John Smith, Admissions Director" or "Admissions Director: Jane Doe"
-        name_title_patterns = [
-            r'([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12}),?\s+(Admissions Director|Clinical Director|Program Director|Intake Coordinator|Intake Manager|Family Therapist|Head of School|Executive Director)',
-            r'(Admissions Director|Clinical Director|Program Director|Intake Coordinator|Intake Manager|Family Therapist|Head of School|Executive Director)[:\s]+([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})',
-            r'<h[23][^>]*>([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})[^<]*(Admissions|Clinical|Program|Intake|Director|Coordinator|Manager)',
-        ]
+        # Extract names with titles - STRICT patterns only
+        # Pattern 1: "John Smith, Admissions Director" (name first, then title)
+        pattern1 = r'\b([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12}),?\s+(Admissions Director|Clinical Director|Program Director|Intake Coordinator|Intake Manager|Family Therapist|Head of School|Executive Director|Admissions Manager|Clinical Manager)\b'
+        matches1 = re.findall(pattern1, combined_content, re.IGNORECASE)
+        
+        # Pattern 2: "Admissions Director: Jane Doe" (title first, then name)
+        pattern2 = r'\b(Admissions Director|Clinical Director|Program Director|Intake Coordinator|Intake Manager|Family Therapist|Head of School|Executive Director|Admissions Manager|Clinical Manager)[:\s]+([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})\b'
+        matches2 = re.findall(pattern2, combined_content, re.IGNORECASE)
         
         names_with_titles = []
-        for pattern in name_title_patterns:
-            matches = re.findall(pattern, combined_content, re.IGNORECASE)
-            for match in matches:
-                if isinstance(match, tuple):
-                    if len(match) == 2:
-                        # Check which is name and which is title
-                        if any(role in match[0].lower() for role in target_roles):
-                            names_with_titles.append({"name": match[1], "title": match[0]})
-                        else:
-                            names_with_titles.append({"name": match[0], "title": match[1]})
         
-        # Also extract names near role keywords
+        # Process pattern 1 matches
+        for match in matches1:
+            name = match[0].strip()
+            title = match[1].strip()
+            # Validate name looks real
+            if len(name.split()) == 2 and all(2 <= len(w) <= 12 for w in name.split()):
+                names_with_titles.append({"name": name, "title": title})
+        
+        # Process pattern 2 matches
+        for match in matches2:
+            title = match[0].strip()
+            name = match[1].strip()
+            # Validate name looks real
+            if len(name.split()) == 2 and all(2 <= len(w) <= 12 for w in name.split()):
+                names_with_titles.append({"name": name, "title": title})
+        
+        # Pattern 3: Names in staff/team sections (h2, h3 tags)
+        # Common: <h3>John Smith</h3> followed by role text
+        staff_name_pattern = r'<h[23][^>]*>([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})</h[23]>'
+        name_matches = re.findall(staff_name_pattern, combined_content)
+        for name in name_matches:
+            # Look for role near this name (within 200 chars after)
+            # Find the h2/h3 tag containing this name
+            name_pos = -1
+            for match in re.finditer(rf'<h[23][^>]*>{re.escape(name)}</h[23]>', combined_content):
+                name_pos = match.end()
+                break
+            if name_pos == -1:
+                name_pos = combined_content.find(name)
+            if name_pos != -1:
+                nearby = combined_content[name_pos:name_pos+200]
+                for role in target_roles:
+                    if role in nearby.lower():
+                        names_with_titles.append({"name": name, "title": role.title()})
+                        break
+        
+        # Pattern 4: Role keywords followed by names
         for role in target_roles:
-            role_pattern = rf'{role}[^:]*:?\s*([A-Z][a-z]{{2,12}}\s+[A-Z][a-z]{{2,12}})'
+            role_pattern = rf'\b{role}\b[^<]*?([A-Z][a-z]{{2,12}}\s+[A-Z][a-z]{{2,12}})'
             matches = re.findall(role_pattern, combined_content, re.IGNORECASE)
             for name in matches:
-                names_with_titles.append({"name": name, "title": role.title()})
+                name = name.strip()
+                # Validate name
+                if len(name.split()) == 2 and all(2 <= len(w) <= 12 for w in name.split()):
+                    # Check it's not a common false positive
+                    bad_words = ['facebook', 'twitter', 'linkedin', 'instagram', 'youtube', 'programs', 'therapy', 'center']
+                    if not any(bad in name.lower() for bad in bad_words):
+                        names_with_titles.append({"name": name, "title": role.title()})
         
-        # Dedupe by name
+        # Dedupe by name and validate
         seen_names = set()
+        bad_name_words = ['facebook', 'twitter', 'linkedin', 'instagram', 'youtube', 
+                         'programs', 'therapy', 'center', 'treatment', 'rehab',
+                         'founder and', 'apy programs', 'ock facebook', 'help for',
+                         'struggling', 'evoke', 'newport', 'academy']
+        
         for item in names_with_titles:
             name = item["name"].strip()
+            
+            # Basic validation
             if name in seen_names or len(name) < 5:
                 continue
+            
+            # Must be exactly 2 words
+            words = name.split()
+            if len(words) != 2:
+                continue
+            
+            # Each word should be 2-12 chars
+            if not all(2 <= len(w) <= 12 for w in words):
+                continue
+            
+            # No bad words
+            name_lower = name.lower()
+            if any(bad in name_lower for bad in bad_name_words):
+                continue
+            
+            # No HTML entities or special chars
+            if '&' in name or '»' in name or '<' in name or '>' in name:
+                continue
+            
+            # Must start with capital letter
+            if not name[0].isupper():
+                continue
+            
             seen_names.add(name)
             
             # Extract email near this name (within 500 chars)
