@@ -350,6 +350,7 @@ class ProspectDiscoveryService:
             category: Category ID (e.g., 'pediatricians', 'psychologists') - if provided,
                      prospects will be tagged with this category instead of auto-detection
         """
+        logger.info(f"[EXTRACTION START] URL: {url} | Category: {category} | Source: {source}")
         prospects = []
         
         # Check if this is a Psychology Today listing/directory page
@@ -2191,10 +2192,12 @@ class ProspectDiscoveryService:
                             'marriage', 'anxiety', 'depression', 'trauma', 'addiction']
         
         role_words = ['therapist', 'counselor', 'psychologist', 'psychiatrist', 'coach',
-                      'specialist', 'consultant', 'advisor', 'director', 'manager', 'worker']
+                      'specialist', 'consultant', 'advisor', 'director', 'manager', 'worker',
+                      'nurse', 'practitioner', 'physician', 'doctor', 'md', 'np']
         
         famous_names = ['maya angelou', 'martin luther', 'oprah winfrey', 'barack obama']
-        job_titles = ['social worker', 'case manager', 'program director', 'clinical director']
+        job_titles = ['social worker', 'case manager', 'program director', 'clinical director',
+                     'nurse practitioner', 'nurse', 'practitioner', 'physician assistant']
         
         def is_valid_person_name(name: str) -> bool:
             """Check if name looks like a real person name."""
@@ -2919,6 +2922,9 @@ Important: Only return verified, publicly available contact information. Do not 
         
         logger.info(f"Attempting to save {len(valid_prospects)} valid prospects (filtered {filtered_count} invalid)")
         
+        # Track categories for summary
+        category_counts = {}
+        
         for prospect in valid_prospects:
             # Create unique doc ID from email or name
             if prospect.contact.email:
@@ -2951,7 +2957,11 @@ Important: Only return verified, publicly available contact information. Do not 
                 "created_at": time.time(),
             }
             
-            logger.info(f"Saving prospect: {prospect.name} | email: {prospect.contact.email} | phone: {prospect.contact.phone}")
+            # Track category
+            category_tag = prospect.specialty[0] if prospect.specialty else "Unknown"
+            category_counts[category_tag] = category_counts.get(category_tag, 0) + 1
+            
+            logger.info(f"[SAVE] {prospect.name} | Category: {category_tag} | Org: {prospect.organization} | Email: {prospect.contact.email or 'N/A'} | Phone: {prospect.contact.phone or 'N/A'}")
             doc_ref.set(prospect_doc)
             saved_count += 1
         
@@ -2962,6 +2972,9 @@ Important: Only return verified, publicly available contact information. Do not 
         logger.info(f"Valid prospects: {len(valid_prospects)}")
         logger.info(f"Duplicates skipped: {duplicate_count}")
         logger.info(f"Successfully saved: {saved_count}")
+        logger.info(f"=== CATEGORY BREAKDOWN ===")
+        for cat, count in sorted(category_counts.items(), key=lambda x: x[1], reverse=True):
+            logger.info(f"  {cat}: {count} prospects")
     
     async def scrape_urls(
         self,
@@ -3205,6 +3218,7 @@ Important: Only return verified, publicly available contact information. Do not 
                     except Exception as e:
                         logger.warning(f"Multi-page scraping failed: {e}")
                     
+                    logger.info(f"[CATEGORY: {category}] Extracting prospects from {result.link}")
                     prospects = self.extract_prospects_from_content(
                         content=combined_content,
                         url=result.link,
@@ -3212,7 +3226,7 @@ Important: Only return verified, publicly available contact information. Do not 
                         category=category  # Pass category to ensure correct tagging
                     )
                     
-                    logger.info(f"Extracted {len(prospects)} prospects from {result.link}")
+                    logger.info(f"[CATEGORY: {category}] Extracted {len(prospects)} prospects from {result.link}")
                     
                     # Add search result context and extract from snippet
                     for p in prospects:
@@ -3226,12 +3240,18 @@ Important: Only return verified, publicly available contact information. Do not 
                             snippet_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', result.snippet)
                             if snippet_phones and not p.contact.phone:
                                 p.contact.phone = snippet_phones[0]
+                                logger.debug(f"[CATEGORY: {category}] Added phone from snippet for {p.name}")
                             if snippet_emails and not p.contact.email:
                                 p.contact.email = snippet_emails[0]
+                                logger.debug(f"[CATEGORY: {category}] Added email from snippet for {p.name}")
                         
                         # Use improved organization extraction
                         if not p.organization:
                             p.organization = self._extract_organization(combined_content, result.link)
+                            if p.organization:
+                                logger.info(f"[CATEGORY: {category}] Extracted organization '{p.organization}' for {p.name}")
+                            else:
+                                logger.debug(f"[CATEGORY: {category}] No organization found for {p.name} from {result.link}")
                     
                     all_prospects.extend(prospects)
                     
@@ -3323,6 +3343,7 @@ Important: Only return verified, publicly available contact information. Do not 
                 
                 for category in categories:
                     try:
+                        logger.info(f"=== PROCESSING CATEGORY: {category} ===")
                         # Build category-specific query
                         category_query = self.build_category_search_query(
                             categories=[category],  # Single category
@@ -3331,16 +3352,19 @@ Important: Only return verified, publicly available contact information. Do not 
                         )
                         all_search_queries.append(f"[{category}]: {category_query}")
                         
-                        logger.info(f"Searching category '{category}': {category_query}")
+                        logger.info(f"[CATEGORY: {category}] Google search query: {category_query}")
+                        logger.info(f"[CATEGORY: {category}] Max results per category: {results_per_category}")
                         
                         # Search for this category
                         category_results = self.google_search.search(category_query, num_results=results_per_category)
-                        logger.info(f"Category '{category}' returned {len(category_results) if category_results else 0} results")
+                        logger.info(f"[CATEGORY: {category}] Google returned {len(category_results) if category_results else 0} search results")
                         
                         if not category_results:
+                            logger.warning(f"[CATEGORY: {category}] No search results, skipping")
                             continue
                         
                         # Process this category's results
+                        logger.info(f"[CATEGORY: {category}] Processing {len(category_results)} search results...")
                         category_prospects, category_urls = await self._process_search_results(
                             category_results, category, location
                         )
@@ -3348,7 +3372,8 @@ Important: Only return verified, publicly available contact information. Do not 
                         all_prospects.extend(category_prospects)
                         urls_scraped.extend(category_urls)
                         
-                        logger.info(f"Category '{category}': Extracted {len(category_prospects)} prospects")
+                        logger.info(f"[CATEGORY: {category}] ✅ Extracted {len(category_prospects)} prospects from {len(category_urls)} URLs")
+                        logger.info(f"[CATEGORY: {category}] Total prospects so far: {len(all_prospects)}")
                         
                     except Exception as e:
                         logger.warning(f"Error processing category '{category}': {e}")
