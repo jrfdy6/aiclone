@@ -2871,7 +2871,8 @@ Important: Only return verified, publicly available contact information. Do not 
                 'north', 'south', 'east', 'west', 'good', 'afternoon',
                 'morning', 'evening', 'powered', 'by', 'engineers',
                 'where', 'children', 'come', 'first', 'educational',
-                'administrative', 'outreach', 'experience', 'engagement'
+                'administrative', 'outreach', 'experience', 'engagement',
+                'nurse', 'practitioner'  # Job titles, not names
             ]
             if any(w.lower() in bad_words for w in words):
                 logger.debug(f"Filtering out invalid prospect (bad words): {name}")
@@ -2904,10 +2905,16 @@ Important: Only return verified, publicly available contact information. Do not 
                 logger.info(f"Filtering out invalid prospect (role word at end): {name}")
                 return False
             
-            # Filter phrases
-            phrases = ['good afternoon', 'good morning', 'good evening', 'endorsed', 'endorsement']
+            # Filter phrases and names starting with bad prefixes
+            phrases = ['good afternoon', 'good morning', 'good evening']
             if name_lower in phrases or any(phrase in name_lower for phrase in phrases):
                 logger.debug(f"Filtering out invalid prospect (phrase): {name}")
+                return False
+            
+            # Filter names starting with common prefixes that aren't person names
+            bad_prefixes = ['endorsed', 'endorsement', 'areas', 'cities']
+            if any(name_lower.startswith(prefix + ' ') for prefix in bad_prefixes):
+                logger.info(f"Filtering out invalid prospect (bad prefix): {name}")
                 return False
             
             # Must start with capital letters
