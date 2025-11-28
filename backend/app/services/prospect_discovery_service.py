@@ -340,9 +340,16 @@ class ProspectDiscoveryService:
         self,
         content: str,
         url: str,
-        source: ProspectSource
+        source: ProspectSource,
+        category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
-        """Extract prospect information from scraped content"""
+        """
+        Extract prospect information from scraped content.
+        
+        Args:
+            category: Category ID (e.g., 'pediatricians', 'psychologists') - if provided,
+                     prospects will be tagged with this category instead of auto-detection
+        """
         prospects = []
         
         # Check if this is a Psychology Today listing/directory page
@@ -2267,20 +2274,27 @@ class ProspectDiscoveryService:
         # Layer 2 removed - was causing too many false positives
         
         # =================================================================
-        # DETECT PROFESSION FROM CONTENT
+        # DETECT PROFESSION - Use category if provided, otherwise auto-detect
         # =================================================================
         
         detected_profession = None
         profession_reason = None
         
-        for cat_id, cat_info in PROSPECT_CATEGORIES.items():
-            for kw in cat_info["keywords"]:
-                if kw.lower() in content.lower():
-                    detected_profession = cat_info["name"]
-                    profession_reason = f"Found keyword: {kw}"
+        # If category is provided, use it for tagging (more accurate)
+        if category and category in PROSPECT_CATEGORIES:
+            detected_profession = PROSPECT_CATEGORIES[category]["name"]
+            profession_reason = f"Category: {category}"
+            logger.debug(f"Tagging prospects with category: {detected_profession}")
+        else:
+            # Fallback: Auto-detect from content keywords
+            for cat_id, cat_info in PROSPECT_CATEGORIES.items():
+                for kw in cat_info["keywords"]:
+                    if kw.lower() in content.lower():
+                        detected_profession = cat_info["name"]
+                        profession_reason = f"Found keyword: {kw}"
+                        break
+                if detected_profession:
                     break
-            if detected_profession:
-                break
         
         # =================================================================
         # BUILD PROSPECT OBJECTS - Match contact info to names by proximity
@@ -3154,7 +3168,8 @@ Important: Only return verified, publicly available contact information. Do not 
                     prospects = self.extract_prospects_from_content(
                         content=combined_content,
                         url=result.link,
-                        source=ProspectSource.GENERAL_SEARCH
+                        source=ProspectSource.GENERAL_SEARCH,
+                        category=category  # Pass category to ensure correct tagging
                     )
                     
                     logger.info(f"Extracted {len(prospects)} prospects from {result.link}")
