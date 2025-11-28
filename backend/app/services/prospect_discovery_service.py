@@ -220,6 +220,13 @@ class ProspectDiscoveryService:
         if source == ProspectSource.PSYCHOLOGY_TODAY:
             return self._extract_psychology_today(content, url, source)
         
+        # Check if this is a pediatrician/doctor directory page
+        is_doctor_directory = any(domain in url.lower() for domain in ['healthgrades.com', 'zocdoc.com', 'vitals.com', 'webmd.com'])
+        
+        if is_doctor_directory:
+            # Use 2-hop extraction: directory → profile pages
+            return self._extract_doctor_directory(content, url, source)
+        
         # Generic extraction for other sources
         return self._extract_generic(content, url, source)
     
@@ -316,6 +323,145 @@ class ProspectDiscoveryService:
             
             if len(prospects) >= 10:  # Limit per page
                 break
+        
+        return prospects
+    
+    def _extract_doctor_directory(
+        self,
+        directory_content: str,
+        directory_url: str,
+        source: ProspectSource
+    ) -> List[DiscoveredProspect]:
+        """
+        2-hop extraction for doctor directories (Healthgrades, Zocdoc, Vitals):
+        Step 1: Extract profile URLs from directory page
+        Step 2: Scrape each profile page to get contact info
+        Step 3: If no email, try practice website
+        """
+        prospects = []
+        
+        # Extract profile URLs from directory page
+        from urllib.parse import urljoin, urlparse
+        parsed = urlparse(directory_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # Pattern for doctor profile URLs
+        profile_patterns = [
+            r'href=["\']([^"\']*\/doctor\/[^"\']+)',  # Healthgrades: /doctor/name
+            r'href=["\']([^"\']*\/doctors\/[^"\']+)',  # Zocdoc: /doctors/...
+            r'href=["\']([^"\']*\/provider\/[^"\']+)',  # Vitals: /provider/...
+        ]
+        
+        profile_urls = []
+        for pattern in profile_patterns:
+            matches = re.findall(pattern, directory_content, re.IGNORECASE)
+            for match in matches:
+                if match.startswith('http'):
+                    profile_urls.append(match)
+                else:
+                    profile_urls.append(urljoin(base_url, match))
+        
+        # Dedupe and limit
+        profile_urls = list(set(profile_urls))[:5]  # Limit to 5 profiles to avoid slow scraping
+        
+        logger.info(f"Found {len(profile_urls)} doctor profile URLs in directory")
+        
+        # Step 2: Scrape each profile page
+        for profile_url in profile_urls:
+            try:
+                # Scrape profile page
+                profile_content = self._free_scrape(profile_url)
+                if not profile_content:
+                    continue
+                
+                # Extract name from profile page (strict pattern)
+                name_patterns = [
+                    r'<h1[^>]*>([^<]+)</h1>',  # Usually in h1
+                    r'"name":\s*"([^"]+)"',  # JSON-LD
+                    r'<title>([^<]+)</title>',  # Page title
+                ]
+                
+                name = None
+                for pattern in name_patterns:
+                    match = re.search(pattern, profile_content, re.IGNORECASE)
+                    if match:
+                        name_candidate = match.group(1).strip()
+                        # Filter to actual names
+                        if ',' in name_candidate or 'MD' in name_candidate or 'DO' in name_candidate:
+                            # Extract just the name part
+                            name_match = re.search(r'([A-Z][a-z]+\s+[A-Z][a-z]+)', name_candidate)
+                            if name_match:
+                                name = name_match.group(1)
+                                break
+                
+                if not name:
+                    # Fallback: try generic extraction
+                    name_matches = re.findall(r'\b([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12}),?\s+(?:MD|DO|M\.D\.|D\.O\.)', profile_content)
+                    if name_matches:
+                        name = name_matches[0]
+                
+                if not name:
+                    continue
+                
+                # Extract phone from profile page
+                phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', profile_content)
+                phone = phones[0] if phones else None
+                
+                # Extract email (rare on directory pages)
+                emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', profile_content)
+                emails = [e for e in emails if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                email = emails[0] if emails else None
+                
+                # Extract practice website if no email
+                practice_url = None
+                if not email:
+                    website_patterns = [
+                        r'href=["\'](https?://[^"\']+?)["\']',  # Any website link
+                        r'Website[^:]*:\s*(https?://[^\s<]+)',
+                        r'Visit[^:]*:\s*(https?://[^\s<]+)',
+                    ]
+                    for pattern in website_patterns:
+                        match = re.search(pattern, profile_content, re.IGNORECASE)
+                        if match:
+                            practice_url = match.group(1)
+                            # Validate it's not a directory site
+                            if not any(d in practice_url.lower() for d in ['healthgrades.com', 'zocdoc.com', 'vitals.com', 'webmd.com']):
+                                break
+                
+                # Step 3: If no email, scrape practice website
+                if not email and practice_url:
+                    try:
+                        practice_content = self._free_scrape(practice_url)
+                        if practice_content:
+                            practice_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', practice_content)
+                            practice_emails = [e for e in practice_emails if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                            if practice_emails:
+                                email = practice_emails[0]
+                    except:
+                        pass
+                
+                # Create prospect
+                prospect = DiscoveredProspect(
+                    name=name,
+                    title="MD",
+                    organization=None,
+                    contact=ProspectContact(
+                        email=email,
+                        phone=phone,
+                        website=practice_url if practice_url else profile_url
+                    ),
+                    source=source,
+                    source_url=profile_url,
+                    bio_snippet=None,
+                )
+                prospects.append(prospect)
+                
+                if len(prospects) >= 5:  # Limit per directory
+                    break
+                    
+            except Exception as e:
+                logger.warning(f"Failed to extract from profile {profile_url}: {e}")
+                continue
         
         return prospects
     
