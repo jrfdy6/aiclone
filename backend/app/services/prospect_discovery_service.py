@@ -2291,8 +2291,9 @@ class ProspectDiscoveryService:
         if category and category in PROSPECT_CATEGORIES:
             detected_profession = PROSPECT_CATEGORIES[category]["name"]
             profession_reason = f"Category: {category}"
-            logger.debug(f"Tagging prospects with category: {detected_profession}")
+            logger.info(f"Tagging prospects with category: {detected_profession} (from category: {category})")
         else:
+            logger.warning(f"No category provided for extraction - will auto-detect from content")
             # Fallback: Auto-detect from content keywords
             for cat_id, cat_info in PROSPECT_CATEGORIES.items():
                 for kw in cat_info["keywords"]:
@@ -2382,10 +2383,13 @@ class ProspectDiscoveryService:
                 if prospect_website:
                     break
             
+            # Extract organization for this prospect
+            prospect_organization = self._extract_organization(content, url)
+            
             prospect = DiscoveredProspect(
                 name=name,
                 title=info.get("title"),
-                organization=None,
+                organization=prospect_organization,
                 specialty=[detected_profession] if detected_profession else [],
                 source_url=url,
                 source=source,
