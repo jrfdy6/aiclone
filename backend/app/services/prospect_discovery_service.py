@@ -357,11 +357,11 @@ class ProspectDiscoveryService:
         
         if is_psychology_today_listing:
             # Use 2-hop extraction: listing page → profile pages
-            return self._extract_psychology_today_listing(content, url, source)
+            return self._extract_psychology_today_listing(content, url, source, category)
         
         # Source-specific extraction
         if source == ProspectSource.PSYCHOLOGY_TODAY:
-            return self._extract_psychology_today(content, url, source)
+            return self._extract_psychology_today(content, url, source, category)
         
         # Check if this is a pediatrician/doctor directory page
         is_doctor_directory = any(domain in url.lower() for domain in [
@@ -371,7 +371,7 @@ class ProspectDiscoveryService:
         
         if is_doctor_directory:
             # Use 2-hop extraction: directory → profile pages
-            return self._extract_doctor_directory(content, url, source)
+            return self._extract_doctor_directory(content, url, source, category)
         
         # Check if this is a treatment center website
         is_treatment_center = any(keyword in url.lower() for keyword in [
@@ -381,7 +381,7 @@ class ProspectDiscoveryService:
         
         if is_treatment_center:
             # Use treatment center extraction: main page + staff/leadership pages
-            return self._extract_treatment_center(content, url, source)
+            return self._extract_treatment_center(content, url, source, category)
         
         # Check if this is an embassy website
         is_embassy = any(keyword in url.lower() for keyword in [
@@ -392,7 +392,7 @@ class ProspectDiscoveryService:
         
         if is_embassy:
             # Use embassy extraction: education officers, cultural attachés
-            return self._extract_embassy_contacts(content, url, source)
+            return self._extract_embassy_contacts(content, url, source, category)
         
         # Check if this is a youth sports organization
         is_youth_sports = any(keyword in url.lower() for keyword in [
@@ -408,16 +408,17 @@ class ProspectDiscoveryService:
         
         if is_youth_sports:
             # Use youth sports extraction: coaches, directors, program managers
-            return self._extract_youth_sports(content, url, source)
+            return self._extract_youth_sports(content, url, source, category)
         
         # Generic extraction for other sources
-        return self._extract_generic(content, url, source)
+        return self._extract_generic(content, url, source, category)
     
     def _extract_psychology_today(
         self,
         content: str,
         url: str,
-        source: ProspectSource
+        source: ProspectSource,
+        category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
         """Extract prospects specifically from Psychology Today pages"""
         prospects = []
@@ -613,7 +614,8 @@ class ProspectDiscoveryService:
         self,
         directory_content: str,
         directory_url: str,
-        source: ProspectSource
+        source: ProspectSource,
+        category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
         """
         2-hop extraction for doctor directories (Healthgrades, Zocdoc, Vitals):
@@ -819,7 +821,8 @@ class ProspectDiscoveryService:
         self,
         listing_content: str,
         listing_url: str,
-        source: ProspectSource
+        source: ProspectSource,
+        category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
         """
         2-hop extraction for Psychology Today listing pages:
@@ -996,7 +999,8 @@ class ProspectDiscoveryService:
         self,
         main_content: str,
         main_url: str,
-        source: ProspectSource
+        source: ProspectSource,
+        category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
         """
         Extract prospects from treatment center websites (RTC + PHP/IOP).
@@ -1456,7 +1460,8 @@ class ProspectDiscoveryService:
         self,
         main_content: str,
         main_url: str,
-        source: ProspectSource
+        source: ProspectSource,
+        category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
         """
         Extract prospects from embassy/consulate websites.
@@ -1777,7 +1782,8 @@ class ProspectDiscoveryService:
         self,
         main_content: str,
         main_url: str,
-        source: ProspectSource
+        source: ProspectSource,
+        category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
         """
         Extract prospects from youth sports organizations (academies, clubs, travel teams).
@@ -2098,7 +2104,8 @@ class ProspectDiscoveryService:
         self,
         content: str,
         url: str,
-        source: ProspectSource
+        source: ProspectSource,
+        category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
         """
         Universal extraction using 3-layer approach:
