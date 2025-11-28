@@ -262,6 +262,22 @@ class ProspectDiscoveryService:
             # Use embassy extraction: education officers, cultural attachés
             return self._extract_embassy_contacts(content, url, source)
         
+        # Check if this is a youth sports organization
+        is_youth_sports = any(keyword in url.lower() for keyword in [
+            'sports academy', 'athletic academy', 'youth sports', 'elite sports',
+            'travel team', 'club soccer', 'club basketball', 'premier soccer',
+            'academy soccer', 'academy basketball', 'youth soccer', 'youth basketball'
+        ]) or any(path in url.lower() for path in [
+            '/coaches', '/staff', '/team', '/about', '/programs'
+        ]) and any(sport in url.lower() for sport in [
+            'soccer', 'basketball', 'football', 'baseball', 'lacrosse', 'tennis',
+            'volleyball', 'swimming', 'athletic', 'sports'
+        ])
+        
+        if is_youth_sports:
+            # Use youth sports extraction: coaches, directors, program managers
+            return self._extract_youth_sports(content, url, source)
+        
         # Generic extraction for other sources
         return self._extract_generic(content, url, source)
     
@@ -1625,6 +1641,327 @@ class ProspectDiscoveryService:
         
         return prospects
     
+    def _extract_youth_sports(
+        self,
+        main_content: str,
+        main_url: str,
+        source: ProspectSource
+    ) -> List[DiscoveredProspect]:
+        """
+        Extract prospects from youth sports organizations (academies, clubs, travel teams).
+        Targets: Coaches, Directors, Program Directors, Athletic Directors, etc.
+        Strategy: Scrape main page + staff/coaches/leadership pages.
+        """
+        prospects = []
+        
+        from urllib.parse import urljoin, urlparse
+        parsed = urlparse(main_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # Combine content from main page
+        combined_content = main_content
+        
+        # Target pages for youth sports organizations
+        target_pages = [
+            '/coaches', '/staff', '/team', '/about', '/leadership', 
+            '/programs', '/contact', '/coaching-staff'
+        ]
+        
+        # Also try to find coaches/staff links from the main page
+        discovered_pages = []
+        try:
+            soup = BeautifulSoup(main_content, 'html.parser')
+            sports_links = soup.find_all('a', href=re.compile(r'coach|staff|team|director|program', re.I))
+            for link in sports_links[:5]:  # Limit to 5 additional links
+                href = link.get('href', '')
+                if href:
+                    # Normalize href
+                    if href.startswith('/'):
+                        normalized = href.rstrip('/')
+                        if normalized not in target_pages:
+                            discovered_pages.append(normalized)
+                    elif base_url in href:
+                        parsed_href = urlparse(href)
+                        normalized = parsed_href.path.rstrip('/')
+                        if normalized and normalized not in target_pages:
+                            discovered_pages.append(normalized)
+        except Exception as e:
+            logger.warning(f"Link discovery failed: {e}")
+        
+        # Combine target pages with discovered pages
+        all_pages = list(set(target_pages + discovered_pages))
+        
+        # Initialize clients
+        self._init_clients()
+        
+        # Scrape additional pages
+        scraped_count = 0
+        for path in all_pages[:5]:  # Limit to 5 pages
+            try:
+                if not path.startswith('/'):
+                    path = '/' + path.lstrip('/')
+                # Try with and without trailing slash
+                for path_variant in [path, path.rstrip('/'), path + '/']:
+                    page_url = urljoin(base_url, path_variant)
+                    page_content = None
+                    
+                    # Try Firecrawl first (handles JavaScript-rendered pages)
+                    try:
+                        if self.firecrawl:
+                            scraped = self.firecrawl.scrape_url(page_url)
+                            if scraped and scraped.get('success'):
+                                page_content = scraped.get('markdown', '') or scraped.get('content', '')
+                                if page_content:
+                                    logger.info(f"Firecrawl scraped {page_url}")
+                    except Exception as fc_error:
+                        logger.warning(f"Firecrawl failed for {page_url}, trying free scrape: {fc_error}")
+                    
+                    # Fallback to free scrape
+                    if not page_content:
+                        page_content = self._free_scrape(page_url)
+                        if page_content:
+                            logger.info(f"Free scraped {page_url}")
+                    
+                    if page_content:
+                        combined_content += f"\n\n--- FROM {path_variant} ---\n" + page_content
+                        scraped_count += 1
+                        break  # Found it, move to next path
+            except Exception as e:
+                logger.warning(f"Failed to scrape {path}: {e}")
+                continue
+        
+        logger.info(f"Scraped {scraped_count} additional pages for youth sports")
+        
+        # If no additional pages scraped, try Google search for coaches/staff pages
+        if scraped_count == 0 and self.google_search:
+            try:
+                domain = parsed.netloc.replace('www.', '')
+                search_query = f'site:{domain} (coaches OR staff OR "program director" OR "athletic director")'
+                logger.info(f"Searching Google for sports staff pages: {search_query}")
+                
+                search_results = self.google_search.search(query=search_query, num_results=3)
+                for result in search_results:
+                    if result.link and domain in result.link:
+                        page_content = self._free_scrape(result.link)
+                        if page_content:
+                            combined_content += f"\n\n--- FROM {result.link} (via Google) ---\n" + page_content
+                            scraped_count += 1
+                            logger.info(f"Found and scraped sports staff page via Google: {result.link}")
+                            break
+            except Exception as e:
+                logger.warning(f"Google search for sports staff pages failed: {e}")
+        
+        # Target roles for youth sports
+        target_roles = [
+            'director', 'program director', 'athletic director', 'coach', 'head coach',
+            'assistant coach', 'director of coaching', 'technical director',
+            'operations director', 'program manager', 'sports director'
+        ]
+        
+        # Extract names with titles using BeautifulSoup
+        names_with_titles = []
+        
+        try:
+            soup = BeautifulSoup(combined_content, 'html.parser')
+            
+            # Method 1: Look for headings with names
+            name_headings = soup.find_all(['h2', 'h3', 'h4', 'h5'], class_=re.compile(r'name|coach|staff|director|person', re.I))
+            for heading in name_headings:
+                text = heading.get_text(strip=True)
+                # Extract name (first part before comma or title)
+                name_part = text.split(',')[0].split('–')[0].split('—')[0].strip()
+                # Check if it looks like a name
+                if re.match(r'^[A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12}(?:\s+[A-Z][a-z]{2,12})?$', name_part):
+                    # Look for role in nearby text
+                    parent = heading.find_parent(['div', 'section', 'article', 'li'])
+                    if parent:
+                        parent_text = parent.get_text(strip=True).lower()
+                        for role in target_roles:
+                            if role in parent_text:
+                                names_with_titles.append({"name": name_part, "title": role.title()})
+                                break
+            
+            # Method 2: Look for role keywords followed by names
+            for role in target_roles:
+                # Pattern: "Head Coach: John Smith" or "Head Coach - John Smith"
+                role_pattern = rf'\b{re.escape(role)}\b[:\s–—]+\s*([A-Z][a-z]{{2,12}}\s+[A-Z][a-z]{{2,12}})'
+                matches = re.findall(role_pattern, combined_content, re.IGNORECASE)
+                for name in matches:
+                    if len(name.split()) >= 2:
+                        names_with_titles.append({"name": name.strip(), "title": role.title()})
+            
+            # Method 3: Extract from structured lists/divs
+            staff_sections = soup.find_all(['div', 'section'], class_=re.compile(r'staff|coach|team|director|person', re.I))
+            for section in staff_sections:
+                section_text = section.get_text()
+                # Look for name + role patterns
+                for role in target_roles:
+                    if role in section_text.lower():
+                        # Find name nearby
+                        name_match = re.search(r'([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})', section_text)
+                        if name_match:
+                            name = name_match.group(1)
+                            if len(name.split()) >= 2:
+                                names_with_titles.append({"name": name, "title": role.title()})
+                                break
+        except Exception as e:
+            logger.warning(f"BeautifulSoup parsing failed: {e}")
+        
+        # Dedupe and validate
+        seen_names = set()
+        bad_name_words = ['sports', 'academy', 'athletic', 'club', 'team', 'program',
+                         'contact', 'address', 'phone', 'email', 'office', 'field']
+        
+        for item in names_with_titles:
+            name = item["name"].strip()
+            
+            if name in seen_names or len(name) < 5:
+                continue
+            
+            words = name.split()
+            if len(words) < 2:
+                continue
+            
+            if not all(2 <= len(w) <= 15 for w in words):
+                continue
+            
+            name_lower = name.lower()
+            if any(bad in name_lower for bad in bad_name_words):
+                continue
+            
+            if '&' in name or '<' in name or '>' in name:
+                continue
+            
+            if not name[0].isupper():
+                continue
+            
+            seen_names.add(name)
+            
+            # Extract email near this name
+            email = None
+            name_pos = combined_content.lower().find(name.lower())
+            if name_pos != -1:
+                nearby = combined_content[max(0, name_pos-250):name_pos+250]
+                emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', nearby)
+                valid_emails = [e for e in emails 
+                               if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                if valid_emails:
+                    email = valid_emails[0]
+            
+            # Extract phone near this name
+            phone = None
+            if name_pos != -1:
+                nearby = combined_content[max(0, name_pos-250):name_pos+250]
+                phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', nearby)
+                if phones:
+                    digits = re.sub(r'[^\d]', '', phones[0])
+                    if len(digits) == 10:
+                        area_code = int(digits[:3])
+                        exchange = int(digits[3:6])
+                        if 200 <= area_code <= 999 and 200 <= exchange <= 999:
+                            phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+            
+            # Extract organization name from page title or h1
+            org_match = re.search(r'<title>([^<]+)</title>', combined_content, re.IGNORECASE)
+            organization = None
+            if org_match:
+                title = org_match.group(1)
+                # Extract organization name (remove common suffixes)
+                org = re.sub(r'\s*-\s*(Academy|Club|Team|Sports|Athletic).*', '', title, flags=re.I)
+                organization = org.strip()[:100]
+            
+            # If no org from title, try to get from URL
+            if not organization:
+                domain = parsed.netloc.replace('www.', '')
+                if 'academy' in domain or 'club' in domain or 'sports' in domain:
+                    # Try to extract meaningful org name from domain
+                    parts = domain.split('.')
+                    if parts:
+                        org_part = parts[0].replace('-', ' ').title()
+                        organization = org_part + " Academy" if 'academy' not in org_part.lower() else org_part
+            
+            prospect = DiscoveredProspect(
+                name=name,
+                title=item.get("title", "Director"),
+                organization=organization,
+                contact=ProspectContact(
+                    email=email,
+                    phone=phone,
+                    website=main_url
+                ),
+                source=source,
+                source_url=main_url,
+                bio_snippet=None,
+            )
+            prospects.append(prospect)
+            
+            if len(prospects) >= 15:  # Limit per organization (coaches can be many)
+                break
+        
+        # If prospects found but missing contact info, try Google enrichment
+        if prospects and self.google_search:
+            for prospect in prospects:
+                if not prospect.contact.email and not prospect.contact.phone:
+                    try:
+                        search_query = f'"{prospect.name}" "{prospect.title or ""}" "{prospect.organization or ""}" email phone'
+                        logger.info(f"Google contact enrichment for sports contact {prospect.name}: {search_query}")
+                        
+                        search_results = self.google_search.search(query=search_query, num_results=3)
+                        for result in search_results:
+                            snippet = result.snippet or ""
+                            if snippet:
+                                # Extract email
+                                if not prospect.contact.email:
+                                    snippet_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', snippet)
+                                    valid_emails = [e for e in snippet_emails 
+                                                   if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                                    if valid_emails:
+                                        prospect.contact.email = valid_emails[0]
+                                
+                                # Extract phone
+                                if not prospect.contact.phone:
+                                    snippet_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', snippet)
+                                    if snippet_phones:
+                                        digits = re.sub(r'[^\d]', '', snippet_phones[0])
+                                        if len(digits) == 10:
+                                            area_code = int(digits[:3])
+                                            exchange = int(digits[3:6])
+                                            if 200 <= area_code <= 999 and 200 <= exchange <= 999:
+                                                prospect.contact.phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+                            
+                            # If still missing, scrape the result page
+                            if (not prospect.contact.email or not prospect.contact.phone) and result.link:
+                                try:
+                                    page_content = self._free_scrape(result.link)
+                                    if page_content:
+                                        # Extract email
+                                        if not prospect.contact.email:
+                                            page_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', page_content)
+                                            valid_emails = [e for e in page_emails 
+                                                           if not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+                                            if valid_emails:
+                                                prospect.contact.email = valid_emails[0]
+                                        
+                                        # Extract phone
+                                        if not prospect.contact.phone:
+                                            page_phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', page_content)
+                                            if page_phones:
+                                                digits = re.sub(r'[^\d]', '', page_phones[0])
+                                                if len(digits) == 10:
+                                                    area_code = int(digits[:3])
+                                                    exchange = int(digits[3:6])
+                                                    if 200 <= area_code <= 999 and 200 <= exchange <= 999:
+                                                        prospect.contact.phone = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+                                except:
+                                    pass
+                            
+                            if prospect.contact.email and prospect.contact.phone:
+                                break
+                    except Exception as e:
+                        logger.warning(f"Google contact enrichment failed for {prospect.name}: {e}")
+        
+        return prospects
+    
     def _extract_generic(
         self,
         content: str,
@@ -2495,7 +2832,8 @@ Important: Only return verified, publicly available contact information. Do not 
             # Embassy-specific search: prioritize embassy websites with education officers
             query_parts.append("site:*.embassy. OR site:*.consulate. OR \"embassy education officer\" OR \"cultural attache\" OR \"education attaché\" email contact")
         elif has_sports:
-            query_parts.append("\"youth soccer\" OR \"youth basketball\" OR \"athletic academy\" coach director email")
+            # Youth sports-specific search: prioritize academies and clubs with directors/coaches
+            query_parts.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" (director OR coach) email contact")
         elif has_mom_groups:
             query_parts.append("\"mom group\" OR \"parents group\" OR \"parenting coach\" leader organizer email")
         elif has_international:
