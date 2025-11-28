@@ -485,11 +485,19 @@ class ProspectDiscoveryService:
                 
             seen_names.add(name)
             
-            # Find specialties in nearby content
-            found_specialties = []
-            for kw in specialty_keywords:
-                if kw.lower() in content.lower():
-                    found_specialties.append(kw)
+            # Use category for tagging if provided, otherwise auto-detect
+            from app.models.prospect_discovery import PROSPECT_CATEGORIES
+            specialty = []
+            if category and category in PROSPECT_CATEGORIES:
+                specialty = [PROSPECT_CATEGORIES[category]["name"]]
+                logger.info(f"[CATEGORY: {category}] Tagging prospect '{name}' with category: {specialty[0]}")
+            else:
+                # Fallback: Find specialties in nearby content
+                found_specialties = []
+                for kw in specialty_keywords:
+                    if kw.lower() in content.lower():
+                        found_specialties.append(kw)
+                specialty = found_specialties[:3]
             
             # Find phone near this name (within 500 chars)
             phone = None
@@ -508,7 +516,7 @@ class ProspectDiscoveryService:
                 name=name,
                 title=item.get("credentials") or "Therapist",
                 organization=None,
-                specialty=found_specialties[:3],
+                specialty=specialty,
                 location=location,
                 source_url=url,
                 source=source,
@@ -874,8 +882,8 @@ class ProspectDiscoveryService:
         
         # If no profile URLs found, fall back to name extraction from listing
         if not profile_urls:
-            logger.info("No profile URLs found - extracting names directly from listing")
-            return self._extract_psychology_today(listing_content, listing_url, source)
+            logger.info(f"[CATEGORY: {category}] No profile URLs found - extracting names directly from listing")
+            return self._extract_psychology_today(listing_content, listing_url, source, category)
         
         # Step 2: Scrape each profile page
         for profile_url in profile_urls:
@@ -972,10 +980,18 @@ class ProspectDiscoveryService:
                 bio_match = re.search(r'<div[^>]*class=["\'][^"\']*bio[^"\']*["\'][^>]*>([^<]{50,300})</div>', profile_content, re.IGNORECASE | re.DOTALL)
                 bio_snippet = bio_match.group(1).strip()[:200] if bio_match else None
                 
+                # Use category for tagging if provided
+                from app.models.prospect_discovery import PROSPECT_CATEGORIES
+                specialty = []
+                if category and category in PROSPECT_CATEGORIES:
+                    specialty = [PROSPECT_CATEGORIES[category]["name"]]
+                    logger.info(f"[CATEGORY: {category}] Tagging prospect '{name}' with category: {specialty[0]}")
+                
                 prospect = DiscoveredProspect(
                     name=name,
                     title=title,
                     organization=None,
+                    specialty=specialty,
                     contact=ProspectContact(
                         email=email,
                         phone=phone,
