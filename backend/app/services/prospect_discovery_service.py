@@ -851,38 +851,74 @@ class ProspectDiscoveryService:
         
         # Target pages for treatment centers (including common variations)
         target_pages = [
-            '/team', '/meet-the-team', '/staff', '/our-team', '/leadership', 
+            '/team', '/meet-the-team', '/meet-the-team/', '/staff', '/our-team', '/leadership', 
             '/admissions', '/about', '/contact', '/who-we-are'
         ]
         
         # Also try to find team/staff links from the main page
+        discovered_pages = []
         try:
             soup = BeautifulSoup(main_content, 'html.parser')
             team_links = soup.find_all('a', href=re.compile(r'team|staff|leadership|admissions', re.I))
-            for link in team_links[:3]:  # Limit to 3 additional links
+            for link in team_links[:5]:  # Limit to 5 additional links
                 href = link.get('href', '')
-                if href.startswith('/') or base_url in href:
+                if href:
+                    # Normalize href
                     if href.startswith('/'):
-                        page_url = urljoin(base_url, href)
-                    else:
-                        page_url = href
-                    if page_url not in [urljoin(base_url, p) for p in target_pages]:
-                        target_pages.append(href if href.startswith('/') else urlparse(href).path)
-        except:
-            pass
+                        normalized = href.rstrip('/')
+                        if normalized not in target_pages:
+                            discovered_pages.append(normalized)
+                    elif base_url in href:
+                        parsed = urlparse(href)
+                        normalized = parsed.path.rstrip('/')
+                        if normalized and normalized not in target_pages:
+                            discovered_pages.append(normalized)
+        except Exception as e:
+            logger.warning(f"Link discovery failed: {e}")
         
-        # Scrape additional pages
-        for path in target_pages[:5]:  # Limit to 5 pages
+        # Combine target pages with discovered pages
+        all_pages = list(set(target_pages + discovered_pages))
+        
+        # Initialize clients for Firecrawl scraping
+        self._init_clients()
+        
+        # Scrape additional pages (use Firecrawl first for JS-rendered content, fallback to free scrape)
+        scraped_count = 0
+        for path in all_pages[:6]:  # Limit to 6 pages
             try:
                 if not path.startswith('/'):
                     path = '/' + path.lstrip('/')
-                page_url = urljoin(base_url, path)
-                page_content = self._free_scrape(page_url)
-                if page_content:
-                    combined_content += f"\n\n--- FROM {path} ---\n" + page_content
-                    logger.info(f"Also scraped {page_url}")
-            except:
-                pass
+                # Try with and without trailing slash
+                for path_variant in [path, path.rstrip('/'), path + '/']:
+                    page_url = urljoin(base_url, path_variant)
+                    page_content = None
+                    
+                    # Try Firecrawl first (handles JavaScript-rendered pages)
+                    try:
+                        if self.firecrawl:
+                            scraped = self.firecrawl.scrape_url(page_url)
+                            if scraped and scraped.get('success'):
+                                page_content = scraped.get('markdown', '') or scraped.get('content', '')
+                                if page_content:
+                                    logger.info(f"Firecrawl scraped {page_url}")
+                    except Exception as fc_error:
+                        logger.warning(f"Firecrawl failed for {page_url}, trying free scrape: {fc_error}")
+                    
+                    # Fallback to free scrape
+                    if not page_content:
+                        page_content = self._free_scrape(page_url)
+                        if page_content:
+                            logger.info(f"Free scraped {page_url}")
+                    
+                    if page_content:
+                        combined_content += f"\n\n--- FROM {path_variant} ---\n" + page_content
+                        scraped_count += 1
+                        break  # Found it, move to next path
+            except Exception as e:
+                logger.warning(f"Failed to scrape {path}: {e}")
+                continue
+        
+        logger.info(f"Scraped {scraped_count} additional pages for treatment center")
         
         # Target roles for RTC + PHP/IOP
         target_roles = [
