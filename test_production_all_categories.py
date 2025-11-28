@@ -1,19 +1,36 @@
 """
 Automated production test script for all 5 prospect categories
 Tests via API endpoints and outputs comprehensive summary table
+
+Usage:
+    python test_production_all_categories.py [--save-results] [--location LOCATION] [--max-results N]
+    
+Options:
+    --save-results      Save results to a timestamped file
+    --location LOCATION Location to search (default: "Washington DC")
+    --max-results N     Max results per category (default: 10)
 """
 import asyncio
 import sys
 import os
+import argparse
+import json
 from typing import Dict, List, Any
 from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
 
 from app.services.prospect_discovery_service import ProspectDiscoveryService
 
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='Test all 5 prospect discovery categories')
+parser.add_argument('--save-results', action='store_true', help='Save results to file')
+parser.add_argument('--location', default='Washington DC', help='Location to search (default: Washington DC)')
+parser.add_argument('--max-results', type=int, default=10, help='Max results per category (default: 10)')
+args = parser.parse_args()
+
 # Test configuration
-LOCATION = "Washington DC"
-MAX_RESULTS = 10
+LOCATION = args.location
+MAX_RESULTS = args.max_results
 USER_ID = "test-user"
 
 CATEGORIES = [
@@ -302,6 +319,128 @@ async def run_comprehensive_test():
     print("\n" + "=" * 100)
     print("Test Complete!")
     print("=" * 100)
+    
+    # Save results to file if requested
+    if args.save_results:
+        save_results_to_file(results)
+    
+    return results
+
+def save_results_to_file(results: List[Dict[str, Any]]):
+    """Save test results to a timestamped file"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"test_results_{timestamp}.txt"
+    json_filename = f"test_results_{timestamp}.json"
+    
+    # Create output directory if it doesn't exist
+    os.makedirs("test_results", exist_ok=True)
+    filepath = os.path.join("test_results", filename)
+    json_filepath = os.path.join("test_results", json_filename)
+    
+    # Generate summary stats
+    total_prospects = sum(r["prospects_found"] for r in results)
+    total_names = sum(r["with_names"] for r in results)
+    total_titles = sum(r["with_titles"] for r in results)
+    total_emails = sum(r["with_emails"] for r in results)
+    total_phones = sum(r["with_phones"] for r in results)
+    successful = sum(1 for r in results if r["prospects_found"] >= 3)
+    
+    # Calculate overall extraction rate
+    overall_rate = 0.0
+    if total_prospects > 0:
+        total_possible = total_prospects * 4
+        total_extracted = total_names + total_titles + total_emails + total_phones
+        overall_rate = (total_extracted / total_possible) * 100
+    
+    # Write text file with summary
+    with open(filepath, 'w') as f:
+        f.write("=" * 100 + "\n")
+        f.write("PROSPECT DISCOVERY TEST RESULTS\n")
+        f.write("=" * 100 + "\n")
+        f.write(f"\nTest Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Location: {LOCATION}\n")
+        f.write(f"Max Results per Category: {MAX_RESULTS}\n\n")
+        
+        # Summary table
+        f.write("SUMMARY TABLE\n")
+        f.write("-" * 100 + "\n")
+        f.write(f"{'Category':<20} | {'Total':<6} | {'Names':<6} | {'Titles':<7} | {'Emails':<7} | {'Phones':<7} | {'Rate':<6}\n")
+        f.write("-" * 100 + "\n")
+        
+        for r in results:
+            status_icon = "✅" if r["prospects_found"] >= 3 else "❌"
+            f.write(
+                f"{r['category_name']:<20} | "
+                f"{r['prospects_found']:<6} | "
+                f"{r['with_names']:<6} | "
+                f"{r['with_titles']:<7} | "
+                f"{r['with_emails']:<7} | "
+                f"{r['with_phones']:<7} | "
+                f"{r['extraction_rate']:<5.1f}%\n"
+            )
+        
+        f.write("-" * 100 + "\n")
+        f.write(
+            f"{'TOTALS':<20} | "
+            f"{total_prospects:<6} | "
+            f"{total_names:<6} | "
+            f"{total_titles:<7} | "
+            f"{total_emails:<7} | "
+            f"{total_phones:<7} | "
+            f"{overall_rate:<5.1f}%\n"
+        )
+        f.write("=" * 100 + "\n")
+        
+        # Detailed samples
+        f.write("\nDETAILED SAMPLE PROSPECTS\n")
+        f.write("=" * 100 + "\n")
+        for r in results:
+            if r["sample_prospects"]:
+                f.write(f"\n{r['category_name']}:\n")
+                f.write("-" * 100 + "\n")
+                for i, prospect in enumerate(r["sample_prospects"], 1):
+                    email_status = "✅" if prospect["has_email"] else "❌"
+                    phone_status = "✅" if prospect["has_phone"] else "❌"
+                    f.write(f"  {i}. {prospect['name']}\n")
+                    f.write(f"     Title: {prospect['title']}\n")
+                    f.write(f"     Org: {prospect['org']}\n")
+                    f.write(f"     Email: {email_status} | Phone: {phone_status}\n")
+                if r["error"]:
+                    f.write(f"\n  ⚠️  Error: {r['error']}\n")
+        
+        # Summary
+        f.write("\n" + "=" * 100 + "\n")
+        f.write("SUMMARY\n")
+        f.write("=" * 100 + "\n")
+        f.write(f"\nTotal prospects found: {total_prospects}\n")
+        f.write(f"Successful categories: {successful}/{len(results)}\n")
+        f.write(f"Overall extraction rate: {overall_rate:.1f}%\n")
+        f.write(f"Overall status: {'✅ PASS' if successful >= 3 else '⚠️ NEEDS ATTENTION'}\n")
+    
+    # Write JSON file for programmatic access
+    json_data = {
+        "test_date": datetime.now().isoformat(),
+        "location": LOCATION,
+        "max_results": MAX_RESULTS,
+        "results": results,
+        "summary": {
+            "total_prospects": total_prospects,
+            "total_names": total_names,
+            "total_titles": total_titles,
+            "total_emails": total_emails,
+            "total_phones": total_phones,
+            "overall_extraction_rate": overall_rate,
+            "successful_categories": successful,
+            "total_categories": len(results)
+        }
+    }
+    
+    with open(json_filepath, 'w') as f:
+        json.dump(json_data, f, indent=2)
+    
+    print(f"\n💾 Results saved to:")
+    print(f"   Text: {filepath}")
+    print(f"   JSON: {json_filepath}")
 
 if __name__ == "__main__":
     asyncio.run(run_comprehensive_test())
