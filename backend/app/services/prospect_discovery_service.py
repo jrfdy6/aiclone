@@ -221,7 +221,10 @@ class ProspectDiscoveryService:
             return self._extract_psychology_today(content, url, source)
         
         # Check if this is a pediatrician/doctor directory page
-        is_doctor_directory = any(domain in url.lower() for domain in ['healthgrades.com', 'zocdoc.com', 'vitals.com', 'webmd.com'])
+        is_doctor_directory = any(domain in url.lower() for domain in [
+            'healthgrades.com', 'zocdoc.com', 'vitals.com', 'webmd.com',
+            'doctor.com', 'ratemds.com', 'health.usnews.com'
+        ])
         
         if is_doctor_directory:
             # Use 2-hop extraction: directory → profile pages
@@ -345,12 +348,29 @@ class ProspectDiscoveryService:
         parsed = urlparse(directory_url)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         
-        # Pattern for doctor profile URLs
-        profile_patterns = [
-            r'href=["\']([^"\']*\/doctor\/[^"\']+)',  # Healthgrades: /doctor/name
-            r'href=["\']([^"\']*\/doctors\/[^"\']+)',  # Zocdoc: /doctors/...
-            r'href=["\']([^"\']*\/provider\/[^"\']+)',  # Vitals: /provider/...
-        ]
+        # Pattern for doctor profile URLs - site-specific patterns
+        url_lower = directory_url.lower()
+        profile_patterns = []
+        
+        if 'healthgrades.com' in url_lower:
+            profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)']
+        elif 'zocdoc.com' in url_lower:
+            profile_patterns = [r'href=["\']([^"\']*\/doctors\/[^"\']+)', r'href=["\']([^"\']*\/doctor\/[^"\']+)']
+        elif 'vitals.com' in url_lower:
+            profile_patterns = [r'href=["\']([^"\']*\/provider\/[^"\']+)']
+        elif 'doctor.com' in url_lower:
+            profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/doctors\/[^"\']+)']
+        elif 'webmd.com' in url_lower:
+            profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/find-a-doctor\/[^"\']+)']
+        elif 'ratemds.com' in url_lower:
+            profile_patterns = [r'href=["\']([^"\']*\/doctor\/[^"\']+)', r'href=["\']([^"\']*\/ratings\/[^"\']+)']
+        else:
+            # Generic patterns
+            profile_patterns = [
+                r'href=["\']([^"\']*\/doctor\/[^"\']+)',
+                r'href=["\']([^"\']*\/doctors\/[^"\']+)',
+                r'href=["\']([^"\']*\/provider\/[^"\']+)',
+            ]
         
         profile_urls = []
         for pattern in profile_patterns:
@@ -403,8 +423,26 @@ class ProspectDiscoveryService:
                 if not name:
                     continue
                 
-                # Extract phone from profile page
-                phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', profile_content)
+                # Extract phone from profile page - site-specific patterns
+                phones = []
+                
+                # Healthgrades uses data-qa-target="provider-phone"
+                if 'healthgrades.com' in profile_url.lower():
+                    phone_match = re.search(r'data-qa-target=["\']provider-phone["\'][^>]*>([^<]+)', profile_content, re.IGNORECASE)
+                    if phone_match:
+                        phones.append(phone_match.group(1).strip())
+                
+                # Generic phone patterns (works for most sites)
+                phones.extend(re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', profile_content))
+                phones.extend(re.findall(r'\d{3}[-.\s]?\d{3}[-.\s]?\d{4}', profile_content))
+                
+                # Clean and dedupe - format as (XXX) XXX-XXXX
+                cleaned_phones = []
+                for p in phones:
+                    digits = re.sub(r'[^\d]', '', p)
+                    if len(digits) == 10:
+                        cleaned_phones.append(f"({digits[:3]}) {digits[3:6]}-{digits[6:]}")
+                phones = list(set(cleaned_phones))  # Dedupe
                 phone = phones[0] if phones else None
                 
                 # Extract email (rare on directory pages)
@@ -425,7 +463,9 @@ class ProspectDiscoveryService:
                         if match:
                             practice_url = match.group(1)
                             # Validate it's not a directory site
-                            if not any(d in practice_url.lower() for d in ['healthgrades.com', 'zocdoc.com', 'vitals.com', 'webmd.com']):
+                            blocked_docs = ['healthgrades.com', 'zocdoc.com', 'vitals.com', 'webmd.com',
+                                           'doctor.com', 'ratemds.com', 'health.usnews.com']
+                            if not any(d in practice_url.lower() for d in blocked_docs):
                                 break
                 
                 # Step 3: If no email, scrape practice website
