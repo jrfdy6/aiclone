@@ -437,9 +437,18 @@ class ProspectDiscoveryService:
         
         profile_urls = []
         
-        # STEP 1: Try JSON extraction (Healthgrades uses Next.js __NEXT_DATA__)
+        # STEP 1: Try JSON extraction (works for some sites with embedded JSON)
+        # Note: Healthgrades directory pages are JS-rendered, so profile URLs may not be in HTML
+        # In that case, we'll extract names and use Google contact enrichment (implemented separately)
         url_lower = directory_url.lower()
         if 'healthgrades.com' in url_lower:
+            json_urls = self._extract_profile_urls_from_json(directory_content, base_url)
+            if json_urls:
+                profile_urls.extend(json_urls)
+                logger.info(f"Extracted {len(json_urls)} profile URLs from JSON")
+        
+        # Also try for other sites
+        if not profile_urls and any(site in url_lower for site in ['zocdoc.com', 'webmd.com', 'doctor.com']):
             json_urls = self._extract_profile_urls_from_json(directory_content, base_url)
             if json_urls:
                 profile_urls.extend(json_urls)
@@ -485,6 +494,14 @@ class ProspectDiscoveryService:
         profile_urls = list(set(profile_urls))[:5]  # Limit to 5 profiles to avoid slow scraping
         
         logger.info(f"Found {len(profile_urls)} doctor profile URLs in directory")
+        
+        # FALLBACK: If no profile URLs found (JS-rendered page), extract names directly
+        # Google contact enrichment will find their contact info
+        if not profile_urls:
+            logger.info("No profile URLs found - falling back to name extraction from directory page")
+            # Use generic extraction to get names from directory page
+            # The Google contact enrichment step will handle finding phones/emails
+            return self._extract_generic(directory_content, directory_url, source)
         
         # Step 2: Scrape each profile page
         for profile_url in profile_urls:
