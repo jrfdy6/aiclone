@@ -2877,7 +2877,7 @@ Important: Only return verified, publicly available contact information. Do not 
                 'capitol', 'heights'  # Location words
             ]
             if any(w.lower() in bad_words for w in words):
-                logger.debug(f"Filtering out invalid prospect (bad words): {name}")
+                logger.info(f"Filtering out invalid prospect (bad words in name): {name}")
                 return False
             
             # Filter location-only names (but allow location words if they're part of a real person name)
