@@ -2811,6 +2811,7 @@ Important: Only return verified, publicly available contact information. Do not 
         community_cats = ['mom_groups', 'parenting_coaches', 'youth_programs']
         
         # Category-specific search optimization for ALL categories
+        # Combine site preferences from ALL selected categories (not just first match)
         
         # Check which categories are selected
         has_pediatricians = 'pediatricians' in categories
@@ -2822,26 +2823,48 @@ Important: Only return verified, publicly available contact information. Do not 
         has_international = 'international_students' in categories
         has_education = 'education_consultants' in categories or 'school_counselors' in categories
         
+        # Collect site preferences from ALL selected categories
+        site_preferences = []
+        category_keywords = []
+        
         if has_pediatricians:
-            # Prioritize Healthgrades (more accessible), Zocdoc often blocks scraping
-            query_parts.append("site:healthgrades.com OR site:vitals.com OR site:webmd.com")
-        elif has_psychologists:
-            query_parts.append("site:psychologytoday.com OR site:healthgrades.com")
-        elif has_treatment:
-            query_parts.append("site:psychologytoday.com OR \"treatment center\" OR \"rehab\" director email contact")
-        elif has_embassies:
-            # Embassy-specific search: prioritize embassy websites with education officers
-            query_parts.append("site:*.embassy. OR site:*.consulate. OR \"embassy education officer\" OR \"cultural attache\" OR \"education attaché\" email contact")
-        elif has_sports:
-            # Youth sports-specific search: prioritize academies and clubs with directors/coaches
-            query_parts.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" (director OR coach) email contact")
-        elif has_mom_groups:
-            query_parts.append("\"mom group\" OR \"parents group\" OR \"parenting coach\" leader organizer email")
-        elif has_international:
-            query_parts.append("\"international student\" OR \"student services\" advisor coordinator email")
-        elif has_education:
-            query_parts.append("\"educational consultant\" OR \"college consultant\" OR \"admissions consultant\" email contact")
-        else:
+            site_preferences.append("site:healthgrades.com OR site:vitals.com OR site:webmd.com")
+        if has_psychologists:
+            site_preferences.append("site:psychologytoday.com OR site:healthgrades.com")
+        if has_treatment:
+            category_keywords.append("\"treatment center\" OR \"rehab\" director email contact")
+            site_preferences.append("site:psychologytoday.com")
+        if has_embassies:
+            site_preferences.append("site:*.embassy. OR site:*.consulate.")
+            category_keywords.append("\"embassy education officer\" OR \"cultural attache\" OR \"education attaché\" email contact")
+        if has_sports:
+            category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" (director OR coach) email contact")
+        if has_mom_groups:
+            category_keywords.append("\"mom group\" OR \"parents group\" OR \"parenting coach\" leader organizer email")
+        if has_international:
+            category_keywords.append("\"international student\" OR \"student services\" advisor coordinator email")
+        if has_education:
+            category_keywords.append("\"educational consultant\" OR \"college consultant\" OR \"admissions consultant\" email contact")
+        
+        # Combine all site preferences with OR
+        if site_preferences:
+            # Deduplicate and combine
+            unique_sites = set()
+            for pref in site_preferences:
+                # Extract site: patterns
+                sites = re.findall(r'site:([^\s)]+)', pref)
+                unique_sites.update(sites)
+            
+            if unique_sites:
+                combined_sites = " OR ".join(f"site:{site}" for site in unique_sites)
+                query_parts.append(f"({combined_sites})")
+        
+        # Add category keywords if any
+        if category_keywords:
+            query_parts.append(f"({' OR '.join(category_keywords)})")
+        
+        # Default if nothing was added
+        if not site_preferences and not category_keywords:
             query_parts.append("email OR phone OR contact")
         
         query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
@@ -2915,12 +2938,17 @@ Important: Only return verified, publicly available contact information. Do not 
             search_query = " ".join(query_parts)
         
         logger.info(f"Google Search (FREE): {search_query}")
+        logger.info(f"Categories selected: {categories}")
+        logger.info(f"Location: {location}")
         
         try:
             # Step 1: Google Search (FREE)
             search_results = self.google_search.search(search_query, num_results=10)
             
+            logger.info(f"Google search returned {len(search_results) if search_results else 0} results")
+            
             if not search_results:
+                logger.warning(f"No Google search results for query: {search_query}")
                 return ProspectDiscoveryResponse(
                     success=True,
                     discovery_id=discovery_id,
@@ -2987,6 +3015,8 @@ Important: Only return verified, publicly available contact information. Do not 
                             url=result.link,
                             source=ProspectSource.GENERAL_SEARCH
                         )
+                        
+                        logger.info(f"Extracted {len(prospects)} prospects from {result.link}")
                         
                         # Add search result context AND extract from snippet
                         for p in prospects:
@@ -3092,6 +3122,12 @@ Important: Only return verified, publicly available contact information. Do not 
             # Sort and limit
             all_prospects.sort(key=lambda p: p.fit_score, reverse=True)
             all_prospects = all_prospects[:max_results]
+            
+            logger.info(f"=== EXTRACTION SUMMARY ===")
+            logger.info(f"Total prospects found: {len(all_prospects)}")
+            logger.info(f"URLs scraped: {len(urls_scraped)}")
+            if all_prospects:
+                logger.info(f"Sample prospect: {all_prospects[0].name} - {all_prospects[0].contact.email or 'no email'} - {all_prospects[0].contact.phone or 'no phone'}")
             
             # Store results
             doc_data = {
