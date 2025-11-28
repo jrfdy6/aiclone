@@ -198,6 +198,31 @@ class ProspectDiscoveryService:
         """
         from urllib.parse import urlparse
         
+        # Template/footer phrases to filter out (NOT organization names)
+        template_phrases = [
+            'powered by', 'built with', 'designed by', 'created by',
+            'all rights reserved', 'copyright', 'privacy policy',
+            'terms of service', 'cookie policy', 'sitemap',
+            'is powered by', 'is built with', 'is designed by'
+        ]
+        
+        def is_valid_organization(org: str) -> bool:
+            """Check if organization name looks valid (not template/footer text)"""
+            org_lower = org.lower()
+            # Filter template phrases
+            if any(phrase in org_lower for phrase in template_phrases):
+                return False
+            # Filter common website phrases
+            if any(phrase in org_lower for phrase in ['click here', 'read more', 'learn more']):
+                return False
+            # Filter location-only names
+            if org_lower in ['bethesda', 'arlington', 'montgomery county', 'north bethesda']:
+                return False
+            # Filter generic words
+            if org_lower in ['areas', 'cities', 'endorsed', 'endorsement']:
+                return False
+            return True
+        
         # Source 1: Meta tags (most reliable)
         meta_patterns = [
             r'<meta\s+property=["\']og:site_name["\']\s+content=["\']([^"\']+)["\']',
@@ -212,7 +237,7 @@ class ProspectDiscoveryService:
                 org = match.group(1).strip()
                 # Clean up
                 org = re.sub(r'\s*-\s*(Home|Page|Welcome|Official).*', '', org, flags=re.I)
-                if org and len(org) > 2 and len(org) < 100:
+                if org and len(org) > 2 and len(org) < 100 and is_valid_organization(org):
                     return org[:100]
         
         # Source 2: Page title (with intelligent cleanup)
@@ -227,8 +252,8 @@ class ProspectDiscoveryService:
             title = re.sub(r'\s+', ' ', title).strip()
             
             if title and len(title) > 2 and len(title) < 100:
-                # Skip generic titles
-                if not re.match(r'^(Home|Page|Welcome|About|Contact|Error|404)$', title, re.I):
+                # Skip generic titles and validate
+                if not re.match(r'^(Home|Page|Welcome|About|Contact|Error|404)$', title, re.I) and is_valid_organization(title):
                     return title[:100]
         
         # Source 3: Header sections (h1, h2) - often contain practice/center names
@@ -246,8 +271,8 @@ class ProspectDiscoveryService:
                     # Check if it looks like an organization name (2-5 words, capitalized)
                     words = text.split()
                     if 2 <= len(words) <= 5:
-                        # Check if mostly capitalized (organization-like)
-                        if sum(1 for w in words if w and w[0].isupper()) >= len(words) * 0.6:
+                        # Check if mostly capitalized (organization-like) and valid
+                        if sum(1 for w in words if w and w[0].isupper()) >= len(words) * 0.6 and is_valid_organization(text):
                             return text[:100]
         
         # Source 4: Content patterns (Practice Name, Center Name, etc.)
@@ -263,7 +288,7 @@ class ProspectDiscoveryService:
             match = re.search(pattern, content, re.IGNORECASE)
             if match:
                 org = match.group(1).strip()
-                if org and len(org) > 5 and len(org) < 100:
+                if org and len(org) > 5 and len(org) < 100 and is_valid_organization(org):
                     return org[:100]
         
         # Source 5: Domain name (fallback)
@@ -2136,7 +2161,12 @@ class ProspectDiscoveryService:
             'free', 'best', 'top', 'new', 'first', 'last', 'next', 'back', 'home',
             'page', 'site', 'web', 'online', 'info', 'information', 'details',
             'submit', 'send', 'get', 'find', 'search', 'browse', 'view', 'see',
-            'call', 'today', 'now', 'schedule', 'book', 'appointment', 'meeting'
+            'call', 'today', 'now', 'schedule', 'book', 'appointment', 'meeting',
+            # Location names that aren't person names
+            'areas', 'cities', 'bethesda', 'north', 'south', 'east', 'west',
+            'endorsed', 'endorsement', 'good', 'afternoon', 'morning', 'evening',
+            'afternoon', 'royalty', 'institute', 'where', 'children', 'come', 'first',
+            'powered', 'by', 'engineers', 'united', 'states', 'janak'
         ]
         
         # Additional non-name words to filter
@@ -2184,6 +2214,29 @@ class ProspectDiscoveryService:
             
             # Filter job titles that look like names
             if name_lower in job_titles:
+                return False
+            
+            # Filter location/direction words that aren't names
+            location_direction_words = ['north', 'south', 'east', 'west', 'areas', 'cities', 
+                                       'county', 'montgomery', 'bethesda', 'arlington']
+            if any(w.lower() in location_direction_words for w in words):
+                return False
+            
+            # Filter common phrases (Good Afternoon, etc.)
+            common_phrases = ['good afternoon', 'good morning', 'good evening', 'thank you',
+                             'click here', 'read more', 'learn more', 'contact us']
+            if name_lower in common_phrases:
+                return False
+            
+            # Filter names that look like sentences/phrases (contain common words)
+            phrase_words = ['good', 'afternoon', 'morning', 'evening', 'endorsed', 
+                           'endorsement', 'powered', 'by', 'engineers', 'where', 
+                           'children', 'come', 'first']
+            if any(w.lower() in phrase_words for w in words):
+                return False
+            
+            # First and last words should start with capital letters (proper names)
+            if not (words[0] and words[0][0].isupper() and words[-1] and words[-1][0].isupper()):
                 return False
             
             return True
