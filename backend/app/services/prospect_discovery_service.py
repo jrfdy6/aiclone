@@ -2806,7 +2806,72 @@ Important: Only return verified, publicly available contact information. Do not 
         """Save discovered prospects to the main prospects collection (skip duplicates)"""
         saved_count = 0
         
-        for prospect in prospects:
+        # Final validation filter - remove garbage names and invalid prospects
+        def is_valid_prospect_for_saving(p: DiscoveredProspect) -> bool:
+            """Final validation check before saving prospect"""
+            if not p.name or not p.name.strip():
+                return False
+            
+            name = p.name.strip()
+            name_lower = name.lower()
+            words = name.split()
+            
+            # Must be 2-3 words (proper person names)
+            if len(words) < 2 or len(words) > 3:
+                logger.debug(f"Filtering out invalid prospect (word count): {name}")
+                return False
+            
+            # Check for bad words
+            bad_words = [
+                'areas', 'cities', 'bethesda', 'endorsed', 'endorsement',
+                'north', 'south', 'east', 'west', 'good', 'afternoon',
+                'morning', 'evening', 'powered', 'by', 'engineers',
+                'where', 'children', 'come', 'first', 'educational',
+                'administrative', 'outreach', 'experience', 'engagement'
+            ]
+            if any(w.lower() in bad_words for w in words):
+                logger.debug(f"Filtering out invalid prospect (bad words): {name}")
+                return False
+            
+            # Filter location-only names
+            location_words = ['north', 'south', 'east', 'west', 'areas', 'cities', 'bethesda', 'arlington']
+            if any(w.lower() in location_words for w in words):
+                logger.debug(f"Filtering out invalid prospect (location word): {name}")
+                return False
+            
+            # Filter phrases
+            phrases = ['good afternoon', 'good morning', 'good evening', 'endorsed', 'endorsement']
+            if name_lower in phrases or any(phrase in name_lower for phrase in phrases):
+                logger.debug(f"Filtering out invalid prospect (phrase): {name}")
+                return False
+            
+            # Must start with capital letters
+            if not (words[0] and words[0][0].isupper() and words[-1] and words[-1][0].isupper()):
+                logger.debug(f"Filtering out invalid prospect (capitalization): {name}")
+                return False
+            
+            # Validate organization name if present
+            if p.organization:
+                org_lower = p.organization.lower()
+                template_phrases = ['powered by', 'built with', 'designed by', 'is powered by',
+                                   'in the united states', 'where children come first']
+                if any(phrase in org_lower for phrase in template_phrases):
+                    logger.debug(f"Filtering out invalid prospect (template organization): {name} | {p.organization}")
+                    return False
+                # Filter out generic organization names
+                if org_lower in ['psychologytoday', 'psychology today']:
+                    # Psychology Today is a directory, not an organization - set to None
+                    p.organization = None
+            
+            return True
+        
+        # Filter prospects before saving
+        valid_prospects = [p for p in prospects if is_valid_prospect_for_saving(p)]
+        filtered_count = len(prospects) - len(valid_prospects)
+        if filtered_count > 0:
+            logger.info(f"Filtered out {filtered_count} invalid prospects before saving")
+        
+        for prospect in valid_prospects:
             # Create unique doc ID from email or name
             if prospect.contact.email:
                 doc_id = prospect.contact.email.replace("@", "_at_").replace(".", "_")
