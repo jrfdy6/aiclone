@@ -2854,10 +2854,31 @@ Important: Only return verified, publicly available contact information. Do not 
                 logger.debug(f"Filtering out invalid prospect (bad words): {name}")
                 return False
             
-            # Filter location-only names
-            location_words = ['north', 'south', 'east', 'west', 'areas', 'cities', 'bethesda', 'arlington']
-            if any(w.lower() in location_words for w in words):
-                logger.debug(f"Filtering out invalid prospect (location word): {name}")
+            # Filter location-only names (but allow location words if they're part of a real person name)
+            # Only filter if the name looks like a location phrase, not a person name
+            location_phrases = ['areas cities', 'north bethesda', 'south bethesda', 'east bethesda',
+                              'west bethesda', 'montgomery county', 'fairfax county', 'north arlington',
+                              'south arlington', 'silver spring', 'chevy chase']
+            name_lower_phrase = name_lower.replace(' ', ' ')
+            if name_lower_phrase in location_phrases or name_lower_phrase.startswith('areas ') or name_lower_phrase.startswith('cities '):
+                logger.info(f"Filtering out invalid prospect (location phrase): {name}")
+                return False
+            
+            # Filter if name starts with location direction words (likely location phrases)
+            location_directions = ['north', 'south', 'east', 'west', 'areas', 'cities']
+            if words[0].lower() in location_directions and len(words) == 2:
+                # Check if second word is also a location (e.g., "North Bethesda")
+                common_location_second_words = ['bethesda', 'arlington', 'fairfax', 'alexandria', 
+                                               'georgetown', 'potomac', 'montgomery', 'cleveland']
+                if words[1].lower() in common_location_second_words:
+                    logger.info(f"Filtering out invalid prospect (location phrase): {name}")
+                    return False
+            
+            # Filter role words at end of name (e.g., "John Counselor", "Jane Director")
+            role_words = ['counselor', 'director', 'therapist', 'psychologist', 'psychiatrist', 'coach',
+                         'specialist', 'consultant', 'advisor', 'manager', 'worker', 'officer', 'athletic']
+            if words[-1].lower() in role_words:
+                logger.info(f"Filtering out invalid prospect (role word at end): {name}")
                 return False
             
             # Filter phrases
@@ -2890,7 +2911,9 @@ Important: Only return verified, publicly available contact information. Do not 
         valid_prospects = [p for p in prospects if is_valid_prospect_for_saving(p)]
         filtered_count = len(prospects) - len(valid_prospects)
         if filtered_count > 0:
-            logger.info(f"Filtered out {filtered_count} invalid prospects before saving")
+            logger.info(f"Filtered out {filtered_count} invalid prospects before saving (from {len(prospects)} total)")
+        
+        logger.info(f"Attempting to save {len(valid_prospects)} valid prospects (filtered {filtered_count} invalid)")
         
         for prospect in valid_prospects:
             # Create unique doc ID from email or name
@@ -2928,7 +2951,13 @@ Important: Only return verified, publicly available contact information. Do not 
             doc_ref.set(prospect_doc)
             saved_count += 1
         
-        logger.info(f"Saved {saved_count} new prospects (skipped {len(prospects) - saved_count} duplicates)")
+        duplicate_count = len(valid_prospects) - saved_count
+        logger.info(f"=== SAVE SUMMARY ===")
+        logger.info(f"Total prospects found: {len(prospects)}")
+        logger.info(f"Filtered (invalid): {filtered_count}")
+        logger.info(f"Valid prospects: {len(valid_prospects)}")
+        logger.info(f"Duplicates skipped: {duplicate_count}")
+        logger.info(f"Successfully saved: {saved_count}")
     
     async def scrape_urls(
         self,
