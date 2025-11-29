@@ -3428,8 +3428,11 @@ Important: Only return verified, publicly available contact information. Do not 
         if has_sports:
             category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" OR \"youth soccer\" OR \"youth basketball\" (\"athletic director\" OR \"director of coaching\" OR \"program director\" OR \"head coach\") (Washington DC OR \"DMV\" OR \"NOVA\" OR \"Montgomery County\") email contact")
         if has_mom_groups:
-            # Use standard Google search format with proper OR grouping
-            category_keywords.append("(parenting coach OR parent educator OR family coach OR PTA president) (Washington DC OR DMV OR Bethesda OR Montgomery County)")
+            # Alternative strategy: Target community centers and parenting bloggers with public websites
+            # These are more likely to be scrapeable than social media-based mom groups
+            category_keywords.append("(\"community center director\" OR \"family resource center director\" OR \"parenting blog\" OR \"parenting website\" OR \"family services coordinator\") (\"Washington DC\" OR \"DMV\" OR Bethesda OR Arlington OR Alexandria)")
+            # Target community organization and blog websites
+            site_preferences.append("site:*.org OR site:*.com")
         if has_international:
             # Target school international offices and placement services
             category_keywords.append("\"international student\" OR \"foreign student services\" OR \"host family\" OR \"ESL program\" (\"international advisor\" OR \"student services coordinator\" OR \"admissions counselor\") (Washington DC OR \"DMV\" OR \"Montgomery County\") email contact")
