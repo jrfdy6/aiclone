@@ -94,7 +94,7 @@ def run_search(category: str, max_results: int = 10):
 def get_saved_prospects():
     """Get prospects from the pipeline"""
     url = f"{API_URL}/api/prospects/"
-    params = {"user_id": USER_ID, "limit": 1000}
+    params = {"user_id": USER_ID, "limit": 500}  # API max is 500
     
     try:
         response = requests.get(url, params=params, timeout=30)
@@ -115,10 +115,10 @@ def analyze_prospect(prospect: Dict[str, Any]) -> Dict[str, Any]:
     warnings = []
     
     name = prospect.get("name", "").strip()
-    org = prospect.get("company") or prospect.get("organization", "").strip()
-    email = prospect.get("email", "")
-    phone = prospect.get("phone", "")
-    tags = prospect.get("tags", [])
+    org = (prospect.get("company") or prospect.get("organization") or "").strip()
+    email = prospect.get("email", "") or ""
+    phone = prospect.get("phone", "") or ""
+    tags = prospect.get("tags", []) or []
     
     # Name validation
     if not name:

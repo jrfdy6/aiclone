@@ -55,11 +55,13 @@ class GenericExtractor(BaseExtractor):
                 names_with_info.append({"name": name, "title": "Dr.", "source": "prefix"})
         
         # Pattern 3: Extract names from email patterns (john.smith@example.com -> John Smith)
-        email_name_pattern = r'([a-z]+)\.([a-z]+)@'
+        # Only extract if pattern has both first and last name (dot-separated)
+        email_name_pattern = r'([a-z]{2,12})\.([a-z]{2,12})@'
         for match in re.findall(email_name_pattern, content.lower()):
             first, last = match[0].capitalize(), match[1].capitalize()
             name = f"{first} {last}"
-            if is_valid_person_name(name) and len(first) > 2 and len(last) > 2:
+            # Must be exactly 2 words (first + last), each 2-12 chars, and pass validation
+            if is_valid_person_name(name) and len(first) >= 2 and len(last) >= 2:
                 names_with_info.append({"name": name, "title": None, "source": "email"})
         
         # Detect profession - use category if provided
@@ -186,21 +188,31 @@ class GenericExtractor(BaseExtractor):
                 break
         
         # FALLBACK: If no names but have contact info, use email-based name
+        # Only use if we can extract a valid 2-word name from the email
         if not prospects and emails:
             for email in emails[:3]:
-                name_from_email = email.split('@')[0].replace('.', ' ').replace('_', ' ').title()
-                name_from_email = re.sub(r'\d+', '', name_from_email).strip()
+                email_prefix = email.split('@')[0]
+                # Try to extract first.last pattern
+                email_parts = re.split(r'[._-]', email_prefix)
+                # Filter out numbers and very short parts
+                email_parts = [p for p in email_parts if p and not p.isdigit() and len(p) >= 2]
                 
-                if len(name_from_email) >= 3:
-                    prospect = DiscoveredProspect(
-                        name=name_from_email,
-                        title=detected_profession,
-                        source_url=url,
-                        source=source,
-                        contact=ProspectContact(email=email),
-                        bio_snippet=content[:200] if content else None,
-                    )
-                    prospects.append(prospect)
+                # Only create name if we have exactly 2 valid parts (first + last)
+                if len(email_parts) == 2:
+                    first, last = email_parts[0].capitalize(), email_parts[1].capitalize()
+                    name_from_email = f"{first} {last}"
+                    
+                    # Validate: must be 2-3 words and pass name validation
+                    if is_valid_person_name(name_from_email):
+                        prospect = DiscoveredProspect(
+                            name=name_from_email,
+                            title=detected_profession,
+                            source_url=url,
+                            source=source,
+                            contact=ProspectContact(email=email),
+                            bio_snippet=content[:200] if content else None,
+                        )
+                        prospects.append(prospect)
         
         return prospects
 
