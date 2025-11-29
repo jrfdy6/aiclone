@@ -3501,26 +3501,26 @@ Important: Only return verified, publicly available contact information. Do not 
             else:
                 query_parts.append(f'"{location}"')
             
-        if additional_context:
-            query_parts.append(additional_context)
+            if additional_context:
+                query_parts.append(additional_context)
+                
+                # Detect specialty type and optimize search
+                specialty_lower = specialty.lower() if specialty else ""
+                
+                if any(term in specialty_lower for term in ['therapist', 'psychologist', 'psychiatrist', 'counselor', 'mental health']):
+                    query_parts.append("site:psychologytoday.com OR site:healthgrades.com")
+                elif any(term in specialty_lower for term in ['pediatrician', 'doctor', 'physician', 'md']):
+                    query_parts.append("site:healthgrades.com OR site:vitals.com OR site:webmd.com")
+                elif any(term in specialty_lower for term in ['coach', 'sports', 'athletic', 'soccer', 'basketball']):
+                    query_parts.append("coach OR director email contact")
+                elif any(term in specialty_lower for term in ['consultant', 'education', 'college', 'admissions']):
+                    query_parts.append("\"educational consultant\" OR \"college consultant\" email contact")
+                else:
+                    query_parts.append("email contact")
+                
+                query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
             
-            # Detect specialty type and optimize search
-            specialty_lower = specialty.lower() if specialty else ""
-            
-            if any(term in specialty_lower for term in ['therapist', 'psychologist', 'psychiatrist', 'counselor', 'mental health']):
-                query_parts.append("site:psychologytoday.com OR site:healthgrades.com")
-            elif any(term in specialty_lower for term in ['pediatrician', 'doctor', 'physician', 'md']):
-                query_parts.append("site:healthgrades.com OR site:vitals.com OR site:webmd.com")
-            elif any(term in specialty_lower for term in ['coach', 'sports', 'athletic', 'soccer', 'basketball']):
-                query_parts.append("coach OR director email contact")
-            elif any(term in specialty_lower for term in ['consultant', 'education', 'college', 'admissions']):
-                query_parts.append("\"educational consultant\" OR \"college consultant\" email contact")
-            else:
-                query_parts.append("email contact")
-            
-            query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
-        
-        search_query = " ".join(query_parts)
+            search_query = " ".join(query_parts)
         
         logger.info(f"Categories selected: {categories}")
         logger.info(f"Location: {location}")
