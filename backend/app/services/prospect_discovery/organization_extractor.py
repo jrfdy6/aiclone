@@ -22,11 +22,31 @@ def is_valid_organization(org: str) -> bool:
         'terms of service', 'cookie policy', 'sitemap',
         'is powered by', 'is built with', 'is designed by',
         'where children come first', 'in the united states',
-        'in united states', 'the united states', 'in the us'
+        'in united states', 'the united states', 'in the us',
+        'may also be known', 'are also known as', 'and hospital',
+        'pediatricians may', 'psychologists may', 'may also be'
     ]
     
     # Filter template phrases
     if any(phrase in org_lower for phrase in template_phrases):
+        return False
+    
+    # Filter out sentences/phrases that are too long (not organization names)
+    words = org.split()
+    if len(words) > 10:  # Organization names should be 2-10 words max
+        return False
+    
+    # Filter sentences (contains sentence patterns) - check this BEFORE word count
+    sentence_patterns = [
+        'may also be', 'are also known', 'can also', 'will also',
+        'is also', 'and hospital', 'pediatricians may', 'psychologists may',
+        'may also be known', 'are also known as', 'by the following', 'the following'
+    ]
+    if any(pattern in org_lower for pattern in sentence_patterns):
+        return False
+    
+    # Filter organizations with too many words (likely sentences)
+    if len(words) > 6:  # Lowered from 10 - 7+ words is suspicious for an org name
         return False
     
     # Check if organization IS a template phrase (exact match)
