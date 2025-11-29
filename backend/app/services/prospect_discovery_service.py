@@ -2571,14 +2571,14 @@ class ProspectDiscoveryService:
             # Extract organization for this prospect
             prospect_organization = self._extract_organization(content, url)
             
-                prospect = DiscoveredProspect(
+            prospect = DiscoveredProspect(
                 name=name,
                 title=info.get("title"),
                 organization=prospect_organization,
                 specialty=[detected_profession] if detected_profession else [],
-                    source_url=url,
-                    source=source,
-                    contact=ProspectContact(
+                source_url=url,
+                source=source,
+                contact=ProspectContact(
                     email=prospect_email,
                     phone=prospect_phone,
                     website=prospect_website,
@@ -2593,7 +2593,7 @@ class ProspectDiscoveryService:
             if profession_reason:
                 prospect.bio_snippet = f"{profession_reason}. {prospect.bio_snippet or ''}"
             
-                prospects.append(prospect)
+            prospects.append(prospect)
             
             if len(prospects) >= 10:  # Limit per page
                 break
