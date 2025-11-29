@@ -3428,7 +3428,8 @@ Important: Only return verified, publicly available contact information. Do not 
         if has_sports:
             category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" OR \"youth soccer\" OR \"youth basketball\" (\"athletic director\" OR \"director of coaching\" OR \"program director\" OR \"head coach\") (Washington DC OR \"DMV\" OR \"NOVA\" OR \"Montgomery County\") email contact")
         if has_mom_groups:
-            category_keywords.append("\"mom group\" OR \"parents group\" OR \"parent network\" OR \"PTA\" OR \"parenting coach\" (\"group leader\" OR \"organizer\" OR \"coordinator\" OR \"president\") (Washington DC OR \"DMV\" OR \"Montgomery County\" OR Bethesda) email contact")
+            # More flexible search - remove "email contact" requirement, expand keywords
+            category_keywords.append("\"mom group\" OR \"parents group\" OR \"parent network\" OR \"PTA president\" OR \"PTA leader\" OR \"parenting coach\" OR \"family resource center\" OR \"playgroup organizer\" OR \"mom's group\" OR \"moms club\" (\"group leader\" OR \"organizer\" OR \"coordinator\" OR \"president\" OR \"founder\" OR \"admin\") (Washington DC OR \"DMV\" OR \"Montgomery County\" OR Bethesda OR Arlington OR Alexandria OR \"Northern Virginia\")")
         if has_international:
             # Target school international offices and placement services
             category_keywords.append("\"international student\" OR \"foreign student services\" OR \"host family\" OR \"ESL program\" (\"international advisor\" OR \"student services coordinator\" OR \"admissions counselor\") (Washington DC OR \"DMV\" OR \"Montgomery County\") email contact")
@@ -3545,6 +3546,17 @@ Important: Only return verified, publicly available contact information. Do not 
                 if edu_urls:
                     logger.info(f"[CATEGORY: {category}] Found {len(edu_urls)} education/international URLs - prioritizing these")
                     scrapeable_results = edu_urls + [r for r in scrapeable_results if r not in edu_urls]
+            
+            # Mom Groups: Prioritize community/PTA websites, deprioritize social media (blocked anyway)
+            elif 'mom' in category_lower or 'parent' in category_lower:
+                mom_urls = [r for r in scrapeable_results 
+                           if any(keyword in r.link.lower() for keyword in ['pta', 'pta-', 'parent', 'family', 'mom', 'meetup', 'community'])]
+                # Remove social media that will be blocked
+                mom_urls = [r for r in mom_urls 
+                           if not any(social in r.link.lower() for social in ['facebook.com', 'linkedin.com', 'twitter.com', 'instagram.com'])]
+                if mom_urls:
+                    logger.info(f"[CATEGORY: {category}] Found {len(mom_urls)} community/parent URLs - prioritizing these")
+                    scrapeable_results = mom_urls + [r for r in scrapeable_results if r not in mom_urls]
         
         logger.info(f"Filtered {len(search_results)} results to {len(scrapeable_results)} scrapeable URLs")
         
