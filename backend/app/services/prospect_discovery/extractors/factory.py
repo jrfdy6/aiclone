@@ -10,6 +10,12 @@ from .base import BaseExtractor
 
 logger = logging.getLogger(__name__)
 
+# Explicit extractor registry
+EXTRACTOR_CLASSES = [
+    # Import here to avoid circular dependencies
+    # Classes are imported dynamically in get_extractor_for_url()
+]
+
 
 def get_extractor_for_url(
     url: str,
