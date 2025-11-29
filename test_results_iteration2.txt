@@ -1,0 +1,61 @@
+🚀 Iterative Validation Testing
+================================================================================
+
+🧹 Step 1: Clearing existing prospects...
+✅ Cleared 6 prospects
+
+🔍 Step 2: Running prospect discovery search...
+
+🔍 Running search with categories: education_consultants, pediatricians, psychologists_psychiatrists
+   Max results: 15
+✅ Found 12 prospects
+
+⏳ Waiting for prospects to save...
+
+📥 Step 3: Fetching saved prospects...
+
+📊 Step 4: Analyzing prospect quality...
+
+📊 Analyzing 6 prospects...
+
+================================================================================
+📋 VALIDATION ANALYSIS REPORT
+================================================================================
+
+📊 Summary:
+   Total prospects: 6
+   ✅ Good prospects: 5 (83.3%)
+   ❌ Bad prospects: 1 (16.7%)
+   ⚠️  With warnings: 2
+
+❌ Common Issues:
+   • Organization contains template phrase: 1
+
+⚠️  Common Warnings:
+   • Missing organization name: 2
+
+❌ Bad Prospects (1):
+
+   1. Michelle Susco | and hospital Pediatricians may also be known by the following
+      Issues: Organization contains template phrase: 'and hospital Pediatricians may also be known by the followin...'
+
+⚠️  Prospects with Warnings (2):
+   1. Roma Franzia | 
+      Warnings: Missing organization name
+   2. Sanjay Lamba | 
+      Warnings: Missing organization name
+
+✅ Good Prospects (5):
+   1. Roma Franzia |  [✓] (Score: 70.0)
+   2. Elda Simpson | Doctor [✓] (Score: 85.0)
+   3. Jagdish Patel | Doctor [✓] (Score: 95.0)
+   4. Kristin Herrmann | Educationcounsel [✓] (Score: 85.0)
+   5. Sanjay Lamba |  [✓] (Score: 85.0)
+
+💡 Recommendations:
+   1. Add more template phrases to filter: 'may also be known', 'and hospital'
+
+🎯 Quality Score: 83.3%
+✅ Results look good! Validation is working well.
+
+================================================================================
