@@ -3428,8 +3428,9 @@ Important: Only return verified, publicly available contact information. Do not 
         if has_sports:
             category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" OR \"youth soccer\" OR \"youth basketball\" (\"athletic director\" OR \"director of coaching\" OR \"program director\" OR \"head coach\") (Washington DC OR \"DMV\" OR \"NOVA\" OR \"Montgomery County\") email contact")
         if has_mom_groups:
-            # More flexible search - remove "email contact" requirement, expand keywords
-            category_keywords.append("\"mom group\" OR \"parents group\" OR \"parent network\" OR \"PTA president\" OR \"PTA leader\" OR \"parenting coach\" OR \"family resource center\" OR \"playgroup organizer\" OR \"mom's group\" OR \"moms club\" (\"group leader\" OR \"organizer\" OR \"coordinator\" OR \"president\" OR \"founder\" OR \"admin\") (Washington DC OR \"DMV\" OR \"Montgomery County\" OR Bethesda OR Arlington OR Alexandria OR \"Northern Virginia\")")
+            # Simplified search query - target PTA and community organizations with public websites
+            # Mom groups are often on social media (blocked), so focus on organizations with websites
+            category_keywords.append("(\"PTA president\" OR \"PTA leader\" OR \"parent coordinator\" OR \"family resource center director\" OR \"community organizer\" OR \"parenting coach\") (\"Washington DC\" OR \"DMV\" OR \"Montgomery County\" OR Bethesda OR Arlington OR Alexandria)")
         if has_international:
             # Target school international offices and placement services
             category_keywords.append("\"international student\" OR \"foreign student services\" OR \"host family\" OR \"ESL program\" (\"international advisor\" OR \"student services coordinator\" OR \"admissions counselor\") (Washington DC OR \"DMV\" OR \"Montgomery County\") email contact")
