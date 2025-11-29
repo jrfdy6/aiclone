@@ -1,0 +1,182 @@
+================================================================================
+🚀 COMPREHENSIVE CATEGORY TEST SUITE
+================================================================================
+
+Testing 8 categories with max 10 results each
+Quality Threshold: 80%
+Clear between tests: True
+
+
+[1/8] Testing: 🎓 Education Consultants
+--------------------------------------------------------------------------------
+🧹 Cleared 5 prospects
+🔍 Running search...
+✅ Found 1 prospects in search results
+   Query: ("educational consultant" OR "independent education consultant") ("Washington DC...
+⏳ Waiting for prospects to save...
+📥 Retrieved 1 saved prospects
+
+✅ 🎓 Education Consultants
+   Quality Score: 100.0%
+   Total Prospects: 1
+   Good: 1 | Bad: 0 | Warnings: 0
+   Contact Coverage: 100.0%
+   Search Time: 8.7s
+
+⏸️  Pausing before next category...
+
+[2/8] Testing: 👨‍⚕️ Pediatricians
+--------------------------------------------------------------------------------
+🧹 Cleared 1 prospects
+🔍 Running search...
+✅ Found 5 prospects in search results
+   Query: ("pediatrician adolescent" OR "pediatric practice") ("Washington DC" OR "DC" OR ...
+⏳ Waiting for prospects to save...
+📥 Retrieved 5 saved prospects
+
+✅ 👨‍⚕️ Pediatricians
+   Quality Score: 100.0%
+   Total Prospects: 5
+   Good: 5 | Bad: 0 | Warnings: 3
+   Contact Coverage: 100.0%
+   Search Time: 12.3s
+
+⏸️  Pausing before next category...
+
+[3/8] Testing: 🧠 Psychologists & Psychiatrists
+--------------------------------------------------------------------------------
+🧹 Cleared 5 prospects
+🔍 Running search...
+✅ Found 1 prospects in search results
+   Query: ("child psychologist" OR "adolescent psychiatrist") ("Washington DC" OR "DC" OR ...
+⏳ Waiting for prospects to save...
+📥 Retrieved 1 saved prospects
+
+✅ 🧠 Psychologists & Psychiatrists
+   Quality Score: 100.0%
+   Total Prospects: 1
+   Good: 1 | Bad: 0 | Warnings: 1
+   Contact Coverage: 0.0%
+   Search Time: 1.3s
+
+⏸️  Pausing before next category...
+
+[4/8] Testing: 🏥 Treatment Centers
+--------------------------------------------------------------------------------
+🧹 Cleared 1 prospects
+🔍 Running search...
+✅ Found 7 prospects in search results
+   Query: ("treatment center admissions" OR "residential treatment adolescent") ("Washingt...
+⏳ Waiting for prospects to save...
+📥 Retrieved 5 saved prospects
+
+✅ 🏥 Treatment Centers
+   Quality Score: 100.0%
+   Total Prospects: 5
+   Good: 5 | Bad: 0 | Warnings: 3
+   Contact Coverage: 40.0%
+   Search Time: 11.5s
+
+⏸️  Pausing before next category...
+
+[5/8] Testing: 🏛️ Embassies & Diplomats
+--------------------------------------------------------------------------------
+🧹 Cleared 5 prospects
+🔍 Running search...
+✅ Found 2 prospects in search results
+   Query: ("embassy education officer" OR "cultural affairs") ("Washington DC" OR "DC" OR ...
+⏳ Waiting for prospects to save...
+📥 Retrieved 2 saved prospects
+
+✅ 🏛️ Embassies & Diplomats
+   Quality Score: 100.0%
+   Total Prospects: 2
+   Good: 2 | Bad: 0 | Warnings: 0
+   Contact Coverage: 100.0%
+   Search Time: 6.6s
+
+⏸️  Pausing before next category...
+
+[6/8] Testing: ⚽ Youth Sports Programs
+--------------------------------------------------------------------------------
+🧹 Cleared 2 prospects
+🔍 Running search...
+✅ Found 8 prospects in search results
+   Query: ("athletic academy director" OR "elite youth sports") ("Washington DC" OR "DC" O...
+⏳ Waiting for prospects to save...
+📥 Retrieved 8 saved prospects
+
+✅ ⚽ Youth Sports Programs
+   Quality Score: 100.0%
+   Total Prospects: 8
+   Good: 8 | Bad: 0 | Warnings: 2
+   Contact Coverage: 100.0%
+   Search Time: 8.7s
+
+⏸️  Pausing before next category...
+
+[7/8] Testing: 👨‍👩‍👧 Mom Groups & Parent Networks
+--------------------------------------------------------------------------------
+🧹 Cleared 8 prospects
+🔍 Running search...
+✅ Found 0 prospects in search results
+   Query: ("mom group leader" OR "parent network") ("Washington DC" OR "DC" OR "DMV" OR "N...
+⚠️  No saved prospects found. Using search results...
+📥 Retrieved 0 saved prospects
+
+❌ 👨‍👩‍👧 Mom Groups & Parent Networks
+   Quality Score: 0.0%
+   Total Prospects: 0
+   Good: 0 | Bad: 0 | Warnings: 0
+   Contact Coverage: 0.0%
+   Search Time: 14.6s
+
+⏸️  Pausing before next category...
+
+[8/8] Testing: 🌍 International Student Services
+--------------------------------------------------------------------------------
+🔍 Running search...
+✅ Found 7 prospects in search results
+   Query: ("international student services" OR "foreign student placement") ("Washington D...
+⏳ Waiting for prospects to save...
+📥 Retrieved 7 saved prospects
+
+✅ 🌍 International Student Services
+   Quality Score: 100.0%
+   Total Prospects: 7
+   Good: 7 | Bad: 0 | Warnings: 0
+   Contact Coverage: 100.0%
+   Search Time: 7.5s
+
+================================================================================
+📊 COMPREHENSIVE TEST SUMMARY
+================================================================================
+
+📈 Overall Statistics:
+   Total Categories Tested: 8
+   Successful: 8
+   Failed: 0
+   Total Test Time: 111.6s (1.9 minutes)
+
+📊 Prospect Statistics:
+   Total Prospects: 29
+   Good Prospects: 29 (100.0%)
+   Bad Prospects: 0 (0.0%)
+   Average Quality Score: 87.5%
+   Average Contact Coverage: 67.5%
+
+📋 Results by Category:
+   ✅ 🎓 Education Consultants: 100.0% (1/1 good)
+   ✅ 👨‍⚕️ Pediatricians: 100.0% (5/5 good)
+   ✅ 🧠 Psychologists & Psychiatrists: 100.0% (1/1 good)
+   ✅ 🏥 Treatment Centers: 100.0% (5/5 good)
+   ✅ 🏛️ Embassies & Diplomats: 100.0% (2/2 good)
+   ✅ ⚽ Youth Sports Programs: 100.0% (8/8 good)
+   ❌ 👨‍👩‍👧 Mom Groups & Parent Networks: 0.0% (0/0 good)
+   ✅ 🌍 International Student Services: 100.0% (7/7 good)
+
+✅ Categories Meeting 80% Threshold: 7/8
+✅ Most categories passed. System is in good shape.
+================================================================================
+
+📄 Detailed report saved to: test_report_20251129_000848.json

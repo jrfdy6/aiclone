@@ -1,0 +1,60 @@
+================================================================================
+🚀 COMPREHENSIVE CATEGORY TEST SUITE
+================================================================================
+
+Testing 8 categories with max 10 results each
+Quality Threshold: 80%
+Clear between tests: True
+
+
+[1/8] Testing: 🎓 Education Consultants
+--------------------------------------------------------------------------------
+🔍 Running search...
+✅ Found 4 prospects in search results
+   Query: ("educational consultant" OR "independent education consultant") ("Washington DC...
+⏳ Waiting for prospects to save...
+❌ Error fetching prospects: 422 Client Error: Unprocessable Entity for url: https://aiclone-production-32dc.up.railway.app/api/prospects/?user_id=dev-user&limit=1000
+⚠️  No saved prospects found. Using search results...
+📥 Retrieved 4 saved prospects
+
+❌ 🎓 Education Consultants
+   Quality Score: 25.0%
+   Total Prospects: 4
+   Good: 1 | Bad: 3 | Warnings: 1
+   Contact Coverage: 0.0%
+   Search Time: 8.3s
+   Issues: Single word name(3)
+   ❌ Bad Examples:
+      • Jforster | G W - Single word name: 'Jforster'
+      • Ladamson | G W - Single word name: 'Ladamson'
+
+⏸️  Pausing before next category...
+
+[2/8] Testing: 👨‍⚕️ Pediatricians
+--------------------------------------------------------------------------------
+🧹 Cleared 1 prospects
+🔍 Running search...
+✅ Found 5 prospects in search results
+   Query: ("pediatrician adolescent" OR "pediatric practice") ("Washington DC" OR "DC" OR ...
+⏳ Waiting for prospects to save...
+❌ Error fetching prospects: 502 Server Error: Bad Gateway for url: https://aiclone-production-32dc.up.railway.app/api/prospects/?user_id=dev-user&limit=1000
+⚠️  No saved prospects found. Using search results...
+📥 Retrieved 5 saved prospects
+Traceback (most recent call last):
+  File "/Users/johnniefields/Desktop/Cursor/aiclone/test_all_categories_comprehensive.py", line 449, in <module>
+    main()
+    ~~~~^^
+  File "/Users/johnniefields/Desktop/Cursor/aiclone/test_all_categories_comprehensive.py", line 439, in main
+    results = test_all_categories(
+        clear_between=not args.no_clear,
+        max_results=args.max_results
+    )
+  File "/Users/johnniefields/Desktop/Cursor/aiclone/test_all_categories_comprehensive.py", line 313, in test_all_categories
+    analysis = analyze_category_results(saved_prospects, category)
+  File "/Users/johnniefields/Desktop/Cursor/aiclone/test_all_categories_comprehensive.py", line 197, in analyze_category_results
+    analyzed = [analyze_prospect(p) for p in prospects]
+                ~~~~~~~~~~~~~~~~^^^
+  File "/Users/johnniefields/Desktop/Cursor/aiclone/test_all_categories_comprehensive.py", line 118, in analyze_prospect
+    org = prospect.get("company") or prospect.get("organization", "").strip()
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'strip'

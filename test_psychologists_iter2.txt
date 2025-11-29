@@ -1,0 +1,63 @@
+🚀 Per-Category Validation Testing
+================================================================================
+
+Testing each category individually for focused analysis.
+
+
+================================================================================
+🧪 TESTING: 🧠 Psychologists & Psychiatrists
+================================================================================
+
+✅ Cleared 0 prospects
+
+🔍 Running search: 🧠 Psychologists & Psychiatrists
+   Max results: 10
+✅ Found 3 prospects in search results
+⏳ Waiting for prospects to save...
+⚠️  No saved prospects found. Using search results...
+
+📊 Analyzing 3 prospects for 🧠 Psychologists & Psychiatrists...
+
+================================================================================
+📋 VALIDATION REPORT: 🧠 Psychologists & Psychiatrists
+================================================================================
+
+📊 Summary:
+   Total prospects: 3
+   ✅ Good prospects: 0 (0.0%)
+   ❌ Bad prospects: 3 (100.0%)
+   ⚠️  With warnings: 0
+   🎯 Quality Score: 0.0%
+   📞 Contact Coverage: 0.0%
+
+❌ Common Issues:
+   • Single word name: 3
+   • Organization too many words (8): 3
+
+⚠️  Common Warnings:
+   • No contact information: 3
+   • No category tags: 3
+
+❌ Bad Prospects (3):
+
+   1. Accreditation | Observation Hours Verification Form PTA Program Student Outco
+      Issues: Single word name: 'Accreditation', Organization too many words (8): 'Observation Hours Verification Form PTA Program Student Outc...'
+      Warnings: No contact information
+
+   2. Megancook | Observation Hours Verification Form PTA Program Student Outco
+      Issues: Single word name: 'Megancook', Organization too many words (8): 'Observation Hours Verification Form PTA Program Student Outc...'
+      Warnings: No contact information
+
+   3. Information | Observation Hours Verification Form PTA Program Student Outco
+      Issues: Single word name: 'Information', Organization too many words (8): 'Observation Hours Verification Form PTA Program Student Outc...'
+      Warnings: No contact information
+================================================================================
+
+💡 Recommendations:
+   1. Quality score 0.0% is below target (80%). Review bad prospects above.
+   2. Contact coverage 0.0% is low. Improve contact extraction.
+   3. Improve contact extraction - 3 missing (100.0%)
+   4. Ensure name validation requires 2-3 words
+
+🎯 Assessment:
+   ❌ Quality needs improvement. Review issues above.

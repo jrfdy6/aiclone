@@ -1,0 +1,7 @@
+🚀 Per-Category Validation Testing
+================================================================================
+
+Testing each category individually for focused analysis.
+
+❌ Unknown category: --category
+Available categories: education_consultants, pediatricians, psychologists_psychiatrists, treatment_centers, embassies, youth_sports, mom_groups, international_students
