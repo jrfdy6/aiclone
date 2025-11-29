@@ -629,10 +629,10 @@ class ProspectDiscoveryService:
                 logger.info(f"[CATEGORY: {category}] Tagging prospect '{name}' with category: {specialty[0]}")
             else:
                 # Fallback: Find specialties in nearby content
-            found_specialties = []
-            for kw in specialty_keywords:
-                if kw.lower() in content.lower():
-                    found_specialties.append(kw)
+                found_specialties = []
+                for kw in specialty_keywords:
+                    if kw.lower() in content.lower():
+                        found_specialties.append(kw)
                 specialty = found_specialties[:3]
             
             # Find phone near this name (within 500 chars)
