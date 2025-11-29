@@ -157,7 +157,7 @@ class ProspectDiscoveryService:
         """Lazy init clients"""
         if self.firecrawl is None:
             try:
-                self.firecrawl = get_firecrawl_client()
+            self.firecrawl = get_firecrawl_client()
             except Exception as e:
                 logger.warning(f"Firecrawl client not available: {e}")
                 self.firecrawl = None
@@ -171,6 +171,106 @@ class ProspectDiscoveryService:
                 self.google_search = get_search_client()
             except:
                 self.google_search = None
+    
+    def _is_valid_person_name(self, name: str) -> bool:
+        """Check if name looks like a real person name. Used during extraction to filter garbage names."""
+        name_lower = name.lower()
+        words = name.split()
+        
+        # Must be exactly 2-3 words
+        if len(words) < 2 or len(words) > 3:
+            return False
+        
+        # Bad name words (from extract_prospects_from_content)
+        bad_name_words = [
+            'educational', 'administrative', 'outreach', 'experience', 'engagement',
+            'customer', 'patient', 'human', 'service', 'services', 'standardized',
+            'test', 'prep', 'head', 'start', 'reviewer', 'board', 'college',
+            'resources', 'featured', 'guidance', 'admissions', 'tutoring', 'academic',
+            'available', 'advising', 'member', 'independent', 'county', 'montgomery',
+            'tedeschi', 'marks', 'education', 'consultant', 'consulting', 'group',
+            'center', 'institute', 'foundation', 'association', 'program', 'school',
+            'academy', 'learning', 'development', 'training', 'coaching', 'support',
+            'help', 'how', 'can', 'you', 'your', 'child', 'contact', 'phone', 'number',
+            'email', 'address', 'click', 'here', 'read', 'more', 'learn', 'about',
+            'options', 'certified', 'planner', 'risk', 'lines', 'personal', 'day',
+            'schools', 'what', 'why', 'when', 'where', 'our', 'the', 'and', 'for',
+            'with', 'this', 'that', 'from', 'have', 'been', 'will', 'would', 'could',
+            'should', 'their', 'there', 'which', 'other', 'some', 'many', 'most',
+            'free', 'best', 'top', 'new', 'first', 'last', 'next', 'back', 'home',
+            'page', 'site', 'web', 'online', 'info', 'information', 'details',
+            'submit', 'send', 'get', 'find', 'search', 'browse', 'view', 'see',
+            'call', 'today', 'now', 'schedule', 'book', 'appointment', 'meeting',
+            'areas', 'cities', 'bethesda', 'north', 'south', 'east', 'west',
+            'endorsed', 'endorsement', 'good', 'afternoon', 'morning', 'evening',
+            'afternoon', 'royalty', 'institute', 'where', 'children', 'come', 'first',
+            'powered', 'by', 'engineers', 'united', 'states', 'janak'
+        ]
+        
+        # No bad words (check each word individually)
+        for word in words:
+            if word.lower() in bad_name_words:
+                return False
+        
+        # Each word should be 2-12 chars
+        if not all(2 <= len(w.replace('.', '')) <= 12 for w in words):
+            return False
+        
+        # Additional non-name words
+        common_non_names = ['internet', 'licensed', 'professional', 'clinical', 'certified',
+                            'registered', 'national', 'american', 'eclectic', 'compassion',
+                            'focused', 'cognitive', 'behavioral', 'mental', 'health',
+                            'therapists', 'therapist', 'family', 'adult', 'couples',
+                            'marriage', 'anxiety', 'depression', 'trauma', 'addiction']
+        
+        # First word shouldn't be a common non-name
+        if words[0].lower() in common_non_names:
+            return False
+        
+        # Role words
+        role_words = ['therapist', 'counselor', 'psychologist', 'psychiatrist', 'coach',
+                      'specialist', 'consultant', 'advisor', 'director', 'manager', 'worker',
+                      'nurse', 'practitioner', 'physician', 'doctor', 'md', 'np']
+        
+        # Last word shouldn't be a role
+        if words[-1].lower() in role_words:
+            return False
+        
+        # Filter famous people (quotes/testimonials)
+        famous_names = ['maya angelou', 'martin luther', 'oprah winfrey', 'barack obama']
+        if name_lower in famous_names:
+            return False
+        
+        # Filter job titles that look like names
+        job_titles = ['social worker', 'case manager', 'program director', 'clinical director',
+                     'nurse practitioner', 'nurse', 'practitioner', 'physician assistant']
+        if name_lower in job_titles:
+            return False
+        
+        # Filter location/direction words that aren't names
+        location_direction_words = ['north', 'south', 'east', 'west', 'areas', 'cities', 
+                                   'county', 'montgomery', 'bethesda', 'arlington']
+        if any(w.lower() in location_direction_words for w in words):
+            return False
+        
+        # Filter common phrases
+        common_phrases = ['good afternoon', 'good morning', 'good evening', 'thank you',
+                         'click here', 'read more', 'learn more', 'contact us']
+        if name_lower in common_phrases:
+            return False
+        
+        # Filter names that look like sentences/phrases
+        phrase_words = ['good', 'afternoon', 'morning', 'evening', 'endorsed', 
+                       'endorsement', 'powered', 'by', 'engineers', 'where', 
+                       'children', 'come', 'first']
+        if any(w.lower() in phrase_words for w in words):
+            return False
+        
+        # First and last words should start with capital letters (proper names)
+        if not (words[0] and words[0][0].isupper() and words[-1] and words[-1][0].isupper()):
+            return False
+        
+        return True
     
     def _free_scrape(self, url: str) -> Optional[str]:
         """Free scraping fallback using requests + BeautifulSoup"""
@@ -246,6 +346,12 @@ class ProspectDiscoveryService:
                 return False
             # Filter generic words
             if org_lower in ['areas', 'cities', 'endorsed', 'endorsement']:
+                return False
+            # Filter directory/aggregator sites (not actual organizations)
+            directory_sites = ['psychologytoday', 'psychology today', 'healthgrades', 'webmd', 
+                             'zocdoc', 'vitals', 'ratemds', 'doctor.com', 'pmc', 'ncbi',
+                             'callsource', 'indeed', 'glassdoor', 'linkedin']
+            if org_lower in directory_sites or any(ds in org_lower for ds in directory_sites):
                 return False
             return True
         
@@ -508,6 +614,11 @@ class ProspectDiscoveryService:
             # Skip if it looks like a title/header
             if name.isupper() or name.count(" ") > 3:
                 continue
+            
+            # Apply strict name validation (same as save-time validation)
+            if not self._is_valid_person_name(name):
+                logger.debug(f"[CATEGORY: {category}] Filtering invalid name in extraction: {name}")
+                continue
                 
             seen_names.add(name)
             
@@ -518,10 +629,10 @@ class ProspectDiscoveryService:
                 logger.info(f"[CATEGORY: {category}] Tagging prospect '{name}' with category: {specialty[0]}")
             else:
                 # Fallback: Find specialties in nearby content
-                found_specialties = []
-                for kw in specialty_keywords:
-                    if kw.lower() in content.lower():
-                        found_specialties.append(kw)
+            found_specialties = []
+            for kw in specialty_keywords:
+                if kw.lower() in content.lower():
+                    found_specialties.append(kw)
                 specialty = found_specialties[:3]
             
             # Find phone near this name (within 500 chars)
@@ -942,8 +1053,11 @@ class ProspectDiscoveryService:
                         # Extract just name (remove credentials/titles)
                         name_match = re.search(r'([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})(?:,|\s+MD|\s+PhD|\s+LCSW)?', name_candidate)
                         if name_match:
-                            name = name_match.group(1)
-                            break
+                            name_candidate = name_match.group(1)
+                            # Validate name before using it
+                            if self._is_valid_person_name(name_candidate):
+                                name = name_candidate
+                                break
                 
                 if not name:
                     continue
@@ -2457,14 +2571,14 @@ class ProspectDiscoveryService:
             # Extract organization for this prospect
             prospect_organization = self._extract_organization(content, url)
             
-            prospect = DiscoveredProspect(
+                prospect = DiscoveredProspect(
                 name=name,
                 title=info.get("title"),
                 organization=prospect_organization,
                 specialty=[detected_profession] if detected_profession else [],
-                source_url=url,
-                source=source,
-                contact=ProspectContact(
+                    source_url=url,
+                    source=source,
+                    contact=ProspectContact(
                     email=prospect_email,
                     phone=prospect_phone,
                     website=prospect_website,
@@ -2479,7 +2593,7 @@ class ProspectDiscoveryService:
             if profession_reason:
                 prospect.bio_snippet = f"{profession_reason}. {prospect.bio_snippet or ''}"
             
-            prospects.append(prospect)
+                prospects.append(prospect)
             
             if len(prospects) >= 10:  # Limit per page
                 break
@@ -2495,15 +2609,15 @@ class ProspectDiscoveryService:
                 name_from_email = re.sub(r'\d+', '', name_from_email).strip()
                 
                 if len(name_from_email) >= 3:
-                    prospect = DiscoveredProspect(
-                        name=name_from_email,
+                prospect = DiscoveredProspect(
+                    name=name_from_email,
                         title=detected_profession,
-                        source_url=url,
-                        source=source,
-                        contact=ProspectContact(email=email),
+                    source_url=url,
+                    source=source,
+                    contact=ProspectContact(email=email),
                         bio_snippet=content[:200] if content else None,
-                    )
-                    prospects.append(prospect)
+                )
+                prospects.append(prospect)
         
         return prospects
     
@@ -2577,7 +2691,7 @@ class ProspectDiscoveryService:
                 if any(kw in location_content for kw in dc_keywords):
                     score += 20
             elif target_lower in location_content:
-                score += 20
+            score += 20
         
         # =================================================================
         # WORKS WITH AGES 10-18 (+10)
@@ -2610,7 +2724,7 @@ class ProspectDiscoveryService:
                               'organizer', 'coordinator', 'head of', 'chief']
         
         if any(kw in content_to_check for kw in leadership_keywords):
-            score += 10
+                score += 10
         
         # =================================================================
         # CATEGORY MATCH BONUS
@@ -3002,10 +3116,14 @@ Important: Only return verified, publicly available contact information. Do not 
                                 'the united states', 'in the us']:
                     logger.info(f"Filtering out invalid prospect (template organization name): {name} | {p.organization}")
                     return False
-                # Filter out generic organization names
-                if org_lower in ['psychologytoday', 'psychology today']:
-                    # Psychology Today is a directory, not an organization - set to None
+                # Filter out directory/aggregator sites (not actual organizations)
+                directory_sites = ['psychologytoday', 'psychology today', 'healthgrades', 'webmd', 
+                                 'zocdoc', 'vitals', 'ratemds', 'doctor.com', 'pmc', 'ncbi',
+                                 'callsource', 'indeed', 'glassdoor', 'linkedin']
+                if org_lower in directory_sites or any(ds in org_lower for ds in directory_sites):
+                    # Directory sites are not organizations - set to None
                     p.organization = None
+                    logger.debug(f"Filtering out directory site as organization: {org_lower} for {name}")
             
             return True
         
@@ -3401,8 +3519,8 @@ Important: Only return verified, publicly available contact information. Do not 
             else:
                 query_parts.append(f'"{location}"')
             
-            if additional_context:
-                query_parts.append(additional_context)
+        if additional_context:
+            query_parts.append(additional_context)
             
             # Detect specialty type and optimize search
             specialty_lower = specialty.lower() if specialty else ""
@@ -3419,8 +3537,8 @@ Important: Only return verified, publicly available contact information. Do not 
                 query_parts.append("email contact")
             
             query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
-            
-            search_query = " ".join(query_parts)
+        
+        search_query = " ".join(query_parts)
         
         logger.info(f"Categories selected: {categories}")
         logger.info(f"Location: {location}")
@@ -3481,22 +3599,22 @@ Important: Only return verified, publicly available contact information. Do not 
                 # Single category or legacy specialty search: Run single combined search
                 logger.info(f"Google Search (FREE): {search_query}")
                 
-                # Step 1: Google Search (FREE)
-                search_results = self.google_search.search(search_query, num_results=10)
+            # Step 1: Google Search (FREE)
+            search_results = self.google_search.search(search_query, num_results=10)
                 
                 logger.info(f"Google search returned {len(search_results) if search_results else 0} results")
-                
-                if not search_results:
+            
+            if not search_results:
                     logger.warning(f"No Google search results for query: {search_query}")
-                    return ProspectDiscoveryResponse(
-                        success=True,
-                        discovery_id=discovery_id,
-                        source="google_search",
-                        total_found=0,
-                        prospects=[],
-                        search_query_used=search_query,
-                    )
-                
+                return ProspectDiscoveryResponse(
+                    success=True,
+                    discovery_id=discovery_id,
+                    source="google_search",
+                    total_found=0,
+                    prospects=[],
+                    search_query_used=search_query,
+                )
+            
                 # Process single search results
                 all_prospects, urls_scraped = await self._process_search_results(
                     search_results, 
@@ -3570,8 +3688,8 @@ Important: Only return verified, publicly available contact information. Do not 
                             
                             if prospect.contact.phone and prospect.contact.email:
                                 break  # Found both, move to next prospect
-                                
-                    except Exception as e:
+                        
+                except Exception as e:
                         logger.warning(f"Google contact search failed for {prospect.name}: {e}")
             
             # =================================================================
