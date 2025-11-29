@@ -512,7 +512,6 @@ class ProspectDiscoveryService:
             seen_names.add(name)
             
             # Use category for tagging if provided, otherwise auto-detect
-            from app.models.prospect_discovery import PROSPECT_CATEGORIES
             specialty = []
             if category and category in PROSPECT_CATEGORIES:
                 specialty = [PROSPECT_CATEGORIES[category]["name"]]
@@ -828,7 +827,6 @@ class ProspectDiscoveryService:
                         pass
                 
                 # Use category for tagging if provided
-                from app.models.prospect_discovery import PROSPECT_CATEGORIES
                 specialty = []
                 if category and category in PROSPECT_CATEGORIES:
                     specialty = [PROSPECT_CATEGORIES[category]["name"]]
@@ -1015,7 +1013,6 @@ class ProspectDiscoveryService:
                 bio_snippet = bio_match.group(1).strip()[:200] if bio_match else None
                 
                 # Use category for tagging if provided
-                from app.models.prospect_discovery import PROSPECT_CATEGORIES
                 specialty = []
                 if category and category in PROSPECT_CATEGORIES:
                     specialty = [PROSPECT_CATEGORIES[category]["name"]]
@@ -1423,7 +1420,6 @@ class ProspectDiscoveryService:
                 organization = org.strip()[:100]
             
             # Use category for tagging if provided
-            from app.models.prospect_discovery import PROSPECT_CATEGORIES
             specialty = []
             if category and category in PROSPECT_CATEGORIES:
                 specialty = [PROSPECT_CATEGORIES[category]["name"]]
@@ -1756,7 +1752,6 @@ class ProspectDiscoveryService:
                     organization = domain.split('.')[0].title() + " Embassy"
             
             # Use category for tagging if provided
-            from app.models.prospect_discovery import PROSPECT_CATEGORIES
             specialty = []
             if category and category in PROSPECT_CATEGORIES:
                 specialty = [PROSPECT_CATEGORIES[category]["name"]]
@@ -2086,7 +2081,6 @@ class ProspectDiscoveryService:
                         organization = org_part + " Academy" if 'academy' not in org_part.lower() else org_part
             
             # Use category for tagging if provided
-            from app.models.prospect_discovery import PROSPECT_CATEGORIES
             specialty = []
             if category and category in PROSPECT_CATEGORIES:
                 specialty = [PROSPECT_CATEGORIES[category]["name"]]
