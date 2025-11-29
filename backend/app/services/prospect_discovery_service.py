@@ -3428,9 +3428,11 @@ Important: Only return verified, publicly available contact information. Do not 
         if has_sports:
             category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" OR \"youth soccer\" OR \"youth basketball\" (\"athletic director\" OR \"director of coaching\" OR \"program director\" OR \"head coach\") (Washington DC OR \"DMV\" OR \"NOVA\" OR \"Montgomery County\") email contact")
         if has_mom_groups:
-            # Simplified search query - target PTA and community organizations with public websites
-            # Mom groups are often on social media (blocked), so focus on organizations with websites
-            category_keywords.append("(\"PTA president\" OR \"PTA leader\" OR \"parent coordinator\" OR \"family resource center director\" OR \"community organizer\" OR \"parenting coach\") (\"Washington DC\" OR \"DMV\" OR \"Montgomery County\" OR Bethesda OR Arlington OR Alexandria)")
+            # Target PTA pages and school district parent contacts
+            # Focus on public school/district websites where PTA contacts are listed
+            category_keywords.append("\"PTA\" OR \"parent teacher association\" OR \"parent coordinator\" (\"Washington DC\" OR \"DC Public Schools\" OR \"Montgomery County Public Schools\" OR Bethesda OR Arlington OR Alexandria) contact email")
+            # Target school district and community organization websites
+            site_preferences.append("site:*.k12.*.us OR site:*.edu OR site:*.org")
         if has_international:
             # Target school international offices and placement services
             category_keywords.append("\"international student\" OR \"foreign student services\" OR \"host family\" OR \"ESL program\" (\"international advisor\" OR \"student services coordinator\" OR \"admissions counselor\") (Washington DC OR \"DMV\" OR \"Montgomery County\") email contact")
