@@ -2673,7 +2673,7 @@ class ProspectDiscoveryService:
                 if any(kw in location_content for kw in dc_keywords):
                     score += 20
             elif target_lower in location_content:
-            score += 20
+                score += 20
         
         # =================================================================
         # WORKS WITH AGES 10-18 (+10)
@@ -3581,22 +3581,21 @@ Important: Only return verified, publicly available contact information. Do not 
                 # Single category or legacy specialty search: Run single combined search
                 logger.info(f"Google Search (FREE): {search_query}")
                 
-            # Step 1: Google Search (FREE)
-            search_results = self.google_search.search(search_query, num_results=10)
-                
+                # Step 1: Google Search (FREE)
+                search_results = self.google_search.search(search_query, num_results=10)
                 logger.info(f"Google search returned {len(search_results) if search_results else 0} results")
-            
-            if not search_results:
+                
+                if not search_results:
                     logger.warning(f"No Google search results for query: {search_query}")
-                return ProspectDiscoveryResponse(
-                    success=True,
-                    discovery_id=discovery_id,
-                    source="google_search",
-                    total_found=0,
-                    prospects=[],
-                    search_query_used=search_query,
-                )
-            
+                    return ProspectDiscoveryResponse(
+                        success=True,
+                        discovery_id=discovery_id,
+                        source="google_search",
+                        total_found=0,
+                        prospects=[],
+                        search_query_used=search_query,
+                    )
+                
                 # Process single search results
                 all_prospects, urls_scraped = await self._process_search_results(
                     search_results, 
@@ -3670,8 +3669,8 @@ Important: Only return verified, publicly available contact information. Do not 
                             
                             if prospect.contact.phone and prospect.contact.email:
                                 break  # Found both, move to next prospect
-                        
-                except Exception as e:
+                    
+                    except Exception as e:
                         logger.warning(f"Google contact search failed for {prospect.name}: {e}")
             
             # =================================================================
