@@ -1,2 +1,14 @@
 node_modules/
 *.node
+
+# Security: Never commit service account keys
+keys/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!next.config.js
+*.service-account*.json
+*service-account*.json
+firebase-service-account*.json
+google-service-account*.json
