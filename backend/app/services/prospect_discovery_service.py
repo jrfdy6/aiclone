@@ -3428,9 +3428,9 @@ Important: Only return verified, publicly available contact information. Do not 
         if has_sports:
             category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" OR \"youth soccer\" OR \"youth basketball\" (\"athletic director\" OR \"director of coaching\" OR \"program director\" OR \"head coach\") (Washington DC OR \"DMV\" OR \"NOVA\" OR \"Montgomery County\") email contact")
         if has_mom_groups:
-            # Target parenting coaches and family consultants who have public websites with contact info
-            # These are more likely to be scrapeable than PTA pages on school sites
-            category_keywords.append("(\"parenting coach\" OR \"family coach\" OR \"parent educator\" OR \"family consultant\" OR \"parenting consultant\") (\"Washington DC\" OR \"DMV\" OR Bethesda OR Arlington OR Alexandria) email contact")
+            # Simple, direct search - remove complex structure that may be blocking results
+            # Try basic keywords that should return results
+            category_keywords.append("parenting coach Washington DC OR parent educator DMV OR family coach Bethesda OR PTA president Montgomery County")
         if has_international:
             # Target school international offices and placement services
             category_keywords.append("\"international student\" OR \"foreign student services\" OR \"host family\" OR \"ESL program\" (\"international advisor\" OR \"student services coordinator\" OR \"admissions counselor\") (Washington DC OR \"DMV\" OR \"Montgomery County\") email contact")
