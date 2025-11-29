@@ -157,7 +157,7 @@ class ProspectDiscoveryService:
         """Lazy init clients"""
         if self.firecrawl is None:
             try:
-            self.firecrawl = get_firecrawl_client()
+                self.firecrawl = get_firecrawl_client()
             except Exception as e:
                 logger.warning(f"Firecrawl client not available: {e}")
                 self.firecrawl = None
