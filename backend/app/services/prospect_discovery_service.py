@@ -29,6 +29,8 @@ from app.services.firecrawl_client import get_firecrawl_client
 from app.services.perplexity_client import get_perplexity_client
 from app.services.search_client import get_search_client
 from app.services.firestore_client import db
+from app.services.prospect_discovery.extractors.factory import extract_prospects_with_factory
+from app.services.prospect_discovery.extractors.factory import extract_prospects_with_factory
 
 logger = logging.getLogger(__name__)
 
@@ -476,75 +478,55 @@ class ProspectDiscoveryService:
         category: Optional[str] = None
     ) -> List[DiscoveredProspect]:
         """
-        Extract prospect information from scraped content.
+        Extract prospect information from scraped content using the extractor factory.
+        
+        This method routes to the appropriate extractor based on URL patterns:
+        - Psychology Today → PsychologyTodayExtractor
+        - Doctor directories → DoctorDirectoryExtractor
+        - Treatment centers → TreatmentCenterExtractor
+        - Embassies → EmbassyExtractor
+        - Youth sports → YouthSportsExtractor
+        - All others → GenericExtractor
         
         Args:
+            content: HTML content to extract from
+            url: Source URL
+            source: Prospect source type
             category: Category ID (e.g., 'pediatricians', 'psychologists') - if provided,
                      prospects will be tagged with this category instead of auto-detection
+        
+        Returns:
+            List of DiscoveredProspect objects
         """
         logger.info(f"[EXTRACTION START] URL: {url} | Category: {category} | Source: {source}")
-        prospects = []
         
-        # Check if this is a Psychology Today listing/directory page
-        is_psychology_today_listing = 'psychologytoday.com' in url.lower() and any(path in url.lower() for path in ['/us/therapists/', '/therapists/', '/find-a-therapist'])
-        
-        if is_psychology_today_listing:
-            # Use 2-hop extraction: listing page → profile pages
-            return self._extract_psychology_today_listing(content, url, source, category)
-        
-        # Source-specific extraction
-        if source == ProspectSource.PSYCHOLOGY_TODAY:
-            return self._extract_psychology_today(content, url, source, category)
-        
-        # Check if this is a pediatrician/doctor directory page
-        is_doctor_directory = any(domain in url.lower() for domain in [
-            'healthgrades.com', 'zocdoc.com', 'vitals.com', 'webmd.com',
-            'doctor.com', 'ratemds.com', 'health.usnews.com'
-        ])
-        
-        if is_doctor_directory:
-            # Use 2-hop extraction: directory → profile pages
-            return self._extract_doctor_directory(content, url, source, category)
-        
-        # Check if this is a treatment center website
-        is_treatment_center = any(keyword in url.lower() for keyword in [
-            'treatment', 'rehab', 'recovery', 'residential', 'php', 'iop', 
-            'therapeutic', 'wilderness', 'boarding'
-        ]) or any(path in url.lower() for path in ['/team', '/staff', '/leadership', '/admissions', '/about'])
-        
-        if is_treatment_center:
-            # Use treatment center extraction: main page + staff/leadership pages
-            return self._extract_treatment_center(content, url, source, category)
-        
-        # Check if this is an embassy website
-        is_embassy = any(keyword in url.lower() for keyword in [
-            'embassy', 'consulate', 'diplomatic', 'diplomatic-mission'
-        ]) or any(domain in url.lower() for domain in [
-            '.embassy.', '.consulate.'
-        ]) or '/embassy/' in url.lower() or '/consulate/' in url.lower()
-        
-        if is_embassy:
-            # Use embassy extraction: education officers, cultural attachés
-            return self._extract_embassy_contacts(content, url, source, category)
-        
-        # Check if this is a youth sports organization
-        is_youth_sports = any(keyword in url.lower() for keyword in [
-            'sports academy', 'athletic academy', 'youth sports', 'elite sports',
-            'travel team', 'club soccer', 'club basketball', 'premier soccer',
-            'academy soccer', 'academy basketball', 'youth soccer', 'youth basketball'
-        ]) or any(path in url.lower() for path in [
-            '/coaches', '/staff', '/team', '/about', '/programs'
-        ]) and any(sport in url.lower() for sport in [
-            'soccer', 'basketball', 'football', 'baseball', 'lacrosse', 'tennis',
-            'volleyball', 'swimming', 'athletic', 'sports'
-        ])
-        
-        if is_youth_sports:
-            # Use youth sports extraction: coaches, directors, program managers
-            return self._extract_youth_sports(content, url, source, category)
-        
-        # Generic extraction for other sources
-        return self._extract_generic(content, url, source, category)
+        try:
+            # Use factory pattern to auto-select the correct extractor
+            prospects = extract_prospects_with_factory(
+                content=content,
+                url=url,
+                source=source,
+                category=category
+            )
+            
+            logger.info(f"[EXTRACTION COMPLETE] URL: {url} | Found {len(prospects)} prospects")
+            
+            # Handle partial prospects (for 2-hop scraping)
+            # If extractor returns prospects with just source_url, they need further scraping
+            partial_prospects = [p for p in prospects if not p.name or p.name == "Unknown"]
+            full_prospects = [p for p in prospects if p not in partial_prospects]
+            
+            if partial_prospects:
+                logger.info(f"[EXTRACTION] Found {len(partial_prospects)} partial prospects (profile URLs) for 2-hop scraping")
+                # Return both - orchestrator should handle 2-hop scraping if needed
+                return prospects
+            
+            return full_prospects if full_prospects else prospects
+            
+        except Exception as e:
+            logger.error(f"[EXTRACTION ERROR] Failed to extract prospects from {url}: {e}", exc_info=True)
+            # Fallback to empty list on error
+            return []
     
     def _extract_psychology_today(
         self,
