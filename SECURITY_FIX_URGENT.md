@@ -5,6 +5,18 @@ Service account keys were exposed in the public GitHub repository:
 - `keys/firebase-service-account.json` - EXPOSED and will be disabled by Google
 - `keys/aiclone-drive-ingest-e717f9932b2b.json` - EXPOSED
 
+## ✅ IMPORTANT: Your Data is SAFE!
+
+**Rotating service account keys does NOT delete or modify any Firebase data!**
+
+- Service account keys are just authentication credentials (like passwords)
+- Your Firebase data (Firestore collections, documents, etc.) is stored separately
+- Rotating keys only replaces the credential used to access Firebase
+- All your data remains completely intact
+- This is like changing your password - it doesn't delete your account
+
+**You will NOT lose any Firebase data.**
+
 ## ✅ Immediate Fixes Applied
 1. ✅ Removed `keys/` directory from git tracking
 2. ✅ Added `keys/` to `.gitignore` 
