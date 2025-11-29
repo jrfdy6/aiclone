@@ -223,14 +223,20 @@ class ProspectDiscoveryService:
             'powered by', 'built with', 'designed by', 'created by',
             'all rights reserved', 'copyright', 'privacy policy',
             'terms of service', 'cookie policy', 'sitemap',
-            'is powered by', 'is built with', 'is designed by'
+            'is powered by', 'is built with', 'is designed by',
+            'where children come first', 'in the united states',
+            'in united states', 'the united states', 'in the us'
         ]
         
         def is_valid_organization(org: str) -> bool:
             """Check if organization name looks valid (not template/footer text)"""
-            org_lower = org.lower()
+            org_lower = org.lower().strip()
             # Filter template phrases
             if any(phrase in org_lower for phrase in template_phrases):
+                return False
+            # Check if organization IS a template phrase (exact match)
+            if org_lower in ['where children come first', 'in the united states', 
+                            'in united states', 'the united states', 'in the us']:
                 return False
             # Filter common website phrases
             if any(phrase in org_lower for phrase in ['click here', 'read more', 'learn more']):
@@ -2990,12 +2996,17 @@ Important: Only return verified, publicly available contact information. Do not 
             
             # Validate organization name if present
             if p.organization:
-                org_lower = p.organization.lower()
+                org_lower = p.organization.lower().strip()
                 template_phrases = ['powered by', 'built with', 'designed by', 'is powered by',
                                    'in the united states', 'where children come first',
-                                   'in united states', 'the united states']
+                                   'in united states', 'the united states', 'in the us']
                 if any(phrase in org_lower for phrase in template_phrases):
                     logger.info(f"Filtering out invalid prospect (template organization): {name} | {p.organization}")
+                    return False
+                # Check if organization is exactly a template phrase
+                if org_lower in ['where children come first', 'in the united states', 'in united states', 
+                                'the united states', 'in the us']:
+                    logger.info(f"Filtering out invalid prospect (template organization name): {name} | {p.organization}")
                     return False
                 # Filter out generic organization names
                 if org_lower in ['psychologytoday', 'psychology today']:
