@@ -76,6 +76,11 @@ PROSPECT_CATEGORIES = {
         "keywords": ["psychologist", "psychiatrist", "therapist", "mental health", "child psychology"],
         "search_terms": ["child psychologist", "adolescent psychiatrist", "family therapist"],
     },
+    "psychologists_psychiatrists": {
+        "name": "Psychologists & Psychiatrists",
+        "keywords": ["psychologist", "psychiatrist", "therapist", "mental health", "child psychology"],
+        "search_terms": ["child psychologist", "adolescent psychiatrist", "family therapist"],
+    },
     "treatment_centers": {
         "name": "Treatment Centers",
         "keywords": ["treatment center", "residential treatment", "therapeutic", "rehab", "admissions"],
@@ -97,6 +102,27 @@ PROSPECT_CATEGORIES = {
         "search_terms": ["mom group leader", "parent network", "family services"],
     },
     "international_students": {
+        "name": "International Student Services",
+        "keywords": ["international student", "ESL", "foreign student", "visa", "host family"],
+        "search_terms": ["international student services", "foreign student placement", "host family coordinator"],
+    },
+    # Category name variations (for frontend compatibility - these map to base categories)
+    "embassies_diplomats": {
+        "name": "Embassies & Diplomats",
+        "keywords": ["embassy", "diplomat", "cultural officer", "education attaché", "consulate"],
+        "search_terms": ["embassy education officer", "cultural affairs", "diplomatic family services"],
+    },
+    "youth_sports_programs": {
+        "name": "Youth Sports Programs",
+        "keywords": ["athletic academy", "sports academy", "elite athlete", "youth sports", "travel team"],
+        "search_terms": ["athletic academy director", "elite youth sports", "sports academy high school"],
+    },
+    "mom_groups_parent_networks": {
+        "name": "Mom Groups & Parent Networks",
+        "keywords": ["mom group", "parent network", "PTA", "family", "parenting coach"],
+        "search_terms": ["mom group leader", "parent network", "family services"],
+    },
+    "international_student_services": {
         "name": "International Student Services",
         "keywords": ["international student", "ESL", "foreign student", "visa", "host family"],
         "search_terms": ["international student services", "foreign student placement", "host family coordinator"],
@@ -333,9 +359,25 @@ class ProspectDiscoveryService:
         def is_valid_organization(org: str) -> bool:
             """Check if organization name looks valid (not template/footer text)"""
             org_lower = org.lower().strip()
+            org_words = org.split()
+            
             # Filter template phrases
             if any(phrase in org_lower for phrase in template_phrases):
                 return False
+            
+            # Filter sentence patterns (not organization names)
+            sentence_patterns = [
+                'may also be', 'are also known', 'can also', 'will also',
+                'is also', 'and hospital', 'pediatricians may', 'psychologists may',
+                'may also be known', 'are also known as', 'by the following'
+            ]
+            if any(pattern in org_lower for pattern in sentence_patterns):
+                return False
+            
+            # Filter organizations with too many words (likely sentences)
+            if len(org_words) > 6:  # 7+ words is suspicious for an org name
+                return False
+            
             # Check if organization IS a template phrase (exact match)
             if org_lower in ['where children come first', 'in the united states', 
                             'in united states', 'the united states', 'in the us']:
@@ -3027,6 +3069,8 @@ Important: Only return verified, publicly available contact information. Do not 
                 'administrative', 'outreach', 'experience', 'engagement',
                 'nurse', 'practitioner',  # Job titles, not names
                 'played', 'playing', 'will', 'was', 'were', 'been',  # Verbs
+                'bilingual', 'clinical',  # These are descriptors, not names
+                'janak', 'scadmoa',  # Invalid single words that might appear
             ]
             # Only add location words to bad_words if it's NOT a DC neighborhood
             if not is_dc_neighborhood:
@@ -3040,11 +3084,12 @@ Important: Only return verified, publicly available contact information. Do not 
             # Only filter if the name looks like a location phrase, not a person name
             location_phrases = ['areas cities', 'north bethesda', 'south bethesda', 'east bethesda',
                               'west bethesda', 'montgomery county', 'fairfax county', 'north arlington',
-                              'south arlington', 'silver spring', 'chevy chase']
-            # Remove 'capitol heights' from location_phrases since it's a valid DC neighborhood
+                              'south arlington', 'silver spring', 'chevy chase', 'capitol heights']
+            # Filter out location phrases (these are places, not people)
+            # DC neighborhoods are valid place names, but they shouldn't be person names
             name_lower_phrase = name_lower.replace(' ', ' ')
-            if not is_dc_neighborhood and (name_lower_phrase in location_phrases or name_lower_phrase.startswith('areas ') or name_lower_phrase.startswith('cities ')):
-                logger.info(f"Filtering out invalid prospect (location phrase): {name}")
+            if name_lower_phrase in location_phrases or name_lower_phrase.startswith('areas ') or name_lower_phrase.startswith('cities '):
+                logger.info(f"Filtering out invalid prospect (location phrase, not a person): {name}")
                 return False
             
             # Filter if name starts with location direction words (likely location phrases)
@@ -3060,11 +3105,17 @@ Important: Only return verified, publicly available contact information. Do not 
                         logger.info(f"Filtering out invalid prospect (location phrase): {name}")
                         return False
             
-            # Filter role words at end of name (e.g., "John Counselor", "Jane Director")
+            # Filter role words at end of name (e.g., "John Counselor", "Jane Director", "Bilingual Clinical")
             role_words = ['counselor', 'director', 'therapist', 'psychologist', 'psychiatrist', 'coach',
-                         'specialist', 'consultant', 'advisor', 'manager', 'worker', 'officer', 'athletic']
+                         'specialist', 'consultant', 'advisor', 'manager', 'worker', 'officer', 'athletic',
+                         'clinical', 'bilingual', 'licensed', 'certified', 'registered']
             if words[-1].lower() in role_words:
-                logger.info(f"Filtering out invalid prospect (role word at end): {name}")
+                logger.info(f"Filtering out invalid prospect (role/descriptor word at end): {name}")
+                return False
+            
+            # Filter if name starts with a role/descriptor (e.g., "Bilingual Clinical", "Licensed Therapist")
+            if words[0].lower() in role_words:
+                logger.info(f"Filtering out invalid prospect (role/descriptor word at start): {name}")
                 return False
             
             # Filter phrases and names starting with bad prefixes
@@ -3087,21 +3138,48 @@ Important: Only return verified, publicly available contact information. Do not 
             # Validate organization name if present
             if p.organization:
                 org_lower = p.organization.lower().strip()
+                
+                # Filter out sentences/phrases that look like content, not organization names
+                # Organization names should be 2-5 words max, not full sentences
+                org_words = p.organization.split()
+                
+                # Sentence patterns that indicate this is not an organization name
+                sentence_patterns = [
+                    'may also be', 'are also known', 'can also', 'will also',
+                    'is also', 'and hospital', 'pediatricians may', 'psychologists may',
+                    'may also be known', 'are also known as', 'by the following'
+                ]
+                
+                # Check for sentence patterns first (most reliable indicator)
+                if any(pattern in org_lower for pattern in sentence_patterns):
+                    logger.info(f"Filtering out invalid organization (contains sentence pattern): {name} | {p.organization[:60]}...")
+                    p.organization = None
+                elif len(org_words) >= 10:  # 10+ words is definitely a sentence
+                    logger.info(f"Filtering out invalid organization (too long, looks like a sentence): {name} | {p.organization[:50]}...")
+                    p.organization = None
+                elif len(org_words) > 6:  # 7-9 words is suspicious
+                    logger.info(f"Filtering out invalid organization (too many words for org name): {name} | {p.organization[:60]}...")
+                    p.organization = None
+                
+                # Template phrases (duplicate check for safety)
                 template_phrases = ['powered by', 'built with', 'designed by', 'is powered by',
                                    'in the united states', 'where children come first',
-                                   'in united states', 'the united states', 'in the us']
+                                   'in united states', 'the united states', 'in the us',
+                                   'may also be known', 'are also known as', 'and hospital',
+                                   'by the following', 'the following']
                 if any(phrase in org_lower for phrase in template_phrases):
-                    logger.info(f"Filtering out invalid prospect (template organization): {name} | {p.organization}")
-                    return False
+                    logger.info(f"Filtering out invalid organization (template phrase): {name} | {p.organization[:60]}...")
+                    p.organization = None  # Clear bad org instead of filtering prospect
                 # Check if organization is exactly a template phrase
                 if org_lower in ['where children come first', 'in the united states', 'in united states', 
                                 'the united states', 'in the us']:
                     logger.info(f"Filtering out invalid prospect (template organization name): {name} | {p.organization}")
-                    return False
+                    p.organization = None
                 # Filter out directory/aggregator sites (not actual organizations)
                 directory_sites = ['psychologytoday', 'psychology today', 'healthgrades', 'webmd', 
                                  'zocdoc', 'vitals', 'ratemds', 'doctor.com', 'pmc', 'ncbi',
-                                 'callsource', 'indeed', 'glassdoor', 'linkedin']
+                                 'callsource', 'indeed', 'glassdoor', 'linkedin', 'savannahmastercalendar',
+                                 'royaltyinstitute']
                 if org_lower in directory_sites or any(ds in org_lower for ds in directory_sites):
                     # Directory sites are not organizations - set to None
                     p.organization = None
@@ -3114,6 +3192,29 @@ Important: Only return verified, publicly available contact information. Do not 
         filtered_count = len(prospects) - len(valid_prospects)
         if filtered_count > 0:
             logger.info(f"Filtered out {filtered_count} invalid prospects before saving (from {len(prospects)} total)")
+        
+        # Final cleanup: Ensure any remaining bad organizations are cleared
+        for prospect in valid_prospects:
+            if prospect.organization:
+                org_lower = prospect.organization.lower().strip()
+                org_words = prospect.organization.split()
+                
+                # Double-check for sentence patterns
+                sentence_patterns = [
+                    'may also be', 'are also known', 'can also', 'will also',
+                    'is also', 'and hospital', 'pediatricians may', 'psychologists may',
+                    'may also be known', 'are also known as', 'by the following'
+                ]
+                
+                if any(pattern in org_lower for pattern in sentence_patterns):
+                    logger.info(f"[CLEANUP] Clearing bad organization: {prospect.name} | {prospect.organization[:60]}...")
+                    prospect.organization = None
+                elif len(org_words) >= 10:
+                    logger.info(f"[CLEANUP] Clearing long organization (10+ words): {prospect.name} | {prospect.organization[:60]}...")
+                    prospect.organization = None
+                elif len(org_words) > 6:
+                    logger.info(f"[CLEANUP] Clearing long organization (7-9 words): {prospect.name} | {prospect.organization[:60]}...")
+                    prospect.organization = None
         
         logger.info(f"Attempting to save {len(valid_prospects)} valid prospects (filtered {filtered_count} invalid)")
         
@@ -3293,15 +3394,15 @@ Important: Only return verified, publicly available contact information. Do not 
         # Category-specific search optimization for ALL categories
         # Combine site preferences from ALL selected categories (not just first match)
         
-        # Check which categories are selected
-        has_pediatricians = 'pediatricians' in categories
-        has_psychologists = 'psychologists' in categories or 'psychiatrists' in categories
-        has_treatment = 'treatment_centers' in categories
-        has_embassies = 'embassies' in categories or 'diplomats' in categories
-        has_sports = 'youth_sports' in categories or 'athletic_academies' in categories
-        has_mom_groups = 'mom_groups' in categories or 'parent_networks' in categories
-        has_international = 'international_students' in categories
-        has_education = 'education_consultants' in categories or 'school_counselors' in categories
+        # Check which categories are selected (handle various naming formats)
+        has_pediatricians = any(cat in ['pediatricians', 'pediatric'] for cat in categories)
+        has_psychologists = any(cat in ['psychologists', 'psychiatrists', 'psychologists_psychiatrists'] for cat in categories)
+        has_treatment = any(cat in ['treatment_centers', 'treatment'] for cat in categories)
+        has_embassies = any(cat in ['embassies', 'diplomats'] for cat in categories)
+        has_sports = any(cat in ['youth_sports', 'athletic_academies', 'youth_sports_programs'] for cat in categories)
+        has_mom_groups = any(cat in ['mom_groups', 'parent_networks', 'mom_groups_parent_networks'] for cat in categories)
+        has_international = any(cat in ['international_students', 'international_student_services'] for cat in categories)
+        has_education = any(cat in ['education_consultants', 'school_counselors'] for cat in categories)
         
         # Collect site preferences from ALL selected categories
         site_preferences = []
@@ -3310,19 +3411,28 @@ Important: Only return verified, publicly available contact information. Do not 
         if has_pediatricians:
             site_preferences.append("site:healthgrades.com OR site:vitals.com OR site:webmd.com")
         if has_psychologists:
-            site_preferences.append("site:psychologytoday.com OR site:healthgrades.com")
+            # Prioritize Psychology Today profile pages specifically (therapist/psychiatrist profiles with IDs)
+            # Use more specific site targeting to get actual profile pages
+            site_preferences.append("site:psychologytoday.com/us/therapists OR site:psychologytoday.com/us/psychiatrists")
+            # Add location-specific search terms for DC area
+            category_keywords.append("(\"child psychologist\" OR \"adolescent psychiatrist\" OR \"family therapist\" OR \"teen therapist\" OR \"child therapist\") (\"Washington DC\" OR \"District of Columbia\" OR Bethesda OR \"North Bethesda\" OR Arlington OR \"Montgomery County\")")
         if has_treatment:
-            category_keywords.append("\"treatment center\" OR \"rehab\" director email contact")
-            site_preferences.append("site:psychologytoday.com")
+            # Target treatment center websites specifically, not Psychology Today
+            category_keywords.append("\"residential treatment center\" OR \"therapeutic boarding school\" OR \"adolescent treatment\" OR \"RTC\" (\"admissions director\" OR \"clinical director\" OR \"intake coordinator\" OR \"program director\") email contact")
+            # Remove Psychology Today - not primary source for treatment centers
+            # site_preferences.append("site:psychologytoday.com")
         if has_embassies:
-            site_preferences.append("site:*.embassy. OR site:*.consulate.")
-            category_keywords.append("\"embassy education officer\" OR \"cultural attache\" OR \"education attaché\" email contact")
+            # Target embassy and consulate websites
+            site_preferences.append("site:*.embassy. OR site:*.consulate. OR site:*.gov")
+            category_keywords.append("\"education officer\" OR \"education attaché\" OR \"cultural attaché\" OR \"cultural officer\" OR \"diplomatic family services\" (Washington DC OR \"District of Columbia\") email contact")
         if has_sports:
-            category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" (director OR coach) email contact")
+            category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" OR \"youth soccer\" OR \"youth basketball\" (\"athletic director\" OR \"director of coaching\" OR \"program director\" OR \"head coach\") (Washington DC OR \"DMV\" OR \"NOVA\" OR \"Montgomery County\") email contact")
         if has_mom_groups:
-            category_keywords.append("\"mom group\" OR \"parents group\" OR \"parenting coach\" leader organizer email")
+            category_keywords.append("\"mom group\" OR \"parents group\" OR \"parent network\" OR \"PTA\" OR \"parenting coach\" (\"group leader\" OR \"organizer\" OR \"coordinator\" OR \"president\") (Washington DC OR \"DMV\" OR \"Montgomery County\" OR Bethesda) email contact")
         if has_international:
-            category_keywords.append("\"international student\" OR \"student services\" advisor coordinator email")
+            # Target school international offices and placement services
+            category_keywords.append("\"international student\" OR \"foreign student services\" OR \"host family\" OR \"ESL program\" (\"international advisor\" OR \"student services coordinator\" OR \"admissions counselor\") (Washington DC OR \"DMV\" OR \"Montgomery County\") email contact")
+            site_preferences.append("site:*.edu OR site:*.org")
         if has_education:
             category_keywords.append("\"educational consultant\" OR \"college consultant\" OR \"admissions consultant\" email contact")
         
@@ -3347,7 +3457,13 @@ Important: Only return verified, publicly available contact information. Do not 
         if not site_preferences and not category_keywords:
             query_parts.append("email OR phone OR contact")
         
-        query_parts.append("-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com")
+        excluded_sites = "-site:linkedin.com -site:facebook.com -site:twitter.com -site:glassdoor.com -site:indeed.com -site:iecaonline.com"
+        
+        # For psychologists, also exclude common garbage patterns
+        if has_psychologists:
+            excluded_sites += " -form -document -pdf -download -observation -verification -pta -program"
+        
+        query_parts.append(excluded_sites)
         
         return " ".join(filter(None, query_parts))
     
@@ -3370,6 +3486,65 @@ Important: Only return verified, publicly available contact information. Do not 
         # Filter out URLs that can't be scraped
         scrapeable_results = [r for r in search_results 
                               if not any(domain in r.link.lower() for domain in BLOCKED_DOMAINS)]
+        
+        # Category-specific URL filtering and prioritization
+        if category:
+            category_lower = category.lower()
+            
+            # Psychologists: ONLY accept Psychology Today profile URLs (strict filtering)
+            if 'psychologists' in category_lower or 'psychiatrists' in category_lower:
+                # ONLY keep Psychology Today profile URLs (must have ID number pattern)
+                profile_urls = [r for r in scrapeable_results 
+                               if 'psychologytoday.com' in r.link.lower() 
+                               and (re.search(r'/therapists/[^/]+/\d{4,}', r.link) or re.search(r'/psychiatrists/[^/]+/\d{4,}', r.link))]
+                
+                if profile_urls:
+                    logger.info(f"[CATEGORY: {category}] Found {len(profile_urls)} Psychology Today profile URLs - using ONLY these")
+                    scrapeable_results = profile_urls  # ONLY use profile URLs, reject everything else
+                else:
+                    logger.warning(f"[CATEGORY: {category}] No Psychology Today profile URLs found - will try all results")
+                
+                # Also skip obvious garbage URLs
+                non_profile_patterns = ['/form', '/document', '/pdf', '/download', '/file', '/observation', '/verification', '/pta', '/program', '/student']
+                scrapeable_results = [r for r in scrapeable_results 
+                                     if not any(pattern in r.link.lower() for pattern in non_profile_patterns)]
+            
+            # Treatment Centers: Prioritize treatment center websites, skip generic directories
+            elif 'treatment' in category_lower:
+                treatment_urls = [r for r in scrapeable_results 
+                                 if any(keyword in r.link.lower() for keyword in ['treatment', 'rehab', 'residential', 'therapeutic'])]
+                if treatment_urls:
+                    logger.info(f"[CATEGORY: {category}] Found {len(treatment_urls)} treatment center URLs - prioritizing these")
+                    scrapeable_results = treatment_urls + [r for r in scrapeable_results if r not in treatment_urls]
+                
+                # Skip directory sites and non-relevant pages
+                skip_patterns = ['/directory', '/listings', '/find', '/search', '/psychologytoday.com']
+                scrapeable_results = [r for r in scrapeable_results 
+                                     if not any(pattern in r.link.lower() for pattern in skip_patterns)]
+            
+            # Embassies: Prioritize embassy/consulate websites
+            elif 'embassies' in category_lower or 'diplomats' in category_lower:
+                embassy_urls = [r for r in scrapeable_results 
+                               if '.embassy.' in r.link.lower() or '.consulate.' in r.link.lower() or r.link.lower().endswith('.gov')]
+                if embassy_urls:
+                    logger.info(f"[CATEGORY: {category}] Found {len(embassy_urls)} embassy/consulate URLs - prioritizing these")
+                    scrapeable_results = embassy_urls + [r for r in scrapeable_results if r not in embassy_urls]
+            
+            # Youth Sports: Prioritize academy/club websites
+            elif 'sports' in category_lower or 'athletic' in category_lower:
+                sports_urls = [r for r in scrapeable_results 
+                              if any(keyword in r.link.lower() for keyword in ['academy', 'sports', 'athletic', 'club'])]
+                if sports_urls:
+                    logger.info(f"[CATEGORY: {category}] Found {len(sports_urls)} sports academy/club URLs - prioritizing these")
+                    scrapeable_results = sports_urls + [r for r in scrapeable_results if r not in sports_urls]
+            
+            # International Students: Prioritize .edu and international office pages
+            elif 'international' in category_lower:
+                edu_urls = [r for r in scrapeable_results 
+                           if '.edu' in r.link.lower() or 'international' in r.link.lower()]
+                if edu_urls:
+                    logger.info(f"[CATEGORY: {category}] Found {len(edu_urls)} education/international URLs - prioritizing these")
+                    scrapeable_results = edu_urls + [r for r in scrapeable_results if r not in edu_urls]
         
         logger.info(f"Filtered {len(search_results)} results to {len(scrapeable_results)} scrapeable URLs")
         
