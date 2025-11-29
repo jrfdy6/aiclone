@@ -2609,15 +2609,15 @@ class ProspectDiscoveryService:
                 name_from_email = re.sub(r'\d+', '', name_from_email).strip()
                 
                 if len(name_from_email) >= 3:
-                prospect = DiscoveredProspect(
-                    name=name_from_email,
+                    prospect = DiscoveredProspect(
+                        name=name_from_email,
                         title=detected_profession,
-                    source_url=url,
-                    source=source,
-                    contact=ProspectContact(email=email),
+                        source_url=url,
+                        source=source,
+                        contact=ProspectContact(email=email),
                         bio_snippet=content[:200] if content else None,
-                )
-                prospects.append(prospect)
+                    )
+                    prospects.append(prospect)
         
         return prospects
     
