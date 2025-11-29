@@ -1,10 +1,11 @@
 """
 Validation functions for prospect discovery
 """
+import re
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
-from .constants import DC_NEIGHBORHOODS
+from .constants import DC_NEIGHBORHOODS, CRED_PATTERN, GENERIC_EMAIL_PREFIXES
 
 if TYPE_CHECKING:
     from app.models.prospect_discovery import DiscoveredProspect
@@ -220,4 +221,95 @@ def is_valid_prospect_for_saving(prospect: 'DiscoveredProspect') -> bool:
             logger.debug(f"Filtering out directory site as organization: {org_lower} for {name}")
     
     return True
+
+
+# Helper functions for extractors
+
+def find_name_in_text(text: str) -> Optional[str]:
+    """Find a person name in text using validation"""
+    # Try credential patterns first
+    pattern = rf'\b([A-Z][a-z]{{2,12}}\s+[A-Z][a-z]{{2,12}}),?\s*({CRED_PATTERN})\b'
+    matches = re.findall(pattern, text)
+    for match in matches:
+        name = match[0].strip()
+        if is_valid_person_name(name):
+            return name
+    
+    # Try Dr. prefix
+    pattern = r'\b(?:Dr\.|Mr\.|Ms\.|Mrs\.)\s+([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})\b'
+    matches = re.findall(pattern, text)
+    for match in matches:
+        name = match.strip()
+        if is_valid_person_name(name):
+            return name
+    
+    return None
+
+
+def find_names_in_document(text: str, limit: int = 10) -> List[str]:
+    """Find multiple person names in document text"""
+    names = []
+    
+    # Pattern 1: Name with credentials
+    pattern = rf'\b([A-Z][a-z]{{2,12}}\s+[A-Z][a-z]{{2,12}}),?\s*({CRED_PATTERN})\b'
+    for match in re.findall(pattern, text):
+        name = match[0].strip()
+        if is_valid_person_name(name) and name not in names:
+            names.append(name)
+            if len(names) >= limit:
+                break
+    
+    # Pattern 2: Dr. prefix
+    if len(names) < limit:
+        pattern = r'\b(?:Dr\.|Mr\.|Ms\.|Mrs\.)\s+([A-Z][a-z]{2,12}\s+[A-Z][a-z]{2,12})\b'
+        for match in re.findall(pattern, text):
+            name = match.strip()
+            if is_valid_person_name(name) and name not in names:
+                names.append(name)
+                if len(names) >= limit:
+                    break
+    
+    return names
+
+
+def normalize_phone(phone_str: str) -> Optional[str]:
+    """Normalize phone number to (XXX) XXX-XXXX format"""
+    digits = re.sub(r'[^\d]', '', phone_str)
+    if len(digits) == 10:
+        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    elif len(digits) == 11 and digits[0] == '1':
+        return f"({digits[1:4]}) {digits[4:7]}-{digits[7:]}"
+    return phone_str if phone_str else None
+
+
+def find_phone_in_text(text: str) -> Optional[str]:
+    """Find and normalize first phone number in text"""
+    phones = re.findall(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', text)
+    if phones:
+        return normalize_phone(phones[0])
+    return None
+
+
+def find_emails_in_text(text: str) -> List[str]:
+    """Find emails in text, including obfuscated ones"""
+    emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+    
+    # Obfuscated patterns
+    patterns = [
+        r'([a-zA-Z0-9._%+-]+)\s*\[at\]\s*([a-zA-Z0-9.-]+)\s*\[dot\]\s*([a-zA-Z]{2,})',
+        r'([a-zA-Z0-9._%+-]+)\s*\(at\)\s*([a-zA-Z0-9.-]+)\s*\(dot\)\s*([a-zA-Z]{2,})',
+        r'([a-zA-Z0-9._%+-]+)\s+AT\s+([a-zA-Z0-9.-]+)\s+DOT\s+([a-zA-Z]{2,})',
+    ]
+    
+    for pattern in patterns:
+        for match in re.findall(pattern, text, re.IGNORECASE):
+            emails.append(f"{match[0]}@{match[1]}.{match[2]}")
+    
+    # Filter invalid emails
+    emails = [e for e in emails 
+              if not e.endswith(('.png', '.jpg', '.gif'))
+              and '@sentry' not in e.lower()
+              and not any(e.lower().startswith(p + '@') for p in GENERIC_EMAIL_PREFIXES)]
+    
+    return list(set(emails))  # Dedupe
 

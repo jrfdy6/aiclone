@@ -5,6 +5,11 @@ import re
 from typing import Optional
 from urllib.parse import urlparse
 
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
+
 
 def is_valid_organization(org: str) -> bool:
     """Check if organization name looks valid (not template/footer text)"""
@@ -148,4 +153,26 @@ def extract_organization(content: str, url: str) -> Optional[str]:
         pass
     
     return None
+
+
+# Helper functions for extractors using BeautifulSoup
+
+def extract_from_html(soup: BeautifulSoup, url: Optional[str] = None) -> Optional[str]:
+    """
+    Extract organization from BeautifulSoup HTML object.
+    Wrapper around extract_organization().
+    """
+    if soup is None:
+        return None
+    
+    html_content = str(soup)
+    return extract_organization(html_content, url or "")
+
+
+def extract_from_profile(soup: BeautifulSoup, url: Optional[str] = None) -> Optional[str]:
+    """
+    Extract organization from profile page (same as extract_from_html for now).
+    Can be extended with profile-specific logic.
+    """
+    return extract_from_html(soup, url)
 
