@@ -3428,11 +3428,15 @@ Important: Only return verified, publicly available contact information. Do not 
         if has_sports:
             category_keywords.append("\"athletic academy\" OR \"sports academy\" OR \"elite youth sports\" OR \"travel team\" OR \"youth soccer\" OR \"youth basketball\" (\"athletic director\" OR \"director of coaching\" OR \"program director\" OR \"head coach\") (Washington DC OR \"DMV\" OR \"NOVA\" OR \"Montgomery County\") email contact")
         if has_mom_groups:
-            # Target PTA pages and school district parent contacts
-            # Focus on public school/district websites where PTA contacts are listed
-            category_keywords.append("\"PTA\" OR \"parent teacher association\" OR \"parent coordinator\" (\"Washington DC\" OR \"DC Public Schools\" OR \"Montgomery County Public Schools\" OR Bethesda OR Arlington OR Alexandria) contact email")
-            # Target school district and community organization websites
-            site_preferences.append("site:*.k12.*.us OR site:*.edu OR site:*.org")
+            # Multi-strategy approach: Target multiple parent leadership sources
+            # Strategy 1: PTA and school district contacts
+            category_keywords.append("(\"PTA president\" OR \"PTA leader\" OR \"parent coordinator\" OR \"PTA board\" OR \"parent teacher association\") (\"Washington DC\" OR \"DC Public Schools\" OR \"Montgomery County\" OR Bethesda OR Arlington OR Alexandria) contact")
+            # Strategy 2: Parenting coaches and consultants with public websites
+            category_keywords.append("(\"parenting coach\" OR \"family coach\" OR \"parent educator\" OR \"parenting consultant\") (\"Washington DC\" OR \"DMV\" OR \"Northern Virginia\" OR Bethesda OR Arlington) email")
+            # Strategy 3: Community centers and family resource centers
+            category_keywords.append("(\"family resource center\" OR \"community center\" OR \"parent support\" OR \"family services\") (\"program coordinator\" OR \"director\" OR \"coordinator\") (\"Washington DC\" OR \"Montgomery County\" OR Bethesda) contact")
+            # Target school district, community organization, and coaching websites
+            site_preferences.append("site:*.k12.*.us OR site:*.edu OR site:*.org OR site:*.com")
         if has_international:
             # Target school international offices and placement services
             category_keywords.append("\"international student\" OR \"foreign student services\" OR \"host family\" OR \"ESL program\" (\"international advisor\" OR \"student services coordinator\" OR \"admissions counselor\") (Washington DC OR \"DMV\" OR \"Montgomery County\") email contact")
