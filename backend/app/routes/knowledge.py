@@ -14,8 +14,8 @@ class KnowledgeSearchRequest(BaseModel):
     top_k: int = Field(10, ge=1, le=50, description="Number of chunks to return")
 
 
-@router.post("/")
-async def knowledge_search(req: KnowledgeSearchRequest):
+async def _knowledge_search_impl(req: KnowledgeSearchRequest):
+    """Shared implementation for knowledge search."""
     if not req.search_query.strip():
         raise HTTPException(status_code=400, detail="search_query cannot be empty.")
 
@@ -31,3 +31,15 @@ async def knowledge_search(req: KnowledgeSearchRequest):
         "query": req.search_query,
         "results": results,
     }
+
+
+@router.post("/")
+async def knowledge_search(req: KnowledgeSearchRequest):
+    """Knowledge search endpoint (with trailing slash)."""
+    return await _knowledge_search_impl(req)
+
+
+@router.post("")
+async def knowledge_search_no_slash(req: KnowledgeSearchRequest):
+    """Knowledge search endpoint (without trailing slash)."""
+    return await _knowledge_search_impl(req)
