@@ -2,23 +2,24 @@
 
 import { useState } from 'react';
 import NavHeader from '@/components/NavHeader';
+import { getApiUrl } from '@/lib/api-client';
 
-type SourceItem = {
-  id: string;
-  score: number;
-  data: {
-    text: string;
-    source?: string;
-    chunk_index?: number;
-  } & Record<string, unknown>;
+type KnowledgeResult = {
+  source_id?: string;
+  source_file_id?: string;
+  chunk_index?: number;
+  chunk?: string;
+  similarity_score?: number;
+  metadata?: Record<string, unknown>;
 };
 
-type QueryResponse = {
-  answer: string;
-  sources: SourceItem[];
+type KnowledgeSearchResponse = {
+  success: boolean;
+  query: string;
+  results: KnowledgeResult[];
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_URL = getApiUrl();
 
 export default function KnowledgePage() {
   const [query, setQuery] = useState('');
@@ -26,7 +27,7 @@ export default function KnowledgePage() {
   const [topK, setTopK] = useState(5);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [response, setResponse] = useState<QueryResponse | null>(null);
+  const [response, setResponse] = useState<KnowledgeSearchResponse | null>(null);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,14 +43,14 @@ export default function KnowledgePage() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/knowledge/query`, {
+      const res = await fetch(`${API_URL}/api/knowledge`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           user_id: userId,
-          query,
+          search_query: query,
           top_k: topK,
         }),
       });
@@ -58,7 +59,7 @@ export default function KnowledgePage() {
         throw new Error(`Request failed with status ${res.status}`);
       }
 
-      const data: QueryResponse = await res.json();
+      const data: KnowledgeSearchResponse = await res.json();
       setResponse(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -126,23 +127,23 @@ export default function KnowledgePage() {
         {response && (
           <section>
             <div style={{ backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #475569', padding: '24px', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '12px' }}>Answer</h2>
-              <p style={{ whiteSpace: 'pre-line', color: '#e2e8f0' }}>{response.answer}</p>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '12px' }}>Query</h2>
+              <p style={{ whiteSpace: 'pre-line', color: '#e2e8f0' }}>{response.query}</p>
             </div>
 
             <div>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'white', marginBottom: '12px' }}>Sources</h3>
-              {response.sources.length === 0 ? (
+              <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'white', marginBottom: '12px' }}>Results</h3>
+              {response.results.length === 0 ? (
                 <p style={{ fontSize: '14px', color: '#6b7280' }}>No sources returned.</p>
               ) : (
                 <ul style={{ display: 'flex', flexDirection: 'column', gap: '12px', listStyle: 'none', padding: 0, margin: 0 }}>
-                  {response.sources.map((source) => (
-                    <li key={source.id} style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>
+                  {response.results.map((item, idx) => (
+                    <li key={`${item.source_file_id ?? item.source_id ?? 'item'}-${idx}`} style={{ backgroundColor: '#1e293b', borderRadius: '8px', border: '1px solid #475569', padding: '16px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>
-                        <span>{source.data.source ?? 'Unknown source'}</span>
-                        <span>score: {source.score.toFixed(3)}</span>
+                        <span>{(item.metadata?.file_name as string) ?? (item.metadata?.source as string) ?? 'Unknown source'}</span>
+                        <span>similarity: {(item.similarity_score ?? 0).toFixed(3)}</span>
                       </div>
-                      <p style={{ fontSize: '14px', color: '#9ca3af', margin: 0 }}>{source.data.text}</p>
+                      <p style={{ fontSize: '14px', color: '#9ca3af', margin: 0, whiteSpace: 'pre-line' }}>{item.chunk}</p>
                     </li>
                   ))}
                 </ul>
