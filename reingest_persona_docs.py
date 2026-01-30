@@ -8,16 +8,16 @@ import requests
 import os
 
 # Configuration
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-USER_ID = "dev-user"
+BACKEND_URL = os.getenv("BACKEND_URL", "https://aiclone-production-32dc.up.railway.app")
+USER_ID = "default-user"
 
 DOCS_TO_INGEST = [
     {
-        "path": "JOHNNIE_FIELDS_PERSONA.md",
+        "path": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
         "source_type": "persona",
         "metadata": {
             "topic": "persona",
-            "extra_tags": ["persona", "voice", "style", "background", "johnnie_fields"]
+            "extra_tags": ["persona", "voice", "style", "background", "johnnie_fields", "copilot_optimized"]
         }
     },
     {
