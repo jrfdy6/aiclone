@@ -16,6 +16,12 @@ function generateSlug(title: string, timestamp: number): string {
 }
 
 async function fetchResearchBySlug(slug: string) {
+  // Check if Firebase is configured
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+    console.log("⚠️ FIREBASE_SERVICE_ACCOUNT not set - cannot fetch research");
+    return null;
+  }
+
   try {
     const { db } = await import("@/lib/firestore-server");
     const userId = process.env.DEFAULT_USER_ID || "default-user";
