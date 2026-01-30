@@ -62,6 +62,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Dynamic research pages from Firestore
   let researchRoutes: MetadataRoute.Sitemap = [];
 
+  // Check if Firebase is configured
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+    console.log("⚠️ FIREBASE_SERVICE_ACCOUNT not set - skipping dynamic sitemap");
+    return [...staticRoutes, ...queryRoutes];
+  }
+
   try {
     const { db } = await import("@/lib/firestore-server");
 
