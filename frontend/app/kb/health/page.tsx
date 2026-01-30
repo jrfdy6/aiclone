@@ -3,9 +3,12 @@ export const dynamic = "force-dynamic";
 export default function KbHealthPage() {
   const envCheck = {
     hasApiUrl: !!process.env.NEXT_PUBLIC_API_URL,
+    apiUrl: process.env.NEXT_PUBLIC_API_URL || "not set",
     hasFirebase: !!process.env.FIREBASE_SERVICE_ACCOUNT,
     hasUserId: !!process.env.DEFAULT_USER_ID,
+    userId: process.env.DEFAULT_USER_ID || "not set",
     hasSiteUrl: !!process.env.NEXT_PUBLIC_SITE_URL,
+    siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "not set",
     nodeEnv: process.env.NODE_ENV,
   };
 
