@@ -17,6 +17,12 @@ export const metadata: Metadata = {
 
 // Helper to fetch recent research from Firestore
 async function fetchRecentResearch() {
+  // Check if Firebase is configured
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+    console.log("⚠️ FIREBASE_SERVICE_ACCOUNT not set - skipping research fetch");
+    return [];
+  }
+
   try {
     const { db } = await import("@/lib/firestore-server");
     const userId = process.env.DEFAULT_USER_ID || "default-user";

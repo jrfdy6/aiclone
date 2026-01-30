@@ -37,6 +37,13 @@ export default async function ResearchIndexPage() {
   let topics: any[] = [];
   let discoveries: any[] = [];
 
+  // Check if Firebase is configured
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+    console.log("⚠️ FIREBASE_SERVICE_ACCOUNT not set - showing empty research");
+    // Return page with empty lists
+    return renderPage(topics, discoveries);
+  }
+
   try {
     const { db } = await import("@/lib/firestore-server");
 
@@ -94,6 +101,10 @@ export default async function ResearchIndexPage() {
     console.error("Error fetching research:", error);
   }
 
+  return renderPage(topics, discoveries);
+}
+
+function renderPage(topics: any[], discoveries: any[]) {
   // Schema.org structured data for CollectionPage
   const schemaData = {
     "@context": "https://schema.org",
