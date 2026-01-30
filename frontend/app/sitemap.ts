@@ -14,7 +14,7 @@ function generateSlug(title: string, timestamp: number): string {
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ||
-    "https://your-frontend.up.railway.app";
+    "https://aiclone-frontend-production.up.railway.app";
   const userId = process.env.DEFAULT_USER_ID || "default-user";
 
   // Static KB pages
