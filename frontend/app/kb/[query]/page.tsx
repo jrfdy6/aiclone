@@ -32,7 +32,7 @@ function normalizeQuery(raw: string): string {
 async function fetchKnowledge(searchQuery: string): Promise<KnowledgeSearchResponse> {
   const apiUrl = getApiUrl();
 
-  const res = await fetch(`${apiUrl}/api/knowledge/`, {
+  const res = await fetch(`${apiUrl}/api/knowledge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
