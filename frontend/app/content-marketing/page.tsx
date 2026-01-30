@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import NavHeader from '@/components/NavHeader';
+import { getApiUrl } from '@/lib/api-client';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_URL = getApiUrl();
 
 type TabType = 'research' | 'linking' | 'microtool' | 'prd';
 

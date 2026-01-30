@@ -11,7 +11,7 @@
 export function getApiUrl(): string | undefined {
   if (typeof window !== 'undefined') {
     // Client-side: use environment variable or default
-    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
   }
   // Server-side: use environment variable
   return process.env.NEXT_PUBLIC_API_URL;

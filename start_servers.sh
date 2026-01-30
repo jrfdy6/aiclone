@@ -1,9 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT="/Users/johnniefields/Desktop/Cursor/aiclone"
-FRONTEND_PORT=3000
-BACKEND_PORT=3001
+# Portable root resolution (repo root = this script's directory)
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Allow overrides:
+#   FRONTEND_PORT=3002 BACKEND_PORT=8080 ./start_servers.sh
+FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+BACKEND_PORT="${BACKEND_PORT:-3001}"
+
 BACKEND_LOG="$ROOT/backend/server.log"
 FRONTEND_LOG="$ROOT/frontend/server.log"
 
@@ -19,6 +24,8 @@ kill_port "$FRONTEND_PORT"
 kill_port "$BACKEND_PORT"
 
 cd "$ROOT"
+# Expect a venv at repo root by default. If yours lives elsewhere, activate it
+# before running this script, or update this path.
 source .venv/bin/activate
 set -a
 source backend/.env
@@ -28,8 +35,8 @@ mkdir -p backend frontend
 : > "$BACKEND_LOG"
 : > "$FRONTEND_LOG"
 
-(cd backend && nohup uvicorn app.main:app --port $BACKEND_PORT --reload > "$BACKEND_LOG" 2>&1 &)
-(cd frontend && nohup npm run dev -- --port $FRONTEND_PORT > "$FRONTEND_LOG" 2>&1 &)
+(cd backend && nohup uvicorn app.main:app --port "$BACKEND_PORT" --reload > "$BACKEND_LOG" 2>&1 &)
+(cd frontend && nohup npm run dev -- --port "$FRONTEND_PORT" > "$FRONTEND_LOG" 2>&1 &)
 
 echo "Backend running on http://127.0.0.1:$BACKEND_PORT"
 echo "Frontend running on http://localhost:$FRONTEND_PORT"

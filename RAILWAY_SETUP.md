@@ -67,3 +67,4 @@ cd frontend && npm run dev
 - **CORS errors**: Backend CORS already includes Railway URL in `main.py`
 
 
+

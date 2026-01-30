@@ -1,0 +1,9 @@
+# Allow all crawlers to access knowledge base
+User-agent: *
+Allow: /kb
+Allow: /kb/research
+
+# Sitemap location
+Sitemap: https://your-frontend.up.railway.app/sitemap.xml
+
+# Note: Update the Sitemap URL above with your actual Railway frontend URL
