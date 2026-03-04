@@ -1,81 +1,37 @@
-"""
-Playbook Routes
+from __future__ import annotations
 
-API endpoints for playbook-related functionality.
-"""
+from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-router = APIRouter()
+from app.models import Playbook
+from app.services import firestore_client
+from app.services.local_store import load_local_playbooks
 
-
-@router.get("/summary")
-async def get_playbook_summary():
-    """Get playbook summary information."""
-    return {
-        "success": True,
-        "message": "Playbook summary endpoint",
-        "data": {
-            "movement": "AI Advantage",
-            "audience": "Entrepreneurs and business owners",
-            "principles": [
-                "Human-first approach",
-                "Action-oriented",
-                "Clear and practical guidance"
-            ]
-        }
-    }
+router = APIRouter(prefix="/playbooks", tags=["Playbooks"])
 
 
-@router.get("/onboarding")
-async def get_onboarding_prompt():
-    """Get onboarding prompt template."""
-    return {
-        "success": True,
-        "prompt": """I want to train my AI assistant. Here's my context:
-
-Role: [Your role]
-Audience: [Who you work with]
-Top 3 Goals: [List your goals]
-Biggest Challenge: [Your main challenge]
-AI Expectations: [What you want AI to help with]
-Tone: [Your preferred communication style]
-Content Types: [Types of content you create]
-Systems: [Tools/platforms you use]
-Dream Outcome: [What success looks like]"""
-    }
+def _load_from_firestore() -> List[Playbook]:
+    payload = firestore_client.list_documents("playbooks")
+    if not payload:
+        return []
+    return [Playbook(**item) for item in payload]
 
 
-@router.get("/prompts")
-async def get_starter_prompts():
-    """Get curated starter prompts."""
-    return {
-        "success": True,
-        "prompts": [
-            {
-                "id": "remove_bottlenecks",
-                "title": "Remove Bottlenecks",
-                "prompt": "What are the biggest bottlenecks in my workflow right now?"
-            },
-            {
-                "id": "save_time",
-                "title": "Save Time / Automate",
-                "prompt": "How can I automate repetitive tasks to save time?"
-            },
-            {
-                "id": "stay_visible",
-                "title": "Stay Visible with Less Effort",
-                "prompt": "What's the most effective way to stay visible with minimal effort?"
-            },
-            {
-                "id": "improve_focus",
-                "title": "Improve Focus / Mindset",
-                "prompt": "How can I improve my focus and maintain the right mindset?"
-            },
-            {
-                "id": "elevate_customer",
-                "title": "Elevate Customer Experience",
-                "prompt": "What changes would most elevate the customer experience?"
-            }
-        ]
-    }
+@router.get("/", response_model=List[Playbook])
+async def list_playbooks(category: Optional[str] = None):
+    playbooks = _load_from_firestore() or load_local_playbooks()
+    if category:
+        playbooks = [p for p in playbooks if p.category.lower() == category.lower()]
+    return playbooks
+
+
+@router.get("/{playbook_id}", response_model=Playbook)
+async def get_playbook(playbook_id: str):
+    doc = firestore_client.get_document("playbooks", playbook_id)
+    if doc:
+        return Playbook(**doc)
+    for item in load_local_playbooks():
+        if item.id == playbook_id:
+            return item
+    raise HTTPException(status_code=404, detail="Playbook not found")
