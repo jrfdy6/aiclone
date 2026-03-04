@@ -9,7 +9,9 @@ from typing import Iterable, List, Optional
 from app.models import KnowledgeDoc, LogEntry, Playbook, Prospect
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-KNOWLEDGE_ROOT = Path(__file__).resolve().parents[5] / "knowledge" / "aiclone"
+parents = Path(__file__).resolve().parents
+workspace_hint = parents[5] if len(parents) > 5 else parents[-1]
+KNOWLEDGE_ROOT = workspace_hint / "knowledge" / "aiclone"
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
