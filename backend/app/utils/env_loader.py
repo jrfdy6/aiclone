@@ -4,8 +4,11 @@ import os
 from pathlib import Path
 from typing import Iterable
 
+parents = Path(__file__).resolve().parents
+workspace_hint = parents[5] if len(parents) > 5 else parents[-1]
+
 ENV_CANDIDATES = [
-    Path(__file__).resolve().parents[5] / "secrets" / "railway.env",
+    workspace_hint / "secrets" / "railway.env",
 ]
 
 
