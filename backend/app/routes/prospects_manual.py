@@ -8,7 +8,7 @@ from app.models import Prospect
 from app.services import firestore_client
 from app.services.local_store import save_prospect
 
-router = APIRouter(prefix="/prospects/manual", tags=["Prospects"])
+router = APIRouter(tags=["Prospects"])
 
 
 @router.post("/", response_model=Prospect)

@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from app.services import firestore_client
 from app.services.local_store import load_cached_prospects, load_logs
 
-router = APIRouter(prefix="/analytics", tags=["Analytics"])
+router = APIRouter(tags=["Analytics"])
 
 
 @router.get("/compliance")
