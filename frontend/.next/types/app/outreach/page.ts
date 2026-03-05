@@ -1,4 +1,4 @@
-// File: /Users/johnniefields/Desktop/Cursor/aiclone/frontend/app/outreach/page.tsx
+// File: /Users/neo/.openclaw/workspace/downloads/aiclone/frontend/app/outreach/page.tsx
 import * as entry from '../../../../app/outreach/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

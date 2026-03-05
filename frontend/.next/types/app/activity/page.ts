@@ -1,4 +1,4 @@
-// File: /Users/johnniefields/Desktop/Cursor/aiclone/frontend/app/activity/page.tsx
+// File: /Users/neo/.openclaw/workspace/downloads/aiclone/frontend/app/activity/page.tsx
 import * as entry from '../../../../app/activity/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
