@@ -1,4 +1,4 @@
-// File: /Users/johnniefields/Desktop/Cursor/aiclone/frontend/app/layout.tsx
+// File: /Users/neo/.openclaw/workspace/downloads/aiclone/frontend/app/layout.tsx
 import * as entry from '../../../app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

@@ -1,4 +1,4 @@
-// File: /Users/johnniefields/Desktop/Cursor/aiclone/frontend/app/playbooks/page.tsx
+// File: /Users/neo/.openclaw/workspace/downloads/aiclone/frontend/app/playbooks/page.tsx
 import * as entry from '../../../../app/playbooks/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

@@ -106,7 +106,7 @@ export default function OpsPage() {
         <header style={{ marginBottom: '24px' }}>
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '12px', textTransform: 'uppercase' }}>Ops</p>
           <h1 style={{ fontSize: '32px', fontWeight: 700, color: 'white', marginBottom: '8px' }}>Mission Control</h1>
-          <p style={{ color: '#94a3b8' }}>Live compliance + health telemetry sourced from the production API.</p>
+          <p style={{ color: '#94a3b8' }}>Live compliance + health telemetry sourced from the production API (and mirrored into Discord once the cron posts hourly).</p>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px' }}>

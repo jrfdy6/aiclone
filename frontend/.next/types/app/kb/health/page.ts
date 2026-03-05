@@ -1,4 +1,4 @@
-// File: /Users/johnniefields/Desktop/Cursor/aiclone/frontend/app/kb/health/page.tsx
+// File: /Users/neo/.openclaw/workspace/downloads/aiclone/frontend/app/kb/health/page.tsx
 import * as entry from '../../../../../app/kb/health/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
