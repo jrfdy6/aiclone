@@ -7,7 +7,7 @@ from fastapi import APIRouter
 
 from app.models import CalendarEvent
 
-router = APIRouter(prefix="/calendar", tags=["Calendar"])
+router = APIRouter(tags=["Calendar"])
 
 
 @router.get("/upcoming", response_model=List[CalendarEvent])

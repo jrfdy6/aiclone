@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from app.models import LogEntry, NotificationRequest, NotificationResponse
 from app.routes.system_logs import persist_log
 
-router = APIRouter(prefix="/notifications", tags=["Notifications"])
+router = APIRouter(tags=["Notifications"])
 
 
 @router.post("/send", response_model=NotificationResponse)

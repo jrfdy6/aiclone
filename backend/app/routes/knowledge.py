@@ -8,7 +8,7 @@ from app.models import KnowledgeDoc
 from app.services import firestore_client
 from app.services.local_store import load_local_knowledge
 
-router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
+router = APIRouter(tags=["Knowledge"])
 
 
 def _load_from_firestore() -> List[KnowledgeDoc]:

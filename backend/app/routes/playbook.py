@@ -8,7 +8,7 @@ from app.models import Playbook
 from app.services import firestore_client
 from app.services.local_store import load_local_playbooks
 
-router = APIRouter(prefix="/playbooks", tags=["Playbooks"])
+router = APIRouter(tags=["Playbooks"])
 
 
 def _load_from_firestore() -> List[Playbook]:

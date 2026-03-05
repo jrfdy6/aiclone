@@ -8,7 +8,7 @@ from app.models import Prospect
 from app.services import firestore_client
 from app.services.local_store import load_cached_prospects
 
-router = APIRouter(prefix="/prospects", tags=["Prospects"])
+router = APIRouter(tags=["Prospects"])
 
 
 def _load_from_firestore() -> List[Prospect]:

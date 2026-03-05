@@ -9,7 +9,7 @@ from app.models import LogEntry
 from app.services import firestore_client
 from app.services.local_store import append_log, load_logs
 
-router = APIRouter(prefix="/system/logs", tags=["System Logs"])
+router = APIRouter(tags=["System Logs"])
 
 
 def persist_log(entry: LogEntry) -> None:
