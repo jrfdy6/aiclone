@@ -11,6 +11,7 @@ export default function NavHeader() {
     { href: '/prospects', label: 'Pipeline' },
     { href: '/content-pipeline', label: 'Content' },
     { href: '/topic-intelligence', label: 'Intelligence' },
+    { href: '/ops', label: 'Ops' },
   ];
 
   return (
