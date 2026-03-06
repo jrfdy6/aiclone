@@ -218,14 +218,14 @@ export default function OpsPage() {
   const cronRows = useMemo(() => automations, [automations]);
 
   return (
-    <main style={{ minHeight: '100vh', backgroundColor: '#020617' }}>
+    <main style={{ minHeight: '100vh', background: 'radial-gradient(circle at top, rgba(36,42,71,0.7), #010617 45%)', position: 'relative', paddingBottom: '120px' }}>
       <NavHeader />
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
         <header style={{ marginBottom: '16px' }}>
           <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '12px', textTransform: 'uppercase' }}>Ops</p>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
             <div>
-              <h1 style={{ fontSize: '32px', fontWeight: 700, color: 'white', marginBottom: '4px' }}>Mission Control</h1>
+              <h1 style={{ fontSize: '36px', fontWeight: 700, color: 'white', marginBottom: '4px' }}>Mission Control</h1>
               <p style={{ color: '#94a3b8' }}>Live telemetry for services, sessions, and cron jobs. No mock data—everything here is reading straight from prod.</p>
             </div>
             <div style={{ textAlign: 'right', color: '#64748b', fontSize: '13px' }}>
@@ -253,6 +253,7 @@ export default function OpsPage() {
           <OrgChartSection layers={orgLayers} />
         )}
       </div>
+      <ModuleDock />
     </main>
   );
 }
@@ -282,7 +283,7 @@ function MissionControlView({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <StatGrid metrics={metrics} sessions={sessions.length} cronCount={cronJobs.length} />
+      <HeroCard metrics={metrics} sessions={sessions.length} cronCount={cronJobs.length} />
       <StatusTable
         title="Models"
         subtitle="Backend surfaces + data stores"
@@ -300,23 +301,44 @@ function MissionControlView({
   );
 }
 
-function StatGrid({ metrics, sessions, cronCount }: { metrics: ComplianceMetrics | null; sessions: number; cronCount: number }) {
+function HeroCard({ metrics, sessions, cronCount }: { metrics: ComplianceMetrics | null; sessions: number; cronCount: number }) {
   const cards = [
-    { label: 'Approvals (24h)', value: metrics?.approvals_last_24h ?? 0, tone: '#38bdf8', detail: 'audit events passed' },
-    { label: 'Prospects with email', value: metrics?.prospects_with_email ?? 0, tone: '#fbbf24', detail: 'ready for outreach' },
-    { label: 'Live streams', value: sessions, tone: '#34d399', detail: 'components emitting logs' },
-    { label: 'Cron jobs', value: cronCount, tone: '#f472b6', detail: 'isolated sessions' },
+    { label: 'Approvals', value: metrics?.approvals_last_24h ?? 0, detail: 'Last 24h', tone: '#fbbf24' },
+    { label: 'Prospects ready', value: metrics?.prospects_with_email ?? 0, detail: 'Email staged', tone: '#38bdf8' },
+    { label: 'Log streams', value: sessions, detail: 'Active emitters', tone: '#34d399' },
+    { label: 'Cron runs', value: cronCount, detail: 'Isolated jobs', tone: '#f472b6' },
   ];
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-      {cards.map((card) => (
-        <div key={card.label} style={{ borderRadius: '16px', border: '1px solid #1f2937', padding: '16px', backgroundColor: '#0f172a' }}>
-          <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{card.label}</p>
-          <p style={{ color: card.tone, fontSize: '28px', fontWeight: 600 }}>{card.value}</p>
-          <p style={{ color: '#64748b', fontSize: '12px' }}>{card.detail}</p>
+    <section
+      style={{
+        borderRadius: '20px',
+        padding: '24px',
+        background: 'linear-gradient(135deg, rgba(15,23,42,0.9), rgba(8,12,24,0.95))',
+        border: '1px solid rgba(248,250,252,0.05)',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Ops Dashboard</p>
+          <h2 style={{ color: 'white', fontSize: '32px', margin: '4px 0' }}>Mission Control</h2>
+          <p style={{ color: '#94a3b8', fontSize: '14px' }}>Realtime guardrails and automations for the production agent.</p>
         </div>
-      ))}
-    </div>
+        <div style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'right' }}>
+          <p>Isolated sessions only</p>
+          <p>Mirrored to Brain → Automations</p>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
+        {cards.map((card) => (
+          <div key={card.label} style={{ padding: '14px', borderRadius: '16px', backgroundColor: '#020617', border: '1px solid #111827' }}>
+            <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{card.label}</p>
+            <p style={{ color: card.tone, fontSize: '28px', fontWeight: 600 }}>{card.value}</p>
+            <p style={{ color: '#475569', fontSize: '12px' }}>{card.detail}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -430,7 +452,7 @@ function TabButton({ active, onClick, label, description }: { active: boolean; o
         borderRadius: '16px',
         padding: '16px',
         border: active ? '1px solid #fbbf24' : '1px solid #1f2937',
-        background: active ? 'linear-gradient(120deg, rgba(251,191,36,0.15), rgba(15,23,42,0.95))' : '#0f172a',
+        background: active ? 'linear-gradient(120deg, rgba(251,191,36,0.18), rgba(15,23,42,0.95))' : '#050b19',
         color: 'white',
         cursor: 'pointer',
       }}
@@ -438,6 +460,37 @@ function TabButton({ active, onClick, label, description }: { active: boolean; o
       <p style={{ fontSize: '16px', fontWeight: 600 }}>{label}</p>
       <p style={{ fontSize: '13px', color: '#94a3b8' }}>{description}</p>
     </button>
+  );
+}
+
+function ModuleDock() {
+  const buttons = [
+    { label: 'Ops', tone: '#fbbf24', active: true },
+    { label: 'Brain', tone: '#38bdf8', active: false },
+    { label: 'Lab', tone: '#34d399', active: false },
+  ];
+
+  return (
+    <div style={{ position: 'fixed', bottom: '32px', left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+      <div style={{ display: 'flex', gap: '12px', padding: '10px 16px', background: 'rgba(2,6,23,0.85)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '999px', boxShadow: '0 20px 50px rgba(0,0,0,0.45)', pointerEvents: 'auto' }}>
+        {buttons.map((btn) => (
+          <span
+            key={btn.label}
+            style={{
+              padding: '10px 18px',
+              borderRadius: '999px',
+              backgroundColor: btn.active ? `${btn.tone}22` : 'transparent',
+              border: btn.active ? `1px solid ${btn.tone}` : '1px solid transparent',
+              color: btn.active ? 'white' : '#94a3b8',
+              fontWeight: 600,
+              fontSize: '13px',
+            }}
+          >
+            {btn.label}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
