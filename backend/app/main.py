@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from app.utils import env_loader  # noqa: F401
 from app.routes import (
     analytics,
+    automations,
     calendar,
     ingest_drive,
     knowledge,
@@ -115,6 +116,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(knowledge.router, prefix="/api/knowledge")
 app.include_router(ingest_drive.router, prefix="/api")
+app.include_router(automations.router, prefix="/api/automations")
 app.include_router(playbook.router, prefix="/api/playbooks")
 app.include_router(prospects.router, prefix="/api/prospects")
 app.include_router(prospects_manual.router, prefix="/api/prospects/manual")
