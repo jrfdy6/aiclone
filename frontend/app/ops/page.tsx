@@ -29,6 +29,100 @@ type HealthPayload = {
 
 type Panel = 'compliance' | 'health' | 'audit';
 
+type OrgNode = {
+  id: string;
+  name: string;
+  role: string;
+  description: string;
+  status: 'active' | 'planned';
+  highlight: 'core' | 'ops' | 'brain' | 'lab';
+  responsibilities?: string[];
+};
+
+const orgLayers: OrgNode[][] = [
+  [
+    {
+      id: 'feeze',
+      name: 'Feeze',
+      role: 'Principal Operator',
+      description: 'Approves prod deploys, data use, and spend.',
+      status: 'active',
+      highlight: 'core',
+      responsibilities: ['Final approvals', 'Risk posture + ethics'],
+    },
+  ],
+  [
+    {
+      id: 'neo',
+      name: 'Neo',
+      role: 'Core Agent — strategy + systems',
+      description: 'Routes work across Ops, Brain, and Lab while enforcing guardrails.',
+      status: 'active',
+      highlight: 'ops',
+      responsibilities: ['Mission Control', 'Process orchestration'],
+    },
+  ],
+  [
+    {
+      id: 'ops-agent',
+      name: 'Ops Agent',
+      role: 'Watchdogs + collectors',
+      description: 'Discord/Railway monitors and compliance posting.',
+      status: 'planned',
+      highlight: 'ops',
+      responsibilities: ['Compliance dashboard', 'Railway watchdog', 'Gmail/Calendar commands'],
+    },
+    {
+      id: 'brain-agent',
+      name: 'Brain Agent',
+      role: 'Knowledge + briefs',
+      description: 'Daily briefs, System Docs, Automations mirror.',
+      status: 'planned',
+      highlight: 'brain',
+      responsibilities: ['Daily brief cron', 'System Docs tab', 'Automations sync'],
+    },
+    {
+      id: 'lab-agent',
+      name: 'Lab Agent',
+      role: 'Staging + self-improvement',
+      description: 'Runs port 8900 staging builds and nightly self-improvements.',
+      status: 'planned',
+      highlight: 'lab',
+      responsibilities: ['Nightly self-improvement', 'Lab build logs', 'Staging QA'],
+    },
+  ],
+  [
+    {
+      id: 'collectors',
+      name: 'Collectors',
+      role: 'Discord cron relays',
+      description: 'Hourly compliance posts + 5-min health checks.',
+      status: 'planned',
+      highlight: 'ops',
+      responsibilities: ['Hourly compliance poster', '5-min health DM'],
+    },
+    {
+      id: 'cron-suite',
+      name: 'Cron Suite',
+      role: 'Isolated automations',
+      description: 'Backups, self-improvement, daily brief, docs.',
+      status: 'active',
+      highlight: 'brain',
+      responsibilities: ['Backup @ 02:00', 'Daily brief @ 07:30', 'Docs @ 00:00'],
+    },
+    {
+      id: 'future-agents',
+      name: 'Project Agents',
+      role: 'Per-initiative clones',
+      description: 'Future per-project agents with their own sub-agents.',
+      status: 'planned',
+      highlight: 'lab',
+      responsibilities: ['Prospect ingestion', 'Campaign pilots'],
+    },
+  ],
+];
+
+
 export default function OpsPage() {
   const [metrics, setMetrics] = useState<ComplianceMetrics | null>(null);
   const [logs, setLogs] = useState<SystemLog[]>([]);
@@ -147,6 +241,7 @@ export default function OpsPage() {
             {!loading && !error && activePanel === 'audit' && <AuditPanel logs={logs} />}
           </section>
         </div>
+        <OrgChartSection layers={orgLayers} />
       </div>
     </main>
   );
@@ -225,6 +320,97 @@ function MetricCard({ label, value, tone }: { label: string; value: string | num
     <div style={{ borderRadius: '16px', border: '1px solid #1f2937', padding: '16px', backgroundColor: '#020617' }}>
       <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>{label}</p>
       <p style={{ fontSize: '24px', fontWeight: 700, color: tone }}>{value}</p>
+    </div>
+  );
+}
+
+
+const highlightColors: Record<OrgNode['highlight'], string> = {
+  core: '#f97316',
+  ops: '#fbbf24',
+  brain: '#38bdf8',
+  lab: '#34d399',
+};
+
+const statusLabels: Record<OrgNode['status'], string> = {
+  active: 'Live',
+  planned: 'Planned',
+};
+
+function OrgChartSection({ layers }: { layers: OrgNode[][] }) {
+  return (
+    <section
+      style={{
+        marginTop: '32px',
+        border: '1px solid #1f2937',
+        borderRadius: '16px',
+        padding: '24px',
+        backgroundColor: '#020617',
+      }}
+    >
+      <div style={{ marginBottom: '16px' }}>
+        <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '12px', textTransform: 'uppercase' }}>Org Design</p>
+        <h2 style={{ fontSize: '24px', fontWeight: 600, color: 'white', margin: '4px 0' }}>Ops → Org Chart</h2>
+        <p style={{ color: '#94a3b8' }}>Feeze → Neo → module-specific agents. Future slots are marked “Planned” until we staff them.</p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {layers.map((layer, idx) => (
+          <div
+            key={`layer-${idx}`}
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '16px',
+            }}
+          >
+            {layer.map((node) => (
+              <OrgNodeCard key={node.id} node={node} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function OrgNodeCard({ node }: { node: OrgNode }) {
+  const tone = highlightColors[node.highlight] ?? '#38bdf8';
+  return (
+    <div
+      style={{
+        flex: '1 1 220px',
+        borderRadius: '16px',
+        border: '1px solid #1f2937',
+        padding: '16px',
+        background: 'linear-gradient(135deg, rgba(15,23,42,0.9), rgba(2,6,23,0.9))',
+      }}
+    >
+      <p style={{ color: tone, letterSpacing: '0.2em', fontSize: '10px', textTransform: 'uppercase' }}>{node.role}</p>
+      <h3 style={{ color: 'white', fontSize: '18px', fontWeight: 600, margin: '4px 0 8px' }}>{node.name}</h3>
+      <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '8px' }}>{node.description}</p>
+      {node.responsibilities && node.responsibilities.length > 0 && (
+        <ul style={{ color: '#cbd5f5', fontSize: '13px', marginLeft: '16px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {node.responsibilities.map((item) => (
+            <li key={`${node.id}-${item}`}>{item}</li>
+          ))}
+        </ul>
+      )}
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          borderRadius: '999px',
+          border: '1px solid #1f2937',
+          padding: '6px 12px',
+          color: node.status === 'active' ? '#22c55e' : '#fbbf24',
+          fontSize: '12px',
+          backgroundColor: '#0f172a',
+        }}
+      >
+        <span style={{ width: '6px', height: '6px', borderRadius: '999px', backgroundColor: node.status === 'active' ? '#22c55e' : tone }} />
+        {statusLabels[node.status]}
+      </span>
     </div>
   );
 }
