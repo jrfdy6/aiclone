@@ -27,7 +27,18 @@ type HealthPayload = {
   firestore?: string;
 };
 
-type Panel = 'compliance' | 'health' | 'audit';
+type Automation = {
+  id: string;
+  name: string;
+  schedule: string;
+  cron: string;
+  status: string;
+  channel: string;
+  last_run_at?: string;
+  next_run_at?: string;
+};
+
+type Panel = 'mission' | 'org';
 
 type OrgNode = {
   id: string;
@@ -122,13 +133,13 @@ const orgLayers: OrgNode[][] = [
   ],
 ];
 
-
 export default function OpsPage() {
   const [metrics, setMetrics] = useState<ComplianceMetrics | null>(null);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [health, setHealth] = useState<HealthPayload | null>(null);
+  const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activePanel, setActivePanel] = useState<Panel>('compliance');
+  const [activePanel, setActivePanel] = useState<Panel>('mission');
   const [error, setError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
 
@@ -138,15 +149,17 @@ export default function OpsPage() {
     async function loadData() {
       setError(null);
       try {
-        const [metricsResp, logsResp, healthResp] = await Promise.all([
+        const [metricsResp, logsResp, healthResp, automationsResp] = await Promise.all([
           fetch(`${API_URL}/api/analytics/compliance`).then((res) => res.json()),
-          fetch(`${API_URL}/api/system/logs?limit=20`).then((res) => res.json()),
+          fetch(`${API_URL}/api/system/logs?limit=50`).then((res) => res.json()),
           fetch(`${API_URL}/health`).then((res) => res.json()),
+          fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
         ]);
         if (!cancelled) {
           setMetrics(metricsResp ?? null);
           setLogs(Array.isArray(logsResp?.logs) ? logsResp.logs : Array.isArray(logsResp) ? logsResp : []);
           setHealth(healthResp ?? null);
+          setAutomations(Array.isArray(automationsResp?.data) ? automationsResp.data : []);
           setCheckedAt(new Date());
         }
       } catch (err) {
@@ -169,161 +182,264 @@ export default function OpsPage() {
     };
   }, []);
 
-  const panelList = useMemo(
-    () => [
+  const modelRows = useMemo(() => {
+    if (!health) return [];
+    return [
       {
-        id: 'compliance' as Panel,
-        title: 'Compliance Summary',
-        subtitle: 'Approvals, prospect coverage, log stream',
-        trend: metrics?.approvals_last_24h ?? '—',
+        name: health.service ?? 'aiclone-backend',
+        status: health.status ?? 'unknown',
+        version: health.version ?? '—',
+        datastore: health.firestore ?? '—',
       },
-      {
-        id: 'health' as Panel,
-        title: 'Health Watchdog',
-        subtitle: 'Railway heartbeat and dependencies',
-        trend: health?.status ?? '—',
-      },
-      {
-        id: 'audit' as Panel,
-        title: 'Audit Trail',
-        subtitle: 'Latest system events + context',
-        trend: logs.length,
-      },
-    ],
-    [metrics, health, logs.length]
-  );
+    ];
+  }, [health]);
+
+  const sessionRows = useMemo(() => {
+    const map = new Map<string, { component: string; lastMessage: string; lastTimestamp?: Date }>();
+    logs.forEach((log) => {
+      if (!log.component) return;
+      const ts = log.timestamp ? new Date(log.timestamp) : undefined;
+      const existing = map.get(log.component);
+      if (!existing || (ts && existing.lastTimestamp && ts > existing.lastTimestamp) || (!existing?.lastTimestamp && ts)) {
+        map.set(log.component, {
+          component: log.component,
+          lastMessage: log.message ?? '',
+          lastTimestamp: ts,
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const aTime = a.lastTimestamp?.getTime() ?? 0;
+      const bTime = b.lastTimestamp?.getTime() ?? 0;
+      return bTime - aTime;
+    });
+  }, [logs]);
+
+  const cronRows = useMemo(() => automations, [automations]);
 
   return (
-    <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+    <main style={{ minHeight: '100vh', backgroundColor: '#020617' }}>
       <NavHeader />
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
-        <header style={{ marginBottom: '24px' }}>
-          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '12px', textTransform: 'uppercase' }}>Ops</p>
-          <h1 style={{ fontSize: '32px', fontWeight: 700, color: 'white', marginBottom: '8px' }}>Mission Control</h1>
-          <p style={{ color: '#94a3b8' }}>Live compliance + health telemetry sourced from the production API (and mirrored into Discord once the cron posts hourly).</p>
-        </header>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px' }}>
-          <div style={{ backgroundColor: '#0f172a', border: '1px solid #1f2937', borderRadius: '16px', padding: '16px', height: 'fit-content' }}>
-            <p style={{ color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '12px' }}>Watchers</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {panelList.map((panel) => (
-                <button
-                  key={panel.id}
-                  onClick={() => setActivePanel(panel.id)}
-                  style={{
-                    textAlign: 'left',
-                    borderRadius: '12px',
-                    padding: '12px',
-                    border: activePanel === panel.id ? '1px solid #38bdf8' : '1px solid #1f2937',
-                    backgroundColor: activePanel === panel.id ? '#0f172a' : '#020617',
-                    color: 'white',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <p style={{ fontSize: '16px', fontWeight: 600 }}>{panel.title}</p>
-                  <p style={{ fontSize: '13px', color: '#94a3b8' }}>{panel.subtitle}</p>
-                  <p style={{ fontSize: '12px', color: '#38bdf8', marginTop: '4px' }}>Live • {panel.trend}</p>
-                </button>
-              ))}
+        <header style={{ marginBottom: '16px' }}>
+          <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '12px', textTransform: 'uppercase' }}>Ops</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h1 style={{ fontSize: '32px', fontWeight: 700, color: 'white', marginBottom: '4px' }}>Mission Control</h1>
+              <p style={{ color: '#94a3b8' }}>Live telemetry for services, sessions, and cron jobs. No mock data—everything here is reading straight from prod.</p>
+            </div>
+            <div style={{ textAlign: 'right', color: '#64748b', fontSize: '13px' }}>
+              <p>Last check: {checkedAt ? checkedAt.toLocaleTimeString() : '—'}</p>
+              <p>API: {error ? 'unreachable' : 'live'}</p>
             </div>
           </div>
+        </header>
 
-          <section style={{ backgroundColor: '#0f172a', border: '1px solid #1f2937', borderRadius: '16px', padding: '24px', minHeight: '520px' }}>
-            {loading && <p style={{ color: '#94a3b8' }}>Refreshing telemetry…</p>}
-            {!loading && error && <p style={{ color: '#f87171' }}>{error}</p>}
-            {!loading && !error && activePanel === 'compliance' && metrics && (
-              <CompliancePanel metrics={metrics} logs={logs} />
-            )}
-            {!loading && !error && activePanel === 'health' && (
-              <HealthPanel health={health} checkedAt={checkedAt} />
-            )}
-            {!loading && !error && activePanel === 'audit' && <AuditPanel logs={logs} />}
-          </section>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+          <TabButton active={activePanel === 'mission'} onClick={() => setActivePanel('mission')} label="Mission Control" description="System overview & cron suite" />
+          <TabButton active={activePanel === 'org'} onClick={() => setActivePanel('org')} label="Org Chart" description="Feeze → Neo → module agents" />
         </div>
-        <OrgChartSection layers={orgLayers} />
+
+        {activePanel === 'mission' ? (
+          <MissionControlView
+            loading={loading}
+            error={error}
+            metrics={metrics}
+            models={modelRows}
+            sessions={sessionRows}
+            cronJobs={cronRows}
+          />
+        ) : (
+          <OrgChartSection layers={orgLayers} />
+        )}
       </div>
     </main>
   );
 }
 
-function CompliancePanel({ metrics, logs }: { metrics: ComplianceMetrics; logs: SystemLog[] }) {
+function MissionControlView({
+  loading,
+  error,
+  metrics,
+  models,
+  sessions,
+  cronJobs,
+}: {
+  loading: boolean;
+  error: string | null;
+  metrics: ComplianceMetrics | null;
+  models: { name: string; status: string; version: string; datastore: string }[];
+  sessions: { component: string; lastMessage: string; lastTimestamp?: Date }[];
+  cronJobs: Automation[];
+}) {
+  if (loading) {
+    return <p style={{ color: '#94a3b8' }}>Refreshing telemetry…</p>;
+  }
+
+  if (error) {
+    return <p style={{ color: '#f87171' }}>{error}</p>;
+  }
+
   return (
-    <div style={{ color: 'white' }}>
-      <h2 style={{ fontSize: '24px', marginBottom: '16px' }}>Compliance Summary</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        <MetricCard label="Approvals (24h)" value={metrics.approvals_last_24h ?? 0} tone="#38bdf8" />
-        <MetricCard label="Prospects w/ email" value={metrics.prospects_with_email ?? 0} tone="#fbbf24" />
-        <MetricCard label="Log snapshots" value={logs.length} tone="#34d399" />
-      </div>
-      <h3 style={{ fontSize: '16px', color: '#94a3b8', marginBottom: '8px' }}>Latest events</h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '320px', overflowY: 'auto' }}>
-        {logs.slice(0, 10).map((log, idx) => (
-          <div key={`${log.id ?? idx}`} style={{ border: '1px solid #1f2937', borderRadius: '12px', padding: '12px', backgroundColor: '#020617' }}>
-            <p style={{ fontSize: '12px', color: '#38bdf8' }}>{log.timestamp}</p>
-            <p style={{ fontSize: '14px', fontWeight: 600 }}>{log.component ?? log.level ?? 'system'}</p>
-            <p style={{ fontSize: '14px', color: '#cbd5f5' }}>{log.message}</p>
-          </div>
-        ))}
-        {logs.length === 0 && <p style={{ color: '#64748b' }}>No log entries returned.</p>}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <StatGrid metrics={metrics} sessions={sessions.length} cronCount={cronJobs.length} />
+      <StatusTable
+        title="Models"
+        subtitle="Backend surfaces + data stores"
+        headers={['Name', 'Status', 'Version', 'Datastore']}
+        rows={models.map((model) => [model.name, statusBadge(model.status), model.version, model.datastore])}
+      />
+      <StatusTable
+        title="Active Streams"
+        subtitle="Latest events per component"
+        headers={['Component', 'Last Event', 'Last Seen']}
+        rows={sessions.map((session) => [session.component, session.lastMessage || '—', session.lastTimestamp ? formatTimestamp(session.lastTimestamp) : '—'])}
+      />
+      <CronTable cronJobs={cronJobs} />
     </div>
   );
 }
 
-function HealthPanel({ health, checkedAt }: { health: HealthPayload | null; checkedAt: Date | null }) {
+function StatGrid({ metrics, sessions, cronCount }: { metrics: ComplianceMetrics | null; sessions: number; cronCount: number }) {
+  const cards = [
+    { label: 'Approvals (24h)', value: metrics?.approvals_last_24h ?? 0, tone: '#38bdf8', detail: 'audit events passed' },
+    { label: 'Prospects with email', value: metrics?.prospects_with_email ?? 0, tone: '#fbbf24', detail: 'ready for outreach' },
+    { label: 'Live streams', value: sessions, tone: '#34d399', detail: 'components emitting logs' },
+    { label: 'Cron jobs', value: cronCount, tone: '#f472b6', detail: 'isolated sessions' },
+  ];
   return (
-    <div style={{ color: 'white' }}>
-      <h2 style={{ fontSize: '24px', marginBottom: '16px' }}>Railway Watchdog</h2>
-      {health ? (
-        <div style={{ border: '1px solid #1f2937', borderRadius: '16px', padding: '24px', backgroundColor: '#020617' }}>
-          <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '8px' }}>Last check: {checkedAt ? checkedAt.toUTCString() : '—'}</p>
-          <p style={{ fontSize: '28px', fontWeight: 700, color: health.status === 'healthy' ? '#34d399' : '#f87171' }}>
-            {health.status ?? 'unknown'}
-          </p>
-          <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-            <MetricCard label="Service" value={health.service ?? 'n/a'} tone="#3b82f6" />
-            <MetricCard label="Version" value={health.version ?? '—'} tone="#a78bfa" />
-            <MetricCard label="Firestore" value={health.firestore ?? '—'} tone="#f472b6" />
-          </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+      {cards.map((card) => (
+        <div key={card.label} style={{ borderRadius: '16px', border: '1px solid #1f2937', padding: '16px', backgroundColor: '#0f172a' }}>
+          <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{card.label}</p>
+          <p style={{ color: card.tone, fontSize: '28px', fontWeight: 600 }}>{card.value}</p>
+          <p style={{ color: '#64748b', fontSize: '12px' }}>{card.detail}</p>
         </div>
-      ) : (
-        <p style={{ color: '#f97316' }}>No heartbeat response.</p>
-      )}
+      ))}
     </div>
   );
 }
 
-function AuditPanel({ logs }: { logs: SystemLog[] }) {
+function StatusTable({
+  title,
+  subtitle,
+  headers,
+  rows,
+}: {
+  title: string;
+  subtitle: string;
+  headers: string[];
+  rows: (string | JSX.Element)[][];
+}) {
   return (
-    <div style={{ color: 'white' }}>
-      <h2 style={{ fontSize: '24px', marginBottom: '16px' }}>Audit Trail</h2>
-      <p style={{ color: '#94a3b8', marginBottom: '16px' }}>
-        Append-only snapshot sourced from `/api/system/logs`. Refreshes every 60s.
-      </p>
-      <div style={{ maxHeight: '420px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {logs.map((log, idx) => (
-          <div key={`${log.id ?? idx}`} style={{ borderLeft: "3px solid #38bdf8", padding: '12px', backgroundColor: '#020617', borderRadius: '8px' }}>
-            <p style={{ fontSize: '12px', color: '#38bdf8', marginBottom: '4px' }}>{log.timestamp}</p>
-            <p style={{ fontSize: '14px', fontWeight: 600 }}>{log.component ?? log.level ?? 'system'}</p>
-            <p style={{ fontSize: '14px', color: '#cbd5f5' }}>{log.message}</p>
-          </div>
-        ))}
-        {logs.length === 0 && <p style={{ color: '#64748b' }}>No system logs available.</p>}
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#0f172a', padding: '20px' }}>
+      <div style={{ marginBottom: '12px' }}>
+        <p style={{ color: '#94a3b8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>{title}</p>
+        <p style={{ color: '#64748b', fontSize: '13px' }}>{subtitle}</p>
       </div>
-    </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {headers.map((header) => (
+                <th key={header} style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={headers.length} style={{ padding: '12px 0', color: '#475569' }}>
+                  Nothing to show yet.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row, idx) => (
+                <tr key={idx}>
+                  {row.map((cell, cellIdx) => (
+                    <td key={cellIdx} style={{ padding: '10px 0', color: '#e2e8f0', fontSize: '14px', borderBottom: '1px solid #0f172a' }}>
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
-function MetricCard({ label, value, tone }: { label: string; value: string | number; tone: string }) {
+function CronTable({ cronJobs }: { cronJobs: Automation[] }) {
   return (
-    <div style={{ borderRadius: '16px', border: '1px solid #1f2937', padding: '16px', backgroundColor: '#020617' }}>
-      <p style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>{label}</p>
-      <p style={{ fontSize: '24px', fontWeight: 700, color: tone }}>{value}</p>
-    </div>
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#0f172a', padding: '20px' }}>
+      <div style={{ marginBottom: '12px' }}>
+        <p style={{ color: '#94a3b8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Cron Jobs</p>
+        <p style={{ color: '#64748b', fontSize: '13px' }}>Isolated sessions mirrored into Brain → Automations</p>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Name', 'Schedule', 'Status', 'Channel', 'Last Run', 'Next Run'].map((header) => (
+                <th key={header} style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {cronJobs.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={{ padding: '12px 0', color: '#475569' }}>No cron jobs configured.</td>
+              </tr>
+            ) : (
+              cronJobs.map((job) => (
+                <tr key={job.id}>
+                  <td style={{ padding: '10px 0', color: '#e2e8f0', fontWeight: 600 }}>{job.name}</td>
+                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span>{job.schedule}</span>
+                      <span style={{ fontSize: '12px', color: '#475569' }}>{job.cron}</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: '10px 0' }}>{statusBadge(job.status)}</td>
+                  <td style={{ padding: '10px 0', color: '#cbd5f5' }}>{job.channel}</td>
+                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{job.last_run_at ? formatTimestamp(new Date(job.last_run_at)) : '—'}</td>
+                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{job.next_run_at ? formatTimestamp(new Date(job.next_run_at)) : '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
+function TabButton({ active, onClick, label, description }: { active: boolean; onClick: () => void; label: string; description: string }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1,
+        textAlign: 'left',
+        borderRadius: '16px',
+        padding: '16px',
+        border: active ? '1px solid #fbbf24' : '1px solid #1f2937',
+        background: active ? 'linear-gradient(120deg, rgba(251,191,36,0.15), rgba(15,23,42,0.95))' : '#0f172a',
+        color: 'white',
+        cursor: 'pointer',
+      }}
+    >
+      <p style={{ fontSize: '16px', fontWeight: 600 }}>{label}</p>
+      <p style={{ fontSize: '13px', color: '#94a3b8' }}>{description}</p>
+    </button>
+  );
+}
 
 const highlightColors: Record<OrgNode['highlight'], string> = {
   core: '#f97316',
@@ -341,11 +457,10 @@ function OrgChartSection({ layers }: { layers: OrgNode[][] }) {
   return (
     <section
       style={{
-        marginTop: '32px',
         border: '1px solid #1f2937',
         borderRadius: '16px',
         padding: '24px',
-        backgroundColor: '#020617',
+        backgroundColor: '#0f172a',
       }}
     >
       <div style={{ marginBottom: '16px' }}>
@@ -413,4 +528,26 @@ function OrgNodeCard({ node }: { node: OrgNode }) {
       </span>
     </div>
   );
+}
+
+function statusBadge(status?: string) {
+  const normalized = status?.toLowerCase();
+  const color =
+    normalized === 'healthy' || normalized === 'active'
+      ? '#22c55e'
+      : normalized === 'warning'
+      ? '#fbbf24'
+      : normalized === 'error'
+      ? '#f87171'
+      : '#94a3b8';
+  const background = `${color}33`;
+  return (
+    <span style={{ padding: '4px 12px', borderRadius: '999px', backgroundColor: background, color, fontSize: '12px', textTransform: 'capitalize' }}>
+      {status ?? 'unknown'}
+    </span>
+  );
+}
+
+function formatTimestamp(value: Date) {
+  return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
 }
