@@ -12,6 +12,7 @@ from app.routes import (
     analytics,
     automations,
     calendar,
+    capture,
     ingest_drive,
     knowledge,
     notifications,
@@ -115,6 +116,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 app.include_router(knowledge.router, prefix="/api/knowledge")
+app.include_router(capture.router, prefix="/api/capture")
 app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(automations.router, prefix="/api/automations")
 app.include_router(playbook.router, prefix="/api/playbooks")

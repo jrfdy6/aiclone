@@ -29,3 +29,6 @@ transformers
 sentencepiece
 textblob
 nltk
+
+psycopg[binary]
+psycopg-pool

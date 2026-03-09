@@ -1,5 +1,7 @@
 from .core import (
     CalendarEvent,
+    CaptureRequest,
+    CaptureResponse,
     IngestJob,
     IngestRequest,
     KnowledgeDoc,
@@ -13,6 +15,8 @@ from .core import (
 
 __all__ = [
     "CalendarEvent",
+    "CaptureRequest",
+    "CaptureResponse",
     "IngestJob",
     "IngestRequest",
     "KnowledgeDoc",

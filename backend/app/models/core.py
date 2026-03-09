@@ -91,3 +91,20 @@ class NotificationRequest(BaseModel):
 class NotificationResponse(BaseModel):
     status: str
     detail: str
+
+
+class CaptureRequest(BaseModel):
+    text: str
+    source: str = "manual"
+    topics: List[str] = Field(default_factory=list)
+    importance: int = Field(default=2, ge=1, le=3)
+    markdown_path: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)
+    expires_in_hours: Optional[int] = None
+
+
+class CaptureResponse(BaseModel):
+    capture_id: str
+    chunk_ids: List[str]
+    chunk_count: int
+    expires_at: Optional[datetime] = None
