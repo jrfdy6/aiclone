@@ -1,0 +1,24 @@
+{
+  "file_count": 1,
+  "files": [
+    {
+      "owners": [
+        {
+          "displayName": "neo512235",
+          "emailAddress": "neo512235@gmail.com"
+        }
+      ],
+      "sharingUser": {
+        "displayName": "neo512235",
+        "emailAddress": "neo512235@gmail.com"
+      },
+      "id": "1ko13FNlAeMTSFAK1PWTLVmZHHg78nS9N",
+      "name": "Open-claw",
+      "mimeType": "application/vnd.google-apps.folder",
+      "createdTime": "2026-03-04T00:26:25.391Z",
+      "modifiedTime": "2026-03-04T00:28:43.662Z",
+      "shared": true,
+      "ownedByMe": false
+    }
+  ]
+}

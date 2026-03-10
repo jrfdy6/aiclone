@@ -1,0 +1,13 @@
+[youtube] Extracting URL: https://www.youtube.com/watch?v=hg9sIpRzg08&t=13637s
+[youtube] hg9sIpRzg08: Downloading webpage
+[youtube] hg9sIpRzg08: Downloading tv client config
+[youtube] hg9sIpRzg08: Downloading tv player API JSON
+[youtube] hg9sIpRzg08: Downloading web safari player API JSON
+[info] Available formats for hg9sIpRzg08:
+ID  EXT   RESOLUTION FPS CH |   FILESIZE  TBR PROTO | VCODEC      ACODEC    ASR MORE INFO
+------------------------------------------------------------------------------------------
+sb3 mhtml 48x27        0    |                 mhtml | images                    storyboard
+sb2 mhtml 80x45        0    |                 mhtml | images                    storyboard
+sb1 mhtml 160x90       0    |                 mhtml | images                    storyboard
+sb0 mhtml 320x180      0    |                 mhtml | images                    storyboard
+18  mp4   640x360     30  2 |  353.21MiB 168k https | avc1.42001E mp4a.40.2 22k 360p

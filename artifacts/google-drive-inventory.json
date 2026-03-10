@@ -1,0 +1,42 @@
+{
+  "file_count": 2,
+  "files": [
+    {
+      "owners": [
+        {
+          "displayName": "neo512235",
+          "emailAddress": "neo512235@gmail.com"
+        }
+      ],
+      "sharingUser": {
+        "displayName": "neo512235",
+        "emailAddress": "neo512235@gmail.com"
+      },
+      "id": "1ko13FNlAeMTSFAK1PWTLVmZHHg78nS9N",
+      "name": "Open-claw",
+      "mimeType": "application/vnd.google-apps.folder",
+      "createdTime": "2026-03-04T00:26:25.391Z",
+      "modifiedTime": "2026-03-04T00:28:43.662Z",
+      "shared": true,
+      "ownedByMe": false
+    },
+    {
+      "parents": [
+        "1ko13FNlAeMTSFAK1PWTLVmZHHg78nS9N"
+      ],
+      "owners": [
+        {
+          "displayName": "neo512235",
+          "emailAddress": "neo512235@gmail.com"
+        }
+      ],
+      "id": "1HLKtYzsGZ1ALAACMTU_3a36oxphYyKH4",
+      "name": "Copy of OpenClaw Token Optimization Guide.docx",
+      "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "createdTime": "2026-03-03T23:26:19.942Z",
+      "modifiedTime": "2026-03-03T23:26:19.942Z",
+      "shared": true,
+      "ownedByMe": false
+    }
+  ]
+}

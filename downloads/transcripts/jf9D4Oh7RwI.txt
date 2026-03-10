@@ -1,0 +1,1087 @@
+All right. Welcome. So today, the OpenClaw Bootcamp starts over the next five weeks. I'm
+going to show you how to build your very own OpenClaw AI agent from scratch with multi-agent
+functionality. No cuts. You're going to see everything. You're going to go through the
+trial and errors with me. And this is going to live on YouTube for life as a mini-series
+for free. There's never going to be a paywall. And yeah, I'm just very excited to start
+this project. And without a score of two, let's build. Let me adjust that music. It felt
+a little too loud. It's going to live on YouTube. Perfect. Oh, wow. Wow. Shout out to the
+21 viewers right now. My goodness. I feel like that's the biggest start to an episode
+we've had. So for the first few minutes, I just want to do some, some, not necessarily
+Q&A, but we're going to get, you know, get that vibe flowing. We're going to, we're going
+to get started here. So we'll get started here. If you're watching this recording, just
+fast forward a few minutes and you'll get to the sauce.
+So I'm supreme. Thanks for tuning in. Appreciate you. Elijah, thanks for being here. 30
+years ago, Andra, what's up gang? Fork. Let's go. Who's excited? Who's excited? So I want
+to ask something first and foremost, you know, I'm doing this for free, right? So do all
+the things that you can do for free to support the channel. Like this video right now. Comment.
+Let me know how excited you are. And then share it with a friend. That's the least you
+can do. And if you're not subscribed, I mean, I don't know what you're doing. I'm not
+going to ask you to subscribe. You should be doing that on your own. What's up? Garcia
+high from Spain. Hit that like button. You know what I like? Listen, I'm doing this
+all for free. So do the things that you can do for free. Like say, what's up? Hit the
+smash the like it. It helps the algorithm. What's up? Digital merch. Love that emoji.
+Is that an alien hand? How did you get that pink hand there? That's, that's pretty cool.
+Chuck. Yo, yo, appreciate you. Yes. So on screen, you'll be able to see all the prompts
+that we use. I'm going to be honest, like I prepared some prompts, but I'm going to
+take this from the perspective of just talking to my agent. So you're going to really see
+the natural flow and the evolution of building this. I will, I will include some prompts
+for those who want it. And I'll make sure that, you know, usually about 48 hours after
+a bootcamp episode is live, I'll, you know, optimize the YouTube transcript, tags, put
+all the prompts in the description below as well. But I did not prep that for this episode.
+Let's go. Looking forward to diving in the sauce. Let's go. Hey, thanks for from Australia.
+Awesome. Thanks for being here. What's up from UK?
+God is he. Welcome back. Yo, me too. Me too. Day two already shipping. Hey, let's go. Let's go.
+Yeah. So this stream is, it lives on YouTube, right? I've already attached a mini series playlist
+to it. We're never going to edit this. You're always going to see the raw format. You know,
+I'll probably start each episode like this, just kind of getting the vibe up, you know,
+and then we'll start. Once I start the bootcamp process, I'm going to try not to do Q and A
+because that will interrupt the flow of the demonstration. But at the end of each bootcamp,
+we're going to, you know, focus 15, 20, 30 minutes if need be for Q and A related to everything
+that was done. Okay. That way people find value in the recording after the fact.
+Yeah. So I'm going to post in a Discord link here pretty soon. Let's actually post that in right now.
+Come join in Discord. Come share in Discord. That's the best way. You could try
+DMing me on socials, but, you know, I am just floored by the amount of attention that this
+channel has gotten in the past month. I have hundreds of inbound DMs and it's overwhelming
+to say the least and I'm doing my best to filter through everything and respond to everybody
+in a timely manner. What's up? Lance Cello. All right, I guess Lance. Lance, what's up? Lance,
+welcome from Denmark. Appreciate you, Duchy. Let's go Raphael. Nebraska in the house. I actually
+know somebody who lives out there. Just moved there with this wife not too long ago. Sydney, let's go.
+All right. So yeah, there's the Discord link. I think that's 25 invites. If you guys just so
+happen to use all those invites, let me know if you need another. And yeah, let's do a quick recap
+of everything we're going to go through today and then we're going to get started. All right. So
+here is the, and let me know if the music and the background is too loud. I can adjust that
+based off of feedback, right? So we're starting with a fresh install, right? We've done the
+welcome and intro, so I'm going to check that off. Then we're going to, you know, get started with
+that fresh open-class setup. And we're going to start talking to our agent. We're going to define
+its soul, its identity. We're not going to spend too much time here, right? Because I'm going to
+give you homework to do this throughout the week, leading into next boot camp. And this is also
+something you can improve over time as we'll discuss further along the road. Then we're going to
+give obviously context for our user MD. And then we're going to feed the agent all that context. And
+really, I guess I could have organized this a little bit better. But, you know, everything,
+these, these three kind of tie in with one another. And then we're going to start building, right?
+After we talk to the agent, after we talk about what the, this new OS is going to, what,
+what its purpose is and what our agent's purpose is, then we start building the foundation, right?
+The bedrock, so to speak. Then we have the ops feature. We're going to focus on the brain feature.
+We'll focus on one or two features there as well as the lab. And then we're going to wire
+everything together. We're going to do that as we, as we build, but we're going to make sure
+everything's wired together. And then we're going to create a total of four cron jobs, automated
+GitHub backups, overnight self-improvement for the operating system itself, daily briefs,
+delivered every morning, and then a rolling docs cron. I like this. I like having a documentation
+section within my OS that at the end of each day, it updates how the OS works, the improvements
+that we made. That way, it's like a, like a point of reference. If you, if you have any confusion
+as to how anything works, you can just go reference the docs. And then we're going to start an
+org chart placeholder. But this is where we begin thinking like big picture, right? We're not
+going to build out every agent today. We're doing the foundation. And the org chart, as you see,
+like we're going to be building that out in episode two and then finalizing it in episode three.
+But this is a great place to start thinking about like all the functionality you want out of your
+agent, right? And last but not least, the homework I'm going to provide you, and then we're going
+to do that live Q&A. So, yo, thanks for tuning in. I'm going to do one more wave of comments,
+and then we're going to get started. Yeah, India, welcome. Appreciate you for being here.
+Right on. Right on. Yeah, thanks, young dream. Welcome back.
+Turn down the background music 25%. Let's do that.
+Okay, turn it down significantly there. Let me know if that's better. As soon as I get a
+confirmation that that's not too loud, we'll start. How about that? Yep, a lot, a lot. Okay, okay,
+okay. Hey, this is why we do this live. And I'm not sure how many people here know there's a,
+there's a, I don't want to play it because chances are it might affect the visibility of this
+live stream because I think it's copyright protected. But it's an old interviewer's like,
+I can't cuss, but he's like, we're going to do it live. Something happened with the teleprompter
+on somebody's broadcast and dude just goes, we're going to do it live. And he just sees all hyped up.
+It's hilarious. I use OBS. Yeah, let's go. Let's go. Okay, perfect. All right.
+So, I'm going to start ignoring comments because I just really, really want to focus
+on the demonstration. So the boot camp begins now. All right. So as you can see here,
+I have a fresh gateway with a brand new agent. I called him goat, some backstory into goat.
+I deployed this agent to help me troubleshoot early on with some issues I was having with
+muddy, muddy, in general. And I called him the goat because he was able to help me fix it.
+So I thought it was appropriate to not kill this one and actually use it for the demonstration. So
+we're going to build off of goat. We're going to call it goat OS. I recommend you come up with your
+own name. You could call yours goat OS, but this is unique to me and my personality. So that's why
+I chose it. And yeah, so I'm just going to start talking to it. And I'm going to use whisper flow.
+I type when I need to, but I prefer when you're vibing with your agent and getting started,
+unless you prefer to type by all means do that. But let's get started here, shall we?
+All right. Hey, goat. I know I already assigned a name for you goat, the greatest of all time.
+You should always call me human, but my name is Marcelo. And I want you to kind of understand
+your purpose, right? I want to have you craft your very first, you know, notes into your soul
+and identity, as well as, you know, I'm going to feed you a bunch of context about me, the human,
+so that you can populate the user MD. Your purpose is we're going to, you know, we're doing a live
+bootcamp right now on YouTube. I have a YouTube channel called ClearMud. If you go to youtube.com,
+forward slash at ClearMud, you'll see the channel. We're building this live for the public,
+no paywall, because I really think that, you know, this type of content should be free for the
+public. It should not be hidden behind a course or a paywall, where somebody has to pay a hundred
+bucks a month, just to get the same quality of output and attention that they would get in a
+live stream. So that's, you know, a brief overview of your purpose. Now, thinking a little bit more
+deeper into how I want you to operate long term is I have a lot of client work that I handle.
+And currently I handle it either in Cloud Code CLI or Gemini CLI and I use either Visual Studio Code
+or Cursors IDE, right? But I want this to kind of be an operating system for me to
+A, manage client work and B, have you manage future products that we launch here on ClearMud?
+Micro SaaS products, full, you know, full stack products. So I really want to structure
+this system in a way where you are my executive assistant and you always delegate. So further along
+the road, right? This is a five week long bootcamp. So we're going to be building it out piece by
+piece. By episode three, we're going to have the multi agent team wired together. Let's not
+get ahead of ourselves, but I do want you to have at least two or three agents below you.
+And then they'll have their own underlying sub agents, you know, per client, per project.
+I think it's the best way to structure this. I'm going to stop talking now because I feel like
+I'm rambling. Let me know if you have any questions based off of the context provided.
+And this is critical, right? Like take the time to just feed it a little bit of context.
+I could have given it more about my background, but some of the homework this coming week is
+feed it more about you, the user, the human, right? Today we're being as brief as possible so we
+can get to building, right?
+Look at that. I didn't even tell it. And this is where you can get creative with with with the sole
+specifics. But look, no filter, slightly cocky because, well, I'm the goat. Oh, wow. How accurate.
+Look at that. It's that simple, right? Now, let's move on to the next step here. So we fed it
+a bit of context. We have that sole MD. Let's feed it some context into our background, right?
+Now, keep in mind, I'm going to give you some homework to go a little bit more in depth.
+Yeah, so I want to feed you a little bit more context into me, right? I'm the founder of ClearMod.
+You know, our focus is making AI simple and easy to use. While I already have another open
+claw AI agent that handles ClearMod operations, I really thought I should give you this context.
+I'm a retired computer network engineer. I've worked with computers my entire life.
+I built my first one when I was six years old. Yes, I didn't know what I was doing, but my father
+started a computer shop out of his garage. It grew into something pretty big in the San Francisco Bay
+area. But I've been, you know, hardware software and networking is kind of like my core background.
+And then I graduated into kind of working for a smaller firm as a junior network engineer,
+started my own down the road. Then I started doing web design, a little bit of digital marketing,
+but it wasn't really my thing. And now, you know, I make YouTube videos to help people
+to help simplify AI for people to use. As well as, you know, long term, I do have some big plants
+for ClearMod, but, you know, I'll give you that context at a later time.
+Okay, just a little bit more user feedback, right? Because I think it's necessary, so we're
+going to check that off the list there. Bam, I mean, we already kind of did that. My agent
+should have muddy, muddy dropped the ball there because those could have been collocated there.
+All right. Oh, we get to build it. We get to build it.
+All right. So today's episode for the bootcamp, we're going to be rebuilding muddy OS, which
+consists of three total apps, right? Think of it like this. First off, I want you to organize this in
+a project's directory in your main workspace for OpenClub. Then underlying, we're going to call
+this Goat-OS. Goat-OS. And I want it to have a ops tab, a brain tab, and then a, rather,
+let me rephrase this, I want it to have an ops module, a brain module, and a laboratory module.
+I want this built as if it looks like a Mac OS X with the dock, with large icons across the
+bottom that are floating, and then at the very top, once we start adding more features into each
+module, those will be tabs, and it will look like you're living in an internet web browser, right?
+I think that the user should not be able to X any of the tabs. They should be static,
+but the user should be able to drag each tab to reposition them accordingly. Additionally,
+for each module, the ops, the brain, and the lab, I want there to be, you know, when you first click
+on those, there should be a dashboard that is static, and it shows all of the features built into
+that module. And then along the top is where the user can then click and select, for example,
+today we're going to build out a mission control, and the purpose of the mission control is to
+see what model we're using, see what sessions are active, we should give, you know, a preview into
+all the sessions that are active, if there's ever more than one. And I think that's a good
+place to start, and also Cron Health. I would like a place to then view all of the Crons that we
+have in place, even though we're going to, we're going to build that into brain module down the road.
+I just want a brief overview of Crons within mission control, that way if any Cron ever fails,
+we can address it immediately. So let's build out this wireframe structure, and then build out this
+mission control in ops first, and then we'll move on to the brain in the laboratory. Let me know if you
+have any questions.
+Okay, since we do have a natural kind of gap here, I will address some of the comments.
+Yeah, I've heard this as well. You know, I'm personally using Opus 4.6 for this one.
+This is definitely a fresh install. This is definitely a fresh install. So,
+no, it's definitely a fresh install. As I mentioned earlier on, I used it to help troubleshoot
+issues on muddy OS, but it is as fresh as it comes, right? I didn't give it any context,
+it didn't have a soul, it didn't have an identity. Yeah.
+Not sure what you mean here.
+Hey, welcome. Thanks for tuning in.
+Hey, thank you, thank you, thank you, thank you.
+Yeah, I think the value depends on, you know, depends on the individual first and foremost.
+The value is more of a maintenance thing in my opinion, right? It's a place for you to keep tabs
+on everything that's happening within the system. You know, depending on your use case,
+it might be pointless for you, right? Yes, yes I am. Max.
+And then I wanted to add a prompt in here as well. As you're working on that, let's set up a preview
+on port 8,800 for this one. And let's make sure that one never changes for goat OS.
+I guess it misheard, 88. I could have sworn I said, 80, 100, no.
+Excuse me. Yeah, this is a fresh install. This is completely separate from Mud iOS,
+right? But I, you know, maybe, maybe you think this is too easy. I set 100 of hours
+building out Mud iOS and clear Mud OS. So I'm coming at this from the perspective of knowing
+what I want, right? So. And yeah, in theory, you could do it in the terminal if you want.
+I'm having our agent do it for us, though, because this is the best approach as a beginner.
+Rather than building it out individually in the CLI, now, not opposed to that if you want to do it,
+but when it comes to feeding your OpenClaw setup that project directory,
+it's going to require some fine tuning and some back and forth. It'll probably be buggy out the
+gate. But since we're having Opus 4.6, our main agent build it from scratch, we don't have to worry
+about all that. There is no confirmation that they are doing that. That's just a rumor.
+There is also no clarity as well, sadly. But if they do, I'm simply going to move over to OpenAI,
+you know. All right, I'm going to start getting back to the build here.
+And one last question. Yeah, so I prefer setting everything up in a VM. So as you can see here,
+here's my VM, right? Here's how I set everything up. You know, I have my own kind of virtual machine
+with my own. Here's the loop back, right? As you can see, it's synchronized, but I did set a land
+so that I could connect to it from my host PC, right? All right, let's go take a look. Let's see
+how it nailed it. Okay, it's okay. I'm not really feeling it. This doesn't, this is cool, but it's
+like the spacing is off. The spacing is off. It did nail the default dashboard with modules. I
+would like a little bit more involved there. What's interesting is I never set this up. Why is
+this here? That is interesting. Crond weather, I never set that up. That must have been a default.
+Interesting. We'll see. That might be demo placeholder data. Brain module coming soon. Lab module
+coming soon. Interesting. Interesting. Okay. We're almost there. We're almost there.
+All right, two last questions and then we'll continue the build. I don't have much of a take right
+now. I am going to start testing, Kimmy reached out to me, but before I even agreed to anything,
+I like testing models before we do any type of video around them, but I am very excited for that one.
+Yes, four six.
+And yeah, let's make sure we keep most questions towards the end. I want to get to like building
+and keep the building as efficient as possible, but we'll time block Q&A as much as possible. So
+all right, so you know, not a bad first draft. I think that the bar along the bottom, it does
+not look like this is a Mac OS X operating system. I think that the spacing needs to be increased
+between ops, brain and lab. Additionally, I forgot to mention we need to set a rule. I never want to
+use emojis. I want to use lucid icons moving forward across the entire system. So let's make
+those adjustments now. I see you've used emojis throughout the ops dashboard and mission control,
+as well as that bottom menu bar. Let's please fix that and also give it more of a glass
+morphic effect. When my mouse hovers over ops, brain or lab, there should be like a nice rounded
+square that highlights over each option, each module, right? So I think that's a good place to start.
+For the dashboard feature that we're going to incorporate for the root of each module,
+we should definitely give more of a preview as to like what's in mission control. Right now,
+it's just a very slim module and it shows mission control model three sessions, two failed crumbs.
+Let's give a bit more context before we would click into mission control. Looking at mission control,
+my initial thoughts is two primary questions here. Where are you getting Discord bought from?
+I never set that up and then Cron weather. I also never set up that Cron. This is a fresh install.
+You've only helped me in the past troubleshoot and older open-class setup. You had zero context,
+zero memory, zero soul, zero identity. All I did was give you a name. So I'm curious as to where
+this Cron came from and where this supposed Discord bought came from.
+All right, so as you can see, this process is not perfect. It did a decent job on the first build,
+but there's some things that I don't like personally and there's some assumptions that it made
+that I'm curious as to why these are here, right? Yep, I will do it. I think time blocking Q&A is
+important. That way we answer Q&A pertaining to what we're doing. But hey, if you don't believe this
+is a fresh install, you're more than welcome to click back on this browser swipe left on your phone
+and I wish you all the best.
+Okay, let's go back to the bootcamp walkthrough. So we're going through the wireframe right now.
+Okay, this might be getting ahead of itself. Client deliverables outreach tasks. This is something
+that we're going to be doing once we actually have an org chart defined in episode three. So
+I'll adjust that with muddy after the fact.
+Listen, I'm doing this for free. I'm not going to sugarcoat anything. Like, thank you for being
+here, but I wish you all the best. Andra. Andra, by the way, is one of the OGs. She was one of the first
+five subs on the channel. Crazy, crazy. Okay, everything fixed. Lucid icons, dock spacing,
+glass morphe cover, mock data cleaned. Oh, so it was mock data. Okay. Yeah, moving forward, I think
+we should never, never, never use mock data, right? That's, that's very misleading. That's
+unacceptable for me. I never want to see mock data. I remember having to do this with muddy OS2.
+And I only discovered this, you know, further along the road in the build. So let's go preview how
+it looks now. Oh, much better, much cleaner. Now, okay, I don't like how these icons go bigger than
+the bar. Okay, so I'm loving the approach that we're taking. And I think before we get any further,
+we should create a design skill for our OS. Let me know what you need for me to pull off this
+design skill, but you know, initially the ops dashboard should have an amber hue to it. And it
+should feel like we're in the matrix, right? So give it a neon effect to the icon, the ops icon,
+as well as, you know, any tabs or any titles. But then the content itself, we don't want to take
+away, right? We don't want it to look too crazy. For the brain, we want that to be a sky blue. And
+then for the laboratory, we want that to be a true matrix environment green. And for the menu
+dock on the bottom, when I hover over them, I do not like how the outline goes outside of the
+container, right? So I think that the hover outline of the square should be within the container
+itself. So less of that kind of growing effect and more of, you know, highlighting whatever that
+icon or section is, I think is the best move here. And then for mission control, this is a great
+start. I think we need to think ahead as we're going to configure multiple models, right?
+I'm going to want to set up a codex 5.3, you know, so we'll have a multi model viewpoint. This is
+where I'm going to allow you to do demo data. The status should be offline since we haven't
+configured it yet, but we're going to configure this, you know, in the next two episodes of this boot
+camp. Additionally, the active sessions, I would love the functionality of being able to click on it
+and it expands not necessarily full with, but let's say three quarters of the screen front and
+center so that I can then scroll through that active session if I want to see more context related
+to a session. Okay. Oh, I noticed this bug with the gateway sometimes. Let's see, let's just try to
+refresh it. Oh, it looks like it did take that message. We just have to wait a moment.
+Additionally, I forgot to mention the fonts that I want to use. I want to use the Open2 fonts.
+You can find them on Google fonts. Primarily, I want to use the two fonts.
+I want to use the, you know, main Open2 font and then what was the other one? Open2
+and then Open2 mono, right? So primary Open2 font for titles, sub headers, subtext,
+but then when it comes to certain modules and, you know, biotext or any walls of text,
+I want to use Open2 mono. Let me know if you have any questions there.
+Make sure those are default moving forward. Right? So this is where you pick. You start styling your
+stuff out and listen, it doesn't have to be permanent, right? I know what I want.
+Maybe you choose a different font. You don't have to copy this word for word, right?
+But this is a build along. So you're just kind of seeing how my brain works as we build out this OS.
+And the system.
+Ooh, I'm loving this. Look, we've made a decent amount of progress here.
+It's not perfect, but it's good enough for now. It's good enough for the wiring.
+Love it. Great.
+You know, this is something I'm finding very interesting. I didn't specify any sub agents on
+this system, right? Like we've seen this build from scratch, so I'm kind of curious.
+Hey, so I'm also very curious as to when did you build out sub agents, right? This was a fresh
+install. I never told you to build out sub agents. I'm curious as to, did you start doing this
+based off of all of the context that I fed you? Which I'm going to assume I know the answer here.
+This is why you feed it that context ahead of time because it then starts to operate in the way
+that you want it to operate long-term. I'm curious on the answer because we did zero multi-agent setups,
+zero sub agent setups.
+And since we have a waiting point, let's
+no, we're not deleting it. It's going into a mini-series. Thank you, Andra. Thank you.
+A little bit, but you can always restart and watch from the beginning.
+You know, we've been live for about 30 minutes, maybe 35 minutes.
+Yeah, so when you initially set up your bot, it gives you a token. So you go to the URL
+forward slash token and then it adds in the token. You want to use that link on your host PC as well.
+So you can ask your agent on wherever you installed it to give you that link. But we can also
+address that at the end of the episode today. All right, we've got a shift back to building here.
+Wow, a lot was done. Cool. Go to OS design.
+I'm actually very curious, like, listen, I didn't specify sub agents yet. So the fact that starting
+to do that is very interesting to me. That looks good. Fixed dot component, update tab bar,
+update mission control for model, expandable session cards, apply neon to ops, update placeholders,
+important rules, no emojis anywhere, dark theme, glass morph of base, neon effects, only on icons
+and titles never on body and context text. Great. It will hot reload. Let's see.
+Did that message just disappear? We'll paste that in there in a second. Okay, it's looking better.
+It feels a little bit to something feels off with the titles.
+Okay. All right, going back to answer this first, I could have sworn I sent you this prompt.
+How are you spinning up sub agents? We didn't have any of this predefined, right? We're starting off
+of a fresh install. So explain to me, did you start spinning up sub agents based off of all the
+context I provided at the beginning? Very, very curious about this. And then for goat OS for mission
+control, I see you removed our opus 4.6 model, right? But you provided a placeholder models for
+5.3 codex and Gemini 3 pro, which are both offline, which is accurate. What happened to opus 4.6?
+That's our primary agent. That one's clearly online based off of me and you communicating, right?
+Look at that. So yep, it's built in an open cloud out of the box. I have session spawn tool that
+kicks me, that lets me kick off isolated background sessions with task description, no pre-configuration
+required. It's part of the core platform. I used it because the design overhaul was a big chunk
+of file creation. Slash editing and I can delegate to that worker to delegate that to a worker while
+staying responsive to you. That's what, hey, look at that. That's literally my operating philosophy.
+Delegated, don't do everything myself. The context you gave me was enough to know what to build and
+I packaged that into a task for the sub agent. Wonderful.
+Okay, so moving forward, right? Our mission control is, it looks like it's broken. It's not showing
+our active session, which we should have at least one active session. It's not showing our active model.
+You got to wire all this together, right? Crown jobs, we haven't created one yet, but when we do,
+this, it should automatically populate. So please let me know what the problem here is and what
+you're going to do to fix it and take action right away. So it looks like it is working in the
+background. That's why that's cute and I don't want to stop it. Oh, one thing I've learned using
+the gateway chat, if it's in the middle of something, I originally thought that if I stopped right here,
+that it would still continue working on what it was doing, but then it'll incorporate that prompt
+that's cute. That's false. And I might have misled people, many live streams back where, you know,
+I would have these like scattered thoughts and I would just prompt after prompt after prompt and
+I'd hit stop, stop, stop, stop. So all of them would go into chat, but what would happen was
+the agent would stop working on that original prompt. So you got to let it finish unless like the
+stop feature is here. If you see it going down a path, you don't want it to go down. That's when
+you hit stop and say stop everything you're doing. Chances are you might want to revert something,
+right? Just a little tip there, something I've learned.
+Oh yeah, this is an old cute chat. So it looks like we're just going to have to be patient here with
+it because I don't want to force stop everything. We're just going to let it catch up here.
+And full transparency. So right now, you know, I have this VM running. I think I have a total of,
+let's go take a look. Why isn't the drop down menu showing here?
+So we have muddy running as well side by side with goat. So my system might be a little bit slower.
+I had to downgrade the amount of resources muddy normally has from 16 gigs of ram down to 12.
+I then applied that four gigs of ram to the goat. The goat also has two cores, whereas muddy has
+four cores. So these kind of this delay is definitely associated with my system resources allowed.
+If you have this on a on a powerhouse of a setup, chances are it's being very, very snappy during
+this follow long demo. Appreciate you, Rue. Yeah, since we're waiting on chat, I will catch up on
+comments here. Yeah, think of sub agents like their dis sessions, right? As it mentioned early on,
+like it spins up a separate session with a predefined role and task so that our main chat can stay open,
+right? Because we haven't created any separate agents with their own workspaces, with their own
+memory files, with their own soul identity, with their own heartbeats. That's further along,
+you know, that's going to be by episode three. We'll have a team of sub agents with their own
+workspaces with their own heartbeats. Yeah, so that I hope that answers your question. I'm using
+GPT 5.3 codex and it says it cannot create files or execute anything. It's telling me to copy paste.
+Interesting. Let me dig into that towards the end of this episode. Remind me of this one,
+because I do want to keep the demo flowing, but that's interesting.
+Yeah, so we'll address this. I appreciate the questions coming in, but let's also keep in mind,
+like, for people watching this recording after the fact, let's make sure that the Q&A is related
+to what we're doing. We're going to dig into this a lot in the next two weeks, because we're
+taking our sweet time building the foundation, then we're going to wire everything together by
+week three at the latest, but we'll start setting that foundation, setting those bricks for the
+multi-agent setup by week two. All right, all three endpoints are returning real data now. Here's
+what was wrong and what I fixed. So I love talking to my agent this way is I don't just tell it to fix
+it. I don't say you didn't do it right. I explain what's not working properly. I then tell it, hey,
+I'd like to know why it's not working properly and what you're going to do to fix it. This way,
+you grow as a human being. You grow as, you know, someone who understands what you're building and
+how it works, right? So that the stuff's not perfect. It will get buggy. It might break, but the more
+you understand the setup as you progress, the easier it will be to fix things along the way, right?
+So if you remember when I was prompting that, I specifically said those phrases there because I
+wanted to know what was wrong and how it's going to fix it, right? So please, I encourage everyone
+to talk to their agent in a similar manner, right? You're going to get frustrated from time to time,
+and that's okay. But get an understanding of what happened, why it went wrong, what it's going to
+do to fix it moving forward, okay? Command that doesn't exist in OpenClaw. Oh shoot, you know what I'm
+realizing? This is an older version of OpenClaw. It will be okay for the demo. You have an upper hand
+if you're using, I think, 3.1 is the latest version. Listen, I'm not going to do this mid stream. I'll
+make sure by week two, episode two, we're on the latest version. We wrote to the server,
+sure to contain session data. Okay, great.
+Okay, let's do a quick refresh.
+Looks like it's not showing all those changes. Did you hot reload? Goat OS because I don't see any
+of those changes applied.
+I am hard refreshing here.
+One thing I can try to do, open up a private browser and see
+if it is legitimately the cache. No, it's the same.
+No, I just opened up a fresh private browser, tried visiting the dev server. Same exact issue,
+we're not seeing any of the changes applied to the models, active sessions, nothing it looks as it
+did before. Please let me know what you find when you fix this.
+Excuse me.
+And look, it found an issue. Chances are, if you're not operating the way I am in a sandbox
+environment and then you're accessing it via local IP, you probably wouldn't have ran into
+this issue, but I did because of my unique setup. But that's the beauty of this bootcamp.
+You get to see me work through these problems and how I ask the agent to solve these problems,
+right? But chances are, if you're working on this locally on a machine, you wouldn't run into
+that issue because it's set up that API base correctly, right?
+Okay.
+It works for a second.
+Yeah, so I did load it initially. I did see some sessions and some models. It looked like it was
+accurate, but now, oh, scratch that. It's like an infinite loading screen, you know, a little circular
+icon on the model, the sessions, the Chrono Health on the dashboard. When I go into mission control,
+the same thing applies to all of the sections, just infinite loading.
+And this is another critical thing when you're kind of going through the growing
+brains of setting things up and configuring things from scratch. You want to give it as much
+detail as possible in that voice detects because it helps it identify like which part of which step
+is broken, whereas it's still not working with a bunch of attitude, but not giving it the step by
+step. That's very critical when you're debugging things and kind of going through this initial phase,
+is you have to get as specific as possible and be as patient as possible.
+Interesting. Fine. So what can we do moving forward? You know, as this system grows and we give it more
+modules where I rather more features within each module, we want to make sure this type of issue
+doesn't occur down the road, right? How do we structure things with the big picture in mind of what
+we're building here? It says it's fixed, but I did want to send that prompt first and foremost.
+So we can't see a model. It's very basic. We'll fine tune this as we progress through this bootcamp,
+but let's see, it's going to hopefully load the session history like I asked. It's showing us the
+channel, it's showing us tokens, model, main main chat. Looks like it's having a bit of an issue
+loading the history. I only have one negative on the mission control. It looks like everything's
+working except for when I click on an active session or you know an old session, it says history
+loading under session history, but it never actually loads. Can you please look into this and let me
+know where the bottleneck is and what we can do to fix this? And then to answer your question,
+yes, I do want you to implement that SSE file watcher pattern now.
+Like let's do this early on before the system has way too many features to where we're debugging
+a lot of different features. Remember, this episode is all about foundation. Let's set this up
+right so we can build things as seamlessly as possible moving forward.
+Okay, we're just going to wait. Let's go back to kind of our flow. So wireframe is done,
+skeletons done, we're now working on the ops feature. I'm going to have to update this kind of
+curriculum because you know client deliverables, all that stuff comes a little bit you know further
+along. I think it episode two or episode three. So I'm going to leave that unchecked to remind myself
+to update this at the end of today's live stream. And then as soon as we have these minor things
+dialed in here, we're then going to move on to the brain. I think it's a good time to move on
+to the brain because we have, listen, I want to keep tweaking this a little bit more but it comes
+with time right we're more focused on foundation on function right. It works. We just want to make
+sure that it loads the session now and we can tweak the UI further along down the road. But I'm
+loving the progress of this. I like how it looks. It's a new fresh look you know. It's a new
+fresh look. I like it. On it, two things to build. Okay, we're just going to wait for its response.
+I guess while we wait, we can address some comments real quick. Hey, thank you. Thank you. I really
+appreciate this. Thanks for answering. And yeah, this is what I love, love, love to see as people
+now answering questions for me. Please keep it coming. Yo, Derek, one of the true OGs of the channel
+as well. Back when we only had two, three, four viewers at a time, he was always in here. Really
+appreciate you. Hope you're having a good day. And yeah, let me know if you have any questions in the
+discord. Nice, nice. That's good to hear. Yeah, listen, anybody who tells you this part is easy?
+I want to knock us here. It's lying to you. Like, it's not just a one prompt. It's going to work,
+right? You have to go through the back and forth of trying to figure it out, setting it up,
+realizing it's not working how you want it to work and then going back and forth in chat.
+Listen, nobody one shots this stuff. And if they tell you they do, they're misleading you.
+This is my cousin, Moody OS. Hey, build your own. Call it Moody OS. What are you talking about?
+Oh, it's good. All right. We're going to get back to the build here. We're just waiting for the response.
+And I suppose we can go check on it real time.
+I think something else I'll do for the dashboard as well. Oh, it looks like we're running into that
+issue again, huh? Every time I refresh, it goes back to the dashboard that's not a desired output
+that I like there. Looks like it's still working. So it didn't give me an update based off of our
+last prompt. So we just have to be patient with it.
+Yeah, and for anybody curious, I didn't set up Telegram or Discord for this one yet. I like
+working out of the gateway dashboard personally. You don't have to. You can work out of Telegram.
+And maybe by popular demand, I know one thing we didn't specify in this bootcamp is, do we want to focus
+an episode on Discord or some type of other chat feature? That's something we can always incorporate
+a little bit further down the road, maybe episode two. We can squeeze that in. I'm personally going
+to work out of the dashboard, but your Telegram chat, your Discord chat, your WhatsApp chat,
+it's all tied into your main session chat, agent main main. So you can accomplish everything
+we're doing here, out of Telegram, WhatsApp or Discord.
+Come on now. How are we doing?
+I'm just going to ping it, see what's going on.
+Sometimes this will happen. Server process got killed. Let me restart and verify everything.
+Okay, look at that. Now we're seeing evidence of the chat, which is great. I love this functionality.
+I definitely want to improve this. Maybe make this look more like a terminal in here.
+It blends in a little bit too much with the header, but the functionality, I like it. I like it.
+Wonderful. Don't do it. You're going to do it, aren't you?
+So I'm noticing a slight issue here. In the dashboard, it shows this is an intermittent issue.
+When I do a hard refresh on the page, I'm guessing it's loading cashed information. It shows the
+model, sessions, cron health on the dashboard. But when I click into mission control,
+within each section for modules or models, active sessions and cron jobs, we're getting this
+infinite circle again. What could be causing this and what can we do to fix this?
+SSEs sends initial data. The moment of browser connects. But if you navigate to mission control
+after that, the new use SSE hooks had no cash data and never stuck waiting for the next server
+broadcast. Okay. Holds the latest data globally and you component that mouse. It gets instantly
+from cash and stays live for updates. Okay. Yeah, we see our latest session here. Wonderful.
+So I think we're solid. We're good to move on to the brain. We'll fine tune this UI stuff a
+little bit later. But let's continue building out each module, shall we? So let's go back to
+today's kind of step by step. All right. I think ops is solid for now. I'm going to monitor ops
+as you build out the next module, the brain. I want to create a daily briefs tab with a markdown
+renderer for priorities and follow ups. But primarily, you know, that's the priorities and follow-ups
+are actually for episode two and three in this bootcamp. What I want you to do is build out the daily
+briefs tab first and foremost with the function of a left vertical menu showing the history of all
+the daily briefs as we start to populate these every day with a markdown renderer off to the right.
+You should always default to the latest daily brief. Towards the end of this episode, we're going to
+configure a cron job with a specific set of rules to then give me a daily brief every single
+morning. Let's first build out this feature within the brain module first.
+Now I'm curious. I want to monitor it to see
+okay it is. It's a part of the main chat. So we'll see if it spins up another sub agent.
+We should see the active sessions automatically update and if it doesn't, that's going to be something
+that we'll address before the end of this first episode.
+Yeah and in this case, I think we should create a placeholder brief. But moving forward,
+briefs should never be demo data or placeholder data. I just want to see how the markdown renderer
+works. So create a fake brief for us and yeah go visit clearma.ai forward slash boot camp
+and make a brief based off of that landing page.
+So since we have a moment of waiting for it to build, I will pop open the comments in a second.
+I hide them intermittently so that I don't get distracted.
+Let's refresh the page. I don't see any new sessions. I do see it looks like this is updating
+real-time which is great. Let's see if this actually loads real-time though.
+No there's a slight delay but that's okay.
+And this is just me getting antsy looking ahead of time.
+Okay. I mean it's doing its job. Default to dashboard with all the tabs.
+I kind of want to incorporate a feature where dashboard isn't there, right? Where you just
+click this and this is the dashboard and then it has each individual.
+Good. This is also something we want to do is persistent memory across tabs.
+Still running.
+Not a bad first, not a bad first draft. I'll be honest with you. Not a bad first draft.
+But since this is working, let's pop in a little intermittent Q&A.
+Let me see the source of this one. Where's it? Peter, Peter, Peter. Why multiple OSs? So this
+might confuse you. This is muddy OS. My main operating system as you can see it's on a completely
+different IP. It's a completely different OC setup. ClearMode OS is my content kind of sweet.
+That's obviously on the same server. And then as you can see here, Goat OS is on a completely
+different open-class setup, right? So different IP address. I like having things sandboxed and
+because of this bootcamp demo, right? I had to create a fresh open-cloth instance. I actually used
+an old one that I used to help me troubleshoot issues with muddy OS, but it literally had no data,
+right? All I did was give it a name. And that was it. So there was no cron set. There was like
+zero context preloaded. Let's try to watch this on. Okay, let's go take a look. Let's do a hard
+refresh. Let's go brain, daily briefs. I like how things look. It's not bad at all.
+I don't like how it didn't open a new tab there. All right, not a bad first push on the daily briefs.
+I think, you know, moving forward a rule of thumb, any reference links within the daily briefs
+should either open a new tab or pop up into a floating semi-full screen module showing the content
+of that link. When I clicked clearma.ai forward slash bootcamp, at the bottom, it just completely
+went away from from our OS and it just replaced the tab altogether. I didn't like that. So a little
+minor thing and additionally moving forward, right, for the ops, the brain and the lab. I want to
+address this before we build anything else. The dashboard doesn't need to have a tab up top.
+I think the dashboard should be the default view when you click on a module in the bottom
+menu bar. And then I can freely click on mission control, for example, in ops and any other tabs
+and features that we incorporate. But I don't want to see dashboard up there. That's just a minor
+minor request on my end here.
+Right, so in these early stages, you really just want to just like tweak things a little bit. If you
+discover something you don't like, fix it right away. Fix it before your system grows to an extent
+where you try to fix it down the road and then it causes things to break. And then you have to
+essentially rebuild everything, right? I'm trying to do as much of these little features and
+functionalities that I like out of the gate so that as we grow, as we start building out the
+multi-agent setup in the coming weeks, the core functionality and the foundation, the wire frame,
+it's set, right?
+Interesting, okay, let's go take a look here. Nice, I like it.
+I like it. Now, if you guys want to keep your dashboard tab there, you're more than welcome to,
+right? I would just rather have it be the default view and then have the tabs up top. Man,
+I'm loving this new UI, my goodness. Definitely have to fine tune these modules, but it's just
+randomly going look perfect. I mean, it's the latest message. Let's confirm that this works.
+Okay, open to new tab there. All right, one thing I'm noticing here with the daily briefs,
+it looks like the content of the daily briefs tab stops at a certain point. I think it should go
+all the way down just above our bottom menu bar, right? There's a lot of wasted space down there
+and let me go check ops to see if it's the same. No, it looks like ops, it actually goes down just
+right above that menu so the ops is operating as we'd like. So make sure that this is consistent
+across each module and each tab within each module.
+Okay, it's not fixed yet. Let's wait for that to get fixed. Then we'll go and revisit this here.
+And we're kind of doing this in line. We're wiring things together so navigation works end to end.
+That step is kind of redundant.
+Still hard refresh. No, still wasted space.
+Hmm, interesting.
+Let's make sure it didn't break this one.
+Oh, well, there's not any more sessions so it's going to be kind of more condensed.
+Yeah, so I'm still seeing the same amount of wasted space between the bottom of the daily briefs
+kind of outline that container and then the bottom menu dock bar.
+And when I try to navigate back to ops, since we don't have enough sessions running,
+it's not pushing the cron job section down so I can't really verify if that change.
+Love it. Let me look at this from the browser directly to see what's changed. Let's see.
+Let me go. I didn't give it any browser relay access yet. So let's see what it does.
+That's what I thought, right? It doesn't have browser access. So
+Hmm, okay.
+Maybe I was asking too much. Maybe I was asking too much.
+So now there's just a slight overlap. It actually does sit below the dock menu bar.
+I would say by about 10 pixels.
+You got to make sure that the container only goes as low as the top of the dock menu bar.
+But then then again, like I'm thinking out loud here, it's like as we build this out,
+maybe the dock menu bar, how would I want to do this?
+Yeah, you guys are seeing this live. Like I didn't have a preset prompt.
+Like I know what I want and we're just working on it together.
+I'm like thinking out loud here is like I'm now like going back on the thought.
+I do love the feature though. I love the bottom menu bar.
+So I'm just going to go with that original change and then go from there, you know.
+You know, further along in this bootcamp, we are going to continue fine tuning things, right?
+Episode five fine tuning. But I want to get a lot of these little things done, you know,
+in episode one so that as we start to build out more and more features, just the core functionality
+of how each container works is consistent throughout. Oh, it's so close. Look at that.
+Actually, let me hide this left menu bar. You know what? Listen, I'm not going to be picky with
+it. That is almost perfect. And I think the solution here further down the road is making that
+bottom dock bar a little bit shorter. That's the solution right there. This is perfect.
+This is perfect. That was already a thought of mine as I do want to make this just slightly shorter
+and even a little bit more narrow because these are spaced way too far apart. But listen,
+we're focused on foundation and that's good enough for me as is. All right. So moving along,
+let's make sure ops didn't break.
+I mean, it's showing the recent chat. I like double checking things as I'm going through.
+I mean, this is solid. Okay. So laboratory. Now, you know, I'm building this system for client work.
+So I'm trying to think of how I would use the laboratory for client work.
+You know, my original thought of building out the laboratory was very similar to Muddy OS.
+It's like my prototype lab where, you know, now I have it building me micro SaaS products overnight.
+Right. Let's actually open up the most recent one. Right. So, and then it gives me a preview. It
+gives me why it built it. I don't know if I want to incorporate that here. I don't know.
+I think for the sake of this demo, what we're going to use the laboratory for is
+self-improvement logs as well as new features for the OS or for client work that we stage first
+before we apply it. Right. So it spins up a new new server each time. So I think that's
+going to be the move for our laboratory on this on this. We can't hear. We're done with brain
+feature. Okay. All right. Go. It's time to build out the lab module. The dashboard
+should show the prototypes as well as overnight builds and self-improvement builds.
+I really want this lab feature to be focused on, you know, logging all the overnight builds for
+the cron jobs that we're about to set up shortly. But also a place for you to stage new ideas,
+spin up a new dev server for that prototype, and a place for me to then click on it and have it go
+full screen, almost full screen, kind of like a floating three quarters with height and with,
+I just misspoke right there. But you get the picture. Let me know if you have any questions.
+And you can build out your laboratory for whatever it is you need. And maybe you don't even need
+a laboratory, right? I'm a geek. I'm a nerd. I'm throwing it throughout. Like having a
+laboratory in my OS is crucial no matter what I'm building. Let me just make sure I have this
+right. Lab module equals workshop plus build logs. Overview showing active prototypes,
+things you've staged, overnight build logs, cron job outputs, self-improvement build logs,
+prototype stab where you stage new ideas, each prototype is a card I can click to,
+see its dev server URL, open it in a 75% width and height floating overlay, same pattern as the
+session module, track its status, running stopped idea, build logs tab, chronological log of
+overnight cron builds and self-improvement runs, two questions before I build prototype storage.
+Okay, build logs storage.
+Yeah, so the think of the laboratory is like Dexter's lab. Google that if you need to,
+right? It's an old cartoon. It's a place for us to test new ideas. So I'm going to be setting up
+a cron job for you in our next few, you know, 15 minutes where I want you to self-improve your OS.
+So I want you to analyze the code base, analyze each module and based off of all the context that
+I give you about us, about your purpose, about how you operate, you then self-improve and create
+a new feature, right? So I want the lab to log all of those features that are built, additionally,
+once we incorporate a multi-agent team and we have client work, you know, essentially being
+delegated through our multi-agent team, I also want the laboratory to control where you create
+new features for those, those clients. And instead of deploying them into their production
+environment, you create a local version of it first to show me what idea you have for any given
+client. So that's the purpose of the laboratory. And then as far as your storage, I mean, it looks
+good to me as long as that can scale. If you think we should set up a convex back end, let me know.
+I'm open to your recommendations here.
+Love that. The Mad Scientist Workshop where experiments run wild, but nothing touches
+production until you approve it, until you approve it, perfect mental model. On the back end
+question, no convex yet. Here's why. Right now, everything is a local file system, fastreads,
+SSE file watches, zero external dependencies, which is exactly what I want, right? I don't want
+any dependencies aside from what I'm hosting. That pattern scales fine for what we're building in
+episodes one through three. When we hit episode four and five and we have a multi-agent teams
+generating client prototypes concurrently, that's what a proper back end makes sense. Adding it
+now would be premature complexity. All right, cool. It looks like it cut off. That means it's kind of
+like going through its response. So let's go check its session here. It looks like this is actually
+outdated. All right, so one thing I'm noticing, as you're building out the brain in the lab,
+I'm going into our mission control and I'm viewing the active session just to make sure it's streaming
+all that data and it looks like it's about 15 minutes behind. So it's not real time. This is a core
+functionality I want to make sure we dial in for ops. Every active session should be shown. You know,
+I think there should be no more than a 60-second delay on data in active sessions.
+Right? I want the mission control to be a place where I can go to visually see if things are
+actually working. Right? So this is something we have to address after you build out the lab.
+All right, I'm going to wait on sending that prompt because I want to let it finish and not give it
+too much. But then again, let me refresh this chat. Yeah, it's working. So I'm just going to
+queue this prompt in there. Oh, and when you see something like that happen in your gateway,
+chances are it's logging it, but just before you move forward, like wait for it to finish and to
+give you a recap and then see if it addresses that prompt and if it doesn't, you can just paste it
+back in there.
+Just have to be patient with it.
+Uh-oh, we broke it. We broke it. I'm happy we're breaking it live.
+There we go. Reloads. Just have to be a little patient. Look at that. Lab is getting built out.
+I just want to make sure that, uh, here's what the lab module looks like.
+It shows count, running status, let's preview, build logs.
+Okay, look, yeah, you know that prompt I sent, right? It addressed it. It looks like it got lost,
+but it actually didn't get lost.
+Okay, so it's going to tackle that after I confirm the lab. So let's go check out the lab, shall we?
+I mean, it's treating Goat OS as a prototype, which I guess kind of makes sense, but, uh,
+uh, wow, wow, this is actually a little bit more in depth than I was thinking.
+I like it. I like it. We're going to keep it. Yeah, listen, lab looks good for now.
+I'm sure we're going to have a way of changes, uh, especially after we have this running for
+the next week so that when we come back to episode two of this boot camp, we can actually review
+how the system was operational for seven days, uh, and all the builds that completed the
+self-improvement that completed overnight. Um, yeah, it looks good. Please proceed with,
+with fixing the ops because I really want to make sure that's like,
+that A, it's consistently updated and B, it's accurate, right? Um, and it doesn't bog down the system.
+And that's actually a thought I'm having now. It's like, do you guys want me to keep this running
+for seven days straight to see what it does each night with self-improvement?
+Interesting. My only concern there is it's going to start to do some of the work that we're
+supposed to do in further episodes, right? So you're not going to be able to like watch me go step
+by step and build it from scratch, although it would be cool to see what happens in a week time
+with seven self-improvements. I'm opening the comments up right now. What do you want to see here
+in the boot camp? You get to decide this. I either turn off this VM until next week and have zero
+cron jobs run or we let it stay on 24-7 for the next week and see what happens. That's, uh,
+that's something I didn't think about when I was planning this.
+Let me unhide the comments here. There we go.
+Yeah, and for anybody watching live, if I didn't get to your comment yet, as I mentioned,
+I'm just really trying to focus on the demo. So we're going to be opening up the floor. I'll stay
+as long as I need to at the end of this demo once we're satisfied with all of the steps that we're
+taking, and then we'll go through and answer everything, okay? I'm being very selective of timing of
+when I look at comments and show it on screen so that I don't get distracted real time, you know.
+Okay, it's still working. Let me see self-improvement. So you guys,
+you don't think so. Interesting. All right. I'm inclined to leave it on.
+Yeah, so it would do what I specify. So it would look at the context I provided, right?
+And based off of the context I provided and what we're building this system for, it would then
+base it off of all of that based off of what's been created. So let's do it. I'll keep it on 24-7
+for the next seven days. And we should see seven features built in.
+Okay.
+Just a fresh browser, just to make sure it's not cache data. Yeah, so I am still seeing here.
+It looks like our main session. It's not showing the full session history. It's showing up until
+5.23 and it's currently... Wait, what's your system clock? Maybe there's a clear disconnect between
+the system clock on the VM. To me, it doesn't appear to be showing real time session data.
+Let's look into this before we proceed. Let me go into that VM. What time is it over here?
+Oh my goodness, that's on me. That is totally on me. Let's go into settings.
+Yeah, because it is 6.39 local for me.
+Would it be under network? Am I blind right now? Let's see.
+I'm guessing it would be under system date and time.
+Yeah.
+Let's see if that updates by itself. Because it's definitely off.
+There we go. It updated. It took a moment.
+Okay, I like it. So let's go back here local.
+Yeah, so that's my bad. I actually, your VM that you hosted on, it was set to a static date and
+time. The date was correct, but the time was incorrect. I set up the auto clock to where it synchronizes
+with local time. So let's just do a quick refresh on ops.
+We'll do a few more comments before I get back to building the rest of our list for the day.
+Radon, Chris, I will. I will. Can we do both and have our own version? We will work on,
+but also see the version he creates. Well, here's the thing about these self-improvement.
+We can always just revert back. We can undo. We can say, hey, we don't like any of these,
+right? Undo them all. And it will essentially remove them for us, right? So I'm just going to leave
+it on 24 seven with muddy OS throughout the week. So we're going to be doing that here on this boot
+camp, right? In future episodes. If you look at our curriculum, by episode three, we're going to
+wire things together with a multi agent team, right? So you're going to see the step-by-step.
+I'll create a video down the road, but listen, I'd rather just do this boot camp and show you the raw
+step-by-step and not some, you know, prefabricated video that makes it look easier than it actually is.
+All right, clock synced.
+Okay, that was that was on me. That was that was that was definitely on me. That was definitely on me.
+Cool. All right. So we have the lab built out.
+I want to do some minor tweaks.
+Oops, wrong OS.
+All right. So I want to make some minor adjustments to that bottom menu doc. Instead of a dot that,
+you know, the dot, that's the color of the theme of the module, I think it should be an underscore,
+like just a not a full width line, but just an underscore style line with the color. And let's
+make that bottom menu bar just a tad shorter. Leave the icons exactly where they are,
+but the spacing around the icons from top to bottom, I think you should make that just a little bit
+shorter. Just a minor little UX tweak I want to make before we move forward.
+This changes much better. Good enough for now. Good enough for now. I like it. Looks better to
+me than than it did before. Okay. Wonderful. Now I'm having one more thought with the laboratory before
+we move on. Andra gave me this idea. It's like, what if we have the laboratory have its own staged
+preview environment of goat OS? It applies those self improvements to the staged environment and
+then waits for our approval to then push it live into the actual goat OS. That might be complicating
+things. See if it works. Kind of thinking out loud here. That way we can actually continue the
+build from scratch rather than having some of the stuff that's done by itself kind of not show
+you the steps taken to get to that point. That's like my only concern as far as making sure that
+these live streams bring you the value that you're looking for of showing you the step-by-step.
+You're about to see the step-by-step of me making the chrones, but yeah, I'm just thinking
+of loud here. I'm going to talk to my agent about this. Why did you? Oh, it's because it's
+almost evening here. The sun is down. That's why. Forgive me, but I prefer light mode most of the
+time. So we're going to keep the chat in light. All right. So I want to think out loud with you
+goat. I'm loving the progress that we've made so far, but I'm thinking about the laboratory.
+When we do set up a cron, a self-improvement cron that's going to build out a new feature for the
+OS overnight and surprise me in the morning, I don't want it to take away from this bootcamp that
+we're doing where we're showing everybody the step-by-step of every single thing that we build here.
+So it might detour people or mislead people in the sense of when we come back next week,
+you build out a lot of cool features that they then question how they were built. And we can't
+show that, right? Because you do this all autonomously overnight. I'm kind of wondering how
+difficult it would be for all of the self-improvement builds that we're about to configure. If you can
+create a staging version of goat OS that doesn't affect the primary live version that's hosted
+on port 8800, right? Maybe you do one on 8900. That's a staged environment that all of the
+self-improvement done overnight gets applied to that staged environment first. And then every morning
+I can review each self-improved feature and then approve it. And then you apply it to the main OS
+on port 8800. What are your thoughts with this? And since we're going to let this system run for
+a week until episode two of this bootcamp next Wednesday, it's like, I'm not going to approve
+anything off air. I'm going to wait a week for seven overnight self-improvement tasks to run
+to then go with the audience and show what was built over the past week. I'm just thinking
+aloud here. I'd love to hear your thoughts on this and the best approach here moving forward.
+Yeah, this is something I didn't think about when I was planning the curriculum. But I think it's a
+it's a good thought. So thanks for your patience. You guys are literally seeing this real time.
+Wait, did it just hide that there it is?
+Now it's misunderstanding me actually.
+Yeah, so how would we approach this if this is all hosted locally, right? Creating a staging branch
+on a Git repo would imply that we have this hosted on a front-facing domain we don't, right?
+So that's why I had the idea to run a second server. We should have enough resources on the VM
+to pull this off. So I'm going to push back here and feel free to push back on me as well.
+It's got a good point.
+Yeah, but wouldn't you still need to pop up another dev server to view that staged environment?
+Or I guess it's all local host, right? My concern is accessing it from my host PC. I'm not going
+to spin up the VM just to go local host and then a certain port or a certain deployment.
+Chances are you guys whoever's watching this you won't run into this. This is just a minor thing for me.
+All right, you win. I had a feeling because just because I know my environment and I know the
+issues I would run into, there we go. Beautiful. And this is why you don't just accept your
+agents stuff blindly. Go back and forth, ask the questions. The only stupid question is a question
+not asked, right? If you stay silent and just assume everything's going to work and don't ask
+questions, listen, chances are things won't work properly. Yeah, we are going to set up a private
+GitHub repo but go ahead and set that up and then we're going to in the next step of this bootcamp,
+we're going to be setting up some cron jobs for in total.
+Yeah, you totally can if you want, but I want my agent to build everything and wire everything
+together and then have memory of the build. That's why I'm taking this direction for sure.
+All right, we're almost there. We're almost there to set up some cron jobs and then open up the
+floor for Q&A because I believe, listen, I'm shocked I timed this properly. A lot of thought
+went into this curriculum. Originally it was eight weeks, nine weeks or something, then we
+condensed it down to five weeks. I was honestly a little concerned that today would be too fast,
+but I like to keep the live streams around two hours here, so this is perfect. I'm loving how
+everything just worked out. So obviously today we'll probably, you know, still have another 45
+minutes till we're done, but these next two steps are going to be pretty quick. I guess next
+three steps and then we talk homework and live Q&A. And that'll I think be the most time consuming.
+So we can close this private window.
+All right, actually, before we continue to the
+be actually that's last. Yeah, so for the cron jobs, here's what I want to do. I want to set up a
+private repo backup. I have a link that I'll paste and chat for you. I want this to be backed up
+every single night. Let's call it. Let's call it two a.m. every night. Our entire workspace
+keeps secrets out of it. Just in case, you know, it gets exploited in any way or, you know,
+somebody gets in, but let's make sure secrets are out of it like API token usage, etc., etc.
+But I essentially want to backup the entire open-class setup onto a private Git repository that
+I'll provide the link for. The second cron job is I want to create an overnight self-improvement
+that audits one module overnight within the Goat OS, whether it's ops, whether it's brain,
+or whether it's laboratory, and figures out one new thing to build, one new self-improvement feature
+to build out that falls in line with all of the context that I've provided with you, right,
+in the user MD and your memory MD that you've stored, of what our goals are, what your purposes,
+right? I want you to surprise me each morning with this self-improvement on the staged dev server
+that we have that we just discussed. Make sure this is wired correctly so that you never push
+a self-improvement task to the production, you know, dev server for Goat OS. The third automation,
+the third cron is going to be daily briefs. I want to create a cron that runs every morning and
+delivers a summary brief covering what our priorities for today are, overnight summary of what
+happened with all of the crons, and then pending action items if anything failed. Additionally,
+I want to add in some rules to give me news in the AI industry. So I want you to scan, you know,
+blogs of open AI andthropic, Gemini, all those big enterprise AI companies, and feed news based
+off of things that we missed overnight. So call that AI pulse. And then automation number four,
+I want to have a rolling OS documentation cron that, let's call it midnight, at the end of every
+day, you analyze what was done to Goat OS to each individual module, each individual tab and
+feature, and you build out a documentation section that will be placed in the
+brain as a tab. And you update that once a day at the end of every day with how the system operates.
+It's essentially a place for me to be able to go in and look at, okay, how are things wired
+together? What was built? What are all the features? What are all the tabs? What are all their
+purposes? And this should, you know, kick off every night at midnight. And make sure that each
+cron is configured as an isolated session. That way, if the main agent chat is idle, the cron
+spins off regardless. Please let me know if I gave you enough context. Let me know if you have
+any questions. And then I would presume that once you configure all four of these cron jobs,
+they will appear in the ops dashboard. This is going to be a great test to see if you wired
+everything together correctly to where the crons are actually being displayed in ops.
+And yeah, that's it.
+All right, that was a big, big prompt. That was a big, big prompt. So if you're following along,
+just screenshot this, like just screenshot what I just voiced the text here.
+Yeah, just to answer this really quickly, this is a failsafe, right?
+For Muddy OS, I have it backing up to a private GitHub repo as well as a Google Drive,
+since Muddy has his own Google workspace account. But this is if something fails locally,
+if something breaks, I at least have a daily backup stored on a private repository.
+Then I could just spin up a fresh open clause, set up, import all of that data, reconfigure,
+whatever API keys. I told it not to synchronize to backup. And voila, my system's working as it was
+from that day I restored, right? This is just failsafe backups. Chances are you might not
+need this, but...
+Bam, bam, bam. Let's go GitHub.
+Go to OS.
+And also, I think this is a great spot to also set up an Automations tab in Brain.
+It should always synchronize and reference all crons, right?
+It should be a place for me to go and see line by line exactly what's being discussed
+or what's being defined in a cron job.
+And then the OBS tab shows the cron health, right?
+It shows more of a summarization of the cron jobs, whereas the Automations tab in the brain
+gives us more specifics so that we can go in, make any adjustments that we need to make.
+With you, of course, we don't need the feature to edit them in line, but we've got to make
+sure this is wired together correctly.
+So if we make a change to the cron, that reflects in both the Automation tab in Brain as well
+as the OBS tab for the cron health checker.
+And then for the GitHub access, since I'm live streaming, I've got to take the screen
+off screen to set that up for you.
+What I'll do is I'll just pop open the VM and log in to whatever you need me to log
+into to set that up properly.
+I'll try to show you guys as much as possible, but as you know, I can't show you certain
+keys.
+Otherwise, you know, bad actors will, I'm going to refrain from cussing, but be bad actors,
+you know what I mean?
+Okay, I'm going to take that VM off screen.
+And let me just handle this really quickly.
+Settings tokens, repospo, repospo, repospo, repospo.
+Oh, my number pad wasn't enabled, come on now.
+I need a new code, yep, I need a new code, send another one.
+We're having some issues here, give me a second.
+Let's try this one more time.
+We might need to go in a different direction here.
+What's an alternative here?
+Currently trying to generate that token for you, pseudo-access is denied.
+There's got to be an alternative here.
+Let's think outside the box.
+Oh, I was selecting the wrong one.
+That's a user error, for sure, on me.
+Okay.
+Okay.
+I love how it gave it its own key.
+But now this is exposed, so we're going to have to reset this up.
+Yeah, but you just expose that on the livestream, so let's go in a different direction.
+I guess he's got a good point.
+I'm setting his keys.
+Does the title of this key matter, or can I label it anything?
+This might be a stupid question, but we want to allow right access to that, correct?
+It keeps going through this loop, GitHub is having some weird authentication for my account right now.
+Voila, works.
+Okay.
+All right, let's just verify that it actually, it should have manually did one.
+Let's go to iOS.
+Nice, nice, wonderful.
+And just to confirm, this covers our entire OpenClaw workspace, right?
+So as we build out multiple sub agents with their own workspaces, like everything's going to be backed up to this private GitHub repository.
+The purpose of this is that if this VM breaks or something breaks, that I can spin up a new OpenClaw instance, restore the GitHub repository from a particular date and time, and then it essentially restores our entire OC setup.
+Yeah, one alternative you can do, I didn't want to do it live here on the show because there's a lot of people watching, but you could just essentially make the repo public at first and then configure it private.
+And look, I'm glad I checked, right? So it's only backing up the go OS project code.
+Yeah, that's a critical one, that's a critical one, like we want to make sure it's the entire setup, everything.
+So I'm glad I'm checking here.
+Yeah, for clear mud and my day-to-day operations, I have one, you know, beefy OpenClaw setup.
+For this demo, you know, I'm building this for you, but I'm also going to be using this after the bootcamp for client work and future products that we launch that I will eventually create a link between the two setups.
+But I like how this one's separated and that I can just feed it per client, I can have essentially a master agent that handles its own team of sub agents per client work, right?
+So that's how I'm configuring this one kind of thinking ahead.
+But we're essentially building out the core functionality very similarly to how muddy OS was built.
+And this is why like you don't just blindly set a cron and think it's going to do the right job, you double check everything.
+All right, we're about to go through each cron to make sure that they're configured the way I want them to be configured.
+Right there, it was just backing up go OS and that was definitely user error. I don't remember getting that specific.
+I just assumed it knew the answer, right? Don't ever assume it knows the answer. Be as, you know, descriptive as possible and challenge it, go back and forth.
+I've got to refresh this page, you know what I mean?
+Now it's set up correctly, nightly backup covers, identity files, memory files, brief stocks, skills, lab.
+Yeah, what's excluded?
+Okay, perfect. Let's go through all the crons. Is everything configured?
+Before I go into go to OS, I want to check with you. Is anything backlogged or are we good to go?
+This is why you create separate, separate API tokens, right? Separate things.
+And now I'm curious.
+Cool, it built out the automations. It allows us to view full instructions of that cron. Wow, it did a killer job with this.
+I didn't even specify this. Wonderful. You see how it's getting smarter based off of some of the little work that we did early on with different modules.
+It applies all of that knowledge to everything you build, right?
+Okay, isolated. These are critical to make sure they run regardless, nightly backup, daily brief.
+Yeah, this for the first week, it's not really going to be populated much, but that's just a good role of thumb to incorporate.
+Check what cron jobs ran overnight.
+I like it. It's pretty detailed. That's solid. Self-improvement build.
+You are goat, the executive assistant OS builder, your job is to analyze goat OS and build one new feature or improvement overnight.
+Only modify files in staging. Beautiful, never-touch goat OS main project. Wonderful. Pick one module to edit or to audit, rather rotate, ops, brain, lab, build one meaningful feature or improvement that aligns with the system's purpose.
+Context, read, soul, user, memory, skills for the front end design skill. Wonderful. I didn't even specify that. Process, step by step process.
+We're eventually in future episodes. Right now, the reason we're doing it the way we're doing it is I'm going to show you the difference in how effective things become when you actually build out a skills directory and then every cron job turns into a skill first and foremost.
+Right now, we're defining the workflow of the cron within the cron job. But the true unlock down the road, you're going to notice that the outputs here are going to be inconsistent.
+They're not going to be perfect. They're not going to be what you desire. But when you create that skill and the cron essentially references the skill and then you put all of this data into the skill itself, I've found that all of my automations pretty much nail it.
+I've had to fine tune things, you know, since I incorporated my skills directory into muddy OS. But that video, by the way, is coming out tomorrow. That talks about skills. I give you a skill template. I dig into one of muddy OS's optimist, you know, automations.
+And I really just kind of show you how muddy OS has improved with the skills. We're going to be building that here in the bootcamp. Don't worry. But OS documentation. Let's just go view the last one.
+Looks good. I mean, this is solid. This is solid documentation. I'm not going to be picky about it right now. Right. I'm just going to leave this as is. I want to see what it does throughout the week.
+All right. I mean, that's solid.
+Yes, of course. You shouldn't have to ask me that. Definitely remove the old one. And confirm. So, peace of mind. These crons are going to run as long as I keep you on 24-7.
+Correct.
+Cool. All right. What else is on the list for today?
+We set that up. We set that up. We set that up. Ah, org chart placeholder. OK. All right. Final step for today before we go into a live Q&A is let's do an org chart placeholder. So let's build out the team feature within the ops dashboard.
+Sorry, forgive me. Not the ops dashboard within the ops module. Let's build out a team tab. Or you know what for the sake of the demo call it org chart. And based off of all of the context that I've given you about what your purpose is going to be moving forward. What we're building.
+I haven't specified what agents we need to build out. But I want you to create an initial prototype first draft. We're not going to wire this together. We just want it to be visually there so that we can then start thinking over the next two episodes of what sub agents we want to create.
+We're importantly what separate open claw agents we want you to delegate to right. So obviously at the top you're going to have me the human below me you're going to have you the goat and then below you we give it as many columns as needed for as many agents that we're going to create and then underlying those agents we're going to have sub agents.
+Let me know if you need any more information to pull this off. Again, we don't need to wire any of this together. This is we're setting that foundation and we want to get a visual so that we can start thinking critically about the agents that we need to configure in the coming weeks, especially by episode three when we actually deploy separate workspaces per agent.
+And I think that's everything. I'm just referencing this on the other screen. That looks good.
+Part of me wanted to save this for next week. And I hope I'm not over complicating things. I hope I don't break things here. But you know, I really want you guys to start thinking as you're following along this bootcamp.
+It's like, don't think too big. Start small. Start simple. When I built muddy OS, you know, this team I essentially just had my agent with sub agents, right. It was a mess.
+But I started building out certain sub agents per automation. And then I started to think, wow, I actually want this structure like a company. I want him to delegate to its own agent with its own workspace, its own heartbeat, right.
+That then has its own team of sub agents that it delegates to and it knows how to kind of divvy things out. This didn't happen in one build. This didn't happen overnight. This happened through well over 100 hours of back and forth of breaking of having it not work from day to day getting frustrated with the system. So I think when you're building out your org chart, keep it simple at first.
+This is already too complicated for me, but we're going to write this is just a placeholder. We're just having it build a placeholder. We're not wiring anything together. This is for us to come in and kind of visualize how we want things to look.
+And I recommend like use if you have an iPad use procreate, export that image into your open claw agent once you have a better understanding of how you want your org chart to look.
+But this is not a bad first draft. I actually kind of like how it looks. Very basic, right. We got to improve how it looks, but not bad. Not at all how I would imagine this to be structured to be honest.
+But the purpose was just set something there as a placeholder so I can start thinking about it over this coming week. And then we'll fine tune you know the agents next week and make sure everything's wired together communicating by week three, okay.
+All right.
+Wow. Awesome. So moving along here. As I mentioned, right. Like I want to think ahead to all the comments. We are not wiring that together today. That is a placeholder that is for us to visualize and think about how we want this to work and function and we'll start to configure that next week and make sure by week three.
+It is dialed in and they are communicating independently of you, okay. Beautiful. So that's done. Now homework. All right. We're at the end. I mean, listen, I think we made some solid progress here.
+There's some things I would want to change, but overall, I think this is a solid day one. We built out the ops, each ops, you know, each module defaults to a dashboard and then you click into the tab.
+I love how this updated everything real time. We have a placeholder org chart, right. This is just a placeholder. This is for us to start to think about, okay, what agents do we want to build with their own workspaces and then underlying what sub agents do we want those agents to handle to delegate things to, right.
+I'm going to change this completely. I'm already thinking, you know, for me, what I envision is one agent per company that I support per project that I need to build out a team of agents for.
+So I don't like how this, this first draft looks, but I'm going to be riding on pen and paper this week and on my iPad pro create empty canvas like how I envision things and next week I'll show you how I'm setting this up and what we're going to change, but it's good to at least get a visual out there.
+And I clearly specified we're not wiring this together yet, right. So
+not a bad first day and then we go to the brain, love it, daily briefs, I think eventually we'll do a two row kind of split. I don't like how this takes up so much real estate.
+Right, I think the dashboard should have like module, module, module, module, module type type look, you know, for each row have two columns or even three. We'll see, we'll see as the system grows, we'll fine tune the dashboard a little bit.
+But we have our markdown preview renderer here. We have this feature that it opens up a new tab. Wonderful. We're going to start testing the daily briefs.
+We have all of our automations in place. So we'll see if they work from here to next week.
+We have our rolling dock section, which I'm not going to be too critical about yet because we're, you know, this is a very base setup as of now.
+Yeah, listen, I'm happy with this so far. I'm very happy with this. I'm happy with the progress we've made. So Q&A, let's open up the floor.
+Actually, before Q&A, before Q&A, here's what I want you guys to do if you're following along and you're taking this seriously, right?
+I want you to spend this week, spend 10 minutes each day if you can, or if you prefer to pick a Saturday or Sunday to spend, you know, close to an hour, this is why I suggest 10 minutes a day because you'll start to have thoughts of context you want to feed it.
+I want you to start feeding your agent context. I want you to start talking about your background, right? Say, hey, I want to share more about myself so that we can update our user MD, right?
+Give it as much context as possible. You'd be surprised what you think is irrelevant is relevant to your system, right? Depending on what you want it to do for you.
+Yeah, do that, feed it context, and I also want you to start planning your organization. But for the love, love of everything, please keep it simple as simple as possible.
+Do not over-complicate it on your first go, okay? You're going to find, you're going to run into a lot of issues if you over-complicate things at first.
+You want to keep it as simple as possible and then expand from there. It's easier to build off of rather than trying to build this complex system that doesn't work out the gate because you have too many moving pieces up front.
+You want to have as little moving pieces up front as possible so that you can slowly build things out, right?
+And yeah, that's your homework. That's your homework. Think more about your organization, feed it context, spend 10 minutes a day with your system, feeding it context over and over and over again.
+And by next week, it's going to know enough about you, your system, and what you want to build, right? So not only feed it context about you, but feed it context about how you envision it operating a week, a month, a year down the road, right?
+And yeah, I think that's solid homework. Let me see if I missed anything here.
+Yeah, and if you're building this for client relations, I mean, feed it everything about your business, right?
+Clients, workflows, preferences, communication style, recording work, if you have voice docs, right? Maybe you have a YouTube channel, maybe you have it download transcripts of your past YouTube videos so it tries to create a voice profile of you, right?
+This is just feed it as much context as possible this week. You're going to, I'm going to be doing the same, right?
+I'm probably going to only do it on Saturday. I'm not going to do it every day, but I will keep the system running 24-7.
+All right. Live Q&A. Shoot. I'm here for it.
+So as much as I'd love to scroll up to all the comments I missed during the demo, I'd rather reward everybody who's still here and answer questions real time.
+Yes and no. So one thing we're going to be configuring in future episodes is a lot of my client work. We have a staging branch on GitHub and then the production branch as well.
+So I'm going to show you how all that works and how to set everything up. I can't show you the client data sadly, but I think what I can do is create dummy projects with staging and production environments.
+Actually, come to think of it. Maybe this is the time to build out an old project I started, but as like prompting became less relevant, I kind of curved it. Let's see. I think, yes, it's got a placeholder.
+I had this idea the other night and I put it into a, I'm pretty sure I put it in here. Where is it? Prompt browser. There it is.
+So I had this idea for prompt browser. What if we turn this into something that allows somebody to scan any YouTube video from any AI creator and pull prompts from it and then additionally a way to like summarize all of the prompts that we provided in our live streams and long forms.
+Maybe I build this out real time during this bootcamp because I already have the domain registered. I already have an old code base that it was a good idea, but it, you know, it just didn't stick. So I'm thinking maybe I'll do that real time.
+Maybe I'll turn that into a video I'll record this week. So we have a long form version of me building out prompt browser version two.
+But yeah, let's focus on the Q&A. I'm just thinking aloud here. All excited.
+Great first episode. Hey, oh, you woke up at 3 a.m. Okay. I was kind of curious on being in your time zone. Man, thank you. I appreciate it.
+So what do you mean details on the gateway setup you mentioned? You said you used land mode. I tried but had certificate issues. I'm planning a similar setup. Oh, okay, okay.
+So one thing I discovered is let me. Can you do me a favor, goat. We have a Q&A from slinger wood 69 in the chat. And he tried setting up his gateway similar to how we have our setup.
+And he tried to use land mode to create a bind to, you know, essentially access the gateway from his host PC or another PC on his local network.
+Can you give him a step by step of what we did to accomplish it so that he can just screenshot the screen.
+Well, I'm just going to prompt goat for you slinger. So I hope this is helpful.
+All right, I'm going to scroll down through this step by step. So screenshot here.
+Now, you don't have to do all this manually. Your agent can do most of this for you. But this is these are the steps that we took to pull it off.
+Nice. Chucks. Nice. That's dope.
+I can't wait to see that pop in the discord if you aren't already come share dude like that's what the discord's for us for all of us to share what we're building help one another and yeah.
+Yeah, I tried to be as efficient as possible with the video not doing too much Q&A. Yeah, I'm going to do it. Thank you. Thanks for the inspiration. I like the idea. It's a simple idea. And I think I can get away with using a Gemini.
+I believe they just announced 3.1 light. I think that could run the prompt browser that downloads a YouTube transcript tries to pull prompts from it and then feeds you all of the prompts in a visually appealing way.
+So right on right on. Yeah, of course, of course. And pop in the discord if you want already I'll try to help you as best I can. Hey, thank you. Listen, you're the go every single person watching here is the goat.
+But then also this new open client agent we just set up is also the goat. We're all goats around here.
+Yeah, so I mean, we'll find out. Let's go. Let's go. Hey, that's that's how things start.
+Keep going up had another one for you. How far? Let's see. Oh, is this one in sandbox creds for all tooling? Is that the question?
+How would you build a business where there are multiple human employees that you need to interact with your business OS? So I listen, I only give advice of things that I've actually tried.
+Now I know it's capable of creating different user sessions. So different humans could access your agent and talk in different sessions. That is possible.
+Here's what I would recommend since I haven't tested that personally. I can't give you advice on that.
+This is one trick. I'm making a video about this because I feel like a lot of people who know this aren't essentially keeping the information from the public.
+But any question that you have, it is not difficult to figure out. All you have to do is open up that line of communication with your agent and feed it the docs.opencloud.ai link.
+This is all the documentation you need to pull off anything you want to pull off in your OC setup. I have referenced this so many times.
+I have my bots referenced this all the time. There's no secrets here. It's just taking the time to identify what part of the docs you need to accomplish what you want to accomplish.
+I know that your question is possible because I've dug through the docs. All you've got to do is feed this URL, docs.opencloud.ai, and say, hey, I'd like to do X, Y, and Z.
+And you can get a little specific, but I don't want to pay someone to do it. How would you do it? Please reference these docs.
+It will analyze all the docs and based off of your desired automation or inputs, it will give you a solution based off of its latest version and all of the capabilities within OpenCloud.
+I'm making a video for this because I think it's very, very critical to understand. You can literally do anything you want to do without having to ask anybody.
+You just need to have a little bit of imagination and understand that this is like a gold mine of data here that not a lot of people are talking about.
+docs.opencloud.ai, tell your agent to reference that when you want to set something up specific and it will accomplish it for you.
+I hope that's clear and I hope that's helpful.
+Hey, thank you Chucks. I really appreciate your Chris.
+No, keep going. Hey, as I mentioned, I don't want to scroll too far up. So where...
+Listen, I'm like going too far up, post it again if you can if I didn't answer it.
+Yeah, your imagination is the key but the possibilities are endless, folks. 110%, you know?
+Yeah, I would listen. Always try using OAuth first. Try using a setup token first. Listen, there's a lot of rumors and speculation of anthropic banding.
+Google, you know, definitely banned anti-gravity OAuth, right? So go disable that if you have it connected.
+They said they were going to do the same for Gemini CLI but then they backtracked that.
+I think these companies are realizing it's a very mistaken, they're shooting themselves in the foot, right?
+So using a CLI based OAuth is okay. As of now, this might change down the road.
+So prepare accordingly, right? Use these tools at your own risk but as of now, it works.
+And there's no clear we're banning this, right? There's only the public creating FOMO and fear and still, you know?
+Like, there's nobody from anthropic confirming this. Nobody from Google confirming that the CLI, you know, OAuth tokens are banned, right? Or that you can't use them this way.
+Hey, thank you, Alexander. I'm glad I answered it. Yeah, pleasure to have you. Nice, nice, nice. Right on, right on.
+Okay, nice. Yeah, I use, listen, I use Gemini API keys quite a bit for NanoBanana Pro.
+But now we have NanoBanana too, which I'm guilty. I haven't started testing as much as I would like to because I've just been so busy with client work and then focusing on making these videos.
+It's like, I really have to manage my time properly. That's why, you know, if anybody's watching this that has reached out, you know, understand, like, I was not prepared to have hundreds of inbound DMs and emails come through.
+So we're getting, we're getting through them and I'm noticing my battery died there. So give me one second. Let me restore that.
+All right, we're back. Sorry about that. I don't have my dummy battery back yet because I'm not clearly back in California. We're still in Europe.
+But kind of going back to it, like, I have a full schedule. I work, you know, between 30 to 40 hours a week and billable client work. I do another 30 to 40 on this channel. Right.
+So you can imagine like my spare time outside of these live streams, these videos and then the client work. It's very limited.
+And I was not expecting all of the inbound leads and, you know, partnership things and all this stuff coming in. Listen, I did not expect it to happen the way that it did. Listen, I'm very grateful for it.
+And I'm setting systems and rules in place to where I get back to everybody in a timely manner. But, you know, please do your best.
+You know, either ask me in the discord, ask on these live streams. That's where I'm focusing all my time and attention outside of client work and everything else I have going on, you know.
+So yeah, and listen, I'm doing all this for free. Right. I'll never ask you for a dollar not to say I won't launch products and stuff like that. But doing all this for free. So kind of like respect that time frame of trying to focus all of the questions and in bounds that aren't, you know, I guess collaborative approaches.
+Just on these live streams or in the discord and I'll always get back to you in a timely manner. So.
+Hey, thank you. Right on. Wait, best wishes from Spain from the English bloke in Lorca. So you're an expat. You're obviously not Spanish. If you're going to call yourself a bloke, right? Isn't that like a UK term?
+I was term, I'm not very familiar with that that side of the world, but I'm guessing you're an English retired in Spain. That's awesome. That's awesome. Thanks for being here. I appreciate you.
+Is it? Yeah, listen, I've had a video on backlog to create an Olama setup. And I'm also noticing this weird delay. So forgive anybody watching the end of this. Maybe I'll try to go find a dummy battery here before I get back.
+Now it is primarily web design and building out custom solutions for small to midsize companies. You know, I have a long list of clients that I've worked with, you know, for 15, 16 years now, I did take a few years off when I retired in 2021 due to a mix of burnout and my dog at the time passing away.
+It just devastated me. So I just stopped everything. But I reached out to a lot of them, you know, at the end of the year and turned into client work almost immediately.
+I did get a few, few new clients. One was, you know, a one off. One is a retainer since I started this channel. So I can't listen. I'm not going to talk specifics as to what I'm building for them.
+I didn't sign any NDAs, but it doesn't feel right to do that. But it's all web design, web development and AI based solutions for helping automate things for small to midsize companies. So that's the focus.
+Yeah, interesting. Interesting. Can you share a link? I'd love to look at it. I'm not going to, like, obviously, promote it as if you should do this. Listen, I think everything is inherently risky to an extent. One trick you could do is have your, you know, your base agent scan that library of prebuilt agent say, hey, I'd like you to do a security audit on these agents and skills, right? Are these safe to use?
+Or, or you reference whatever prebuilt agent that you find and skills that you find and say, hey, instead of copying this, I would like to create our own to ensure that there's no malicious intent behind this download, right?
+So that's something that's, that's an alternative of a workaround that you can do.
+Interesting, interesting. He's never coming back. And I never going back. Where's that from? One movie's up from. I forget, I forget.
+Originally from bricks and London, bloke is a common term. Yeah, yeah. I figured, yeah, I've heard it before for sure. Right on, right on.
+And you're just loving Spain that much. I mean, Spain is a nice country. I'm over here in Portugal right now. I spent half my year in Portugal, half my year in California, normally.
+So we're not too far from each other.
+I bet the main modules will really tag us when they figure out how to line their pockets from our use cases.
+Trying to understand this a little better. What do you mean? I think I understand what you mean, but not entirely, not entirely.
+But yeah, man, I hope everybody found some value in today's today was, was solid. I'm shocked that I timed everything.
+You know, I timed this bootcamp in a way where I was hoping that each episode takes roughly two hours. I'm okay that we've gone over. We're almost streaming for three hours here. But, you know, a lot of it's Q&A, you know, the start and then the end.
+But I'm very happy. Oh, that's bad. It didn't have persistent memories of memory of me crossing things out. That's annoying. That's something I'll have to fix.
+But yeah, we tackled everything. I mean, it's solid. I didn't follow this skeleton prompt. I had my agent muddy created for me.
+The only prompt I really followed was this one here, where I kind of talked back and forth, right? Yeah.
+Ah, yeah, yeah, yeah, yeah. And I think it's just a matter of time. Like we're, I'm sure we're going to see open AI deploy their own, you know, open clause setups where it's like a think of it like a harness, right?
+Where they sell an agent per industry, per workflow, maybe for, you know, maybe they're going to target residential, right? Like moms, dads, right?
+Like certain agents for certain roles in the family, certain roles in business. Like I'm sure that's coming, right?
+Me personally, I like having everything hosted and controlled by me. I don't like the idea of using an agent in the cloud that I don't have full control over its data, you know, that it could be shut down like that through, you know, outside influences.
+That's just me. Listen, I'm not telling you not to use those. I'm just more of the type who likes to deploy my own things. So, oh, yeah. Yeah.
+Well, listen, I just want to say thank you. Thank you to everybody for tuning in. I do want to wrap up the live stream here in a few, few moments.
+It's dinner time for me. It's almost 8 p.m. It's going to be a late dinner. I didn't have time to eat beforehand. I was just honestly way too excited for the bootcamp to where all I had was a croissant beforehand.
+It was with the double shot espresso. Yeah, really though, really though. And that's a solution right now. So, for anybody just tuning in or been following along for a couple of weeks, I built this free resource called clock grip.
+I haven't worked on it recently, but I'm essentially creating visual 3D models for everything that's in the docs.opencloud.ai to teach people about how it works and what is possible.
+I'm eventually building out a builder and a browse feature where people can share their cribs. There's a lot of kind of like security vulnerabilities associated with sharing your open-class setup. So, this isn't ready yet.
+But one of the longer term ideas after I run a few more of these boot camps per use cases is we're going to sell harnesses through clock grip. Most of clock grip will always remain free.
+However, for small to mid-sized companies, as well as enterprise companies, if they want to come and pay us to build out a custom harness for them, that's something I'm building out with clock grip.
+But that's in the pipeline. I want to first continue bringing value, continue focusing on my priorities in the short term, and not rush into anything.
+But if anybody is looking for a business opportunity, create harnesses, create custom solutions for specific use cases, specific industries, sell it to them for a fixed price, and then sell a maintenance contract.
+It's a big, big opportunity right now.
+Yeah, I mean, five hours or more away, I think that's Madrid. That's like driving from San Francisco to Los Angeles, you know? To me, that was a, you know, once a weak thing at some point.
+Yeah, I have timing every lines, man, just let's keep showing up, and I am getting ready to go back to California, you know, at the end of this boot camp.
+But yeah, let's keep that door open, for sure, would love to.
+Oh, yeah, I remember your question now. So just to update the reason my agent would write files, was that all the tools were turned off, no idea why.
+Yeah, that's another thing that we didn't talk about. But, you know, it's never a bad idea to give your agent a prompt and say, hey, you know, we didn't enable too many plugins by default.
+But based off of all of the context that I provided for you, what plugins should we enable, right?
+So you can start without enabling anything. But then as you start to build, as you start to experiment, then you discover you need to enable certain features.
+And that's where you, this is why the homework I'm giving you this week is so critical. It's like, once it understands more about you and what you want to accomplish in the direction you want to take this setup, it then understands what it's going to need to set up down the road.
+And why this context part is critical. It is absolutely critical. And don't overthink it. Just like whisper flow, voice to text, just like you're talking to a friend or talking to a business partner and just let it flow.
+Right.
+So I'm guessing everything's working now. And forgive me. I don't know how to pronounce your name. I'm sure it's an abbreviation for something. I'm just going to call you, yeah, no, no, I'm not going to call you.
+I was going to say something based off of a few letters, but it was going to sound all wrong.
+And it's all good, Spartan. Just we're at the end of it here. We're just doing a Q&A. I think we had a solid episode one.
+Hey, thank you. I appreciate the feedback and thanks for the support. Thanks for being here. Hope you have a good rest of the, have a good evening.
+No, so I also strategically picked 5 p.m. Lisbon time so that whenever I'm back in Pacific time, that's 9 a.m. Pacific, that I can always be consistent with the same time no matter what.
+So when I'm spending, you know, three to six months out of the year back in the States, I can still be consistent and not change my times. I want them to be consistent so that you know what time I'm going live.
+If I say I'm going live on a certain date, it's going to be at the same time. Unless, of course, we have some type of surprise or some type of unique event where I specify otherwise, it's always going to be at this time.
+And I like that consistency, not only for me, but for you, right? So there's no guessing games.
+And yeah, solid. Hey, thanks, Chuck. I appreciate you. Appreciate all the feedback. So, and Andra, thank you. Also, she gave me some feedback. I guess like my intro and my outro is kind of cut off. So that's why today, if you noticed, I started in silence. And maybe if you didn't notice, maybe my trick work, I started in silence and I didn't say anything for about 10 seconds.
+Because I noticed that when I hit go live versus end broadcast, it doesn't actually end and start where it should. So I'm going to start silent. I'm going to end silent.
+Okay. And since this is a part of a bootcamp, I'm not going to go back and pin every comment. I just wanted to thank each and every one of you for being here, for interacting, for commenting.
+And I'm looking forward to seeing what you're building. So we'll be back at it on Friday with a live stream. We'll be vibing Q&A. And then episode two of this bootcamp is next Wednesday.
+The Wednesday after that is episode three. The Wednesday after that is episode four and so forth. Our last episode of this bootcamp will land on April 1st.
+Yeah. Okay. Good to know. Yeah. That's one thing I've noticed too. That's one thing I've noticed too. So yeah, just thank you everyone. Thank you for being here.
+If you haven't already, I'm doing all this for free. So do the things for free that you can do to support the channel. Like it. Smash the like button, comment. Share this with a friend. Subscribe if you aren't already.
+And yeah, hope everybody has a great rest of the week. I'll be back at it on Friday with another live stream. And until then, happy building.
+Trying to practice patience with ending this stream in silence.
