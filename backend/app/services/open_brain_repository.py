@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import json
 from datetime import datetime
 from typing import Iterable, List, Optional
 
@@ -37,7 +38,7 @@ def insert_capture(
                     importance,
                     raw_text,
                     markdown_path,
-                    metadata or {},
+                    json.dumps(metadata or {}),
                 ),
             )
         conn.commit()
