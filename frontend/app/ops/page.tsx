@@ -50,6 +50,32 @@ type OrgNode = {
   responsibilities?: string[];
 };
 
+type OpenBrainTelemetry = {
+  database_connected: boolean;
+  captures: {
+    total: number;
+    last_24h: number;
+    last_7d: number;
+  };
+  vectors: {
+    total: number;
+    with_expiry: number;
+    overdue: number;
+    last_refresh_at?: string | null;
+  };
+  recent_captures: RecentCapture[];
+};
+
+type RecentCapture = {
+  id: string;
+  source?: string;
+  topics?: string[];
+  importance?: number;
+  markdown_path?: string | null;
+  created_at?: string | null;
+  chunk_count: number;
+};
+
 const orgLayers: OrgNode[][] = [
   [
     {
@@ -138,6 +164,7 @@ export default function OpsPage() {
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
+  const [brainMetrics, setBrainMetrics] = useState<OpenBrainTelemetry | null>(null);
   const [loading, setLoading] = useState(true);
   const [activePanel, setActivePanel] = useState<Panel>('mission');
   const [error, setError] = useState<string | null>(null);
@@ -149,17 +176,19 @@ export default function OpsPage() {
     async function loadData() {
       setError(null);
       try {
-        const [metricsResp, logsResp, healthResp, automationsResp] = await Promise.all([
+        const [metricsResp, logsResp, healthResp, automationsResp, brainResp] = await Promise.all([
           fetch(`${API_URL}/api/analytics/compliance`).then((res) => res.json()),
           fetch(`${API_URL}/api/system/logs?limit=50`).then((res) => res.json()),
           fetch(`${API_URL}/health`).then((res) => res.json()),
           fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
+          fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
         ]);
         if (!cancelled) {
           setMetrics(metricsResp ?? null);
           setLogs(Array.isArray(logsResp?.logs) ? logsResp.logs : Array.isArray(logsResp) ? logsResp : []);
           setHealth(healthResp ?? null);
           setAutomations(Array.isArray(automationsResp?.data) ? automationsResp.data : []);
+          setBrainMetrics(brainResp ?? null);
           setCheckedAt(new Date());
         }
       } catch (err) {
@@ -248,6 +277,7 @@ export default function OpsPage() {
             models={modelRows}
             sessions={sessionRows}
             cronJobs={cronRows}
+            brainMetrics={brainMetrics}
           />
         ) : (
           <OrgChartSection layers={orgLayers} />
@@ -265,6 +295,7 @@ function MissionControlView({
   models,
   sessions,
   cronJobs,
+  brainMetrics,
 }: {
   loading: boolean;
   error: string | null;
@@ -272,6 +303,7 @@ function MissionControlView({
   models: { name: string; status: string; version: string; datastore: string }[];
   sessions: { component: string; lastMessage: string; lastTimestamp?: Date }[];
   cronJobs: Automation[];
+  brainMetrics: OpenBrainTelemetry | null;
 }) {
   if (loading) {
     return <p style={{ color: '#94a3b8' }}>Refreshing telemetry…</p>;
@@ -290,6 +322,7 @@ function MissionControlView({
         headers={['Name', 'Status', 'Version', 'Datastore']}
         rows={models.map((model) => [model.name, statusBadge(model.status), model.version, model.datastore])}
       />
+      <OpenBrainPanel metrics={brainMetrics} />
       <StatusTable
         title="Active Streams"
         subtitle="Latest events per component"
@@ -339,6 +372,76 @@ function HeroCard({ metrics, sessions, cronCount }: { metrics: ComplianceMetrics
         ))}
       </div>
     </section>
+  );
+}
+
+function OpenBrainPanel({ metrics }: { metrics: OpenBrainTelemetry | null }) {
+  return (
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#0f172a', padding: '20px' }}>
+      <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Open Brain</p>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>Capture + refresh telemetry mirrored to Brain.</p>
+        </div>
+        <p style={{ color: metrics?.database_connected ? '#22c55e' : '#f87171', fontSize: '12px' }}>
+          {metrics?.database_connected ? 'Vector store connected' : 'Vector store offline'}
+        </p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        <MiniStat label="Captures" value={metrics?.captures.total ?? 0} tone="#38bdf8" detail="All time" />
+        <MiniStat label="New (24h)" value={metrics?.captures.last_24h ?? 0} tone="#34d399" detail="Working memory" />
+        <MiniStat label="Chunks" value={metrics?.vectors.total ?? 0} tone="#f97316" detail="Vector rows" />
+        <MiniStat label="Expiring" value={metrics?.vectors.with_expiry ?? 0} tone="#fbbf24" detail="Short-term" />
+        <MiniStat label="Overdue" value={metrics?.vectors.overdue ?? 0} tone="#f87171" detail="Needs cleanup" />
+        <div style={{ padding: '12px 14px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
+          <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Last refresh</p>
+          <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600 }}>
+            {metrics?.vectors.last_refresh_at ? formatTimestamp(new Date(metrics.vectors.last_refresh_at)) : '—'}
+          </p>
+          <p style={{ color: '#475569', fontSize: '12px' }}>memory_vectors.last_refreshed_at</p>
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Source', 'Topics', 'Importance', 'Chunks', 'Created'].map((header) => (
+                <th key={header} style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {!metrics || metrics.recent_captures.length === 0 ? (
+              <tr>
+                <td colSpan={5} style={{ padding: '12px 0', color: '#475569' }}>No captures recorded yet.</td>
+              </tr>
+            ) : (
+              metrics.recent_captures.map((item) => (
+                <tr key={item.id}>
+                  <td style={{ padding: '10px 0', color: '#e2e8f0', fontWeight: 600 }}>{item.source ?? '—'}</td>
+                  <td style={{ padding: '10px 0', color: '#cbd5f5' }}>{(item.topics ?? []).join(', ') || '—'}</td>
+                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{item.importance ?? '—'}</td>
+                  <td style={{ padding: '10px 0', color: '#e2e8f0' }}>{item.chunk_count}</td>
+                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{item.created_at ? formatTimestamp(new Date(item.created_at)) : '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function MiniStat({ label, value, detail, tone }: { label: string; value: number; detail: string; tone: string }) {
+  return (
+    <div style={{ padding: '12px 14px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
+      <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</p>
+      <p style={{ color: tone, fontSize: '22px', fontWeight: 600 }}>{value}</p>
+      <p style={{ color: '#475569', fontSize: '12px' }}>{detail}</p>
+    </div>
   );
 }
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from app.models import CaptureRequest, CaptureResponse
+from app.models import CaptureRequest, CaptureResponse, LogEntry
+from app.routes.system_logs import persist_log
 from app.services import capture_service, refresh_service
 
 router = APIRouter(tags=["Capture"])
@@ -16,6 +18,24 @@ async def ingest_capture(payload: CaptureRequest):
         result = capture_service.create_capture(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    persist_log(
+        LogEntry(
+            id=str(uuid4()),
+            component="open-brain.capture",
+            level="INFO",
+            message="Capture ingested",
+            context={
+                "capture_id": result.capture_id,
+                "chunks": result.chunk_count,
+                "source": payload.source,
+                "topics": payload.topics,
+                "importance": payload.importance,
+                "markdown_path": payload.markdown_path,
+            },
+        )
+    )
+
     return result
 
 
@@ -31,4 +51,16 @@ async def refresh_captures(
 
     deleted = refresh_service.delete_expired_vectors()
     refreshed = refresh_service.refresh_recent_captures(hours=hours, limit=limit)
-    return {"deleted_chunks": deleted, **refreshed}
+    payload = {"deleted_chunks": deleted, **refreshed}
+
+    persist_log(
+        LogEntry(
+            id=str(uuid4()),
+            component="open-brain.refresh",
+            level="INFO",
+            message="Open Brain refresh run completed",
+            context={**payload, "hours": hours, "limit": limit},
+        )
+    )
+
+    return payload

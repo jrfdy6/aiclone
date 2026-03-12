@@ -5,7 +5,7 @@ from typing import Dict
 
 from fastapi import APIRouter
 
-from app.services import firestore_client
+from app.services import firestore_client, open_brain_metrics
 from app.services.local_store import load_cached_prospects, load_logs
 
 router = APIRouter(tags=["Analytics"])
@@ -32,3 +32,8 @@ async def compliance_metrics() -> Dict[str, int]:
         "approvals_last_24h": approvals,
         "prospects_with_email": ready,
     }
+
+
+@router.get("/open-brain")
+async def open_brain_summary():
+    return open_brain_metrics.fetch_metrics()

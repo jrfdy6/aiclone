@@ -28,6 +28,32 @@ type Automation = {
   next_run_at?: string;
 };
 
+type CaptureTelemetry = {
+  database_connected: boolean;
+  captures: {
+    total: number;
+    last_24h: number;
+    last_7d: number;
+  };
+  vectors: {
+    total: number;
+    with_expiry: number;
+    overdue: number;
+    last_refresh_at?: string | null;
+  };
+  recent_captures: CaptureSummary[];
+};
+
+type CaptureSummary = {
+  id: string;
+  source?: string;
+  topics?: string[];
+  importance?: number;
+  markdown_path?: string | null;
+  created_at?: string | null;
+  chunk_count: number;
+};
+
 type Tab = 'briefs' | 'automations' | 'docs';
 
 const API_URL = getApiUrl();
@@ -37,25 +63,33 @@ export default function BrainClient({ transcripts, docs }: { transcripts: Transc
   const [selectedBrief, setSelectedBrief] = useState<TranscriptEntry | null>(transcripts[0] ?? null);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [automationsError, setAutomationsError] = useState<string | null>(null);
+  const [telemetry, setTelemetry] = useState<CaptureTelemetry | null>(null);
+  const [telemetryError, setTelemetryError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    async function loadAutomations() {
+    async function loadData() {
       try {
-        const res = await fetch(`${API_URL}/api/automations/`);
-        const data = await res.json();
+        const [automationsRes, telemetryRes] = await Promise.all([
+          fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
+          fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
+        ]);
         if (!cancelled) {
-          setAutomations(Array.isArray(data?.data) ? data.data : []);
+          setAutomations(Array.isArray(automationsRes?.data) ? automationsRes.data : []);
+          setTelemetry(telemetryRes ?? null);
+          setAutomationsError(null);
+          setTelemetryError(null);
         }
       } catch (err) {
         if (!cancelled) {
-          console.error('Failed to load automations', err);
+          console.error('Failed to load brain data', err);
           setAutomationsError('Unable to load automations right now.');
+          setTelemetryError('Unable to load Open Brain telemetry.');
         }
       }
     }
-    loadAutomations();
-    const interval = setInterval(loadAutomations, 60_000);
+    loadData();
+    const interval = setInterval(loadData, 60_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -77,7 +111,10 @@ export default function BrainClient({ transcripts, docs }: { transcripts: Transc
           <DailyBriefsPanel transcripts={transcripts} selected={selectedBrief} onSelect={setSelectedBrief} />
         )}
         {activeTab === 'automations' && (
-          <AutomationsPanel automations={automations} error={automationsError} />
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <CaptureTelemetryPanel metrics={telemetry} error={telemetryError} />
+            <AutomationsPanel automations={automations} error={automationsError} />
+          </section>
         )}
         {activeTab === 'docs' && <DocsPanel docs={docs} />}
       </div>
@@ -192,6 +229,77 @@ function DailyBriefsPanel({ transcripts, selected, onSelect }: { transcripts: Tr
         )}
       </div>
     </section>
+  );
+}
+
+function CaptureTelemetryPanel({ metrics, error }: { metrics: CaptureTelemetry | null; error: string | null }) {
+  if (error) {
+    return <p style={{ color: '#f87171' }}>{error}</p>;
+  }
+
+  return (
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
+      <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Open Brain Telemetry</p>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>Capture + refresh stats, straight from pgvector.</p>
+        </div>
+        <p style={{ color: metrics?.database_connected ? '#22c55e' : '#f87171', fontSize: '12px' }}>
+          {metrics?.database_connected ? 'Vector service online' : 'Vector service offline'}
+        </p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        <TelemetryStat label="Captures" value={metrics?.captures.total ?? 0} tone="#38bdf8" detail="All time" />
+        <TelemetryStat label="Last 24h" value={metrics?.captures.last_24h ?? 0} tone="#34d399" detail="Fresh ingest" />
+        <TelemetryStat label="Chunks" value={metrics?.vectors.total ?? 0} tone="#f97316" detail="Vector rows" />
+        <TelemetryStat label="Expiring" value={metrics?.vectors.with_expiry ?? 0} tone="#fbbf24" detail="Short-term" />
+        <TelemetryStat label="Overdue" value={metrics?.vectors.overdue ?? 0} tone="#f87171" detail="Needs cleanup" />
+        <div style={{ padding: '12px 14px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
+          <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Last refresh run</p>
+          <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600 }}>{metrics?.vectors.last_refresh_at ? formatTimestamp(new Date(metrics.vectors.last_refresh_at)) : '—'}</p>
+          <p style={{ color: '#475569', fontSize: '12px' }}>memory_vectors.last_refreshed_at</p>
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['Source', 'Topics', 'Chunks', 'Created'].map((header) => (
+                <th key={header} style={{ textAlign: 'left', color: '#94a3b8', fontSize: '12px', fontWeight: 500, padding: '8px 0', borderBottom: '1px solid #1f2937' }}>
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {!metrics || metrics.recent_captures.length === 0 ? (
+              <tr>
+                <td colSpan={4} style={{ padding: '12px 0', color: '#475569' }}>No captures recorded yet.</td>
+              </tr>
+            ) : (
+              metrics.recent_captures.map((capture) => (
+                <tr key={capture.id}>
+                  <td style={{ padding: '10px 0', color: '#e2e8f0', fontWeight: 600 }}>{capture.source ?? '—'}</td>
+                  <td style={{ padding: '10px 0', color: '#cbd5f5' }}>{(capture.topics ?? []).join(', ') || '—'}</td>
+                  <td style={{ padding: '10px 0', color: '#e2e8f0' }}>{capture.chunk_count}</td>
+                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{capture.created_at ? formatTimestamp(new Date(capture.created_at)) : '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function TelemetryStat({ label, value, detail, tone }: { label: string; value: number; detail: string; tone: string }) {
+  return (
+    <div style={{ padding: '12px 14px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
+      <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</p>
+      <p style={{ color: tone, fontSize: '22px', fontWeight: 600 }}>{value}</p>
+      <p style={{ color: '#475569', fontSize: '12px' }}>{detail}</p>
+    </div>
   );
 }
 
