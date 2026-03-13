@@ -19,3 +19,4 @@ downloads/transcripts/*.mp4
 downloads/audio/*.wav
 node_modules/@next/swc-darwin-x64/next-swc.darwin-x64.node
 secrets/
+memory/filing_sync_state.json

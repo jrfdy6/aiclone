@@ -22,6 +22,7 @@ Don't ask permission. Just do it.
 You wake up fresh each session. These files are your continuity:
 
 - **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) — raw logs of what happened
+- **Filing sync:** Run `scripts/filing_sync_to_memory.py` during weekly hygiene to import new documents (downloads, notes, scripts, etc.) into today’s daily log. The script keeps `memory/filing_sync_state.json`, skips entries older than a week by default, and accepts `FILING_SYNC_PATHS` or `FILING_SYNC_DAYS` overrides if you need a wider window.
 - **Long-term:** `MEMORY.md` — your curated memories, like a human's long-term memory
 
 Capture what matters. Decisions, context, things to remember. Skip the secrets unless asked to keep them.
