@@ -12,3 +12,9 @@ keys/
 *service-account*.json
 firebase-service-account*.json
 google-service-account*.json
+
+# Generated large media
+downloads/raw-media/*.mp4
+downloads/transcripts/*.mp4
+downloads/audio/*.wav
+node_modules/@next/swc-darwin-x64/next-swc.darwin-x64.node

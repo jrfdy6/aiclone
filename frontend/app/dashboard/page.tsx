@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import NavHeader from '@/components/NavHeader';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+import { apiGet } from '@/lib/api-client';
 
 type WidgetData = {
   quickSearch: {
@@ -47,43 +46,8 @@ export default function DashboardPage() {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API endpoint
-      // Mock data for now
-      setWidgetData({
-        quickSearch: {
-          recentQueries: ['AI in education', 'Prospect scoring', 'Content marketing trends'],
-        },
-        recentInsights: [
-          {
-            id: '1',
-            title: 'AI Adoption in K-12 Schools',
-            summary: 'Educational institutions are increasingly adopting AI tools for personalized learning...',
-            source: 'Perplexity Research',
-            date: '2 hours ago',
-          },
-          {
-            id: '2',
-            title: 'EdTech Market Trends Q4 2024',
-            summary: 'Market analysis shows 25% growth in AI-powered education solutions...',
-            source: 'Firecrawl Article',
-            date: '1 day ago',
-          },
-        ],
-        topProspects: [
-          { id: '1', name: 'Sarah Johnson', company: 'TechEd Solutions', fit_score: 0.92 },
-          { id: '3', name: 'Emily Rodriguez', company: 'Future Schools Inc', fit_score: 0.95 },
-          { id: '2', name: 'Michael Chen', company: 'InnovateEd', fit_score: 0.87 },
-        ],
-        followUpsDueToday: [
-          { id: '1', prospect_name: 'Emily Rodriguez', time: '10:00 AM' },
-          { id: '2', prospect_name: 'David Park', time: '2:00 PM' },
-        ],
-        contentIdeas: [
-          { id: '1', type: 'linkedin', title: '5 Ways AI is Transforming Education' },
-          { id: '2', type: 'tweet', title: 'Quick tip: Using AI for prospect research' },
-          { id: '3', type: 'email', title: 'Weekly newsletter: EdTech insights' },
-        ],
-      });
+      const data = await apiGet<WidgetData>('/api/dashboard');
+      setWidgetData(data);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -336,4 +300,3 @@ export default function DashboardPage() {
     </main>
   );
 }
-
