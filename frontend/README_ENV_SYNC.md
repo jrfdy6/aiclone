@@ -6,8 +6,10 @@ This service relies on secrets stored locally at `workspace/secrets/railway.env`
    - `NEXT_PUBLIC_API_URL` (frontend uses this everywhere via `lib/api-client.ts`).
    - `OPEN_BRAIN_DATABASE_URL` (backend connects to Postgres).
    - API keys: `OPENAI_API_KEY`, `PERPLEXITY_API_KEY`, `FIRECRAWL_API_KEY`, `GOOGLE_CUSTOM_SEARCH_API_KEY`, etc.
-   - Service-account blobs: `FIREBASE_SERVICE_ACCOUNT`, `GOOGLE_DRIVE_SERVICE_ACCOUNT` (backend reads these from the environment).
-   - `CRON_ACCESS_TOKEN`, `CORS_ADDITIONAL_ORIGINS`, etc., to keep tooling and cron jobs aligned.
+- Service-account blobs: `FIREBASE_SERVICE_ACCOUNT`, `GOOGLE_DRIVE_SERVICE_ACCOUNT` (backend reads these from the environment).
+- `CRON_ACCESS_TOKEN`, `CORS_ADDITIONAL_ORIGINS`, etc., to keep tooling and cron jobs aligned.
+
+<!-- cache-bust: 2026-03-14 -->
 
 2. After updating variables, redeploy the Railway service (`railway up` or via the dashboard) so both the backend and frontend build with the new values.
 
