@@ -9,6 +9,7 @@
 1. Search `memory/YYYY-MM-DD.md` for the day (and yesterday) plus `LEARNINGS.md` before issuing a recommendation or executing a cron.
 2. Log every mistake as a rule here (short, action-focused) so the agent can re-check this file on every turn.
 3. Pair `memory_search` with QMD (when enabled) so both keywords and semantic matches are surfaced.
+4. When compaction runs memory flush, expect a short summary in today’s daily file; if you add a new rule, log it there first so the agent can re-read it before future turns.
 
 ## Quarterly hygiene
 - Weekly: promote key decisions from `memory/*.md` into `MEMORY.md` and prune anything stale.
