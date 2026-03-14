@@ -52,4 +52,6 @@ When you run a heartbeat every few days, also:
 3. Prune stale entries from `MEMORY.md` to keep it lean
 4. Leave everything else in the daily logs—search will surface it when needed
 
+Use `memory/heartbeat-state.json` to record when each category was last reviewed so the next heartbeat can skip redundant checks.
+
 The heartbeat is the opportunity to archive what you learned, trim what’s outdated, and keep the system prompt stable so caching stays effective.
