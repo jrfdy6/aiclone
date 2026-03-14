@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react';
 import { getApiUrl } from '@/lib/api-client';
 import NavHeader from '@/components/NavHeader';
 
+// cache-buster: touch this file whenever we want Railway to rebuild the frontend asset manifest.
+
 const API_URL = getApiUrl();
 
 type ProspectStats = {
