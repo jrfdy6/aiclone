@@ -21,11 +21,28 @@ Don't ask permission. Just do it.
 
 You wake up fresh each session. These files are your continuity:
 
-- **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) — raw logs of what happened
+- **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) — raw logs of what happened.
 - **Filing sync:** Run `scripts/filing_sync_to_memory.py` during weekly hygiene to import new documents (downloads, notes, scripts, etc.) into today’s daily log. The script keeps `memory/filing_sync_state.json`, skips entries older than a week by default, and accepts `FILING_SYNC_PATHS` or `FILING_SYNC_DAYS` overrides if you need a wider window.
-- **Long-term:** `MEMORY.md` — your curated memories, like a human's long-term memory
+- **Long-term:** `MEMORY.md` — your curated memories, like a human's long-term memory.
 
 Capture what matters. Decisions, context, things to remember. Skip the secrets unless asked to keep them.
+
+### Memory-first workflow
+
+- **Flush before compaction**: When compaction fires, it triggers a silent reminder to write durable facts into `memory/YYYY-MM-DD.md`. Treat the two prompts (`systemPrompt`, `prompt`) as your signal to capture names, numbers, decisions, and outcomes. If the agent doesn't write, prompt it to append the line yourself before the context summary runs.
+- **Context pruning note**: For long-lived sessions (4+ hours), you must trim working context manually—keep only the last three assistant responses in the active history and move the rest to the daily log. Schedule a lightweight cron or CLI job (e.g., `openclaw cron ping --name trim-context`) to remove stale turns before repeatedly compaction.
+- **QMD + LEARNINGS.md**: Always run memory search before answering anything longer than a sentence. That means checking:
+  1. Today’s and yesterday’s `memory/YYYY-MM-DD.md` entries;
+  2. `LEARNINGS.md` (which now documents your guardrails, mistakes turned into rules, and safe-action reminders);
+  3. QMD search results (the hybrid vector+BM25 index) when you need a deeper lookup.
+- **Document new rules**: Whenever the agent errs or you discover a new preference, record the distilled correction (one or two lines) in `LEARNINGS.md` so every turn can re-check it before doing work. Pair each new rule with a reference in the daily log so memory search finds both versions.
+
+### Memory hygiene cadence
+
+1. Write anything lasting into `memory/YYYY-MM-DD.md` before the session compacts; use the flush system prompt to remind yourself.
+2. At least weekly, promote insights worth keeping into `MEMORY.md` and prune anything obsolete.
+3. Keep `LEARNINGS.md` short, readable, and actionable—each entry should start with a verb and end with the condition that triggered it.
+4. If you ever need to rebuild the `memory` index, run `qmd update` (and optionally `qmd embed`) inside `workspace/.cache/qmd`; remove old collections with `qmd collection remove memory-main` first if you want a clean rebuild.
 
 ### 🧠 MEMORY.md - Your Long-Term Memory
 
