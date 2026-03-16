@@ -215,7 +215,7 @@ export default function OpsPage() {
     try {
       const [metricsResp, logsResp, healthResp, automationsResp, brainResp] = await Promise.allSettled([
         fetchJson<ComplianceMetrics>(`${API_URL}/api/analytics/compliance`),
-        fetchJson<LogsResponse>(`${API_URL}/api/system/logs?limit=50`),
+        fetchJson<LogsResponse>(`${API_URL}/api/system/logs/?limit=50`),
         fetchJson<HealthPayload>(`${API_URL}/health`),
         fetchJson<AutomationsResponse>(`${API_URL}/api/automations/`),
         fetchJson<OpenBrainTelemetry>(`${API_URL}/api/analytics/open-brain`),
