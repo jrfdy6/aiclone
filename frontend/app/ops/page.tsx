@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import NavHeader from '@/components/NavHeader';
 import { getApiUrl } from '@/lib/api-client';
 
@@ -74,6 +74,25 @@ type RecentCapture = {
   markdown_path?: string | null;
   created_at?: string | null;
   chunk_count: number;
+};
+
+type TelemetryErrors = {
+  metrics: string | null;
+  logs: string | null;
+  health: string | null;
+  automations: string | null;
+  brain: string | null;
+};
+
+type LogsResponse = { logs?: SystemLog[] } | SystemLog[];
+type AutomationsResponse = { data?: Automation[] } | { automations?: Automation[] } | Automation[] | null | undefined;
+
+const TELEMETRY_LABELS: Record<keyof TelemetryErrors, string> = {
+  metrics: 'Compliance metrics',
+  logs: 'System logs',
+  health: 'Service health',
+  automations: 'Automations suite',
+  brain: 'Open Brain telemetry',
 };
 
 const orgLayers: OrgNode[][] = [
@@ -167,49 +186,98 @@ export default function OpsPage() {
   const [brainMetrics, setBrainMetrics] = useState<OpenBrainTelemetry | null>(null);
   const [loading, setLoading] = useState(true);
   const [activePanel, setActivePanel] = useState<Panel>('mission');
-  const [error, setError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [sectionErrors, setSectionErrors] = useState<TelemetryErrors>({
+    metrics: null,
+    logs: null,
+    health: null,
+    automations: null,
+    brain: null,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
+  const updateSectionError = useCallback((key: keyof TelemetryErrors, message: string | null) => {
+    setSectionErrors((prev) => ({ ...prev, [key]: message }));
+  }, []);
 
-    async function loadData() {
-      setError(null);
-      try {
-        const [metricsResp, logsResp, healthResp, automationsResp, brainResp] = await Promise.all([
-          fetch(`${API_URL}/api/analytics/compliance`).then((res) => res.json()),
-          fetch(`${API_URL}/api/system/logs?limit=50`).then((res) => res.json()),
-          fetch(`${API_URL}/health`).then((res) => res.json()),
-          fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
-          fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
-        ]);
-        if (!cancelled) {
-          setMetrics(metricsResp ?? null);
-          setLogs(Array.isArray(logsResp?.logs) ? logsResp.logs : Array.isArray(logsResp) ? logsResp : []);
-          setHealth(healthResp ?? null);
-          setAutomations(Array.isArray(automationsResp?.data) ? automationsResp.data : []);
-          setBrainMetrics(brainResp ?? null);
-          setCheckedAt(new Date());
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error('Failed to load ops data', err);
-          setError('Unable to reach the API right now.');
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+
+  const loadTelemetry = useCallback(async () => {
+    if (!API_URL) {
+      setGlobalError('NEXT_PUBLIC_API_URL is not configured');
+      setLoading(false);
+      return;
     }
 
-    loadData();
-    const interval = setInterval(loadData, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+    setIsRefreshing(true);
+    setGlobalError(null);
+
+    try {
+      const [metricsResp, logsResp, healthResp, automationsResp, brainResp] = await Promise.allSettled([
+        fetchJson<ComplianceMetrics>(`${API_URL}/api/analytics/compliance`),
+        fetchJson<LogsResponse>(`${API_URL}/api/system/logs?limit=50`),
+        fetchJson<HealthPayload>(`${API_URL}/health`),
+        fetchJson<AutomationsResponse>(`${API_URL}/api/automations/`),
+        fetchJson<OpenBrainTelemetry>(`${API_URL}/api/analytics/open-brain`),
+      ]);
+
+      if (metricsResp.status === 'fulfilled') {
+        setMetrics(metricsResp.value ?? null);
+        updateSectionError('metrics', null);
+      } else {
+        updateSectionError('metrics', toErrorMessage(metricsResp.reason));
+      }
+
+      if (logsResp.status === 'fulfilled') {
+        setLogs(normalizeLogs(logsResp.value));
+        updateSectionError('logs', null);
+      } else {
+        updateSectionError('logs', toErrorMessage(logsResp.reason));
+      }
+
+      if (healthResp.status === 'fulfilled') {
+        setHealth(healthResp.value ?? null);
+        updateSectionError('health', null);
+      } else {
+        updateSectionError('health', toErrorMessage(healthResp.reason));
+      }
+
+      if (automationsResp.status === 'fulfilled') {
+        setAutomations(normalizeAutomations(automationsResp.value));
+        updateSectionError('automations', null);
+      } else {
+        updateSectionError('automations', toErrorMessage(automationsResp.reason));
+      }
+
+      if (brainResp.status === 'fulfilled') {
+        setBrainMetrics(brainResp.value ?? null);
+        updateSectionError('brain', null);
+      } else {
+        updateSectionError('brain', toErrorMessage(brainResp.reason));
+      }
+
+      setCheckedAt(new Date());
+    } catch (err) {
+      setGlobalError(toErrorMessage(err));
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [updateSectionError]);
+
+  useEffect(() => {
+    loadTelemetry();
+    const DAY_MS = 86_400_000;
+    const interval = setInterval(loadTelemetry, DAY_MS);
+    return () => clearInterval(interval);
+  }, [loadTelemetry]);
+
+  const sectionErrorSummary = useMemo(() => {
+    const failing = Object.entries(sectionErrors).filter(([, value]) => value) as [keyof TelemetryErrors, string | null][];
+    if (!failing.length) return null;
+    const labels = failing.map(([key]) => TELEMETRY_LABELS[key]);
+    return `Partial telemetry outage: ${labels.join(', ')}`;
+  }, [sectionErrors]);
 
   const modelRows = useMemo(() => {
     if (!health) return [];
@@ -257,12 +325,30 @@ export default function OpsPage() {
               <h1 style={{ fontSize: '36px', fontWeight: 700, color: 'white', marginBottom: '4px' }}>Mission Control</h1>
               <p style={{ color: '#94a3b8' }}>Live telemetry for services, sessions, and cron jobs. No mock data—everything here is reading straight from prod.</p>
             </div>
-            <div style={{ textAlign: 'right', color: '#64748b', fontSize: '13px' }}>
-              <p>Last check: {checkedAt ? checkedAt.toLocaleTimeString() : '—'}</p>
-              <p>API: {error ? 'unreachable' : 'live'}</p>
+            <div style={{ textAlign: 'right', color: '#94a3b8', fontSize: '13px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+              <p>Last check: {checkedAt ? checkedAt.toLocaleTimeString() : loading ? 'Checking…' : '—'}</p>
+              <p>Auto refresh: daily · Manual trigger below</p>
+              <button
+                onClick={loadTelemetry}
+                disabled={isRefreshing}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '999px',
+                  border: '1px solid #1f2937',
+                  backgroundColor: isRefreshing ? '#0f172a' : '#fbbf24',
+                  color: isRefreshing ? '#94a3b8' : '#0f172a',
+                  fontWeight: 600,
+                  cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isRefreshing ? 'Refreshing…' : 'Manual refresh'}
+              </button>
             </div>
           </div>
         </header>
+
+        {globalError && <SectionAlert message={globalError} />}
+        {!globalError && sectionErrorSummary && <SectionAlert message={sectionErrorSummary} />}
 
         <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
           <TabButton active={activePanel === 'mission'} onClick={() => setActivePanel('mission')} label="Mission Control" description="System overview & cron suite" />
@@ -272,12 +358,16 @@ export default function OpsPage() {
         {activePanel === 'mission' ? (
           <MissionControlView
             loading={loading}
-            error={error}
             metrics={metrics}
+            metricsError={sectionErrors.metrics}
             models={modelRows}
+            modelsError={sectionErrors.health}
             sessions={sessionRows}
+            sessionsError={sectionErrors.logs}
             cronJobs={cronRows}
+            cronError={sectionErrors.automations}
             brainMetrics={brainMetrics}
+            brainError={sectionErrors.brain}
           />
         ) : (
           <OrgChartSection layers={orgLayers} />
@@ -290,46 +380,55 @@ export default function OpsPage() {
 
 function MissionControlView({
   loading,
-  error,
   metrics,
+  metricsError,
   models,
+  modelsError,
   sessions,
+  sessionsError,
   cronJobs,
+  cronError,
   brainMetrics,
+  brainError,
 }: {
   loading: boolean;
-  error: string | null;
   metrics: ComplianceMetrics | null;
+  metricsError: string | null;
   models: { name: string; status: string; version: string; datastore: string }[];
+  modelsError: string | null;
   sessions: { component: string; lastMessage: string; lastTimestamp?: Date }[];
+  sessionsError: string | null;
   cronJobs: Automation[];
+  cronError: string | null;
   brainMetrics: OpenBrainTelemetry | null;
+  brainError: string | null;
 }) {
   if (loading) {
     return <p style={{ color: '#94a3b8' }}>Refreshing telemetry…</p>;
   }
 
-  if (error) {
-    return <p style={{ color: '#f87171' }}>{error}</p>;
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <HeroCard metrics={metrics} sessions={sessions.length} cronCount={cronJobs.length} />
+      {metricsError && <SectionAlert message={`${TELEMETRY_LABELS.metrics}: ${metricsError}`} />}
       <StatusTable
         title="Models"
         subtitle="Backend surfaces + data stores"
         headers={['Name', 'Status', 'Version', 'Datastore']}
         rows={models.map((model) => [model.name, statusBadge(model.status), model.version, model.datastore])}
       />
+      {modelsError && <SectionAlert message={`${TELEMETRY_LABELS.health}: ${modelsError}`} />}
       <OpenBrainPanel metrics={brainMetrics} />
+      {brainError && <SectionAlert message={`${TELEMETRY_LABELS.brain}: ${brainError}`} />}
       <StatusTable
         title="Active Streams"
         subtitle="Latest events per component"
         headers={['Component', 'Last Event', 'Last Seen']}
         rows={sessions.map((session) => [session.component, session.lastMessage || '—', session.lastTimestamp ? formatTimestamp(session.lastTimestamp) : '—'])}
       />
+      {sessionsError && <SectionAlert message={`${TELEMETRY_LABELS.logs}: ${sessionsError}`} />}
       <CronTable cronJobs={cronJobs} />
+      {cronError && <SectionAlert message={`${TELEMETRY_LABELS.automations}: ${cronError}`} />}
     </div>
   );
 }
@@ -441,6 +540,22 @@ function MiniStat({ label, value, detail, tone }: { label: string; value: number
       <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</p>
       <p style={{ color: tone, fontSize: '22px', fontWeight: 600 }}>{value}</p>
       <p style={{ color: '#475569', fontSize: '12px' }}>{detail}</p>
+    </div>
+  );
+}
+
+function SectionAlert({ message }: { message: string }) {
+  return (
+    <div style={{
+      marginTop: '16px',
+      padding: '12px 16px',
+      borderRadius: '12px',
+      border: '1px solid rgba(248,113,113,0.3)',
+      backgroundColor: 'rgba(69,10,10,0.6)',
+      color: '#fecaca',
+      fontSize: '14px',
+    }}>
+      {message}
     </div>
   );
 }
@@ -706,4 +821,46 @@ function statusBadge(status?: string) {
 
 function formatTimestamp(value: Date) {
   return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText);
+    throw new Error(`${response.status} ${response.statusText}: ${text}`);
+  }
+  return response.json();
+}
+
+function normalizeLogs(payload: LogsResponse | undefined): SystemLog[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.logs)) return payload.logs;
+  return [];
+}
+
+function normalizeAutomations(payload: AutomationsResponse): Automation[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (typeof payload === 'object' && payload !== null) {
+    const maybeData = (payload as { data?: Automation[] }).data;
+    if (Array.isArray(maybeData)) {
+      return maybeData;
+    }
+    const maybeAutomations = (payload as { automations?: Automation[] }).automations;
+    if (Array.isArray(maybeAutomations)) {
+      return maybeAutomations;
+    }
+  }
+  return [];
+}
+
+function toErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  if (typeof err === 'string') {
+    return err;
+  }
+  return 'Unknown error';
 }
