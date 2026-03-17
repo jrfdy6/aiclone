@@ -9,6 +9,7 @@ description: Generate the morning brief from cron/doc sources, append to memory/
 - `memory/cron-prune.md`
 - `memory/doc-updates.md`
 - `memory/LEARNINGS.md`
+- Tavily search output via `./scripts/tavily_daily_brief.py` (set `TAVILY_API_KEY` or ~/.openclaw/secrets/tavily.key)
 - Latest cron run history (Oracle Ledger, Rolling Docs, Daily Memory Flush, etc.)
 
 ## Workflow

@@ -11,3 +11,4 @@
 2026-03-17 18:50 EDT - Added helper scripts (run_github_backup.sh, doc_status_snapshot.py) and wired skills to them.
 2026-03-17 18:57 EDT - Validated full workspace backup via run_github_backup.sh; logged output in memory/backup-log.md and doc-updates.md.
 2026-03-17 18:57 EDT - Scheduled manual spot-check for tonight's Daily Memory Flush + health check outputs (verify script adoption).
+2026-03-17 19:11 EDT - Added scripts/tavily_daily_brief.py and updated morning-daily-brief skill to call it; awaiting API key to run.
