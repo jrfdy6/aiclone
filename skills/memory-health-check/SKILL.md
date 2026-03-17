@@ -25,10 +25,8 @@ This skill defines the end-to-end workflow for monitoring memory integrity, retr
    - Read `memory/memory_health_check_plan.md` for thresholds (max hot file size, reserve tokens, alert routing).
    - Note any overrides recorded in `memory/audit_log_day_1.md`.
 2. **QMD & Retrieval Checks**
-   - Run `./check_index_status.sh` (if missing, document). Capture:
-     - Last index build timestamp
-     - Document count
-     - Error flags
+   - Run `./scripts/qmd_freshness_check.py` to obtain JSON stats (files, collections, last update age). Treat `stale=true` as WARN/ALERT.
+   - Run `./check_index_status.sh` if Firestore indices or external collectors matter; capture errors.
    - If QMD unreachable, record as `ALERT: QMD offline` and stop further semantic checks.
 3. **Compaction Settings**
    - Run `./scripts/compaction_guardrail_check.py` to pull authoritative values from `~/.openclaw/openclaw.json`.

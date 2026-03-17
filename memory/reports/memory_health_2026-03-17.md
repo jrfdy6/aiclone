@@ -6,7 +6,21 @@ Status: OK
 Notes: QMD indices responsive; no oversized files detected.
 
 ## QMD Status
-- check_index_status.sh output:
+- `./scripts/qmd_freshness_check.py` output:
+```
+{
+  "files": 69,
+  "chunks": 69,
+  "collections": 5,
+  "vector_enabled": true,
+  "vector_available": true,
+  "scan_files": 27,
+  "last_update": "2026-03-17T22:46:24.893496+00:00",
+  "hours_since_update": 0.01,
+  "stale": false
+}
+```
+- `./check_index_status.sh` output:
   🔍 Checking Firestore Index Status
   ====================================
   
