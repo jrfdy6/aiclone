@@ -17,7 +17,8 @@ This skill defines the end-to-end workflow for monitoring memory integrity, retr
 - `memory/memory_health_check_plan.md` — retention targets + thresholds.
 - `memory/memory_management_check.md` — prior recommendations.
 - `AGENTS.md`, `SOUL.md`, `USER.md`, `MEMORY.md` — ensure sizes <20k chars each.
-- QMD status script (if available) `check_index_status.sh`.
+- QMD status script `./check_index_status.sh`.
+- Compaction guardrail script `./scripts/compaction_guardrail_check.py`.
 
 ## Workflow
 1. **Load Config**
@@ -30,11 +31,9 @@ This skill defines the end-to-end workflow for monitoring memory integrity, retr
      - Error flags
    - If QMD unreachable, record as `ALERT: QMD offline` and stop further semantic checks.
 3. **Compaction Settings**
-   - Execute `/openclaw context settings` equivalent via `openclaw status` or config file to confirm:
-     - `reserveTokensFloor >= 40000`
-     - `softThresholdTokens >= 4000`
-     - Flush enabled
-   - Log discrepancies with remediation suggestion.
+   - Run `./scripts/compaction_guardrail_check.py` to pull authoritative values from `~/.openclaw/openclaw.json`.
+   - Confirm outputs: `reserveTokensFloor >= 40000`, `softThresholdTokens >= 4000`, `flush.enabled=true`.
+   - If any value is out of range, mark the report as `WARN` (or `ALERT` if flush disabled) and add a remediation item.
 4. **File Size Audit**
    - For each critical file (`SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`):
      - Record byte size and line count (`wc -c`, `wc -l`).

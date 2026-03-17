@@ -21,10 +21,15 @@ Notes: QMD indices responsive; no oversized files detected.
   
 
 ## Compaction & Flush Settings
-- reserveTokensFloor: (not exposed via openclaw status; manual verification needed)
-- softThresholdTokens: (same as above)
-- Flush: (pending config check)
-Action: add explicit config audit command for future runs.
+```
+$ ./scripts/compaction_guardrail_check.py
+Compaction Guardrail Summary
+  reserveTokensFloor: 40000
+  softThresholdTokens: 4000
+  flush.enabled: True
+  status: reserveTokensFloor=OK, softThresholdTokens=OK, flush=ON
+```
+Action: guardrails satisfied; incorporate this script into future automated runs.
 
 ## Critical File Sizes
       1673 SOUL.md
@@ -41,5 +46,5 @@ Action: add explicit config audit command for future runs.
 - No merge conflict markers detected
 
 ## Follow-ups
-1. Automate retrieval of reserveTokensFloor/softThreshold tokens via config command.
+1. Wire `scripts/compaction_guardrail_check.py` into the daily cron (update skill instructions — done).
 2. Confirm QMD freshness threshold (currently manual).
