@@ -7,9 +7,10 @@ description: Review README, LEARNINGS, and HEARTBEAT for drift, apply updates, a
 
 ## Steps
 1. **Audit Files**
+   - Run `./scripts/doc_status_snapshot.py` to capture current size/mtime metadata.
    - Review `README.md`, `memory/LEARNINGS.md`, and `HEARTBEAT.md` for outdated statements.
 2. **Update**
-   - Edit files directly to reflect current operations and guardrails.
+   - Edit files directly to reflect current operations and guardrails (note changes relative to snapshot output).
 3. **Log**
    - Summarize edits in `memory/doc-updates.md` with timestamp + rationale.
 4. **Report**

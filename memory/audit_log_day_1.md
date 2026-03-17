@@ -8,3 +8,4 @@
 2026-03-17 18:32 EDT - Memory Health Check Dry-Run: Report memory/reports/memory_health_2026-03-17.md (status OK, no anomalies).
 2026-03-17 18:38 EDT - Added compaction guardrail script and updated health report to include values.
 2026-03-17 18:47 EDT - Added QMD freshness check script and updated health skill/report outputs.
+2026-03-17 18:50 EDT - Added helper scripts (run_github_backup.sh, doc_status_snapshot.py) and wired skills to them.
