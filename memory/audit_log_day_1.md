@@ -9,3 +9,5 @@
 2026-03-17 18:38 EDT - Added compaction guardrail script and updated health report to include values.
 2026-03-17 18:47 EDT - Added QMD freshness check script and updated health skill/report outputs.
 2026-03-17 18:50 EDT - Added helper scripts (run_github_backup.sh, doc_status_snapshot.py) and wired skills to them.
+2026-03-17 18:57 EDT - Validated full workspace backup via run_github_backup.sh; logged output in memory/backup-log.md and doc-updates.md.
+2026-03-17 18:57 EDT - Scheduled manual spot-check for tonight's Daily Memory Flush + health check outputs (verify script adoption).
