@@ -1,0 +1,52 @@
+[
+  {
+    "id": "macro_ai_scare_trade",
+    "label": "AI scare trade macro",
+    "query": "AI scare trade market update 2026",
+    "platform": "news",
+    "angle": "systems risk",
+    "priority": "high",
+    "max_calls_per_day": 3,
+    "enabled": true
+  },
+  {
+    "id": "railway_vendor_status",
+    "label": "Railway vendor status",
+    "query": "Railway app platform outage pricing update",
+    "platform": "news",
+    "angle": "infra readiness",
+    "priority": "high",
+    "max_calls_per_day": 2,
+    "enabled": true
+  },
+  {
+    "id": "linkedin_exec_signals",
+    "label": "LinkedIn thought leaders",
+    "query": "site:linkedin.com/posts AI agents architecture systems thinking",
+    "platform": "linkedin",
+    "angle": "systems leadership",
+    "priority": "medium",
+    "max_calls_per_day": 2,
+    "enabled": true
+  },
+  {
+    "id": "x_commentary",
+    "label": "X commentary",
+    "query": "site:x.com AI infrastructure security risk thread",
+    "platform": "x",
+    "angle": "risk commentary",
+    "priority": "medium",
+    "max_calls_per_day": 1,
+    "enabled": true
+  },
+  {
+    "id": "podcasts_videos",
+    "label": "Podcasts & YouTube",
+    "query": "podcast AI agents systems architecture youtube",
+    "platform": "video",
+    "angle": "commentary",
+    "priority": "medium",
+    "max_calls_per_day": 1,
+    "enabled": true
+  }
+]
