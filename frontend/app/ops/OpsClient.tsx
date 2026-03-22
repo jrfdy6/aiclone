@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
+import { contentPipelineSnapshot } from '../../legacy/content-pipeline/workspaceSnapshot';
 
 const API_URL = getApiUrl();
 
@@ -110,6 +111,66 @@ type OrgNode = {
   status: 'active' | 'planned';
   highlight: 'core' | 'ops' | 'brain' | 'lab';
   responsibilities?: string[];
+};
+
+type PlanCandidate = {
+  source_kind: string;
+  title: string;
+  category: string;
+  role_alignment: string;
+  risk_level: string;
+  publish_posture: string;
+  hook: string;
+  rationale: string;
+  source_path: string;
+  score: number;
+  priority_lane?: string;
+};
+
+type WeeklyPlan = {
+  generated_at: string;
+  workspace: string;
+  positioning_model: string[];
+  priority_lanes: string[];
+  recommendations: PlanCandidate[];
+  hold_items: PlanCandidate[];
+  market_signals: {
+    title: string;
+    priority_lane: string;
+    role_alignment: string;
+    summary: string;
+    source_path: string;
+  }[];
+  source_counts: {
+    drafts: number;
+    media: number;
+    research: number;
+  };
+};
+
+type ReactionItem = {
+  title: string;
+  author: string;
+  source_path: string;
+  priority_lane: string;
+  role_alignment: string;
+  hook: string;
+  summary: string;
+  why_it_matters: string;
+  suggested_comment: string;
+  post_angle: string;
+  score: number;
+};
+
+type ReactionQueue = {
+  generated_at: string;
+  comment_opportunities: ReactionItem[];
+  post_seeds: ReactionItem[];
+  counts: {
+    comment_opportunities: number;
+    post_seeds: number;
+    background_only: number;
+  };
 };
 
 type OpenBrainTelemetry = {
@@ -767,27 +828,227 @@ function StandupsPanel({ entries, error }: { entries: StandupEntry[]; error: str
 }
 
 function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[]; selected: WorkspaceFile | null; onSelect: (path: string) => void }) {
+  const plan = contentPipelineSnapshot.weeklyPlan as unknown as WeeklyPlan | null;
+  const reactionQueue = contentPipelineSnapshot.reactionQueue as unknown as ReactionQueue | null;
+  const editorialMix = Array.from(contentPipelineSnapshot.editorialMix ?? []);
+  const linkedinFiles = useMemo(
+    () => files.filter((file) => file.path.includes('/workspaces/linkedin-content-os/') || file.group.startsWith('linkedin-content-os')),
+    [files],
+  );
+  const selectedLinkedin = useMemo(
+    () => linkedinFiles.find((file) => file.path === selected?.path) ?? linkedinFiles[0] ?? null,
+    [linkedinFiles, selected],
+  );
   const groups = useMemo(() => {
     const map = new Map<string, WorkspaceFile[]>();
-    files.forEach((file) => {
+    linkedinFiles.forEach((file) => {
       const bucket = map.get(file.group) ?? [];
       bucket.push(file);
       map.set(file.group, bucket);
     });
     return Array.from(map.entries());
-  }, [files]);
+  }, [linkedinFiles]);
+  const workflowDoc = useMemo(() => findWorkspaceFile(linkedinFiles, 'docs/linkedin_curation_workflow.md'), [linkedinFiles]);
+  const backlogDoc = useMemo(() => findWorkspaceFile(linkedinFiles, 'backlog.md'), [linkedinFiles]);
+  const workflowSteps = useMemo(() => (workflowDoc ? parseSubsections(extractSection(workflowDoc.content, 'Core Workflow')) : []), [workflowDoc]);
+  const saveRules = useMemo(() => (workflowDoc ? collectSaveRules(workflowDoc.content) : { keep: [], drop: [] }), [workflowDoc]);
+  const backlogActive = useMemo(() => (backlogDoc ? parseSubsections(extractSection(backlogDoc.content, 'Active')) : []), [backlogDoc]);
+  const draftFiles = useMemo(
+    () => linkedinFiles.filter((file) => file.path.includes('/drafts/') && file.path.endsWith('.md') && !file.path.endsWith('/README.md')),
+    [linkedinFiles],
+  );
+  const docFiles = useMemo(
+    () => linkedinFiles.filter((file) => file.path.includes('/docs/') && file.path.endsWith('.md') && !file.path.endsWith('/README.md')),
+    [linkedinFiles],
+  );
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div>
         <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace</p>
-        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Workspace files</h2>
-        <p style={{ color: '#94a3b8' }}>Real repo files loaded from the canonical persona bundle and child workspaces, including `workspaces/linkedin-content-os`.</p>
+        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>LinkedIn Strategy Workspace</h2>
+        <p style={{ color: '#94a3b8' }}>The Workspace tab now carries the LinkedIn OS strategy surface directly: positioning, weekly plan, reaction queue, and the raw LinkedIn workspace files underneath.</p>
       </div>
+      <section
+        style={{
+          borderRadius: '22px',
+          padding: '24px',
+          background: 'linear-gradient(135deg, rgba(35,12,56,0.95), rgba(9,7,22,0.98))',
+          border: '1px solid rgba(217,70,239,0.22)',
+          boxShadow: '0 26px 72px rgba(0,0,0,0.35)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '18px' }}>
+          <div>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>LinkedIn OS</p>
+            <h3 style={{ fontSize: '30px', color: 'white', margin: '4px 0' }}>Strategy mission control</h3>
+            <p style={{ color: '#d8b4fe', maxWidth: '760px', fontSize: '14px' }}>
+              Persona truth, signal capture, weekly recommendations, and engagement moves for `linkedin-content-os` now live inside Workspaces instead of on a separate page.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(140px, 1fr))', gap: '12px' }}>
+            <MiniMeta label="Plan Refreshed" value={plan?.generated_at ?? '-'} detail="weekly_plan snapshot" />
+            <MiniMeta label="Reaction Queue" value={reactionQueue?.generated_at ?? '-'} detail="reaction_queue snapshot" />
+            <MiniMeta label="Draft Queue" value={`${draftFiles.length || plan?.source_counts.drafts || 0}`} detail="Ready or in progress" />
+            <MiniMeta label="Signals" value={`${plan?.market_signals.length ?? 0}`} detail="Captured market signals" />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          {(plan?.positioning_model ?? []).slice(0, 4).map((item) => (
+            <div key={item} style={{ borderRadius: '16px', border: '1px solid rgba(192,132,252,0.25)', backgroundColor: 'rgba(17,24,39,0.68)', padding: '14px' }}>
+              <p style={{ color: '#f5d0fe', fontSize: '14px', lineHeight: 1.5 }}>{item}</p>
+            </div>
+          ))}
+          {!(plan?.positioning_model?.length) && <EmptyPanel message="No LinkedIn positioning model available yet." />}
+        </div>
+      </section>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+        <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+          <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Priority Lanes</p>
+          <h3 style={{ fontSize: '22px', color: 'white', margin: '6px 0 12px' }}>What to publish around</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {(plan?.priority_lanes ?? []).map((lane) => (
+              <span key={lane} style={{ borderRadius: '999px', border: '1px solid #374151', padding: '8px 12px', color: '#e2e8f0', fontSize: '13px', backgroundColor: '#020617' }}>
+                {lane}
+              </span>
+            ))}
+          </div>
+          {editorialMix.length > 0 && (
+            <>
+              <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.14em', margin: '18px 0 8px' }}>Editorial Mix</p>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {editorialMix.slice(0, 4).map((item) => (
+                  <div key={item} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '10px 12px', color: '#cbd5f5', fontSize: '13px' }}>
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+          <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workflow</p>
+          <h3 style={{ fontSize: '22px', color: 'white', margin: '6px 0 12px' }}>Capture to publish</h3>
+          {workflowSteps.length > 0 ? (
+            <div style={{ display: 'grid', gap: '10px' }}>
+              {workflowSteps.map((step) => (
+                <div key={step.title} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px 14px' }}>
+                  <p style={{ color: '#f8fafc', fontWeight: 700, marginBottom: '6px' }}>{step.title}</p>
+                  <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.5 }}>{summarize(step.body, 180)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyPanel message="Workflow doc is not mounted in this frontend context yet, but the strategy snapshot below is live." />
+          )}
+          {saveRules.keep.length > 0 && (
+            <div style={{ marginTop: '16px' }}>
+              <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.14em', marginBottom: '8px' }}>Signal Rules</p>
+              <ul style={{ margin: 0, paddingLeft: '18px', color: '#cbd5f5', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px' }}>
+                {saveRules.keep.slice(0, 3).map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Weekly Recommendations</p>
+            <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Recommended LinkedIn posts</h3>
+          </div>
+          <span style={{ color: '#64748b', fontSize: '13px' }}>{plan?.recommendations.length ?? 0} ranked items</span>
+        </div>
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {(plan?.recommendations ?? []).slice(0, 4).map((item, index) => (
+            <article key={`${item.source_path}-${index}`} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#f8fafc', fontSize: '12px' }}>{index + 1}</span>
+                <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#cbd5f5', fontSize: '12px' }}>{item.role_alignment}</span>
+                <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#fbbf24', fontSize: '12px' }}>{item.risk_level}</span>
+                {item.priority_lane ? <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>{item.priority_lane}</span> : null}
+              </div>
+              <h4 style={{ fontSize: '18px', color: 'white', margin: '0 0 6px' }}>{item.title}</h4>
+              <p style={{ color: '#f5d0fe', fontSize: '14px', marginBottom: '8px' }}>{item.hook}</p>
+              <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.55 }}>{item.rationale}</p>
+              <p style={{ color: '#64748b', fontSize: '12px', marginTop: '10px' }}>{item.source_path}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+        <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '14px' }}>
+            <div>
+              <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Reaction Queue</p>
+              <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Immediate comment opportunities</h3>
+            </div>
+            <span style={{ color: '#64748b', fontSize: '13px' }}>{reactionQueue?.counts.comment_opportunities ?? 0}</span>
+          </div>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {(reactionQueue?.comment_opportunities ?? []).slice(0, 3).map((item) => (
+              <article key={item.source_path} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+                <p style={{ color: '#f8fafc', fontWeight: 700 }}>{item.title}</p>
+                <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>{item.priority_lane} · {item.role_alignment}</p>
+                <p style={{ color: '#f5d0fe', fontSize: '13px', marginTop: '8px' }}>{item.hook}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', marginTop: '8px', lineHeight: 1.5 }}>{item.suggested_comment}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', marginBottom: '14px' }}>
+            <div>
+              <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Draft Inputs</p>
+              <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Post seeds and assets</h3>
+            </div>
+            <span style={{ color: '#64748b', fontSize: '13px' }}>{reactionQueue?.counts.post_seeds ?? 0} seeds</span>
+          </div>
+          <div style={{ display: 'grid', gap: '12px', marginBottom: '14px' }}>
+            {(reactionQueue?.post_seeds ?? []).slice(0, 3).map((item) => (
+              <article key={`${item.source_path}-seed`} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+                <p style={{ color: '#f8fafc', fontWeight: 700 }}>{item.title}</p>
+                <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>{item.priority_lane}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', marginTop: '8px', lineHeight: 1.5 }}>{item.post_angle}</p>
+              </article>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <MiniMeta label="Workspace Docs" value={`${docFiles.length}`} detail="LinkedIn OS runbooks and models" />
+            <MiniMeta label="Backlog Items" value={`${backlogActive.length}`} detail="Active LinkedIn tasks" />
+            <MiniMeta label="Draft Files" value={`${draftFiles.length}`} detail="Posts ready to refine" />
+          </div>
+        </section>
+      </div>
+
+      {backlogActive.length > 0 && (
+        <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+          <div style={{ marginBottom: '14px' }}>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Backlog</p>
+            <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Active LinkedIn workspace tasks</h3>
+          </div>
+          <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+            {backlogActive.slice(0, 4).map((item) => (
+              <div key={item.title} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+                <p style={{ color: '#f8fafc', fontWeight: 700 }}>{item.title}</p>
+                <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '8px', lineHeight: 1.5 }}>{summarize(item.body, 160)}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <SplitPane
         sidebar={
-          files.length === 0 ? (
-            <EmptyPanel message="No persona bundle files found." compact />
+          linkedinFiles.length === 0 ? (
+            <EmptyPanel message="Raw LinkedIn workspace files are not mounted in this frontend context yet. The strategy snapshot above is still live." compact />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {groups.map(([group, items]) => (
@@ -802,8 +1063,8 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                           textAlign: 'left',
                           padding: '12px',
                           borderRadius: '12px',
-                          border: file.path === selected?.path ? '1px solid #fbbf24' : '1px solid #1f2937',
-                          background: file.path === selected?.path ? 'rgba(251,191,36,0.12)' : '#050b19',
+                          border: file.path === selectedLinkedin?.path ? '1px solid #fbbf24' : '1px solid #1f2937',
+                          background: file.path === selectedLinkedin?.path ? 'rgba(251,191,36,0.12)' : '#050b19',
                           color: 'white',
                           cursor: 'pointer',
                         }}
@@ -818,7 +1079,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             </div>
           )
         }
-        content={selected ? <MarkdownSurface title={selected.name} path={selected.path} updatedAt={selected.updatedAt} content={selected.content} /> : <EmptyPanel message="Select a workspace file to inspect." />}
+        content={selectedLinkedin ? <MarkdownSurface title={selectedLinkedin.name} path={selectedLinkedin.path} updatedAt={selectedLinkedin.updatedAt} content={selectedLinkedin.content} /> : <EmptyPanel message="Select a LinkedIn workspace file to inspect." />}
       />
     </section>
   );
@@ -1147,6 +1408,83 @@ function groupPmCards(cards: PMCard[]) {
   );
 }
 
+type MarkdownSubsection = {
+  title: string;
+  body: string;
+  fields: Record<string, string>;
+};
+
+function findWorkspaceFile(files: WorkspaceFile[], suffix: string) {
+  return files.find((file) => file.path.endsWith(suffix)) ?? null;
+}
+
+function extractSection(raw: string, heading: string) {
+  const marker = `## ${heading}`;
+  const start = raw.indexOf(marker);
+  if (start === -1) {
+    return '';
+  }
+  let section = raw.slice(start + marker.length);
+  if (section.startsWith('\n')) {
+    section = section.slice(1);
+  }
+  const nextHeading = section.indexOf('\n## ');
+  if (nextHeading !== -1) {
+    section = section.slice(0, nextHeading);
+  }
+  return section.trim();
+}
+
+function parseSubsections(section: string): MarkdownSubsection[] {
+  if (!section) {
+    return [];
+  }
+  const pattern = /###\s+([^\n]+)\n([\s\S]*?)(?=(?:\n###\s)|$)/g;
+  const matches = Array.from(section.matchAll(pattern));
+  return matches.map((match) => ({
+    title: match[1].trim(),
+    body: match[2].trim(),
+    fields: parseKeyValueBullets(match[2]),
+  }));
+}
+
+function parseKeyValueBullets(body: string) {
+  const lines = body.split('\n');
+  const map: Record<string, string> = {};
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line.startsWith('- ')) {
+      continue;
+    }
+    const colonIndex = line.indexOf(':');
+    if (colonIndex === -1) {
+      continue;
+    }
+    const key = line.slice(2, colonIndex).trim();
+    const value = line.slice(colonIndex + 1).trim();
+    map[key] = value;
+  }
+  return map;
+}
+
+function parseBullets(section: string) {
+  return section
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2).trim())
+    .filter((item) => item.length > 0);
+}
+
+function collectSaveRules(raw: string) {
+  const section = extractSection(raw, 'Save Rules');
+  const keepMatch = section.match(/Keep a signal if:\s*([\s\S]*?)Do not keep a signal if:/);
+  const keep = keepMatch ? parseBullets(keepMatch[1]) : parseBullets(section);
+  const dropMatch = section.match(/Do not keep a signal if:\s*([\s\S]*)/);
+  const drop = dropMatch ? parseBullets(dropMatch[1]) : [];
+  return { keep, drop };
+}
+
 function normalizeStatus(status: string) {
   const normalized = status.toLowerCase();
   if (normalized === 'in_progress' || normalized === 'in-progress') return 'in_progress';
@@ -1176,6 +1514,14 @@ function statusBadge(status?: string) {
 
 function formatTimestamp(value: Date) {
   return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+}
+
+function summarize(text: string, maxLength = 120) {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLength).trim()}...`;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
