@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import NavHeader from '@/components/NavHeader';
+import { useEffect, useMemo, useState } from 'react';
+import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
 
 const API_URL = getApiUrl();
@@ -15,9 +15,12 @@ type Automation = {
   next_run_at?: string;
 };
 
+type Tab = 'foundry' | 'prototypes' | 'buildLogs';
+
 export default function LabPage() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('foundry');
 
   useEffect(() => {
     let cancelled = false;
@@ -45,11 +48,18 @@ export default function LabPage() {
 
   const running = automations.filter((job) => job.status?.toLowerCase() === 'active').length;
   const proposed = automations.length - running;
+  const tabs = useMemo(
+    () => [
+      { key: 'foundry', label: 'Foundry', active: activeTab === 'foundry', onSelect: () => setActiveTab('foundry') },
+      { key: 'prototypes', label: 'Prototypes', active: activeTab === 'prototypes', onSelect: () => setActiveTab('prototypes') },
+      { key: 'buildLogs', label: 'Build Logs', active: activeTab === 'buildLogs', onSelect: () => setActiveTab('buildLogs') },
+    ],
+    [activeTab],
+  );
 
   return (
-    <main style={{ minHeight: '100vh', background: 'radial-gradient(circle at top, rgba(17,28,25,0.85), #010617 50%)', paddingBottom: '120px' }}>
-      <NavHeader />
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px' }}>
+    <RuntimePage module="lab" tabs={tabs}>
+      <div style={{ maxWidth: '1200px' }}>
         <section
           style={{
             borderRadius: '20px',
@@ -75,13 +85,16 @@ export default function LabPage() {
 
         {error && <p style={{ color: '#f87171' }}>{error}</p>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
-          <PrototypeCard running={running} proposed={proposed} />
-          <BuildLogCard automations={automations} />
-        </div>
+        {activeTab === 'foundry' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+            <PrototypeCard running={running} proposed={proposed} />
+            <BuildLogCard automations={automations} />
+          </div>
+        )}
+        {activeTab === 'prototypes' && <PrototypeCard running={running} proposed={proposed} />}
+        {activeTab === 'buildLogs' && <BuildLogCard automations={automations} expanded />}
       </div>
-      <ModuleDock active="Lab" />
-    </main>
+    </RuntimePage>
   );
 }
 
@@ -117,12 +130,12 @@ function PrototypeStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function BuildLogCard({ automations }: { automations: Automation[] }) {
+function BuildLogCard({ automations, expanded = false }: { automations: Automation[]; expanded?: boolean }) {
   return (
-    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#040d16', padding: '20px', minHeight: '220px' }}>
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#040d16', padding: '20px', minHeight: expanded ? '420px' : '220px' }}>
       <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Build Logs</p>
       <h2 style={{ color: 'white', fontSize: '20px', marginBottom: '12px' }}>Latest isolated runs</h2>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '200px', overflowY: 'auto' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: expanded ? 'unset' : '200px', overflowY: 'auto' }}>
         {automations.length === 0 && <p style={{ color: '#475569' }}>No runs recorded yet.</p>}
         {automations.map((job) => (
           <div key={job.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '12px', backgroundColor: '#020617' }}>
@@ -140,34 +153,4 @@ function BuildLogCard({ automations }: { automations: Automation[] }) {
 
 function formatTimestamp(value: Date) {
   return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
-}
-
-function ModuleDock({ active }: { active: 'Ops' | 'Brain' | 'Lab' }) {
-  const buttons: { label: 'Ops' | 'Brain' | 'Lab'; tone: string }[] = [
-    { label: 'Ops', tone: '#fbbf24' },
-    { label: 'Brain', tone: '#38bdf8' },
-    { label: 'Lab', tone: '#34d399' },
-  ];
-  return (
-    <div style={{ position: 'fixed', bottom: '32px', left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
-      <div style={{ display: 'flex', gap: '12px', padding: '10px 16px', background: 'rgba(2,6,23,0.9)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '999px', boxShadow: '0 20px 50px rgba(0,0,0,0.45)', pointerEvents: 'auto' }}>
-        {buttons.map((btn) => (
-          <span
-            key={btn.label}
-            style={{
-              padding: '10px 18px',
-              borderRadius: '999px',
-              backgroundColor: btn.label === active ? `${btn.tone}22` : 'transparent',
-              border: btn.label === active ? `1px solid ${btn.tone}` : '1px solid transparent',
-              color: btn.label === active ? 'white' : '#94a3b8',
-              fontWeight: 600,
-              fontSize: '13px',
-            }}
-          >
-            {btn.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
 }

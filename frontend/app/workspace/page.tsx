@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import OpsClient, { DocReference, WorkspaceFile } from './OpsClient';
+import OpsClient, { DocReference, WorkspaceFile } from '../ops/OpsClient';
 
-export default function OpsPage() {
-  return <OpsClient workspaceFiles={loadWorkspaceFiles()} docEntries={loadDocEntries()} />;
+export default function WorkspacePage() {
+  return <OpsClient workspaceFiles={loadWorkspaceFiles()} docEntries={loadDocEntries()} initialPanel="workspace" initialWorkspaceKey="linkedin-content-os" />;
 }
 
 function loadWorkspaceFiles(): WorkspaceFile[] {

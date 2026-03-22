@@ -1,21 +1,49 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
-import NavHeader from '@/components/NavHeader';
-
-export type TranscriptEntry = {
-  date: string;
-  title: string;
-  tags: string[];
-  summary: string;
-  link: string;
-};
 
 export type DocEntry = {
   name: string;
   path: string;
   snippet: string;
+};
+
+export type PersonaBundleHealth = {
+  bundlePath: string;
+  bundleVersion?: string;
+  personaId?: string;
+  missingFiles: string[];
+  missingFrontmatter: string[];
+  todoFiles: { path: string; markers: string[] }[];
+  status: 'ok' | 'error';
+};
+
+export type PersonaPack = {
+  key: string;
+  title: string;
+  description: string;
+  sections: { path: string; content: string }[];
+};
+
+export type PersonaWorkspace = {
+  packs: PersonaPack[];
+  pendingMarkdown: string;
+  health: PersonaBundleHealth | null;
+};
+
+export type DailyBriefEntry = {
+  id: string;
+  brief_date: string;
+  title: string;
+  summary?: string | null;
+  content_markdown: string;
+  source: string;
+  source_ref?: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 };
 
 type Automation = {
@@ -54,38 +82,133 @@ type CaptureSummary = {
   chunk_count: number;
 };
 
-type Tab = 'briefs' | 'automations' | 'docs';
+type OpenBrainHealth = {
+  database_connected: boolean;
+  vector_extension: boolean;
+  embedding_type?: string | null;
+  configured_dimension?: number | null;
+  storage_backend?: string | null;
+  embedder_dimension: number;
+  dimension_match: boolean;
+  capture_count: number;
+  vector_count: number;
+  non_expired_vector_count: number;
+  search_ready: boolean;
+};
+
+type PersonaDeltaEntry = {
+  id: string;
+  capture_id?: string | null;
+  persona_target: string;
+  trait: string;
+  notes?: string | null;
+  status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  committed_at?: string | null;
+};
+
+type PromotionItemKind = 'talking_point' | 'framework' | 'anecdote' | 'phrase_candidate' | 'stat';
+
+type PromotionItem = {
+  id: string;
+  kind: PromotionItemKind;
+  label: string;
+  content: string;
+  evidence: string | null;
+  targetFile: string | null;
+};
+
+type CaptureResponsePayload = {
+  capture_id: string;
+  chunk_ids: string[];
+  chunk_count: number;
+  expires_at?: string | null;
+};
+
+type Tab = 'dashboard' | 'briefs' | 'persona' | 'automations' | 'docs';
 
 const API_URL = getApiUrl();
 
-export default function BrainClient({ transcripts, docs }: { transcripts: TranscriptEntry[]; docs: DocEntry[] }) {
-  const [activeTab, setActiveTab] = useState<Tab>('briefs');
-  const [selectedBrief, setSelectedBrief] = useState<TranscriptEntry | null>(transcripts[0] ?? null);
+export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry[]; personaWorkspace: PersonaWorkspace }) {
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [briefs, setBriefs] = useState<DailyBriefEntry[]>([]);
+  const [selectedBrief, setSelectedBrief] = useState<DailyBriefEntry | null>(null);
+  const [briefsError, setBriefsError] = useState<string | null>(null);
+  const [personaDeltas, setPersonaDeltas] = useState<PersonaDeltaEntry[]>([]);
+  const [personaDeltasError, setPersonaDeltasError] = useState<string | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [automationsError, setAutomationsError] = useState<string | null>(null);
   const [telemetry, setTelemetry] = useState<CaptureTelemetry | null>(null);
+  const [telemetryHealth, setTelemetryHealth] = useState<OpenBrainHealth | null>(null);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
+  const tabs = useMemo(
+    () => [
+      { key: 'dashboard', label: 'Dashboard', active: activeTab === 'dashboard', onSelect: () => setActiveTab('dashboard') },
+      { key: 'briefs', label: 'Daily Briefs', active: activeTab === 'briefs', onSelect: () => setActiveTab('briefs') },
+      { key: 'persona', label: 'Persona', active: activeTab === 'persona', onSelect: () => setActiveTab('persona') },
+      { key: 'automations', label: 'Automations', active: activeTab === 'automations', onSelect: () => setActiveTab('automations') },
+      { key: 'docs', label: 'Docs', active: activeTab === 'docs', onSelect: () => setActiveTab('docs') },
+    ],
+    [activeTab],
+  );
 
   useEffect(() => {
     let cancelled = false;
     async function loadData() {
-      try {
-        const [automationsRes, telemetryRes] = await Promise.all([
-          fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
-          fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
-        ]);
-        if (!cancelled) {
-          setAutomations(Array.isArray(automationsRes?.data) ? automationsRes.data : []);
-          setTelemetry(telemetryRes ?? null);
-          setAutomationsError(null);
-          setTelemetryError(null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error('Failed to load brain data', err);
-          setAutomationsError('Unable to load automations right now.');
-          setTelemetryError('Unable to load Open Brain telemetry.');
-        }
+      const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes] = await Promise.allSettled([
+        fetch(`${API_URL}/api/briefs/?limit=50`).then((res) => res.json()),
+        fetch(`${API_URL}/api/persona/deltas?limit=20`).then((res) => res.json()),
+        fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
+        fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
+        fetch(`${API_URL}/api/open-brain/health`).then((res) => res.json()),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (briefsRes.status === 'fulfilled' && Array.isArray(briefsRes.value)) {
+        setBriefs(briefsRes.value);
+        setSelectedBrief((current) => current ?? briefsRes.value[0] ?? null);
+        setBriefsError(null);
+      } else {
+        console.error('Failed to load daily briefs', briefsRes.status === 'rejected' ? briefsRes.reason : briefsRes.value);
+        setBriefsError('Unable to load daily briefs right now.');
+      }
+
+      if (personaRes.status === 'fulfilled' && Array.isArray(personaRes.value)) {
+        setPersonaDeltas(personaRes.value);
+        setPersonaDeltasError(null);
+      } else {
+        console.error('Failed to load persona deltas', personaRes.status === 'rejected' ? personaRes.reason : personaRes.value);
+        setPersonaDeltasError('Unable to load persona deltas right now.');
+      }
+
+      if (automationsRes.status === 'fulfilled') {
+        setAutomations(Array.isArray(automationsRes.value?.data) ? automationsRes.value.data : []);
+        setAutomationsError(null);
+      } else {
+        console.error('Failed to load automations', automationsRes.reason);
+        setAutomationsError('Unable to load automations right now.');
+      }
+
+      if (telemetryRes.status === 'fulfilled') {
+        setTelemetry(telemetryRes.value ?? null);
+      } else {
+        console.error('Failed to load Open Brain telemetry', telemetryRes.reason);
+      }
+
+      if (healthRes.status === 'fulfilled') {
+        setTelemetryHealth(healthRes.value ?? null);
+      } else {
+        console.error('Failed to load Open Brain health', healthRes.reason);
+      }
+
+      if (telemetryRes.status === 'fulfilled' && healthRes.status === 'fulfilled') {
+        setTelemetryError(null);
+      } else {
+        setTelemetryError('Unable to load full Open Brain telemetry.');
       }
     }
     loadData();
@@ -97,33 +220,62 @@ export default function BrainClient({ transcripts, docs }: { transcripts: Transc
   }, []);
 
   return (
-    <main style={{ minHeight: '100vh', background: 'radial-gradient(circle at top, rgba(12,20,45,0.85), #010617 50%)', paddingBottom: '120px' }}>
-      <NavHeader />
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
-        <HeroBlock />
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-          <BrainTabButton active={activeTab === 'briefs'} onClick={() => setActiveTab('briefs')} label="Daily Briefs" description="History + markdown" />
-          <BrainTabButton active={activeTab === 'automations'} onClick={() => setActiveTab('automations')} label="Automations" description="Cron manifest" />
-          <BrainTabButton active={activeTab === 'docs'} onClick={() => setActiveTab('docs')} label="Documentation" description="Knowledge base" />
-        </div>
-
-        {activeTab === 'briefs' && (
-          <DailyBriefsPanel transcripts={transcripts} selected={selectedBrief} onSelect={setSelectedBrief} />
-        )}
-        {activeTab === 'automations' && (
-          <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <CaptureTelemetryPanel metrics={telemetry} error={telemetryError} />
-            <AutomationsPanel automations={automations} error={automationsError} />
-          </section>
-        )}
-        {activeTab === 'docs' && <DocsPanel docs={docs} />}
-      </div>
-      <ModuleDock active="Brain" />
-    </main>
+    <RuntimePage module="brain" tabs={tabs}>
+      {activeTab === 'dashboard' && (
+        <DashboardPanel
+          briefCount={briefs.length}
+          docCount={docs.length}
+          automationCount={automations.length}
+          telemetry={telemetry}
+          telemetryHealth={telemetryHealth}
+          telemetryError={telemetryError}
+        />
+      )}
+      {activeTab === 'briefs' && (
+        <DailyBriefsPanel briefs={briefs} selected={selectedBrief} onSelect={setSelectedBrief} error={briefsError} />
+      )}
+      {activeTab === 'persona' && (
+        <PersonaPanel
+          packs={personaWorkspace.packs}
+          deltas={personaDeltas}
+          error={personaDeltasError}
+        />
+      )}
+      {activeTab === 'automations' && (
+        <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <CaptureTelemetryPanel metrics={telemetry} health={telemetryHealth} error={telemetryError} />
+          <AutomationsPanel automations={automations} error={automationsError} />
+        </section>
+      )}
+      {activeTab === 'docs' && <DocsPanel docs={docs} />}
+    </RuntimePage>
   );
 }
 
-function HeroBlock() {
+function DashboardPanel({
+  briefCount,
+  docCount,
+  automationCount,
+  telemetry,
+  telemetryHealth,
+  telemetryError,
+}: {
+  briefCount: number;
+  docCount: number;
+  automationCount: number;
+  telemetry: CaptureTelemetry | null;
+  telemetryHealth: OpenBrainHealth | null;
+  telemetryError: string | null;
+}) {
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <HeroBlock briefCount={briefCount} docCount={docCount} automationCount={automationCount} />
+      <CaptureTelemetryPanel metrics={telemetry} health={telemetryHealth} error={telemetryError} />
+    </section>
+  );
+}
+
+function HeroBlock({ briefCount, docCount, automationCount }: { briefCount: number; docCount: number; automationCount: number }) {
   return (
     <section
       style={{
@@ -138,13 +290,13 @@ function HeroBlock() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
         <div>
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Brain Dashboard</p>
-          <h1 style={{ color: 'white', fontSize: '32px', margin: '4px 0' }}>Daily Briefs + Automations</h1>
-          <p style={{ color: '#94a3b8', fontSize: '14px' }}>Markdown-driven briefs, mirrored cron manifest, and living documentation for the agent.</p>
+          <h1 style={{ color: 'white', fontSize: '32px', margin: '4px 0' }}>Knowledge + automations</h1>
+          <p style={{ color: '#94a3b8', fontSize: '14px' }}>Daily briefs, Open Brain telemetry, and docs in the same shell used across the reference control UI.</p>
         </div>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <HeroStat label="Briefs" value="Live" tone="#38bdf8" />
-          <HeroStat label="Automations" value="4" tone="#fbbf24" />
-          <HeroStat label="Docs" value="Knowledge" tone="#34d399" />
+          <HeroStat label="Briefs" value={briefCount.toString()} tone="#38bdf8" />
+          <HeroStat label="Automations" value={automationCount.toString()} tone="#fbbf24" />
+          <HeroStat label="Docs" value={docCount.toString()} tone="#34d399" />
         </div>
       </div>
     </section>
@@ -160,35 +312,25 @@ function HeroStat({ label, value, tone }: { label: string; value: string; tone: 
   );
 }
 
-function BrainTabButton({ active, onClick, label, description }: { active: boolean; onClick: () => void; label: string; description: string }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        flex: 1,
-        textAlign: 'left',
-        borderRadius: '16px',
-        padding: '16px',
-        border: active ? '1px solid #38bdf8' : '1px solid #1f2937',
-        background: active ? 'linear-gradient(120deg, rgba(56,189,248,0.18), rgba(15,23,42,0.95))' : '#050b19',
-        color: 'white',
-        cursor: 'pointer',
-      }}
-    >
-      <p style={{ fontSize: '16px', fontWeight: 600 }}>{label}</p>
-      <p style={{ fontSize: '13px', color: '#94a3b8' }}>{description}</p>
-    </button>
-  );
-}
-
-function DailyBriefsPanel({ transcripts, selected, onSelect }: { transcripts: TranscriptEntry[]; selected: TranscriptEntry | null; onSelect: (entry: TranscriptEntry) => void }) {
+function DailyBriefsPanel({
+  briefs,
+  selected,
+  onSelect,
+  error,
+}: {
+  briefs: DailyBriefEntry[];
+  selected: DailyBriefEntry | null;
+  onSelect: (entry: DailyBriefEntry) => void;
+  error: string | null;
+}) {
   return (
     <section style={{ display: 'flex', gap: '16px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '460px' }}>
       <div style={{ width: '260px', borderRight: '1px solid #0f172a', paddingRight: '12px', maxHeight: '420px', overflowY: 'auto' }}>
-        {transcripts.length === 0 && <p style={{ color: '#475569' }}>No briefs indexed yet.</p>}
-        {transcripts.map((entry) => (
+        {error && <p style={{ color: '#f87171' }}>{error}</p>}
+        {!error && briefs.length === 0 && <p style={{ color: '#475569' }}>No daily briefs saved yet.</p>}
+        {briefs.map((entry) => (
           <button
-            key={`${entry.date}-${entry.title}`}
+            key={entry.id}
             onClick={() => onSelect(entry)}
             style={{
               width: '100%',
@@ -202,7 +344,7 @@ function DailyBriefsPanel({ transcripts, selected, onSelect }: { transcripts: Tr
               cursor: 'pointer',
             }}
           >
-            <p style={{ fontSize: '12px', color: '#94a3b8' }}>{entry.date}</p>
+            <p style={{ fontSize: '12px', color: '#94a3b8' }}>{entry.brief_date}</p>
             <p style={{ fontSize: '14px', fontWeight: 600 }}>{entry.title}</p>
           </button>
         ))}
@@ -210,48 +352,537 @@ function DailyBriefsPanel({ transcripts, selected, onSelect }: { transcripts: Tr
       <div style={{ flex: 1 }}>
         {selected ? (
           <div>
-            <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{selected.date}</p>
+            <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{selected.brief_date}</p>
             <h2 style={{ color: 'white', fontSize: '24px', marginBottom: '8px' }}>{selected.title}</h2>
-            <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-              {selected.tags.map((tag) => (
-                <span key={tag} style={{ fontSize: '12px', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.4)', borderRadius: '999px', padding: '4px 10px' }}>
-                  {tag}
-                </span>
-              ))}
+            {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>}
+            <div
+              style={{
+                borderRadius: '14px',
+                border: '1px solid #1f2937',
+                backgroundColor: '#020617',
+                padding: '16px',
+                color: '#cbd5f5',
+                fontSize: '14px',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {selected.content_markdown}
             </div>
-            <a href={`/knowledge/aiclone/transcripts/${selected.link}`} style={{ color: '#38bdf8', fontSize: '14px' }}>
-              Open full note ↗
-            </a>
           </div>
         ) : (
-          <p style={{ color: '#475569' }}>Select a brief to read the markdown.</p>
+          <p style={{ color: '#475569' }}>Select a brief to read the saved markdown.</p>
         )}
       </div>
     </section>
   );
 }
 
-function CaptureTelemetryPanel({ metrics, error }: { metrics: CaptureTelemetry | null; error: string | null }) {
+function PersonaPanel({
+  packs,
+  deltas,
+  error,
+}: {
+  packs: PersonaPack[];
+  deltas: PersonaDeltaEntry[];
+  error: string | null;
+}) {
+  const [completedDeltaIds, setCompletedDeltaIds] = useState<string[]>([]);
+  const pendingStatuses = useMemo(() => new Set(['draft', 'pending', 'in_review']), []);
+  const pendingDeltas = useMemo(
+    () =>
+      deltas.filter((delta) => {
+        if (completedDeltaIds.includes(delta.id)) {
+          return false;
+        }
+        const status = (delta.status || 'draft').toLowerCase();
+        if (pendingStatuses.has(status)) {
+          return true;
+        }
+        return status === 'reviewed' && hasSelectablePromotionMetadata(delta.metadata) && !metadataBoolean(delta.metadata, 'pending_promotion');
+      }),
+    [completedDeltaIds, deltas, pendingStatuses],
+  );
+  const reviewQueue = pendingDeltas;
+  const [selectedDeltaId, setSelectedDeltaId] = useState<string>(reviewQueue[0]?.id ?? '');
+  const [reflectionText, setReflectionText] = useState('');
+  const [reflectionState, setReflectionState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({
+    tone: 'idle',
+    message: '',
+  });
+  const [isSavingReflection, setIsSavingReflection] = useState(false);
+  const selectedDelta = useMemo(
+    () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
+    [reviewQueue, selectedDeltaId],
+  );
+  const targetFile = selectedDelta ? metadataText(selectedDelta.metadata, 'target_file') : null;
+  const linkedPack = useMemo(() => findPackBySection(packs, targetFile) ?? packs[0] ?? null, [packs, targetFile]);
+  const targetSection = useMemo(() => findPackSection(packs, targetFile), [packs, targetFile]);
+  const activeContext = targetSection?.content ?? linkedPack?.sections[0]?.content ?? null;
+  const activeContextPath = targetSection?.path ?? linkedPack?.sections[0]?.path ?? null;
+  const selectableItems = useMemo(() => buildPromotionItems(selectedDelta, targetFile), [selectedDelta, targetFile]);
+  const pendingCount = pendingDeltas.length;
+  const reviewHeadline = selectedDelta ? buildReviewHeadline(selectedDelta, targetFile) : 'No persona review items queued.';
+  const reviewReason = selectedDelta ? buildReviewReason(selectedDelta, targetFile, activeContextPath) : 'There is no pending persona item to review right now.';
+  const reviewAsk = selectedDelta ? buildReviewAsk(selectedDelta, targetFile) : 'You can still save a general thought to memory if you want to capture something new.';
+  const evidenceLabel =
+    metadataText(selectedDelta?.metadata, 'evidence_source') ?? (selectedDelta?.capture_id ? `capture ${selectedDelta.capture_id}` : 'Not linked yet');
+  const statusLabel = selectedDelta?.status ?? 'pending';
+  const [selectedPromotionItemIds, setSelectedPromotionItemIds] = useState<string[]>([]);
+  const selectedPromotionItems = useMemo(
+    () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
+    [selectableItems, selectedPromotionItemIds],
+  );
+
+  useEffect(() => {
+    if (!selectedDelta && reviewQueue[0]) {
+      setSelectedDeltaId(reviewQueue[0].id);
+      return;
+    }
+    if (reviewQueue.length === 0 && selectedDeltaId) {
+      setSelectedDeltaId('');
+    }
+  }, [reviewQueue, selectedDelta, selectedDeltaId]);
+
+  useEffect(() => {
+    const existingItems = readPromotionItemsFromMetadata(selectedDelta?.metadata);
+    const existingIds = existingItems.map((item) => item.id);
+    const availableIds = new Set(selectableItems.map((item) => item.id));
+    setSelectedPromotionItemIds(existingIds.filter((itemId) => availableIds.has(itemId)));
+  }, [selectableItems, selectedDelta?.id, selectedDelta?.metadata]);
+
+  function queueTemplate(kind: 'agree' | 'nuance' | 'story' | 'language') {
+    if (!selectedDelta) {
+      return;
+    }
+    const prefix =
+      kind === 'agree'
+        ? `What I agree with about "${selectedDelta.trait}":\n- `
+        : kind === 'nuance'
+        ? `Nuance I want preserved for "${selectedDelta.trait}":\n- `
+        : kind === 'story'
+        ? `Story or example that should shape "${selectedDelta.trait}":\n- `
+        : `Language and wording I prefer for "${selectedDelta.trait}":\n- `;
+    setReflectionText((current) => (current.trim().length > 0 ? current : prefix));
+    setReflectionState({ tone: 'idle', message: '' });
+  }
+
+  async function saveReflection(mode: 'reviewed' | 'approved' = 'reviewed') {
+    const trimmedReflection = reflectionText.trim();
+    const keepSelectableSourceOpen = mode === 'reviewed' && selectableItems.length > 0;
+    if (mode === 'approved' && selectedPromotionItems.length === 0) {
+      setReflectionState({ tone: 'error', message: 'Select at least one extracted item before queuing promotion.' });
+      return;
+    }
+    if (!trimmedReflection && mode === 'reviewed') {
+      setReflectionState({ tone: 'error', message: 'Add a thought before saving it to memory.' });
+      return;
+    }
+    if (!trimmedReflection && mode === 'approved') {
+      setReflectionState({ tone: 'error', message: 'Add a short note so the selected items have your reasoning attached.' });
+      return;
+    }
+
+    setIsSavingReflection(true);
+    setReflectionState({ tone: 'idle', message: '' });
+    try {
+      const payload = {
+        text: buildReflectionCaptureText({
+          delta: selectedDelta,
+          reflectionText: trimmedReflection,
+          targetFile,
+          sectionContent: targetSection?.content ?? null,
+          selectedItems: selectedPromotionItems,
+        }),
+        source: 'persona_reflection',
+        topics: buildReflectionTopics(selectedDelta, targetFile),
+        importance: 3,
+        metadata: {
+          capture_kind: 'persona_reflection',
+          origin: 'brain.persona.ui',
+          linked_delta_id: selectedDelta?.id ?? null,
+          linked_capture_id: selectedDelta?.capture_id ?? null,
+          persona_target: selectedDelta?.persona_target ?? null,
+          target_file: targetFile,
+          trait: selectedDelta?.trait ?? null,
+          reference_pack: linkedPack?.key ?? null,
+          input_mode: 'text',
+          selected_promotion_items: selectedPromotionItems,
+        },
+      };
+
+      const response = await fetch(`${API_URL}/api/capture/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `Capture save failed with ${response.status}`);
+      }
+      const result = (await response.json()) as CaptureResponsePayload;
+      if (selectedDelta) {
+        const reviewPayload = {
+          status: mode === 'approved' ? 'approved' : keepSelectableSourceOpen ? 'in_review' : 'reviewed',
+          metadata: {
+            review_state: mode === 'approved' ? 'approved' : keepSelectableSourceOpen ? 'in_review' : 'reviewed',
+            review_source: 'brain.persona.ui',
+            last_reviewed_at: new Date().toISOString(),
+            resolution_capture_id: result.capture_id,
+            pending_promotion: mode === 'approved' && selectedPromotionItems.length > 0,
+            owner_response_excerpt: trimmedReflection.slice(0, 4000),
+            selected_promotion_items: selectedPromotionItems,
+            selected_promotion_item_ids: selectedPromotionItems.map((item) => item.id),
+            selected_promotion_count: selectedPromotionItems.length,
+          },
+        };
+        const reviewResponse = await fetch(`${API_URL}/api/persona/deltas/${selectedDelta.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reviewPayload),
+        });
+        if (!reviewResponse.ok) {
+          const detail = await reviewResponse.text();
+          throw new Error(detail || `Persona review update failed with ${reviewResponse.status}`);
+        }
+      }
+      const nextQueue = selectedDelta ? reviewQueue.filter((delta) => delta.id !== selectedDelta.id) : reviewQueue;
+      if (selectedDelta && !keepSelectableSourceOpen) {
+        setCompletedDeltaIds((current) => (current.includes(selectedDelta.id) ? current : [...current, selectedDelta.id]));
+      }
+      setSelectedDeltaId(keepSelectableSourceOpen ? selectedDelta?.id ?? '' : nextQueue[0]?.id ?? '');
+      setReflectionText('');
+      setReflectionState({
+        tone: 'success',
+        message: keepSelectableSourceOpen
+          ? `Saved to Open Brain as capture ${result.capture_id}. This source stays open so you can select canonical items when ready.`
+          : nextQueue[0]
+          ? mode === 'approved'
+            ? `Saved to Open Brain as capture ${result.capture_id} and queued ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} for promotion. Moving to the next review item.`
+            : `Saved to Open Brain as capture ${result.capture_id}. Moving to the next review item.`
+          : mode === 'approved'
+          ? `Saved to Open Brain as capture ${result.capture_id} and queued ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} for promotion. You are done for now.`
+          : `Saved to Open Brain as capture ${result.capture_id}. You are done for now.`,
+      });
+    } catch (saveError) {
+      setReflectionState({
+        tone: 'error',
+        message: saveError instanceof Error ? saveError.message : 'Unable to save reflection right now.',
+      });
+    } finally {
+      setIsSavingReflection(false);
+    }
+  }
+
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: 'calc(100vh - 250px)', minHeight: 'calc(100vh - 250px)', overflow: 'hidden' }}>
+      <section
+        style={{
+          flex: 1,
+          minHeight: 0,
+          borderRadius: '18px',
+          border: '1px solid #1f2937',
+          backgroundColor: '#050b19',
+          padding: '18px',
+          display: 'grid',
+          gridTemplateRows: 'auto minmax(0, 1fr)',
+          gap: '14px',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ maxWidth: '760px' }}>
+            <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Active Review</p>
+            <h2 style={{ color: 'white', fontSize: '28px', margin: '4px 0 8px' }}>{reviewHeadline}</h2>
+            <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 }}>
+              {selectedDelta ? `${pendingCount} pending review${pendingCount === 1 ? '' : 's'} remaining.` : 'No pending reviews right now.'}
+            </p>
+          </div>
+          <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
+            Saving here records evidence in Open Brain. It does not rewrite the canonical bundle automatically.
+          </div>
+        </div>
+
+        {selectedDelta ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(320px, 0.92fr)', gap: '14px', minHeight: 0 }}>
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr)', gap: '12px', minHeight: 0 }}>
+              <div>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Why I am showing this</p>
+                <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.65 }}>{reviewReason}</p>
+              </div>
+
+              <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6 }}>
+                <span>{targetFile ?? 'Target file not assigned'}</span>
+                <span style={{ margin: '0 8px' }}>·</span>
+                <span>{evidenceLabel}</span>
+                <span style={{ margin: '0 8px' }}>·</span>
+                <span>{statusLabel}</span>
+              </div>
+
+              <div style={{ minHeight: 0, overflowY: 'auto', paddingRight: '4px' }}>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>What is being proposed</p>
+                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: '16px' }}>
+                  {selectedDelta.notes || 'No candidate notes were attached to this review item.'}
+                </p>
+                {selectableItems.length > 0 && (
+                  <>
+                    <div style={{ height: '1px', backgroundColor: '#1f2937', marginBottom: '16px' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginBottom: '10px', flexWrap: 'wrap' }}>
+                      <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Select what is canonical-worthy</p>
+                      <p style={{ color: '#64748b', fontSize: '12px' }}>
+                        {selectedPromotionItems.length} selected for promotion
+                      </p>
+                    </div>
+                    <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
+                      {selectableItems.map((item) => {
+                        const checked = selectedPromotionItemIds.includes(item.id);
+                        return (
+                          <label
+                            key={item.id}
+                            style={{
+                              width: '100%',
+                              display: 'block',
+                              borderRadius: '12px',
+                              border: `1px solid ${checked ? '#38bdf8' : '#1f2937'}`,
+                              backgroundColor: checked ? '#082f49' : '#020617',
+                              padding: '12px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setSelectedPromotionItemIds((current) =>
+                                    current.includes(item.id) ? current.filter((entry) => entry !== item.id) : [...current, item.id],
+                                  );
+                                  if (reflectionState.tone !== 'idle') {
+                                    setReflectionState({ tone: 'idle', message: '' });
+                                  }
+                                }}
+                                style={{
+                                  width: '16px',
+                                  height: '16px',
+                                  marginTop: '2px',
+                                  accentColor: '#38bdf8',
+                                  cursor: 'pointer',
+                                }}
+                              />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '6px' }}>
+                                  <div>
+                                    <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600 }}>{item.label}</p>
+                                    <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{humanizePromotionKind(item.kind)}</p>
+                                  </div>
+                                </div>
+                                <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55 }}>{item.content}</p>
+                                {item.evidence && <p style={{ color: '#64748b', fontSize: '12px', marginTop: '6px' }}>Evidence: {item.evidence}</p>}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+                <div style={{ height: '1px', backgroundColor: '#1f2937', marginBottom: '16px' }} />
+                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Current canonical context</p>
+                {activeContext ? (
+                  <>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{activeContextPath ?? 'Canonical bundle excerpt'}</p>
+                    <pre style={{ margin: 0, color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                      {truncateText(activeContext, 2200)}
+                    </pre>
+                  </>
+                ) : (
+                  <p style={{ color: '#475569', fontSize: '13px', lineHeight: 1.55 }}>
+                    There is no canonical excerpt attached yet. Use your response to say where this belongs and how it should be phrased.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto', gap: '12px', minHeight: 0 }}>
+              <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6 }}>
+                {reviewAsk}
+              </div>
+
+              <textarea
+                value={reflectionText}
+                onChange={(event) => {
+                  setReflectionText(event.target.value);
+                  if (reflectionState.tone !== 'idle') {
+                    setReflectionState({ tone: 'idle', message: '' });
+                  }
+                }}
+                placeholder={`Example: Yes, this is true. I am building an AI project that supports these initiatives, but I want it framed as a system that strengthens AI Clone, BrandEasy, Outfit A Congo, Collective Fusion, market development, and public leadership rather than a flat list.`}
+                style={{
+                  width: '100%',
+                  minHeight: 0,
+                  resize: 'none',
+                  borderRadius: '14px',
+                  border: '1px solid #1f2937',
+                  backgroundColor: '#010617',
+                  color: '#e2e8f0',
+                  padding: '14px',
+                  fontSize: '14px',
+                  lineHeight: 1.6,
+                  outline: 'none',
+                }}
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <QuickFillButton label="Agree" onClick={() => queueTemplate('agree')} />
+                  <QuickFillButton label="Nuance" onClick={() => queueTemplate('nuance')} />
+                  <QuickFillButton label="Story" onClick={() => queueTemplate('story')} />
+                  <QuickFillButton label="Wording" onClick={() => queueTemplate('language')} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                  {error && <p style={{ color: '#f87171', fontSize: '12px' }}>{error}</p>}
+                  {reflectionState.message && (
+                    <p style={{ color: reflectionState.tone === 'success' ? '#22c55e' : '#f87171', fontSize: '12px', maxWidth: '420px', textAlign: 'right' }}>{reflectionState.message}</p>
+                  )}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => saveReflection('reviewed')}
+                      disabled={isSavingReflection}
+                      style={{
+                        border: '1px solid #38bdf8',
+                        backgroundColor: isSavingReflection ? '#0c4a6e' : '#0f172a',
+                        color: 'white',
+                        borderRadius: '12px',
+                        padding: '10px 14px',
+                        cursor: isSavingReflection ? 'wait' : 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {isSavingReflection ? 'Saving…' : 'Save thought'}
+                    </button>
+                    <button
+                      onClick={() => saveReflection('approved')}
+                      disabled={isSavingReflection}
+                      style={{
+                        border: '1px solid #334155',
+                        backgroundColor: '#020617',
+                        color: '#cbd5f5',
+                        borderRadius: '12px',
+                        padding: '10px 14px',
+                        cursor: isSavingReflection ? 'wait' : 'pointer',
+                        fontWeight: 500,
+                      }}
+                    >
+                      Save + queue selected
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              borderRadius: '14px',
+              border: '1px solid #1f2937',
+              backgroundColor: '#020617',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              padding: '24px',
+            }}
+          >
+            <div style={{ maxWidth: '560px' }}>
+              <p style={{ color: '#22c55e', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.18em', marginBottom: '10px' }}>Done</p>
+              <h3 style={{ color: 'white', fontSize: '28px', margin: '0 0 10px' }}>You are done for now.</h3>
+              <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.65 }}>
+                There are no pending persona review items left in this session. New reflections can come back through future persona deltas.
+              </p>
+              {reflectionState.message && (
+                <p style={{ color: reflectionState.tone === 'success' ? '#22c55e' : '#f87171', fontSize: '12px', marginTop: '12px' }}>{reflectionState.message}</p>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+    </section>
+  );
+}
+
+function QuickFillButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        borderRadius: '999px',
+        border: '1px solid #1f2937',
+        backgroundColor: '#020617',
+        color: '#cbd5f5',
+        padding: '6px 10px',
+        fontSize: '12px',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ReviewMetaChip({ label, value, tone }: { label: string; value: string; tone: string }) {
+  return (
+    <div style={{ borderRadius: '999px', border: `1px solid ${tone}44`, backgroundColor: `${tone}18`, padding: '6px 10px' }}>
+      <span style={{ color: '#94a3b8', fontSize: '11px', marginRight: '6px', textTransform: 'uppercase' }}>{label}</span>
+      <span style={{ color: tone, fontSize: '12px', fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+}
+
+function CaptureTelemetryPanel({
+  metrics,
+  health,
+  error,
+}: {
+  metrics: CaptureTelemetry | null;
+  health: OpenBrainHealth | null;
+  error: string | null;
+}) {
   if (error) {
     return <p style={{ color: '#f87171' }}>{error}</p>;
   }
+
+  const storageLabel = health?.storage_backend === 'pgvector' ? 'Native vector mode' : health?.storage_backend === 'jsonb' ? 'JSON fallback' : 'Unknown';
+  const serviceLabel = health?.search_ready ? 'Search ready' : health?.database_connected ? 'Memory store online' : 'Memory store offline';
+  const subtitle =
+    health?.storage_backend === 'pgvector'
+      ? 'Capture + refresh stats from the native Postgres vector lane.'
+      : 'Capture + refresh stats from the Postgres memory lane. JSON fallback is active until native vector support is available.';
 
   return (
     <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
       <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Open Brain Telemetry</p>
-          <p style={{ color: '#64748b', fontSize: '13px' }}>Capture + refresh stats, straight from pgvector.</p>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>{subtitle}</p>
         </div>
-        <p style={{ color: metrics?.database_connected ? '#22c55e' : '#f87171', fontSize: '12px' }}>
-          {metrics?.database_connected ? 'Vector service online' : 'Vector service offline'}
+        <p style={{ color: health?.database_connected ? '#22c55e' : '#f87171', fontSize: '12px' }}>
+          {serviceLabel}
         </p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        <TelemetryMeta label="Storage" value={storageLabel} detail={health?.embedding_type ?? 'n/a'} />
+        <TelemetryMeta label="Native Vector Ext" value={health?.vector_extension ? 'Enabled' : 'Unavailable'} detail="Current Postgres capability" />
+        <TelemetryMeta
+          label="Embedding Dimension"
+          value={health?.configured_dimension ? `${health.configured_dimension}/${health.embedder_dimension}` : `${health?.embedder_dimension ?? 0}`}
+          detail={health?.dimension_match ? 'DB and embedder aligned' : 'Running fallback storage mode'}
+        />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '16px' }}>
         <TelemetryStat label="Captures" value={metrics?.captures.total ?? 0} tone="#38bdf8" detail="All time" />
         <TelemetryStat label="Last 24h" value={metrics?.captures.last_24h ?? 0} tone="#34d399" detail="Fresh ingest" />
-        <TelemetryStat label="Chunks" value={metrics?.vectors.total ?? 0} tone="#f97316" detail="Vector rows" />
+        <TelemetryStat label="Chunks" value={metrics?.vectors.total ?? 0} tone="#f97316" detail="Indexed memory rows" />
         <TelemetryStat label="Expiring" value={metrics?.vectors.with_expiry ?? 0} tone="#fbbf24" detail="Short-term" />
         <TelemetryStat label="Overdue" value={metrics?.vectors.overdue ?? 0} tone="#f87171" detail="Needs cleanup" />
         <div style={{ padding: '12px 14px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
@@ -290,6 +921,16 @@ function CaptureTelemetryPanel({ metrics, error }: { metrics: CaptureTelemetry |
         </table>
       </div>
     </section>
+  );
+}
+
+function TelemetryMeta({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div style={{ padding: '12px 14px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
+      <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</p>
+      <p style={{ color: '#e2e8f0', fontSize: '18px', fontWeight: 600 }}>{value}</p>
+      <p style={{ color: '#475569', fontSize: '12px' }}>{detail}</p>
+    </div>
   );
 }
 
@@ -387,36 +1028,248 @@ function statusBadge(status?: string) {
   );
 }
 
-function formatTimestamp(value: Date) {
-  return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+function metadataText(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
-function ModuleDock({ active }: { active: 'Ops' | 'Brain' | 'Lab' }) {
-  const buttons: { label: 'Ops' | 'Brain' | 'Lab'; tone: string }[] = [
-    { label: 'Ops', tone: '#fbbf24' },
-    { label: 'Brain', tone: '#38bdf8' },
-    { label: 'Lab', tone: '#34d399' },
-  ];
+function metadataArray(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return Array.isArray(value) ? value : [];
+}
+
+function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string) {
+  return metadata?.[key] === true;
+}
+
+function stablePromotionItemId(kind: PromotionItemKind, title: string, content: string) {
+  const source = `${kind}:${title}:${content}`;
+  let hash = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    hash = (hash * 31 + source.charCodeAt(index)) >>> 0;
+  }
+  return `${kind}:${hash.toString(16)}`;
+}
+
+function buildPromotionItems(delta: PersonaDeltaEntry | null, targetFile: string | null): PromotionItem[] {
+  if (!delta) {
+    return [];
+  }
+  const items: PromotionItem[] = [];
+  const pushItem = (kind: PromotionItemKind, label: string, content: string, evidence?: string | null) => {
+    const normalizedContent = content.trim();
+    if (!normalizedContent) return;
+    items.push({
+      id: stablePromotionItemId(kind, label, normalizedContent),
+      kind,
+      label,
+      content: normalizedContent,
+      evidence: evidence?.trim() || null,
+      targetFile,
+    });
+  };
+
+  for (const entry of metadataArray(delta.metadata, 'talking_points')) {
+    if (typeof entry === 'string') {
+      pushItem('talking_point', 'Talking point', entry);
+    }
+  }
+  for (const entry of metadataArray(delta.metadata, 'frameworks')) {
+    if (entry && typeof entry === 'object') {
+      const framework = entry as Record<string, unknown>;
+      pushItem(
+        'framework',
+        String(framework.title || 'Framework'),
+        String(framework.takeaway || framework.evidence || '').trim(),
+        typeof framework.evidence === 'string' ? framework.evidence : null,
+      );
+    }
+  }
+  for (const entry of metadataArray(delta.metadata, 'anecdotes')) {
+    if (entry && typeof entry === 'object') {
+      const anecdote = entry as Record<string, unknown>;
+      pushItem(
+        'anecdote',
+        String(anecdote.title || 'Anecdote'),
+        String(anecdote.summary || anecdote.evidence || '').trim(),
+        typeof anecdote.evidence === 'string' ? anecdote.evidence : null,
+      );
+    }
+  }
+  for (const entry of metadataArray(delta.metadata, 'phrase_candidates')) {
+    if (typeof entry === 'string') {
+      pushItem('phrase_candidate', 'Reusable phrase', entry);
+    }
+  }
+  for (const entry of metadataArray(delta.metadata, 'stats')) {
+    if (typeof entry === 'string') {
+      pushItem('stat', 'Proof point', entry);
+    }
+  }
+  return items;
+}
+
+function readPromotionItemsFromMetadata(metadata: Record<string, unknown> | undefined): PromotionItem[] {
+  const items = metadataArray(metadata, 'selected_promotion_items');
+  const parsed = items
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const record = entry as Record<string, unknown>;
+      const kind = record.kind;
+      const id = record.id;
+      const label = record.label;
+      const content = record.content;
+      if (typeof kind !== 'string' || typeof id !== 'string' || typeof label !== 'string' || typeof content !== 'string') {
+        return null;
+      }
+      return {
+        id,
+        kind: kind as PromotionItemKind,
+        label,
+        content,
+        evidence: typeof record.evidence === 'string' ? record.evidence : null,
+        targetFile: typeof record.targetFile === 'string' ? record.targetFile : null,
+      } satisfies PromotionItem;
+    })
+    .filter((item): item is PromotionItem => item !== null);
+  return parsed;
+}
+
+function humanizePromotionKind(kind: PromotionItemKind) {
+  switch (kind) {
+    case 'talking_point':
+      return 'Talking point';
+    case 'framework':
+      return 'Framework';
+    case 'anecdote':
+      return 'Anecdote';
+    case 'phrase_candidate':
+      return 'Reusable phrase';
+    case 'stat':
+      return 'Proof point';
+    default:
+      return kind;
+  }
+}
+
+function hasSelectablePromotionMetadata(metadata: Record<string, unknown> | undefined) {
   return (
-    <div style={{ position: 'fixed', bottom: '32px', left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
-      <div style={{ display: 'flex', gap: '12px', padding: '10px 16px', background: 'rgba(2,6,23,0.9)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '999px', boxShadow: '0 20px 50px rgba(0,0,0,0.45)', pointerEvents: 'auto' }}>
-        {buttons.map((btn) => (
-          <span
-            key={btn.label}
-            style={{
-              padding: '10px 18px',
-              borderRadius: '999px',
-              backgroundColor: btn.label === active ? `${btn.tone}22` : 'transparent',
-              border: btn.label === active ? `1px solid ${btn.tone}` : '1px solid transparent',
-              color: btn.label === active ? 'white' : '#94a3b8',
-              fontWeight: 600,
-              fontSize: '13px',
-            }}
-          >
-            {btn.label}
-          </span>
-        ))}
-      </div>
-    </div>
+    metadataArray(metadata, 'talking_points').length > 0 ||
+    metadataArray(metadata, 'frameworks').length > 0 ||
+    metadataArray(metadata, 'anecdotes').length > 0 ||
+    metadataArray(metadata, 'phrase_candidates').length > 0 ||
+    metadataArray(metadata, 'stats').length > 0
   );
+}
+
+function findPackBySection(packs: PersonaPack[], relPath: string | null) {
+  if (!relPath) return null;
+  return packs.find((pack) => pack.sections.some((section) => section.path === relPath)) ?? null;
+}
+
+function findPackSection(packs: PersonaPack[], relPath: string | null) {
+  if (!relPath) return null;
+  for (const pack of packs) {
+    const section = pack.sections.find((item) => item.path === relPath);
+    if (section) {
+      return section;
+    }
+  }
+  return null;
+}
+
+function truncateText(text: string, limit: number) {
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit).trimEnd()}\n…`;
+}
+
+function buildReviewHeadline(delta: PersonaDeltaEntry, targetFile: string | null) {
+  if (!targetFile) {
+    return delta.trait;
+  }
+  return `${delta.trait} → ${humanizeTargetPath(targetFile)}`;
+}
+
+function buildReviewReason(delta: PersonaDeltaEntry, targetFile: string | null, contextPath: string | null) {
+  const explicitReason = metadataText(delta.metadata, 'why_showing');
+  if (explicitReason) {
+    return explicitReason;
+  }
+  const targetLabel = targetFile ? humanizeTargetPath(targetFile) : 'the persona bundle';
+  const contextLabel = contextPath ? ` The closest live context is pulled from ${contextPath}.` : '';
+  return `This is still pending, so I need your judgment before it becomes part of ${targetLabel}.${contextLabel} I am showing it now because it looks durable enough to affect how your initiatives, voice, or narrative get represented.`;
+}
+
+function buildReviewAsk(delta: PersonaDeltaEntry, targetFile: string | null) {
+  const explicitPrompt = metadataText(delta.metadata, 'review_prompt');
+  if (explicitPrompt) {
+    return explicitPrompt;
+  }
+  const targetLabel = targetFile ? humanizeTargetPath(targetFile) : 'the persona bundle';
+  return `Tell me if this belongs in ${targetLabel}, what is accurate about it, what nuance is missing, and how you would phrase it in your own voice.`;
+}
+
+function humanizeTargetPath(path: string) {
+  return path
+    .replace(/^identity\//, 'identity / ')
+    .replace(/^history\//, 'history / ')
+    .replace(/^prompts\//, 'prompts / ')
+    .replace(/\.md$/i, '')
+    .replace(/[_-]+/g, ' ');
+}
+
+function buildReflectionTopics(delta: PersonaDeltaEntry | null, targetFile: string | null) {
+  const topics = ['persona', 'reflection'];
+  if (delta?.persona_target) topics.push(delta.persona_target);
+  if (targetFile) topics.push(targetFile);
+  return Array.from(new Set(topics));
+}
+
+function buildReflectionCaptureText({
+  delta,
+  reflectionText,
+  targetFile,
+  sectionContent,
+  selectedItems,
+}: {
+  delta: PersonaDeltaEntry | null;
+  reflectionText: string;
+  targetFile: string | null;
+  sectionContent: string | null;
+  selectedItems: PromotionItem[];
+}) {
+  const lines = [
+    '# Persona Reflection',
+    '',
+    `Trait: ${delta?.trait ?? 'General reflection'}`,
+    `Persona target: ${delta?.persona_target ?? 'general'}`,
+    `Target file: ${targetFile ?? 'not assigned'}`,
+    delta?.capture_id ? `Linked capture: ${delta.capture_id}` : 'Linked capture: none',
+    '',
+    '## Candidate Notes',
+    delta?.notes?.trim() || 'No candidate notes provided.',
+    '',
+  ];
+
+  if (selectedItems.length > 0) {
+    lines.push('## Selected For Promotion');
+    for (const item of selectedItems) {
+      lines.push(`- [${humanizePromotionKind(item.kind)}] ${item.label}: ${item.content}`);
+      if (item.evidence) {
+        lines.push(`  Evidence: ${item.evidence}`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (sectionContent) {
+    lines.push('## Current Canonical Context', truncateText(sectionContent, 1200), '');
+  }
+
+  lines.push('## My Reaction', reflectionText.trim());
+  return lines.join('\n');
+}
+
+function formatTimestamp(value: Date) {
+  return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
 }

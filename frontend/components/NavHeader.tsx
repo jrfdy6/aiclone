@@ -7,12 +7,12 @@ export default function NavHeader() {
   const pathname = usePathname();
 
   const navLinks = [
-    { href: '/prospect-discovery', label: 'Find Prospects' },
-    { href: '/prospects', label: 'Pipeline' },
-    { href: '/content-pipeline', label: 'Content' },
-    { href: '/topic-intelligence', label: 'Intelligence' },
-    { href: '/ops', label: 'Ops' },
-    { href: '/linkedin', label: 'LinkedIn OS' },
+    { href: '/ops', label: 'Ops', active: pathname === '/ops' },
+    { href: '/workspace', label: 'Workspaces', active: pathname === '/workspace' || pathname === '/linkedin' },
+    { href: '/brain', label: 'Brain', active: pathname === '/brain' },
+    { href: '/lab', label: 'Lab', active: pathname === '/lab' },
+    { href: '/prospect-discovery', label: 'Prospects', active: pathname === '/prospect-discovery' },
+    { href: '/outreach', label: 'Outreach', active: pathname === '/outreach' || pathname.startsWith('/outreach/') },
   ];
 
   return (
@@ -53,10 +53,10 @@ export default function NavHeader() {
                 padding: '16px',
                 fontSize: '14px',
                 fontWeight: 500,
-                color: pathname === link.href ? 'white' : '#e2e8f0',
+                color: link.active ? 'white' : '#e2e8f0',
                 textDecoration: 'none',
-                borderBottom: pathname === link.href ? '2px solid #3b82f6' : '2px solid transparent',
-                backgroundColor: pathname === link.href ? '#1e293b' : 'transparent',
+                borderBottom: link.active ? '2px solid #3b82f6' : '2px solid transparent',
+                backgroundColor: link.active ? '#1e293b' : 'transparent',
               }}
             >
               {link.label}
