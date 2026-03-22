@@ -82,6 +82,7 @@ git status -sb
 - Review only the files relevant to the request.
 - Stage only your own intended changes.
 - Use non-interactive git commands only.
+- A dirty worktree is only local disk state. GitHub and Railway cannot see it until the changes are committed and pushed.
 - If Feeze explicitly asks to push, do not stop at "I cannot push." Attempt the push from the CLI. If the environment requires network/escalated approval, request it through the tool and continue.
 
 ### Standard git flow
@@ -97,6 +98,7 @@ git push origin main
 - Frontend service name: `aiclone-frontend`
 - Backend service name: `aiclone-backend`
 - Postgres service is accessed through Railway CLI and direct loader scripts.
+- Railway reacts to pushed Git history or an explicit `railway up` style deploy. Uncommitted local changes in a dirty worktree do not trigger a build.
 - Preferred deploy entrypoint from repo root:
 
 ```bash
@@ -176,6 +178,7 @@ Use those commands when the task is "seed production data" rather than "ship new
 - Confirm `SOPs/_index.md`, `memory/persistent_state.md`, `memory/roadmap.md`, and `docs/cron_delivery_guidelines.md` are loaded before acting.
 - Run `python3 scripts/load_context_pack.py --sop --memory`, `python3 scripts/qmd_freshness_check.py`, and `python3 scripts/check_local_runtime_overrides.py` to validate the persistence lane and runtime patches.
 - Use `./scripts/worktree_doctor.py` to label dirty files and only stage the `other` bucket when pushing.
+- Before expecting GitHub or Railway to change, confirm there is a real commit ahead of `origin/main`; local modifications alone are not deployable state.
 
 ## One-sentence operating posture
 Fresh Codex should treat this workspace as a live production-capable operator console with local CLI access to GitHub, Railway, OpenClaw, and the repo's own deploy/bootstrap scripts.

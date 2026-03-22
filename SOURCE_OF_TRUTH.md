@@ -43,6 +43,12 @@ This file is the short-form current-state reference. For the full operator map, 
   - `./scripts/deploy_railway_service.sh frontend`
   - `./scripts/deploy_railway_service.sh backend`
 
+## Commit vs local state
+- A dirty worktree means there are local file changes on disk.
+- GitHub only sees committed and pushed history.
+- Railway only reacts to pushed commits or explicit Railway deploy commands.
+- If `git push` returns `Everything up-to-date`, there is no new Git SHA for Railway to build even if local files are still modified.
+
 ## Standard production data paths
 - Use `SOPs/direct_postgres_bootstrap.md` for:
   - `scripts/bootstrap_ingestions_direct.py`

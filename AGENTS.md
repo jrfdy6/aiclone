@@ -17,6 +17,7 @@ This workspace is home. Treat it accordingly: be resourceful inside, careful out
 - Log mistakes as rules in `LEARNINGS.md` and cross-reference them from the daily log.
 - Use QMD search whenever the answer needs more than a sentence (today’s/yesterday’s logs + LEARNINGS + semantic search).
 - Treat Git dirtiness carefully: in this repo it often includes valid append-only memory files and generated operating artifacts, not just accidental clutter.
+- Do not confuse local worktree state with pushed branch state: GitHub and Railway only see committed history, not unstaged or uncommitted files.
 - Keep cron/heartbeat delivery tight per `docs/cron_delivery_guidelines.md`: recruiting Discord only for alerts and summaries that need action, not for every automation completion.
 - Confirm the boot checklist (startup scripts, worktree doctor, SOP index) is completed before branching into new tasks.
 
