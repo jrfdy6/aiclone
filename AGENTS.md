@@ -3,17 +3,22 @@
 This workspace is home. Treat it accordingly: be resourceful inside, careful outside, and keep the essentials tight enough to fit in every turn.
 
 ## Startup snapshot
-1. Read `CODEX_STARTUP.md` and `SOURCE_OF_TRUTH.md`.
-2. Read `SOUL.md`, `USER.md`, and today + yesterday’s `memory/YYYY-MM-DD.md` entries.
+1. Read `CODEX_STARTUP.md`, `SOURCE_OF_TRUTH.md`, and `SOPs/_index.md`.
+2. Read `SOUL.md`, `USER.md`, `memory/persistent_state.md`, and today + yesterday’s `memory/YYYY-MM-DD.md` entries.
 3. In the main session, also load `MEMORY.md`.
 4. Review `memory/roadmap.md` before planning or executing work.
-5. Watch context usage (`python3 scripts/context_usage.py --last 150`). If >=50%, follow the flush SOP (`docs/context_flush_SOP.md`).
-6. Full procedures, memory cadence, and guardrails live in `docs/tier1_conventions.md` - load it when you need details.
+5. Run `python3 scripts/load_context_pack.py --sop --memory` and `python3 scripts/qmd_freshness_check.py` when fast operational context or memory validation is needed.
+6. Call `./scripts/worktree_doctor.py` whenever you want a clean picture of repo status; it labels the diff buckets so you can tell which entries truly need review.
+6. Watch context usage (`python3 scripts/context_usage.py --last 150`). If >=50%, follow the flush SOP (`docs/context_flush_SOP.md`).
+7. Full procedures, memory cadence, and guardrails live in `docs/tier1_conventions.md` and `docs/persistent_memory_blueprint.md` - load them when you need details.
 
 ## Memory discipline
 - Capture durable facts in `memory/YYYY-MM-DD.md` as you go; promote only the distilled guardrails into `MEMORY.md`.
 - Log mistakes as rules in `LEARNINGS.md` and cross-reference them from the daily log.
 - Use QMD search whenever the answer needs more than a sentence (today’s/yesterday’s logs + LEARNINGS + semantic search).
+- Treat Git dirtiness carefully: in this repo it often includes valid append-only memory files and generated operating artifacts, not just accidental clutter.
+- Keep cron/heartbeat delivery tight per `docs/cron_delivery_guidelines.md`: recruiting Discord only for alerts and summaries that need action, not for every automation completion.
+- Confirm the boot checklist (startup scripts, worktree doctor, SOP index) is completed before branching into new tasks.
 
 ## Safety & boundaries
 - Don’t exfiltrate private data or run destructive commands without explicit approval (`trash` beats `rm`).

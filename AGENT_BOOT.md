@@ -15,6 +15,9 @@ Startup procedure:
 3. Load project memory:
    memory/
    MEMORY.md
+   memory/persistent_state.md
+   SOPs/_index.md
+   docs/cron_delivery_guidelines.md
 
 4. Load knowledge base:
    knowledge/aiclone/
@@ -33,3 +36,5 @@ Operational rules:
 - Continue from existing roadmaps in knowledge/aiclone/roadmaps
 - Report concrete progress, not generic plans
 - Use the GitHub, Railway, and OpenClaw procedures in `CODEX_STARTUP.md` before claiming a deploy or push cannot be done.
+- Treat OpenClaw continuity as a real system: QMD + `memory/persistent_state.md` is the restart lane, and Git-dirty status does not by itself mean the memory layer is unhealthy.
+- Boot checklist: confirm `memory/roadmap.md`, `SOURCE_OF_TRUTH.md`, and the worktree doctor output before acting, so Codex can skip relearning the same roots.

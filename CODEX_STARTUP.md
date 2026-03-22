@@ -9,17 +9,20 @@ Read this file early. Its purpose is to stop the 30-45 minute relearning loop an
 2. `SOURCE_OF_TRUTH.md`
 3. `SOUL.md`
 4. `USER.md`
-5. today + yesterday in `memory/YYYY-MM-DD.md`
-6. `MEMORY.md`
-7. `memory/roadmap.md`
+5. `memory/persistent_state.md`
+6. today + yesterday in `memory/YYYY-MM-DD.md`
+7. `MEMORY.md`
+8. `memory/roadmap.md`
+9. `docs/persistent_memory_blueprint.md` when the task touches continuity, automations, or OpenClaw runtime behavior
 
-Then load only the additional docs needed for the task at hand.
+Then load only the additional docs needed for the task at hand. Keep `SOPs/_index.md` handy so you can jump to the canonical capability map instead of hunting through doc folders.
 
 ## Repo identity
 - Workspace root: `/Users/neo/.openclaw/workspace`
 - Git remote: `origin https://github.com/jrfdy6/aiclone.git`
 - This repo is the active OpenClaw + AI Clone system, not a throwaway sandbox.
 - Expect a dirty worktree. Do not revert unrelated user changes.
+- "Dirty worktree" is a Git state label, not a judgment that the memory system is broken or noisy. This repo intentionally accumulates append-only memory logs, generated workspace snapshots, runtime artifacts, and in-flight operating files.
 
 ## System map
 
@@ -48,6 +51,31 @@ Then load only the additional docs needed for the task at hand.
 - Checker for local overrides: `python3 scripts/check_local_runtime_overrides.py`
 - If OpenClaw is upgraded or reinstalled, the local media-ack patch may need reapplication via `python3 scripts/reapply_openclaw_media_ack_patch.py`.
 - QMD/session telemetry lives under `~/.openclaw/agents/main/sessions`.
+
+## OpenClaw persistent memory model
+- The primary restart lane is local QMD plus `memory/persistent_state.md`.
+- Railway/Open Brain is a secondary capture and search lane for the app. It is not the canonical resume path after a relaunch, compaction event, or outage.
+- Startup reinjection is handled by `python3 scripts/load_context_pack.py --sop --memory`. That loader pulls SOP, roadmap, persistent state, memory guardrails, and runtime override status.
+- Mid-task continuity is protected by `python3 scripts/context_flush.py ...`, which appends structured flushes into `memory/YYYY-MM-DD.md`.
+- Daily and weekly persistence health is maintained by Dream Cycle, Morning Daily Brief, Memory Health Check, GitHub Backup, and the related memory hygiene automations described in `docs/persistent_memory_blueprint.md`.
+- QMD freshness and resume readiness can be checked with `python3 scripts/qmd_freshness_check.py`.
+- The latest health reports live under `memory/reports/`.
+
+## Fresh-start checks
+Run these early when a session needs to become operational fast:
+
+```bash
+cd /Users/neo/.openclaw/workspace
+python3 scripts/load_context_pack.py --sop --memory
+python3 scripts/qmd_freshness_check.py
+python3 scripts/check_local_runtime_overrides.py
+git status -sb
+```
+
+- `load_context_pack.py` gives the compact operator context.
+- `qmd_freshness_check.py` confirms the local memory lane is current.
+- `check_local_runtime_overrides.py` verifies required OpenClaw runtime patches/trust settings.
+- `git status -sb` shows repo state, but do not confuse Git dirtiness with invalid memory state.
 
 ## GitHub operating model
 - Always inspect first: `git status -sb`
@@ -130,14 +158,27 @@ Use those commands when the task is "seed production data" rather than "ship new
 - Prefer existing scripts and SOPs over inventing new one-off commands.
 - Do not claim a capability is unavailable without testing the actual command path first.
 
-## High-value reference files
+## Essential references
+- `SOPs/_index.md` (master list of SOPs/capabilities)
 - `SOURCE_OF_TRUTH.md`
+- `memory/persistent_state.md`
+- `docs/persistent_memory_blueprint.md`
+- `docs/cron_delivery_guidelines.md`
 - `SOPs/direct_postgres_bootstrap.md`
 - `docs/local_runtime_overrides.md`
 - `frontend/README_ENV_SYNC.md`
 - `scripts/deploy_railway_service.sh`
 - `memory/roadmap.md`
 - `workspaces/linkedin-content-os/README.md`
+- `scripts/worktree_doctor.py` (classifies git status output so you can see what’s genuinely dirty)
+
+## Boot checklist
+- Confirm `SOPs/_index.md`, `memory/persistent_state.md`, `memory/roadmap.md`, and `docs/cron_delivery_guidelines.md` are loaded before acting.
+- Run `python3 scripts/load_context_pack.py --sop --memory`, `python3 scripts/qmd_freshness_check.py`, and `python3 scripts/check_local_runtime_overrides.py` to validate the persistence lane and runtime patches.
+- Use `./scripts/worktree_doctor.py` to label dirty files and only stage the `other` bucket when pushing.
 
 ## One-sentence operating posture
 Fresh Codex should treat this workspace as a live production-capable operator console with local CLI access to GitHub, Railway, OpenClaw, and the repo's own deploy/bootstrap scripts.
+
+## Worktree hygiene shortcut
+Run `./scripts/worktree_doctor.py` before you open a new session so you know which files are “noise” (memory logs, generated snapshots, tmp deploy folders) versus code that actually needs review. When a script flags `memory` or `generated` entries, those are usually safe if they’re expected append-only writes; focus your staging on the `other` bucket.

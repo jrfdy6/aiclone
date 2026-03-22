@@ -25,6 +25,14 @@ This file is the short-form current-state reference. For the full operator map, 
 - `SOPs/`: production-safe operational procedures
 - `scripts/`: deploy, bootstrap, and maintenance scripts
 
+## Persistent memory model
+- Canonical restart lane: local QMD plus `memory/persistent_state.md`
+- Startup reinjection: `python3 scripts/load_context_pack.py --sop --memory`
+- Mid-task continuity: `python3 scripts/context_flush.py ...` appends structured flushes into `memory/YYYY-MM-DD.md`
+- Health check: `python3 scripts/qmd_freshness_check.py`
+- Railway/Open Brain is application capture/search memory, not the primary resume lane
+- A Git-dirty repo here often includes intentional logs, snapshots, and workspace artifacts; do not treat Git dirtiness as proof of memory-system failure
+
 ## Standard deploy paths
 - Git push path:
   - `git status -sb`
