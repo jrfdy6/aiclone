@@ -12,6 +12,7 @@ export default function NavHeader() {
     { href: '/content-pipeline', label: 'Content' },
     { href: '/topic-intelligence', label: 'Intelligence' },
     { href: '/ops', label: 'Ops' },
+    { href: '/linkedin', label: 'LinkedIn OS' },
   ];
 
   return (
@@ -81,4 +82,3 @@ export default function NavHeader() {
     </nav>
   );
 }
-
