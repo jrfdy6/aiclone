@@ -38,4 +38,5 @@ Operational rules:
 - Use the GitHub, Railway, and OpenClaw procedures in `CODEX_STARTUP.md` before claiming a deploy or push cannot be done.
 - Treat OpenClaw continuity as a real system: QMD + `memory/persistent_state.md` is the restart lane, and Git-dirty status does not by itself mean the memory layer is unhealthy.
 - Treat GitHub/Railway visibility as commit-based: uncommitted local files do not exist to GitHub, and Railway will not redeploy from a dirty worktree.
+- If a Railway/browser failure looks like CORS, verify `railway service status` and `railway logs` first; in this repo that often means a crashed backend or an incomplete committed deploy, not a true header problem.
 - Boot checklist: confirm `memory/roadmap.md`, `SOURCE_OF_TRUTH.md`, and the worktree doctor output before acting, so Codex can skip relearning the same roots.

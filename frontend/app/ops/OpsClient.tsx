@@ -134,13 +134,7 @@ type WeeklyPlan = {
   priority_lanes: string[];
   recommendations: PlanCandidate[];
   hold_items: PlanCandidate[];
-  market_signals: {
-    title: string;
-    priority_lane: string;
-    role_alignment: string;
-    summary: string;
-    source_path: string;
-  }[];
+  market_signals: PlanMarketSignal[];
   source_counts: {
     drafts: number;
     media: number;
@@ -148,15 +142,32 @@ type WeeklyPlan = {
   };
 };
 
+type PlanMarketSignal = {
+  source_kind?: string;
+  title: string;
+  theme?: string;
+  priority_lane: string;
+  role_alignment: string;
+  summary: string;
+  source_path: string;
+};
+
 type ReactionItem = {
   title: string;
   author: string;
+  source_platform?: string;
+  source_type?: string;
+  source_url?: string;
   source_path: string;
   priority_lane: string;
   role_alignment: string;
+  risk_level?: string;
+  publish_posture?: string;
+  recommended_move?: string;
   hook: string;
   summary: string;
   why_it_matters: string;
+  comment_angle?: string;
   suggested_comment: string;
   post_angle: string;
   score: number;
@@ -164,6 +175,7 @@ type ReactionItem = {
 
 type ReactionQueue = {
   generated_at: string;
+  workspace?: string;
   comment_opportunities: ReactionItem[];
   post_seeds: ReactionItem[];
   counts: {
@@ -197,6 +209,35 @@ type RecentCapture = {
   markdown_path?: string | null;
   created_at?: string | null;
   chunk_count: number;
+};
+
+type WorkspaceLensId =
+  | 'all'
+  | 'admissions'
+  | 'entrepreneurship'
+  | 'personal-story'
+  | 'program-leadership'
+  | 'therapist-referral'
+  | 'enrollment-management'
+  | 'ai-entrepreneurship';
+
+type WorkspaceLens = {
+  id: WorkspaceLensId;
+  label: string;
+  description: string;
+};
+
+type SourceRecord = {
+  title: string;
+  sourcePath: string;
+  priorityLane: string;
+  roleAlignment: string;
+  summary: string;
+  author?: string;
+  sourcePlatform?: string;
+  sourceType?: string;
+  sourceUrl?: string;
+  hook?: string;
 };
 
 type OpenBrainHealth = {
@@ -281,6 +322,17 @@ const orgLayers: OrgNode[][] = [
       responsibilities: ['Nightly self-improvement', 'Build logs', 'Staging QA'],
     },
   ],
+];
+
+const WORKSPACE_LENSES: WorkspaceLens[] = [
+  { id: 'all', label: 'All Lanes', description: 'Show every ranked idea and signal in the workspace.' },
+  { id: 'admissions', label: 'Admissions', description: 'Lead with admissions, outreach, and family-facing takes.' },
+  { id: 'entrepreneurship', label: 'Entrepreneurship', description: 'Bias toward builder, founder-adjacent, and leverage stories.' },
+  { id: 'personal-story', label: 'Personal Story', description: 'Highlight lived experience, identity, and story-led framing.' },
+  { id: 'program-leadership', label: 'Program Leadership', description: 'Center team leadership, operating systems, and execution.' },
+  { id: 'therapist-referral', label: 'Therapist / Referral', description: 'Focus on referral ecosystems, trust, and partner relationships.' },
+  { id: 'enrollment-management', label: 'Enrollment Mgmt', description: 'Pull toward enrollment pipeline, conversion, and student journey.' },
+  { id: 'ai-entrepreneurship', label: 'AI Entrepreneurship', description: 'Surface AI systems, automation, and intrapreneur/operator takes.' },
 ];
 
 export default function OpsClient({
@@ -861,6 +913,71 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
     () => linkedinFiles.filter((file) => file.path.includes('/docs/') && file.path.endsWith('.md') && !file.path.endsWith('/README.md')),
     [linkedinFiles],
   );
+  const [activeLens, setActiveLens] = useState<WorkspaceLensId>('all');
+  const sourceRecords = useMemo(() => {
+    const byPath = new Map<string, SourceRecord>();
+
+    (reactionQueue?.comment_opportunities ?? []).forEach((item) => {
+      byPath.set(item.source_path, {
+        title: item.title,
+        sourcePath: item.source_path,
+        priorityLane: item.priority_lane,
+        roleAlignment: item.role_alignment,
+        summary: item.summary,
+        author: item.author,
+        sourcePlatform: item.source_platform,
+        sourceType: item.source_type,
+        sourceUrl: item.source_url,
+        hook: item.hook,
+      });
+    });
+
+    (plan?.market_signals ?? []).forEach((item) => {
+      const existing = byPath.get(item.source_path);
+      byPath.set(item.source_path, {
+        title: item.title,
+        sourcePath: item.source_path,
+        priorityLane: item.priority_lane,
+        roleAlignment: item.role_alignment,
+        summary: item.summary,
+        author: existing?.author,
+        sourcePlatform: existing?.sourcePlatform,
+        sourceType: existing?.sourceType,
+        sourceUrl: existing?.sourceUrl,
+        hook: existing?.hook,
+      });
+    });
+
+    return Array.from(byPath.values());
+  }, [plan?.market_signals, reactionQueue?.comment_opportunities]);
+  const lensCounts = useMemo(
+    () =>
+      WORKSPACE_LENSES.map((lens) => ({
+        id: lens.id,
+        count:
+          (plan?.recommendations ?? []).filter((item) => matchesWorkspaceLens(lens.id, item)).length +
+          (reactionQueue?.comment_opportunities ?? []).filter((item) => matchesWorkspaceLens(lens.id, item)).length +
+          sourceRecords.filter((item) => matchesWorkspaceLens(lens.id, item)).length,
+      })),
+    [plan?.recommendations, reactionQueue?.comment_opportunities, sourceRecords],
+  );
+  const filteredRecommendations = useMemo(
+    () => (plan?.recommendations ?? []).filter((item) => matchesWorkspaceLens(activeLens, item)),
+    [activeLens, plan?.recommendations],
+  );
+  const filteredSignals = useMemo(
+    () => sourceRecords.filter((item) => matchesWorkspaceLens(activeLens, item)),
+    [activeLens, sourceRecords],
+  );
+  const filteredCommentOpportunities = useMemo(
+    () => (reactionQueue?.comment_opportunities ?? []).filter((item) => matchesWorkspaceLens(activeLens, item)),
+    [activeLens, reactionQueue?.comment_opportunities],
+  );
+  const filteredPostSeeds = useMemo(
+    () => (reactionQueue?.post_seeds ?? []).filter((item) => matchesWorkspaceLens(activeLens, item)),
+    [activeLens, reactionQueue?.post_seeds],
+  );
+  const activeLensMeta = WORKSPACE_LENSES.find((lens) => lens.id === activeLens) ?? WORKSPACE_LENSES[0];
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -900,6 +1017,51 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             </div>
           ))}
           {!(plan?.positioning_model?.length) && <EmptyPanel message="No LinkedIn positioning model available yet." />}
+        </div>
+      </section>
+
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Perspective Toggle</p>
+            <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Shift the strategy lens</h3>
+            <p style={{ color: '#94a3b8', fontSize: '14px', maxWidth: '760px' }}>
+              Switch between admissions, entrepreneurship, personal story, leadership, referral, enrollment, and AI lenses to re-rank what is visible. This does not regenerate content yet, but it does surface a different cut of the current workspace.
+            </p>
+          </div>
+          <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px 14px', minWidth: '220px' }}>
+            <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Active Lens</p>
+            <p style={{ color: '#f8fafc', fontSize: '20px', fontWeight: 700, margin: '4px 0' }}>{activeLensMeta.label}</p>
+            <p style={{ color: '#64748b', fontSize: '13px', lineHeight: 1.45 }}>{activeLensMeta.description}</p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+          {WORKSPACE_LENSES.map((lens) => {
+            const count = lensCounts.find((item) => item.id === lens.id)?.count ?? 0;
+            const active = lens.id === activeLens;
+            return (
+              <button
+                key={lens.id}
+                onClick={() => setActiveLens(lens.id)}
+                style={{
+                  borderRadius: '999px',
+                  border: active ? '1px solid #fbbf24' : '1px solid #334155',
+                  backgroundColor: active ? 'rgba(251,191,36,0.14)' : '#020617',
+                  color: active ? '#f8fafc' : '#cbd5f5',
+                  padding: '10px 14px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                }}
+              >
+                <span>{lens.label}</span>
+                <span style={{ color: active ? '#fbbf24' : '#64748b', fontSize: '12px' }}>{count}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -961,24 +1123,103 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
           <div>
             <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Weekly Recommendations</p>
             <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Recommended LinkedIn posts</h3>
+            <p style={{ color: '#64748b', fontSize: '13px' }}>Visible through the <span style={{ color: '#cbd5f5' }}>{activeLensMeta.label}</span> lens.</p>
           </div>
-          <span style={{ color: '#64748b', fontSize: '13px' }}>{plan?.recommendations.length ?? 0} ranked items</span>
+          <span style={{ color: '#64748b', fontSize: '13px' }}>{filteredRecommendations.length} shown / {plan?.recommendations.length ?? 0} ranked items</span>
         </div>
         <div style={{ display: 'grid', gap: '12px' }}>
-          {(plan?.recommendations ?? []).slice(0, 4).map((item, index) => (
+          {filteredRecommendations.slice(0, 4).map((item, index) => {
+            const sourceRecord = sourceRecords.find((record) => record.sourcePath === item.source_path);
+            const mountedSource = findWorkspaceFileBySourcePath(linkedinFiles, item.source_path);
+            return (
             <article key={`${item.source_path}-${index}`} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
                 <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#f8fafc', fontSize: '12px' }}>{index + 1}</span>
                 <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#cbd5f5', fontSize: '12px' }}>{item.role_alignment}</span>
                 <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#fbbf24', fontSize: '12px' }}>{item.risk_level}</span>
+                <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>{labelSourceKind(item.source_kind)}</span>
                 {item.priority_lane ? <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>{item.priority_lane}</span> : null}
               </div>
               <h4 style={{ fontSize: '18px', color: 'white', margin: '0 0 6px' }}>{item.title}</h4>
               <p style={{ color: '#f5d0fe', fontSize: '14px', marginBottom: '8px' }}>{item.hook}</p>
               <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.55 }}>{item.rationale}</p>
-              <p style={{ color: '#64748b', fontSize: '12px', marginTop: '10px' }}>{item.source_path}</p>
+              <div style={{ marginTop: '12px', padding: '12px', borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#030712' }}>
+                <p style={{ color: '#64748b', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px' }}>Lens Remix</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.5 }}>{buildLensRemix(activeLens, item)}</p>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '12px' }}>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.source_path}</p>
+                {sourceRecord?.sourceUrl ? (
+                  <a href={sourceRecord.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                    Open original source
+                  </a>
+                ) : null}
+                {mountedSource ? (
+                  <button
+                    onClick={() => onSelect(mountedSource.path)}
+                    style={{ border: 'none', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                  >
+                    Open workspace file
+                  </button>
+                ) : null}
+              </div>
             </article>
-          ))}
+          );
+          })}
+          {filteredRecommendations.length === 0 && <EmptyPanel message={`No recommendations match the ${activeLensMeta.label} lens yet.`} />}
+        </div>
+      </section>
+
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Signal Feed</p>
+            <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Source-native market inputs</h3>
+            <p style={{ color: '#94a3b8', fontSize: '14px', maxWidth: '760px' }}>
+              These are the actual external signals the workspace is reacting to. This is the evidence lane behind the generated strategy view.
+            </p>
+          </div>
+          <span style={{ color: '#64748b', fontSize: '13px' }}>{filteredSignals.length} shown / {sourceRecords.length} tracked sources</span>
+        </div>
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {filteredSignals.slice(0, 6).map((item) => {
+            const mountedSource = findWorkspaceFileBySourcePath(linkedinFiles, item.sourcePath);
+            return (
+              <article key={item.sourcePath} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <p style={{ color: '#f8fafc', fontWeight: 700 }}>{item.title}</p>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>
+                      {[item.author, item.sourcePlatform, item.sourceType].filter(Boolean).join(' · ') || 'Workspace signal'}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {item.priorityLane ? <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#cbd5f5', fontSize: '12px' }}>{item.priorityLane}</span> : null}
+                    <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>{item.roleAlignment}</span>
+                  </div>
+                </div>
+                {item.hook ? <p style={{ color: '#f5d0fe', fontSize: '13px', marginTop: '8px' }}>{item.hook}</p> : null}
+                <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.5, marginTop: '8px' }}>{item.summary}</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.sourcePath}</p>
+                  {item.sourceUrl ? (
+                    <a href={item.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                      Open original post
+                    </a>
+                  ) : null}
+                  {mountedSource ? (
+                    <button
+                      onClick={() => onSelect(mountedSource.path)}
+                      style={{ border: 'none', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                    >
+                      Open source file
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+          {filteredSignals.length === 0 && <EmptyPanel message={`No source-native signals match the ${activeLensMeta.label} lens yet.`} />}
         </div>
       </section>
 
@@ -989,17 +1230,43 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
               <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Reaction Queue</p>
               <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Immediate comment opportunities</h3>
             </div>
-            <span style={{ color: '#64748b', fontSize: '13px' }}>{reactionQueue?.counts.comment_opportunities ?? 0}</span>
+            <span style={{ color: '#64748b', fontSize: '13px' }}>{filteredCommentOpportunities.length} shown / {reactionQueue?.counts.comment_opportunities ?? 0}</span>
           </div>
           <div style={{ display: 'grid', gap: '12px' }}>
-            {(reactionQueue?.comment_opportunities ?? []).slice(0, 3).map((item) => (
+            {filteredCommentOpportunities.slice(0, 3).map((item) => {
+              const mountedSource = findWorkspaceFileBySourcePath(linkedinFiles, item.source_path);
+              return (
               <article key={item.source_path} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
                 <p style={{ color: '#f8fafc', fontWeight: 700 }}>{item.title}</p>
-                <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>{item.priority_lane} · {item.role_alignment}</p>
+                <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>
+                  {[item.author, item.source_platform, item.priority_lane, item.role_alignment].filter(Boolean).join(' · ')}
+                </p>
                 <p style={{ color: '#f5d0fe', fontSize: '13px', marginTop: '8px' }}>{item.hook}</p>
                 <p style={{ color: '#cbd5f5', fontSize: '13px', marginTop: '8px', lineHeight: 1.5 }}>{item.suggested_comment}</p>
+                <div style={{ marginTop: '10px', padding: '12px', borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#030712' }}>
+                  <p style={{ color: '#64748b', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px' }}>Current Lens Remix</p>
+                  <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.5 }}>{buildLensRemix(activeLens, item)}</p>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.source_path}</p>
+                  {item.source_url ? (
+                    <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                      Open original post
+                    </a>
+                  ) : null}
+                  {mountedSource ? (
+                    <button
+                      onClick={() => onSelect(mountedSource.path)}
+                      style={{ border: 'none', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                    >
+                      Open source file
+                    </button>
+                  ) : null}
+                </div>
               </article>
-            ))}
+            );
+            })}
+            {filteredCommentOpportunities.length === 0 && <EmptyPanel message={`No reaction opportunities match the ${activeLensMeta.label} lens yet.`} />}
           </div>
         </section>
 
@@ -1009,16 +1276,36 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
               <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Draft Inputs</p>
               <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Post seeds and assets</h3>
             </div>
-            <span style={{ color: '#64748b', fontSize: '13px' }}>{reactionQueue?.counts.post_seeds ?? 0} seeds</span>
+            <span style={{ color: '#64748b', fontSize: '13px' }}>{filteredPostSeeds.length} shown / {reactionQueue?.counts.post_seeds ?? 0} seeds</span>
           </div>
           <div style={{ display: 'grid', gap: '12px', marginBottom: '14px' }}>
-            {(reactionQueue?.post_seeds ?? []).slice(0, 3).map((item) => (
+            {filteredPostSeeds.slice(0, 3).map((item) => {
+              const mountedSource = findWorkspaceFileBySourcePath(linkedinFiles, item.source_path);
+              return (
               <article key={`${item.source_path}-seed`} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
                 <p style={{ color: '#f8fafc', fontWeight: 700 }}>{item.title}</p>
-                <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>{item.priority_lane}</p>
+                <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>{[item.priority_lane, item.role_alignment].filter(Boolean).join(' · ')}</p>
                 <p style={{ color: '#cbd5f5', fontSize: '13px', marginTop: '8px', lineHeight: 1.5 }}>{item.post_angle}</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.source_path}</p>
+                  {item.source_url ? (
+                    <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                      Open original post
+                    </a>
+                  ) : null}
+                  {mountedSource ? (
+                    <button
+                      onClick={() => onSelect(mountedSource.path)}
+                      style={{ border: 'none', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                    >
+                      Open source file
+                    </button>
+                  ) : null}
+                </div>
               </article>
-            ))}
+            );
+            })}
+            {filteredPostSeeds.length === 0 && <EmptyPanel message={`No post seeds match the ${activeLensMeta.label} lens yet.`} />}
           </div>
           <div style={{ display: 'grid', gap: '8px' }}>
             <MiniMeta label="Workspace Docs" value={`${docFiles.length}`} detail="LinkedIn OS runbooks and models" />
@@ -1416,6 +1703,83 @@ type MarkdownSubsection = {
 
 function findWorkspaceFile(files: WorkspaceFile[], suffix: string) {
   return files.find((file) => file.path.endsWith(suffix)) ?? null;
+}
+
+function findWorkspaceFileBySourcePath(files: WorkspaceFile[], sourcePath: string) {
+  return files.find((file) => file.path.endsWith(sourcePath)) ?? null;
+}
+
+function normalizeLensText(value: unknown) {
+  return typeof value === 'string'
+    ? value
+        .toLowerCase()
+        .replace(/[`'".,/_-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    : '';
+}
+
+function collectLensText(item: unknown) {
+  if (!item || typeof item !== 'object') {
+    return '';
+  }
+  return Object.values(item as Record<string, unknown>)
+    .filter((value) => typeof value === 'string')
+    .map((value) => normalizeLensText(value))
+    .join(' ');
+}
+
+function matchesWorkspaceLens(lens: WorkspaceLensId, item: unknown) {
+  if (lens === 'all') {
+    return true;
+  }
+
+  const text = collectLensText(item);
+  if (!text) {
+    return false;
+  }
+
+  const keywordMap: Record<Exclude<WorkspaceLensId, 'all'>, string[]> = {
+    admissions: ['admissions', 'prospective student', 'family', 'outreach', 'school fit', 'higher ed'],
+    entrepreneurship: ['entrepreneur', 'founder', 'builder', 'business', 'startup', 'venture', 'operator'],
+    'personal-story': ['i ', 'my ', 'lived', 'story', 'journey', 'lesson', 'experience', 'authentic'],
+    'program-leadership': ['leadership', 'leader', 'team', 'manager', 'program', 'execution', 'process', 'operator clarity'],
+    'therapist-referral': ['therapist', 'referral', 'counselor', 'consultant', 'partner', 'trust', 'family referral'],
+    'enrollment-management': ['enrollment', 'pipeline', 'conversion', 'yield', 'concierge', 'follow up', 'follow-up'],
+    'ai-entrepreneurship': ['ai', 'agent', 'automation', 'system', 'intrapreneur', 'context', 'workflow', 'model'],
+  };
+
+  return keywordMap[lens].some((keyword) => text.includes(keyword));
+}
+
+function buildLensRemix(lens: WorkspaceLensId, item: { title?: string; hook?: string; priority_lane?: string; role_alignment?: string }) {
+  const title = item.title ?? 'this idea';
+  const hook = item.hook ?? 'the current hook';
+  switch (lens) {
+    case 'admissions':
+      return `Reframe ${title} around student/family reality, frontline outreach, and what admissions teams learn before the rest of the institution sees it.`;
+    case 'entrepreneurship':
+      return `Reframe ${title} as a leverage story: show how the current role sharpens builder instincts, systems thinking, and founder-adjacent execution.`;
+    case 'personal-story':
+      return `Start from lived experience instead of abstraction. Use ${hook} as the lesson, then connect it to a real moment, change, or identity shift.`;
+    case 'program-leadership':
+      return `Translate ${title} into a leadership system takeaway. Emphasize clarity, repeatability, coaching, and what a team leader should do next.`;
+    case 'therapist-referral':
+      return `Angle ${title} toward trust-building with therapists, consultants, and referral partners. Show how better communication reduces friction for families.`;
+    case 'enrollment-management':
+      return `Turn ${title} into an enrollment-management post by linking it to pipeline quality, follow-up discipline, and a more legible student journey.`;
+    case 'ai-entrepreneurship':
+      return `Push ${title} further into AI-native intrapreneurship. Keep the operator tone, but make the post about systems, context, and execution leverage.`;
+    default:
+      return `Keep ${title} in its current lane, then tighten the post around the clearest next-step takeaway for the audience.`;
+  }
+}
+
+function labelSourceKind(kind?: string) {
+  if (!kind) {
+    return 'workspace';
+  }
+  return kind.replace(/_/g, ' ');
 }
 
 function extractSection(raw: string, heading: string) {

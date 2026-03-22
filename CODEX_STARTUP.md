@@ -110,6 +110,13 @@ cd /Users/neo/.openclaw/workspace
 - The deploy script stages a small deploy context under `tmp/*-railway-deploy.current/` and then runs `railway up` with `--path-as-root`.
 - This exists specifically to avoid large-context deploy failures.
 
+### Railway failure patterns
+- Browser-side "CORS" errors against the backend often mean the backend is actually crashed or returning `502`, not that CORS middleware is misconfigured. Check `railway service status --service aiclone-backend` and `railway logs --service aiclone-backend` before changing headers.
+- If Railway says a build failed because a module cannot be resolved, first confirm the missing file or dependency is actually committed. Generated snapshot files, lockfile updates, and compatibility exports can exist locally while production still builds an older Git SHA.
+- A `git push` can succeed while Railway still builds a broken revision if the pushed commit did not include all required generated artifacts or dependency metadata. Inspect the exact failed deployment logs before assuming the deploy script is wrong.
+- Railway history can show failed or building deployments while production still serves the previous successful revision. Verify the live service separately with `curl` before declaring production fully broken or fully fixed.
+- Frontend and backend drift independently. A working frontend can still call missing backend routes, and a healthy backend can still sit behind an older frontend shell until each service is redeployed separately.
+
 ### Railway checks
 ```bash
 railway status
