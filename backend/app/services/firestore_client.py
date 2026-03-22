@@ -77,3 +77,7 @@ def append_document(collection: str, payload: dict[str, Any]) -> str:
     ref = client.collection(collection).document()
     ref.set(payload)
     return ref.id
+
+
+# Compatibility export for older routes/services that still import `db` directly.
+db = get_firestore_client()
