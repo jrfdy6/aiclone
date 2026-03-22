@@ -12,6 +12,14 @@ from .core import (
     Prospect,
     ProspectContact,
 )
+from .analytics import ModelDistributionBucket, SessionMetrics, SessionRow, SessionTotals
+from .build_reviews import BuildReview, BuildReviewUpdate, BuildReviewUpsert
+from .daily_briefs import DailyBrief
+from .open_brain import OpenBrainHealth, OpenBrainSearchHit, OpenBrainSearchRequest, OpenBrainSearchResponse
+from .persona import PersonaDelta, PersonaDeltaCreate, PersonaDeltaResolve, PersonaDeltaUpdate
+from .pm_board import PMCard, PMCardCreate, PMCardUpdate
+from .standups import StandupCreate, StandupEntry, StandupUpdate
+from .timeline import TimelineEvent
 
 __all__ = [
     "CalendarEvent",
@@ -26,4 +34,27 @@ __all__ = [
     "Playbook",
     "Prospect",
     "ProspectContact",
+    "ModelDistributionBucket",
+    "SessionMetrics",
+    "SessionRow",
+    "SessionTotals",
+    "BuildReview",
+    "BuildReviewUpdate",
+    "BuildReviewUpsert",
+    "DailyBrief",
+    "OpenBrainHealth",
+    "OpenBrainSearchHit",
+    "OpenBrainSearchRequest",
+    "OpenBrainSearchResponse",
+    "PersonaDelta",
+    "PersonaDeltaCreate",
+    "PersonaDeltaResolve",
+    "PersonaDeltaUpdate",
+    "PMCard",
+    "PMCardCreate",
+    "PMCardUpdate",
+    "StandupCreate",
+    "StandupEntry",
+    "StandupUpdate",
+    "TimelineEvent",
 ]

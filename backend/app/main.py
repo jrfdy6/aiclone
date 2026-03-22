@@ -11,15 +11,23 @@ from app.utils import env_loader  # noqa: F401
 from app.routes import (
     analytics,
     automations,
+    build_reviews,
+    briefs,
     calendar,
     capture,
     ingest_drive,
     knowledge,
     notifications,
+    open_brain,
+    persona,
     playbook,
+    pm_board,
     prospects,
     prospects_manual,
+    standups,
     system_logs,
+    timeline,
+    topic_intelligence,
 )
 
 app = FastAPI(
@@ -119,6 +127,7 @@ app.include_router(knowledge.router, prefix="/api/knowledge")
 app.include_router(capture.router, prefix="/api/capture")
 app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(automations.router, prefix="/api/automations")
+app.include_router(briefs.router)
 app.include_router(playbook.router, prefix="/api/playbooks")
 app.include_router(prospects.router, prefix="/api/prospects")
 app.include_router(prospects_manual.router, prefix="/api/prospects/manual")
@@ -126,6 +135,13 @@ app.include_router(calendar.router, prefix="/api/calendar")
 app.include_router(notifications.router, prefix="/api/notifications")
 app.include_router(system_logs.router, prefix="/api/system/logs")
 app.include_router(analytics.router, prefix="/api/analytics")
+app.include_router(build_reviews.router)
+app.include_router(open_brain.router)
+app.include_router(persona.router)
+app.include_router(pm_board.router)
+app.include_router(standups.router)
+app.include_router(timeline.router)
+app.include_router(topic_intelligence.router, prefix="/api/topic-intelligence")
 
 
 @app.on_event("startup")
