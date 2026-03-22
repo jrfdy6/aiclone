@@ -335,6 +335,15 @@ const WORKSPACE_LENSES: WorkspaceLens[] = [
   { id: 'ai-entrepreneurship', label: 'AI Entrepreneurship', description: 'Surface AI systems, automation, and intrapreneur/operator takes.' },
 ];
 
+const POST_MODE_OPTIONS: { id: WorkspaceLensId; label: string }[] = [
+  { id: 'entrepreneurship', label: 'Entrepreneurship' },
+  { id: 'program-leadership', label: 'Job / Program Leadership' },
+  { id: 'enrollment-management', label: 'Enrollment' },
+  { id: 'ai-entrepreneurship', label: 'AI + Ops' },
+  { id: 'therapist-referral', label: 'Therapy / Referral' },
+  { id: 'personal-story', label: 'Personal Story' },
+];
+
 export default function OpsClient({
   workspaceFiles,
   docEntries,
@@ -978,6 +987,21 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
     [activeLens, reactionQueue?.post_seeds],
   );
   const activeLensMeta = WORKSPACE_LENSES.find((lens) => lens.id === activeLens) ?? WORKSPACE_LENSES[0];
+  const [postMode, setPostMode] = useState<WorkspaceLensId>('ai-entrepreneurship');
+  const [selectedRecommendation, setSelectedRecommendation] = useState<PlanCandidate | null>(null);
+  const [postDraft, setPostDraft] = useState('');
+  const currentSourceRecord = useMemo(
+    () => (selectedRecommendation ? sourceRecords.find((record) => record.sourcePath === selectedRecommendation.source_path) : undefined),
+    [selectedRecommendation, sourceRecords],
+  );
+
+  useEffect(() => {
+    if (!selectedRecommendation) {
+      setPostDraft('');
+      return;
+    }
+    setPostDraft(generatePostDraft(selectedRecommendation, postMode));
+  }, [selectedRecommendation, postMode]);
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1018,6 +1042,78 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
           ))}
           {!(plan?.positioning_model?.length) && <EmptyPanel message="No LinkedIn positioning model available yet." />}
         </div>
+        {selectedRecommendation && (
+          <section
+            style={{
+              marginTop: '12px',
+              borderRadius: '12px',
+              border: '1px solid #334155',
+              backgroundColor: '#020617',
+              padding: '16px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+              <div>
+                <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase' }}>Post Composer</p>
+                <h4 style={{ color: 'white', margin: '6px 0' }}>{selectedRecommendation.title}</h4>
+              </div>
+              <span style={{ color: '#64748b', fontSize: '12px' }}>
+                mode: {POST_MODE_OPTIONS.find((mode) => mode.id === postMode)?.label ?? 'Default'}
+              </span>
+            </div>
+            <textarea
+              value={postDraft}
+              onChange={(event) => setPostDraft(event.target.value)}
+              rows={5}
+              style={{
+                width: '100%',
+                borderRadius: '12px',
+                border: '1px solid #1f2937',
+                background: '#030712',
+                color: '#e2e8f0',
+                padding: '12px',
+                fontFamily: 'inherit',
+                resize: 'vertical',
+              }}
+            />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
+              <button
+                onClick={async () => {
+                  if (!postDraft) return;
+                  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                    await navigator.clipboard.writeText(postDraft);
+                  }
+                }}
+                style={{
+                  borderRadius: '12px',
+                  border: postDraft ? '1px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.2)',
+                  background: postDraft ? 'rgba(255,255,255,0.06)' : 'transparent',
+                  color: '#f8fafc',
+                  padding: '8px 14px',
+                  cursor: postDraft ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Copy post draft
+              </button>
+              <a
+                href={currentSourceRecord?.sourceUrl ?? '#'}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  borderRadius: '12px',
+                  border: '1px solid #38bdf8',
+                  background: 'rgba(56,189,248,0.15)',
+                  color: '#38bdf8',
+                  padding: '8px 14px',
+                  textDecoration: 'none',
+                  fontSize: '13px',
+                }}
+              >
+                Compose on LinkedIn
+              </a>
+            </div>
+          </section>
+        )}
       </section>
 
       <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
@@ -1126,6 +1222,26 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             <p style={{ color: '#64748b', fontSize: '13px' }}>Visible through the <span style={{ color: '#cbd5f5' }}>{activeLensMeta.label}</span> lens.</p>
           </div>
           <span style={{ color: '#64748b', fontSize: '13px' }}>{filteredRecommendations.length} shown / {plan?.recommendations.length ?? 0} ranked items</span>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+            {POST_MODE_OPTIONS.map((mode) => (
+              <button
+                key={mode.id}
+                onClick={() => setPostMode(mode.id)}
+                style={{
+                  borderRadius: '999px',
+                  border: postMode === mode.id ? '1px solid #fbbf24' : '1px solid #1f2937',
+                  padding: '6px 14px',
+                  background: postMode === mode.id ? 'rgba(251,191,36,0.15)' : 'transparent',
+                  color: postMode === mode.id ? '#fbbf24' : '#cbd5f5',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                {mode.label}
+              </button>
+            ))}
+            <span style={{ color: '#64748b', fontSize: '12px' }}>post mode</span>
+          </div>
         </div>
         <div style={{ display: 'grid', gap: '12px' }}>
           {filteredRecommendations.slice(0, 4).map((item, index) => {
@@ -1163,6 +1279,21 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                   </button>
                 ) : null}
               </div>
+              <button
+                onClick={() => setSelectedRecommendation(item)}
+                style={{
+                  marginTop: '10px',
+                  border: '1px solid #38bdf8',
+                  borderRadius: '12px',
+                  padding: '8px 12px',
+                  background: 'rgba(56,189,248,0.08)',
+                  color: '#38bdf8',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
+                Create post from this idea
+              </button>
             </article>
           );
           })}
@@ -1773,6 +1904,12 @@ function buildLensRemix(lens: WorkspaceLensId, item: { title?: string; hook?: st
     default:
       return `Keep ${title} in its current lane, then tighten the post around the clearest next-step takeaway for the audience.`;
   }
+}
+
+function generatePostDraft(item: PlanCandidate, mode: WorkspaceLensId) {
+  const intro = buildLensRemix(mode, item).replace(/\s+$/, '');
+  const hook = item.hook ? `Hook: ${item.hook}` : '';
+  return `${intro} ${hook}`.trim();
 }
 
 function labelSourceKind(kind?: string) {
