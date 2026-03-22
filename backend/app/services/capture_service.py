@@ -69,7 +69,7 @@ def create_capture(payload: CaptureRequest) -> CaptureResponse:
     if not payload.text or not payload.text.strip():
         raise ValueError("Capture text is required")
 
-    capture_id = repo.insert_capture(
+    capture_id, reused_capture = repo.upsert_capture(
         source=payload.source,
         topics=payload.topics,
         importance=payload.importance,
@@ -77,6 +77,9 @@ def create_capture(payload: CaptureRequest) -> CaptureResponse:
         markdown_path=payload.markdown_path,
         metadata=payload.metadata,
     )
+
+    if reused_capture:
+        repo.delete_vectors_for_capture(capture_id)
 
     chunk_records, expires_at = build_chunk_records(
         capture_id=capture_id,
