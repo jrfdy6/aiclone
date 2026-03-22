@@ -2,13 +2,25 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 export default function NavHeader() {
   const pathname = usePathname();
+  const [hash, setHash] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const syncHash = () => setHash(window.location.hash);
+    syncHash();
+    window.addEventListener('hashchange', syncHash);
+    return () => window.removeEventListener('hashchange', syncHash);
+  }, []);
 
   const navLinks = [
-    { href: '/ops', label: 'Ops', active: pathname === '/ops' },
-    { href: '/workspace', label: 'Workspaces', active: pathname === '/workspace' || pathname === '/linkedin' },
+    { href: '/ops', label: 'Ops', active: pathname === '/ops' && hash !== '#workspace' },
+    { href: '/ops#workspace', label: 'Workspaces', active: (pathname === '/ops' && hash === '#workspace') || pathname === '/workspace' || pathname === '/linkedin' },
     { href: '/brain', label: 'Brain', active: pathname === '/brain' },
     { href: '/lab', label: 'Lab', active: pathname === '/lab' },
     { href: '/prospect-discovery', label: 'Prospects', active: pathname === '/prospect-discovery' },

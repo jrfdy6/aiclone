@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { BookOpenText, BrainCircuit, FlaskConical, FolderKanban, RadioTower } from 'lucide-react';
 
@@ -29,7 +30,7 @@ const modules: { id: RuntimeModule; label: string; href: string; icon: typeof Ra
 const workspaceLink = {
   id: 'workspace',
   label: 'Workspace',
-  href: '/workspace',
+  href: '/ops#workspace',
   icon: FolderKanban,
   tone: '#fb923c',
 };
@@ -133,7 +134,18 @@ function RuntimeTabs({ tabs, accent }: { tabs: RuntimeTab[]; accent: string }) {
 
 function ModuleDock({ active }: { active: RuntimeModule }) {
   const pathname = usePathname();
+  const [hash, setHash] = useState('');
   const WorkspaceIcon = workspaceLink.icon;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const syncHash = () => setHash(window.location.hash);
+    syncHash();
+    window.addEventListener('hashchange', syncHash);
+    return () => window.removeEventListener('hashchange', syncHash);
+  }, []);
 
   return (
     <div style={{ position: 'fixed', bottom: '24px', left: 0, right: 0, zIndex: 50, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -151,7 +163,7 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
       >
         {modules.map((item) => {
           const Icon = item.icon;
-          const isActive = active === item.id || pathname === item.href;
+          const isActive = (active === item.id || pathname === item.href) && !(item.id === 'ops' && hash === '#workspace');
           const tone = accents[item.id];
           return (
             <Link
@@ -166,7 +178,7 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
         })}
         <Link
           href={workspaceLink.href}
-          style={dockButtonStyle(pathname === '/workspace' || pathname === '/linkedin', workspaceLink.tone)}
+          style={dockButtonStyle((pathname === '/ops' && hash === '#workspace') || pathname === '/workspace' || pathname === '/linkedin', workspaceLink.tone)}
         >
           <WorkspaceIcon size={18} />
           <span style={{ fontSize: '11px', fontWeight: 700 }}>{workspaceLink.label}</span>

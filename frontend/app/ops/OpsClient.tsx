@@ -93,6 +93,15 @@ type StandupEntry = {
 
 type Panel = 'mission' | 'team' | 'pm' | 'standups' | 'workspace' | 'docs';
 
+const PANEL_HASH: Record<Panel, string> = {
+  mission: '',
+  team: '#team',
+  pm: '#pm',
+  standups: '#standups',
+  workspace: '#workspace',
+  docs: '#docs',
+};
+
 type OrgNode = {
   id: string;
   name: string;
@@ -255,6 +264,31 @@ export default function OpsClient({
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const syncPanelFromHash = () => {
+      const hash = window.location.hash;
+      const nextPanel = (Object.entries(PANEL_HASH).find(([, value]) => value === hash)?.[0] ?? initialPanel) as Panel;
+      setActivePanel(nextPanel);
+    };
+
+    syncPanelFromHash();
+    window.addEventListener('hashchange', syncPanelFromHash);
+    return () => window.removeEventListener('hashchange', syncPanelFromHash);
+  }, [initialPanel]);
+
+  const selectPanel = useCallback((panel: Panel) => {
+    setActivePanel(panel);
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const nextUrl = `${window.location.pathname}${window.location.search}${PANEL_HASH[panel]}`;
+    window.history.replaceState(null, '', nextUrl);
+  }, []);
+
+  useEffect(() => {
     if (!workspaceFiles.some((file) => file.path === selectedWorkspacePath)) {
       setSelectedWorkspacePath(pickWorkspacePath(workspaceFiles, initialWorkspaceKey) ?? workspaceFiles[0]?.path ?? '');
     }
@@ -405,12 +439,12 @@ export default function OpsClient({
   );
 
   const tabs = [
-    { key: 'mission', label: 'Mission Control', active: activePanel === 'mission', onSelect: () => setActivePanel('mission') },
-    { key: 'team', label: 'Team', active: activePanel === 'team', onSelect: () => setActivePanel('team') },
-    { key: 'pm', label: 'PM Board', active: activePanel === 'pm', onSelect: () => setActivePanel('pm') },
-    { key: 'standups', label: 'Standups', active: activePanel === 'standups', onSelect: () => setActivePanel('standups') },
-    { key: 'workspace', label: 'Workspace', active: activePanel === 'workspace', onSelect: () => setActivePanel('workspace') },
-    { key: 'docs', label: 'Docs', active: activePanel === 'docs', onSelect: () => setActivePanel('docs') },
+    { key: 'mission', label: 'Mission Control', active: activePanel === 'mission', onSelect: () => selectPanel('mission') },
+    { key: 'team', label: 'Team', active: activePanel === 'team', onSelect: () => selectPanel('team') },
+    { key: 'pm', label: 'PM Board', active: activePanel === 'pm', onSelect: () => selectPanel('pm') },
+    { key: 'standups', label: 'Standups', active: activePanel === 'standups', onSelect: () => selectPanel('standups') },
+    { key: 'workspace', label: 'Workspace', active: activePanel === 'workspace', onSelect: () => selectPanel('workspace') },
+    { key: 'docs', label: 'Docs', active: activePanel === 'docs', onSelect: () => selectPanel('docs') },
   ];
 
   return (
