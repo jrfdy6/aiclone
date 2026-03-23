@@ -45,6 +45,7 @@ rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE_DIR/" "$STAGE_DIR/$CHILD_DIR/"
 
 echo "Staged deploy context:"
 du -sh "$STAGE_DIR"
+echo "Deploy mode: local staged context via railway CLI (independent of GitHub webhook timing)."
 
 cd "$WORKSPACE_ROOT"
 UP_OUTPUT="$(railway up -s "$SERVICE_NAME" --path-as-root "tmp/$(basename "$STAGE_DIR")" --verbose 2>&1)"
