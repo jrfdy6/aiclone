@@ -197,7 +197,7 @@ type SocialFeedItem = {
   why_it_matters?: string;
   comment_draft?: string;
   repost_draft?: string;
-  lens_variants?: Partial<Record<Exclude<WorkspaceLensId, 'all'>, { label: string; comment: string; repost: string; why_this_angle?: string }>>;
+  lens_variants?: Partial<Record<Exclude<WorkspaceLensId, 'all'>, { label: string; comment: string; short_comment?: string; repost: string; why_this_angle?: string }>>;
   standout_lines?: string[];
   lenses?: string[];
   summary?: string;
@@ -1066,6 +1066,16 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
     },
     [],
   );
+  const createShortCommentDraft = useCallback(
+    (item: SocialFeedItem, lens: FeedLensId) => {
+      const variant = item.lens_variants?.[lens];
+      if (variant?.short_comment) {
+        return variant.short_comment.trim();
+      }
+      return `${POST_MODE_OPTIONS.find((mode) => mode.id === lens)?.label ?? 'Quick'} take.`.trim();
+    },
+    [],
+  );
   const createRepostDraft = useCallback((item: SocialFeedItem, lens: FeedLensId) => {
     const variant = item.lens_variants?.[lens];
     if (variant?.repost) {
@@ -1371,7 +1381,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
           {feedItems.slice(0, 5).map((item) => {
             const selectedFeedLens = resolveFeedLens(item);
-            const selectedVariant = item.lens_variants?.[selectedFeedLens];
+            const shortCommentDraft = createShortCommentDraft(item, selectedFeedLens);
             const commentDraft = createCommentDraft(item, selectedFeedLens);
             const repostDraft = createRepostDraft(item, selectedFeedLens);
             return (
@@ -1407,9 +1417,6 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                   </button>
                 ))}
               </div>
-              {selectedVariant?.why_this_angle ? (
-                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{selectedVariant.why_this_angle}</p>
-              ) : null}
               {item.standout_lines?.map((line) => (
                 <div key={`${item.id}-${line}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', borderRadius: '12px', border: '1px solid rgba(148,163,184,0.4)', padding: '8px', backgroundColor: '#030712' }}>
                   <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
@@ -1423,11 +1430,11 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                 </div>
               ))}
               <div>
-                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Comment angle</p>
+                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Quick reply</p>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{commentDraft}</p>
+                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{shortCommentDraft}</p>
                   <button
-                    onClick={() => copyToClipboard(commentDraft, 'comment')}
+                    onClick={() => copyToClipboard(shortCommentDraft, 'quick reply')}
                     style={{ borderRadius: '10px', border: '1px solid #34d399', background: 'transparent', color: '#34d399', padding: '4px 10px', fontSize: '12px' }}
                   >
                     Copy
@@ -1435,7 +1442,19 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                 </div>
               </div>
               <div>
-                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Repost idea</p>
+                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Suggested comment</p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{commentDraft}</p>
+                  <button
+                    onClick={() => copyToClipboard(commentDraft, 'comment')}
+                    style={{ borderRadius: '10px', border: '1px solid #38bdf8', background: 'transparent', color: '#38bdf8', padding: '4px 10px', fontSize: '12px' }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div>
+                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Suggested repost</p>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{repostDraft}</p>
                   <button

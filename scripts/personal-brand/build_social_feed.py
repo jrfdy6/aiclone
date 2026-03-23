@@ -27,45 +27,52 @@ LENS_IDS = [
 LENS_CONFIG = {
     "admissions": {
         "label": "Admissions",
-        "angle": "Speak like an admissions operator who learns from frontline conversations with students and families.",
-        "comment_prefix": "What stands out to me from an admissions lens is",
-        "repost_prefix": "From an admissions and outreach perspective,",
+        "opening": "This is exactly where admissions teams carry more strategic signal than they usually get credit for.",
+        "addition": "The questions families repeat usually show you where the message or experience still needs work.",
+        "implication": "When teams treat those conversations as input, both content and enrollment get sharper.",
+        "short_comment": "Exactly. Admissions teams usually hear the truth first.",
     },
     "entrepreneurship": {
         "label": "Entrepreneurship",
-        "angle": "Frame the takeaway like a builder/operator learning leverage, distribution, and execution lessons.",
-        "comment_prefix": "From an entrepreneurship lens, the useful takeaway here is",
-        "repost_prefix": "Builder takeaway:",
+        "opening": "This is a good reminder that the edge is usually in the system, not just the idea.",
+        "addition": "The people closest to the work usually see the friction and demand patterns first.",
+        "implication": "Builders who turn that signal into process move faster than the ones chasing novelty.",
+        "short_comment": "Exactly. The edge is usually in the system.",
     },
     "personal-story": {
         "label": "Personal Story",
-        "angle": "Make the response feel lived-in, reflective, and anchored to personal experience instead of abstraction.",
-        "comment_prefix": "This hits for me personally because",
-        "repost_prefix": "A personal version of this for me is",
+        "opening": "This lands for me because I have seen the same pattern up close.",
+        "addition": "A lot of the lesson only becomes obvious once you are the one carrying the follow-through.",
+        "implication": "That is usually where the work stops being theoretical and starts becoming personal.",
+        "short_comment": "This one feels very real to me.",
     },
     "program-leadership": {
         "label": "Program Leadership",
-        "angle": "Translate the signal into a leadership and execution lesson for teams, systems, and accountability.",
-        "comment_prefix": "From a leadership lens, the part worth emphasizing is",
-        "repost_prefix": "Leadership note:",
+        "opening": "This is where leadership shows up in the operating system, not just the message.",
+        "addition": "The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process.",
+        "implication": "That is how insight becomes execution instead of staying anecdotal.",
+        "short_comment": "Exactly. Insight only matters if it becomes process.",
     },
     "therapist-referral": {
         "label": "Therapy / Referral",
-        "angle": "Orient the response around trust, relationships, referrals, and making families feel understood.",
-        "comment_prefix": "From a referral and trust lens, what resonates is",
-        "repost_prefix": "Trust-building takeaway:",
+        "opening": "This resonates because trust is usually built in the quality of the handoff, not the headline.",
+        "addition": "People can feel the difference between being managed and being genuinely understood.",
+        "implication": "The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+        "short_comment": "Yes. Trust is built in the handoff.",
     },
     "enrollment-management": {
         "label": "Enrollment Mgmt",
-        "angle": "Connect the signal to pipeline quality, conversion, student journey clarity, and follow-through.",
-        "comment_prefix": "From an enrollment lens, the operational takeaway is",
-        "repost_prefix": "Enrollment takeaway:",
+        "opening": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems.",
+        "addition": "When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it.",
+        "implication": "Better listening usually improves both follow-up quality and fit.",
+        "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
     },
     "ai-entrepreneurship": {
         "label": "AI + Ops",
-        "angle": "Push the response toward AI-native operations, systems, context, and execution leverage.",
-        "comment_prefix": "From an AI and ops lens, the key point is",
-        "repost_prefix": "AI + ops takeaway:",
+        "opening": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself.",
+        "addition": "When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem.",
+        "implication": "That is why AI value usually shows up after the operating context gets cleaner.",
+        "short_comment": "Exactly. Context is usually the real bottleneck.",
     },
 }
 
@@ -86,32 +93,89 @@ def pick_core_line(signal: dict[str, Any]) -> str:
     return clean_sentence(signal.get("summary")) or clean_sentence(signal.get("title")) or "this post"
 
 
-def build_comment_variants(signal: dict[str, Any], title: str) -> dict[str, dict[str, str]]:
+def pick_supporting_line(signal: dict[str, Any], core_line: str) -> str:
+    candidates = [clean_sentence(value) for value in (signal.get("headline_candidates") or [])]
+    for candidate in candidates:
+        if candidate and candidate != core_line:
+            return candidate
     summary = clean_sentence(signal.get("summary"))
+    if summary and summary != core_line:
+        return summary
+    return ""
+
+
+def join_parts(parts: list[str]) -> str:
+    return " ".join(part.strip() for part in parts if part and part.strip())
+
+
+def ensure_period(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return ""
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
+def build_comment_copy(config: dict[str, str], core_line: str, supporting_line: str, why_it_matters: str) -> str:
+    second_sentence = supporting_line or core_line
+    if second_sentence:
+        second_sentence = f"{second_sentence}. {config['addition']}"
+    else:
+        second_sentence = config["addition"]
+    parts = [
+        config["opening"],
+        second_sentence,
+        why_it_matters or config["implication"],
+    ]
+    return join_parts([ensure_period(part) for part in parts])
+
+
+def build_short_comment_copy(config: dict[str, str], core_line: str) -> str:
+    quick = clean_sentence(config.get("short_comment"))
+    if quick:
+        return ensure_period(quick)
+    if core_line:
+        return ensure_period(core_line)
+    return "Agreed."
+
+
+def build_repost_copy(
+    config: dict[str, str],
+    title: str,
+    core_line: str,
+    supporting_line: str,
+    priority_lane: str,
+) -> str:
+    lead = core_line or title
+    angle_tail = f"In my world, this connects directly to {priority_lane.lower()}." if priority_lane else ""
+    parts = [
+        lead,
+        config["opening"],
+        supporting_line if supporting_line and supporting_line != lead else "",
+        config["addition"],
+        angle_tail,
+        config["implication"],
+    ]
+    return join_parts([ensure_period(part) for part in parts])
+
+
+def build_comment_variants(signal: dict[str, Any], title: str) -> dict[str, dict[str, str]]:
     why_it_matters = clean_sentence(signal.get("why_it_matters"))
     core_line = pick_core_line(signal)
+    supporting_line = pick_supporting_line(signal, core_line)
     priority_lane = clean_sentence(signal.get("priority_lane"))
 
     variants: dict[str, dict[str, str]] = {}
     for lens_id in LENS_IDS:
         config = LENS_CONFIG[lens_id]
-        comment = (
-            f"{config['comment_prefix']} {core_line}. "
-            f"{config['angle']} "
-            f"{summary + '. ' if summary else ''}"
-            f"{why_it_matters + '. ' if why_it_matters else ''}"
-        ).strip()
-        repost = (
-            f"{config['repost_prefix']} {core_line}. "
-            f"{summary + '. ' if summary else ''}"
-            f"{'This is especially useful inside ' + priority_lane + '. ' if priority_lane else ''}"
-            f"{config['angle']}"
-        ).strip()
+        comment = build_comment_copy(config, core_line, supporting_line, why_it_matters)
+        short_comment = build_short_comment_copy(config, core_line)
+        repost = build_repost_copy(config, title, core_line, supporting_line, priority_lane)
         variants[lens_id] = {
             "label": config["label"],
             "comment": " ".join(comment.split()),
+            "short_comment": " ".join(short_comment.split()),
             "repost": " ".join(repost.split()),
-            "why_this_angle": f"{config['label']} lens for {title.lower()}",
+            "why_this_angle": f"Use a {config['label'].lower()} framing for this signal.",
         }
     return variants
 
