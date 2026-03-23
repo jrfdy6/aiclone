@@ -1,6 +1,6 @@
 export const contentPipelineSnapshot = 
 {
-  "generatedAt": "2026-03-23T02:35:14.991Z",
+  "generatedAt": "2026-03-23T02:55:44.178Z",
   "weeklyPlan": {
     "generated_at": "2026-03-22T09:59:20",
     "workspace": "workspaces/linkedin-content-os",
@@ -292,7 +292,7 @@ export const contentPipelineSnapshot =
     }
   },
   "socialFeed": {
-    "generated_at": "2026-03-23T02:32:37.097832+00:00",
+    "generated_at": "2026-03-23T02:55:44.151158+00:00",
     "workspace": "linkedin-content-os",
     "strategy_mode": "production",
     "items": [
@@ -364,7 +364,7 @@ export const contentPipelineSnapshot =
             "label": "Therapy / Referral",
             "comment": "This is the trust layer people feel. They hear the real questions prospects ask. Trust is usually built in whether people feel accurately understood, not just efficiently processed. That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             "short_comment": "Trust is built in the handoff.",
-            "repost": "If you want better higher ed content, start with your admissions team. What stands out to me here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
+            "repost": "If you want better higher ed content, start with your admissions team. The deeper issue here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
@@ -549,7 +549,7 @@ export const contentPipelineSnapshot =
             "label": "Therapy / Referral",
             "comment": "This is the trust layer people feel. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. Trust is usually built in whether people feel accurately understood, not just efficiently processed. That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             "short_comment": "Trust is built in the handoff.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. What stands out to me here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The deeper issue here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
@@ -728,7 +728,7 @@ export const contentPipelineSnapshot =
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "I still read this as an enrollment operations issue. Placeholder capture for r/edtech. From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "comment": "I still read this as an enrollment operations issue. Placeholder capture for r/edtech. this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
             "short_comment": "Bad context usually becomes enrollment friction.",
             "repost": "Placeholder capture for r/edtech. This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
@@ -809,7 +809,7 @@ export const contentPipelineSnapshot =
             "label": "Therapy / Referral",
             "comment": "This is the trust layer people feel. RSS capture for Admissions + Ops. Trust is usually built in whether people feel accurately understood, not just efficiently processed. That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             "short_comment": "Trust is built in the handoff.",
-            "repost": "RSS capture for Admissions + Ops. What stands out to me here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
+            "repost": "RSS capture for Admissions + Ops. The deeper issue here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
@@ -900,7 +900,7 @@ export const contentPipelineSnapshot =
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "I still read this as an enrollment operations issue. RSS capture for AI-native Ops (Substack). From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "comment": "I still read this as an enrollment operations issue. RSS capture for AI-native Ops (Substack). this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
             "short_comment": "Bad context usually becomes enrollment friction.",
             "repost": "RSS capture for AI-native Ops (Substack). This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
@@ -1072,7 +1072,7 @@ export const contentPipelineSnapshot =
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "I still read this as an enrollment operations issue. Placeholder capture for r/edtech. From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "comment": "I still read this as an enrollment operations issue. Placeholder capture for r/edtech. this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
             "short_comment": "Bad context usually becomes enrollment friction.",
             "repost": "Placeholder capture for r/edtech. This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
@@ -1153,7 +1153,7 @@ export const contentPipelineSnapshot =
             "label": "Therapy / Referral",
             "comment": "This is the trust layer people feel. RSS capture for Admissions + Ops. Trust is usually built in whether people feel accurately understood, not just efficiently processed. That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             "short_comment": "Trust is built in the handoff.",
-            "repost": "RSS capture for Admissions + Ops. What stands out to me here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
+            "repost": "RSS capture for Admissions + Ops. The deeper issue here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
@@ -1244,7 +1244,7 @@ export const contentPipelineSnapshot =
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "I still read this as an enrollment operations issue. RSS capture for AI-native Ops (Substack). From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "comment": "I still read this as an enrollment operations issue. RSS capture for AI-native Ops (Substack). this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
             "short_comment": "Bad context usually becomes enrollment friction.",
             "repost": "RSS capture for AI-native Ops (Substack). This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."

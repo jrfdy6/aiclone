@@ -55,6 +55,23 @@ LENS_CONFIG = {
     },
 }
 
+FORBIDDEN_PHRASES = [
+    "agreed.",
+    "completely agree.",
+    "what stands out",
+    "this is directly relevant",
+    "this is directly useful",
+    "from an admissions lens",
+    "from an entrepreneurship lens",
+    "from a leadership lens",
+    "from an ai and ops lens",
+]
+
+PREFERRED_REPLACEMENTS = {
+    "agreed.": "That part matters.",
+    "completely agree.": "This is the part a lot of teams miss.",
+}
+
 
 def clean_sentence(value: str | None) -> str:
     if not value:
@@ -92,6 +109,27 @@ def ensure_period(text: str) -> str:
     if not text:
         return ""
     return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
+def normalize_voice(text: str) -> str:
+    normalized = " ".join(text.split()).strip()
+    for source, replacement in PREFERRED_REPLACEMENTS.items():
+        if normalized.lower().startswith(source):
+            normalized = replacement + normalized[len(source) :]
+    replacements = {
+        "What stands out to me here is": "The deeper issue here is",
+        "From an enrollment perspective,": "",
+        "From an admissions perspective,": "",
+        "From a leadership lens,": "",
+        "From an AI and ops lens,": "",
+    }
+    for source, replacement in replacements.items():
+        normalized = normalized.replace(source, replacement)
+    for phrase in FORBIDDEN_PHRASES:
+        normalized = normalized.replace(phrase, "")
+        normalized = normalized.replace(phrase.title(), "")
+    normalized = " ".join(normalized.split())
+    return ensure_period(normalized) if normalized else ""
 
 
 def clean_reason(value: str) -> str:
@@ -391,9 +429,9 @@ def build_comment_variants(signal: dict[str, Any], title: str) -> dict[str, dict
         comment, short_comment, repost = COMMENT_BUILDERS[lens_id](context)
         variants[lens_id] = {
             "label": config["label"],
-            "comment": " ".join(ensure_period(comment).split()),
-            "short_comment": " ".join(ensure_period(short_comment).split()),
-            "repost": " ".join(ensure_period(repost).split()),
+            "comment": " ".join(normalize_voice(comment).split()),
+            "short_comment": " ".join(normalize_voice(short_comment).split()),
+            "repost": " ".join(normalize_voice(repost).split()),
             "why_this_angle": f"Use a {config['label'].lower()} framing for this signal.",
         }
     return variants
