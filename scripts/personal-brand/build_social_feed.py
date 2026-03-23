@@ -27,52 +27,31 @@ LENS_IDS = [
 LENS_CONFIG = {
     "admissions": {
         "label": "Admissions",
-        "opening": "This is exactly where admissions teams carry more strategic signal than they usually get credit for.",
-        "addition": "The questions families repeat usually show you where the message or experience still needs work.",
-        "implication": "When teams treat those conversations as input, both content and enrollment get sharper.",
-        "short_comment": "Exactly. Admissions teams usually hear the truth first.",
+        "focus": "frontline conversations, student questions, family trust, message clarity",
     },
     "entrepreneurship": {
         "label": "Entrepreneurship",
-        "opening": "This is a good reminder that the edge is usually in the system, not just the idea.",
-        "addition": "The people closest to the work usually see the friction and demand patterns first.",
-        "implication": "Builders who turn that signal into process move faster than the ones chasing novelty.",
-        "short_comment": "Exactly. The edge is usually in the system.",
+        "focus": "leverage, differentiation, execution, distribution, systems",
     },
     "personal-story": {
         "label": "Personal Story",
-        "opening": "This lands for me because I have seen the same pattern up close.",
-        "addition": "A lot of the lesson only becomes obvious once you are the one carrying the follow-through.",
-        "implication": "That is usually where the work stops being theoretical and starts becoming personal.",
-        "short_comment": "This one feels very real to me.",
+        "focus": "reflection, lived experience, human stakes, follow-through",
     },
     "program-leadership": {
         "label": "Program Leadership",
-        "opening": "This is where leadership shows up in the operating system, not just the message.",
-        "addition": "The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process.",
-        "implication": "That is how insight becomes execution instead of staying anecdotal.",
-        "short_comment": "Exactly. Insight only matters if it becomes process.",
+        "focus": "leadership, shared process, execution, accountability, operating rhythm",
     },
     "therapist-referral": {
         "label": "Therapy / Referral",
-        "opening": "This resonates because trust is usually built in the quality of the handoff, not the headline.",
-        "addition": "People can feel the difference between being managed and being genuinely understood.",
-        "implication": "The stronger the trust signal, the easier it is for referrals and relationships to compound.",
-        "short_comment": "Yes. Trust is built in the handoff.",
+        "focus": "trust, relationships, care quality, referral handoffs, feeling understood",
     },
     "enrollment-management": {
         "label": "Enrollment Mgmt",
-        "opening": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems.",
-        "addition": "When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it.",
-        "implication": "Better listening usually improves both follow-up quality and fit.",
-        "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
+        "focus": "pipeline quality, follow-up, conversion, journey clarity, operational friction",
     },
     "ai-entrepreneurship": {
         "label": "AI + Ops",
-        "opening": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself.",
-        "addition": "When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem.",
-        "implication": "That is why AI value usually shows up after the operating context gets cleaner.",
-        "short_comment": "Exactly. Context is usually the real bottleneck.",
+        "focus": "AI-native operations, context, ownership, workflow design, execution leverage",
     },
 }
 
@@ -115,47 +94,288 @@ def ensure_period(text: str) -> str:
     return text if text.endswith((".", "!", "?")) else f"{text}."
 
 
-def build_comment_copy(config: dict[str, str], core_line: str, supporting_line: str, why_it_matters: str) -> str:
-    second_sentence = supporting_line or core_line
-    if second_sentence:
-        second_sentence = f"{second_sentence}. {config['addition']}"
-    else:
-        second_sentence = config["addition"]
-    parts = [
-        config["opening"],
-        second_sentence,
-        why_it_matters or config["implication"],
+def clean_reason(value: str) -> str:
+    text = clean_sentence(value)
+    prefixes = [
+        "This is directly useful for your role because ",
+        "This is directly relevant to your AI-native intrapreneur positioning because ",
+        "This gives you a role-safe education lens for AI content: ",
     ]
-    return join_parts([ensure_period(part) for part in parts])
+    lowered = text.lower()
+    for prefix in prefixes:
+        if lowered.startswith(prefix.lower()):
+            return ensure_period(text[len(prefix) :].strip())
+    return ensure_period(text) if text else ""
 
 
-def build_short_comment_copy(config: dict[str, str], core_line: str) -> str:
-    quick = clean_sentence(config.get("short_comment"))
-    if quick:
-        return ensure_period(quick)
-    if core_line:
-        return ensure_period(core_line)
-    return "Agreed."
+def build_signal_context(signal: dict[str, Any], core_line: str, supporting_line: str, why_it_matters: str, priority_lane: str) -> dict[str, str]:
+    title = clean_sentence(signal.get("title"))
+    summary = clean_sentence(signal.get("summary"))
+    topics = [clean_sentence(topic) for topic in (signal.get("topics") or []) if clean_sentence(topic)]
+    return {
+        "title": title,
+        "core_line": ensure_period(core_line) if core_line else "",
+        "supporting_line": ensure_period(supporting_line) if supporting_line else "",
+        "why_it_matters": clean_reason(why_it_matters),
+        "priority_lane": ensure_period(priority_lane) if priority_lane else "",
+        "summary": ensure_period(summary) if summary else "",
+        "topics": ", ".join(topics[:3]),
+    }
 
 
-def build_repost_copy(
-    config: dict[str, str],
-    title: str,
-    core_line: str,
-    supporting_line: str,
-    priority_lane: str,
-) -> str:
-    lead = core_line or title
-    angle_tail = f"In my world, this connects directly to {priority_lane.lower()}." if priority_lane else ""
-    parts = [
-        lead,
-        config["opening"],
-        supporting_line if supporting_line and supporting_line != lead else "",
-        config["addition"],
-        angle_tail,
-        config["implication"],
-    ]
-    return join_parts([ensure_period(part) for part in parts])
+def contains_any(text: str, needles: list[str]) -> bool:
+    lowered = text.lower()
+    return any(needle in lowered for needle in needles)
+
+
+def infer_signal_profile(ctx: dict[str, str]) -> dict[str, bool]:
+    text = " ".join(
+        [
+            ctx.get("title", ""),
+            ctx.get("core_line", ""),
+            ctx.get("supporting_line", ""),
+            ctx.get("summary", ""),
+            ctx.get("topics", ""),
+            ctx.get("priority_lane", ""),
+        ]
+    ).lower()
+    return {
+        "is_ai": contains_any(text, ["ai", "agent", "model", "workflow", "context"]),
+        "is_education": contains_any(text, ["education", "higher ed", "student", "admissions", "enrollment"]),
+        "is_admissions": contains_any(text, ["admissions", "prospect", "student journey", "enrollment"]),
+        "is_trust": contains_any(text, ["trust", "referral", "family", "human connection", "relationship"]),
+    }
+
+
+def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
+    profile = infer_signal_profile(ctx)
+    if profile["is_admissions"]:
+        comment = join_parts(
+            [
+                "Exactly.",
+                ctx["supporting_line"] or ctx["core_line"],
+                "That is usually where teams hear the real questions before the website, campaign, or pitch deck catches up.",
+                "When that signal gets folded back into messaging and follow-up, both trust and enrollment get stronger.",
+            ]
+        )
+        short = "Exactly. The frontline questions are usually the strategy."
+        repost = join_parts(
+            [
+                ctx["core_line"],
+                "Admissions teams usually hear the market before the rest of the institution does.",
+                "The repeated questions are often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
+            ]
+        )
+        return comment, short, repost
+
+    comment = join_parts(
+        [
+            "Agreed.",
+            ctx["supporting_line"] or ctx["core_line"],
+            "In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff.",
+            "When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+        ]
+    )
+    short = "Exactly. Context gaps show up fast in admissions."
+    repost = join_parts(
+        [
+            ctx["core_line"],
+            "I read this through an admissions lens.",
+            "A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+        ]
+    )
+    return comment, short, repost
+
+
+def build_entrepreneurship_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
+    comment = join_parts(
+        [
+            "Agreed.",
+            ctx["supporting_line"] or ctx["core_line"],
+            "The edge is usually not the headline idea by itself. It is what you do with that signal operationally.",
+            "The builders who turn repeated insight into process usually compound faster.",
+        ]
+    )
+    short = "Exactly. The edge is usually in the system."
+    repost = join_parts(
+        [
+            ctx["core_line"],
+            "This feels more like an execution lesson than a content lesson.",
+            "The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
+        ]
+    )
+    return comment, short, repost
+
+
+def build_personal_story_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
+    comment = join_parts(
+        [
+            "This one feels real to me.",
+            ctx["supporting_line"] or ctx["core_line"],
+            "A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance.",
+            "That is usually where the insight stops being abstract and starts changing how you work.",
+        ]
+    )
+    short = "This one feels very lived-in."
+    repost = join_parts(
+        [
+            ctx["core_line"],
+            "I have learned some version of this the hard way.",
+            "The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
+        ]
+    )
+    return comment, short, repost
+
+
+def build_program_leadership_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
+    comment = join_parts(
+        [
+            "Exactly.",
+            ctx["supporting_line"] or ctx["core_line"],
+            "The teams closest to the work usually hear the signal first, but leadership matters in what happens next.",
+            "If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
+        ]
+    )
+    short = "Exactly. Insight only matters if it becomes process."
+    repost = join_parts(
+        [
+            ctx["core_line"],
+            "This is a leadership signal as much as a content or systems signal.",
+            "Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
+        ]
+    )
+    return comment, short, repost
+
+
+def build_therapist_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
+    profile = infer_signal_profile(ctx)
+    if profile["is_trust"] or profile["is_admissions"]:
+        comment = join_parts(
+            [
+                "Yes.",
+                ctx["supporting_line"] or ctx["core_line"],
+                "Trust is usually built in whether people feel accurately understood, not just efficiently processed.",
+                "That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
+            ]
+        )
+        short = "Yes. Trust is built in the handoff."
+        repost = join_parts(
+            [
+                ctx["core_line"],
+                "What stands out to me here is the trust layer underneath it.",
+                "People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
+            ]
+        )
+        return comment, short, repost
+
+    comment = join_parts(
+        [
+            "Agreed.",
+            ctx["supporting_line"] or ctx["core_line"],
+            "Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional.",
+            "That is often what shapes whether people stay engaged, come back, or refer someone else in.",
+        ]
+    )
+    short = "Yes. The trust layer is usually the differentiator."
+    repost = join_parts(
+        [
+            ctx["core_line"],
+            "I keep coming back to the trust piece underneath this.",
+            "A lot of systems questions are also relationship questions once a real person is living inside the experience.",
+        ]
+    )
+    return comment, short, repost
+
+
+def build_enrollment_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
+    profile = infer_signal_profile(ctx)
+    if profile["is_admissions"] or profile["is_education"]:
+        comment = join_parts(
+            [
+                "Exactly.",
+                ctx["supporting_line"] or ctx["core_line"],
+                "Repeated confusion is usually a journey problem before it becomes a conversion problem.",
+                "The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
+            ]
+        )
+        short = "Exactly. Repeated confusion is usually a journey problem."
+        repost = join_parts(
+            [
+                ctx["core_line"],
+                "I read this as an enrollment operations signal.",
+                "Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
+            ]
+        )
+        return comment, short, repost
+
+    comment = join_parts(
+        [
+            "Agreed.",
+            ctx["supporting_line"] or ctx["core_line"],
+            "From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well.",
+            "That usually shows up later as weaker follow-through and more avoidable friction.",
+        ]
+    )
+    short = "Exactly. Bad context usually becomes enrollment friction."
+    repost = join_parts(
+        [
+            ctx["core_line"],
+            "This still reads like an enrollment operations issue to me.",
+            "When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
+        ]
+    )
+    return comment, short, repost
+
+
+def build_ai_ops_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
+    profile = infer_signal_profile(ctx)
+    if profile["is_ai"]:
+        comment = join_parts(
+            [
+                "Completely agree.",
+                ctx["supporting_line"] or ctx["core_line"],
+                "Most of the leverage question lives in the operating context around the work, not in the tool by itself.",
+                "When context, ownership, and workflow are messy, better models rarely fix the actual execution problem.",
+            ]
+        )
+        short = "Exactly. Context is usually the real bottleneck."
+        repost = join_parts(
+            [
+                ctx["core_line"],
+                "This is the part a lot of AI conversations still miss.",
+                "The win usually comes from cleaner context, clearer ownership, and better workflow design, not just more model capability.",
+            ]
+        )
+        return comment, short, repost
+
+    comment = join_parts(
+        [
+            "Agreed.",
+            ctx["supporting_line"] or ctx["core_line"],
+            "Even outside explicit AI conversations, this is still a systems point to me.",
+            "The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+        ]
+    )
+    short = "Exactly. The systems layer matters more than people think."
+    repost = join_parts(
+        [
+            ctx["core_line"],
+            "I still read this through an AI and ops lens.",
+            "A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
+        ]
+    )
+    return comment, short, repost
+
+
+COMMENT_BUILDERS = {
+    "admissions": build_admissions_comment,
+    "entrepreneurship": build_entrepreneurship_comment,
+    "personal-story": build_personal_story_comment,
+    "program-leadership": build_program_leadership_comment,
+    "therapist-referral": build_therapist_referral_comment,
+    "enrollment-management": build_enrollment_comment,
+    "ai-entrepreneurship": build_ai_ops_comment,
+}
 
 
 def build_comment_variants(signal: dict[str, Any], title: str) -> dict[str, dict[str, str]]:
@@ -163,18 +383,17 @@ def build_comment_variants(signal: dict[str, Any], title: str) -> dict[str, dict
     core_line = pick_core_line(signal)
     supporting_line = pick_supporting_line(signal, core_line)
     priority_lane = clean_sentence(signal.get("priority_lane"))
+    context = build_signal_context(signal, core_line, supporting_line, why_it_matters, priority_lane)
 
     variants: dict[str, dict[str, str]] = {}
     for lens_id in LENS_IDS:
         config = LENS_CONFIG[lens_id]
-        comment = build_comment_copy(config, core_line, supporting_line, why_it_matters)
-        short_comment = build_short_comment_copy(config, core_line)
-        repost = build_repost_copy(config, title, core_line, supporting_line, priority_lane)
+        comment, short_comment, repost = COMMENT_BUILDERS[lens_id](context)
         variants[lens_id] = {
             "label": config["label"],
-            "comment": " ".join(comment.split()),
-            "short_comment": " ".join(short_comment.split()),
-            "repost": " ".join(repost.split()),
+            "comment": " ".join(ensure_period(comment).split()),
+            "short_comment": " ".join(ensure_period(short_comment).split()),
+            "repost": " ".join(ensure_period(repost).split()),
             "why_this_angle": f"Use a {config['label'].lower()} framing for this signal.",
         }
     return variants

@@ -1,6 +1,6 @@
 export const contentPipelineSnapshot = 
 {
-  "generatedAt": "2026-03-23T02:18:02.327Z",
+  "generatedAt": "2026-03-23T02:24:00.833Z",
   "weeklyPlan": {
     "generated_at": "2026-03-22T09:59:20",
     "workspace": "workspaces/linkedin-content-os",
@@ -292,7 +292,7 @@ export const contentPipelineSnapshot =
     }
   },
   "socialFeed": {
-    "generated_at": "2026-03-23T02:17:37.707848+00:00",
+    "generated_at": "2026-03-23T02:23:41.029686+00:00",
     "workspace": "linkedin-content-os",
     "strategy_mode": "production",
     "items": [
@@ -334,51 +334,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. They hear the real questions prospects ask. The questions families repeat usually show you where the message or experience still needs work. This is directly useful for your role because it ties admissions, outreach, and content strategy together in a way that is practical and employer-aligned.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "If you want better higher ed content, start with your admissions team. This is exactly where admissions teams carry more strategic signal than they usually get credit for. They hear the real questions prospects ask. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to family/referral trust and outreach systems. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Exactly. They hear the real questions prospects ask. That is usually where teams hear the real questions before the website, campaign, or pitch deck catches up. When that signal gets folded back into messaging and follow-up, both trust and enrollment get stronger.",
+            "short_comment": "Exactly. The frontline questions are usually the strategy.",
+            "repost": "If you want better higher ed content, start with your admissions team. Admissions teams usually hear the market before the rest of the institution does. The repeated questions are often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. They hear the real questions prospects ask. The people closest to the work usually see the friction and demand patterns first. This is directly useful for your role because it ties admissions, outreach, and content strategy together in a way that is practical and employer-aligned.",
+            "comment": "Agreed. They hear the real questions prospects ask. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "If you want better higher ed content, start with your admissions team. This is a good reminder that the edge is usually in the system, not just the idea. They hear the real questions prospects ask. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to family/referral trust and outreach systems. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "If you want better higher ed content, start with your admissions team. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. They hear the real questions prospects ask. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. This is directly useful for your role because it ties admissions, outreach, and content strategy together in a way that is practical and employer-aligned.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "If you want better higher ed content, start with your admissions team. This lands for me because I have seen the same pattern up close. They hear the real questions prospects ask. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to family/referral trust and outreach systems. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. They hear the real questions prospects ask. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "If you want better higher ed content, start with your admissions team. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. They hear the real questions prospects ask. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. This is directly useful for your role because it ties admissions, outreach, and content strategy together in a way that is practical and employer-aligned.",
+            "comment": "Exactly. They hear the real questions prospects ask. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "If you want better higher ed content, start with your admissions team. This is where leadership shows up in the operating system, not just the message. They hear the real questions prospects ask. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to family/referral trust and outreach systems. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "If you want better higher ed content, start with your admissions team. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. They hear the real questions prospects ask. People can feel the difference between being managed and being genuinely understood. This is directly useful for your role because it ties admissions, outreach, and content strategy together in a way that is practical and employer-aligned.",
+            "comment": "Yes. They hear the real questions prospects ask. Trust is usually built in whether people feel accurately understood, not just efficiently processed. That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "If you want better higher ed content, start with your admissions team. This resonates because trust is usually built in the quality of the handoff, not the headline. They hear the real questions prospects ask. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to family/referral trust and outreach systems. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "repost": "If you want better higher ed content, start with your admissions team. What stands out to me here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. They hear the real questions prospects ask. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. This is directly useful for your role because it ties admissions, outreach, and content strategy together in a way that is practical and employer-aligned.",
+            "comment": "Exactly. They hear the real questions prospects ask. Repeated confusion is usually a journey problem before it becomes a conversion problem. The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
             "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "If you want better higher ed content, start with your admissions team. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. They hear the real questions prospects ask. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to family/referral trust and outreach systems. Better listening usually improves both follow-up quality and fit.",
+            "repost": "If you want better higher ed content, start with your admissions team. I read this as an enrollment operations signal. Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. They hear the real questions prospects ask. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. This is directly useful for your role because it ties admissions, outreach, and content strategy together in a way that is practical and employer-aligned.",
-            "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "If you want better higher ed content, start with your admissions team. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. They hear the real questions prospects ask. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to family/referral trust and outreach systems. That is why AI value usually shows up after the operating context gets cleaner.",
+            "comment": "Agreed. They hear the real questions prospects ask. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "short_comment": "Exactly. The systems layer matters more than people think.",
+            "repost": "If you want better higher ed content, start with your admissions team. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -427,51 +427,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. The questions families repeat usually show you where the message or experience still needs work. This is directly relevant to your AI-native intrapreneur positioning because it reinforces that workflow context and operational reality matter more than model hype.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This is exactly where admissions teams carry more strategic signal than they usually get credit for. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to ai-native intrapreneurship in education. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Agreed. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "short_comment": "Exactly. Context gaps show up fast in admissions.",
+            "repost": "AI agents fail not because models are weak but because enterprise context is missing. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. The people closest to the work usually see the friction and demand patterns first. This is directly relevant to your AI-native intrapreneur positioning because it reinforces that workflow context and operational reality matter more than model hype.",
+            "comment": "Agreed. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This is a good reminder that the edge is usually in the system, not just the idea. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to ai-native intrapreneurship in education. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. This is directly relevant to your AI-native intrapreneur positioning because it reinforces that workflow context and operational reality matter more than model hype.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This lands for me because I have seen the same pattern up close. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to ai-native intrapreneurship in education. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "AI agents fail not because models are weak but because enterprise context is missing. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. This is directly relevant to your AI-native intrapreneur positioning because it reinforces that workflow context and operational reality matter more than model hype.",
+            "comment": "Exactly. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This is where leadership shows up in the operating system, not just the message. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to ai-native intrapreneurship in education. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. People can feel the difference between being managed and being genuinely understood. This is directly relevant to your AI-native intrapreneur positioning because it reinforces that workflow context and operational reality matter more than model hype.",
-            "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This resonates because trust is usually built in the quality of the handoff, not the headline. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to ai-native intrapreneurship in education. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "comment": "Agreed. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional. That is often what shapes whether people stay engaged, come back, or refer someone else in.",
+            "short_comment": "Yes. The trust layer is usually the differentiator.",
+            "repost": "AI agents fail not because models are weak but because enterprise context is missing. I keep coming back to the trust piece underneath this. A lot of systems questions are also relationship questions once a real person is living inside the experience.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. This is directly relevant to your AI-native intrapreneur positioning because it reinforces that workflow context and operational reality matter more than model hype.",
+            "comment": "Exactly. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. Repeated confusion is usually a journey problem before it becomes a conversion problem. The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
             "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to ai-native intrapreneurship in education. Better listening usually improves both follow-up quality and fit.",
+            "repost": "AI agents fail not because models are weak but because enterprise context is missing. I read this as an enrollment operations signal. Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. This is directly relevant to your AI-native intrapreneur positioning because it reinforces that workflow context and operational reality matter more than model hype.",
+            "comment": "Completely agree. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. Most of the leverage question lives in the operating context around the work, not in the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the actual execution problem.",
             "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "AI agents fail not because models are weak but because enterprise context is missing. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to ai-native intrapreneurship in education. That is why AI value usually shows up after the operating context gets cleaner.",
+            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This is the part a lot of AI conversations still miss. The win usually comes from cleaner context, clearer ownership, and better workflow design, not just more model capability.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -519,51 +519,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The questions families repeat usually show you where the message or experience still needs work. This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This is exactly where admissions teams carry more strategic signal than they usually get credit for. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to ai-native intrapreneurship in education. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Agreed. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "short_comment": "Exactly. Context gaps show up fast in admissions.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The people closest to the work usually see the friction and demand patterns first. This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.",
+            "comment": "Agreed. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This is a good reminder that the edge is usually in the system, not just the idea. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to ai-native intrapreneurship in education. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This lands for me because I have seen the same pattern up close. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to ai-native intrapreneurship in education. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.",
+            "comment": "Exactly. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This is where leadership shows up in the operating system, not just the message. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to ai-native intrapreneurship in education. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. People can feel the difference between being managed and being genuinely understood. This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.",
+            "comment": "Yes. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. Trust is usually built in whether people feel accurately understood, not just efficiently processed. That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This resonates because trust is usually built in the quality of the handoff, not the headline. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to ai-native intrapreneurship in education. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. What stands out to me here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.",
+            "comment": "Exactly. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. Repeated confusion is usually a journey problem before it becomes a conversion problem. The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
             "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to ai-native intrapreneurship in education. Better listening usually improves both follow-up quality and fit.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. I read this as an enrollment operations signal. Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.",
+            "comment": "Completely agree. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. Most of the leverage question lives in the operating context around the work, not in the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the actual execution problem.",
             "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to ai-native intrapreneurship in education. That is why AI value usually shows up after the operating context gets cleaner.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This is the part a lot of AI conversations still miss. The win usually comes from cleaner context, clearer ownership, and better workflow design, not just more model capability.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -607,51 +607,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. Placeholder capture for r/ai_in_education. The questions families repeat usually show you where the message or experience still needs work. Practitioner edge cases and growth experiments.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "Placeholder capture for r/ai_in_education. This is exactly where admissions teams carry more strategic signal than they usually get credit for. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to practitioner edge cases and growth experiments. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Agreed. Placeholder capture for r/ai_in_education. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "short_comment": "Exactly. Context gaps show up fast in admissions.",
+            "repost": "Placeholder capture for r/ai_in_education. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. Placeholder capture for r/ai_in_education. The people closest to the work usually see the friction and demand patterns first. Practitioner edge cases and growth experiments.",
+            "comment": "Agreed. Placeholder capture for r/ai_in_education. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "Placeholder capture for r/ai_in_education. This is a good reminder that the edge is usually in the system, not just the idea. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to practitioner edge cases and growth experiments. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "Placeholder capture for r/ai_in_education. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. Placeholder capture for r/ai_in_education. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. Practitioner edge cases and growth experiments.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "Placeholder capture for r/ai_in_education. This lands for me because I have seen the same pattern up close. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to practitioner edge cases and growth experiments. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. Placeholder capture for r/ai_in_education. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "Placeholder capture for r/ai_in_education. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. Placeholder capture for r/ai_in_education. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. Practitioner edge cases and growth experiments.",
+            "comment": "Exactly. Placeholder capture for r/ai_in_education. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "Placeholder capture for r/ai_in_education. This is where leadership shows up in the operating system, not just the message. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to practitioner edge cases and growth experiments. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "Placeholder capture for r/ai_in_education. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. Placeholder capture for r/ai_in_education. People can feel the difference between being managed and being genuinely understood. Practitioner edge cases and growth experiments.",
-            "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "Placeholder capture for r/ai_in_education. This resonates because trust is usually built in the quality of the handoff, not the headline. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to practitioner edge cases and growth experiments. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "comment": "Agreed. Placeholder capture for r/ai_in_education. Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional. That is often what shapes whether people stay engaged, come back, or refer someone else in.",
+            "short_comment": "Yes. The trust layer is usually the differentiator.",
+            "repost": "Placeholder capture for r/ai_in_education. I keep coming back to the trust piece underneath this. A lot of systems questions are also relationship questions once a real person is living inside the experience.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. Placeholder capture for r/ai_in_education. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. Practitioner edge cases and growth experiments.",
+            "comment": "Exactly. Placeholder capture for r/ai_in_education. Repeated confusion is usually a journey problem before it becomes a conversion problem. The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
             "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "Placeholder capture for r/ai_in_education. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to practitioner edge cases and growth experiments. Better listening usually improves both follow-up quality and fit.",
+            "repost": "Placeholder capture for r/ai_in_education. I read this as an enrollment operations signal. Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. Placeholder capture for r/ai_in_education. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. Practitioner edge cases and growth experiments.",
+            "comment": "Completely agree. Placeholder capture for r/ai_in_education. Most of the leverage question lives in the operating context around the work, not in the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the actual execution problem.",
             "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "Placeholder capture for r/ai_in_education. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to practitioner edge cases and growth experiments. That is why AI value usually shows up after the operating context gets cleaner.",
+            "repost": "Placeholder capture for r/ai_in_education. This is the part a lot of AI conversations still miss. The win usually comes from cleaner context, clearer ownership, and better workflow design, not just more model capability.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -693,51 +693,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. Placeholder capture for r/edtech. The questions families repeat usually show you where the message or experience still needs work. Product launches, funding news, and operator lessons.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "Placeholder capture for r/edtech. This is exactly where admissions teams carry more strategic signal than they usually get credit for. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to product launches, funding news, and operator lessons. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Agreed. Placeholder capture for r/edtech. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "short_comment": "Exactly. Context gaps show up fast in admissions.",
+            "repost": "Placeholder capture for r/edtech. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. Placeholder capture for r/edtech. The people closest to the work usually see the friction and demand patterns first. Product launches, funding news, and operator lessons.",
+            "comment": "Agreed. Placeholder capture for r/edtech. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "Placeholder capture for r/edtech. This is a good reminder that the edge is usually in the system, not just the idea. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to product launches, funding news, and operator lessons. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "Placeholder capture for r/edtech. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. Placeholder capture for r/edtech. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. Product launches, funding news, and operator lessons.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "Placeholder capture for r/edtech. This lands for me because I have seen the same pattern up close. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to product launches, funding news, and operator lessons. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. Placeholder capture for r/edtech. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "Placeholder capture for r/edtech. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. Placeholder capture for r/edtech. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. Product launches, funding news, and operator lessons.",
+            "comment": "Exactly. Placeholder capture for r/edtech. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "Placeholder capture for r/edtech. This is where leadership shows up in the operating system, not just the message. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to product launches, funding news, and operator lessons. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "Placeholder capture for r/edtech. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. Placeholder capture for r/edtech. People can feel the difference between being managed and being genuinely understood. Product launches, funding news, and operator lessons.",
-            "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "Placeholder capture for r/edtech. This resonates because trust is usually built in the quality of the handoff, not the headline. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to product launches, funding news, and operator lessons. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "comment": "Agreed. Placeholder capture for r/edtech. Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional. That is often what shapes whether people stay engaged, come back, or refer someone else in.",
+            "short_comment": "Yes. The trust layer is usually the differentiator.",
+            "repost": "Placeholder capture for r/edtech. I keep coming back to the trust piece underneath this. A lot of systems questions are also relationship questions once a real person is living inside the experience.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. Placeholder capture for r/edtech. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. Product launches, funding news, and operator lessons.",
-            "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "Placeholder capture for r/edtech. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to product launches, funding news, and operator lessons. Better listening usually improves both follow-up quality and fit.",
+            "comment": "Agreed. Placeholder capture for r/edtech. From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "short_comment": "Exactly. Bad context usually becomes enrollment friction.",
+            "repost": "Placeholder capture for r/edtech. This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. Placeholder capture for r/edtech. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. Product launches, funding news, and operator lessons.",
-            "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "Placeholder capture for r/edtech. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to product launches, funding news, and operator lessons. That is why AI value usually shows up after the operating context gets cleaner.",
+            "comment": "Agreed. Placeholder capture for r/edtech. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "short_comment": "Exactly. The systems layer matters more than people think.",
+            "repost": "Placeholder capture for r/edtech. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -779,51 +779,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. RSS capture for Admissions + Ops. The questions families repeat usually show you where the message or experience still needs work. Admissions + Ops.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "RSS capture for Admissions + Ops. This is exactly where admissions teams carry more strategic signal than they usually get credit for. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to market intelligence. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Exactly. RSS capture for Admissions + Ops. That is usually where teams hear the real questions before the website, campaign, or pitch deck catches up. When that signal gets folded back into messaging and follow-up, both trust and enrollment get stronger.",
+            "short_comment": "Exactly. The frontline questions are usually the strategy.",
+            "repost": "RSS capture for Admissions + Ops. Admissions teams usually hear the market before the rest of the institution does. The repeated questions are often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. RSS capture for Admissions + Ops. The people closest to the work usually see the friction and demand patterns first. Admissions + Ops.",
+            "comment": "Agreed. RSS capture for Admissions + Ops. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "RSS capture for Admissions + Ops. This is a good reminder that the edge is usually in the system, not just the idea. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to market intelligence. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "RSS capture for Admissions + Ops. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. RSS capture for Admissions + Ops. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. Admissions + Ops.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "RSS capture for Admissions + Ops. This lands for me because I have seen the same pattern up close. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to market intelligence. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. RSS capture for Admissions + Ops. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "RSS capture for Admissions + Ops. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. RSS capture for Admissions + Ops. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. Admissions + Ops.",
+            "comment": "Exactly. RSS capture for Admissions + Ops. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "RSS capture for Admissions + Ops. This is where leadership shows up in the operating system, not just the message. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to market intelligence. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "RSS capture for Admissions + Ops. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. RSS capture for Admissions + Ops. People can feel the difference between being managed and being genuinely understood. Admissions + Ops.",
+            "comment": "Yes. RSS capture for Admissions + Ops. Trust is usually built in whether people feel accurately understood, not just efficiently processed. That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "RSS capture for Admissions + Ops. This resonates because trust is usually built in the quality of the handoff, not the headline. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to market intelligence. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "repost": "RSS capture for Admissions + Ops. What stands out to me here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. RSS capture for Admissions + Ops. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. Admissions + Ops.",
+            "comment": "Exactly. RSS capture for Admissions + Ops. Repeated confusion is usually a journey problem before it becomes a conversion problem. The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
             "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "RSS capture for Admissions + Ops. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to market intelligence. Better listening usually improves both follow-up quality and fit.",
+            "repost": "RSS capture for Admissions + Ops. I read this as an enrollment operations signal. Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. RSS capture for Admissions + Ops. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. Admissions + Ops.",
-            "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "RSS capture for Admissions + Ops. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to market intelligence. That is why AI value usually shows up after the operating context gets cleaner.",
+            "comment": "Agreed. RSS capture for Admissions + Ops. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "short_comment": "Exactly. The systems layer matters more than people think.",
+            "repost": "RSS capture for Admissions + Ops. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -865,51 +865,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. RSS capture for AI-native Ops (Substack). The questions families repeat usually show you where the message or experience still needs work. AI-native Ops (Substack).",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "RSS capture for AI-native Ops (Substack). This is exactly where admissions teams carry more strategic signal than they usually get credit for. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to market intelligence. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Agreed. RSS capture for AI-native Ops (Substack). In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "short_comment": "Exactly. Context gaps show up fast in admissions.",
+            "repost": "RSS capture for AI-native Ops (Substack). I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. RSS capture for AI-native Ops (Substack). The people closest to the work usually see the friction and demand patterns first. AI-native Ops (Substack).",
+            "comment": "Agreed. RSS capture for AI-native Ops (Substack). The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "RSS capture for AI-native Ops (Substack). This is a good reminder that the edge is usually in the system, not just the idea. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to market intelligence. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "RSS capture for AI-native Ops (Substack). This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. RSS capture for AI-native Ops (Substack). A lot of the lesson only becomes obvious once you are the one carrying the follow-through. AI-native Ops (Substack).",
-            "short_comment": "This one feels very real to me.",
-            "repost": "RSS capture for AI-native Ops (Substack). This lands for me because I have seen the same pattern up close. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to market intelligence. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. RSS capture for AI-native Ops (Substack). A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "RSS capture for AI-native Ops (Substack). I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. RSS capture for AI-native Ops (Substack). The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. AI-native Ops (Substack).",
+            "comment": "Exactly. RSS capture for AI-native Ops (Substack). The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "RSS capture for AI-native Ops (Substack). This is where leadership shows up in the operating system, not just the message. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to market intelligence. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "RSS capture for AI-native Ops (Substack). This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. RSS capture for AI-native Ops (Substack). People can feel the difference between being managed and being genuinely understood. AI-native Ops (Substack).",
-            "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "RSS capture for AI-native Ops (Substack). This resonates because trust is usually built in the quality of the handoff, not the headline. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to market intelligence. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "comment": "Agreed. RSS capture for AI-native Ops (Substack). Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional. That is often what shapes whether people stay engaged, come back, or refer someone else in.",
+            "short_comment": "Yes. The trust layer is usually the differentiator.",
+            "repost": "RSS capture for AI-native Ops (Substack). I keep coming back to the trust piece underneath this. A lot of systems questions are also relationship questions once a real person is living inside the experience.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. RSS capture for AI-native Ops (Substack). When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. AI-native Ops (Substack).",
-            "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "RSS capture for AI-native Ops (Substack). This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to market intelligence. Better listening usually improves both follow-up quality and fit.",
+            "comment": "Agreed. RSS capture for AI-native Ops (Substack). From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "short_comment": "Exactly. Bad context usually becomes enrollment friction.",
+            "repost": "RSS capture for AI-native Ops (Substack). This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. RSS capture for AI-native Ops (Substack). When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. AI-native Ops (Substack).",
+            "comment": "Completely agree. RSS capture for AI-native Ops (Substack). Most of the leverage question lives in the operating context around the work, not in the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the actual execution problem.",
             "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "RSS capture for AI-native Ops (Substack). Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to market intelligence. That is why AI value usually shows up after the operating context gets cleaner.",
+            "repost": "RSS capture for AI-native Ops (Substack). This is the part a lot of AI conversations still miss. The win usually comes from cleaner context, clearer ownership, and better workflow design, not just more model capability.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -951,51 +951,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. Placeholder capture for r/ai_in_education. The questions families repeat usually show you where the message or experience still needs work. Practitioner edge cases and growth experiments.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "Placeholder capture for r/ai_in_education. This is exactly where admissions teams carry more strategic signal than they usually get credit for. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to practitioner edge cases and growth experiments. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Agreed. Placeholder capture for r/ai_in_education. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "short_comment": "Exactly. Context gaps show up fast in admissions.",
+            "repost": "Placeholder capture for r/ai_in_education. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. Placeholder capture for r/ai_in_education. The people closest to the work usually see the friction and demand patterns first. Practitioner edge cases and growth experiments.",
+            "comment": "Agreed. Placeholder capture for r/ai_in_education. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "Placeholder capture for r/ai_in_education. This is a good reminder that the edge is usually in the system, not just the idea. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to practitioner edge cases and growth experiments. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "Placeholder capture for r/ai_in_education. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. Placeholder capture for r/ai_in_education. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. Practitioner edge cases and growth experiments.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "Placeholder capture for r/ai_in_education. This lands for me because I have seen the same pattern up close. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to practitioner edge cases and growth experiments. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. Placeholder capture for r/ai_in_education. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "Placeholder capture for r/ai_in_education. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. Placeholder capture for r/ai_in_education. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. Practitioner edge cases and growth experiments.",
+            "comment": "Exactly. Placeholder capture for r/ai_in_education. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "Placeholder capture for r/ai_in_education. This is where leadership shows up in the operating system, not just the message. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to practitioner edge cases and growth experiments. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "Placeholder capture for r/ai_in_education. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. Placeholder capture for r/ai_in_education. People can feel the difference between being managed and being genuinely understood. Practitioner edge cases and growth experiments.",
-            "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "Placeholder capture for r/ai_in_education. This resonates because trust is usually built in the quality of the handoff, not the headline. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to practitioner edge cases and growth experiments. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "comment": "Agreed. Placeholder capture for r/ai_in_education. Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional. That is often what shapes whether people stay engaged, come back, or refer someone else in.",
+            "short_comment": "Yes. The trust layer is usually the differentiator.",
+            "repost": "Placeholder capture for r/ai_in_education. I keep coming back to the trust piece underneath this. A lot of systems questions are also relationship questions once a real person is living inside the experience.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. Placeholder capture for r/ai_in_education. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. Practitioner edge cases and growth experiments.",
+            "comment": "Exactly. Placeholder capture for r/ai_in_education. Repeated confusion is usually a journey problem before it becomes a conversion problem. The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
             "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "Placeholder capture for r/ai_in_education. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to practitioner edge cases and growth experiments. Better listening usually improves both follow-up quality and fit.",
+            "repost": "Placeholder capture for r/ai_in_education. I read this as an enrollment operations signal. Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. Placeholder capture for r/ai_in_education. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. Practitioner edge cases and growth experiments.",
+            "comment": "Completely agree. Placeholder capture for r/ai_in_education. Most of the leverage question lives in the operating context around the work, not in the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the actual execution problem.",
             "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "Placeholder capture for r/ai_in_education. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to practitioner edge cases and growth experiments. That is why AI value usually shows up after the operating context gets cleaner.",
+            "repost": "Placeholder capture for r/ai_in_education. This is the part a lot of AI conversations still miss. The win usually comes from cleaner context, clearer ownership, and better workflow design, not just more model capability.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -1037,51 +1037,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. Placeholder capture for r/edtech. The questions families repeat usually show you where the message or experience still needs work. Product launches, funding news, and operator lessons.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "Placeholder capture for r/edtech. This is exactly where admissions teams carry more strategic signal than they usually get credit for. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to product launches, funding news, and operator lessons. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Agreed. Placeholder capture for r/edtech. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "short_comment": "Exactly. Context gaps show up fast in admissions.",
+            "repost": "Placeholder capture for r/edtech. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. Placeholder capture for r/edtech. The people closest to the work usually see the friction and demand patterns first. Product launches, funding news, and operator lessons.",
+            "comment": "Agreed. Placeholder capture for r/edtech. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "Placeholder capture for r/edtech. This is a good reminder that the edge is usually in the system, not just the idea. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to product launches, funding news, and operator lessons. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "Placeholder capture for r/edtech. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. Placeholder capture for r/edtech. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. Product launches, funding news, and operator lessons.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "Placeholder capture for r/edtech. This lands for me because I have seen the same pattern up close. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to product launches, funding news, and operator lessons. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. Placeholder capture for r/edtech. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "Placeholder capture for r/edtech. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. Placeholder capture for r/edtech. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. Product launches, funding news, and operator lessons.",
+            "comment": "Exactly. Placeholder capture for r/edtech. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "Placeholder capture for r/edtech. This is where leadership shows up in the operating system, not just the message. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to product launches, funding news, and operator lessons. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "Placeholder capture for r/edtech. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. Placeholder capture for r/edtech. People can feel the difference between being managed and being genuinely understood. Product launches, funding news, and operator lessons.",
-            "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "Placeholder capture for r/edtech. This resonates because trust is usually built in the quality of the handoff, not the headline. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to product launches, funding news, and operator lessons. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "comment": "Agreed. Placeholder capture for r/edtech. Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional. That is often what shapes whether people stay engaged, come back, or refer someone else in.",
+            "short_comment": "Yes. The trust layer is usually the differentiator.",
+            "repost": "Placeholder capture for r/edtech. I keep coming back to the trust piece underneath this. A lot of systems questions are also relationship questions once a real person is living inside the experience.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. Placeholder capture for r/edtech. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. Product launches, funding news, and operator lessons.",
-            "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "Placeholder capture for r/edtech. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to product launches, funding news, and operator lessons. Better listening usually improves both follow-up quality and fit.",
+            "comment": "Agreed. Placeholder capture for r/edtech. From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "short_comment": "Exactly. Bad context usually becomes enrollment friction.",
+            "repost": "Placeholder capture for r/edtech. This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. Placeholder capture for r/edtech. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. Product launches, funding news, and operator lessons.",
-            "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "Placeholder capture for r/edtech. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to product launches, funding news, and operator lessons. That is why AI value usually shows up after the operating context gets cleaner.",
+            "comment": "Agreed. Placeholder capture for r/edtech. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "short_comment": "Exactly. The systems layer matters more than people think.",
+            "repost": "Placeholder capture for r/edtech. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -1123,51 +1123,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. RSS capture for Admissions + Ops. The questions families repeat usually show you where the message or experience still needs work. Admissions + Ops.",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "RSS capture for Admissions + Ops. This is exactly where admissions teams carry more strategic signal than they usually get credit for. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to market intelligence. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Exactly. RSS capture for Admissions + Ops. That is usually where teams hear the real questions before the website, campaign, or pitch deck catches up. When that signal gets folded back into messaging and follow-up, both trust and enrollment get stronger.",
+            "short_comment": "Exactly. The frontline questions are usually the strategy.",
+            "repost": "RSS capture for Admissions + Ops. Admissions teams usually hear the market before the rest of the institution does. The repeated questions are often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. RSS capture for Admissions + Ops. The people closest to the work usually see the friction and demand patterns first. Admissions + Ops.",
+            "comment": "Agreed. RSS capture for Admissions + Ops. The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "RSS capture for Admissions + Ops. This is a good reminder that the edge is usually in the system, not just the idea. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to market intelligence. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "RSS capture for Admissions + Ops. This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. RSS capture for Admissions + Ops. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. Admissions + Ops.",
-            "short_comment": "This one feels very real to me.",
-            "repost": "RSS capture for Admissions + Ops. This lands for me because I have seen the same pattern up close. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to market intelligence. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. RSS capture for Admissions + Ops. A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "RSS capture for Admissions + Ops. I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. RSS capture for Admissions + Ops. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. Admissions + Ops.",
+            "comment": "Exactly. RSS capture for Admissions + Ops. The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "RSS capture for Admissions + Ops. This is where leadership shows up in the operating system, not just the message. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to market intelligence. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "RSS capture for Admissions + Ops. This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. RSS capture for Admissions + Ops. People can feel the difference between being managed and being genuinely understood. Admissions + Ops.",
+            "comment": "Yes. RSS capture for Admissions + Ops. Trust is usually built in whether people feel accurately understood, not just efficiently processed. That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "RSS capture for Admissions + Ops. This resonates because trust is usually built in the quality of the handoff, not the headline. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to market intelligence. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "repost": "RSS capture for Admissions + Ops. What stands out to me here is the trust layer underneath it. People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. RSS capture for Admissions + Ops. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. Admissions + Ops.",
+            "comment": "Exactly. RSS capture for Admissions + Ops. Repeated confusion is usually a journey problem before it becomes a conversion problem. The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
             "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "RSS capture for Admissions + Ops. This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to market intelligence. Better listening usually improves both follow-up quality and fit.",
+            "repost": "RSS capture for Admissions + Ops. I read this as an enrollment operations signal. Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. RSS capture for Admissions + Ops. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. Admissions + Ops.",
-            "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "RSS capture for Admissions + Ops. Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to market intelligence. That is why AI value usually shows up after the operating context gets cleaner.",
+            "comment": "Agreed. RSS capture for Admissions + Ops. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "short_comment": "Exactly. The systems layer matters more than people think.",
+            "repost": "RSS capture for Admissions + Ops. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -1209,51 +1209,51 @@ export const contentPipelineSnapshot =
         "lens_variants": {
           "admissions": {
             "label": "Admissions",
-            "comment": "This is exactly where admissions teams carry more strategic signal than they usually get credit for. RSS capture for AI-native Ops (Substack). The questions families repeat usually show you where the message or experience still needs work. AI-native Ops (Substack).",
-            "short_comment": "Exactly. Admissions teams usually hear the truth first.",
-            "repost": "RSS capture for AI-native Ops (Substack). This is exactly where admissions teams carry more strategic signal than they usually get credit for. The questions families repeat usually show you where the message or experience still needs work. In my world, this connects directly to market intelligence. When teams treat those conversations as input, both content and enrollment get sharper.",
+            "comment": "Agreed. RSS capture for AI-native Ops (Substack). In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "short_comment": "Exactly. Context gaps show up fast in admissions.",
+            "repost": "RSS capture for AI-native Ops (Substack). I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
             "label": "Entrepreneurship",
-            "comment": "This is a good reminder that the edge is usually in the system, not just the idea. RSS capture for AI-native Ops (Substack). The people closest to the work usually see the friction and demand patterns first. AI-native Ops (Substack).",
+            "comment": "Agreed. RSS capture for AI-native Ops (Substack). The edge is usually not the headline idea by itself. It is what you do with that signal operationally. The builders who turn repeated insight into process usually compound faster.",
             "short_comment": "Exactly. The edge is usually in the system.",
-            "repost": "RSS capture for AI-native Ops (Substack). This is a good reminder that the edge is usually in the system, not just the idea. The people closest to the work usually see the friction and demand patterns first. In my world, this connects directly to market intelligence. Builders who turn that signal into process move faster than the ones chasing novelty.",
+            "repost": "RSS capture for AI-native Ops (Substack). This feels more like an execution lesson than a content lesson. The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             "why_this_angle": "Use a entrepreneurship framing for this signal."
           },
           "personal-story": {
             "label": "Personal Story",
-            "comment": "This lands for me because I have seen the same pattern up close. RSS capture for AI-native Ops (Substack). A lot of the lesson only becomes obvious once you are the one carrying the follow-through. AI-native Ops (Substack).",
-            "short_comment": "This one feels very real to me.",
-            "repost": "RSS capture for AI-native Ops (Substack). This lands for me because I have seen the same pattern up close. A lot of the lesson only becomes obvious once you are the one carrying the follow-through. In my world, this connects directly to market intelligence. That is usually where the work stops being theoretical and starts becoming personal.",
+            "comment": "This one feels real to me. RSS capture for AI-native Ops (Substack). A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance. That is usually where the insight stops being abstract and starts changing how you work.",
+            "short_comment": "This one feels very lived-in.",
+            "repost": "RSS capture for AI-native Ops (Substack). I have learned some version of this the hard way. The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             "why_this_angle": "Use a personal story framing for this signal."
           },
           "program-leadership": {
             "label": "Program Leadership",
-            "comment": "This is where leadership shows up in the operating system, not just the message. RSS capture for AI-native Ops (Substack). The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. AI-native Ops (Substack).",
+            "comment": "Exactly. RSS capture for AI-native Ops (Substack). The teams closest to the work usually hear the signal first, but leadership matters in what happens next. If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
             "short_comment": "Exactly. Insight only matters if it becomes process.",
-            "repost": "RSS capture for AI-native Ops (Substack). This is where leadership shows up in the operating system, not just the message. The teams closest to the work usually hear the signal first, but it only matters if leaders turn it into shared process. In my world, this connects directly to market intelligence. That is how insight becomes execution instead of staying anecdotal.",
+            "repost": "RSS capture for AI-native Ops (Substack). This is a leadership signal as much as a content or systems signal. Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
             "why_this_angle": "Use a program leadership framing for this signal."
           },
           "therapist-referral": {
             "label": "Therapy / Referral",
-            "comment": "This resonates because trust is usually built in the quality of the handoff, not the headline. RSS capture for AI-native Ops (Substack). People can feel the difference between being managed and being genuinely understood. AI-native Ops (Substack).",
-            "short_comment": "Yes. Trust is built in the handoff.",
-            "repost": "RSS capture for AI-native Ops (Substack). This resonates because trust is usually built in the quality of the handoff, not the headline. People can feel the difference between being managed and being genuinely understood. In my world, this connects directly to market intelligence. The stronger the trust signal, the easier it is for referrals and relationships to compound.",
+            "comment": "Agreed. RSS capture for AI-native Ops (Substack). Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional. That is often what shapes whether people stay engaged, come back, or refer someone else in.",
+            "short_comment": "Yes. The trust layer is usually the differentiator.",
+            "repost": "RSS capture for AI-native Ops (Substack). I keep coming back to the trust piece underneath this. A lot of systems questions are also relationship questions once a real person is living inside the experience.",
             "why_this_angle": "Use a therapy / referral framing for this signal."
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. RSS capture for AI-native Ops (Substack). When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. AI-native Ops (Substack).",
-            "short_comment": "Exactly. Repeated confusion is usually a journey problem.",
-            "repost": "RSS capture for AI-native Ops (Substack). This is a useful enrollment reminder because small clarity gaps show up downstream as larger conversion problems. When teams hear the same confusion repeatedly, it is usually a signal to tighten the journey rather than just work harder inside it. In my world, this connects directly to market intelligence. Better listening usually improves both follow-up quality and fit.",
+            "comment": "Agreed. RSS capture for AI-native Ops (Substack). From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "short_comment": "Exactly. Bad context usually becomes enrollment friction.",
+            "repost": "RSS capture for AI-native Ops (Substack). This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. RSS capture for AI-native Ops (Substack). When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. AI-native Ops (Substack).",
+            "comment": "Completely agree. RSS capture for AI-native Ops (Substack). Most of the leverage question lives in the operating context around the work, not in the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the actual execution problem.",
             "short_comment": "Exactly. Context is usually the real bottleneck.",
-            "repost": "RSS capture for AI-native Ops (Substack). Completely agree. Most of the leverage question lives in the system around the work, not the tool by itself. When context, ownership, and workflow are messy, better models rarely fix the underlying execution problem. In my world, this connects directly to market intelligence. That is why AI value usually shows up after the operating context gets cleaner.",
+            "repost": "RSS capture for AI-native Ops (Substack). This is the part a lot of AI conversations still miss. The win usually comes from cleaner context, clearer ownership, and better workflow design, not just more model capability.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
