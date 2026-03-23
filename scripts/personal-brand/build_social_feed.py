@@ -152,13 +152,13 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     if profile["is_admissions"]:
         comment = join_parts(
             [
-                "Exactly.",
+                "That part matters.",
                 ctx["supporting_line"] or ctx["core_line"],
-                "That is usually where teams hear the real questions before the website, campaign, or pitch deck catches up.",
-                "When that signal gets folded back into messaging and follow-up, both trust and enrollment get stronger.",
+                "That is usually where the real market signal shows up before the website, campaign, or pitch deck catches up.",
+                "When teams feed that back into messaging and follow-up, trust and enrollment both get stronger.",
             ]
         )
-        short = "Exactly. The frontline questions are usually the strategy."
+        short = "The frontline questions are usually the strategy."
         repost = join_parts(
             [
                 ctx["core_line"],
@@ -170,13 +170,13 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
 
     comment = join_parts(
         [
-            "Agreed.",
+            "This is what teams miss.",
             ctx["supporting_line"] or ctx["core_line"],
             "In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff.",
             "When that context is tighter, the experience feels more human and the pipeline gets stronger.",
         ]
     )
-    short = "Exactly. Context gaps show up fast in admissions."
+    short = "Context gaps show up fast in admissions."
     repost = join_parts(
         [
             ctx["core_line"],
@@ -190,13 +190,13 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
 def build_entrepreneurship_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     comment = join_parts(
         [
-            "Agreed.",
+            "There is a real builder lesson in this.",
             ctx["supporting_line"] or ctx["core_line"],
             "The edge is usually not the headline idea by itself. It is what you do with that signal operationally.",
             "The builders who turn repeated insight into process usually compound faster.",
         ]
     )
-    short = "Exactly. The edge is usually in the system."
+    short = "The edge is usually in the system."
     repost = join_parts(
         [
             ctx["core_line"],
@@ -210,13 +210,13 @@ def build_entrepreneurship_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
 def build_personal_story_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     comment = join_parts(
         [
-            "This one feels real to me.",
+            "This hits a nerve for me.",
             ctx["supporting_line"] or ctx["core_line"],
             "A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance.",
             "That is usually where the insight stops being abstract and starts changing how you work.",
         ]
     )
-    short = "This one feels very lived-in."
+    short = "This one feels lived-in."
     repost = join_parts(
         [
             ctx["core_line"],
@@ -230,13 +230,13 @@ def build_personal_story_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
 def build_program_leadership_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     comment = join_parts(
         [
-            "Exactly.",
+            "This is where leadership shows up.",
             ctx["supporting_line"] or ctx["core_line"],
             "The teams closest to the work usually hear the signal first, but leadership matters in what happens next.",
             "If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
         ]
     )
-    short = "Exactly. Insight only matters if it becomes process."
+    short = "Insight only matters if it becomes process."
     repost = join_parts(
         [
             ctx["core_line"],
@@ -252,13 +252,13 @@ def build_therapist_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str
     if profile["is_trust"] or profile["is_admissions"]:
         comment = join_parts(
             [
-                "Yes.",
+                "This is the trust layer people feel.",
                 ctx["supporting_line"] or ctx["core_line"],
                 "Trust is usually built in whether people feel accurately understood, not just efficiently processed.",
                 "That is also why strong handoffs and referrals tend to grow from the quality of the experience itself.",
             ]
         )
-        short = "Yes. Trust is built in the handoff."
+        short = "Trust is built in the handoff."
         repost = join_parts(
             [
                 ctx["core_line"],
@@ -270,13 +270,13 @@ def build_therapist_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str
 
     comment = join_parts(
         [
-            "Agreed.",
+            "Even when the topic sounds operational, the trust layer is still there.",
             ctx["supporting_line"] or ctx["core_line"],
-            "Even when the topic is operational, the trust layer is usually what determines whether the experience feels helpful or transactional.",
+            "The difference between helpful and transactional usually shows up in whether people feel understood.",
             "That is often what shapes whether people stay engaged, come back, or refer someone else in.",
         ]
     )
-    short = "Yes. The trust layer is usually the differentiator."
+    short = "The trust layer is usually the differentiator."
     repost = join_parts(
         [
             ctx["core_line"],
@@ -292,13 +292,13 @@ def build_enrollment_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     if profile["is_admissions"] or profile["is_education"]:
         comment = join_parts(
             [
-                "Exactly.",
+                "This is an enrollment signal to me.",
                 ctx["supporting_line"] or ctx["core_line"],
                 "Repeated confusion is usually a journey problem before it becomes a conversion problem.",
                 "The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
             ]
         )
-        short = "Exactly. Repeated confusion is usually a journey problem."
+        short = "Repeated confusion is usually a journey problem."
         repost = join_parts(
             [
                 ctx["core_line"],
@@ -310,13 +310,13 @@ def build_enrollment_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
 
     comment = join_parts(
         [
-            "Agreed.",
+            "I still read this as an enrollment operations issue.",
             ctx["supporting_line"] or ctx["core_line"],
             "From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well.",
             "That usually shows up later as weaker follow-through and more avoidable friction.",
         ]
     )
-    short = "Exactly. Bad context usually becomes enrollment friction."
+    short = "Bad context usually becomes enrollment friction."
     repost = join_parts(
         [
             ctx["core_line"],
@@ -332,31 +332,31 @@ def build_ai_ops_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     if profile["is_ai"]:
         comment = join_parts(
             [
-                "Completely agree.",
+                "This is the part a lot of teams miss.",
                 ctx["supporting_line"] or ctx["core_line"],
                 "Most of the leverage question lives in the operating context around the work, not in the tool by itself.",
                 "When context, ownership, and workflow are messy, better models rarely fix the actual execution problem.",
             ]
         )
-        short = "Exactly. Context is usually the real bottleneck."
+        short = "Context is usually the real bottleneck."
         repost = join_parts(
             [
                 ctx["core_line"],
-                "This is the part a lot of AI conversations still miss.",
-                "The win usually comes from cleaner context, clearer ownership, and better workflow design, not just more model capability.",
+                "The issue usually is not the model. It is the operating environment around it.",
+                "Less demo energy. More operational clarity.",
             ]
         )
         return comment, short, repost
 
     comment = join_parts(
         [
-            "Agreed.",
+            "I still read this through an AI and ops lens.",
             ctx["supporting_line"] or ctx["core_line"],
             "Even outside explicit AI conversations, this is still a systems point to me.",
             "The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
         ]
     )
-    short = "Exactly. The systems layer matters more than people think."
+    short = "The systems layer matters more than people think."
     repost = join_parts(
         [
             ctx["core_line"],
