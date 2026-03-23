@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, root_validator
+from pydantic import BaseModel, model_validator
 
 
 class RefreshSocialFeedRequest(BaseModel):
@@ -17,8 +17,8 @@ class IngestSignalRequest(BaseModel):
     priority_lane: str = "custom"
     run_refresh: bool = True
 
-    @root_validator
-    def ensure_content(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if not (values.get("url") or values.get("text")):
+    @model_validator(mode="after")
+    def ensure_content(self) -> "IngestSignalRequest":
+        if not (self.url or self.text):
             raise ValueError("Provide url or text.")
-        return values
+        return self
