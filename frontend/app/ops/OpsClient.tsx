@@ -1037,6 +1037,12 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
   const feedItems = socialFeed?.items ?? [];
   const [refreshingFeed, setRefreshingFeed] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
+  const [ingestUrl, setIngestUrl] = useState('');
+  const [ingestText, setIngestText] = useState('');
+  const [ingestTitle, setIngestTitle] = useState('');
+  const [ingestPriority, setIngestPriority] = useState('custom');
+  const [ingestStatus, setIngestStatus] = useState<string | null>(null);
+  const [ingestLoading, setIngestLoading] = useState(false);
   const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
   const [isApprovingQuote, setIsApprovingQuote] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -1113,6 +1119,43 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
       setTimeout(() => setRefreshStatus(null), 3500);
     }
   }, []);
+  const ingestSignal = useCallback(async () => {
+    if (!ingestUrl && !ingestText) {
+      setIngestStatus('Provide a link or some text.');
+      return;
+    }
+    setIngestLoading(true);
+    setIngestStatus('Starting signal ingestion...');
+    try {
+      const payload = {
+        priority_lane: ingestPriority,
+        url: ingestUrl || undefined,
+        text: ingestText || undefined,
+        title: ingestTitle || undefined,
+        run_refresh: true,
+      };
+      const res = await fetch(`${API_URL}/api/workspace/ingest-signal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || 'Ingest failed.');
+      }
+      await res.json();
+      setIngestStatus('Signal ingested. Refreshing feed...');
+      setIngestUrl('');
+      setIngestText('');
+      setIngestTitle('');
+      refreshSocialFeed();
+    } catch (error) {
+      setIngestStatus(error instanceof Error ? error.message : 'Ingest failed.');
+    } finally {
+      setIngestLoading(false);
+      setTimeout(() => setIngestStatus(null), 4000);
+    }
+  }, [ingestPriority, ingestUrl, ingestText, ingestTitle, refreshSocialFeed]);
   const approveFeedLine = useCallback(
     async (item: SocialFeedItem, line: string) => {
       const lens = resolveFeedLens(item);
@@ -1336,8 +1379,8 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
               Fresh LinkedIn-first posts from key people and topical sources, mixed with reaction-ready Reddit/RSS placeholders. Comment or repost directly from the cards.
             </p>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-            <button
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+          <button
               onClick={refreshSocialFeed}
               disabled={refreshingFeed}
               style={{
@@ -1358,6 +1401,62 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             {refreshStatus && (
               <p style={{ color: refreshingFeed ? '#38bdf8' : '#34d399', fontSize: '12px', margin: 0 }}>{refreshStatus}</p>
             )}
+          </div>
+        </div>
+        <div style={{ border: '1px solid #334155', borderRadius: '12px', padding: '12px 14px', marginBottom: '16px', backgroundColor: '#030712' }}>
+          <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
+            Paste a URL or stand-alone copy of a post/text, pick a lane, and generate your persona-friendly comment by clicking ingest.
+          </p>
+          <input
+            placeholder="https://link.to/post"
+            value={ingestUrl}
+            onChange={(event) => setIngestUrl(event.target.value)}
+            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #334155', background: '#020617', color: '#e2e8f0', marginBottom: '6px', fontSize: '12px' }}
+          />
+          <textarea
+            placeholder="Or paste text you want to comment on..."
+            value={ingestText}
+            onChange={(event) => setIngestText(event.target.value)}
+            rows={4}
+            style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #334155', background: '#020617', color: '#e2e8f0', fontSize: '12px', resize: 'vertical', marginBottom: '6px' }}
+          />
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '6px' }}>
+            <input
+              placeholder="Signal title (optional)"
+              value={ingestTitle}
+              onChange={(event) => setIngestTitle(event.target.value)}
+              style={{ flex: 1, padding: '8px 10px', borderRadius: '8px', border: '1px solid #334155', background: '#020617', color: '#e2e8f0', fontSize: '12px' }}
+            />
+            <select
+              value={ingestPriority}
+              onChange={(event) => setIngestPriority(event.target.value)}
+              style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid #334155', background: '#020617', color: '#e2e8f0', fontSize: '12px' }}
+            >
+              {POST_MODE_OPTIONS.map((mode) => (
+                <option key={mode.id} value={mode.label}>
+                  {mode.label}
+                </option>
+              ))}
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={ingestLoading ? undefined : ingestSignal}
+              disabled={ingestLoading}
+              style={{
+                borderRadius: '10px',
+                border: '1px solid #38bdf8',
+                padding: '8px 14px',
+                background: ingestLoading ? 'rgba(56,189,248,0.2)' : 'rgba(56,189,248,0.16)',
+                color: '#38bdf8',
+                cursor: ingestLoading ? 'not-allowed' : 'pointer',
+                fontSize: '12px',
+              }}
+            >
+              {ingestLoading ? 'Ingesting…' : 'Ingest signal'}
+            </button>
+            {ingestStatus && <p style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{ingestStatus}</p>}
           </div>
         </div>
         {quoteStatus && (
