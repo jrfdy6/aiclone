@@ -218,8 +218,8 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     repost = join_parts(
         [
             ctx["core_line"],
-            "I read this through an admissions lens.",
-            "A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "That is usually where experience, trust, and conversion all start moving in the wrong direction.",
         ]
     )
     return comment, short, repost
@@ -300,7 +300,7 @@ def build_therapist_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str
         repost = join_parts(
             [
                 ctx["core_line"],
-                "What stands out to me here is the trust layer underneath it.",
+                "The deeper issue here is the trust layer underneath it.",
                 "People can feel the difference between a system that is managing them and one that is actually helping them feel understood, which is where referrals usually start to compound.",
             ]
         )
@@ -350,7 +350,7 @@ def build_enrollment_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         [
             "I still read this as an enrollment operations issue.",
             ctx["supporting_line"] or ctx["core_line"],
-            "From an enrollment perspective, this is what happens when teams do not have enough context to guide the next step well.",
+            "This is what happens when teams do not have enough context to guide the next step well.",
             "That usually shows up later as weaker follow-through and more avoidable friction.",
         ]
     )
@@ -388,18 +388,18 @@ def build_ai_ops_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
 
     comment = join_parts(
         [
-            "I still read this through an AI and ops lens.",
+            "That part matters.",
             ctx["supporting_line"] or ctx["core_line"],
-            "Even outside explicit AI conversations, this is still a systems point to me.",
-            "The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "The ops lesson is that the best signal usually sits closest to the frontline work.",
+            "When teams capture that signal cleanly, content, follow-up, and execution all get sharper.",
         ]
     )
     short = "The systems layer matters more than people think."
     repost = join_parts(
         [
             ctx["core_line"],
-            "I still read this through an AI and ops lens.",
-            "A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
+            "In my world, that is not just a content lesson. It is an ops lesson about where real market intelligence actually lives.",
+            "Once that signal is captured well, the downstream systems get a lot stronger.",
         ]
     )
     return comment, short, repost

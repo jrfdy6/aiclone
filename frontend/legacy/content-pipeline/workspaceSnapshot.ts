@@ -1,6 +1,6 @@
 export const contentPipelineSnapshot = 
 {
-  "generatedAt": "2026-03-23T02:55:44.178Z",
+  "generatedAt": "2026-03-23T03:05:37.433Z",
   "weeklyPlan": {
     "generated_at": "2026-03-22T09:59:20",
     "workspace": "workspaces/linkedin-content-os",
@@ -292,7 +292,7 @@ export const contentPipelineSnapshot =
     }
   },
   "socialFeed": {
-    "generated_at": "2026-03-23T02:55:44.151158+00:00",
+    "generated_at": "2026-03-23T03:05:23.655810+00:00",
     "workspace": "linkedin-content-os",
     "strategy_mode": "production",
     "items": [
@@ -376,9 +376,9 @@ export const contentPipelineSnapshot =
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "I still read this through an AI and ops lens. They hear the real questions prospects ask. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "comment": "That part matters. They hear the real questions prospects ask. The ops lesson is that the best signal usually sits closest to the frontline work. When teams capture that signal cleanly, content, follow-up, and execution all get sharper.",
             "short_comment": "The systems layer matters more than people think.",
-            "repost": "If you want better higher ed content, start with your admissions team. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
+            "repost": "If you want better higher ed content, start with your admissions team. In my world, that is not just a content lesson. It is an ops lesson about where real market intelligence actually lives. Once that signal is captured well, the downstream systems get a lot stronger.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -429,7 +429,7 @@ export const contentPipelineSnapshot =
             "label": "Admissions",
             "comment": "This is what teams miss. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
             "short_comment": "Context gaps show up fast in admissions.",
-            "repost": "AI agents fail not because models are weak but because enterprise context is missing. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "repost": "AI agents fail not because models are weak but because enterprise context is missing. This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs. That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
@@ -521,7 +521,7 @@ export const contentPipelineSnapshot =
             "label": "Admissions",
             "comment": "This is what teams miss. AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
             "short_comment": "Context gaps show up fast in admissions.",
-            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "repost": "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning. This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs. That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
@@ -609,7 +609,7 @@ export const contentPipelineSnapshot =
             "label": "Admissions",
             "comment": "This is what teams miss. Placeholder capture for r/ai_in_education. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
             "short_comment": "Context gaps show up fast in admissions.",
-            "repost": "Placeholder capture for r/ai_in_education. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "repost": "Placeholder capture for r/ai_in_education. This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs. That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
@@ -695,7 +695,7 @@ export const contentPipelineSnapshot =
             "label": "Admissions",
             "comment": "This is what teams miss. Placeholder capture for r/edtech. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
             "short_comment": "Context gaps show up fast in admissions.",
-            "repost": "Placeholder capture for r/edtech. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "repost": "Placeholder capture for r/edtech. This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs. That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
@@ -728,16 +728,16 @@ export const contentPipelineSnapshot =
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "I still read this as an enrollment operations issue. Placeholder capture for r/edtech. this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "comment": "I still read this as an enrollment operations issue. Placeholder capture for r/edtech. This is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
             "short_comment": "Bad context usually becomes enrollment friction.",
             "repost": "Placeholder capture for r/edtech. This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "I still read this through an AI and ops lens. Placeholder capture for r/edtech. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "comment": "That part matters. Placeholder capture for r/edtech. The ops lesson is that the best signal usually sits closest to the frontline work. When teams capture that signal cleanly, content, follow-up, and execution all get sharper.",
             "short_comment": "The systems layer matters more than people think.",
-            "repost": "Placeholder capture for r/edtech. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
+            "repost": "Placeholder capture for r/edtech. In my world, that is not just a content lesson. It is an ops lesson about where real market intelligence actually lives. Once that signal is captured well, the downstream systems get a lot stronger.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -821,9 +821,9 @@ export const contentPipelineSnapshot =
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "I still read this through an AI and ops lens. RSS capture for Admissions + Ops. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "comment": "That part matters. RSS capture for Admissions + Ops. The ops lesson is that the best signal usually sits closest to the frontline work. When teams capture that signal cleanly, content, follow-up, and execution all get sharper.",
             "short_comment": "The systems layer matters more than people think.",
-            "repost": "RSS capture for Admissions + Ops. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
+            "repost": "RSS capture for Admissions + Ops. In my world, that is not just a content lesson. It is an ops lesson about where real market intelligence actually lives. Once that signal is captured well, the downstream systems get a lot stronger.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -867,7 +867,7 @@ export const contentPipelineSnapshot =
             "label": "Admissions",
             "comment": "This is what teams miss. RSS capture for AI-native Ops (Substack). In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
             "short_comment": "Context gaps show up fast in admissions.",
-            "repost": "RSS capture for AI-native Ops (Substack). I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "repost": "RSS capture for AI-native Ops (Substack). This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs. That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
@@ -900,7 +900,7 @@ export const contentPipelineSnapshot =
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "I still read this as an enrollment operations issue. RSS capture for AI-native Ops (Substack). this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "comment": "I still read this as an enrollment operations issue. RSS capture for AI-native Ops (Substack). This is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
             "short_comment": "Bad context usually becomes enrollment friction.",
             "repost": "RSS capture for AI-native Ops (Substack). This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
@@ -953,7 +953,7 @@ export const contentPipelineSnapshot =
             "label": "Admissions",
             "comment": "This is what teams miss. Placeholder capture for r/ai_in_education. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
             "short_comment": "Context gaps show up fast in admissions.",
-            "repost": "Placeholder capture for r/ai_in_education. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "repost": "Placeholder capture for r/ai_in_education. This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs. That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
@@ -1039,7 +1039,7 @@ export const contentPipelineSnapshot =
             "label": "Admissions",
             "comment": "This is what teams miss. Placeholder capture for r/edtech. In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
             "short_comment": "Context gaps show up fast in admissions.",
-            "repost": "Placeholder capture for r/edtech. I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "repost": "Placeholder capture for r/edtech. This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs. That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
@@ -1072,16 +1072,16 @@ export const contentPipelineSnapshot =
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "I still read this as an enrollment operations issue. Placeholder capture for r/edtech. this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "comment": "I still read this as an enrollment operations issue. Placeholder capture for r/edtech. This is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
             "short_comment": "Bad context usually becomes enrollment friction.",
             "repost": "Placeholder capture for r/edtech. This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "I still read this through an AI and ops lens. Placeholder capture for r/edtech. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "comment": "That part matters. Placeholder capture for r/edtech. The ops lesson is that the best signal usually sits closest to the frontline work. When teams capture that signal cleanly, content, follow-up, and execution all get sharper.",
             "short_comment": "The systems layer matters more than people think.",
-            "repost": "Placeholder capture for r/edtech. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
+            "repost": "Placeholder capture for r/edtech. In my world, that is not just a content lesson. It is an ops lesson about where real market intelligence actually lives. Once that signal is captured well, the downstream systems get a lot stronger.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -1165,9 +1165,9 @@ export const contentPipelineSnapshot =
           },
           "ai-entrepreneurship": {
             "label": "AI + Ops",
-            "comment": "I still read this through an AI and ops lens. RSS capture for Admissions + Ops. Even outside explicit AI conversations, this is still a systems point to me. The real lift usually comes from cleaner context, clearer ownership, and better execution design around the work.",
+            "comment": "That part matters. RSS capture for Admissions + Ops. The ops lesson is that the best signal usually sits closest to the frontline work. When teams capture that signal cleanly, content, follow-up, and execution all get sharper.",
             "short_comment": "The systems layer matters more than people think.",
-            "repost": "RSS capture for Admissions + Ops. I still read this through an AI and ops lens. A lot of these signals become more useful once you translate them into context design, ownership, and workflow clarity.",
+            "repost": "RSS capture for Admissions + Ops. In my world, that is not just a content lesson. It is an ops lesson about where real market intelligence actually lives. Once that signal is captured well, the downstream systems get a lot stronger.",
             "why_this_angle": "Use a ai + ops framing for this signal."
           }
         },
@@ -1211,7 +1211,7 @@ export const contentPipelineSnapshot =
             "label": "Admissions",
             "comment": "This is what teams miss. RSS capture for AI-native Ops (Substack). In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff. When that context is tighter, the experience feels more human and the pipeline gets stronger.",
             "short_comment": "Context gaps show up fast in admissions.",
-            "repost": "RSS capture for AI-native Ops (Substack). I read this through an admissions lens. A lot of these problems show up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "repost": "RSS capture for AI-native Ops (Substack). This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs. That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             "why_this_angle": "Use a admissions framing for this signal."
           },
           "entrepreneurship": {
@@ -1244,7 +1244,7 @@ export const contentPipelineSnapshot =
           },
           "enrollment-management": {
             "label": "Enrollment Mgmt",
-            "comment": "I still read this as an enrollment operations issue. RSS capture for AI-native Ops (Substack). this is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
+            "comment": "I still read this as an enrollment operations issue. RSS capture for AI-native Ops (Substack). This is what happens when teams do not have enough context to guide the next step well. That usually shows up later as weaker follow-through and more avoidable friction.",
             "short_comment": "Bad context usually becomes enrollment friction.",
             "repost": "RSS capture for AI-native Ops (Substack). This still reads like an enrollment operations issue to me. When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             "why_this_angle": "Use a enrollment mgmt framing for this signal."
