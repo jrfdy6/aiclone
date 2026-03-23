@@ -197,6 +197,7 @@ type SocialFeedItem = {
   why_it_matters?: string;
   comment_draft?: string;
   repost_draft?: string;
+  lens_variants?: Partial<Record<Exclude<WorkspaceLensId, 'all'>, { label: string; comment: string; repost: string; why_this_angle?: string }>>;
   standout_lines?: string[];
   lenses?: string[];
   summary?: string;
@@ -245,6 +246,8 @@ type WorkspaceLensId =
   | 'therapist-referral'
   | 'enrollment-management'
   | 'ai-entrepreneurship';
+
+type FeedLensId = Exclude<WorkspaceLensId, 'all'>;
 
 type WorkspaceLens = {
   id: WorkspaceLensId;
@@ -360,7 +363,7 @@ const WORKSPACE_LENSES: WorkspaceLens[] = [
   { id: 'ai-entrepreneurship', label: 'AI Entrepreneurship', description: 'Surface AI systems, automation, and intrapreneur/operator takes.' },
 ];
 
-const POST_MODE_OPTIONS: { id: WorkspaceLensId; label: string }[] = [
+const POST_MODE_OPTIONS: { id: FeedLensId; label: string }[] = [
   { id: 'entrepreneurship', label: 'Entrepreneurship' },
   { id: 'program-leadership', label: 'Job / Program Leadership' },
   { id: 'enrollment-management', label: 'Enrollment' },
@@ -1039,11 +1042,37 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [feedbackState, setFeedbackState] = useState<Record<string, string>>({});
   const [feedbackLoading, setFeedbackLoading] = useState<Record<string, boolean>>({});
-  const createCommentDraft = useCallback(
-    (item: SocialFeedItem) => `${POST_MODE_OPTIONS.find((mode) => mode.id === postMode)?.label ?? 'Comment'} angle: ${item.comment_draft ?? item.summary ?? ''}`.trim(),
-    [postMode],
+  const [feedLensSelections, setFeedLensSelections] = useState<Record<string, FeedLensId>>({});
+  const resolveFeedLens = useCallback(
+    (item: SocialFeedItem): FeedLensId => {
+      const selected = feedLensSelections[item.id];
+      if (selected) {
+        return selected;
+      }
+      if (postMode !== 'all') {
+        return postMode;
+      }
+      return 'ai-entrepreneurship';
+    },
+    [feedLensSelections, postMode],
   );
-  const createRepostDraft = useCallback((item: SocialFeedItem) => `${item.repost_draft ?? item.summary ?? ''}`.trim(), []);
+  const createCommentDraft = useCallback(
+    (item: SocialFeedItem, lens: FeedLensId) => {
+      const variant = item.lens_variants?.[lens];
+      if (variant?.comment) {
+        return variant.comment.trim();
+      }
+      return `${POST_MODE_OPTIONS.find((mode) => mode.id === lens)?.label ?? 'Comment'} angle: ${item.comment_draft ?? item.summary ?? ''}`.trim();
+    },
+    [],
+  );
+  const createRepostDraft = useCallback((item: SocialFeedItem, lens: FeedLensId) => {
+    const variant = item.lens_variants?.[lens];
+    if (variant?.repost) {
+      return variant.repost.trim();
+    }
+    return `${item.repost_draft ?? item.summary ?? ''}`.trim();
+  }, []);
   const copyToClipboard = useCallback(async (text: string, label: string) => {
     if (!text) return;
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -1076,6 +1105,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
   }, []);
   const approveFeedLine = useCallback(
     async (item: SocialFeedItem, line: string) => {
+      const lens = resolveFeedLens(item);
       setQuoteStatus('Approving quote...');
       setIsApprovingQuote(true);
       try {
@@ -1093,7 +1123,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             source_path: item.source_path,
             selected_line: line.trim(),
             workspace: 'linkedin-content-os',
-            lens: postMode,
+            lens,
           },
         };
         const createRes = await fetch(`${API_URL}/api/persona/deltas`, {
@@ -1129,10 +1159,11 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
         setIsApprovingQuote(false);
       }
     },
-    [postMode],
+    [resolveFeedLens],
   );
   const recordFeedback = useCallback(
     async (item: SocialFeedItem, decision: 'like' | 'dislike') => {
+      const lens = resolveFeedLens(item);
       setFeedbackLoading((current) => ({ ...current, [item.id]: true }));
       const label = decision === 'like' ? 'Liked' : 'Disliked';
       try {
@@ -1141,7 +1172,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
           title: item.title,
           platform: item.platform,
           decision,
-          lens: postMode,
+          lens,
         };
         const res = await fetch(`${API_URL}/api/workspace/feedback`, {
           method: 'POST',
@@ -1162,7 +1193,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
         setFeedbackLoading((current) => ({ ...current, [item.id]: false }));
       }
     },
-    [postMode],
+    [resolveFeedLens],
   );
 
   useEffect(() => {
@@ -1338,7 +1369,12 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
           <p style={{ color: '#34d399', fontSize: '12px', marginTop: '-8px', marginBottom: '12px' }}>{copyStatus}</p>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
-          {feedItems.slice(0, 5).map((item) => (
+          {feedItems.slice(0, 5).map((item) => {
+            const selectedFeedLens = resolveFeedLens(item);
+            const selectedVariant = item.lens_variants?.[selectedFeedLens];
+            const commentDraft = createCommentDraft(item, selectedFeedLens);
+            const repostDraft = createRepostDraft(item, selectedFeedLens);
+            return (
             <article key={item.id} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
                 <span style={{ color: '#38bdf8', fontSize: '12px', border: '1px solid rgba(56,189,248,0.4)', borderRadius: '999px', padding: '2px 10px' }}>{item.platform}</span>
@@ -1352,6 +1388,28 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                 </a>
               )}
               {item.why_it_matters && <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.why_it_matters}</p>}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {POST_MODE_OPTIONS.map((mode) => (
+                  <button
+                    key={`${item.id}-${mode.id}`}
+                    onClick={() => setFeedLensSelections((current) => ({ ...current, [item.id]: mode.id }))}
+                    style={{
+                      borderRadius: '999px',
+                      border: selectedFeedLens === mode.id ? '1px solid #fbbf24' : '1px solid #334155',
+                      padding: '6px 12px',
+                      background: selectedFeedLens === mode.id ? 'rgba(251,191,36,0.14)' : 'transparent',
+                      color: selectedFeedLens === mode.id ? '#fbbf24' : '#cbd5f5',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+              {selectedVariant?.why_this_angle ? (
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{selectedVariant.why_this_angle}</p>
+              ) : null}
               {item.standout_lines?.map((line) => (
                 <div key={`${item.id}-${line}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', borderRadius: '12px', border: '1px solid rgba(148,163,184,0.4)', padding: '8px', backgroundColor: '#030712' }}>
                   <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
@@ -1367,9 +1425,9 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
               <div>
                 <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Comment angle</p>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{createCommentDraft(item)}</p>
+                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{commentDraft}</p>
                   <button
-                    onClick={() => copyToClipboard(createCommentDraft(item), 'comment')}
+                    onClick={() => copyToClipboard(commentDraft, 'comment')}
                     style={{ borderRadius: '10px', border: '1px solid #34d399', background: 'transparent', color: '#34d399', padding: '4px 10px', fontSize: '12px' }}
                   >
                     Copy
@@ -1379,9 +1437,9 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
               <div>
                 <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Repost idea</p>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{createRepostDraft(item)}</p>
+                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{repostDraft}</p>
                   <button
-                    onClick={() => copyToClipboard(createRepostDraft(item), 'repost')}
+                    onClick={() => copyToClipboard(repostDraft, 'repost')}
                     style={{ borderRadius: '10px', border: '1px solid #f472b6', background: 'transparent', color: '#f472b6', padding: '4px 10px', fontSize: '12px' }}
                   >
                     Copy
@@ -1422,7 +1480,8 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                 <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? 'Select a preference to train the feed.'}</p>
               </div>
             </article>
-          ))}
+          );
+          })}
           {feedItems.length === 0 && <EmptyPanel message="No social feed items available yet. Run the refresh script to populate the JSON." />}
         </div>
       </section>

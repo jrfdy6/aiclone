@@ -14,6 +14,106 @@ WORKSPACE_ROOT = ROOT / "workspaces" / "linkedin-content-os"
 RESEARCH_ROOT = WORKSPACE_ROOT / "research" / "market_signals"
 PLANS_ROOT = WORKSPACE_ROOT / "plans"
 WATCHLIST_PATH = WORKSPACE_ROOT / "research" / "watchlists.yaml"
+LENS_IDS = [
+    "admissions",
+    "entrepreneurship",
+    "personal-story",
+    "program-leadership",
+    "therapist-referral",
+    "enrollment-management",
+    "ai-entrepreneurship",
+]
+
+LENS_CONFIG = {
+    "admissions": {
+        "label": "Admissions",
+        "angle": "Speak like an admissions operator who learns from frontline conversations with students and families.",
+        "comment_prefix": "What stands out to me from an admissions lens is",
+        "repost_prefix": "From an admissions and outreach perspective,",
+    },
+    "entrepreneurship": {
+        "label": "Entrepreneurship",
+        "angle": "Frame the takeaway like a builder/operator learning leverage, distribution, and execution lessons.",
+        "comment_prefix": "From an entrepreneurship lens, the useful takeaway here is",
+        "repost_prefix": "Builder takeaway:",
+    },
+    "personal-story": {
+        "label": "Personal Story",
+        "angle": "Make the response feel lived-in, reflective, and anchored to personal experience instead of abstraction.",
+        "comment_prefix": "This hits for me personally because",
+        "repost_prefix": "A personal version of this for me is",
+    },
+    "program-leadership": {
+        "label": "Program Leadership",
+        "angle": "Translate the signal into a leadership and execution lesson for teams, systems, and accountability.",
+        "comment_prefix": "From a leadership lens, the part worth emphasizing is",
+        "repost_prefix": "Leadership note:",
+    },
+    "therapist-referral": {
+        "label": "Therapy / Referral",
+        "angle": "Orient the response around trust, relationships, referrals, and making families feel understood.",
+        "comment_prefix": "From a referral and trust lens, what resonates is",
+        "repost_prefix": "Trust-building takeaway:",
+    },
+    "enrollment-management": {
+        "label": "Enrollment Mgmt",
+        "angle": "Connect the signal to pipeline quality, conversion, student journey clarity, and follow-through.",
+        "comment_prefix": "From an enrollment lens, the operational takeaway is",
+        "repost_prefix": "Enrollment takeaway:",
+    },
+    "ai-entrepreneurship": {
+        "label": "AI + Ops",
+        "angle": "Push the response toward AI-native operations, systems, context, and execution leverage.",
+        "comment_prefix": "From an AI and ops lens, the key point is",
+        "repost_prefix": "AI + ops takeaway:",
+    },
+}
+
+
+def clean_sentence(value: str | None) -> str:
+    if not value:
+        return ""
+    text = " ".join(str(value).split()).strip()
+    if not text:
+        return ""
+    return text[:-1] if text.endswith(".") else text
+
+
+def pick_core_line(signal: dict[str, Any]) -> str:
+    candidates = signal.get("headline_candidates") or []
+    if candidates:
+        return clean_sentence(candidates[0])
+    return clean_sentence(signal.get("summary")) or clean_sentence(signal.get("title")) or "this post"
+
+
+def build_comment_variants(signal: dict[str, Any], title: str) -> dict[str, dict[str, str]]:
+    summary = clean_sentence(signal.get("summary"))
+    why_it_matters = clean_sentence(signal.get("why_it_matters"))
+    core_line = pick_core_line(signal)
+    priority_lane = clean_sentence(signal.get("priority_lane"))
+
+    variants: dict[str, dict[str, str]] = {}
+    for lens_id in LENS_IDS:
+        config = LENS_CONFIG[lens_id]
+        comment = (
+            f"{config['comment_prefix']} {core_line}. "
+            f"{config['angle']} "
+            f"{summary + '. ' if summary else ''}"
+            f"{why_it_matters + '. ' if why_it_matters else ''}"
+        ).strip()
+        repost = (
+            f"{config['repost_prefix']} {core_line}. "
+            f"{summary + '. ' if summary else ''}"
+            f"{'This is especially useful inside ' + priority_lane + '. ' if priority_lane else ''}"
+            f"{config['angle']}"
+        ).strip()
+        variants[lens_id] = {
+            "label": config["label"],
+            "comment": " ".join(comment.split()),
+            "repost": " ".join(repost.split()),
+            "why_this_angle": f"{config['label']} lens for {title.lower()}",
+        }
+    return variants
 
 
 def load_watchlist() -> dict[str, Any]:
@@ -73,6 +173,12 @@ def normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict[
         lenses.append(priority_lane.lower().replace(" ", "-"))
 
     topic_match = len(set(topics) & set(watchlist.get("topics", [])))
+    source_platform = signal.get("source_platform", "linkedin")
+    source_quality = 40 if source_platform == "linkedin" else 5
+    if signal.get("headline_candidates"):
+        source_quality += 10
+    if signal.get("source_type") == "post":
+        source_quality += 5
 
     ranking = {
         "priority_network": round(priority_weight * 100, 1),
@@ -80,15 +186,19 @@ def normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict[
         "recency": max(0, 100 - age_hours),
         "engagement": signal.get("engagement", {}).get("likes", 0) * 0.1,
         "persona_fit": 10 if signal.get("role_alignment") else 0,
+        "source_quality": source_quality,
     }
     ranking["total"] = sum(ranking.values())
+
+    title = signal.get("title") or (signal.get("headline_candidates") or ["Untitled"])[0]
+    lens_variants = build_comment_variants(signal, title)
 
     return {
         "id": f"{signal.get('source_platform', 'unknown')}__{signal.get('id')}",
         "platform": signal.get("source_platform", "linkedin"),
         "source_lane": signal.get("source_kind", "market_signal"),
         "capture_method": signal.get("capture_method", "manual"),
-        "title": signal.get("title") or (signal.get("headline_candidates") or ["Untitled"])[0],
+        "title": title,
         "author": author,
         "source_url": signal.get("source_url"),
         "source_path": signal.get("source_path"),
@@ -101,6 +211,7 @@ def normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict[
         "lenses": list(dict.fromkeys(lenses)),
         "comment_draft": signal.get("comment_angle") or "Draft a thoughtful, concise comment with operator context.",
         "repost_draft": signal.get("post_angle") or signal.get("summary") or "",
+        "lens_variants": lens_variants,
         "why_it_matters": signal.get("why_it_matters"),
         "notes": signal.get("language_patterns", []),
     }
