@@ -1,3 +1,6 @@
+from .social_feedback_service import social_feedback_service
+from .social_feed_refresh import social_feed_refresh_service
+
 __all__ = [
     "build_review_service",
     "daily_brief_service",
