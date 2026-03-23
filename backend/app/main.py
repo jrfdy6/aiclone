@@ -24,6 +24,7 @@ from app.routes import (
     pm_board,
     prospects,
     prospects_manual,
+    social_feedback,
     standups,
     system_logs,
     timeline,
@@ -139,6 +140,7 @@ app.include_router(build_reviews.router)
 app.include_router(open_brain.router)
 app.include_router(persona.router)
 app.include_router(pm_board.router)
+app.include_router(social_feedback.router)
 app.include_router(standups.router)
 app.include_router(timeline.router)
 app.include_router(topic_intelligence.router, prefix="/api/topic-intelligence")

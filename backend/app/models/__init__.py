@@ -20,6 +20,7 @@ from .persona import PersonaDelta, PersonaDeltaCreate, PersonaDeltaResolve, Pers
 from .pm_board import PMCard, PMCardCreate, PMCardUpdate
 from .standups import StandupCreate, StandupEntry, StandupUpdate
 from .timeline import TimelineEvent
+from .social_feedback import SocialFeedbackCreate
 
 __all__ = [
     "CalendarEvent",
@@ -57,4 +58,5 @@ __all__ = [
     "StandupEntry",
     "StandupUpdate",
     "TimelineEvent",
+    "SocialFeedbackCreate",
 ]

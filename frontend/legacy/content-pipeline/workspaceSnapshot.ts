@@ -1,6 +1,6 @@
 export const contentPipelineSnapshot = 
 {
-  "generatedAt": "2026-03-22T20:13:44.072Z",
+  "generatedAt": "2026-03-23T00:11:13.654Z",
   "weeklyPlan": {
     "generated_at": "2026-03-22T09:59:20",
     "workspace": "workspaces/linkedin-content-os",
@@ -290,6 +290,269 @@ export const contentPipelineSnapshot =
       "post_seeds": 3,
       "background_only": 0
     }
+  },
+  "socialFeed": {
+    "generated_at": "2026-03-22T23:58:07.494639+00:00",
+    "workspace": "linkedin-content-os",
+    "strategy_mode": "production",
+    "items": [
+      {
+        "id": "reddit__2026-03-22__reddit__ai_in_education",
+        "platform": "reddit",
+        "source_lane": "market_signal",
+        "capture_method": "manual",
+        "title": "r/ai_in_education signal snapshot",
+        "author": "reddit-snapshot",
+        "source_url": "https://reddit.com/ai_in_education",
+        "source_path": "research/market_signals/2026-03-22__reddit__ai_in_education.md",
+        "published_at": "2026-03-22T23:58:07.320183+00:00",
+        "captured_at": "2026-03-22T23:58:07.320183+00:00",
+        "summary": "Placeholder capture for r/ai_in_education.",
+        "standout_lines": [],
+        "engagement": {
+          "likes": 0,
+          "comments": 0,
+          "shares": 0
+        },
+        "ranking": {
+          "priority_network": 50,
+          "topic_match": 0,
+          "recency": 100,
+          "engagement": 0,
+          "persona_fit": 10,
+          "total": 160
+        },
+        "lenses": [
+          "practitioner-edge-cases-and-growth-experiments"
+        ],
+        "comment_draft": "Draft a thoughtful, concise comment with operator context.",
+        "repost_draft": "Placeholder capture for r/ai_in_education.",
+        "why_it_matters": "Practitioner edge cases and growth experiments",
+        "notes": []
+      },
+      {
+        "id": "reddit__2026-03-22__reddit__edtech",
+        "platform": "reddit",
+        "source_lane": "market_signal",
+        "capture_method": "manual",
+        "title": "r/edtech signal snapshot",
+        "author": "reddit-snapshot",
+        "source_url": "https://reddit.com/edtech",
+        "source_path": "research/market_signals/2026-03-22__reddit__edtech.md",
+        "published_at": "2026-03-22T23:58:07.322224+00:00",
+        "captured_at": "2026-03-22T23:58:07.322224+00:00",
+        "summary": "Placeholder capture for r/edtech.",
+        "standout_lines": [],
+        "engagement": {
+          "likes": 0,
+          "comments": 0,
+          "shares": 0
+        },
+        "ranking": {
+          "priority_network": 50,
+          "topic_match": 0,
+          "recency": 100,
+          "engagement": 0,
+          "persona_fit": 10,
+          "total": 160
+        },
+        "lenses": [
+          "product-launches,-funding-news,-and-operator-lessons"
+        ],
+        "comment_draft": "Draft a thoughtful, concise comment with operator context.",
+        "repost_draft": "Placeholder capture for r/edtech.",
+        "why_it_matters": "Product launches, funding news, and operator lessons",
+        "notes": []
+      },
+      {
+        "id": "rss__2026-03-22__rss__admissions-+-ops",
+        "platform": "rss",
+        "source_lane": "market_signal",
+        "capture_method": "manual",
+        "title": "Admissions + Ops roundup",
+        "author": "Admissions + Ops",
+        "source_url": "https://medium.com/feed/admissions-technology",
+        "source_path": "research/market_signals/2026-03-22__rss__admissions-+-ops.md",
+        "published_at": "2026-03-22T23:58:07.411431+00:00",
+        "captured_at": "2026-03-22T23:58:07.411431+00:00",
+        "summary": "RSS capture for Admissions + Ops.",
+        "standout_lines": [],
+        "engagement": {
+          "likes": 0,
+          "comments": 0,
+          "shares": 0
+        },
+        "ranking": {
+          "priority_network": 50,
+          "topic_match": 0,
+          "recency": 100,
+          "engagement": 0,
+          "persona_fit": 10,
+          "total": 160
+        },
+        "lenses": [
+          "market-intelligence"
+        ],
+        "comment_draft": "Draft a thoughtful, concise comment with operator context.",
+        "repost_draft": "RSS capture for Admissions + Ops.",
+        "why_it_matters": "Admissions + Ops",
+        "notes": []
+      },
+      {
+        "id": "rss__2026-03-22__rss__ai-native-ops-(substack)",
+        "platform": "rss",
+        "source_lane": "market_signal",
+        "capture_method": "manual",
+        "title": "AI-native Ops (Substack) roundup",
+        "author": "AI-native Ops (Substack)",
+        "source_url": "https://substack.com/feed/ai-native-ops",
+        "source_path": "research/market_signals/2026-03-22__rss__ai-native-ops-(substack).md",
+        "published_at": "2026-03-22T23:58:07.409825+00:00",
+        "captured_at": "2026-03-22T23:58:07.409825+00:00",
+        "summary": "RSS capture for AI-native Ops (Substack).",
+        "standout_lines": [],
+        "engagement": {
+          "likes": 0,
+          "comments": 0,
+          "shares": 0
+        },
+        "ranking": {
+          "priority_network": 50,
+          "topic_match": 0,
+          "recency": 100,
+          "engagement": 0,
+          "persona_fit": 10,
+          "total": 160
+        },
+        "lenses": [
+          "market-intelligence"
+        ],
+        "comment_draft": "Draft a thoughtful, concise comment with operator context.",
+        "repost_draft": "RSS capture for AI-native Ops (Substack).",
+        "why_it_matters": "AI-native Ops (Substack)",
+        "notes": []
+      },
+      {
+        "id": "linkedin__2026-03-22__linkedin__admissions-teams-are-a-content-goldmine",
+        "platform": "linkedin",
+        "source_lane": "market_signal",
+        "capture_method": "manual",
+        "title": "Admissions teams are a content goldmine",
+        "author": "Marc Zarefsky",
+        "source_url": "https://www.linkedin.com/posts/marczarefsky_looking-for-higher-ed-content-ideas-talk-activity-7371180984001765376-nSm0",
+        "source_path": "research/market_signals/2026-03-22__linkedin__admissions-teams-are-a-content-goldmine.md",
+        "published_at": "2026-03-22T09:43:43-04:00",
+        "captured_at": "2026-03-22T09:43:43-04:00",
+        "summary": "If you want better higher ed content, start with your admissions team. They hear the real questions prospects ask.",
+        "standout_lines": [
+          "If you want better higher ed content, start with your admissions team.",
+          "They hear the real questions prospects ask."
+        ],
+        "engagement": {
+          "likes": 0,
+          "comments": 0,
+          "shares": 0
+        },
+        "ranking": {
+          "priority_network": 50,
+          "topic_match": 0,
+          "recency": 90,
+          "engagement": 0,
+          "persona_fit": 10,
+          "total": 150
+        },
+        "lenses": [
+          "family/referral-trust-and-outreach-systems"
+        ],
+        "comment_draft": "Draft a thoughtful, concise comment with operator context.",
+        "repost_draft": "If you want better higher ed content, start with your admissions team. They hear the real questions prospects ask.",
+        "why_it_matters": "This is directly useful for your role because it ties admissions, outreach, and content strategy together in a way that is practical and employer-aligned.",
+        "notes": [
+          "If you want better higher ed content, start with your admissions team",
+          "They hear the real questions prospects ask",
+          "Those conversations can become landing pages, alumni stories, and content that a"
+        ]
+      },
+      {
+        "id": "linkedin__2026-03-22__linkedin__ai-agents-fail-from-lack-of-context-not-lack-of-smarts",
+        "platform": "linkedin",
+        "source_lane": "market_signal",
+        "capture_method": "manual",
+        "title": "AI agents fail from lack of context, not lack of smarts",
+        "author": "Manish Garg",
+        "source_url": "https://www.linkedin.com/posts/manishga_ai-agents-fail-not-from-lack-of-smarts-but-activity-7396961315585634304-A_3y",
+        "source_path": "research/market_signals/2026-03-22__linkedin__ai-agents-fail-from-lack-of-context-not-lack-of-smarts.md",
+        "published_at": "2026-03-22T09:43:42-04:00",
+        "captured_at": "2026-03-22T09:43:42-04:00",
+        "summary": "AI agents fail not because models are weak but because enterprise context is missing. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic.",
+        "standout_lines": [
+          "AI agents fail not because models are weak but because enterprise context is missing.",
+          "Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic."
+        ],
+        "engagement": {
+          "likes": 0,
+          "comments": 0,
+          "shares": 0
+        },
+        "ranking": {
+          "priority_network": 50,
+          "topic_match": 0,
+          "recency": 90,
+          "engagement": 0,
+          "persona_fit": 10,
+          "total": 150
+        },
+        "lenses": [
+          "ai-native-intrapreneurship-in-education"
+        ],
+        "comment_draft": "Draft a thoughtful, concise comment with operator context.",
+        "repost_draft": "AI agents fail not because models are weak but because enterprise context is missing. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic.",
+        "why_it_matters": "This is directly relevant to your AI-native intrapreneur positioning because it reinforces that workflow context and operational reality matter more than model hype.",
+        "notes": [
+          "AI agents fail not because models are weak but because enterprise context is mis",
+          "Most companies deploy agents into fragmented data, inconsistent workflows, and s",
+          "Before blaming the model, invest in context capture so agents can act safely and"
+        ]
+      },
+      {
+        "id": "linkedin__2026-03-22__linkedin__ai-will-not-replace-higher-education-but-it-can-augment-it",
+        "platform": "linkedin",
+        "source_lane": "market_signal",
+        "capture_method": "manual",
+        "title": "AI will not replace higher education, but it can augment it",
+        "author": "Esther Harclerode",
+        "source_url": "https://www.linkedin.com/posts/esther-harclerode-a209792b_do-i-think-ai-will-replace-higher-education-activity-7386912557204185088-pkpo",
+        "source_path": "research/market_signals/2026-03-22__linkedin__ai-will-not-replace-higher-education-but-it-can-augment-it.md",
+        "published_at": "2026-03-22T09:43:43-04:00",
+        "captured_at": "2026-03-22T09:43:43-04:00",
+        "summary": "AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning.",
+        "standout_lines": [
+          "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning."
+        ],
+        "engagement": {
+          "likes": 0,
+          "comments": 0,
+          "shares": 0
+        },
+        "ranking": {
+          "priority_network": 50,
+          "topic_match": 0,
+          "recency": 90,
+          "engagement": 0,
+          "persona_fit": 10,
+          "total": 150
+        },
+        "lenses": [
+          "ai-native-intrapreneurship-in-education"
+        ],
+        "comment_draft": "Draft a thoughtful, concise comment with operator context.",
+        "repost_draft": "AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning.",
+        "why_it_matters": "This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.",
+        "notes": [
+          "AI can augment parts of the work, but humans still need to teach, correct, conne"
+        ]
+      }
+    ]
   },
   "editorialMix": [
     "Are we teaching enough?",

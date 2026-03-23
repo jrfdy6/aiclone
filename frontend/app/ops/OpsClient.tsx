@@ -185,6 +185,31 @@ type ReactionQueue = {
   };
 };
 
+type SocialFeedItem = {
+  id: string;
+  platform: string;
+  source_lane: string;
+  capture_method?: string;
+  title: string;
+  author: string;
+  source_url?: string;
+  source_path?: string;
+  why_it_matters?: string;
+  comment_draft?: string;
+  repost_draft?: string;
+  standout_lines?: string[];
+  lenses?: string[];
+  summary?: string;
+  ranking: { total: number };
+};
+
+type SocialFeed = {
+  generated_at: string;
+  workspace: string;
+  strategy_mode: string;
+  items: SocialFeedItem[];
+};
+
 type OpenBrainTelemetry = {
   database_connected: boolean;
   captures: {
@@ -994,6 +1019,127 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
     () => (selectedRecommendation ? sourceRecords.find((record) => record.sourcePath === selectedRecommendation.source_path) : undefined),
     [selectedRecommendation, sourceRecords],
   );
+  const socialFeedFile = useMemo(() => findWorkspaceFile(linkedinFiles, 'plans/social_feed.json'), [linkedinFiles]);
+  const snapshotSocialFeed = (contentPipelineSnapshot as unknown as { socialFeed?: SocialFeed }).socialFeed ?? null;
+  const socialFeed = useMemo<SocialFeed | null>(() => {
+    if (socialFeedFile) {
+      try {
+        return JSON.parse(socialFeedFile.content) as SocialFeed;
+      } catch {
+        return snapshotSocialFeed;
+      }
+    }
+    return snapshotSocialFeed;
+  }, [socialFeedFile, snapshotSocialFeed]);
+  const feedItems = socialFeed?.items ?? [];
+  const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
+  const [isApprovingQuote, setIsApprovingQuote] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [feedbackState, setFeedbackState] = useState<Record<string, string>>({});
+  const [feedbackLoading, setFeedbackLoading] = useState<Record<string, boolean>>({});
+  const createCommentDraft = useCallback(
+    (item: SocialFeedItem) => `${POST_MODE_OPTIONS.find((mode) => mode.id === postMode)?.label ?? 'Comment'} angle: ${item.comment_draft ?? item.summary ?? ''}`.trim(),
+    [postMode],
+  );
+  const createRepostDraft = useCallback((item: SocialFeedItem) => `${item.repost_draft ?? item.summary ?? ''}`.trim(), []);
+  const copyToClipboard = useCallback(async (text: string, label: string) => {
+    if (!text) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      setCopyStatus(`${label} copied!`);
+      setTimeout(() => setCopyStatus(null), 1500);
+    }
+  }, []);
+  const approveFeedLine = useCallback(
+    async (item: SocialFeedItem, line: string) => {
+      setQuoteStatus('Approving quote...');
+      setIsApprovingQuote(true);
+      try {
+        const payload = {
+          persona_target: 'feeze.core',
+          trait: `LinkedIn quote (${item.author})`,
+          notes: `${line.trim()}`,
+          metadata: {
+            target_file: 'identity/VOICE_PATTERNS.md',
+            review_source: 'linkedin_workspace.feed_quote',
+            approval_state: 'pending_workspace_approval',
+            platform: item.platform,
+            author: item.author,
+            source_url: item.source_url,
+            source_path: item.source_path,
+            selected_line: line.trim(),
+            workspace: 'linkedin-content-os',
+            lens: postMode,
+          },
+        };
+        const createRes = await fetch(`${API_URL}/api/persona/deltas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!createRes.ok) {
+          const detail = await createRes.text();
+          throw new Error(detail || 'Unable to create persona delta.');
+        }
+        const delta = await createRes.json();
+        const patchRes = await fetch(`${API_URL}/api/persona/deltas/${delta.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'approved',
+            metadata: {
+              approval_state: 'approved_from_workspace',
+              last_reviewed_at: new Date().toISOString(),
+              review_source: 'linkedin_workspace.feed_quote',
+            },
+          }),
+        });
+        if (!patchRes.ok) {
+          const detail = await patchRes.text();
+          throw new Error(detail || 'Unable to finalize persona delta.');
+        }
+        setQuoteStatus(`Approved quote "${line.slice(0, 40)}..."`);
+      } catch (error) {
+        setQuoteStatus(error instanceof Error ? error.message : 'Unable to approve quote right now.');
+      } finally {
+        setIsApprovingQuote(false);
+      }
+    },
+    [postMode],
+  );
+  const recordFeedback = useCallback(
+    async (item: SocialFeedItem, decision: 'like' | 'dislike') => {
+      setFeedbackLoading((current) => ({ ...current, [item.id]: true }));
+      const label = decision === 'like' ? 'Liked' : 'Disliked';
+      try {
+        const payload = {
+          feed_item_id: item.id,
+          title: item.title,
+          platform: item.platform,
+          decision,
+          lens: postMode,
+        };
+        const res = await fetch(`${API_URL}/api/workspace/feedback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(detail || 'Unable to save preference.');
+        }
+        setFeedbackState((current) => ({ ...current, [item.id]: `${label}` }));
+      } catch (error) {
+        setFeedbackState((current) => ({
+          ...current,
+          [item.id]: error instanceof Error ? error.message : 'Feedback failed.',
+        }));
+      } finally {
+        setFeedbackLoading((current) => ({ ...current, [item.id]: false }));
+      }
+    },
+    [postMode],
+  );
 
   useEffect(() => {
     if (!selectedRecommendation) {
@@ -1114,6 +1260,127 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             </div>
           </section>
         )}
+      </section>
+
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+          <div>
+            <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Social Feed</p>
+            <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>High-performing signals</h3>
+            <p style={{ color: '#94a3b8', fontSize: '14px' }}>
+              Fresh LinkedIn-first posts from key people and topical sources, mixed with reaction-ready Reddit/RSS placeholders. Comment or repost directly from the cards.
+            </p>
+          </div>
+          <div style={{ color: '#94a3b8', fontSize: '12px' }}>
+            Updated {socialFeed?.generated_at ?? 'waiting for feed'} · {feedItems.length} items tracked
+          </div>
+        </div>
+        {quoteStatus && (
+          <div
+            style={{
+              marginBottom: '12px',
+              padding: '10px 14px',
+              borderRadius: '10px',
+              backgroundColor: isApprovingQuote ? 'rgba(37, 99, 235, 0.2)' : 'rgba(34,197,94,0.2)',
+              border: `1px solid ${isApprovingQuote ? 'rgba(37,99,235,0.6)' : 'rgba(34,197,94,0.6)'}`,
+              color: '#e0f2fe',
+              fontSize: '13px',
+            }}
+          >
+            {quoteStatus}
+          </div>
+        )}
+        {copyStatus && (
+          <p style={{ color: '#34d399', fontSize: '12px', marginTop: '-8px', marginBottom: '12px' }}>{copyStatus}</p>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+          {feedItems.slice(0, 5).map((item) => (
+            <article key={item.id} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ color: '#38bdf8', fontSize: '12px', border: '1px solid rgba(56,189,248,0.4)', borderRadius: '999px', padding: '2px 10px' }}>{item.platform}</span>
+                <span style={{ color: '#fcd34d', fontWeight: 600, fontSize: '12px' }}>score {item.ranking.total.toFixed(1)}</span>
+              </div>
+              <h4 style={{ color: 'white', fontSize: '18px', margin: '0' }}>{item.title}</h4>
+              <p style={{ color: '#94a3b8', margin: 0 }}>{item.author}</p>
+              {item.source_url && (
+                <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px' }}>
+                  Open original post
+                </a>
+              )}
+              {item.why_it_matters && <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.why_it_matters}</p>}
+              {item.standout_lines?.map((line) => (
+                <div key={`${item.id}-${line}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', borderRadius: '12px', border: '1px solid rgba(148,163,184,0.4)', padding: '8px', backgroundColor: '#030712' }}>
+                  <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
+                  <button
+                    onClick={() => approveFeedLine(item, line)}
+                    disabled={isApprovingQuote}
+                    style={{ borderRadius: '10px', border: '1px solid #fbbf24', padding: '4px 10px', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: isApprovingQuote ? 'not-allowed' : 'pointer' }}
+                  >
+                    {isApprovingQuote ? 'Approving…' : 'Approve line'}
+                  </button>
+                </div>
+              ))}
+              <div>
+                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Comment angle</p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{createCommentDraft(item)}</p>
+                  <button
+                    onClick={() => copyToClipboard(createCommentDraft(item), 'comment')}
+                    style={{ borderRadius: '10px', border: '1px solid #34d399', background: 'transparent', color: '#34d399', padding: '4px 10px', fontSize: '12px' }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div>
+                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Repost idea</p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{createRepostDraft(item)}</p>
+                  <button
+                    onClick={() => copyToClipboard(createRepostDraft(item), 'repost')}
+                    style={{ borderRadius: '10px', border: '1px solid #f472b6', background: 'transparent', color: '#f472b6', padding: '4px 10px', fontSize: '12px' }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  onClick={() => recordFeedback(item, 'like')}
+                  disabled={feedbackLoading[item.id]}
+                  style={{
+                    borderRadius: '12px',
+                    border: '1px solid #22c55e',
+                    background: feedbackLoading[item.id] ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.2)',
+                    color: '#22c55e',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    cursor: feedbackLoading[item.id] ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  👍 Like
+                </button>
+                <button
+                  onClick={() => recordFeedback(item, 'dislike')}
+                  disabled={feedbackLoading[item.id]}
+                  style={{
+                    borderRadius: '12px',
+                    border: '1px solid #f87171',
+                    background: feedbackLoading[item.id] ? 'rgba(248,113,113,0.15)' : 'rgba(248,113,113,0.2)',
+                    color: '#f87171',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    cursor: feedbackLoading[item.id] ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  👎 Dislike
+                </button>
+                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? 'Select a preference to train the feed.'}</p>
+              </div>
+            </article>
+          ))}
+          {feedItems.length === 0 && <EmptyPanel message="No social feed items available yet. Run the refresh script to populate the JSON." />}
+        </div>
       </section>
 
       <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
