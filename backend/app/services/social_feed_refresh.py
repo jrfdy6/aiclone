@@ -32,35 +32,38 @@ def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
     subprocess.run(cmd, cwd=ROOT, check=True)
 
 
-def run_refresh(skip_fetch: bool = False, sources: Literal["safe", "all"] = "safe") -> None:
-    with _state_lock:
-        if _state["running"]:
-            raise InvalidRefreshState("Social feed refresh already running.")
-        _state["running"] = True
-        _state["started_at"] = datetime.now(timezone.utc)
-        _state["error"] = None
-
-    try:
-        _run_command(skip_fetch, sources)
+class SocialFeedRefreshService:
+    def run_refresh(self, skip_fetch: bool = False, sources: Literal["safe", "all"] = "safe") -> None:
         with _state_lock:
-            _state["last_run"] = datetime.now(timezone.utc)
-    except Exception as exc:
-        logging.exception("Social feed refresh failed", exc_info=exc)
+            if _state["running"]:
+                raise InvalidRefreshState("Social feed refresh already running.")
+            _state["running"] = True
+            _state["started_at"] = datetime.now(timezone.utc)
+            _state["error"] = None
+
+        try:
+            _run_command(skip_fetch, sources)
+            with _state_lock:
+                _state["last_run"] = datetime.now(timezone.utc)
+        except Exception as exc:
+            logging.exception("Social feed refresh failed", exc_info=exc)
+            with _state_lock:
+                _state["error"] = str(exc)
+            raise
+        finally:
+            with _state_lock:
+                _state["running"] = False
+
+    def run_refresh_background(self, skip_fetch: bool = False, sources: Literal["safe", "all"] = "safe") -> None:
+        try:
+            self.run_refresh(skip_fetch, sources)
+        except InvalidRefreshState:
+            pass
+
+    def get_status(self) -> dict[str, None | bool | datetime | str]:
         with _state_lock:
-            _state["error"] = str(exc)
-        raise
-    finally:
-        with _state_lock:
-            _state["running"] = False
+            return dict(_state)
 
 
-def run_refresh_background(skip_fetch: bool = False, sources: Literal["safe", "all"] = "safe") -> None:
-    try:
-        run_refresh(skip_fetch, sources)
-    except InvalidRefreshState:
-        pass
+social_feed_refresh_service = SocialFeedRefreshService()
 
-
-def get_status() -> dict[str, None | bool | datetime | str]:
-    with _state_lock:
-        return dict(_state)

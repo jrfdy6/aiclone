@@ -9,17 +9,20 @@ FEEDBACK_DIR = WORKSPACE_ROOT / "analytics"
 FEEDBACK_PATH = FEEDBACK_DIR / "feed_feedback.md"
 
 
-def ensure_feedback_dir() -> None:
-    FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
+class SocialFeedbackService:
+    def ensure_feedback_dir(self) -> None:
+        FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
+
+    def append_feedback(self, entry: dict[str, str]) -> Path:
+        self.ensure_feedback_dir()
+        timestamp = datetime.now(timezone.utc).isoformat()
+        line = (
+            f"- {timestamp} | {entry['decision']} | {entry['feed_item_id']} | "
+            f"{entry['platform']} | lens={entry.get('lens')} | {entry.get('title')}\n"
+        )
+        with FEEDBACK_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+        return FEEDBACK_PATH
 
 
-def append_feedback(entry: dict[str, str]) -> Path:
-    ensure_feedback_dir()
-    timestamp = datetime.now(timezone.utc).isoformat()
-    line = (
-        f"- {timestamp} | {entry['decision']} | {entry['feed_item_id']} | "
-        f"{entry['platform']} | lens={entry.get('lens')} | {entry.get('title')}\n"
-    )
-    with FEEDBACK_PATH.open("a", encoding="utf-8") as fh:
-        fh.write(line)
-    return FEEDBACK_PATH
+social_feedback_service = SocialFeedbackService()
