@@ -8,4 +8,5 @@ __all__ = [
     "standup_service",
     "timeline_service",
     "social_feedback_service",
+    "social_feed_refresh_service",
 ]

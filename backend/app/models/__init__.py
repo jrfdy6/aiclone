@@ -21,6 +21,7 @@ from .pm_board import PMCard, PMCardCreate, PMCardUpdate
 from .standups import StandupCreate, StandupEntry, StandupUpdate
 from .timeline import TimelineEvent
 from .social_feedback import SocialFeedbackCreate
+from .social_feed_refresh import RefreshSocialFeedRequest
 
 __all__ = [
     "CalendarEvent",
@@ -59,4 +60,5 @@ __all__ = [
     "StandupUpdate",
     "TimelineEvent",
     "SocialFeedbackCreate",
+    "RefreshSocialFeedRequest",
 ]

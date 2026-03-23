@@ -1032,6 +1032,8 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
     return snapshotSocialFeed;
   }, [socialFeedFile, snapshotSocialFeed]);
   const feedItems = socialFeed?.items ?? [];
+  const [refreshingFeed, setRefreshingFeed] = useState(false);
+  const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
   const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
   const [isApprovingQuote, setIsApprovingQuote] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -1048,6 +1050,28 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
       await navigator.clipboard.writeText(text);
       setCopyStatus(`${label} copied!`);
       setTimeout(() => setCopyStatus(null), 1500);
+    }
+  }, []);
+  const refreshSocialFeed = useCallback(async () => {
+    setRefreshingFeed(true);
+    setRefreshStatus('Refreshing social feed...');
+    try {
+      const res = await fetch(`${API_URL}/api/workspace/refresh-social-feed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skip_fetch: false, sources: 'safe' }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || 'Unable to queue feed refresh.');
+      }
+      const data = await res.json();
+      setRefreshStatus(`Refresh queued${data.started_at ? ` at ${new Date(data.started_at).toLocaleTimeString()}` : ''}`);
+    } catch (error) {
+      setRefreshStatus(error instanceof Error ? error.message : 'Refresh failed.');
+    } finally {
+      setRefreshingFeed(false);
+      setTimeout(() => setRefreshStatus(null), 3500);
     }
   }, []);
   const approveFeedLine = useCallback(
@@ -1271,8 +1295,28 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
               Fresh LinkedIn-first posts from key people and topical sources, mixed with reaction-ready Reddit/RSS placeholders. Comment or repost directly from the cards.
             </p>
           </div>
-          <div style={{ color: '#94a3b8', fontSize: '12px' }}>
-            Updated {socialFeed?.generated_at ?? 'waiting for feed'} · {feedItems.length} items tracked
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+            <button
+              onClick={refreshSocialFeed}
+              disabled={refreshingFeed}
+              style={{
+                borderRadius: '10px',
+                border: '1px solid #38bdf8',
+                padding: '8px 14px',
+                background: refreshingFeed ? 'rgba(59,130,246,0.2)' : 'rgba(56,189,248,0.16)',
+                color: '#38bdf8',
+                cursor: refreshingFeed ? 'not-allowed' : 'pointer',
+                fontSize: '13px',
+              }}
+            >
+              {refreshingFeed ? 'Refreshing…' : 'Refresh feed'}
+            </button>
+            <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+              Updated {socialFeed?.generated_at ?? 'waiting for feed'} · {feedItems.length} items tracked
+            </p>
+            {refreshStatus && (
+              <p style={{ color: refreshingFeed ? '#38bdf8' : '#34d399', fontSize: '12px', margin: 0 }}>{refreshStatus}</p>
+            )}
           </div>
         </div>
         {quoteStatus && (
