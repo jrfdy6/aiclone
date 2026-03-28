@@ -970,6 +970,18 @@ function PriorityFocusCard({ title, description, tone }: { title: string; descri
   );
 }
 
+function StepCallout({ step, title, description }: { step: string; title: string; description: string }) {
+  return (
+    <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px' }}>
+      <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
+        Step {step}
+      </p>
+      <p style={{ color: 'white', fontSize: '14px', fontWeight: 600, margin: '0 0 6px' }}>{title}</p>
+      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{description}</p>
+    </div>
+  );
+}
+
 function PersonaPanel({
   packs,
   deltas,
@@ -1332,6 +1344,12 @@ function PersonaPanel({
           </div>
         </div>
 
+        <div style={{ display: 'grid', gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', gap: '10px' }}>
+          <StepCallout step="1" title="Choose item" description="Pick one review item from the left rail." />
+          <StepCallout step="2" title="Review candidate" description="Read the proposed source material and decide what you actually think." />
+          <StepCallout step="3" title="Save your take" description="Record agreement, disagreement, nuance, story, or wording. Queue promotion only if fragments deserve canon." />
+        </div>
+
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <ReviewMetaChip label="Active" value={String(totalPendingCount)} tone="#38bdf8" />
           <ReviewMetaChip label="Promotion Ready" value={String(promotionReadyCount)} tone="#f59e0b" />
@@ -1406,6 +1424,7 @@ function PersonaPanel({
                       <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>{truncateText(delta.trait, 110)}</p>
                       <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                        {isActive && <InlineBadge label="selected" tone="#38bdf8" />}
                         <InlineBadge label={humanizeBeliefRelation(metadataText(delta.metadata, 'belief_relation'))} tone="#22c55e" />
                         {promotionReady && <InlineBadge label="promotion-ready" tone="#f59e0b" />}
                         {muted && <InlineBadge label="muted" tone="#64748b" />}
@@ -1429,11 +1448,11 @@ function PersonaPanel({
             >
             <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start', minWidth: 0 }}>
               <div>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Why I am showing this</p>
-                <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.65 }}>{reviewReason}</p>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>What you are reviewing</p>
+                <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{reviewReason}</p>
               </div>
 
-              <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6 }}>
+              <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                 <span>{targetFile ?? 'Target file not assigned'}</span>
                 <span style={{ margin: '0 8px' }}>·</span>
                 <span>{evidenceLabel}</span>
@@ -1456,20 +1475,16 @@ function PersonaPanel({
               </div>
 
               <div style={{ maxHeight: '620px', overflowY: 'auto', paddingRight: '4px' }}>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>What is being proposed</p>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Proposed source material</p>
                 <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: '16px' }}>
                   {selectedDelta.notes || 'No candidate notes were attached to this review item.'}
                 </p>
                 {selectableItems.length > 0 && (
-                  <>
-                    <div style={{ height: '1px', backgroundColor: '#1f2937', marginBottom: '16px' }} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginBottom: '10px', flexWrap: 'wrap' }}>
-                      <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Select what is canonical-worthy</p>
-                      <p style={{ color: '#64748b', fontSize: '12px' }}>
-                        {selectedPromotionItems.length} selected for promotion
-                      </p>
-                    </div>
-                    <div style={{ display: 'grid', gap: '10px', marginBottom: '16px' }}>
+                  <details style={{ marginBottom: '16px' }}>
+                    <summary style={{ color: '#818cf8', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
+                      Canonical fragments ({selectedPromotionItems.length} selected)
+                    </summary>
+                    <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
                       {selectableItems.map((item) => {
                         const checked = selectedPromotionItemIds.includes(item.id);
                         return (
@@ -1483,6 +1498,7 @@ function PersonaPanel({
                               backgroundColor: checked ? '#082f49' : '#020617',
                               padding: '12px',
                               cursor: 'pointer',
+                              boxSizing: 'border-box',
                             }}
                           >
                             <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
@@ -1506,36 +1522,41 @@ function PersonaPanel({
                                 }}
                               />
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '6px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '6px', flexWrap: 'wrap' }}>
                                   <div>
-                                    <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600 }}>{item.label}</p>
+                                    <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{item.label}</p>
                                     <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{humanizePromotionKind(item.kind)}</p>
                                   </div>
                                 </div>
-                                <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55 }}>{item.content}</p>
-                                {item.evidence && <p style={{ color: '#64748b', fontSize: '12px', marginTop: '6px' }}>Evidence: {item.evidence}</p>}
+                                <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{item.content}</p>
+                                {item.evidence && <p style={{ color: '#64748b', fontSize: '12px', marginTop: '6px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>Evidence: {item.evidence}</p>}
                               </div>
                             </div>
                           </label>
                         );
                       })}
                     </div>
-                  </>
+                  </details>
                 )}
-                <div style={{ height: '1px', backgroundColor: '#1f2937', marginBottom: '16px' }} />
-                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Current canonical context</p>
-                {activeContext ? (
-                  <>
-                    <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{activeContextPath ?? 'Canonical bundle excerpt'}</p>
-                    <pre style={{ margin: 0, color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-                      {truncateText(activeContext, 2200)}
-                    </pre>
-                  </>
-                ) : (
-                  <p style={{ color: '#475569', fontSize: '13px', lineHeight: 1.55 }}>
-                    There is no canonical excerpt attached yet. Use your response to say where this belongs and how it should be phrased.
-                  </p>
-                )}
+                <details>
+                  <summary style={{ color: '#818cf8', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
+                    Current canonical context
+                  </summary>
+                  <div style={{ marginTop: '12px' }}>
+                    {activeContext ? (
+                      <>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{activeContextPath ?? 'Canonical bundle excerpt'}</p>
+                        <pre style={{ margin: 0, color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', fontFamily: 'inherit', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                          {truncateText(activeContext, 2200)}
+                        </pre>
+                      </>
+                    ) : (
+                      <p style={{ color: '#475569', fontSize: '13px', lineHeight: 1.55 }}>
+                        There is no canonical excerpt attached yet. Use your response to say where this belongs and how it should be phrased.
+                      </p>
+                    )}
+                  </div>
+                </details>
               </div>
             </section>
 
@@ -1550,13 +1571,11 @@ function PersonaPanel({
               >
                 <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Next step</p>
                 <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
-                  Save your judgment first. If the source has canonical-worthy fragments, then queue those exact fragments for promotion. Committing to canon only happens later from the queued lane.
+                  Decide what you think about this item, then save that judgment. Only use promotion when a fragment should become part of your canon.
                 </p>
               </div>
-              <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6 }}>
-                {selectableItems.length > 0
-                  ? `${reviewAsk} Select the canonical-worthy pieces below, then queue them for promotion when your wording is ready.`
-                  : `${reviewAsk} This item is not promotion-ready yet, so focus on your agreement, nuance, story context, or wording.`}
+              <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                {selectableItems.length > 0 ? 'You can also mark canonical fragments from the center panel if any deserve to be promoted later.' : 'This item is review-only for now. Focus on your actual take, not promotion.'}
               </div>
 
               {savedResponseExcerpt && (
@@ -1583,6 +1602,17 @@ function PersonaPanel({
                   </p>
                 </div>
               )}
+
+              <div style={{ display: 'grid', gap: '8px' }}>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>How are you responding?</p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <QuickFillButton label="Agree" onClick={() => queueTemplate('agree')} />
+                  <QuickFillButton label="Disagree" onClick={() => queueTemplate('disagree')} />
+                  <QuickFillButton label="Nuance" onClick={() => queueTemplate('nuance')} />
+                  <QuickFillButton label="Personal Story" onClick={() => queueTemplate('story')} />
+                  <QuickFillButton label="Wording" onClick={() => queueTemplate('language')} />
+                </div>
+              </div>
 
               <textarea
                 value={reflectionText}
@@ -1611,13 +1641,6 @@ function PersonaPanel({
               />
 
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <QuickFillButton label="Agree" onClick={() => queueTemplate('agree')} />
-                  <QuickFillButton label="Disagree" onClick={() => queueTemplate('disagree')} />
-                  <QuickFillButton label="Nuance" onClick={() => queueTemplate('nuance')} />
-                  <QuickFillButton label="Personal Story" onClick={() => queueTemplate('story')} />
-                  <QuickFillButton label="Wording" onClick={() => queueTemplate('language')} />
-                </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   <InlineBadge label={`Response: ${humanizeResponseKind(selectedResponseKind)}`} tone="#38bdf8" />
                   <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
