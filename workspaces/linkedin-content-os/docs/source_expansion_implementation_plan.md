@@ -27,6 +27,9 @@ It should be framed as:
 - extract better claim-sized units
 - route those units into the correct downstream job
 
+This plan extends an existing upstream source system.
+It does not authorize a second transcript or briefing pipeline.
+
 ## Constraints
 
 This plan must respect the current system constraints.
@@ -82,6 +85,17 @@ Today the social system already has these intake classes:
 - transcript metadata template in `knowledge/aiclone/transcripts/TEMPLATE.md`
 - normalized ingestions lane in `knowledge/ingestions/**`
 - parent media-intake roadmap and queued media job flow in `memory/roadmap.md`
+- workspace snapshot weekly-plan builder already loading media candidates from normalized ingestions
+- Brain/persona review already syncing long-form worldview evidence from those same source assets
+
+### Existing downstream consumers that already overlap
+- daily briefs / overnight operator awareness
+- weekly planning
+- Brain persona review
+- `/ops` source-asset and tuning diagnostics
+
+This means the open work is not “build another long-form system.”
+The open work is “finish unifying routing and observability across the consumers that already exist.”
 
 ### Current missing source classes in the feed
 - YouTube transcript segments
@@ -120,6 +134,9 @@ That gives us this hierarchy:
 
 ### Candidate signal
 - the actual item that enters the shared social pipeline
+
+This same hierarchy should also support briefing and planning.
+The feed is only one consumer of the hierarchy, not the whole reason the hierarchy exists.
 
 ## Source Taxonomy
 

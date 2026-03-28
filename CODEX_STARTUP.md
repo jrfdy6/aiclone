@@ -169,6 +169,7 @@ Use those commands when the task is "seed production data" rather than "ship new
 
 ## Essential references
 - `SOPs/_index.md` (master list of SOPs/capabilities)
+- `SOPs/source_system_contract_sop.md`
 - `SOURCE_OF_TRUTH.md`
 - `memory/persistent_state.md`
 - `docs/persistent_memory_blueprint.md`
@@ -180,6 +181,16 @@ Use those commands when the task is "seed production data" rather than "ship new
 - `memory/roadmap.md`
 - `workspaces/linkedin-content-os/README.md`
 - `scripts/worktree_doctor.py` (classifies git status output so you can see what’s genuinely dirty)
+
+## Source-system north star
+- Transcript/media work is not a separate product lane. It is one upstream source system feeding multiple consumers.
+- Reuse `knowledge/aiclone/transcripts/` and `knowledge/ingestions/**` as the canonical long-form ingress.
+- Treat downstream jobs as separate consumers over the same source:
+  - briefs
+  - weekly planning
+  - persona review
+  - feed routing
+- Do not create a second transcript, persona, or social-ingest stack when extending this area.
 
 ## Boot checklist
 - Confirm `SOPs/_index.md`, `memory/persistent_state.md`, `memory/roadmap.md`, and `docs/cron_delivery_guidelines.md` are loaded before acting.

@@ -71,12 +71,14 @@
   1. treat YouTube, podcasts, and transcript files as upstream source assets,
   2. segment long-form media into claim-sized units before they enter the social runtime,
   3. route those units into the correct downstream jobs (`comment`, `repost`, `post_seed`, `belief_evidence`) instead of forcing every source into a feed-card response,
+  3a. keep `daily_briefs` and `weekly_plan` on that same upstream source system instead of letting briefing or planner work drift into separate ingest assumptions,
   4. use those source contrasts to build reviewable worldview evidence for the persona system without auto-writing canonical persona files.
   5. route that worldview evidence into the shared `persona_deltas` lifecycle so Brain and Workspace stay on one approval substrate instead of parallel persona systems.
      - First pass is now live through `backend/app/services/social_persona_review_service.py` and `backend/app/services/workspace_snapshot_service.py`, which sync transcript-derived worldview segments into draft `persona_deltas` during snapshot rebuilds.
   6. Workspace approval of a snippet should count as approval and should not create a duplicate Brain re-approval loop; Brain should focus on unresolved persona items and long-form worldview review.
   7. the first runtime source-asset inventory is now live in the workspace snapshot and `/ops`; transcript/media assets are visible upstream before segmentation but are not yet eligible for direct feed-card routing.
   8. keep the live `/ops` tuning dashboard as the benchmark source of truth, using `Avg Source`, `Avg Expr`, `Avg Δ`, `Weak Source`, `Lane Carried`, source-class health, and the attention queue as the main release metrics for each source-expansion step.
+  8a. keep the architectural north star explicit: one ingest surface, multiple consumers. The goal is not “put transcripts into the feed.” The goal is “let the same source asset feed briefs, planning, persona review, and feed routing without duplicate stacks.”
   9. treat source-expansion work as incomplete until it passes the full production validation cadence:
      - immediate validation (`0-10m` after deploy),
      - deterministic rebuild validation (`10-20m`),

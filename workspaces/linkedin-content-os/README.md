@@ -53,6 +53,18 @@ It should also support curated source capture from:
 
 Those different source paths should converge into one shared internal signal contract before lane interpretation and voice generation.
 
+Source-system north star:
+- one upstream source system
+- multiple downstream consumers
+
+That means the same transcript/media asset can inform:
+- daily briefs
+- weekly planning
+- Brain persona review
+- social feed routing
+
+The goal is not to build a second transcript stack inside the LinkedIn workspace. The goal is to reuse the parent transcript/ingestion surfaces and route the resulting signal into the right job.
+
 The next source-expansion phase should also support:
 - YouTube transcript segments
 - podcast transcript segments
@@ -115,6 +127,7 @@ Do not collapse these back into older merged buckets such as:
 - `therapy / referral`
 
 Key operating docs:
+- `../../SOPs/source_system_contract_sop.md`
 - `docs/operating_model.md`
 - `docs/linkedin_curation_workflow.md`
 - `docs/social_feed_architecture_plan.md`

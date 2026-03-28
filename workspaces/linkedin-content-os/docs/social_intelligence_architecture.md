@@ -183,6 +183,15 @@ The first version of `belief_map` should be a projection over these sources, not
 These already act like a state and dashboard layer for the workspace.
 The tuning dashboard should extend this pattern before creating a separate frontend stack.
 
+### Shared source-system rule
+- transcript/media inputs should feed multiple downstream consumers off the same upstream asset inventory
+- those consumers include:
+  - daily briefs
+  - weekly planning
+  - Brain/persona review
+  - social-feed routing when a unit is actually comment-ready
+- do not let any one of those consumers invent a second ingest model
+
 ### Current live snapshot behavior
 - `/ops` now fetches `GET /api/workspace/linkedin-os-snapshot` for:
   - workspace files

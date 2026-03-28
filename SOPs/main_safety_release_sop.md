@@ -37,6 +37,11 @@ Make `main` safe enough to function as the release lane without relying on a lon
    - The backend deploy script now tolerates a missing `docs/persistent_memory_blueprint.md` instead of failing the release.
 7. After deploy completes, run the live smoke gate:
    - `npm run verify:production`
+   - If the release touches transcript/media source expansion, also confirm:
+     - `GET /api/workspace/linkedin-os-snapshot` still returns non-empty `source_assets`
+     - the weekly-plan snapshot still shows media participation instead of dropping to zero silently
+     - `persona_review_summary.long_form_sync.assets_considered` does not collapse unexpectedly
+     - `GET /api/persona/deltas?view=brain_queue` returns queue metadata for Brain (`queue_stage`, `queue_priority_score`, `queue_muted`)
 8. If both gates pass, treat the release as operational.
 
 ## What The Local Gate Checks
@@ -89,5 +94,6 @@ The workflow-backed version is preserved locally on:
 ## Notes
 - `verify:main` may coexist with append-only memory files changing in the background. Review memory dirt separately from code dirt.
 - The staged deploy script is the canonical release path for Railway. Do not assume unrelated repo dirt will ship; the script stages a narrow deploy context on purpose.
+- Long-form/media releases should be judged against the shared source-system contract in `SOPs/source_system_contract_sop.md`, not as isolated feed work.
 - The goal is not “nothing ever fails.” The goal is “failures are caught in a known gate with a known next step.”
 - Keep this SOP in sync with `SOPs/_index.md`, `workspaces/linkedin-content-os/AGENTS.md`, and `workspaces/linkedin-content-os/README.md`.
