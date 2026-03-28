@@ -516,6 +516,7 @@ type PersonaReviewSummaryItem = {
   stage: string;
   review_source?: string | null;
   target_file?: string | null;
+  belief_relation?: string | null;
   approval_state?: string | null;
   created_at?: string | null;
   committed_at?: string | null;
@@ -535,6 +536,7 @@ type PersonaReviewSummary = {
   status_counts?: Record<string, number>;
   review_source_counts?: Record<string, number>;
   target_file_counts?: Record<string, number>;
+  belief_relation_counts?: Record<string, number>;
   recent?: PersonaReviewSummaryItem[];
   long_form_sync?: {
     assets_considered?: number;
@@ -1491,6 +1493,7 @@ function WorkspacePanel({
     [sourceAssets],
   );
   const personaReviewCounts = personaReviewSummary?.counts ?? {};
+  const personaRelationCounts = personaReviewSummary?.belief_relation_counts ?? {};
   const longFormSync = personaReviewSummary?.long_form_sync ?? null;
   const longFormRouteCounts = longFormRoutes?.route_counts ?? {};
   const longFormPrimaryRouteCounts = longFormRoutes?.primary_route_counts ?? {};
@@ -2002,6 +2005,14 @@ function WorkspacePanel({
             <MiniMeta label="Stale Cleared" value={`${longFormSync?.resolved_stale ?? 0}`} detail="outdated draft segments resolved" />
             <MiniMeta label="No Segments" value={`${longFormSync?.skipped_no_segments ?? 0}`} detail="no usable worldview unit" />
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+            <MiniMeta label="Agreement" value={`${personaRelationCounts.agreement ?? 0}`} detail="tracks existing belief" />
+            <MiniMeta label="Qualified" value={`${personaRelationCounts.qualified_agreement ?? 0}`} detail="agrees, with a caveat" />
+            <MiniMeta label="Disagreement" value={`${personaRelationCounts.disagreement ?? 0}`} detail="pushes against current framing" />
+            <MiniMeta label="Translation" value={`${personaRelationCounts.translation ?? 0}`} detail="maps source into the work" />
+            <MiniMeta label="Experience" value={`${personaRelationCounts.experience_match ?? 0}`} detail="supported by lived context" />
+            <MiniMeta label="System" value={`${personaRelationCounts.system_translation ?? 0}`} detail="turns an idea into process" />
+          </div>
           <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px' }}>
             <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Recent Persona Items</p>
             {(personaReviewSummary?.recent ?? []).length === 0 ? (
@@ -2015,7 +2026,7 @@ function WorkspacePanel({
                       <span style={{ color: '#94a3b8', fontSize: '11px' }}>{item.stage.replace(/_/g, ' ')}</span>
                     </div>
                     <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
-                      {item.review_source ?? 'unknown'} · {item.target_file ?? 'no target file'} · {item.created_at ? formatTimestamp(new Date(item.created_at)) : '-'}
+                      {item.review_source ?? 'unknown'} · {humanizeBeliefRelation(item.belief_relation)} · {item.target_file ?? 'no target file'} · {item.created_at ? formatTimestamp(new Date(item.created_at)) : '-'}
                     </p>
                   </div>
                 ))}
@@ -4465,6 +4476,17 @@ function statusBadge(status?: string) {
 
 function formatTimestamp(value: Date) {
   return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+}
+
+function humanizeBeliefRelation(value: string | null | undefined) {
+  if (!value) return 'Unknown relation';
+  if (value === 'agreement') return 'Agreement';
+  if (value === 'qualified_agreement') return 'Qualified agreement';
+  if (value === 'disagreement') return 'Disagreement';
+  if (value === 'translation') return 'Translation';
+  if (value === 'experience_match') return 'Experience match';
+  if (value === 'system_translation') return 'System translation';
+  return value.replace(/[_-]+/g, ' ');
 }
 
 function summarize(text: string, maxLength = 120) {

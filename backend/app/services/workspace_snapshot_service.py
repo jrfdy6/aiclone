@@ -692,6 +692,7 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
     status_counts: dict[str, int] = {}
     review_source_counts: dict[str, int] = {}
     target_file_counts: dict[str, int] = {}
+    belief_relation_counts: dict[str, int] = {}
     recent: list[dict[str, Any]] = []
 
     for delta in deltas:
@@ -709,6 +710,10 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
         if target_file:
             target_file_counts[target_file] = target_file_counts.get(target_file, 0) + 1
 
+        belief_relation = _metadata_text(metadata, "belief_relation")
+        if belief_relation:
+            belief_relation_counts[belief_relation] = belief_relation_counts.get(belief_relation, 0) + 1
+
         if len(recent) < 12:
             recent.append(
                 {
@@ -719,6 +724,7 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
                     "stage": stage,
                     "review_source": review_source,
                     "target_file": target_file,
+                    "belief_relation": belief_relation,
                     "approval_state": _metadata_text(metadata, "approval_state"),
                     "created_at": delta.created_at.isoformat() if delta.created_at else None,
                     "committed_at": delta.committed_at.isoformat() if delta.committed_at else None,
@@ -735,6 +741,7 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
         "status_counts": status_counts,
         "review_source_counts": review_source_counts,
         "target_file_counts": target_file_counts,
+        "belief_relation_counts": belief_relation_counts,
         "recent": recent,
         "long_form_sync": sync_result or {
             "assets_considered": 0,
@@ -913,6 +920,7 @@ def _persona_review_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
     counts = payload.get("counts") or {}
     status_counts = payload.get("status_counts") or {}
     review_source_counts = payload.get("review_source_counts") or {}
+    belief_relation_counts = payload.get("belief_relation_counts") or {}
     recent = payload.get("recent") or []
     long_form_sync = payload.get("long_form_sync") or {}
     if not isinstance(counts, dict):
@@ -921,12 +929,14 @@ def _persona_review_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
         status_counts = {}
     if not isinstance(review_source_counts, dict):
         review_source_counts = {}
+    if not isinstance(belief_relation_counts, dict):
+        belief_relation_counts = {}
     if not isinstance(recent, list):
         recent = []
     if not isinstance(long_form_sync, dict):
         long_form_sync = {}
 
-    recent_signature: list[tuple[str, str, str, str]] = []
+    recent_signature: list[tuple[str, str, str, str, str]] = []
     for item in recent[:12]:
         if not isinstance(item, dict):
             continue
@@ -936,6 +946,7 @@ def _persona_review_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
                 str(item.get("status") or ""),
                 str(item.get("stage") or ""),
                 str(item.get("review_source") or ""),
+                str(item.get("belief_relation") or ""),
             )
         )
 
@@ -943,6 +954,7 @@ def _persona_review_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
         tuple(sorted((str(key), int(value)) for key, value in counts.items() if isinstance(value, (int, float)))),
         tuple(sorted((str(key), int(value)) for key, value in status_counts.items() if isinstance(value, (int, float)))),
         tuple(sorted((str(key), int(value)) for key, value in review_source_counts.items() if isinstance(value, (int, float)))),
+        tuple(sorted((str(key), int(value)) for key, value in belief_relation_counts.items() if isinstance(value, (int, float)))),
         tuple(recent_signature),
         (
             int(long_form_sync.get("assets_considered") or 0),

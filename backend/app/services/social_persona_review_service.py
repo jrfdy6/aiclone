@@ -502,10 +502,13 @@ def _build_notes(asset: dict[str, Any], segment: str, lane_id: str, target_file:
         "Candidate segment:",
         segment,
     ]
+    belief_relation = _clean_text(assessment.get("belief_relation"))
     belief_summary = _clean_text(assessment.get("belief_summary"))
     experience_summary = _clean_text(assessment.get("experience_summary"))
+    if belief_relation:
+        lines.extend(["", f"Belief relation: {belief_relation}"])
     if belief_summary:
-        lines.extend(["", f"Belief relation: {belief_summary}"])
+        lines.extend(["", f"Belief summary: {belief_summary}"])
     if experience_summary:
         lines.extend(["", f"Experience anchor: {experience_summary}"])
     return "\n".join(lines)
@@ -532,6 +535,7 @@ def _build_metadata(asset: dict[str, Any], segment: str, lane_id: str, target_fi
         "segment_excerpt": segment,
         "stance": assessment.get("stance", ""),
         "agreement_level": assessment.get("agreement_level", ""),
+        "belief_relation": assessment.get("belief_relation", ""),
         "belief_used": assessment.get("belief_used", ""),
         "belief_summary": assessment.get("belief_summary", ""),
         "experience_anchor": assessment.get("experience_anchor", ""),

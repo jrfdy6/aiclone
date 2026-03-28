@@ -514,6 +514,20 @@ def _agreement_level(stance: str) -> str:
     return "high"
 
 
+def _belief_relation(stance: str) -> str:
+    if stance == "counter":
+        return "disagreement"
+    if stance == "translate":
+        return "translation"
+    if stance == "personal-anchor":
+        return "experience_match"
+    if stance == "nuance":
+        return "qualified_agreement"
+    if stance == "systemize":
+        return "system_translation"
+    return "agreement"
+
+
 def _build_stance_language(stance: str, belief_summary: str, experience_summary: str) -> dict[str, str]:
     belief_line = ""
     if belief_summary:
@@ -584,6 +598,7 @@ class SocialBeliefEngine:
         return {
             "stance": stance,
             "agreement_level": _agreement_level(stance),
+            "belief_relation": _belief_relation(stance),
             "belief_used": belief.get("belief_used", ""),
             "belief_summary": belief.get("belief_summary", ""),
             "experience_anchor": experience.get("experience_anchor", ""),

@@ -742,6 +742,7 @@ function PersonaPanel({
                   <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
                     <InlineBadge label={humanizeReviewSource(metadataText(delta.metadata, 'review_source'))} tone="#64748b" />
+                    <InlineBadge label={humanizeBeliefRelation(metadataText(delta.metadata, 'belief_relation'))} tone="#22c55e" />
                     <InlineBadge label={`score ${score}`} tone={muted ? '#64748b' : '#38bdf8'} />
                     <InlineBadge label={`${promotionCandidateCount} promo`} tone={promotionCandidateCount > 0 ? '#818cf8' : '#64748b'} />
                     {promotionReady && <InlineBadge label="promotion-ready" tone="#f59e0b" />}
@@ -777,6 +778,7 @@ function PersonaPanel({
                   label={selectedScoredDelta?.promotionReady ? 'Promotion-ready path open' : 'Needs review before promotion'}
                   tone={selectedScoredDelta?.promotionReady ? '#f59e0b' : '#38bdf8'}
                 />
+                <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
                 <InlineBadge
                   label={`${selectableItems.length} canonical candidate${selectableItems.length === 1 ? '' : 's'}`}
                   tone={selectableItems.length > 0 ? '#818cf8' : '#64748b'}
@@ -1663,4 +1665,15 @@ function humanizeReviewSource(source: string | null) {
   if (source === 'linkedin_workspace.feed_quote') return 'Workspace approval';
   if (source === 'brain.persona.ui') return 'Brain review';
   return source.replace(/[_./-]+/g, ' ');
+}
+
+function humanizeBeliefRelation(value: string | null) {
+  if (!value) return 'Unknown relation';
+  if (value === 'agreement') return 'Agreement';
+  if (value === 'qualified_agreement') return 'Qualified agreement';
+  if (value === 'disagreement') return 'Disagreement';
+  if (value === 'translation') return 'Translation';
+  if (value === 'experience_match') return 'Experience match';
+  if (value === 'system_translation') return 'System translation';
+  return value.replace(/[_-]+/g, ' ');
 }

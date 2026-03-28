@@ -1368,17 +1368,34 @@ summary: Leadership behavior drives AI implementation outcomes.
                 {"id": "delta-b", "trait": "Trait B", "target_file": "history/story_bank.md"},
             ],
         }
+        delta = PersonaDelta(
+            id="delta-a",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Trait A",
+            notes="notes",
+            status="draft",
+            metadata={
+                "review_source": "long_form_media.segment",
+                "target_file": "identity/claims.md",
+                "belief_relation": "translation",
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
 
         with patch.object(
             workspace_snapshot_module.social_persona_review_service,
             "sync_long_form_worldview_reviews",
             return_value=sync_result,
-        ) as sync_mock, patch.object(workspace_snapshot_module.persona_delta_service, "list_deltas", return_value=[]):
+        ) as sync_mock, patch.object(workspace_snapshot_module.persona_delta_service, "list_deltas", return_value=[delta]):
             snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
 
         summary = snapshot.get("persona_review_summary") or {}
         self.assertEqual((summary.get("long_form_sync") or {}).get("created_count"), 2)
         self.assertEqual((summary.get("long_form_sync") or {}).get("resolved_stale"), 1)
+        self.assertEqual((summary.get("belief_relation_counts") or {}).get("translation"), 1)
+        self.assertEqual((summary.get("recent") or [{}])[0].get("belief_relation"), "translation")
         sync_mock.assert_called()
 
     def test_persona_review_summary_refreshes_when_recent_changes_without_count_change(self) -> None:
