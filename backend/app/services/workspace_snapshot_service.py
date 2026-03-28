@@ -91,24 +91,42 @@ def _discover_persona_root() -> Path:
     return ROOT / "knowledge" / "persona" / "feeze"
 
 
-def _discover_doc_targets() -> list[Path]:
-    patterns = [
-        ("SOPs/_index.md", "backend/SOPs/_index.md"),
-        ("SOPs/direct_postgres_bootstrap.md", "backend/SOPs/direct_postgres_bootstrap.md"),
-        ("deliverables/brain-tab-ui-requirements.md", "backend/deliverables/brain-tab-ui-requirements.md"),
-        ("docs/persistent_memory_blueprint.md", "backend/docs/persistent_memory_blueprint.md"),
+def _discover_doc_roots() -> list[tuple[Path, str]]:
+    candidates = [
+        (_find_dir("SOPs", "backend/SOPs"), "Operating Docs"),
+        (_find_dir("docs", "backend/docs"), "System Docs"),
+        (_find_dir("deliverables", "backend/deliverables"), "Reference Docs"),
+        (_find_dir("workspaces/linkedin-content-os/docs", "backend/workspaces/linkedin-content-os/docs"), "Workspace Reference"),
     ]
-    targets: list[Path] = []
-    for pair in patterns:
-        found = _find_file(*pair)
-        if found:
-            targets.append(found)
+    roots: list[tuple[Path, str]] = []
+    seen: set[Path] = set()
+    for root, label in candidates:
+        if root is None or root in seen:
+            continue
+        seen.add(root)
+        roots.append((root, label))
+    return roots
+
+
+def _discover_doc_targets() -> list[tuple[Path, str]]:
+    patterns = [
+        ("AGENTS.md", "backend/AGENTS.md", "Operating Docs"),
+        ("CODEX_STARTUP.md", "backend/CODEX_STARTUP.md", "Operating Docs"),
+        ("README.md", "backend/README.md", "Reference Docs"),
+        ("workspaces/linkedin-content-os/README.md", "backend/workspaces/linkedin-content-os/README.md", "Workspace Reference"),
+        ("workspaces/linkedin-content-os/AGENTS.md", "backend/workspaces/linkedin-content-os/AGENTS.md", "Workspace Reference"),
+    ]
+    targets: list[tuple[Path, str]] = []
+    seen: set[Path] = set()
+    for primary, fallback, label in patterns:
+        found = _find_file(primary, fallback)
+        if found is None or found in seen:
+            continue
+        seen.add(found)
+        targets.append((found, label))
     return targets
 
 
-PERSONA_ROOT = _discover_persona_root()
-LINKEDIN_ROOT = _discover_linkedin_root()
-DOC_TARGETS = _discover_doc_targets()
 WORKSPACE_KEY = "linkedin-content-os"
 SNAPSHOT_WEEKLY_PLAN = "weekly_plan"
 SNAPSHOT_REACTION_QUEUE = "reaction_queue"
@@ -179,8 +197,8 @@ def _serialize_file(file_path: Path, root: Path, label: str) -> dict[str, str]:
 
 def _load_workspace_files() -> list[dict[str, str]]:
     roots = [
-        (PERSONA_ROOT, "persona-bundle"),
-        (LINKEDIN_ROOT, "linkedin-content-os"),
+        (_discover_persona_root(), "persona-bundle"),
+        (_discover_linkedin_root(), "linkedin-content-os"),
     ]
     files: list[dict[str, str]] = []
     for root, label in roots:
@@ -194,21 +212,33 @@ def _load_workspace_files() -> list[dict[str, str]]:
 
 
 def _load_doc_entries() -> list[dict[str, str]]:
-    entries: list[dict[str, str]] = []
-    for file_path in DOC_TARGETS:
-        if not file_path.exists():
-            continue
+    entries_by_path: dict[str, dict[str, str]] = {}
+    for root, label in _discover_doc_roots():
+        for file_path in _walk(root):
+            if file_path.suffix != ".md":
+                continue
+            entry = _serialize_file(file_path, root, label)
+            entry["group"] = label
+            entries_by_path[entry["path"]] = entry
+
+    for file_path, label in _discover_doc_targets():
         raw = file_path.read_text(encoding="utf-8")
         stat = file_path.stat()
-        entries.append(
-            {
-                "name": file_path.name,
-                "path": file_path.relative_to(ROOT).as_posix(),
-                "snippet": _first_meaningful_line(raw),
-                "content": raw,
-                "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            }
-        )
+        try:
+            relative_path = file_path.relative_to(ROOT).as_posix()
+        except ValueError:
+            relative_path = file_path.as_posix()
+        entries_by_path[relative_path] = {
+            "name": file_path.name,
+            "path": relative_path,
+            "snippet": _first_meaningful_line(raw),
+            "content": raw,
+            "updatedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "group": label,
+        }
+
+    entries = list(entries_by_path.values())
+    entries.sort(key=lambda item: item["path"])
     return entries
 
 
@@ -317,7 +347,8 @@ def _parse_weekly_plan_markdown(path: Path) -> dict[str, Any] | None:
     positioning_model = [line[2:].strip() for line in _extract_markdown_section(text, "Positioning Model").splitlines() if line.startswith("- ")]
     priority_lanes = [line[2:].strip() for line in _extract_markdown_section(text, "This Week's Priority Lanes").splitlines() if line.startswith("- ")]
     research_notes = [line[2:].strip("`") for line in _extract_markdown_section(text, "Research Feed").splitlines() if line.startswith("- ")]
-    draft_count = len([path for path in (LINKEDIN_ROOT / "drafts").glob("*.md") if path.name != "README.md" and not path.name.startswith("queue_")])
+    linkedin_root = _discover_linkedin_root()
+    draft_count = len([path for path in (linkedin_root / "drafts").glob("*.md") if path.name != "README.md" and not path.name.startswith("queue_")])
     return {
         "generated_at": generated_match.group(1).strip() if generated_match else None,
         "workspace": "workspaces/linkedin-content-os",
@@ -506,22 +537,23 @@ def _transcripts_root() -> Path:
 
 
 def _build_weekly_plan_payload() -> dict[str, Any] | None:
+    linkedin_root = _discover_linkedin_root()
     script_path = _find_file(
         "backend/scripts/personal-brand/generate_linkedin_weekly_plan.py",
         "scripts/personal-brand/generate_linkedin_weekly_plan.py",
     )
     module = _load_module("generate_linkedin_weekly_plan_runtime", script_path) if script_path else None
-    if module is None or not LINKEDIN_ROOT.exists():
+    if module is None or not linkedin_root.exists():
         return None
-    draft_candidates, draft_source_refs = module.load_draft_candidates(LINKEDIN_ROOT)
+    draft_candidates, draft_source_refs = module.load_draft_candidates(linkedin_root)
     media_candidates = module.load_media_candidates(_ingestions_root())
-    research_candidates, research_signals, research_notes = module.load_research_candidates(LINKEDIN_ROOT)
+    research_candidates, research_signals, research_notes = module.load_research_candidates(linkedin_root)
     filtered_research_candidates = [item for item in research_candidates if item.source_path not in draft_source_refs]
     all_candidates = sorted(draft_candidates + media_candidates + filtered_research_candidates, key=lambda item: (-item.score, item.title.lower()))
     recommendations = [item for item in all_candidates if item.publish_posture != "hold_private"][:5]
     hold_items = [item for item in all_candidates if item.publish_posture == "hold_private" or item.risk_level == "high"][:10]
     payload = module.plan_payload(
-        workspace_dir=LINKEDIN_ROOT,
+        workspace_dir=linkedin_root,
         recommendations=recommendations,
         hold_items=hold_items,
         research_signals=research_signals,
@@ -537,20 +569,22 @@ def _build_weekly_plan_payload() -> dict[str, Any] | None:
 
 
 def _build_reaction_queue_payload() -> dict[str, Any] | None:
+    linkedin_root = _discover_linkedin_root()
     script_path = _find_file(
         "backend/scripts/personal-brand/generate_linkedin_reaction_queue.py",
         "scripts/personal-brand/generate_linkedin_reaction_queue.py",
     )
     module = _load_module("generate_linkedin_reaction_queue_runtime", script_path) if script_path else None
-    if module is None or not LINKEDIN_ROOT.exists():
+    if module is None or not linkedin_root.exists():
         return None
-    items = module.load_market_signal_items(LINKEDIN_ROOT)[:8]
-    return module.queue_payload(LINKEDIN_ROOT, items)
+    items = module.load_market_signal_items(linkedin_root)[:8]
+    return module.queue_payload(linkedin_root, items)
 
 
 def _build_social_feed_payload() -> dict[str, Any] | None:
+    linkedin_root = _discover_linkedin_root()
     try:
-        payload = build_social_feed_runtime_payload(LINKEDIN_ROOT)
+        payload = build_social_feed_runtime_payload(linkedin_root)
     except Exception:
         return None
     return payload if _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, payload) else None
@@ -600,10 +634,11 @@ def _current_long_form_routes_payload() -> dict[str, Any] | None:
 
 
 def _load_feedback_summary_payload() -> dict[str, Any] | None:
+    linkedin_root = _discover_linkedin_root()
     try:
         return social_feedback_service.load_summary()
     except Exception:
-        return _load_json(LINKEDIN_ROOT / "analytics" / "feed_feedback_summary.json")
+        return _load_json(linkedin_root / "analytics" / "feed_feedback_summary.json")
 
 
 def _metadata_text(metadata: dict[str, Any] | None, key: str) -> str | None:
@@ -841,28 +876,29 @@ def _build_source_assets_from_persona_review() -> dict[str, Any] | None:
 
 
 def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
+    linkedin_root = _discover_linkedin_root()
     if snapshot_type == SNAPSHOT_WEEKLY_PLAN:
         payload = (
             _build_weekly_plan_payload()
-            or _load_json(LINKEDIN_ROOT / "plans" / "weekly_plan.json")
-            or _parse_weekly_plan_markdown(LINKEDIN_ROOT / "plans" / "weekly_plan.md")
+            or _load_json(linkedin_root / "plans" / "weekly_plan.json")
+            or _parse_weekly_plan_markdown(linkedin_root / "plans" / "weekly_plan.md")
         )
         long_form_routes = _current_long_form_routes_payload()
         return _augment_weekly_plan_payload(payload, long_form_routes)
     if snapshot_type == SNAPSHOT_REACTION_QUEUE:
         return (
             _build_reaction_queue_payload()
-            or _load_json(LINKEDIN_ROOT / "plans" / "reaction_queue.json")
-            or _parse_reaction_queue_markdown(LINKEDIN_ROOT / "plans" / "reaction_queue.md")
+            or _load_json(linkedin_root / "plans" / "reaction_queue.json")
+            or _parse_reaction_queue_markdown(linkedin_root / "plans" / "reaction_queue.md")
         )
     if snapshot_type == SNAPSHOT_SOCIAL_FEED:
         built = _build_social_feed_payload()
         if built:
             return built
-        json_payload = _load_json(LINKEDIN_ROOT / "plans" / "social_feed.json")
+        json_payload = _load_json(linkedin_root / "plans" / "social_feed.json")
         if json_payload and _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, json_payload):
             return json_payload
-        markdown_payload = _parse_social_feed_markdown(LINKEDIN_ROOT / "plans" / "social_feed.md")
+        markdown_payload = _parse_social_feed_markdown(linkedin_root / "plans" / "social_feed.md")
         if markdown_payload and _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, markdown_payload):
             return markdown_payload
         return None

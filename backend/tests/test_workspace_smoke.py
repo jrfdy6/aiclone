@@ -191,7 +191,7 @@ Shared source intelligence should stay visible in the brief layer.
         )
 
         cls.patches = [
-            patch.object(workspace_snapshot_module, "LINKEDIN_ROOT", cls.fixture_root),
+            patch.object(workspace_snapshot_module, "_discover_linkedin_root", return_value=cls.fixture_root),
             patch.object(workspace_snapshot_module, "get_snapshot_payload", lambda *args, **kwargs: None),
             patch.object(workspace_snapshot_module, "upsert_snapshot", lambda *args, **kwargs: None),
             patch.object(workspace_snapshot_module, "_transcripts_root", lambda: transcripts_dir),
@@ -964,6 +964,45 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         source_assets = snapshot.get("source_assets") or {}
         self.assertEqual(source_assets.get("counts", {}).get("total"), 1)
         self.assertEqual((source_assets.get("items") or [{}])[0].get("asset_id"), "persisted-asset")
+
+    def test_load_doc_entries_discovers_operating_and_workspace_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            sop_dir = tmp_path / "SOPs"
+            workspace_docs_dir = tmp_path / "workspaces" / "linkedin-content-os" / "docs"
+            sop_dir.mkdir(parents=True)
+            workspace_docs_dir.mkdir(parents=True)
+
+            (sop_dir / "brain_workspace_boundary_sop.md").write_text("# Brain Boundary\nControl plane rules.\n", encoding="utf-8")
+            (workspace_docs_dir / "source_expansion_implementation_plan.md").write_text(
+                "# Source Expansion\nRoute long-form sources.\n",
+                encoding="utf-8",
+            )
+            standalone = tmp_path / "AGENTS.md"
+            standalone.write_text("# AGENTS\nStartup contract.\n", encoding="utf-8")
+
+            with patch.object(
+                workspace_snapshot_module,
+                "_discover_doc_roots",
+                return_value=[(sop_dir, "Operating Docs"), (workspace_docs_dir, "Workspace Reference")],
+            ), patch.object(
+                workspace_snapshot_module,
+                "_discover_doc_targets",
+                return_value=[(standalone, "Operating Docs")],
+            ), patch.object(
+                workspace_snapshot_module,
+                "ROOT",
+                tmp_path,
+            ):
+                entries = workspace_snapshot_module._load_doc_entries()
+
+        paths = {entry["path"] for entry in entries}
+        groups = {entry["path"]: entry.get("group") for entry in entries}
+        self.assertIn("SOPs/brain_workspace_boundary_sop.md", paths)
+        self.assertIn("workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md", paths)
+        self.assertIn("AGENTS.md", paths)
+        self.assertEqual(groups["SOPs/brain_workspace_boundary_sop.md"], "Operating Docs")
+        self.assertEqual(groups["workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md"], "Workspace Reference")
 
     def test_source_assets_payload_falls_back_to_long_form_review_metadata_when_inventory_is_empty(self) -> None:
         delta = PersonaDelta(
