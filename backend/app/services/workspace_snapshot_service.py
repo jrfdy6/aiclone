@@ -1050,13 +1050,13 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
 class WorkspaceSnapshotService:
     def refresh_persisted_linkedin_os_state(self) -> dict[str, Any]:
         snapshot_types = [
+            SNAPSHOT_SOURCE_ASSETS,
+            SNAPSHOT_LONG_FORM_ROUTES,
             SNAPSHOT_WEEKLY_PLAN,
+            SNAPSHOT_PERSONA_REVIEW_SUMMARY,
             SNAPSHOT_REACTION_QUEUE,
             SNAPSHOT_SOCIAL_FEED,
             SNAPSHOT_FEEDBACK_SUMMARY,
-            SNAPSHOT_SOURCE_ASSETS,
-            SNAPSHOT_PERSONA_REVIEW_SUMMARY,
-            SNAPSHOT_LONG_FORM_ROUTES,
         ]
         refreshed: dict[str, Any] = {}
         for snapshot_type in snapshot_types:
@@ -1066,13 +1066,13 @@ class WorkspaceSnapshotService:
         return refreshed
 
     def get_linkedin_os_snapshot(self) -> dict[str, Any]:
+        source_assets = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+        long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
         weekly_plan = _load_snapshot(SNAPSHOT_WEEKLY_PLAN)
+        persona_review_summary = _load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
         reaction_queue = _load_snapshot(SNAPSHOT_REACTION_QUEUE)
         social_feed = _load_snapshot(SNAPSHOT_SOCIAL_FEED)
         feedback_summary = _load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
-        source_assets = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
-        persona_review_summary = _load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
-        long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
         return {
             "workspace_files": _load_workspace_files(),
             "doc_entries": _load_doc_entries(),

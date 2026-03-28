@@ -604,6 +604,60 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual(len(payload.get("media_post_seeds") or []), 1)
         self.assertEqual(len(payload.get("belief_evidence_candidates") or []), 1)
 
+    def test_snapshot_response_loads_long_form_routes_before_weekly_plan(self) -> None:
+        calls: list[str] = []
+
+        def fake_load_snapshot(snapshot_type: str):
+            calls.append(snapshot_type)
+            return {"snapshot_type": snapshot_type}
+
+        with patch.object(workspace_snapshot_module, "_load_snapshot", side_effect=fake_load_snapshot), patch.object(
+            workspace_snapshot_module,
+            "_load_workspace_files",
+            return_value=[],
+        ), patch.object(
+            workspace_snapshot_module,
+            "_load_doc_entries",
+            return_value=[],
+        ), patch.object(
+            workspace_snapshot_module.social_feed_refresh_service,
+            "get_status",
+            return_value={"running": False, "last_run": None, "started_at": None, "error": None},
+        ):
+            snapshot = workspace_snapshot_module.workspace_snapshot_service.get_linkedin_os_snapshot()
+
+        self.assertLess(
+            calls.index(workspace_snapshot_module.SNAPSHOT_LONG_FORM_ROUTES),
+            calls.index(workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN),
+        )
+        self.assertEqual(snapshot.get("long_form_routes", {}).get("snapshot_type"), workspace_snapshot_module.SNAPSHOT_LONG_FORM_ROUTES)
+        self.assertEqual(snapshot.get("weekly_plan", {}).get("snapshot_type"), workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN)
+
+    def test_refresh_persisted_state_refreshes_long_form_routes_before_weekly_plan(self) -> None:
+        calls: list[str] = []
+
+        def fake_runtime_snapshot(snapshot_type: str):
+            calls.append(snapshot_type)
+            return {"snapshot_type": snapshot_type}
+
+        with patch.object(
+            workspace_snapshot_module,
+            "_runtime_snapshot_payload",
+            side_effect=fake_runtime_snapshot,
+        ), patch.object(
+            workspace_snapshot_module,
+            "_persist_snapshot",
+            side_effect=lambda snapshot_type, payload, source: payload,
+        ):
+            refreshed = workspace_snapshot_module.workspace_snapshot_service.refresh_persisted_linkedin_os_state()
+
+        self.assertLess(
+            calls.index(workspace_snapshot_module.SNAPSHOT_LONG_FORM_ROUTES),
+            calls.index(workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN),
+        )
+        self.assertIn(workspace_snapshot_module.SNAPSHOT_LONG_FORM_ROUTES, refreshed)
+        self.assertIn(workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN, refreshed)
+
     def test_workspace_snapshot_keeps_nonempty_persisted_source_assets_when_runtime_inventory_is_empty(self) -> None:
         persisted = {
             "generated_at": "2026-03-28T00:00:00+00:00",
