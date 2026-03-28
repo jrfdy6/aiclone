@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getApiUrl } from '@/lib/api-client';
 import NavHeader from '@/components/NavHeader';
@@ -34,101 +34,101 @@ export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
 
   useEffect(() => {
-    loadEvents();
-  }, [currentDate]);
-
-  const loadEvents = async () => {
-    const apiUrl = getApiUrl();
-    if (!apiUrl) {
-      setError('API URL not configured');
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      
-      // Calculate date range for current month view
-      const year = currentDate.getFullYear();
-      const month = currentDate.getMonth();
-      const firstDay = new Date(year, month, 1);
-      const lastDay = new Date(year, month + 1, 0);
-      const startDate = firstDay.toISOString().split('T')[0];
-      const endDate = lastDay.toISOString().split('T')[0];
-
-      const params = new URLSearchParams({
-        user_id: 'dev-user',
-        start_date: startDate,
-        end_date: endDate,
-        limit: '500',
-      });
-
-      const response = await fetch(`${apiUrl}/api/calendar/?${params.toString()}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.events) {
-          setEvents(data.events.map((e: any) => ({
-            id: e.id,
-            prospect_id: e.prospect_id,
-            prospect_name: e.prospect_name || 'Unknown',
-            company: e.company,
-            scheduled_date: e.scheduled_date,
-            type: e.type,
-            status: e.status,
-            notes: e.notes,
-            last_contact: e.last_contact,
-            suggested_message: e.suggested_message,
-          })));
-          setError(null);
-          return;
-        }
+    const loadEvents = async () => {
+      const apiUrl = getApiUrl();
+      if (!apiUrl) {
+        setError('API URL not configured');
+        setLoading(false);
+        return;
       }
-      
-      // Fallback to mock data if API fails or returns no data
-      const mockEvents: FollowUpEvent[] = [
-        {
-          id: '1',
-          prospect_id: '1',
-          prospect_name: 'Sarah Johnson',
-          company: 'TechEd Solutions',
-          scheduled_date: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          type: 'follow_up',
-          status: 'pending',
-          last_contact: '2 days ago',
-          suggested_message: 'Following up on our conversation about AI tools for K-12...',
-        },
-        {
-          id: '2',
-          prospect_id: '3',
-          prospect_name: 'Emily Rodriguez',
-          company: 'Future Schools Inc',
-          scheduled_date: new Date().toISOString().split('T')[0],
-          type: 'check_in',
-          status: 'overdue',
-          last_contact: '5 days ago',
-          suggested_message: 'Quick check-in to see how things are going...',
-        },
-        {
-          id: '3',
-          prospect_id: '2',
-          prospect_name: 'Michael Chen',
-          company: 'InnovateEd',
-          scheduled_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          type: 'nurture',
-          status: 'pending',
-          last_contact: '1 week ago',
-        },
-      ];
 
-      setEvents(mockEvents);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load events');
-    } finally {
-      setLoading(false);
-    }
-  };
+      try {
+        setLoading(true);
+
+        // Calculate date range for current month view
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const startDate = firstDay.toISOString().split('T')[0];
+        const endDate = lastDay.toISOString().split('T')[0];
+
+        const params = new URLSearchParams({
+          user_id: 'dev-user',
+          start_date: startDate,
+          end_date: endDate,
+          limit: '500',
+        });
+
+        const response = await fetch(`${apiUrl}/api/calendar/?${params.toString()}`);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.events) {
+            setEvents(data.events.map((e: any) => ({
+              id: e.id,
+              prospect_id: e.prospect_id,
+              prospect_name: e.prospect_name || 'Unknown',
+              company: e.company,
+              scheduled_date: e.scheduled_date,
+              type: e.type,
+              status: e.status,
+              notes: e.notes,
+              last_contact: e.last_contact,
+              suggested_message: e.suggested_message,
+            })));
+            setError(null);
+            return;
+          }
+        }
+
+        // Fallback to mock data if API fails or returns no data
+        const mockEvents: FollowUpEvent[] = [
+          {
+            id: '1',
+            prospect_id: '1',
+            prospect_name: 'Sarah Johnson',
+            company: 'TechEd Solutions',
+            scheduled_date: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            type: 'follow_up',
+            status: 'pending',
+            last_contact: '2 days ago',
+            suggested_message: 'Following up on our conversation about AI tools for K-12...',
+          },
+          {
+            id: '2',
+            prospect_id: '3',
+            prospect_name: 'Emily Rodriguez',
+            company: 'Future Schools Inc',
+            scheduled_date: new Date().toISOString().split('T')[0],
+            type: 'check_in',
+            status: 'overdue',
+            last_contact: '5 days ago',
+            suggested_message: 'Quick check-in to see how things are going...',
+          },
+          {
+            id: '3',
+            prospect_id: '2',
+            prospect_name: 'Michael Chen',
+            company: 'InnovateEd',
+            scheduled_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            type: 'nurture',
+            status: 'pending',
+            last_contact: '1 week ago',
+          },
+        ];
+
+        setEvents(mockEvents);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load events');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadEvents();
+  }, [currentDate]);
 
   const getDaysInMonth = (date: Date): CalendarDay[] => {
     const year = date.getFullYear();
@@ -464,4 +464,3 @@ export default function CalendarPage() {
     </main>
   );
 }
-

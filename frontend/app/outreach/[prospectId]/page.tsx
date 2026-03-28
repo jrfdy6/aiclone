@@ -1,11 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import NavHeader from '@/components/NavHeader';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 type Prospect = {
   id: string;
@@ -34,7 +32,6 @@ type OutreachMessage = {
 
 export default function OutreachPage() {
   const params = useParams();
-  const router = useRouter();
   const prospectId = params?.prospectId as string;
 
   const [prospect, setProspect] = useState<Prospect | null>(null);
@@ -44,46 +41,46 @@ export default function OutreachPage() {
   const [messageType, setMessageType] = useState<'email' | 'linkedin' | 'dm'>('email');
 
   useEffect(() => {
-    if (prospectId) {
-      loadProspect();
-      loadMessages();
-    }
+    if (!prospectId) return;
+
+    const loadProspect = async () => {
+      try {
+        // TODO: Replace with actual API endpoint
+        // Mock data for now
+        setProspect({
+          id: prospectId,
+          name: 'Sarah Johnson',
+          company: 'TechEd Solutions',
+          job_title: 'Director of Admissions',
+          email: 'sarah.johnson@techedsolutions.com',
+          phone: '+1 (555) 123-4567',
+          fit_score: 92,
+          status: 'new',
+          location: 'San Francisco, CA',
+          tags: ['Education', 'EdTech'],
+          summary: 'Experienced admissions director at a leading EdTech company.',
+          pain_points: ['Student enrollment', 'AI integration'],
+          source_url: 'https://example.com/profile',
+        });
+      } catch (err) {
+        console.error('Failed to load prospect:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const loadMessages = async () => {
+      try {
+        // TODO: Replace with actual API endpoint
+        setMessages([]);
+      } catch (err) {
+        console.error('Failed to load messages:', err);
+      }
+    };
+
+    void loadProspect();
+    void loadMessages();
   }, [prospectId]);
-
-  const loadProspect = async () => {
-    try {
-      // TODO: Replace with actual API endpoint
-      // Mock data for now
-      setProspect({
-        id: prospectId,
-        name: 'Sarah Johnson',
-        company: 'TechEd Solutions',
-        job_title: 'Director of Admissions',
-        email: 'sarah.johnson@techedsolutions.com',
-        phone: '+1 (555) 123-4567',
-        fit_score: 92,
-        status: 'new',
-        location: 'San Francisco, CA',
-        tags: ['Education', 'EdTech'],
-        summary: 'Experienced admissions director at a leading EdTech company.',
-        pain_points: ['Student enrollment', 'AI integration'],
-        source_url: 'https://example.com/profile',
-      });
-    } catch (err) {
-      console.error('Failed to load prospect:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadMessages = async () => {
-    try {
-      // TODO: Replace with actual API endpoint
-      setMessages([]);
-    } catch (err) {
-      console.error('Failed to load messages:', err);
-    }
-  };
 
   const handleGenerateMessage = async () => {
     if (!prospect) return;
