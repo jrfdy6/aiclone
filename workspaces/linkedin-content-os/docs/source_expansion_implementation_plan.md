@@ -614,6 +614,7 @@ Production validation timing:
 This is the recommended implementation order inside the existing system:
 
 1. `LNK-026`
+   Current production note (`2026-03-28`): the mixed feed recovered after the source-taxonomy rollout, but the live refresh currently shows LinkedIn + RSS/Substack and no Reddit items. If the next-cycle validation still shows no Reddit coverage, pause the transcript/media sequence and reprioritize Reddit source debugging first.
 2. `LNK-027`
 3. `LNK-028`
 4. `LNK-029`

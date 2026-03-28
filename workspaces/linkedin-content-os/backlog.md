@@ -145,6 +145,7 @@
 ### LNK-021 - Expand the source adapters beyond LinkedIn-first capture
 - Outcome: treat Reddit, Substack/RSS, and web articles as first-class source channels while preserving one shared interpretation path and one lane system.
 - Status: partially live. Reddit, RSS/Substack, manual URL/text preview, and restored LinkedIn saved signals are now all flowing through the shared social feed runtime. The next phase is expanding from short-form/article sources into transcript-derived long-form media and routing those signals into the right downstream jobs instead of treating every source like a comment card.
+- Current production note (`2026-03-28`): the refreshed mixed feed recovered with LinkedIn + RSS/Substack items, but Reddit is currently absent. If Reddit is still missing on the next-cycle validation, reprioritize Reddit source-adapter debugging before transcript/media expansion.
 - Source files:
   - `docs/social_intelligence_architecture.md`
   - `docs/market_intelligence.md`

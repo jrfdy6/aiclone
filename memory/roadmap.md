@@ -73,6 +73,7 @@
      - deterministic rebuild validation (`10-20m`),
      - full refresh validation (`20-60m`),
      - next-cycle validation (`12-24h`).
+  7. current production note (`2026-03-28`): after the source-taxonomy rollout, the refreshed mixed feed recovered LinkedIn + RSS/Substack items but did not surface Reddit. If that is still true on the next-cycle check, reprioritize Reddit source-adapter debugging ahead of transcript/media expansion.
 - `karpathy/autoresearch` is explicitly parked as a later Lab-stage tuning tool. Use it to optimize lane/stance/technique policy once the feedback loop and tuning dashboard are trustworthy, not as the current path for making the product smarter.
 - Use orchestration as the core species for the product behavior, coding harnesses for implementation work, auto research for tuning, and dark-factory behavior only for low-risk offline generation.
 - Canonical workspace implementation map: `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`
