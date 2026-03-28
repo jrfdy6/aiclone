@@ -565,7 +565,7 @@ def _persona_review_stage(status: str, metadata: dict[str, Any] | None) -> str:
 
 def _build_persona_review_summary_payload() -> dict[str, Any] | None:
     sync_result: dict[str, Any] | None = None
-    source_assets_payload = _build_source_assets_payload()
+    source_assets_payload = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
     if source_assets_payload:
         try:
             sync_result = social_persona_review_service.sync_long_form_worldview_reviews(
@@ -755,11 +755,61 @@ def _source_assets_signature(payload: dict[str, Any]) -> list[tuple[str, str, st
     return signature
 
 
-def _persona_review_signature(payload: dict[str, Any]) -> tuple[tuple[str, int], ...]:
+def _source_assets_count(payload: dict[str, Any] | None) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    counts = payload.get("counts")
+    if isinstance(counts, dict):
+        total = counts.get("total")
+        if isinstance(total, (int, float)):
+            return int(total)
+    items = payload.get("items")
+    return len(items) if isinstance(items, list) else 0
+
+
+def _persona_review_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
     counts = payload.get("counts") or {}
+    status_counts = payload.get("status_counts") or {}
+    review_source_counts = payload.get("review_source_counts") or {}
+    recent = payload.get("recent") or []
+    long_form_sync = payload.get("long_form_sync") or {}
     if not isinstance(counts, dict):
-        return tuple()
-    return tuple(sorted((str(key), int(value)) for key, value in counts.items() if isinstance(value, (int, float))))
+        counts = {}
+    if not isinstance(status_counts, dict):
+        status_counts = {}
+    if not isinstance(review_source_counts, dict):
+        review_source_counts = {}
+    if not isinstance(recent, list):
+        recent = []
+    if not isinstance(long_form_sync, dict):
+        long_form_sync = {}
+
+    recent_signature: list[tuple[str, str, str, str]] = []
+    for item in recent[:12]:
+        if not isinstance(item, dict):
+            continue
+        recent_signature.append(
+            (
+                str(item.get("id") or ""),
+                str(item.get("status") or ""),
+                str(item.get("stage") or ""),
+                str(item.get("review_source") or ""),
+            )
+        )
+
+    return (
+        tuple(sorted((str(key), int(value)) for key, value in counts.items() if isinstance(value, (int, float)))),
+        tuple(sorted((str(key), int(value)) for key, value in status_counts.items() if isinstance(value, (int, float)))),
+        tuple(sorted((str(key), int(value)) for key, value in review_source_counts.items() if isinstance(value, (int, float)))),
+        tuple(recent_signature),
+        (
+            int(long_form_sync.get("assets_considered") or 0),
+            int(long_form_sync.get("created_count") or 0),
+            int(long_form_sync.get("skipped_existing") or 0),
+            int(long_form_sync.get("skipped_no_segments") or 0),
+            int(long_form_sync.get("resolved_stale") or 0),
+        ),
+    )
 
 
 def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
@@ -778,6 +828,10 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
     if snapshot_type == SNAPSHOT_SOURCE_ASSETS:
         runtime = _runtime_snapshot_payload(snapshot_type)
         if runtime:
+            runtime_count = _source_assets_count(runtime)
+            persisted_count = _source_assets_count(persisted)
+            if persisted and _snapshot_is_usable(snapshot_type, persisted) and runtime_count == 0 and persisted_count > 0:
+                return persisted
             if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
                 return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
             if _source_assets_signature(persisted) != _source_assets_signature(runtime):

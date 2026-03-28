@@ -466,6 +466,50 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertGreater(len(items), 0)
         self.assertEqual(source_assets.get("counts", {}).get("total"), len(items))
 
+    def test_workspace_snapshot_keeps_nonempty_persisted_source_assets_when_runtime_inventory_is_empty(self) -> None:
+        persisted = {
+            "generated_at": "2026-03-28T00:00:00+00:00",
+            "workspace": "linkedin-content-os",
+            "items": [
+                {
+                    "asset_id": "persisted-asset",
+                    "title": "Persisted asset",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "source_class": "long_form_media",
+                    "response_modes": ["post_seed", "belief_evidence"],
+                }
+            ],
+            "counts": {
+                "total": 1,
+                "long_form_media": 1,
+                "pending_segmentation": 1,
+                "feed_ready": 0,
+                "by_channel": {"youtube": 1},
+            },
+        }
+
+        with patch.object(workspace_snapshot_module, "get_snapshot_payload", return_value=persisted), patch.object(
+            workspace_snapshot_module,
+            "_build_source_assets_payload",
+            return_value={
+                "generated_at": "2026-03-28T00:01:00+00:00",
+                "workspace": "linkedin-content-os",
+                "items": [],
+                "counts": {
+                    "total": 0,
+                    "long_form_media": 0,
+                    "pending_segmentation": 0,
+                    "feed_ready": 0,
+                    "by_channel": {},
+                },
+            },
+        ):
+            snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+
+        source_assets = snapshot.get("source_assets") or {}
+        self.assertEqual(source_assets.get("counts", {}).get("total"), 1)
+        self.assertEqual((source_assets.get("items") or [{}])[0].get("asset_id"), "persisted-asset")
+
     def test_workspace_snapshot_includes_persona_review_lifecycle_summary(self) -> None:
         now = datetime.now(timezone.utc)
         deltas = [
@@ -801,6 +845,86 @@ And if your CEO is using AI for prompting and agents, you are far more likely to
         self.assertEqual((summary.get("long_form_sync") or {}).get("created_count"), 2)
         self.assertEqual((summary.get("long_form_sync") or {}).get("resolved_stale"), 1)
         sync_mock.assert_called()
+
+    def test_persona_review_summary_refreshes_when_recent_changes_without_count_change(self) -> None:
+        persisted = {
+            "generated_at": "2026-03-28T00:00:00+00:00",
+            "workspace": "linkedin-content-os",
+            "counts": {
+                "total": 2,
+                "brain_pending_review": 1,
+                "workspace_saved": 1,
+                "approved_unpromoted": 0,
+                "pending_promotion": 0,
+                "committed": 0,
+            },
+            "status_counts": {"draft": 1, "approved": 1},
+            "review_source_counts": {"long_form_media.segment": 1, "linkedin_workspace.feed_quote": 1},
+            "target_file_counts": {"identity/claims.md": 1},
+            "recent": [
+                {
+                    "id": "delta-old",
+                    "trait": "Old trait",
+                    "status": "draft",
+                    "stage": "brain_pending_review",
+                    "review_source": "long_form_media.segment",
+                }
+            ],
+            "long_form_sync": {
+                "assets_considered": 1,
+                "created_count": 0,
+                "skipped_existing": 1,
+                "skipped_no_segments": 0,
+                "resolved_stale": 0,
+                "created": [],
+            },
+        }
+        runtime = {
+            **persisted,
+            "generated_at": "2026-03-28T00:05:00+00:00",
+            "recent": [
+                {
+                    "id": "delta-new",
+                    "trait": "New trait",
+                    "status": "draft",
+                    "stage": "brain_pending_review",
+                    "review_source": "long_form_media.segment",
+                }
+            ],
+            "long_form_sync": {
+                "assets_considered": 1,
+                "created_count": 1,
+                "skipped_existing": 0,
+                "skipped_no_segments": 0,
+                "resolved_stale": 1,
+                "created": [{"id": "delta-new", "trait": "New trait"}],
+            },
+        }
+        persisted_result: dict[str, dict] = {}
+
+        def fake_get_snapshot_payload(workspace_key: str, snapshot_type: str):
+            if snapshot_type == workspace_snapshot_module.SNAPSHOT_PERSONA_REVIEW_SUMMARY:
+                return persisted
+            return None
+
+        def fake_runtime_payload(snapshot_type: str):
+            if snapshot_type == workspace_snapshot_module.SNAPSHOT_PERSONA_REVIEW_SUMMARY:
+                return runtime
+            return None
+
+        def fake_upsert_snapshot(workspace_key: str, snapshot_type: str, payload: dict, metadata: dict | None = None):
+            persisted_result["payload"] = payload
+
+        with patch.object(workspace_snapshot_module, "get_snapshot_payload", side_effect=fake_get_snapshot_payload), patch.object(
+            workspace_snapshot_module,
+            "_runtime_snapshot_payload",
+            side_effect=fake_runtime_payload,
+        ), patch.object(workspace_snapshot_module, "upsert_snapshot", side_effect=fake_upsert_snapshot):
+            payload = workspace_snapshot_module._load_snapshot(workspace_snapshot_module.SNAPSHOT_PERSONA_REVIEW_SUMMARY)
+
+        self.assertEqual((payload or {}).get("recent", [{}])[0].get("id"), "delta-new")
+        self.assertEqual((payload or {}).get("long_form_sync", {}).get("created_count"), 1)
+        self.assertEqual((persisted_result.get("payload") or {}).get("recent", [{}])[0].get("id"), "delta-new")
 
     def test_ingest_signal_route(self) -> None:
         response = self.client.post(
