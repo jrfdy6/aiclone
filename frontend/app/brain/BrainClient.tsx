@@ -46,6 +46,36 @@ export type DailyBriefEntry = {
   updated_at: string;
 };
 
+type BriefSourceIntelligenceCandidate = {
+  title?: string | null;
+  priority_lane?: string | null;
+  source_kind?: string | null;
+  route_reason?: string | null;
+  target_file?: string | null;
+};
+
+type BriefSourceIntelligenceReviewItem = {
+  trait?: string | null;
+  belief_relation?: string | null;
+  review_source?: string | null;
+  target_file?: string | null;
+};
+
+type BriefSourceIntelligence = {
+  generated_at?: string | null;
+  base_generated_at?: string | null;
+  source_counts?: Record<string, number>;
+  source_asset_counts?: Record<string, number>;
+  route_counts?: Record<string, number>;
+  primary_route_counts?: Record<string, number>;
+  belief_relation_counts?: Record<string, number>;
+  media_post_seed_count?: number;
+  belief_evidence_candidate_count?: number;
+  top_media_post_seeds?: BriefSourceIntelligenceCandidate[];
+  top_belief_evidence?: BriefSourceIntelligenceCandidate[];
+  top_review_items?: BriefSourceIntelligenceReviewItem[];
+};
+
 type Automation = {
   id: string;
   name: string;
@@ -323,6 +353,7 @@ function DailyBriefsPanel({
   onSelect: (entry: DailyBriefEntry) => void;
   error: string | null;
 }) {
+  const selectedSourceIntelligence = selected ? briefSourceIntelligence(selected) : null;
   return (
     <section style={{ display: 'flex', gap: '16px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '460px' }}>
       <div style={{ width: '260px', borderRight: '1px solid #0f172a', paddingRight: '12px', maxHeight: '420px', overflowY: 'auto' }}>
@@ -355,6 +386,7 @@ function DailyBriefsPanel({
             <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{selected.brief_date}</p>
             <h2 style={{ color: 'white', fontSize: '24px', marginBottom: '8px' }}>{selected.title}</h2>
             {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>}
+            {selectedSourceIntelligence && <BriefSourceIntelligencePanel overlay={selectedSourceIntelligence} />}
             <div
               style={{
                 borderRadius: '14px',
@@ -375,6 +407,109 @@ function DailyBriefsPanel({
         )}
       </div>
     </section>
+  );
+}
+
+function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelligence }) {
+  const sourceCounts = overlay.source_counts ?? {};
+  const assetCounts = overlay.source_asset_counts ?? {};
+  const routeCounts = overlay.route_counts ?? {};
+  const relationCounts = overlay.belief_relation_counts ?? {};
+  const mediaSeeds = overlay.top_media_post_seeds ?? [];
+  const beliefEvidence = overlay.top_belief_evidence ?? [];
+  const reviewItems = overlay.top_review_items ?? [];
+
+  return (
+    <section
+      style={{
+        borderRadius: '14px',
+        border: '1px solid #1f2937',
+        backgroundColor: '#020617',
+        padding: '16px',
+        marginBottom: '12px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '10px', flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Live Source Intelligence</p>
+          <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, maxWidth: '760px' }}>
+            This is the current shared planning overlay from the source system, not a second brief-only inference path.
+          </p>
+        </div>
+        <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right' }}>
+          <div>{overlay.generated_at ? formatTimestamp(new Date(overlay.generated_at)) : 'No live timestamp'}</div>
+          {overlay.base_generated_at && <div>Base plan {overlay.base_generated_at}</div>}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <InlineBadge label={`media ${numberMeta(sourceCounts.media)}`} tone="#38bdf8" />
+        <InlineBadge label={`belief ${numberMeta(sourceCounts.belief_evidence)}`} tone="#22c55e" />
+        <InlineBadge label={`assets ${numberMeta(assetCounts.total)}`} tone="#818cf8" />
+        <InlineBadge label={`segments ${numberMeta(routeCounts.post_seed)}/${numberMeta(routeCounts.belief_evidence)}`} tone="#f59e0b" />
+        <InlineBadge label={`relations ${Object.keys(relationCounts).length}`} tone="#64748b" />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        <BriefOverlayBlock
+          title="Route Mix"
+          items={Object.entries(routeCounts).map(([key, value]) => `${humanizeSnakeCase(key)}: ${value}`)}
+          emptyLabel="No route counts yet."
+        />
+        <BriefOverlayBlock
+          title="Belief Relations"
+          items={Object.entries(relationCounts).map(([key, value]) => `${humanizeBeliefRelation(key)}: ${value}`)}
+          emptyLabel="No relation counts yet."
+        />
+        <BriefOverlayBlock
+          title="Top Media Seeds"
+          items={mediaSeeds.map((item) => compactBriefCandidate(item))}
+          emptyLabel="No live media seeds yet."
+        />
+        <BriefOverlayBlock
+          title="Top Belief Evidence"
+          items={beliefEvidence.map((item) => compactBriefCandidate(item))}
+          emptyLabel="No live belief evidence yet."
+        />
+      </div>
+
+      {reviewItems.length > 0 && (
+        <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #1f2937' }}>
+          <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Recent worldview review items</p>
+          <div style={{ display: 'grid', gap: '8px' }}>
+            {reviewItems.map((item, index) => (
+              <div key={`${item.trait ?? 'review'}-${index}`} style={{ borderRadius: '10px', border: '1px solid #1f2937', padding: '10px', backgroundColor: '#030712' }}>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.5, marginBottom: '6px' }}>{item.trait ?? 'Untitled review item'}</p>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <InlineBadge label={humanizeBeliefRelation(item.belief_relation ?? null)} tone="#22c55e" />
+                  <InlineBadge label={humanizeReviewSource(item.review_source ?? null)} tone="#64748b" />
+                  {item.target_file && <InlineBadge label={item.target_file} tone="#818cf8" />}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BriefOverlayBlock({ title, items, emptyLabel }: { title: string; items: string[]; emptyLabel: string }) {
+  return (
+    <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#030712', padding: '12px' }}>
+      <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>{title}</p>
+      {items.length === 0 ? (
+        <p style={{ color: '#475569', fontSize: '12px' }}>{emptyLabel}</p>
+      ) : (
+        <div style={{ display: 'grid', gap: '6px' }}>
+          {items.map((item, index) => (
+            <p key={`${title}-${index}`} style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.45 }}>
+              {item}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1267,6 +1402,11 @@ function metadataText(metadata: Record<string, unknown> | undefined, key: string
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
+function metadataObject<T extends object>(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as T) : null;
+}
+
 function metadataArray(metadata: Record<string, unknown> | undefined, key: string) {
   const value = metadata?.[key];
   return Array.isArray(value) ? value : [];
@@ -1561,6 +1701,29 @@ function findPackSection(packs: PersonaPack[], relPath: string | null) {
     }
   }
   return null;
+}
+
+function briefSourceIntelligence(entry: DailyBriefEntry | null) {
+  return entry ? metadataObject<BriefSourceIntelligence>(entry.metadata, 'source_intelligence') : null;
+}
+
+function numberMeta(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : '0';
+}
+
+function humanizeSnakeCase(value: string | null | undefined) {
+  if (!value) return 'Unknown';
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function compactBriefCandidate(item: BriefSourceIntelligenceCandidate) {
+  const title = item.title?.trim() || 'Untitled candidate';
+  const parts = [item.priority_lane?.trim(), item.target_file?.trim(), item.route_reason?.trim()].filter(Boolean);
+  return parts.length > 0 ? `${title} · ${parts.join(' · ')}` : title;
 }
 
 function truncateText(text: string, limit: number) {

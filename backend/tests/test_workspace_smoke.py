@@ -26,6 +26,7 @@ social_feedback_module = importlib.import_module("app.services.social_feedback_s
 social_feed_builder_module = importlib.import_module("app.services.social_feed_builder_service")
 social_long_form_signal_module = importlib.import_module("app.services.social_long_form_signal_service")
 social_persona_review_module = importlib.import_module("app.services.social_persona_review_service")
+daily_brief_module = importlib.import_module("app.services.daily_brief_service")
 persona_route_module = importlib.import_module("app.routes.persona")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 
@@ -121,10 +122,12 @@ class WorkspaceSmokeTests(unittest.TestCase):
         cls.fixture_root = Path(cls.temp_dir.name) / "linkedin-content-os"
         plans_dir = cls.fixture_root / "plans"
         analytics_dir = cls.fixture_root / "analytics"
+        memory_dir = Path(cls.temp_dir.name) / "memory"
         transcripts_dir = Path(cls.temp_dir.name) / "knowledge" / "aiclone" / "transcripts"
         ingestions_dir = Path(cls.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "fixture_transcript_asset"
         plans_dir.mkdir(parents=True, exist_ok=True)
         analytics_dir.mkdir(parents=True, exist_ok=True)
+        memory_dir.mkdir(parents=True, exist_ok=True)
         transcripts_dir.mkdir(parents=True, exist_ok=True)
         ingestions_dir.mkdir(parents=True, exist_ok=True)
         (plans_dir / "social_feed.json").write_text(json.dumps(SAMPLE_FEED, indent=2), encoding="utf-8")
@@ -171,6 +174,21 @@ AI pilots fail because teams miss some critical elements.
 """,
             encoding="utf-8",
         )
+        (memory_dir / "daily-briefs.md").write_text(
+            """# Morning Daily Brief - 2026-03-28
+
+- Media routes are now feeding planning and persona review from one shared source system.
+- Brain queue and workspace snapshot should agree on long-form worldview evidence.
+
+## Notes
+Shared source intelligence should stay visible in the brief layer.
+
+# Morning Daily Brief - 2026-03-27
+
+- Earlier brief content.
+""",
+            encoding="utf-8",
+        )
 
         cls.patches = [
             patch.object(workspace_snapshot_module, "LINKEDIN_ROOT", cls.fixture_root),
@@ -183,6 +201,7 @@ AI pilots fail because teams miss some critical elements.
             patch.object(social_feedback_module, "FEEDBACK_JSONL_PATH", analytics_dir / "feed_feedback.jsonl"),
             patch.object(social_feedback_module, "FEEDBACK_SUMMARY_PATH", analytics_dir / "feed_feedback_summary.json"),
             patch.object(social_feedback_module, "upsert_snapshot", lambda *args, **kwargs: None),
+            patch.object(daily_brief_module, "_WORKSPACE_CANDIDATES", (Path(cls.temp_dir.name),)),
         ]
         for patcher in cls.patches:
             patcher.start()
@@ -428,6 +447,104 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertTrue(items[0].get("lens_variants"))
         self.assertGreater(len(asset_items), 0)
         self.assertIn("counts", persona_review_summary)
+
+    def test_daily_briefs_attach_live_source_intelligence_to_latest_brief(self) -> None:
+        fake_payloads = {
+            "weekly_plan": {
+                "generated_at": "2026-03-28T12:00:00+00:00",
+                "base_generated_at": "2026-03-27 19:21",
+                "source_counts": {"drafts": 1, "media": 3, "belief_evidence": 2},
+                "media_post_seeds": [
+                    {
+                        "title": "Media seed one",
+                        "priority_lane": "ai",
+                        "source_kind": "long_form_post_seed",
+                        "route_reason": "Strong original-post angle",
+                    }
+                ],
+                "belief_evidence_candidates": [
+                    {
+                        "title": "Belief candidate one",
+                        "priority_lane": "ai",
+                        "source_kind": "long_form_belief_evidence",
+                        "route_reason": "Durable worldview evidence",
+                        "target_file": "identity/claims.md",
+                    }
+                ],
+                "media_summary": {
+                    "generated_at": "2026-03-28T12:00:00+00:00",
+                    "route_counts": {"comment": 1, "post_seed": 3, "belief_evidence": 2},
+                    "primary_route_counts": {"comment": 1, "post_seed": 2, "belief_evidence": 1},
+                },
+            },
+            "long_form_routes": {},
+            "source_assets": {"counts": {"total": 5, "long_form_media": 5, "pending_segmentation": 0, "feed_ready": 0}},
+            "persona_review_summary": {
+                "generated_at": "2026-03-28T12:00:00+00:00",
+                "belief_relation_counts": {"qualified_agreement": 3, "translation": 1},
+                "recent": [
+                    {
+                        "trait": "The key point is that teams fail when they chase tools before workflow clarity.",
+                        "belief_relation": "system_translation",
+                        "review_source": "long_form_media.segment",
+                        "target_file": "identity/claims.md",
+                    }
+                ],
+            },
+        }
+
+        with patch.object(daily_brief_module, "_load_from_db", return_value=[]), patch.object(
+            daily_brief_module,
+            "_snapshot_payloads",
+            return_value=fake_payloads,
+        ):
+            briefs = daily_brief_module.list_daily_briefs(limit=5)
+
+        self.assertGreaterEqual(len(briefs), 2)
+        latest = briefs[0]
+        older = briefs[1]
+        overlay = latest.metadata.get("source_intelligence") or {}
+        self.assertTrue(latest.metadata.get("source_intelligence_live"))
+        self.assertEqual(overlay.get("media_post_seed_count"), 1)
+        self.assertEqual(overlay.get("belief_evidence_candidate_count"), 1)
+        self.assertEqual((overlay.get("belief_relation_counts") or {}).get("qualified_agreement"), 3)
+        self.assertEqual(((overlay.get("top_media_post_seeds") or [{}])[0]).get("title"), "Media seed one")
+        self.assertFalse(older.metadata.get("source_intelligence_live"))
+        self.assertIsNone(older.metadata.get("source_intelligence"))
+
+    def test_daily_briefs_route_surfaces_source_intelligence_overlay(self) -> None:
+        fake_payloads = {
+            "weekly_plan": {
+                "generated_at": "2026-03-28T12:00:00+00:00",
+                "source_counts": {"media": 2, "belief_evidence": 1},
+                "media_post_seeds": [],
+                "belief_evidence_candidates": [],
+                "media_summary": {
+                    "generated_at": "2026-03-28T12:00:00+00:00",
+                    "route_counts": {"post_seed": 2, "belief_evidence": 1},
+                    "primary_route_counts": {"post_seed": 2, "belief_evidence": 1},
+                },
+            },
+            "long_form_routes": {},
+            "source_assets": {"counts": {"total": 5}},
+            "persona_review_summary": {"belief_relation_counts": {"system_translation": 1}, "recent": []},
+        }
+
+        with patch.object(daily_brief_module, "_load_from_db", return_value=[]), patch.object(
+            daily_brief_module,
+            "_snapshot_payloads",
+            return_value=fake_payloads,
+        ):
+            response = self.client.get("/api/briefs/?limit=5")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload)
+        self.assertTrue(payload[0]["metadata"].get("source_intelligence_live"))
+        self.assertEqual(
+            ((payload[0]["metadata"].get("source_intelligence") or {}).get("route_counts") or {}).get("post_seed"),
+            2,
+        )
 
     def test_source_asset_inventory_exposes_long_form_media_without_feed_routing(self) -> None:
         inventory = build_source_asset_inventory(
