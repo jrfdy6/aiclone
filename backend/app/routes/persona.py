@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from app.models import PersonaDelta, PersonaDeltaCreate, PersonaDeltaResolve, PersonaDeltaUpdate
 from app.services import persona_delta_service
@@ -12,9 +12,15 @@ router = APIRouter(tags=["Persona"], prefix="/api/persona")
 
 
 @router.get("/deltas", response_model=List[PersonaDelta])
-async def list_persona_deltas(status: Optional[str] = None, limit: int = 50, view: Optional[str] = None):
+async def list_persona_deltas(
+    response: Response,
+    status: Optional[str] = None,
+    limit: int = 50,
+    view: Optional[str] = None,
+):
     deltas = persona_delta_service.list_deltas(limit=limit, status=status)
     if (view or "").strip().lower() == "brain_queue":
+        response.headers["Cache-Control"] = "no-store, max-age=0"
         return prepare_for_brain_queue(deltas)
     return deltas
 

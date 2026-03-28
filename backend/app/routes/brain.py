@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from app.models import BrainLongFormIngestRequest, BrainPersonaReviewRequest, PersonaDelta
 from app.services import persona_delta_service
@@ -13,8 +13,9 @@ router = APIRouter(tags=["Brain"], prefix="/api/brain")
 
 
 @router.get("/control-plane")
-async def get_brain_control_plane():
+async def get_brain_control_plane(response: Response):
     try:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
         return build_brain_control_plane()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

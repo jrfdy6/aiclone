@@ -318,11 +318,20 @@ export default function BrainClient({
     [activeTab],
   );
 
+  async function fetchFreshJson<T>(path: string): Promise<T> {
+    const separator = path.includes('?') ? '&' : '?';
+    const response = await fetch(`${API_URL}${path}${separator}brain_ts=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-store' },
+    });
+    return response.json() as Promise<T>;
+  }
+
   async function loadData(cancelled = false) {
       const [briefsRes, personaRes, controlPlaneRes] = await Promise.allSettled([
-        fetch(`${API_URL}/api/briefs/?limit=50`).then((res) => res.json()),
-        fetch(`${API_URL}/api/persona/deltas?limit=100&view=brain_queue`).then((res) => res.json()),
-        fetch(`${API_URL}/api/brain/control-plane`).then((res) => res.json()),
+        fetchFreshJson<DailyBriefEntry[]>('/api/briefs/?limit=50'),
+        fetchFreshJson<PersonaDeltaEntry[]>('/api/persona/deltas?limit=100&view=brain_queue'),
+        fetchFreshJson<BrainControlPlanePayload>('/api/brain/control-plane'),
       ]);
 
       if (cancelled) {
@@ -434,6 +443,9 @@ export default function BrainClient({
           deltas={personaDeltas}
           error={personaDeltasError}
           refreshBrainData={() => loadData()}
+          mergeUpdatedDelta={(updatedDelta) =>
+            setPersonaDeltas((current) => current.map((delta) => (delta.id === updatedDelta.id ? updatedDelta : delta)))
+          }
         />
       )}
       {activeTab === 'automations' && (
@@ -920,11 +932,13 @@ function PersonaPanel({
   deltas,
   error,
   refreshBrainData,
+  mergeUpdatedDelta,
 }: {
   packs: PersonaPack[];
   deltas: PersonaDeltaEntry[];
   error: string | null;
   refreshBrainData: () => Promise<void>;
+  mergeUpdatedDelta: (updatedDelta: PersonaDeltaEntry) => void;
 }) {
   const [completedDeltaIds, setCompletedDeltaIds] = useState<string[]>([]);
   const [showMutedActive, setShowMutedActive] = useState(false);
@@ -1169,6 +1183,8 @@ function PersonaPanel({
           const detail = await reviewResponse.text();
           throw new Error(detail || `Persona review update failed with ${reviewResponse.status}`);
         }
+        const updatedDelta = (await reviewResponse.json()) as PersonaDeltaEntry;
+        mergeUpdatedDelta(updatedDelta);
       }
       const nextQueue = selectedDelta ? reviewQueue.filter((delta) => delta.id !== selectedDelta.id) : reviewQueue;
       await refreshBrainData();

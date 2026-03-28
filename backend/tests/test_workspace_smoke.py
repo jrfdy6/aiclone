@@ -1807,9 +1807,30 @@ summary: Leadership behavior drives AI implementation outcomes.
             response = self.client.get("/api/brain/control-plane")
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
         payload = response.json()
         self.assertEqual((payload.get("summary") or {}).get("automation_count"), 1)
         self.assertEqual(((payload.get("workspace_snapshot") or {}).get("doc_entries") or [{}])[0].get("path"), "SOPs/example.md")
+
+    def test_persona_brain_queue_route_sets_no_store_cache_header(self) -> None:
+        delta = PersonaDelta(
+            id="delta-brain-queue-cache",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Trait under review",
+            notes=None,
+            status="draft",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+        with patch.object(persona_route_module.persona_delta_service, "list_deltas", return_value=[delta]):
+            response = self.client.get("/api/persona/deltas?limit=10&view=brain_queue")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("cache-control"), "no-store, max-age=0")
+        payload = response.json()
+        self.assertEqual((payload[0].get("metadata") or {}).get("queue_stage"), "brain_pending_review")
 
     def test_apply_brain_review_persists_owner_response_metadata(self) -> None:
         delta = PersonaDelta(
