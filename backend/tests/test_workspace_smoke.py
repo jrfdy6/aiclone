@@ -888,9 +888,11 @@ Machine learning is a subset of AI that uses math and statistical processes to c
 
         combined_text = " ".join((payload.trait + " " + (payload.notes or "")) for payload in created_payloads).lower()
         self.assertIn("organizational challenges of talent, culture, and resistance to change", combined_text)
+        self.assertIn("the practical work is to identify and implement the most impactful ai applications", combined_text)
         self.assertIn("operational efficiencies, enhance customer experience, and drive revenue", combined_text)
         self.assertNotIn("why does it have to be that way", combined_text)
         self.assertNotIn("machine learning is a subset of ai", combined_text)
+        self.assertNotIn("at obsidian strategies", combined_text)
 
     def test_long_form_persona_review_sync_avoids_deictic_dashboard_fragments(self) -> None:
         dashboard_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "dashboard_fragment_transcript"
@@ -915,12 +917,13 @@ word_count: 9000
 summary: Leadership behavior drives AI implementation outcomes.
 ---
 
-# Clean Transcript / Document
-But if your CEO is using it for prompting and for agents, brainstorming with you, doing cross-team groups with you, you're 5.2 times more likely to be successful with AI because they're talking about it.
-So it answers questions when my team is sleeping, for example, but the number one thing I'm super proud about is that element in green.
-But the better question would be if we rebuilt that customer service function from scratch knowing that AI is here, what would that look like?
-We're gonna start with leadership and talk a little bit about why leaders also impact the return on investment for an AI project.
-""",
+        # Clean Transcript / Document
+        But if your CEO is using it for prompting and for agents, brainstorming with you, doing cross-team groups with you, you're 5.2 times more likely to be successful with AI because they're talking about it.
+        So it answers questions when my team is sleeping, for example, but the number one thing I'm super proud about is that element in green.
+        But the better question would be if we rebuilt that customer service function from scratch knowing that AI is here, what would that look like?
+        We're gonna start with leadership and talk a little bit about why leaders also impact the return on investment for an AI project.
+        Sometimes they miss some very critical elements not because they weren't thinking about it but because that AI magic takes over.
+        """,
             encoding="utf-8",
         )
 
@@ -960,7 +963,10 @@ We're gonna start with leadership and talk a little bit about why leaders also i
         combined_text = " ".join((payload.trait + " " + (payload.notes or "")) for payload in created_payloads).lower()
         self.assertIn("5.2 times more likely to be successful with ai", combined_text)
         self.assertIn("return on investment for an ai project", combined_text)
+        self.assertIn("if your ceo is visibly using ai for prompting and agents", combined_text)
+        self.assertNotIn("we're gonna start with leadership", combined_text)
         self.assertNotIn("that element in green", combined_text)
+        self.assertNotIn("ai magic takes over", combined_text)
 
     def test_workspace_snapshot_persona_review_summary_runs_long_form_sync(self) -> None:
         sync_result = {

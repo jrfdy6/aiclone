@@ -48,6 +48,8 @@ EVENT_META_TERMS = (
     "you guys",
     "this presentation",
     "the slide",
+    "today we are talking about",
+    "years later to talk to you about",
 )
 WORLDVIEW_TERMS = (
     "trust",
@@ -63,6 +65,10 @@ WORLDVIEW_TERMS = (
     "hallucinations",
     "workflow clarity",
     "leadership",
+    "rollout",
+    "adoption stalled",
+    "process and training approach",
+    "more likely to be successful",
     "ai pilots",
     "failing",
 )
@@ -82,11 +88,20 @@ DEFINITION_PATTERNS = (
 )
 WEAK_CONTEXT_PATTERNS = (
     r"\bthat element in green\b",
+    r"\bquestions when my team is sleeping\b",
     r"\bmy team and i thought\b",
     r"\bwhy does it have to be that way\??$",
     r"\bi(?:'m| am) super proud\b",
     r"\balive in spirit\b",
     r"\bnot very well done\b",
+    r"\bchief product officer was presenting\b",
+    r"\bshowed me (?:his|her|their) ai dashboard\b",
+)
+HYPE_PATTERNS = (
+    r"\b\d+\s+years in the field of ai\b",
+    r"\bthat(?:'s| is) an eternity\b",
+    r"\bai magic takes over\b",
+    r"\bmost transformative technology of our generation\b",
 )
 NOISY_LINE_TERMS = (
     "pending owner review",
@@ -157,6 +172,66 @@ def _normalize_source_line(raw_line: str) -> str:
     return line
 
 
+def _sentence_case(text: str) -> str:
+    text = _clean_text(text)
+    if not text:
+        return ""
+    return f"{text[0].upper()}{text[1:]}" if len(text) > 1 else text.upper()
+
+
+def _ensure_terminal_punctuation(text: str) -> str:
+    text = _clean_text(text)
+    if not text:
+        return ""
+    if text.endswith((".", "!", "?")):
+        return text
+    return f"{text}."
+
+
+def _normalize_worldview_candidate(candidate: str) -> str:
+    text = _clean_text(candidate)
+    if not text:
+        return ""
+
+    text = re.sub(r"^(?:And|But|So|Well)\s+", "", text, flags=re.IGNORECASE)
+    text = _clean_text(text)
+
+    patterns: list[tuple[str, Any]] = [
+        (
+            r"^We're gonna start with leadership and talk a little bit about why (.+)$",
+            lambda match: _ensure_terminal_punctuation(_sentence_case(match.group(1))),
+        ),
+        (
+            r"^One story from the conversation described a company that (.+)$",
+            lambda match: _ensure_terminal_punctuation(_sentence_case(f"A company {match.group(1)}")),
+        ),
+        (
+            r"^At [^,]+, where we work to identify and implement (.+)$",
+            lambda match: _ensure_terminal_punctuation(_sentence_case(f"The practical work is to identify and implement {match.group(1)}")),
+        ),
+        (
+            r"^Even if I identify a handful of those opportunities, how do I overcome (.+)\?$",
+            lambda match: _sentence_case(f"The harder problem is overcoming {match.group(1)}."),
+        ),
+        (
+            r"^If your CEO is using it for prompting and for agents, brainstorming with you, doing cross-team groups with you, you're (.+?) because they're talking about it\.$",
+            lambda match: _sentence_case(f"If your CEO is visibly using AI for prompting and agents, you're {match.group(1)}."),
+        ),
+        (
+            r"^The better question would be if we rebuilt (.+), what would that look like\?$",
+            lambda match: _sentence_case(f"The better question is what it would look like if we rebuilt {match.group(1)}."),
+        ),
+    ]
+
+    for pattern, builder in patterns:
+        match = re.match(pattern, text, flags=re.IGNORECASE)
+        if match:
+            text = builder(match)
+            break
+
+    return _ensure_terminal_punctuation(_sentence_case(text))
+
+
 def _candidate_sentences(text: str, limit: int = 60) -> list[str]:
     sentences: list[str] = []
     seen: set[str] = set()
@@ -168,6 +243,7 @@ def _candidate_sentences(text: str, limit: int = 60) -> list[str]:
         raw_parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])", normalized)
         for part in raw_parts:
             candidate = _clean_text(part)
+            candidate = _normalize_worldview_candidate(candidate)
             lowered = candidate.lower()
             if not candidate or lowered in seen:
                 continue
@@ -259,7 +335,9 @@ def _score_sentence(sentence: str, asset: dict[str, Any]) -> tuple[int, int, int
     if any(re.search(pattern, lowered) for pattern in DEFINITION_PATTERNS):
         score -= 3
     if any(re.search(pattern, lowered) for pattern in WEAK_CONTEXT_PATTERNS):
-        score -= 4
+        score -= 6
+    if any(re.search(pattern, lowered) for pattern in HYPE_PATTERNS):
+        score -= 5
     if _is_boilerplate(text, _clean_text(asset.get("title"))):
         score -= 4
     return score, len(words), -len(text)
