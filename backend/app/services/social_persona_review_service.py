@@ -49,6 +49,23 @@ EVENT_META_TERMS = (
     "this presentation",
     "the slide",
 )
+WORLDVIEW_TERMS = (
+    "trust",
+    "culture",
+    "resistance to change",
+    "operational efficiencies",
+    "customer experience",
+    "drive revenue",
+    "return on investment",
+    "roi",
+    "bias",
+    "transparency",
+    "hallucinations",
+    "workflow clarity",
+    "leadership",
+    "ai pilots",
+    "failing",
+)
 SELF_CREDENTIAL_PATTERNS = (
     r"\bi(?:'ve| have) been working in\b",
     r"\bi am the chief\b",
@@ -56,6 +73,20 @@ SELF_CREDENTIAL_PATTERNS = (
     r"\bi know what i(?:'m| am) talking about\b",
     r"\bmy book\b",
     r"\bi travel a lot\b",
+)
+DEFINITION_PATTERNS = (
+    r"\bmachine learning is a subset of ai\b",
+    r"\bgenerative ai is a subset of machine learning\b",
+    r"\buses math and statistical processes\b",
+    r"\bmake predictions\b",
+)
+WEAK_CONTEXT_PATTERNS = (
+    r"\bthat element in green\b",
+    r"\bmy team and i thought\b",
+    r"\bwhy does it have to be that way\??$",
+    r"\bi(?:'m| am) super proud\b",
+    r"\balive in spirit\b",
+    r"\bnot very well done\b",
 )
 NOISY_LINE_TERMS = (
     "pending owner review",
@@ -213,6 +244,8 @@ def _score_sentence(sentence: str, asset: dict[str, Any]) -> tuple[int, int, int
         score += 2
     if any(term in lowered for term in ADMISSIONS_TERMS):
         score += 2
+    if any(term in lowered for term in WORLDVIEW_TERMS):
+        score += 2
     if re.search(r"\b\d+\b", text):
         score += 1
     if any(term in lowered for term in STORY_TERMS):
@@ -222,6 +255,10 @@ def _score_sentence(sentence: str, asset: dict[str, Any]) -> tuple[int, int, int
     if any(term in lowered for term in EVENT_META_TERMS):
         score -= 3
     if any(re.search(pattern, lowered) for pattern in SELF_CREDENTIAL_PATTERNS):
+        score -= 4
+    if any(re.search(pattern, lowered) for pattern in DEFINITION_PATTERNS):
+        score -= 3
+    if any(re.search(pattern, lowered) for pattern in WEAK_CONTEXT_PATTERNS):
         score -= 4
     if _is_boilerplate(text, _clean_text(asset.get("title"))):
         score -= 4

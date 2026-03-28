@@ -821,6 +821,147 @@ And if your CEO is using AI for prompting and agents, you are far more likely to
         self.assertNotIn("i have been working in ai since 2013", combined_text)
         self.assertNotIn("chief business officer", combined_text)
 
+    def test_long_form_persona_review_sync_avoids_weak_context_fragments_and_definitions(self) -> None:
+        fragment_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "fragment_heavy_transcript"
+        fragment_dir.mkdir(parents=True, exist_ok=True)
+        (fragment_dir / "normalized.md").write_text(
+            """---
+id: fragment_heavy_transcript
+title: Fragment Heavy Transcript
+source_type: youtube_transcript
+captured_at: '2026-03-28T00:00:00Z'
+topics:
+- transcript
+- youtube
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=fragmentheavy
+author: unknown
+raw_files:
+- raw/transcript.txt
+word_count: 9000
+summary: Leadership and workflow questions matter more than generic definitions.
+---
+
+# Clean Transcript / Document
+But my team and I thought, why does it have to be that way?
+And even if I identify a handful of those opportunities, how do I overcome the inherent organizational challenges of talent, culture, and resistance to change of business processes?
+And at Obsidian Strategies, where we work to identify and implement the most impactful AI applications to increase operational efficiencies, enhance customer experience, and drive revenue.
+Machine learning is a subset of AI that uses math and statistical processes to create models that pour over vast bodies of data to make predictions.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        items = [item for item in (inventory.get("items") or []) if item.get("asset_id") == "fragment_heavy_transcript"]
+        created_payloads = []
+        now = datetime.now(timezone.utc)
+
+        def fake_create_delta(payload):
+            created_payloads.append(payload)
+            return PersonaDelta(
+                id=f"frag-{len(created_payloads)}",
+                persona_target=payload.persona_target,
+                trait=payload.trait,
+                notes=payload.notes,
+                status="draft",
+                metadata=payload.metadata,
+                created_at=now,
+            )
+
+        with patch.object(social_persona_review_module.persona_delta_service, "get_delta_by_review_key", return_value=None), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "create_delta",
+            side_effect=fake_create_delta,
+        ), patch.object(social_persona_review_module.persona_delta_service, "list_deltas", return_value=[]):
+            social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets={"items": items},
+                max_assets=1,
+                max_segments_per_asset=2,
+            )
+
+        combined_text = " ".join((payload.trait + " " + (payload.notes or "")) for payload in created_payloads).lower()
+        self.assertIn("organizational challenges of talent, culture, and resistance to change", combined_text)
+        self.assertIn("operational efficiencies, enhance customer experience, and drive revenue", combined_text)
+        self.assertNotIn("why does it have to be that way", combined_text)
+        self.assertNotIn("machine learning is a subset of ai", combined_text)
+
+    def test_long_form_persona_review_sync_avoids_deictic_dashboard_fragments(self) -> None:
+        dashboard_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "dashboard_fragment_transcript"
+        dashboard_dir.mkdir(parents=True, exist_ok=True)
+        (dashboard_dir / "normalized.md").write_text(
+            """---
+id: dashboard_fragment_transcript
+title: Dashboard Fragment Transcript
+source_type: youtube_transcript
+captured_at: '2026-03-28T00:00:00Z'
+topics:
+- transcript
+- youtube
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=dashboardfragment
+author: unknown
+raw_files:
+- raw/transcript.txt
+word_count: 9000
+summary: Leadership behavior drives AI implementation outcomes.
+---
+
+# Clean Transcript / Document
+But if your CEO is using it for prompting and for agents, brainstorming with you, doing cross-team groups with you, you're 5.2 times more likely to be successful with AI because they're talking about it.
+So it answers questions when my team is sleeping, for example, but the number one thing I'm super proud about is that element in green.
+But the better question would be if we rebuilt that customer service function from scratch knowing that AI is here, what would that look like?
+We're gonna start with leadership and talk a little bit about why leaders also impact the return on investment for an AI project.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        items = [item for item in (inventory.get("items") or []) if item.get("asset_id") == "dashboard_fragment_transcript"]
+        created_payloads = []
+        now = datetime.now(timezone.utc)
+
+        def fake_create_delta(payload):
+            created_payloads.append(payload)
+            return PersonaDelta(
+                id=f"dash-{len(created_payloads)}",
+                persona_target=payload.persona_target,
+                trait=payload.trait,
+                notes=payload.notes,
+                status="draft",
+                metadata=payload.metadata,
+                created_at=now,
+            )
+
+        with patch.object(social_persona_review_module.persona_delta_service, "get_delta_by_review_key", return_value=None), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "create_delta",
+            side_effect=fake_create_delta,
+        ), patch.object(social_persona_review_module.persona_delta_service, "list_deltas", return_value=[]):
+            social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets={"items": items},
+                max_assets=1,
+                max_segments_per_asset=2,
+            )
+
+        combined_text = " ".join((payload.trait + " " + (payload.notes or "")) for payload in created_payloads).lower()
+        self.assertIn("5.2 times more likely to be successful with ai", combined_text)
+        self.assertIn("return on investment for an ai project", combined_text)
+        self.assertNotIn("that element in green", combined_text)
+
     def test_workspace_snapshot_persona_review_summary_runs_long_form_sync(self) -> None:
         sync_result = {
             "assets_considered": 2,
