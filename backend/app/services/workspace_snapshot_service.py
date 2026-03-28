@@ -8,7 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.services.social_feed_builder_service import build_feed as build_social_feed_runtime_payload
+from app.services.social_feed_builder_service import (
+    build_feed as build_social_feed_runtime_payload,
+    discover_linkedin_workspace_root,
+)
 from app.services.social_feedback_service import social_feedback_service
 from app.services.social_feed_refresh import social_feed_refresh_service
 from app.services.workspace_snapshot_store import get_snapshot_payload, upsert_snapshot
@@ -62,29 +65,7 @@ def _find_file(*relative_patterns: str) -> Path | None:
 
 
 def _discover_linkedin_root() -> Path:
-    direct_candidates = [
-        candidate
-        for candidate in (
-            _find_dir("backend/workspaces/linkedin-content-os"),
-            _find_dir("workspaces/linkedin-content-os"),
-            _find_dir("linkedin-content-os"),
-        )
-        if candidate
-    ]
-    for candidate in direct_candidates:
-        if (candidate / "plans" / "social_feed.json").exists():
-            return candidate
-    if direct_candidates:
-        return direct_candidates[0]
-
-    for base in [ROOT, Path.cwd(), Path("/app"), Path("/app/backend")]:
-        if not base.exists():
-            continue
-        match = next(base.rglob("linkedin-content-os/plans/social_feed.json"), None)
-        if match:
-            return match.parent.parent
-
-    return ROOT / "workspaces" / "linkedin-content-os"
+    return discover_linkedin_workspace_root()
 
 
 def _discover_persona_root() -> Path:

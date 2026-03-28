@@ -20,6 +20,7 @@ from app.services.social_feed_builder_service import build_feed
 from app.services.workspace_snapshot_service import workspace_snapshot_service
 
 social_feedback_module = importlib.import_module("app.services.social_feedback_service")
+social_feed_builder_module = importlib.import_module("app.services.social_feed_builder_service")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 
 
@@ -232,6 +233,21 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertIn("Kentucky Senate passes bill making it easier to cut faculty", titles)
 
         rss_path.unlink(missing_ok=True)
+
+    def test_workspace_root_discovery_prefers_top_level_workspace_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            top_level = base / "workspaces" / "linkedin-content-os"
+            backend_copy = base / "backend" / "workspaces" / "linkedin-content-os"
+            (top_level / "plans").mkdir(parents=True, exist_ok=True)
+            (backend_copy / "plans").mkdir(parents=True, exist_ok=True)
+            (top_level / "plans" / "social_feed.json").write_text("{}", encoding="utf-8")
+            (backend_copy / "plans" / "social_feed.json").write_text("{}", encoding="utf-8")
+
+            with patch.object(social_feed_builder_module, "_candidate_roots", return_value=[base, base / "backend"]):
+                discovered = social_feed_builder_module.discover_linkedin_workspace_root()
+
+            self.assertEqual(discovered, top_level.resolve())
 
     def test_workspace_snapshot_service_returns_live_sections(self) -> None:
         snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()

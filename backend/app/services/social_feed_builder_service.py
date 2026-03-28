@@ -28,17 +28,35 @@ def _candidate_roots() -> list[Path]:
     return ordered
 
 
+def _workspace_root_priority(candidate: Path) -> tuple[int, int, int, str]:
+    posix = candidate.as_posix()
+    is_backend_copy = "/backend/workspaces/linkedin-content-os" in posix
+    has_feed_artifact = (candidate / "plans" / "social_feed.json").exists()
+    return (
+        1 if is_backend_copy else 0,
+        0 if has_feed_artifact else 1,
+        len(candidate.parts),
+        posix,
+    )
+
+
 def discover_linkedin_workspace_root() -> Path:
     patterns = [
         "workspaces/linkedin-content-os",
         "backend/workspaces/linkedin-content-os",
         "linkedin-content-os",
     ]
+    matches: list[Path] = []
+    seen: set[Path] = set()
     for base in _candidate_roots():
         for pattern in patterns:
-            candidate = base / pattern
-            if candidate.exists() and candidate.is_dir():
-                return candidate
+            candidate = (base / pattern).resolve()
+            if not candidate.exists() or not candidate.is_dir() or candidate in seen:
+                continue
+            seen.add(candidate)
+            matches.append(candidate)
+    if matches:
+        return min(matches, key=_workspace_root_priority)
     return Path(__file__).resolve().parents[3] / "workspaces" / "linkedin-content-os"
 
 
