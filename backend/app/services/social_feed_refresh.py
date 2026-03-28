@@ -7,7 +7,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-ROOT = Path(__file__).resolve().parents[2]
+def resolve_workspace_root() -> Path:
+    current = Path(__file__).resolve()
+    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/")]
+    seen: set[Path] = set()
+    for parent in candidates:
+        if parent in seen:
+            continue
+        seen.add(parent)
+        if (parent / "scripts" / "personal-brand" / "refresh_social_feed.py").exists():
+            return parent
+    return current.parents[3]
+
+
+ROOT = resolve_workspace_root()
 SCRIPT_PATH = ROOT / "scripts" / "personal-brand" / "refresh_social_feed.py"
 
 _state_lock = threading.Lock()
@@ -24,6 +37,9 @@ class InvalidRefreshState(Exception):
 
 
 def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
+    if not SCRIPT_PATH.exists():
+        logging.warning("Social feed refresh script is unavailable in this deployment; treating refresh as a no-op.")
+        return
     cmd = ["python3", str(SCRIPT_PATH)]
     if skip_fetch:
         cmd.append("--skip-fetch")
@@ -66,4 +82,3 @@ class SocialFeedRefreshService:
 
 
 social_feed_refresh_service = SocialFeedRefreshService()
-

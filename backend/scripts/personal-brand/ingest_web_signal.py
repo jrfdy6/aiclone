@@ -8,10 +8,20 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+import certifi
 import requests
 from bs4 import BeautifulSoup
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
+
+def resolve_workspace_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "workspaces" / "linkedin-content-os").exists():
+            return parent
+    raise RuntimeError("Unable to locate workspace root for LinkedIn social feed ingestion.")
+
+
+WORKSPACE_ROOT = resolve_workspace_root()
 RESEARCH_ROOT = WORKSPACE_ROOT / "workspaces" / "linkedin-content-os" / "research" / "market_signals"
 
 
@@ -60,7 +70,12 @@ def maybe_refresh():
 
 
 def fetch_url(url: str) -> str:
-    resp = requests.get(url, timeout=15)
+    resp = requests.get(
+        url,
+        timeout=15,
+        headers={"User-Agent": "Mozilla/5.0 AICloneSocialFeedIngest/1.0"},
+        verify=certifi.where(),
+    )
     resp.raise_for_status()
     return resp.text
 
@@ -75,8 +90,8 @@ def main() -> None:
     parser.add_argument("--run-refresh", action="store_true", help="Rebuild the social feed snapshot after ingest.")
     args = parser.parse_args()
 
-    if not (args.url or args.text_file):
-        parser.error("Provide --url or --text-file.")
+    if not (args.url or args.text_file or args.text):
+        parser.error("Provide --url, --text, or --text-file.")
 
     if args.url:
         html = fetch_url(args.url)

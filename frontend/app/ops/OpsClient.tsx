@@ -185,6 +185,52 @@ type ReactionQueue = {
   };
 };
 
+type VariantEvaluation = {
+  lane_distinctiveness: number;
+  belief_clarity: number;
+  experience_anchor_strength: number;
+  voice_match: number;
+  role_safety_score: number;
+  genericity_penalty: number;
+  overall: number;
+  warnings?: string[];
+};
+
+type VariantBeliefAssessment = {
+  stance?: string;
+  agreement_level?: string;
+  belief_used?: string;
+  belief_summary?: string;
+  experience_anchor?: string;
+  experience_summary?: string;
+  role_safety?: string;
+};
+
+type VariantTechniqueAssessment = {
+  techniques?: string[];
+  emotional_profile?: string[];
+  reason?: string;
+};
+
+type FeedVariant = {
+  label: string;
+  comment: string;
+  short_comment?: string;
+  repost: string;
+  why_this_angle?: string;
+  stance?: string;
+  agreement_level?: string;
+  belief_used?: string;
+  belief_summary?: string;
+  experience_anchor?: string;
+  experience_summary?: string;
+  role_safety?: string;
+  techniques?: string[];
+  emotional_profile?: string[];
+  technique_reason?: string;
+  evaluation?: VariantEvaluation;
+};
+
 type SocialFeedItem = {
   id: string;
   platform: string;
@@ -197,10 +243,13 @@ type SocialFeedItem = {
   why_it_matters?: string;
   comment_draft?: string;
   repost_draft?: string;
-  lens_variants?: Partial<Record<Exclude<WorkspaceLensId, 'all'>, { label: string; comment: string; short_comment?: string; repost: string; why_this_angle?: string }>>;
+  lens_variants?: Partial<Record<string, FeedVariant>>;
   standout_lines?: string[];
   lenses?: string[];
   summary?: string;
+  belief_assessment?: VariantBeliefAssessment;
+  technique_assessment?: VariantTechniqueAssessment;
+  evaluation?: VariantEvaluation;
   ranking: { total: number };
 };
 
@@ -209,6 +258,31 @@ type SocialFeed = {
   workspace: string;
   strategy_mode: string;
   items: SocialFeedItem[];
+};
+
+type FeedRefreshStatus = {
+  running: boolean;
+  last_run?: string | null;
+  started_at?: string | null;
+  error?: string | null;
+};
+
+type FeedbackSummary = {
+  total_events?: number;
+  decision_counts?: Record<string, number>;
+  technique_counts?: Record<string, number>;
+  stance_counts?: Record<string, number>;
+  average_evaluation_overall?: number | null;
+};
+
+type WorkspaceSnapshot = {
+  workspace_files?: WorkspaceFile[];
+  doc_entries?: DocReference[];
+  weekly_plan?: WeeklyPlan | null;
+  reaction_queue?: ReactionQueue | null;
+  social_feed?: SocialFeed | null;
+  feedback_summary?: FeedbackSummary | null;
+  refresh_status?: FeedRefreshStatus | null;
 };
 
 type OpenBrainTelemetry = {
@@ -241,11 +315,14 @@ type WorkspaceLensId =
   | 'all'
   | 'admissions'
   | 'entrepreneurship'
-  | 'personal-story'
+  | 'current-role'
   | 'program-leadership'
-  | 'therapist-referral'
   | 'enrollment-management'
-  | 'ai-entrepreneurship';
+  | 'ai'
+  | 'ops-pm'
+  | 'therapy'
+  | 'referral'
+  | 'personal-story';
 
 type FeedLensId = Exclude<WorkspaceLensId, 'all'>;
 
@@ -356,21 +433,75 @@ const WORKSPACE_LENSES: WorkspaceLens[] = [
   { id: 'all', label: 'All Lanes', description: 'Show every ranked idea and signal in the workspace.' },
   { id: 'admissions', label: 'Admissions', description: 'Lead with admissions, outreach, and family-facing takes.' },
   { id: 'entrepreneurship', label: 'Entrepreneurship', description: 'Bias toward builder, founder-adjacent, and leverage stories.' },
+  { id: 'current-role', label: 'Current Job', description: 'Keep the post anchored to the current role, employer context, and immediate work.' },
+  { id: 'program-leadership', label: 'Program Leadership', description: 'Center leadership, team clarity, coaching, and execution systems.' },
+  { id: 'enrollment-management', label: 'Enrollment', description: 'Pull toward enrollment pipeline, conversion, and student journey.' },
+  { id: 'ai', label: 'AI', description: 'Make the point about AI literacy, AI judgment, and using AI well.' },
+  { id: 'ops-pm', label: 'Ops / PM', description: 'Focus on workflow, ownership, handoffs, cadence, and delivery.' },
+  { id: 'therapy', label: 'Therapy', description: 'Highlight the human, emotional, and relational experience underneath the system.' },
+  { id: 'referral', label: 'Referral', description: 'Focus on partner trust, handoffs, and what makes referrals compound.' },
   { id: 'personal-story', label: 'Personal Story', description: 'Highlight lived experience, identity, and story-led framing.' },
-  { id: 'program-leadership', label: 'Program Leadership', description: 'Center team leadership, operating systems, and execution.' },
-  { id: 'therapist-referral', label: 'Therapist / Referral', description: 'Focus on referral ecosystems, trust, and partner relationships.' },
-  { id: 'enrollment-management', label: 'Enrollment Mgmt', description: 'Pull toward enrollment pipeline, conversion, and student journey.' },
-  { id: 'ai-entrepreneurship', label: 'AI Entrepreneurship', description: 'Surface AI systems, automation, and intrapreneur/operator takes.' },
 ];
 
 const POST_MODE_OPTIONS: { id: FeedLensId; label: string }[] = [
   { id: 'entrepreneurship', label: 'Entrepreneurship' },
-  { id: 'program-leadership', label: 'Job / Program Leadership' },
+  { id: 'current-role', label: 'Current Job' },
+  { id: 'program-leadership', label: 'Program Leadership' },
   { id: 'enrollment-management', label: 'Enrollment' },
-  { id: 'ai-entrepreneurship', label: 'AI + Ops' },
-  { id: 'therapist-referral', label: 'Therapy / Referral' },
+  { id: 'ai', label: 'AI' },
+  { id: 'ops-pm', label: 'Ops / PM' },
+  { id: 'therapy', label: 'Therapy' },
+  { id: 'referral', label: 'Referral' },
   { id: 'personal-story', label: 'Personal Story' },
+  { id: 'admissions', label: 'Admissions' },
 ];
+
+const FEED_LENS_IDS = POST_MODE_OPTIONS.map((mode) => mode.id);
+
+const FEED_LENS_ALIASES: Record<string, FeedLensId> = {
+  admissions: 'admissions',
+  entrepreneurship: 'entrepreneurship',
+  'current-role': 'current-role',
+  'current role': 'current-role',
+  'current job': 'current-role',
+  job: 'current-role',
+  'job / current role': 'current-role',
+  'program-leadership': 'program-leadership',
+  'job / program leadership': 'program-leadership',
+  'program leadership': 'program-leadership',
+  leadership: 'program-leadership',
+  'enrollment-management': 'enrollment-management',
+  enrollment: 'enrollment-management',
+  'enrollment mgmt': 'enrollment-management',
+  ai: 'ai',
+  'ai + ops': 'ai',
+  'ai-entrepreneurship': 'ai',
+  'ops-pm': 'ops-pm',
+  'ops / pm': 'ops-pm',
+  'ops / project management': 'ops-pm',
+  'project management': 'ops-pm',
+  pm: 'ops-pm',
+  therapy: 'therapy',
+  'therapy / referral': 'therapy',
+  'therapist / referral': 'therapy',
+  'therapist-referral': 'therapy',
+  referral: 'referral',
+  'personal-story': 'personal-story',
+  'personal story': 'personal-story',
+};
+
+const FEED_LENS_VARIANT_KEYS: Record<FeedLensId, string[]> = {
+  admissions: ['admissions'],
+  entrepreneurship: ['entrepreneurship'],
+  'current-role': ['current-role', 'program-leadership'],
+  'program-leadership': ['program-leadership', 'current-role'],
+  'enrollment-management': ['enrollment-management'],
+  ai: ['ai', 'ai-entrepreneurship'],
+  'ops-pm': ['ops-pm', 'ai-entrepreneurship'],
+  therapy: ['therapy', 'therapist-referral'],
+  referral: ['referral', 'therapist-referral'],
+  'personal-story': ['personal-story'],
+};
 
 export default function OpsClient({
   workspaceFiles,
@@ -391,11 +522,54 @@ export default function OpsClient({
   const [standups, setStandups] = useState<StandupEntry[]>([]);
   const [brainMetrics, setBrainMetrics] = useState<OpenBrainTelemetry | null>(null);
   const [brainHealth, setBrainHealth] = useState<OpenBrainHealth | null>(null);
+  const [liveWorkspaceFiles, setLiveWorkspaceFiles] = useState<WorkspaceFile[] | null>(null);
+  const [liveDocEntries, setLiveDocEntries] = useState<DocReference[] | null>(null);
+  const [liveWeeklyPlan, setLiveWeeklyPlan] = useState<WeeklyPlan | null>(null);
+  const [liveReactionQueue, setLiveReactionQueue] = useState<ReactionQueue | null>(null);
+  const [liveSocialFeed, setLiveSocialFeed] = useState<SocialFeed | null>(null);
+  const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
+  const [workspaceRefreshStatus, setWorkspaceRefreshStatus] = useState<FeedRefreshStatus | null>(null);
+  const [workspaceSnapshotState, setWorkspaceSnapshotState] = useState<'bundled' | 'live'>('bundled');
+  const [workspaceSnapshotError, setWorkspaceSnapshotError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [activePanel, setActivePanel] = useState<Panel>(initialPanel);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const effectiveWorkspaceFiles = liveWorkspaceFiles ?? workspaceFiles;
+  const effectiveDocEntries = liveDocEntries ?? docEntries;
+  const bundledWeeklyPlan = contentPipelineSnapshot.weeklyPlan as unknown as WeeklyPlan | null;
+  const bundledReactionQueue = contentPipelineSnapshot.reactionQueue as unknown as ReactionQueue | null;
+  const bundledLinkedinFiles = useMemo(
+    () => workspaceFiles.filter((file) => file.path.includes('/workspaces/linkedin-content-os/') || file.group.startsWith('linkedin-content-os')),
+    [workspaceFiles],
+  );
+  const bundledSocialFeed = useMemo<SocialFeed | null>(() => {
+    const socialFeedFile = findWorkspaceFile(bundledLinkedinFiles, 'plans/social_feed.json');
+    const snapshotSocialFeed = (contentPipelineSnapshot as unknown as { socialFeed?: SocialFeed }).socialFeed ?? null;
+    if (socialFeedFile) {
+      try {
+        return JSON.parse(socialFeedFile.content) as SocialFeed;
+      } catch {
+        return snapshotSocialFeed;
+      }
+    }
+    return snapshotSocialFeed;
+  }, [bundledLinkedinFiles]);
+  const effectiveWeeklyPlan = liveWeeklyPlan ?? bundledWeeklyPlan;
+  const effectiveReactionQueue = liveReactionQueue ?? bundledReactionQueue;
+  const effectiveSocialFeed = useMemo<SocialFeed | null>(() => {
+    if (liveSocialFeed?.items?.some((item) => Boolean(item.lens_variants && Object.keys(item.lens_variants).length))) {
+      return liveSocialFeed;
+    }
+    if (liveSocialFeed?.generated_at && bundledSocialFeed) {
+      return {
+        ...bundledSocialFeed,
+        generated_at: liveSocialFeed.generated_at,
+      };
+    }
+    return bundledSocialFeed;
+  }, [bundledSocialFeed, liveSocialFeed]);
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState(() => pickWorkspacePath(workspaceFiles, initialWorkspaceKey) ?? workspaceFiles[0]?.path ?? '');
   const [selectedDocPath, setSelectedDocPath] = useState(docEntries[0]?.path ?? '');
   const [sectionErrors, setSectionErrors] = useState<TelemetryErrors>({
@@ -438,17 +612,43 @@ export default function OpsClient({
     window.history.replaceState(null, '', nextUrl);
   }, []);
 
-  useEffect(() => {
-    if (!workspaceFiles.some((file) => file.path === selectedWorkspacePath)) {
-      setSelectedWorkspacePath(pickWorkspacePath(workspaceFiles, initialWorkspaceKey) ?? workspaceFiles[0]?.path ?? '');
+  const loadWorkspaceSnapshot = useCallback(async () => {
+    try {
+      const snapshot = await fetchJson<WorkspaceSnapshot>(`${API_URL}/api/workspace/linkedin-os-snapshot`);
+      if (snapshot.workspace_files?.length) {
+        setLiveWorkspaceFiles(snapshot.workspace_files);
+      }
+      if (snapshot.doc_entries?.length) {
+        setLiveDocEntries(snapshot.doc_entries);
+      }
+      setLiveWeeklyPlan(snapshot.weekly_plan ?? null);
+      setLiveReactionQueue(snapshot.reaction_queue ?? null);
+      setLiveSocialFeed(snapshot.social_feed ?? null);
+      setFeedbackSummary(snapshot.feedback_summary ?? null);
+      setWorkspaceRefreshStatus(snapshot.refresh_status ?? null);
+      setWorkspaceSnapshotState('live');
+      setWorkspaceSnapshotError(null);
+    } catch (error) {
+      setWorkspaceSnapshotState('bundled');
+      setWorkspaceSnapshotError(toErrorMessage(error));
     }
-  }, [initialWorkspaceKey, selectedWorkspacePath, workspaceFiles]);
+  }, []);
 
   useEffect(() => {
-    if (!docEntries.some((entry) => entry.path === selectedDocPath)) {
-      setSelectedDocPath(docEntries[0]?.path ?? '');
+    if (!effectiveWorkspaceFiles.some((file) => file.path === selectedWorkspacePath)) {
+      setSelectedWorkspacePath(pickWorkspacePath(effectiveWorkspaceFiles, initialWorkspaceKey) ?? effectiveWorkspaceFiles[0]?.path ?? '');
     }
-  }, [docEntries, selectedDocPath]);
+  }, [effectiveWorkspaceFiles, initialWorkspaceKey, selectedWorkspacePath]);
+
+  useEffect(() => {
+    if (!effectiveDocEntries.some((entry) => entry.path === selectedDocPath)) {
+      setSelectedDocPath(effectiveDocEntries[0]?.path ?? '');
+    }
+  }, [effectiveDocEntries, selectedDocPath]);
+
+  useEffect(() => {
+    loadWorkspaceSnapshot();
+  }, [loadWorkspaceSnapshot]);
 
   const loadTelemetry = useCallback(async () => {
     setIsRefreshing(true);
@@ -580,12 +780,12 @@ export default function OpsClient({
   }, [logs]);
 
   const selectedWorkspace = useMemo(
-    () => workspaceFiles.find((file) => file.path === selectedWorkspacePath) ?? workspaceFiles[0] ?? null,
-    [selectedWorkspacePath, workspaceFiles],
+    () => effectiveWorkspaceFiles.find((file) => file.path === selectedWorkspacePath) ?? effectiveWorkspaceFiles[0] ?? null,
+    [effectiveWorkspaceFiles, selectedWorkspacePath],
   );
   const selectedDoc = useMemo(
-    () => docEntries.find((entry) => entry.path === selectedDocPath) ?? docEntries[0] ?? null,
-    [docEntries, selectedDocPath],
+    () => effectiveDocEntries.find((entry) => entry.path === selectedDocPath) ?? effectiveDocEntries[0] ?? null,
+    [effectiveDocEntries, selectedDocPath],
   );
 
   const tabs = [
@@ -653,12 +853,20 @@ export default function OpsClient({
       {activePanel === 'standups' && <StandupsPanel entries={standups} error={sectionErrors.standups} />}
       {activePanel === 'workspace' && (
         <WorkspacePanel
-          files={workspaceFiles}
+          files={effectiveWorkspaceFiles}
           selected={selectedWorkspace}
           onSelect={setSelectedWorkspacePath}
+          plan={effectiveWeeklyPlan}
+          reactionQueue={effectiveReactionQueue}
+          socialFeed={effectiveSocialFeed}
+          workspaceSnapshotState={workspaceSnapshotState}
+          workspaceSnapshotError={workspaceSnapshotError}
+          workspaceRefreshStatus={workspaceRefreshStatus}
+          feedbackSummary={feedbackSummary}
+          onReloadLiveSnapshot={loadWorkspaceSnapshot}
         />
       )}
-      {activePanel === 'docs' && <DocsPanel docs={docEntries} selected={selectedDoc} onSelect={setSelectedDocPath} />}
+      {activePanel === 'docs' && <DocsPanel docs={effectiveDocEntries} selected={selectedDoc} onSelect={setSelectedDocPath} />}
     </RuntimePage>
   );
 }
@@ -916,9 +1124,31 @@ function StandupsPanel({ entries, error }: { entries: StandupEntry[]; error: str
   );
 }
 
-function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[]; selected: WorkspaceFile | null; onSelect: (path: string) => void }) {
-  const plan = contentPipelineSnapshot.weeklyPlan as unknown as WeeklyPlan | null;
-  const reactionQueue = contentPipelineSnapshot.reactionQueue as unknown as ReactionQueue | null;
+function WorkspacePanel({
+  files,
+  selected,
+  onSelect,
+  plan,
+  reactionQueue,
+  socialFeed,
+  workspaceSnapshotState,
+  workspaceSnapshotError,
+  workspaceRefreshStatus,
+  feedbackSummary,
+  onReloadLiveSnapshot,
+}: {
+  files: WorkspaceFile[];
+  selected: WorkspaceFile | null;
+  onSelect: (path: string) => void;
+  plan: WeeklyPlan | null;
+  reactionQueue: ReactionQueue | null;
+  socialFeed: SocialFeed | null;
+  workspaceSnapshotState: 'bundled' | 'live';
+  workspaceSnapshotError: string | null;
+  workspaceRefreshStatus: FeedRefreshStatus | null;
+  feedbackSummary: FeedbackSummary | null;
+  onReloadLiveSnapshot: () => Promise<void>;
+}) {
   const editorialMix = Array.from(contentPipelineSnapshot.editorialMix ?? []);
   const linkedinFiles = useMemo(
     () => files.filter((file) => file.path.includes('/workspaces/linkedin-content-os/') || file.group.startsWith('linkedin-content-os')),
@@ -1015,32 +1245,22 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
     [activeLens, reactionQueue?.post_seeds],
   );
   const activeLensMeta = WORKSPACE_LENSES.find((lens) => lens.id === activeLens) ?? WORKSPACE_LENSES[0];
-  const [postMode, setPostMode] = useState<WorkspaceLensId>('ai-entrepreneurship');
+  const [postMode, setPostMode] = useState<FeedLensId>('current-role');
   const [selectedRecommendation, setSelectedRecommendation] = useState<PlanCandidate | null>(null);
   const [postDraft, setPostDraft] = useState('');
   const currentSourceRecord = useMemo(
     () => (selectedRecommendation ? sourceRecords.find((record) => record.sourcePath === selectedRecommendation.source_path) : undefined),
     [selectedRecommendation, sourceRecords],
   );
-  const socialFeedFile = useMemo(() => findWorkspaceFile(linkedinFiles, 'plans/social_feed.json'), [linkedinFiles]);
-  const snapshotSocialFeed = (contentPipelineSnapshot as unknown as { socialFeed?: SocialFeed }).socialFeed ?? null;
-  const socialFeed = useMemo<SocialFeed | null>(() => {
-    if (socialFeedFile) {
-      try {
-        return JSON.parse(socialFeedFile.content) as SocialFeed;
-      } catch {
-        return snapshotSocialFeed;
-      }
-    }
-    return snapshotSocialFeed;
-  }, [socialFeedFile, snapshotSocialFeed]);
-  const feedItems = socialFeed?.items ?? [];
+  const [manualFeedItems, setManualFeedItems] = useState<SocialFeedItem[]>([]);
+  const feedItems = useMemo(() => socialFeed?.items ?? [], [socialFeed]);
+  const visibleFeedItems = useMemo(() => [...manualFeedItems, ...feedItems], [feedItems, manualFeedItems]);
   const [refreshingFeed, setRefreshingFeed] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
   const [ingestUrl, setIngestUrl] = useState('');
   const [ingestText, setIngestText] = useState('');
   const [ingestTitle, setIngestTitle] = useState('');
-  const [ingestPriority, setIngestPriority] = useState('custom');
+  const [ingestPriority, setIngestPriority] = useState<FeedLensId>('current-role');
   const [ingestStatus, setIngestStatus] = useState<string | null>(null);
   const [ingestLoading, setIngestLoading] = useState(false);
   const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
@@ -1049,53 +1269,116 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
   const [feedbackState, setFeedbackState] = useState<Record<string, string>>({});
   const [feedbackLoading, setFeedbackLoading] = useState<Record<string, boolean>>({});
   const [feedLensSelections, setFeedLensSelections] = useState<Record<string, FeedLensId>>({});
+  const normalizeFeedLens = useCallback((value?: string | null): FeedLensId | null => {
+    if (!value) {
+      return null;
+    }
+    const normalized = value.trim().toLowerCase();
+    return FEED_LENS_ALIASES[normalized] ?? null;
+  }, []);
+  const getFeedVariant = useCallback(
+    (item: SocialFeedItem, lens: FeedLensId) => {
+      for (const key of FEED_LENS_VARIANT_KEYS[lens]) {
+        const variant = item.lens_variants?.[key];
+        if (variant) {
+          return variant;
+        }
+      }
+      return null;
+    },
+    [],
+  );
   const resolveFeedLens = useCallback(
     (item: SocialFeedItem): FeedLensId => {
       const selected = feedLensSelections[item.id];
       if (selected) {
         return selected;
       }
-      if (postMode !== 'all') {
-        return postMode;
+      for (const lens of item.lenses ?? []) {
+        const normalized = normalizeFeedLens(lens);
+        if (normalized) {
+          return normalized;
+        }
       }
-      return 'ai-entrepreneurship';
+      return postMode;
     },
-    [feedLensSelections, postMode],
+    [feedLensSelections, normalizeFeedLens, postMode],
   );
   const createCommentDraft = useCallback(
     (item: SocialFeedItem, lens: FeedLensId) => {
-      const variant = item.lens_variants?.[lens];
+      const variant = getFeedVariant(item, lens);
       if (variant?.comment) {
         return variant.comment.trim();
       }
       return `${POST_MODE_OPTIONS.find((mode) => mode.id === lens)?.label ?? 'Comment'} angle: ${item.comment_draft ?? item.summary ?? ''}`.trim();
     },
-    [],
+    [getFeedVariant],
   );
   const createShortCommentDraft = useCallback(
     (item: SocialFeedItem, lens: FeedLensId) => {
-      const variant = item.lens_variants?.[lens];
+      const variant = getFeedVariant(item, lens);
       if (variant?.short_comment) {
         return variant.short_comment.trim();
       }
       return `${POST_MODE_OPTIONS.find((mode) => mode.id === lens)?.label ?? 'Quick'} take.`.trim();
     },
-    [],
+    [getFeedVariant],
   );
   const createRepostDraft = useCallback((item: SocialFeedItem, lens: FeedLensId) => {
-    const variant = item.lens_variants?.[lens];
+    const variant = getFeedVariant(item, lens);
     if (variant?.repost) {
       return variant.repost.trim();
     }
     return `${item.repost_draft ?? item.summary ?? ''}`.trim();
-  }, []);
-  const copyToClipboard = useCallback(async (text: string, label: string) => {
+  }, [getFeedVariant]);
+  const copyToClipboard = useCallback(async (
+    text: string,
+    label: string,
+    feedbackContext?: { item: SocialFeedItem; lens: FeedLensId; variant: FeedVariant | null },
+  ) => {
     if (!text) return;
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       await navigator.clipboard.writeText(text);
       setCopyStatus(`${label} copied!`);
+      if (feedbackContext) {
+        const { item, lens, variant } = feedbackContext;
+        const payload = {
+          feed_item_id: item.id,
+          title: item.title,
+          platform: item.platform,
+          decision: 'copy',
+          lens,
+          source_url: item.source_url,
+          source_path: item.source_path,
+          stance: variant?.stance,
+          belief_used: variant?.belief_used,
+          experience_anchor: variant?.experience_anchor,
+          techniques: variant?.techniques ?? [],
+          evaluation_overall: variant?.evaluation?.overall,
+          why_this_angle: variant?.why_this_angle,
+          notes: label,
+        };
+        fetch(`${API_URL}/api/workspace/feedback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }).catch(() => null);
+      }
       setTimeout(() => setCopyStatus(null), 1500);
     }
+  }, []);
+  const waitForFeedRefresh = useCallback(async () => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const status = await fetchJson<FeedRefreshStatus>(`${API_URL}/api/workspace/refresh-social-feed`);
+      if (!status.running) {
+        if (status.error) {
+          throw new Error(status.error);
+        }
+        return status;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    throw new Error('Feed refresh timed out before the live snapshot updated.');
   }, []);
   const refreshSocialFeed = useCallback(async () => {
     setRefreshingFeed(true);
@@ -1112,13 +1395,18 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
       }
       const data = await res.json();
       setRefreshStatus(`Refresh queued${data.started_at ? ` at ${new Date(data.started_at).toLocaleTimeString()}` : ''}`);
+      const finalStatus = await waitForFeedRefresh();
+      await onReloadLiveSnapshot();
+      setRefreshStatus(
+        `Feed updated${finalStatus.last_run ? ` at ${new Date(finalStatus.last_run).toLocaleTimeString()}` : ''}`,
+      );
     } catch (error) {
       setRefreshStatus(error instanceof Error ? error.message : 'Refresh failed.');
     } finally {
       setRefreshingFeed(false);
-      setTimeout(() => setRefreshStatus(null), 3500);
+      setTimeout(() => setRefreshStatus(null), 4500);
     }
-  }, []);
+  }, [onReloadLiveSnapshot, waitForFeedRefresh]);
   const ingestSignal = useCallback(async () => {
     if (!ingestUrl && !ingestText) {
       setIngestStatus('Provide a link or some text.');
@@ -1143,19 +1431,24 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
         const detail = await res.text();
         throw new Error(detail || 'Ingest failed.');
       }
-      await res.json();
-      setIngestStatus('Signal ingested. Refreshing feed...');
+      const data = await res.json();
+      if (data?.preview_item) {
+        const previewItem = data.preview_item as SocialFeedItem;
+        setManualFeedItems((current: SocialFeedItem[]) => [previewItem, ...current].slice(0, 5));
+        const initialLens = normalizeFeedLens(previewItem.lenses?.[0]) ?? ingestPriority;
+        setFeedLensSelections((current) => ({ ...current, [previewItem.id]: initialLens }));
+      }
+      setIngestStatus('Preview generated at the top of the feed.');
       setIngestUrl('');
       setIngestText('');
       setIngestTitle('');
-      refreshSocialFeed();
     } catch (error) {
       setIngestStatus(error instanceof Error ? error.message : 'Ingest failed.');
     } finally {
       setIngestLoading(false);
       setTimeout(() => setIngestStatus(null), 4000);
     }
-  }, [ingestPriority, ingestUrl, ingestText, ingestTitle, refreshSocialFeed]);
+  }, [ingestPriority, ingestUrl, ingestText, ingestTitle, normalizeFeedLens]);
   const approveFeedLine = useCallback(
     async (item: SocialFeedItem, line: string) => {
       const lens = resolveFeedLens(item);
@@ -1217,6 +1510,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
   const recordFeedback = useCallback(
     async (item: SocialFeedItem, decision: 'like' | 'dislike') => {
       const lens = resolveFeedLens(item);
+      const variant = getFeedVariant(item, lens);
       setFeedbackLoading((current) => ({ ...current, [item.id]: true }));
       const label = decision === 'like' ? 'Liked' : 'Disliked';
       try {
@@ -1226,6 +1520,14 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
           platform: item.platform,
           decision,
           lens,
+          source_url: item.source_url,
+          source_path: item.source_path,
+          stance: variant?.stance,
+          belief_used: variant?.belief_used,
+          experience_anchor: variant?.experience_anchor,
+          techniques: variant?.techniques ?? [],
+          evaluation_overall: variant?.evaluation?.overall,
+          why_this_angle: variant?.why_this_angle,
         };
         const res = await fetch(`${API_URL}/api/workspace/feedback`, {
           method: 'POST',
@@ -1246,7 +1548,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
         setFeedbackLoading((current) => ({ ...current, [item.id]: false }));
       }
     },
-    [resolveFeedLens],
+    [getFeedVariant, resolveFeedLens],
   );
 
   useEffect(() => {
@@ -1281,13 +1583,36 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
               Persona truth, signal capture, weekly recommendations, and engagement moves for `linkedin-content-os` now live inside Workspaces instead of on a separate page.
             </p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(140px, 1fr))', gap: '12px' }}>
-            <MiniMeta label="Plan Refreshed" value={plan?.generated_at ?? '-'} detail="weekly_plan snapshot" />
-            <MiniMeta label="Reaction Queue" value={reactionQueue?.generated_at ?? '-'} detail="reaction_queue snapshot" />
-            <MiniMeta label="Draft Queue" value={`${draftFiles.length || plan?.source_counts.drafts || 0}`} detail="Ready or in progress" />
-            <MiniMeta label="Signals" value={`${plan?.market_signals.length ?? 0}`} detail="Captured market signals" />
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(140px, 1fr))', gap: '12px' }}>
+          <MiniMeta label="Plan Refreshed" value={plan?.generated_at ?? '-'} detail="weekly_plan snapshot" />
+          <MiniMeta label="Reaction Queue" value={reactionQueue?.generated_at ?? '-'} detail="reaction_queue snapshot" />
+          <MiniMeta label="Draft Queue" value={`${draftFiles.length || plan?.source_counts.drafts || 0}`} detail="Ready or in progress" />
+          <MiniMeta label="Signals" value={`${plan?.market_signals.length ?? 0}`} detail="Captured market signals" />
         </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+          <MiniMeta
+            label="Snapshot Source"
+            value={workspaceSnapshotState === 'live' ? 'Live backend' : 'Bundled fallback'}
+            detail={workspaceSnapshotState === 'live' ? 'stream-backed workspace state' : 'frontend deploy snapshot'}
+          />
+          <MiniMeta
+            label="Feed Refresh"
+            value={workspaceRefreshStatus?.last_run ?? workspaceRefreshStatus?.started_at ?? '-'}
+            detail={workspaceRefreshStatus?.running ? 'refresh job running' : workspaceRefreshStatus?.error ? 'refresh reported an error' : 'last backend refresh'}
+          />
+          <MiniMeta
+            label="Feedback Events"
+            value={`${feedbackSummary?.total_events ?? 0}`}
+            detail="logged copy/like/dislike/approve events"
+          />
+          <MiniMeta
+            label="Avg Eval"
+            value={feedbackSummary?.average_evaluation_overall ? feedbackSummary.average_evaluation_overall.toFixed(1) : '-'}
+            detail="recent recorded output quality"
+          />
+        </div>
+        {workspaceSnapshotError && <SectionAlert message={`Workspace snapshot fallback in use: ${workspaceSnapshotError}`} />}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
           {(plan?.positioning_model ?? []).slice(0, 4).map((item) => (
             <div key={item} style={{ borderRadius: '16px', border: '1px solid rgba(192,132,252,0.25)', backgroundColor: 'rgba(17,24,39,0.68)', padding: '14px' }}>
@@ -1396,7 +1721,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
               {refreshingFeed ? 'Refreshing…' : 'Refresh feed'}
             </button>
             <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-              Updated {socialFeed?.generated_at ?? 'waiting for feed'} · {feedItems.length} items tracked
+              Updated {socialFeed?.generated_at ?? 'waiting for feed'} · {visibleFeedItems.length} items tracked
             </p>
             {refreshStatus && (
               <p style={{ color: refreshingFeed ? '#38bdf8' : '#34d399', fontSize: '12px', margin: 0 }}>{refreshStatus}</p>
@@ -1405,7 +1730,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
         </div>
         <div style={{ border: '1px solid #334155', borderRadius: '12px', padding: '12px 14px', marginBottom: '16px', backgroundColor: '#030712' }}>
           <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
-            Paste a URL or stand-alone copy of a post/text, pick a lane, and generate your persona-friendly comment by clicking ingest.
+            Paste a URL or stand-alone copy of a post/text, pick a specific lane, and generate a live preview card that appears at the top of this feed.
           </p>
           <input
             placeholder="https://link.to/post"
@@ -1429,15 +1754,14 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             />
             <select
               value={ingestPriority}
-              onChange={(event) => setIngestPriority(event.target.value)}
+              onChange={(event) => setIngestPriority(event.target.value as FeedLensId)}
               style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid #334155', background: '#020617', color: '#e2e8f0', fontSize: '12px' }}
             >
               {POST_MODE_OPTIONS.map((mode) => (
-                <option key={mode.id} value={mode.label}>
+                <option key={mode.id} value={mode.id}>
                   {mode.label}
                 </option>
               ))}
-              <option value="custom">Custom</option>
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1454,7 +1778,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                 fontSize: '12px',
               }}
             >
-              {ingestLoading ? 'Ingesting…' : 'Ingest signal'}
+              {ingestLoading ? 'Generating…' : 'Generate preview'}
             </button>
             {ingestStatus && <p style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{ingestStatus}</p>}
           </div>
@@ -1478,11 +1802,15 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
           <p style={{ color: '#34d399', fontSize: '12px', marginTop: '-8px', marginBottom: '12px' }}>{copyStatus}</p>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
-          {feedItems.slice(0, 5).map((item) => {
+          {visibleFeedItems.slice(0, 5).map((item) => {
             const selectedFeedLens = resolveFeedLens(item);
+            const activeVariant = getFeedVariant(item, selectedFeedLens);
             const shortCommentDraft = createShortCommentDraft(item, selectedFeedLens);
             const commentDraft = createCommentDraft(item, selectedFeedLens);
             const repostDraft = createRepostDraft(item, selectedFeedLens);
+            const evaluation = activeVariant?.evaluation ?? item.evaluation;
+            const beliefAssessment = activeVariant ?? item.belief_assessment;
+            const techniqueAssessment = activeVariant ?? item.technique_assessment;
             return (
             <article key={item.id} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
@@ -1516,7 +1844,59 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                   </button>
                 ))}
               </div>
-              {item.standout_lines?.map((line) => (
+              <div style={{ borderRadius: '12px', border: '1px solid #273449', backgroundColor: '#06101f', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                  <p style={{ color: '#cbd5f5', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>System readout</p>
+                  <span style={{ color: '#93c5fd', fontSize: '12px' }}>
+                    overall {evaluation?.overall?.toFixed(1) ?? 'n/a'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {beliefAssessment?.stance && (
+                    <span style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(96,165,250,0.35)', color: '#93c5fd', fontSize: '11px' }}>
+                      stance: {beliefAssessment.stance}
+                    </span>
+                  )}
+                  {beliefAssessment?.role_safety && (
+                    <span style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(250,204,21,0.35)', color: '#fde68a', fontSize: '11px' }}>
+                      role safety: {beliefAssessment.role_safety}
+                    </span>
+                  )}
+                  {(techniqueAssessment?.techniques ?? []).map((technique) => (
+                    <span key={`${item.id}-${selectedFeedLens}-${technique}`} style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(52,211,153,0.35)', color: '#86efac', fontSize: '11px' }}>
+                      {technique}
+                    </span>
+                  ))}
+                </div>
+                {activeVariant?.why_this_angle && <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{activeVariant.why_this_angle}</p>}
+                {beliefAssessment?.belief_summary && (
+                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Belief:</span> {beliefAssessment.belief_summary}
+                  </p>
+                )}
+                {beliefAssessment?.experience_summary && (
+                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Anchor:</span> {beliefAssessment.experience_summary}
+                  </p>
+                )}
+                {evaluation && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }}>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Lane {evaluation.lane_distinctiveness?.toFixed(1)}</span>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Belief {evaluation.belief_clarity?.toFixed(1)}</span>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Voice {evaluation.voice_match?.toFixed(1)}</span>
+                  </div>
+                )}
+                {(evaluation?.warnings?.length ?? 0) > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {evaluation?.warnings?.map((warning) => (
+                      <p key={`${item.id}-${selectedFeedLens}-${warning}`} style={{ color: '#fca5a5', fontSize: '11px', margin: 0 }}>
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {item.standout_lines?.map((line: string) => (
                 <div key={`${item.id}-${line}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', borderRadius: '12px', border: '1px solid rgba(148,163,184,0.4)', padding: '8px', backgroundColor: '#030712' }}>
                   <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
                   <button
@@ -1533,7 +1913,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{shortCommentDraft}</p>
                   <button
-                    onClick={() => copyToClipboard(shortCommentDraft, 'quick reply')}
+                    onClick={() => copyToClipboard(shortCommentDraft, 'quick reply', { item, lens: selectedFeedLens, variant: activeVariant })}
                     style={{ borderRadius: '10px', border: '1px solid #34d399', background: 'transparent', color: '#34d399', padding: '4px 10px', fontSize: '12px' }}
                   >
                     Copy
@@ -1545,7 +1925,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{commentDraft}</p>
                   <button
-                    onClick={() => copyToClipboard(commentDraft, 'comment')}
+                    onClick={() => copyToClipboard(commentDraft, 'comment', { item, lens: selectedFeedLens, variant: activeVariant })}
                     style={{ borderRadius: '10px', border: '1px solid #38bdf8', background: 'transparent', color: '#38bdf8', padding: '4px 10px', fontSize: '12px' }}
                   >
                     Copy
@@ -1557,7 +1937,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{repostDraft}</p>
                   <button
-                    onClick={() => copyToClipboard(repostDraft, 'repost')}
+                    onClick={() => copyToClipboard(repostDraft, 'repost', { item, lens: selectedFeedLens, variant: activeVariant })}
                     style={{ borderRadius: '10px', border: '1px solid #f472b6', background: 'transparent', color: '#f472b6', padding: '4px 10px', fontSize: '12px' }}
                   >
                     Copy
@@ -1600,7 +1980,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             </article>
           );
           })}
-          {feedItems.length === 0 && <EmptyPanel message="No social feed items available yet. Run the refresh script to populate the JSON." />}
+          {visibleFeedItems.length === 0 && <EmptyPanel message="No social feed items available yet. Generate a preview or run a refresh once the live feed pipeline is connected." />}
         </div>
       </section>
 
@@ -1610,7 +1990,7 @@ function WorkspacePanel({ files, selected, onSelect }: { files: WorkspaceFile[];
             <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Perspective Toggle</p>
             <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Shift the strategy lens</h3>
             <p style={{ color: '#94a3b8', fontSize: '14px', maxWidth: '760px' }}>
-              Switch between admissions, entrepreneurship, personal story, leadership, referral, enrollment, and AI lenses to re-rank what is visible. This does not regenerate content yet, but it does surface a different cut of the current workspace.
+              Switch between admissions, entrepreneurship, current job, program leadership, enrollment, AI, ops/PM, therapy, referral, and personal story lenses to re-rank what is visible. This does not regenerate content yet, but it does surface a different cut of the current workspace.
             </p>
           </div>
           <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px 14px', minWidth: '220px' }}>
@@ -2361,11 +2741,14 @@ function matchesWorkspaceLens(lens: WorkspaceLensId, item: unknown) {
   const keywordMap: Record<Exclude<WorkspaceLensId, 'all'>, string[]> = {
     admissions: ['admissions', 'prospective student', 'family', 'outreach', 'school fit', 'higher ed'],
     entrepreneurship: ['entrepreneur', 'founder', 'builder', 'business', 'startup', 'venture', 'operator'],
+    'current-role': ['current role', 'current job', 'role-safe', 'inside the current role', 'institution', 'organization', 'staff', 'day-to-day work'],
     'personal-story': ['i ', 'my ', 'lived', 'story', 'journey', 'lesson', 'experience', 'authentic'],
-    'program-leadership': ['leadership', 'leader', 'team', 'manager', 'program', 'execution', 'process', 'operator clarity'],
-    'therapist-referral': ['therapist', 'referral', 'counselor', 'consultant', 'partner', 'trust', 'family referral'],
+    'program-leadership': ['leadership', 'leader', 'team', 'manager', 'program', 'coaching', 'accountability', 'operator clarity'],
     'enrollment-management': ['enrollment', 'pipeline', 'conversion', 'yield', 'concierge', 'follow up', 'follow-up'],
-    'ai-entrepreneurship': ['ai', 'agent', 'automation', 'system', 'intrapreneur', 'context', 'workflow', 'model'],
+    ai: ['ai', 'agent', 'model', 'prompt', 'literacy', 'automation', 'system'],
+    'ops-pm': ['ops', 'operations', 'project', 'pm', 'workflow', 'handoff', 'ownership', 'cadence', 'delivery'],
+    therapy: ['therapy', 'therapist', 'mental health', 'healing', 'emotion', 'nervous system', 'human'],
+    referral: ['referral', 'partner', 'consultant', 'counselor', 'handoff', 'trust', 'family referral'],
   };
 
   return keywordMap[lens].some((keyword) => text.includes(keyword));
@@ -2379,16 +2762,22 @@ function buildLensRemix(lens: WorkspaceLensId, item: { title?: string; hook?: st
       return `Reframe ${title} around student/family reality, frontline outreach, and what admissions teams learn before the rest of the institution sees it.`;
     case 'entrepreneurship':
       return `Reframe ${title} as a leverage story: show how the current role sharpens builder instincts, systems thinking, and founder-adjacent execution.`;
+    case 'current-role':
+      return `Translate ${title} into something directly usable inside the current job. Emphasize what changes in the work right now for students, families, staff, or execution.`;
     case 'personal-story':
       return `Start from lived experience instead of abstraction. Use ${hook} as the lesson, then connect it to a real moment, change, or identity shift.`;
     case 'program-leadership':
-      return `Translate ${title} into a leadership system takeaway. Emphasize clarity, repeatability, coaching, and what a team leader should do next.`;
-    case 'therapist-referral':
-      return `Angle ${title} toward trust-building with therapists, consultants, and referral partners. Show how better communication reduces friction for families.`;
+      return `Translate ${title} into a leadership system takeaway. Emphasize team clarity, repeatability, coaching, and what a program leader should do next.`;
     case 'enrollment-management':
       return `Turn ${title} into an enrollment-management post by linking it to pipeline quality, follow-up discipline, and a more legible student journey.`;
-    case 'ai-entrepreneurship':
-      return `Push ${title} further into AI-native intrapreneurship. Keep the operator tone, but make the post about systems, context, and execution leverage.`;
+    case 'ai':
+      return `Push ${title} into a pure AI lens. Make the post about AI literacy, judgment, prompting, evaluation, and what it means to use AI well.`;
+    case 'ops-pm':
+      return `Translate ${title} into an ops and project-management lesson. Focus on ownership, workflow, handoffs, cadence, and delivery discipline.`;
+    case 'therapy':
+      return `Angle ${title} toward the therapeutic and human layer. Highlight emotional safety, attunement, and how the experience feels from inside the system.`;
+    case 'referral':
+      return `Angle ${title} toward referral trust. Focus on partner confidence, handoff quality, and what makes someone comfortable sending the next person your way.`;
     default:
       return `Keep ${title} in its current lane, then tighten the post around the clearest next-step takeaway for the audience.`;
   }

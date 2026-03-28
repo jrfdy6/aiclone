@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,16 @@ from typing import Any
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+BACKEND_ROOT = ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.social_signal_utils import (
+    build_variants as build_shared_variants,
+    normalize_lane as normalize_shared_lane,
+    normalize_saved_signal as build_normalized_signal,
+)
+
 WORKSPACE_ROOT = ROOT / "workspaces" / "linkedin-content-os"
 RESEARCH_ROOT = WORKSPACE_ROOT / "research" / "market_signals"
 PLANS_ROOT = WORKSPACE_ROOT / "plans"
@@ -460,8 +471,11 @@ def read_signals() -> list[dict[str, Any]]:
             continue
         text = path.read_text(encoding="utf-8")
         meta = parse_frontmatter(text)
+        parts = text.split("---", 2)
+        body_text = parts[2].strip() if len(parts) >= 3 else ""
         meta["source_path"] = path.relative_to(WORKSPACE_ROOT).as_posix()
         meta["id"] = path.stem
+        meta["body_text"] = body_text
         signals.append(meta)
     return signals
 
@@ -476,65 +490,95 @@ def parse_datetime(value: str | None) -> datetime | None:
 
 
 def normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict[str, Any]:
+    normalized = build_normalized_signal(
+        signal,
+        signal_id=signal.get("id"),
+        source_path=signal.get("source_path"),
+        raw_text=signal.get("body_text"),
+    )
     now = datetime.now(timezone.utc)
-    created_dt = parse_datetime(signal.get("created_at")) or now
+    created_dt = parse_datetime(normalized.get("captured_at")) or now
     age_hours = max(0, round((now - created_dt).total_seconds() / 3600))
-    topics = signal.get("topics") or []
+    topics = normalized.get("topic_tags") or []
     lenses: list[str] = []
     priority_people = watchlist.get("priority_people", [])
     priority_weight = 0.5
 
-    author = signal.get("author", "Unknown")
+    author = normalized.get("author", "Unknown")
     for person in priority_people:
         if person.get("name") and person["name"].lower() in str(author).lower():
             priority_weight = max(priority_weight, person.get("priority_weight", 0.6))
             lenses.extend(person.get("lenses", []))
 
-    if priority_lane := signal.get("priority_lane"):
-        lenses.append(priority_lane.lower().replace(" ", "-"))
+    if priority_lane := normalized.get("priority_lane"):
+        lenses.append(normalize_shared_lane(priority_lane))
 
     topic_match = len(set(topics) & set(watchlist.get("topics", [])))
-    source_platform = signal.get("source_platform", "linkedin")
+    source_platform = normalized.get("source_channel", "linkedin")
     source_quality = 40 if source_platform == "linkedin" else 5
-    if signal.get("headline_candidates"):
+    if normalized.get("standout_lines"):
         source_quality += 10
-    if signal.get("source_type") == "post":
+    if normalized.get("source_type") == "post":
         source_quality += 5
 
     ranking = {
         "priority_network": round(priority_weight * 100, 1),
         "topic_match": topic_match * 10,
         "recency": max(0, 100 - age_hours),
-        "engagement": signal.get("engagement", {}).get("likes", 0) * 0.1,
-        "persona_fit": 10 if signal.get("role_alignment") else 0,
+        "engagement": normalized.get("engagement", {}).get("likes", 0) * 0.1,
+        "persona_fit": 10 if normalized.get("role_alignment") else 0,
         "source_quality": source_quality,
     }
     ranking["total"] = sum(ranking.values())
 
-    title = signal.get("title") or (signal.get("headline_candidates") or ["Untitled"])[0]
-    lens_variants = build_comment_variants(signal, title)
+    title = normalized.get("title") or "Untitled"
+    lens_variants = build_shared_variants(normalized)
+    default_lane = normalize_shared_lane(normalized.get("priority_lane"))
+    default_variant = lens_variants.get(default_lane) or lens_variants["current-role"]
+    belief_assessment = {
+        "stance": default_variant["stance"],
+        "agreement_level": default_variant["agreement_level"],
+        "belief_used": default_variant["belief_used"],
+        "belief_summary": default_variant["belief_summary"],
+        "experience_anchor": default_variant["experience_anchor"],
+        "experience_summary": default_variant["experience_summary"],
+        "role_safety": default_variant["role_safety"],
+    }
+    technique_assessment = {
+        "techniques": default_variant["techniques"],
+        "emotional_profile": default_variant["emotional_profile"],
+        "reason": default_variant["technique_reason"],
+    }
 
     return {
-        "id": f"{signal.get('source_platform', 'unknown')}__{signal.get('id')}",
-        "platform": signal.get("source_platform", "linkedin"),
-        "source_lane": signal.get("source_kind", "market_signal"),
-        "capture_method": signal.get("capture_method", "manual"),
+        "id": f"{normalized.get('source_channel', 'unknown')}__{normalized.get('signal_id')}",
+        "platform": normalized.get("source_channel", "linkedin"),
+        "source_lane": normalized.get("source_lane", "market_signal"),
+        "capture_method": normalized.get("capture_method", "saved_signal"),
         "title": title,
         "author": author,
-        "source_url": signal.get("source_url"),
-        "source_path": signal.get("source_path"),
-        "published_at": signal.get("created_at"),
-        "captured_at": signal.get("captured_at") or signal.get("created_at"),
-        "summary": signal.get("summary"),
-        "standout_lines": (signal.get("headline_candidates") or [])[:2],
-        "engagement": signal.get("engagement", {"likes": 0, "comments": 0, "shares": 0}),
+        "source_url": normalized.get("source_url"),
+        "source_path": normalized.get("source_path"),
+        "published_at": normalized.get("published_at"),
+        "captured_at": normalized.get("captured_at"),
+        "summary": normalized.get("summary"),
+        "standout_lines": normalized.get("standout_lines", []),
+        "engagement": normalized.get("engagement", {"likes": 0, "comments": 0, "shares": 0}),
         "ranking": ranking,
         "lenses": list(dict.fromkeys(lenses)),
-        "comment_draft": signal.get("comment_angle") or "Draft a thoughtful, concise comment with operator context.",
-        "repost_draft": signal.get("post_angle") or signal.get("summary") or "",
+        "comment_draft": default_variant["comment"],
+        "repost_draft": default_variant["repost"],
         "lens_variants": lens_variants,
-        "why_it_matters": signal.get("why_it_matters"),
-        "notes": signal.get("language_patterns", []),
+        "why_it_matters": normalized.get("why_it_matters"),
+        "notes": normalized.get("language_patterns", []),
+        "core_claim": normalized.get("core_claim"),
+        "supporting_claims": normalized.get("supporting_claims", []),
+        "topic_tags": normalized.get("topic_tags", []),
+        "trust_notes": normalized.get("trust_notes", []),
+        "source_metadata": normalized.get("source_metadata", {}),
+        "belief_assessment": belief_assessment,
+        "technique_assessment": technique_assessment,
+        "evaluation": default_variant["evaluation"],
     }
 
 

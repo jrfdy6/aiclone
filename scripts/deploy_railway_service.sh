@@ -2,7 +2,7 @@
 set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_ROOT="$WORKSPACE_ROOT/tmp"
+STAGE_ROOT="$WORKSPACE_ROOT/.railway-stage"
 
 usage() {
   cat <<'EOF'
@@ -22,14 +22,14 @@ case "$1" in
   frontend)
     SERVICE_NAME="aiclone-frontend"
     SOURCE_DIR="$WORKSPACE_ROOT/frontend"
-    STAGE_DIR="$TMP_ROOT/frontend-railway-deploy.current"
+    STAGE_DIR="$STAGE_ROOT/frontend-railway-deploy.current"
     CHILD_DIR="frontend"
-    RSYNC_EXCLUDES=(--exclude node_modules --exclude .next --exclude .git)
+    RSYNC_EXCLUDES=(--exclude node_modules --exclude .next --exclude .git --exclude tsconfig.tsbuildinfo)
     ;;
   backend)
     SERVICE_NAME="aiclone-backend"
     SOURCE_DIR="$WORKSPACE_ROOT/backend"
-    STAGE_DIR="$TMP_ROOT/backend-railway-deploy.current"
+    STAGE_DIR="$STAGE_ROOT/backend-railway-deploy.current"
     CHILD_DIR="backend"
     RSYNC_EXCLUDES=(--exclude .git)
     ;;
@@ -43,12 +43,28 @@ rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/$CHILD_DIR"
 rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE_DIR/" "$STAGE_DIR/$CHILD_DIR/"
 
+if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
+  mkdir -p "$STAGE_DIR/knowledge/persona" "$STAGE_DIR/workspaces" "$STAGE_DIR/scripts"
+  mkdir -p "$STAGE_DIR/$CHILD_DIR/knowledge/persona" "$STAGE_DIR/$CHILD_DIR/workspaces" "$STAGE_DIR/$CHILD_DIR/scripts"
+  mkdir -p "$STAGE_DIR/$CHILD_DIR/SOPs" "$STAGE_DIR/$CHILD_DIR/deliverables" "$STAGE_DIR/$CHILD_DIR/docs"
+  rsync -a "$WORKSPACE_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/knowledge/persona/feeze/"
+  rsync -a "$WORKSPACE_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/knowledge/persona/feeze/"
+  rsync -a "$WORKSPACE_ROOT/workspaces/linkedin-content-os/" "$STAGE_DIR/workspaces/linkedin-content-os/"
+  rsync -a "$WORKSPACE_ROOT/workspaces/linkedin-content-os/" "$STAGE_DIR/$CHILD_DIR/workspaces/linkedin-content-os/"
+  rsync -a "$WORKSPACE_ROOT/scripts/personal-brand/" "$STAGE_DIR/scripts/personal-brand/"
+  rsync -a "$WORKSPACE_ROOT/scripts/personal-brand/" "$STAGE_DIR/$CHILD_DIR/scripts/personal-brand/"
+  rsync -a "$WORKSPACE_ROOT/SOPs/" "$STAGE_DIR/$CHILD_DIR/SOPs/"
+  rsync -a "$WORKSPACE_ROOT/deliverables/" "$STAGE_DIR/$CHILD_DIR/deliverables/"
+  rsync -a "$WORKSPACE_ROOT/docs/persistent_memory_blueprint.md" "$STAGE_DIR/$CHILD_DIR/docs/persistent_memory_blueprint.md"
+fi
+
 echo "Staged deploy context:"
 du -sh "$STAGE_DIR"
 echo "Deploy mode: local staged context via railway CLI (independent of GitHub webhook timing)."
 
 cd "$WORKSPACE_ROOT"
-UP_OUTPUT="$(railway up -s "$SERVICE_NAME" --path-as-root "tmp/$(basename "$STAGE_DIR")" --verbose 2>&1)"
+REL_STAGE_DIR="${STAGE_DIR#$WORKSPACE_ROOT/}"
+UP_OUTPUT="$(railway up -s "$SERVICE_NAME" --path-as-root "$REL_STAGE_DIR" --verbose 2>&1)"
 echo "$UP_OUTPUT"
 
 DEPLOY_ID="$(echo "$UP_OUTPUT" | sed -n 's/.*id=\([0-9a-fA-F-]\{36\}\).*/\1/p' | tail -n 1)"

@@ -30,19 +30,18 @@ function preferHttps(url: string) {
 
 /**
  * Get the API URL from environment variables.
- * Falls back to localhost for development and enforces HTTPS in the browser.
+ * Falls back to localhost for development and enforces HTTPS for non-local hosts.
  */
 export function getApiUrl(): string {
   const envValue = (process.env.NEXT_PUBLIC_API_URL ?? '').trim();
   const base = envValue.length > 0 ? envValue : LOCAL_FALLBACK;
   const withProtocol = ensureProtocol(base);
   const normalized = stripTrailingSlash(withProtocol);
+  return stripTrailingSlash(preferHttps(normalized));
+}
 
-  if (typeof window !== 'undefined') {
-    return stripTrailingSlash(preferHttps(normalized));
-  }
-
-  return normalized;
+export function hasConfiguredApiUrl(): boolean {
+  return (process.env.NEXT_PUBLIC_API_URL ?? '').trim().length > 0;
 }
 
 /**

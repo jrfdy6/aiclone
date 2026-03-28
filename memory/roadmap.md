@@ -1,0 +1,75 @@
+# Roadmap — March 19, 2026
+
+## Persistent AI Clone (Phase: Reliability & Memory)
+- Stabilize daily workflows so context can be flushed without restarting OpenClaw.
+- Verify every cron tied to delivery (Daily Memory Flush, Morning Daily Brief, Memory Health Check, Nightly Self-Improvement, GitHub Backup, Progress Pulse, Rolling Docs) through the runner's final-response path instead of direct `message(...)` calls.
+- Exercise Context Guard + manual flush to ensure persistent memory survives compaction.
+- Lock in QMD as the backbone: keep the index healthy, rely on search instead of bloating tier‑1 files, and audit AGENTS.md / MEMORY.md budgets so identity + preferences load correctly every wake-up. Treat Railway/Open Brain as the separate app-memory lane, not the restart lane.
+- Implement the dream cycle + morning brief automation (gold standard) to ingest YouTube transcripts and other sources overnight, clean memories, and deliver a concise morning recap.
+- Run a full shutdown/restart test once the above items are green.
+
+## Media Intake System
+- Build one canonical media-ingest pipeline: raw transcript `.txt` drops, podcast/audio files, and video-derived transcripts all converge into the same downstream ingest flow after transcription/normalization.
+- Treat file drops as automatic intake:
+  1. watcher detects a new `.txt`, audio file, or transcript artifact,
+  2. audio/video is transcribed into text if needed,
+  3. system scaffolds `knowledge/ingestions/YYYY/MM/<slug>/raw/` + `normalized.md`,
+  4. system pushes the content into Open Brain,
+  5. system logs a short durable trace to the daily memory lane.
+- Keep chat-pasted links or large transcript blocks behind a single confirmation step ("ingest this media item?") instead of guessing from arbitrary pasted content.
+- Split review surfaces by job:
+  1. build implications stay in OpenClaw for immediate operator decisions,
+  2. persona implications go to the Railway Brain/Persona review surface for approval, nuance, and emphasis.
+- Generate draft implications automatically from each ingestion: summary, likely build opportunities, likely persona deltas, standout quotes/stories, and a short review packet for each lane.
+- Preserve the promotion boundary: ingest is automatic, but canonical persona updates still require explicit review/approval before writing into `knowledge/persona/feeze/**`.
+- Do not create duplicate pipelines for text vs audio vs video; transcription is only the upstream converter, not a separate architecture.
+- Reuse existing infrastructure wherever possible (`media/transcripts`, `scripts/watch_transcripts.py`, `scripts/youtube_audio_workflow.py`, `scripts/intake_router.js`, `/api/capture`, `knowledge/ingestions/**`, direct Postgres loaders) instead of introducing a second ingestion stack.
+- Implementation sequence:
+  1. define the watched inboxes for raw transcript files and audio files,
+  2. adapt the existing watcher so new drops are normalized into `knowledge/ingestions/**`,
+  3. route normalized content into Open Brain automatically,
+  4. generate a build review packet for OpenClaw and a persona review packet for Railway,
+  5. persist review outcomes so build actions and persona approvals survive refresh/restart,
+  6. only then add extra UX polish or richer automation.
+  7. confirmation helper for chat-pasted links/text now routes through `skills/youtube-transcript-ingest/SKILL.md` + `scripts/queue_media_text.py`.
+  8. `extensions/media-intake-guard/` now forces the one-question confirmation for raw media links inside OpenClaw chat.
+  9. confirmed chat ingests now queue background jobs through `scripts/enqueue_media_job.py` + `scripts/run_media_job.py` and write status artifacts under `memory/media_jobs/<job_id>/status.json` instead of blocking the OpenClaw turn for 30+ minutes.
+  10. local status visibility for queued jobs now runs through `python3 scripts/media_job_status.py`.
+  11. current follow-up is tightening transcript-paste reliability and the final embedded-local acknowledgement text; the underlying queued media pipeline is now the stable path.
+
+## Automation & Heartbeat hygiene
+- Rebuild HEARTBEAT.md guidance around the lighter context pack and cheaper model once Discord delivery is stable.
+- Keep Context Guard + cron delivery logs in `memory/cron-prune.md` so we can prove the guardrails work after restarts.
+
+## Social Intelligence / Narrative Copilot
+- Treat the Workspace social system as LinkedIn-first, not LinkedIn-only: manual URLs, pasted text, LinkedIn saved signals, Reddit, Substack/RSS, and web articles should all converge into one shared signal contract before interpretation.
+- Current live baseline:
+  1. manual URL/text preview ingestion is live,
+  2. split lane taxonomy is live,
+  3. quick reply / comment / repost preview generation is live,
+  4. quote approval into persona deltas is live,
+  5. first-pass belief contrast and lived-experience anchoring are live in the shared social variant builder,
+  6. first-pass technique selection and evaluation readouts are live in the shared social variant builder and `/ops`,
+  7. structured feedback logs now capture active lane/stance/technique/evaluation context,
+  8. `/ops` now reads a live backend workspace snapshot for plan/reaction/feed timestamps and feedback analytics,
+  9. the frontend now merges that live snapshot with bundled fallback feed data when the backend runtime only has Markdown workspace artifacts.
+- Near-term implementation priority is not more generation. It is a cleaner intelligence stack:
+  1. normalize all source paths into one `NormalizedSignal`,
+  2. separate extraction from interpretation,
+  3. deepen belief contrast beyond the current rule-based first pass and push it into planners,
+  4. make technique selection and evaluation data-informed instead of fully rule-based,
+  5. expand the structured feedback layer so copy, approval, and post outcomes all feed the same tuning loop,
+  6. only then build the shared tuning dashboard and auto-research loops.
+- Use orchestration as the core species for the product behavior, coding harnesses for implementation work, auto research for tuning, and dark-factory behavior only for low-risk offline generation.
+- Canonical workspace implementation map: `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`
+
+## Parking lot (post-stabilization)
+- Memory optimizer skill (nightly tier‑1 audit + progressive disclosure guardrails).
+- Rhetorical analyzer skill (Opus-powered fact-checking pipeline for ingesting outside reporting without dragging propaganda into memory).
+- Restore native `pgvector` for the Open Brain memory lane once the app is stable; production is currently on `embedding_json` + Python cosine because the live Railway Postgres image does not expose the `vector` extension.
+
+## Roadmap maintenance
+- Use `scripts/update_roadmap.sh` to append findings from new transcripts/content ingestions so this file stays current.
+- Fold any new objectives (architecture brief, backlog entries, deployment tweaks) into this document instead of reviving the old phase files.
+
+_Last updated via manual entry on 2026-03-22 10:52 ET. Future updates will append to this file using scripts/update_roadmap.sh when new transcripts land._

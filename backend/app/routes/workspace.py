@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import subprocess
-from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from app.models import IngestSignalRequest, RefreshSocialFeedRequest
 from app.services import social_feed_refresh_service
-
-WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
-INGEST_SCRIPT = WORKSPACE_ROOT / "scripts" / "personal-brand" / "ingest_web_signal.py"
+from app.services.social_feed_preview_service import social_feed_preview_service
+from app.services.workspace_snapshot_service import workspace_snapshot_service
 router = APIRouter(tags=["Workspace"], prefix="/api/workspace")
 
 
@@ -28,6 +25,18 @@ def _serialize_status(status: dict[str, None | bool | datetime | str]) -> dict[s
 async def get_social_feed_refresh_status():
     status = social_feed_refresh_service.get_status()
     return _serialize_status(status)
+
+
+@router.get("/linkedin-os-snapshot")
+async def get_linkedin_os_snapshot():
+    try:
+        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    refresh_status = snapshot.get("refresh_status")
+    if isinstance(refresh_status, dict):
+        snapshot["refresh_status"] = _serialize_status(refresh_status)
+    return snapshot
 
 
 @router.post("/refresh-social-feed")
@@ -50,20 +59,18 @@ async def refresh_social_feed(payload: RefreshSocialFeedRequest, background_task
 
 @router.post("/ingest-signal")
 async def ingest_signal(payload: IngestSignalRequest):
-    cmd = ["python3", str(INGEST_SCRIPT), "--priority-lane", payload.priority_lane]
-    if payload.url:
-        cmd += ["--url", payload.url]
-    if payload.text:
-        cmd += ["--text", payload.text]
-    if payload.title:
-        cmd += ["--title", payload.title]
-    if payload.run_refresh:
-        cmd += ["--run-refresh"]
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as exc:
-        raise HTTPException(status_code=500, detail=exc.stderr.strip() or "Failed to ingest signal.")
+        preview_item = social_feed_preview_service.generate_preview(
+            url=payload.url,
+            text=payload.text,
+            title=payload.title,
+            priority_lane=payload.priority_lane,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     return {
-        "message": "Signal ingested",
-        "output": result.stdout.strip(),
+        "message": "Signal preview generated",
+        "preview_item": preview_item,
     }
