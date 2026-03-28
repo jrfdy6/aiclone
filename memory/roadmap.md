@@ -94,6 +94,27 @@
 - Canonical workspace implementation map: `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`
 - Source-expansion implementation map: `workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md`
 
+## Brain As Control Plane
+- Treat `frontend/app/brain/` as the canonical global surface for:
+  - daily briefs
+  - persona review and promotion
+  - automation telemetry
+  - docs and knowledge browsing
+  - cross-project source intelligence
+- Treat project `Workspace` surfaces as execution lanes:
+  - project strategy
+  - project drafts
+  - project tasks
+  - project-local research
+  - project-specific agents
+- A project workspace may expose thin mirrors or quick-capture handoffs into Brain, but it should not become the primary global home for persona, briefs, docs, or automation understanding.
+- Near-term implementation goals:
+  1. restore rich Brain persona response controls for agreement, disagreement, nuance, personal story, and wording/context refinement
+  2. reconcile Brain dashboard telemetry and Brain automations telemetry onto one explainable source of truth
+  3. surface knowledge docs in the Brain Docs tab instead of leaving docs fragmented or invisible
+  4. move global source-intelligence interpretation toward Brain-first ownership, while keeping Workspace project-local
+  5. keep Workspace approval as a fast approval path into the shared `persona_deltas` lifecycle without forcing duplicate Brain approval
+
 ## Parking lot (post-stabilization)
 - Memory optimizer skill (nightly tier‑1 audit + progressive disclosure guardrails).
 - Rhetorical analyzer skill (Opus-powered fact-checking pipeline for ingesting outside reporting without dragging propaganda into memory).

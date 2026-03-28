@@ -29,6 +29,7 @@ It should be framed as:
 
 This plan extends an existing upstream source system.
 It does not authorize a second transcript or briefing pipeline.
+It also does not authorize a second global review surface inside Workspace when the real owner should be Brain.
 
 ## Constraints
 
@@ -94,6 +95,12 @@ Today the social system already has these intake classes:
 - Brain persona review
 - `/ops` source-asset and tuning diagnostics
 
+Brain-first ownership rule:
+- daily briefs should be readable and useful inside Brain
+- worldview evidence should be reviewed in Brain
+- docs/knowledge visibility belongs in Brain
+- project workspaces may still expose thin mirrors or project-local summaries, but they should not become the canonical global home for those consumers
+
 This means the open work is not “build another long-form system.”
 The open work is “finish unifying routing and observability across the consumers that already exist.”
 
@@ -137,6 +144,10 @@ That gives us this hierarchy:
 
 This same hierarchy should also support briefing and planning.
 The feed is only one consumer of the hierarchy, not the whole reason the hierarchy exists.
+
+The same principle applies to UI ownership:
+- Brain is the control plane over the shared source system
+- Workspace is the project execution surface over selected outputs of that system
 
 ## Source Taxonomy
 

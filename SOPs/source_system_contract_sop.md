@@ -80,6 +80,24 @@ Briefing should consume the same upstream assets, not re-ingest them separately.
 - Brain should not require duplicate approval for an explicitly approved Workspace snippet.
 - Neither surface auto-writes canonical persona files under `knowledge/persona/feeze/**`.
 
+## Surface Ownership Rule
+This source system feeds multiple consumers, but those consumers do not all own the same kind of state.
+
+- `Brain` is the canonical home for:
+  - daily briefs
+  - persona review
+  - global source intelligence
+  - automation-aware operator understanding
+  - docs/knowledge browsing
+- `Workspace` is the canonical home for:
+  - project-local strategy
+  - project-local drafts
+  - project-local feed execution
+  - project-local research and tasks
+
+If a source-derived feature is global and cross-project, it belongs in Brain.
+Workspace may mirror it or provide a fast handoff, but should not become the long-term source of truth.
+
 ## Existing Reuse Points
 - workspace snapshot weekly plan builder already loads media candidates from normalized ingestions
 - long-form worldview review already syncs segmented evidence into `persona_deltas`
@@ -97,6 +115,7 @@ So new work should extend routing and observability, not rebuild ingestion.
 4. Confirm `/ops` reflects the source-class and route behavior clearly enough to debug failures.
 
 ## Related Files
+- `SOPs/brain_workspace_boundary_sop.md`
 - `memory/roadmap.md`
 - `workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md`
 - `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`

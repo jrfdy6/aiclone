@@ -57,11 +57,20 @@ Source-system north star:
 - one upstream source system
 - multiple downstream consumers
 
+Surface north star:
+- Brain owns global understanding
+- Workspace owns project execution
+
 That means the same transcript/media asset can inform:
 - daily briefs
 - weekly planning
 - Brain persona review
 - social feed routing
+
+But the canonical homes are different:
+- Brain should be the primary home for briefs, persona review, docs, and cross-project source intelligence
+- Workspace should remain the primary home for LinkedIn strategy, reaction work, drafts, and project-local execution
+- if a global card appears in Workspace, it should be treated as a thin mirror, handoff, or diagnostic summary rather than the long-term source of truth
 
 Current runtime status:
 - `/ops` already shows the shared source-intelligence and routing view
@@ -115,6 +124,11 @@ Workspace / Brain persona contract:
 - a Workspace approval counts as a real approval at the delta layer and should not require duplicate Brain approval just to save it
 - canonical persona files under `../../knowledge/persona/feeze/**` still do not auto-update from either surface
 - long-form media segments should eventually enter that same shared review lane as pending worldview evidence, not as automatic canonical writes
+- Brain should also regain the richer review controls over those items:
+  - agreement / disagreement
+  - nuance
+  - personal story/context
+  - wording refinement before promotion
 
 Current lane taxonomy:
 - `admissions`
@@ -134,6 +148,7 @@ Do not collapse these back into older merged buckets such as:
 - `therapy / referral`
 
 Key operating docs:
+- `../../SOPs/brain_workspace_boundary_sop.md`
 - `../../SOPs/source_system_contract_sop.md`
 - `docs/operating_model.md`
 - `docs/linkedin_curation_workflow.md`

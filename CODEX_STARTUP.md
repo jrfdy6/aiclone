@@ -156,9 +156,11 @@ Use those commands when the task is "seed production data" rather than "ship new
 
 ## Current product model
 - `Ops` is the umbrella Mission Control view for the whole project.
+- `Brain` is the global control plane for persona, briefs, automation telemetry, and docs.
 - `Workspace` means a child operating context with its own identity and operating files.
 - `LinkedIn OS` is the first real child workspace and should surface its workflows natively in the UI.
 - The frontend increasingly reads canonical workspace files instead of forcing the user to run scripts manually.
+- Global understanding should live in Brain; project execution should live in Workspace.
 
 ## Decision rules for fresh Codex sessions
 - Assume the repo, GitHub remote, Railway CLI, and OpenClaw CLI are usable until a command proves otherwise.
@@ -170,6 +172,7 @@ Use those commands when the task is "seed production data" rather than "ship new
 ## Essential references
 - `SOPs/_index.md` (master list of SOPs/capabilities)
 - `SOPs/source_system_contract_sop.md`
+- `SOPs/brain_workspace_boundary_sop.md`
 - `SOURCE_OF_TRUTH.md`
 - `memory/persistent_state.md`
 - `docs/persistent_memory_blueprint.md`

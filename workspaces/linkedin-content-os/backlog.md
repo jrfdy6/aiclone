@@ -245,6 +245,40 @@
   - `frontend/app/brain/BrainClient.tsx`
   - segmentation/routing outputs from `LNK-028` and `LNK-029`
 
+### LNK-034 - Consolidate global source intelligence into Brain-first surfaces
+- Outcome: make Brain the canonical home for daily briefs, persona review, docs, and cross-project source intelligence, while leaving LinkedIn Workspace focused on project execution and thin mirrors/handoffs.
+- Benchmark gate:
+  - Brain is the primary home for global source-intelligence review
+  - Workspace no longer acts like the canonical home for global persona-state interpretation
+  - any remaining Workspace copies are clearly summaries, mirrors, or deep links
+- Source files:
+  - `../../SOPs/brain_workspace_boundary_sop.md`
+  - `../../memory/roadmap.md`
+  - `frontend/app/brain/BrainClient.tsx`
+  - `frontend/app/ops/OpsClient.tsx`
+
+### LNK-035 - Restore rich Brain persona response controls
+- Outcome: restore the operator's ability to record agreement, disagreement, nuance, personal story, and wording/context refinement directly in Brain persona review.
+- Benchmark gate:
+  - Brain review items support explicit thought capture again
+  - Workspace-approved snippets do not require duplicate approval, but Brain can still add nuance and context
+  - canonical persona files still require explicit promotion
+- Source files:
+  - `../../SOPs/brain_workspace_boundary_sop.md`
+  - `frontend/app/brain/BrainClient.tsx`
+  - `backend/app/routes/persona.py`
+  - `backend/app/services/persona_delta_service.py`
+
+### LNK-036 - Reconcile Brain telemetry and surface knowledge docs
+- Outcome: make Brain Dashboard and Brain Automations read from one explainable telemetry contract, and make the Brain Docs tab surface the existing knowledge/canonical docs instead of appearing empty.
+- Benchmark gate:
+  - Brain dashboard counts and Brain automations counts reconcile or clearly explain their scope/time window
+  - Brain Docs shows real knowledge docs and operating docs
+- Source files:
+  - `../../SOPs/brain_workspace_boundary_sop.md`
+  - `frontend/app/brain/BrainClient.tsx`
+  - telemetry providers under `backend/app/services/`
+
 ### LNK-022 - Expand feedback logging and evaluation endpoints
 - Outcome: extend the existing `/api/workspace/feedback` path to log copy actions, approvals, dislikes, and future posting outcomes into a structured feedback layer instead of using only UI state and implied behavior.
 - Status: first pass implemented. Feedback now writes structured JSONL alongside the markdown log, rebuilds a summary artifact, and `/ops` sends active lane/stance/technique/evaluation context for like, dislike, and copy interactions. Expression-quality fields now flow through the same path so the feedback layer can see source/output expression quality and the delta introduced by the transformation step.

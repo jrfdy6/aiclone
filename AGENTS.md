@@ -7,7 +7,7 @@ This workspace is home. Treat it accordingly: be resourceful inside, careful out
 2. Read `SOUL.md`, `USER.md`, `memory/persistent_state.md`, and today + yesterday’s `memory/YYYY-MM-DD.md` entries.
 3. In the main session, also load `MEMORY.md`.
 4. Review `memory/roadmap.md` before planning or executing work.
-5. If the task touches the LinkedIn Workspace social system, `/ops`, Brain persona review, source routing, transcript/media inputs, or the handoff between Workspace and Brain, also read `SOPs/source_system_contract_sop.md`, `workspaces/linkedin-content-os/README.md`, `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`, and `workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md`.
+5. If the task touches the LinkedIn Workspace social system, `/ops`, Brain persona review, source routing, transcript/media inputs, or the handoff between Workspace and Brain, also read `SOPs/source_system_contract_sop.md`, `SOPs/brain_workspace_boundary_sop.md`, `workspaces/linkedin-content-os/README.md`, `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`, and `workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md`.
 6. Run `python3 scripts/load_context_pack.py --sop --memory` and `python3 scripts/qmd_freshness_check.py` when fast operational context or memory validation is needed.
 7. Call `./scripts/worktree_doctor.py` whenever you want a clean picture of repo status; it labels the diff buckets so you can tell which entries truly need review.
 8. Watch context usage (`python3 scripts/context_usage.py --last 150`). If >=50%, follow the flush SOP (`docs/context_flush_SOP.md`).
