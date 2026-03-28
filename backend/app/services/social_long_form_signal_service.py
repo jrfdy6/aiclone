@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from app.models import PersonaDeltaCreate, PersonaDeltaUpdate
-from app.services import persona_delta_service
-from app.services.social_long_form_signal_service import TARGET_CLAIMS, TARGET_STORIES, TARGET_VOICE, extract_long_form_candidates
-
+from app.services.social_belief_engine import social_belief_engine
+from app.services.social_source_asset_service import build_source_asset_inventory
 
 CONTRAST_TERMS = (" not ", " but ", " because ", " however ", " instead ", " rather than ")
 PROCESS_TERMS = (
@@ -113,7 +112,9 @@ NOISY_LINE_TERMS = (
     "media background queue",
 )
 NOISY_SECTION_HEADINGS = ("owner notes", "follow-ups")
-PERSONA_TARGET = "feeze.core"
+TARGET_CLAIMS = "identity/claims.md"
+TARGET_VOICE = "identity/VOICE_PATTERNS.md"
+TARGET_STORIES = "history/story_bank.md"
 
 
 def _clean_text(value: Any) -> str:
@@ -339,7 +340,7 @@ def _score_sentence(sentence: str, asset: dict[str, Any]) -> tuple[int, int, int
     return score, len(words), -len(text)
 
 
-def _extract_segments(asset: dict[str, Any], body: str, max_segments: int) -> list[str]:
+def _extract_segments(asset: dict[str, Any], body: str, max_segments: int) -> list[tuple[str, tuple[int, int, int]]]:
     summary = _clean_text(asset.get("summary"))
     candidates: list[str] = []
     seen: set[str] = set()
@@ -366,14 +367,14 @@ def _extract_segments(asset: dict[str, Any], body: str, max_segments: int) -> li
     ]
     scored.sort(key=lambda item: item[1], reverse=True)
 
-    selected: list[str] = []
+    selected: list[tuple[str, tuple[int, int, int]]] = []
     for candidate, metrics in scored:
         if metrics[0] < 2:
             continue
         candidate_words = set(re.findall(r"[a-z0-9]+", candidate.lower()))
-        if any(len(candidate_words & set(re.findall(r"[a-z0-9]+", existing.lower()))) >= min(8, len(candidate_words)) for existing in selected):
+        if any(len(candidate_words & set(re.findall(r"[a-z0-9]+", existing.lower()))) >= min(8, len(candidate_words)) for existing, _ in selected):
             continue
-        selected.append(candidate)
+        selected.append((candidate, metrics))
         if len(selected) >= max_segments:
             break
     return selected
@@ -403,79 +404,6 @@ def _choose_target_file(text: str, lane_id: str, assessment: dict[str, str]) -> 
     return TARGET_CLAIMS
 
 
-def _trait_label(segment: str, target_file: str) -> str:
-    text = _clean_text(segment)
-    if target_file == TARGET_VOICE and len(text) > 110:
-        return f"{text[:107].rstrip()}..."
-    if len(text) > 140:
-        return f"{text[:137].rstrip()}..."
-    return text
-
-
-def _extract_stats(segment: str, asset: dict[str, Any]) -> list[str]:
-    stats: list[str] = []
-    title = _clean_text(asset.get("title"))
-    if re.search(r"\b\d+\b", title):
-        stats.append(title)
-    if re.search(r"\b\d+\b", segment):
-        stats.append(segment)
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for item in stats:
-        lowered = item.lower()
-        if lowered in seen:
-            continue
-        seen.add(lowered)
-        deduped.append(item)
-    return deduped[:3]
-
-
-def _promotion_metadata(segment: str, asset: dict[str, Any], target_file: str, assessment: dict[str, str]) -> dict[str, Any]:
-    belief_summary = _clean_text(assessment.get("belief_summary"))
-    experience_summary = _clean_text(assessment.get("experience_summary"))
-    talking_points = [item for item in [segment, belief_summary, experience_summary] if item]
-    phrase_candidates = [segment] if len(segment.split()) <= 20 else []
-    frameworks: list[dict[str, str]] = []
-    anecdotes: list[dict[str, str]] = []
-
-    if target_file == TARGET_CLAIMS and belief_summary:
-        frameworks.append(
-            {
-                "title": "Belief candidate",
-                "takeaway": belief_summary,
-                "evidence": segment,
-            }
-        )
-    if target_file == TARGET_STORIES:
-        anecdotes.append(
-            {
-                "title": _clean_text(asset.get("title")) or "Source anecdote",
-                "summary": segment,
-                "evidence": _clean_text(asset.get("source_url")) or _clean_text(asset.get("source_path")),
-            }
-        )
-
-    return {
-        "talking_points": talking_points[:3],
-        "phrase_candidates": phrase_candidates,
-        "frameworks": frameworks,
-        "anecdotes": anecdotes,
-        "stats": _extract_stats(segment, asset),
-    }
-
-
-def _review_key(asset: dict[str, Any], segment: str, target_file: str) -> str:
-    source = "|".join(
-        [
-            _clean_text(asset.get("asset_id")),
-            _clean_text(asset.get("source_path")),
-            target_file,
-            _clean_text(segment).lower(),
-        ]
-    )
-    return f"long-form:{hashlib.sha1(source.encode('utf-8')).hexdigest()[:16]}"
-
-
 def _build_signal(asset: dict[str, Any], segment: str) -> dict[str, Any]:
     title = _clean_text(asset.get("title"))
     summary = _clean_text(asset.get("summary"))
@@ -492,171 +420,221 @@ def _build_signal(asset: dict[str, Any], segment: str) -> dict[str, Any]:
     }
 
 
-def _build_notes(asset: dict[str, Any], segment: str, lane_id: str, target_file: str, assessment: dict[str, str]) -> str:
-    lines = [
-        f"Source asset: {_clean_text(asset.get('title')) or 'Untitled asset'}",
-        f"Source channel: {_clean_text(asset.get('source_channel')) or 'unknown'}",
-        f"Lane hint: {lane_id}",
-        f"Target file: {target_file}",
-        "",
-        "Candidate segment:",
-        segment,
+def _route_score(segment: str, assessment: dict[str, str], target_file: str, worldview_score: int) -> int:
+    lowered = f" {_clean_text(segment).lower()} "
+    words = len(segment.split())
+    score = worldview_score
+    if 8 <= words <= 24:
+        score += 3
+    elif 6 <= words <= 30:
+        score += 1
+    else:
+        score -= 2
+    if re.search(r"\b\d+\b", lowered):
+        score += 1
+    if any(term in lowered for term in CONTRAST_TERMS):
+        score += 1
+    if assessment.get("stance") in {"counter", "nuance"}:
+        score += 1
+    if target_file == TARGET_STORIES:
+        score -= 1
+    return score
+
+
+def _classify_routes(segment: str, assessment: dict[str, str], target_file: str, worldview_score: int) -> tuple[list[str], str, str, int]:
+    routes = {"post_seed", "belief_evidence"}
+    score = _route_score(segment, assessment, target_file, worldview_score)
+    words = len(segment.split())
+
+    if score >= 8 and words <= 30:
+        routes.add("comment")
+    if score >= 10 and words <= 24:
+        routes.add("repost")
+
+    if "comment" in routes:
+        primary = "comment"
+        reason = "segment is compact and explicit enough for direct reaction"
+    elif target_file == TARGET_VOICE or words <= 18:
+        primary = "belief_evidence"
+        reason = "segment is better suited to persona language or worldview capture"
+    else:
+        primary = "post_seed"
+        reason = "segment is stronger as an original post angle than a direct reaction"
+
+    ordered = [mode for mode in ("comment", "repost", "post_seed", "belief_evidence") if mode in routes]
+    return ordered, primary, reason, score
+
+
+def _review_key(asset: dict[str, Any], segment: str, target_file: str) -> str:
+    source = "|".join(
+        [
+            _clean_text(asset.get("asset_id")),
+            _clean_text(asset.get("source_path")),
+            target_file,
+            _clean_text(segment).lower(),
+        ]
+    )
+    return f"long-form:{hashlib.sha1(source.encode('utf-8')).hexdigest()[:16]}"
+
+
+def extract_long_form_candidates(
+    *,
+    repo_root: Path,
+    source_assets: dict[str, Any] | None = None,
+    transcripts_root: Path | None = None,
+    ingestions_root: Path | None = None,
+    max_assets: int = 4,
+    max_segments_per_asset: int = 2,
+) -> dict[str, Any]:
+    inventory = source_assets
+    if inventory is None:
+        inventory = build_source_asset_inventory(
+            transcripts_root=transcripts_root or repo_root / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=ingestions_root or repo_root / "knowledge" / "ingestions",
+            repo_root=repo_root,
+        )
+
+    items = [
+        item
+        for item in (inventory.get("items") or [])
+        if item.get("source_class") == "long_form_media"
+        and any(mode in {"belief_evidence", "post_seed"} for mode in (item.get("response_modes") or []))
     ]
-    belief_summary = _clean_text(assessment.get("belief_summary"))
-    experience_summary = _clean_text(assessment.get("experience_summary"))
-    if belief_summary:
-        lines.extend(["", f"Belief relation: {belief_summary}"])
-    if experience_summary:
-        lines.extend(["", f"Experience anchor: {experience_summary}"])
-    return "\n".join(lines)
 
+    candidates: list[dict[str, Any]] = []
+    assets_considered = 0
+    skipped_no_segments = 0
+    by_channel: dict[str, int] = {}
+    assets: list[dict[str, Any]] = []
 
-def _build_metadata(asset: dict[str, Any], segment: str, lane_id: str, target_file: str, assessment: dict[str, str]) -> dict[str, Any]:
-    review_key = _review_key(asset, segment, target_file)
-    source_label = _clean_text(asset.get("title")) or _clean_text(asset.get("asset_id")) or "long-form source"
+    for asset in items[:max_assets]:
+        assets_considered += 1
+        channel = _clean_text(asset.get("source_channel")) or "unknown"
+        by_channel[channel] = by_channel.get(channel, 0) + 1
+        _, body = _read_asset_content(asset, repo_root)
+        if not body:
+            skipped_no_segments += 1
+            continue
+        segments = _extract_segments(asset, body, max_segments=max_segments_per_asset)
+        if not segments:
+            skipped_no_segments += 1
+            continue
+
+        asset_candidates: list[dict[str, Any]] = []
+        for index, (segment, metrics) in enumerate(segments, start=1):
+            worldview_score = int(metrics[0])
+            lane_id = _lane_hint(segment)
+            assessment = social_belief_engine.assess_signal(_build_signal(asset, segment), lane_id)
+            target_file = _choose_target_file(segment, lane_id, assessment)
+            response_modes, primary_route, route_reason, route_score = _classify_routes(segment, assessment, target_file, worldview_score)
+            candidate = {
+                "candidate_id": _review_key(asset, segment, target_file),
+                "asset_id": _clean_text(asset.get("asset_id")),
+                "title": _clean_text(asset.get("title")) or "Untitled asset",
+                "source_channel": channel,
+                "source_type": _clean_text(asset.get("source_type")),
+                "source_url": _clean_text(asset.get("source_url")),
+                "source_path": _clean_text(asset.get("source_path")),
+                "segment_index": index,
+                "segment_total": len(segments),
+                "segment": segment,
+                "lane_hint": lane_id,
+                "target_file": target_file,
+                "stance": assessment.get("stance", ""),
+                "belief_summary": _clean_text(assessment.get("belief_summary")),
+                "experience_summary": _clean_text(assessment.get("experience_summary")),
+                "response_modes": response_modes,
+                "primary_route": primary_route,
+                "route_reason": route_reason,
+                "worldview_score": worldview_score,
+                "route_score": route_score,
+                "assessment": assessment,
+                "asset": asset,
+            }
+            candidates.append(candidate)
+            asset_candidates.append(candidate)
+
+        assets.append(
+            {
+                "asset_id": _clean_text(asset.get("asset_id")),
+                "title": _clean_text(asset.get("title")) or "Untitled asset",
+                "source_channel": channel,
+                "source_path": _clean_text(asset.get("source_path")),
+                "extracted_segments": len(asset_candidates),
+                "primary_routes": list(dict.fromkeys(item["primary_route"] for item in asset_candidates)),
+                "response_modes": list(dict.fromkeys(mode for item in asset_candidates for mode in item["response_modes"])),
+            }
+        )
+
+    candidates.sort(key=lambda item: (-int(item["route_score"]), item["title"].lower(), item["segment_index"]))
+    route_counts = {mode: 0 for mode in ("comment", "repost", "post_seed", "belief_evidence")}
+    primary_route_counts = {mode: 0 for mode in ("comment", "repost", "post_seed", "belief_evidence")}
+    lane_counts: dict[str, int] = {}
+    for candidate in candidates:
+        lane = str(candidate["lane_hint"])
+        lane_counts[lane] = lane_counts.get(lane, 0) + 1
+        primary_route_counts[str(candidate["primary_route"])] += 1
+        for mode in candidate["response_modes"]:
+            route_counts[str(mode)] += 1
+
     return {
-        "review_key": review_key,
-        "review_source": "long_form_media.segment",
-        "source_class": _clean_text(asset.get("source_class")) or "long_form_media",
-        "response_mode": "belief_evidence",
-        "source_asset_id": _clean_text(asset.get("asset_id")),
-        "source_channel": _clean_text(asset.get("source_channel")),
-        "source_type": _clean_text(asset.get("source_type")),
-        "source_url": _clean_text(asset.get("source_url")),
-        "source_path": _clean_text(asset.get("source_path")),
-        "evidence_source": source_label,
-        "lane_hint": lane_id,
-        "target_file": target_file,
-        "why_showing": f"I am showing this because a segment from {source_label} looks durable enough to affect your worldview, language, or story archive.",
-        "review_prompt": f"Decide whether this segment belongs in {target_file}, what you agree or disagree with, and what wording or context should be preserved before it shapes the persona.",
-        "segment_excerpt": segment,
-        "stance": assessment.get("stance", ""),
-        "agreement_level": assessment.get("agreement_level", ""),
-        "belief_used": assessment.get("belief_used", ""),
-        "belief_summary": assessment.get("belief_summary", ""),
-        "experience_anchor": assessment.get("experience_anchor", ""),
-        "experience_summary": assessment.get("experience_summary", ""),
-        "role_safety": assessment.get("role_safety", ""),
-        **_promotion_metadata(segment, asset, target_file, assessment),
+        "assets_considered": assets_considered,
+        "segments_total": len(candidates),
+        "skipped_no_segments": skipped_no_segments,
+        "route_counts": route_counts,
+        "primary_route_counts": primary_route_counts,
+        "lane_counts": lane_counts,
+        "by_channel": by_channel,
+        "assets": assets,
+        "candidates": candidates,
     }
 
 
-class SocialPersonaReviewService:
-    def sync_long_form_worldview_reviews(
-        self,
-        *,
-        repo_root: Path,
-        source_assets: dict[str, Any] | None = None,
-        transcripts_root: Path | None = None,
-        ingestions_root: Path | None = None,
-        max_assets: int = 4,
-        max_segments_per_asset: int = 2,
-    ) -> dict[str, Any]:
-        extracted = extract_long_form_candidates(
-            repo_root=repo_root,
-            source_assets=source_assets,
-            transcripts_root=transcripts_root,
-            ingestions_root=ingestions_root,
-            max_assets=max_assets,
-            max_segments_per_asset=max_segments_per_asset,
-        )
-        candidates = [
-            item
-            for item in extracted.get("candidates") or []
-            if "belief_evidence" in (item.get("response_modes") or [])
-        ]
-
-        try:
-            existing_deltas = persona_delta_service.list_deltas(limit=400)
-        except Exception:
-            existing_deltas = []
-        existing_review_keys: dict[str, Any] = {}
-        for delta in existing_deltas:
-            metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
-            if _clean_text(metadata.get("review_source")) != "long_form_media.segment":
-                continue
-            review_key = _clean_text(metadata.get("review_key"))
-            if review_key:
-                existing_review_keys[review_key] = delta
-
-        created: list[dict[str, Any]] = []
-        skipped_existing = 0
-        skipped_no_segments = int(extracted.get("skipped_no_segments") or 0)
-        resolved_stale = 0
-        assets_considered = int(extracted.get("assets_considered") or 0)
-        desired_review_keys: set[str] = set()
-        considered_asset_ids: set[str] = set()
-
-        for candidate in candidates:
-            asset = candidate.get("asset") or {}
-            assessment = candidate.get("assessment") or {}
-            segment = _clean_text(candidate.get("segment"))
-            lane_id = _clean_text(candidate.get("lane_hint")) or "current-role"
-            target_file = _clean_text(candidate.get("target_file")) or TARGET_CLAIMS
-            review_key = _clean_text(candidate.get("candidate_id"))
-            asset_id = _clean_text(candidate.get("asset_id"))
-            if asset_id:
-                considered_asset_ids.add(asset_id)
-            desired_review_keys.add(review_key)
-
-            if existing_review_keys.get(review_key) or persona_delta_service.get_delta_by_review_key(review_key):
-                skipped_existing += 1
-                continue
-
-            metadata = _build_metadata(asset, segment, lane_id, target_file, assessment)
-            metadata["review_key"] = review_key
-            metadata["segment_index"] = int(candidate.get("segment_index") or 1)
-            metadata["segment_total"] = int(candidate.get("segment_total") or 1)
-            metadata["response_modes"] = list(candidate.get("response_modes") or [])
-            metadata["primary_route"] = _clean_text(candidate.get("primary_route"))
-            metadata["route_reason"] = _clean_text(candidate.get("route_reason"))
-            metadata["route_score"] = int(candidate.get("route_score") or 0)
-
-            payload = PersonaDeltaCreate(
-                persona_target=PERSONA_TARGET,
-                trait=_trait_label(segment, target_file),
-                notes=_build_notes(asset, segment, lane_id, target_file, assessment),
-                metadata=metadata,
-            )
-            delta = persona_delta_service.create_delta(payload)
-            created.append(
-                {
-                    "id": delta.id,
-                    "trait": delta.trait,
-                    "target_file": target_file,
-                    "source_asset_id": asset_id,
-                    "review_key": review_key,
-                }
-            )
-
-        for review_key, delta in existing_review_keys.items():
-            metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
-            if review_key in desired_review_keys:
-                continue
-            if _clean_text(metadata.get("source_asset_id")) not in considered_asset_ids:
-                continue
-            if (delta.status or "draft").strip().lower() != "draft":
-                continue
-            if metadata.get("resolution_capture_id") or metadata.get("pending_promotion"):
-                continue
-            update = PersonaDeltaUpdate(
-                status="resolved",
-                metadata={
-                    "sync_state": "stale_segment",
-                    "stale_reason": "segment no longer selected by current worldview extractor",
-                },
-            )
-            if persona_delta_service.update_delta(delta.id, update):
-                resolved_stale += 1
-
-        return {
-            "assets_considered": assets_considered,
-            "created_count": len(created),
-            "skipped_existing": skipped_existing,
-            "skipped_no_segments": skipped_no_segments,
-            "resolved_stale": resolved_stale,
-            "created": created,
-        }
-
-
-social_persona_review_service = SocialPersonaReviewService()
+def build_long_form_route_summary(
+    *,
+    repo_root: Path,
+    source_assets: dict[str, Any] | None = None,
+    transcripts_root: Path | None = None,
+    ingestions_root: Path | None = None,
+    max_assets: int = 4,
+    max_segments_per_asset: int = 2,
+) -> dict[str, Any]:
+    extracted = extract_long_form_candidates(
+        repo_root=repo_root,
+        source_assets=source_assets,
+        transcripts_root=transcripts_root,
+        ingestions_root=ingestions_root,
+        max_assets=max_assets,
+        max_segments_per_asset=max_segments_per_asset,
+    )
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "assets_considered": extracted["assets_considered"],
+        "segments_total": extracted["segments_total"],
+        "skipped_no_segments": extracted["skipped_no_segments"],
+        "route_counts": extracted["route_counts"],
+        "primary_route_counts": extracted["primary_route_counts"],
+        "lane_counts": extracted["lane_counts"],
+        "by_channel": extracted["by_channel"],
+        "assets": extracted["assets"],
+        "candidates": [
+            {
+                "candidate_id": item["candidate_id"],
+                "asset_id": item["asset_id"],
+                "title": item["title"],
+                "source_channel": item["source_channel"],
+                "source_url": item["source_url"],
+                "source_path": item["source_path"],
+                "segment": item["segment"],
+                "lane_hint": item["lane_hint"],
+                "target_file": item["target_file"],
+                "stance": item["stance"],
+                "belief_summary": item["belief_summary"],
+                "response_modes": item["response_modes"],
+                "primary_route": item["primary_route"],
+                "route_reason": item["route_reason"],
+                "route_score": item["route_score"],
+            }
+            for item in extracted["candidates"][:12]
+        ],
+    }

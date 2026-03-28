@@ -15,6 +15,7 @@ from app.services.social_feed_builder_service import (
 )
 from app.services.social_feedback_service import social_feedback_service
 from app.services.social_feed_refresh import social_feed_refresh_service
+from app.services.social_long_form_signal_service import build_long_form_route_summary
 from app.services.social_persona_review_service import social_persona_review_service
 from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.workspace_snapshot_store import get_snapshot_payload, upsert_snapshot
@@ -115,6 +116,7 @@ SNAPSHOT_SOCIAL_FEED = "social_feed"
 SNAPSHOT_FEEDBACK_SUMMARY = "feedback_summary"
 SNAPSHOT_SOURCE_ASSETS = "source_assets"
 SNAPSHOT_PERSONA_REVIEW_SUMMARY = "persona_review_summary"
+SNAPSHOT_LONG_FORM_ROUTES = "long_form_routes"
 
 
 def _load_module(module_name: str, script_path: Path) -> Any | None:
@@ -490,6 +492,20 @@ def _build_source_assets_payload() -> dict[str, Any] | None:
     return payload if _snapshot_is_usable(SNAPSHOT_SOURCE_ASSETS, payload) else None
 
 
+def _build_long_form_routes_payload() -> dict[str, Any] | None:
+    try:
+        source_assets_payload = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+        payload = build_long_form_route_summary(
+            repo_root=ROOT,
+            source_assets=source_assets_payload,
+            transcripts_root=_transcripts_root(),
+            ingestions_root=_ingestions_root(),
+        )
+    except Exception:
+        return None
+    return payload if _snapshot_is_usable(SNAPSHOT_LONG_FORM_ROUTES, payload) else None
+
+
 def _load_feedback_summary_payload() -> dict[str, Any] | None:
     try:
         return social_feedback_service.load_summary()
@@ -677,6 +693,8 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
         return _build_source_assets_payload()
     if snapshot_type == SNAPSHOT_PERSONA_REVIEW_SUMMARY:
         return _build_persona_review_summary_payload()
+    if snapshot_type == SNAPSHOT_LONG_FORM_ROUTES:
+        return _build_long_form_routes_payload()
     return None
 
 
@@ -720,6 +738,8 @@ def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
         return isinstance(items, list) and isinstance(counts, dict)
     if snapshot_type == SNAPSHOT_PERSONA_REVIEW_SUMMARY:
         return isinstance(payload.get("counts"), dict) and isinstance(payload.get("recent"), list)
+    if snapshot_type == SNAPSHOT_LONG_FORM_ROUTES:
+        return isinstance(payload.get("route_counts"), dict) and isinstance(payload.get("candidates"), list)
     return True
 
 
@@ -812,6 +832,44 @@ def _persona_review_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _long_form_routes_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
+    route_counts = payload.get("route_counts") or {}
+    primary_route_counts = payload.get("primary_route_counts") or {}
+    by_channel = payload.get("by_channel") or {}
+    candidates = payload.get("candidates") or []
+    if not isinstance(route_counts, dict):
+        route_counts = {}
+    if not isinstance(primary_route_counts, dict):
+        primary_route_counts = {}
+    if not isinstance(by_channel, dict):
+        by_channel = {}
+    if not isinstance(candidates, list):
+        candidates = []
+
+    candidate_signature: list[tuple[str, str, str, str]] = []
+    for item in candidates[:12]:
+        if not isinstance(item, dict):
+            continue
+        candidate_signature.append(
+            (
+                str(item.get("candidate_id") or ""),
+                str(item.get("primary_route") or ""),
+                str(item.get("source_channel") or ""),
+                str(item.get("target_file") or ""),
+            )
+        )
+
+    return (
+        int(payload.get("assets_considered") or 0),
+        int(payload.get("segments_total") or 0),
+        int(payload.get("skipped_no_segments") or 0),
+        tuple(sorted((str(key), int(value)) for key, value in route_counts.items() if isinstance(value, (int, float)))),
+        tuple(sorted((str(key), int(value)) for key, value in primary_route_counts.items() if isinstance(value, (int, float)))),
+        tuple(sorted((str(key), int(value)) for key, value in by_channel.items() if isinstance(value, (int, float)))),
+        tuple(candidate_signature),
+    )
+
+
 def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
     persisted = get_snapshot_payload(WORKSPACE_KEY, snapshot_type)
     if snapshot_type == SNAPSHOT_SOCIAL_FEED:
@@ -851,6 +909,17 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
         if persisted and _snapshot_is_usable(snapshot_type, persisted):
             return persisted
         return None
+    if snapshot_type == SNAPSHOT_LONG_FORM_ROUTES:
+        runtime = _runtime_snapshot_payload(snapshot_type)
+        if runtime:
+            if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
+            if _long_form_routes_signature(persisted) != _long_form_routes_signature(runtime):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
+            return runtime
+        if persisted and _snapshot_is_usable(snapshot_type, persisted):
+            return persisted
+        return None
     if persisted and _snapshot_is_usable(snapshot_type, persisted):
         return persisted
     payload = _runtime_snapshot_payload(snapshot_type)
@@ -869,6 +938,7 @@ class WorkspaceSnapshotService:
             SNAPSHOT_FEEDBACK_SUMMARY,
             SNAPSHOT_SOURCE_ASSETS,
             SNAPSHOT_PERSONA_REVIEW_SUMMARY,
+            SNAPSHOT_LONG_FORM_ROUTES,
         ]
         refreshed: dict[str, Any] = {}
         for snapshot_type in snapshot_types:
@@ -884,6 +954,7 @@ class WorkspaceSnapshotService:
         feedback_summary = _load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
         source_assets = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
         persona_review_summary = _load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
+        long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
         return {
             "workspace_files": _load_workspace_files(),
             "doc_entries": _load_doc_entries(),
@@ -893,6 +964,7 @@ class WorkspaceSnapshotService:
             "feedback_summary": feedback_summary,
             "source_assets": source_assets,
             "persona_review_summary": persona_review_summary,
+            "long_form_routes": long_form_routes,
             "refresh_status": social_feed_refresh_service.get_status(),
         }
 

@@ -602,6 +602,13 @@ Benchmark goal:
   - `Δ >= 0.3`
 - feed-wide `Lane Carried` should decrease from the current baseline on comparable sample sizes
 
+Current runtime state:
+- first-pass shared routing is now live through `backend/app/services/social_long_form_signal_service.py`
+- the persisted workspace snapshot now exposes `long_form_routes`
+- `/ops` now shows route counts, primary-route mix, channels, and top routed long-form candidates
+- `social_persona_review_service.py` now consumes the shared long-form candidate set for `belief_evidence` instead of maintaining a separate transcript parsing path
+- long-form routing is still upstream-oriented: comment/repost eligibility is classified, but transcript-derived units are expected to land primarily in `post_seed` / `belief_evidence` until production benchmarks prove otherwise
+
 Production validation timing:
 - deterministic rebuild validation
 - full refresh validation

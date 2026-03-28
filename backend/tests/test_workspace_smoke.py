@@ -24,6 +24,7 @@ from app.services.workspace_snapshot_service import workspace_snapshot_service
 
 social_feedback_module = importlib.import_module("app.services.social_feedback_service")
 social_feed_builder_module = importlib.import_module("app.services.social_feed_builder_service")
+social_long_form_signal_module = importlib.import_module("app.services.social_long_form_signal_service")
 social_persona_review_module = importlib.import_module("app.services.social_persona_review_service")
 persona_route_module = importlib.import_module("app.routes.persona")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
@@ -467,6 +468,30 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertGreater(len(items), 0)
         self.assertEqual(source_assets.get("counts", {}).get("total"), len(items))
 
+    def test_long_form_route_summary_returns_segment_routes(self) -> None:
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+
+        summary = social_long_form_signal_module.build_long_form_route_summary(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=2,
+            max_segments_per_asset=2,
+        )
+
+        self.assertGreater(summary.get("assets_considered", 0), 0)
+        self.assertGreater(summary.get("segments_total", 0), 0)
+        route_counts = summary.get("route_counts") or {}
+        self.assertGreater(route_counts.get("belief_evidence", 0), 0)
+        self.assertGreater(route_counts.get("post_seed", 0), 0)
+        candidates = summary.get("candidates") or []
+        self.assertTrue(candidates)
+        self.assertIn(candidates[0].get("primary_route"), {"comment", "post_seed", "belief_evidence"})
+        self.assertIsInstance(candidates[0].get("response_modes"), list)
+
     def test_workspace_snapshot_keeps_nonempty_persisted_source_assets_when_runtime_inventory_is_empty(self) -> None:
         persisted = {
             "generated_at": "2026-03-28T00:00:00+00:00",
@@ -572,6 +597,13 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual(counts.get("brain_pending_review"), 1)
         self.assertEqual(counts.get("pending_promotion"), 1)
         self.assertEqual(counts.get("committed"), 1)
+
+    def test_workspace_snapshot_includes_long_form_routes(self) -> None:
+        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+        long_form_routes = snapshot.get("long_form_routes") or {}
+        self.assertGreaterEqual(long_form_routes.get("assets_considered", 0), 1)
+        self.assertIn("route_counts", long_form_routes)
+        self.assertIsInstance(long_form_routes.get("candidates"), list)
 
     def test_persona_deltas_route_supports_brain_queue_view(self) -> None:
         now = datetime.now(timezone.utc)

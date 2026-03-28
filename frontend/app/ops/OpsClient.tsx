@@ -465,6 +465,36 @@ type SourceAssetInventory = {
   };
 };
 
+type LongFormRouteCandidate = {
+  candidate_id: string;
+  asset_id: string;
+  title: string;
+  source_channel: string;
+  source_url?: string;
+  source_path: string;
+  segment: string;
+  lane_hint: string;
+  target_file: string;
+  stance?: string;
+  belief_summary?: string;
+  response_modes: string[];
+  primary_route: string;
+  route_reason?: string;
+  route_score?: number;
+};
+
+type LongFormRouteSummary = {
+  generated_at?: string;
+  assets_considered?: number;
+  segments_total?: number;
+  skipped_no_segments?: number;
+  route_counts?: Record<string, number>;
+  primary_route_counts?: Record<string, number>;
+  lane_counts?: Record<string, number>;
+  by_channel?: Record<string, number>;
+  candidates?: LongFormRouteCandidate[];
+};
+
 type PersonaReviewSummaryItem = {
   id: string;
   trait: string;
@@ -517,6 +547,7 @@ type WorkspaceSnapshot = {
   social_feed?: SocialFeed | null;
   source_assets?: SourceAssetInventory | null;
   persona_review_summary?: PersonaReviewSummary | null;
+  long_form_routes?: LongFormRouteSummary | null;
   feedback_summary?: FeedbackSummary | null;
   refresh_status?: FeedRefreshStatus | null;
 };
@@ -783,6 +814,7 @@ export default function OpsClient({
   const [liveSocialFeed, setLiveSocialFeed] = useState<SocialFeed | null>(null);
   const [liveSourceAssets, setLiveSourceAssets] = useState<SourceAssetInventory | null>(null);
   const [livePersonaReviewSummary, setLivePersonaReviewSummary] = useState<PersonaReviewSummary | null>(null);
+  const [liveLongFormRoutes, setLiveLongFormRoutes] = useState<LongFormRouteSummary | null>(null);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   const [workspaceRefreshStatus, setWorkspaceRefreshStatus] = useState<FeedRefreshStatus | null>(null);
   const [workspaceSnapshotState, setWorkspaceSnapshotState] = useState<'loading' | 'live' | 'error'>('loading');
@@ -853,6 +885,7 @@ export default function OpsClient({
       setLiveSocialFeed(snapshot.social_feed ?? null);
       setLiveSourceAssets(snapshot.source_assets ?? null);
       setLivePersonaReviewSummary(snapshot.persona_review_summary ?? null);
+      setLiveLongFormRoutes(snapshot.long_form_routes ?? null);
       setFeedbackSummary(snapshot.feedback_summary ?? null);
       setWorkspaceRefreshStatus(snapshot.refresh_status ?? null);
       setWorkspaceSnapshotState('live');
@@ -1090,6 +1123,7 @@ export default function OpsClient({
           socialFeed={effectiveSocialFeed}
           sourceAssets={liveSourceAssets}
           personaReviewSummary={livePersonaReviewSummary}
+          longFormRoutes={liveLongFormRoutes}
           workspaceSnapshotState={workspaceSnapshotState}
           workspaceSnapshotError={workspaceSnapshotError}
           workspaceRefreshStatus={workspaceRefreshStatus}
@@ -1364,6 +1398,7 @@ function WorkspacePanel({
   socialFeed,
   sourceAssets,
   personaReviewSummary,
+  longFormRoutes,
   workspaceSnapshotState,
   workspaceSnapshotError,
   workspaceRefreshStatus,
@@ -1378,6 +1413,7 @@ function WorkspacePanel({
   socialFeed: SocialFeed | null;
   sourceAssets: SourceAssetInventory | null;
   personaReviewSummary: PersonaReviewSummary | null;
+  longFormRoutes: LongFormRouteSummary | null;
   workspaceSnapshotState: 'loading' | 'live' | 'error';
   workspaceSnapshotError: string | null;
   workspaceRefreshStatus: FeedRefreshStatus | null;
@@ -1443,6 +1479,8 @@ function WorkspacePanel({
   );
   const personaReviewCounts = personaReviewSummary?.counts ?? {};
   const longFormSync = personaReviewSummary?.long_form_sync ?? null;
+  const longFormRouteCounts = longFormRoutes?.route_counts ?? {};
+  const longFormPrimaryRouteCounts = longFormRoutes?.primary_route_counts ?? {};
   const sourceRecords = useMemo(() => {
     const byPath = new Map<string, SourceRecord>();
 
@@ -1901,6 +1939,11 @@ function WorkspacePanel({
             label="Pending Segments"
             value={`${sourceAssets?.counts?.pending_segmentation ?? sourceAssetRecords.filter((item) => item.routingStatus === 'pending_segmentation').length}`}
             detail="not yet routed into feed cards"
+          />
+          <MiniMeta
+            label="Route Candidates"
+            value={`${longFormRoutes?.segments_total ?? 0}`}
+            detail="claim-sized long-form units"
           />
         </div>
         <section
@@ -2395,6 +2438,120 @@ function WorkspacePanel({
               </button>
             );
           })}
+        </div>
+      </section>
+
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Long-form Routing</p>
+            <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Where transcript segments go</h3>
+            <p style={{ color: '#94a3b8', fontSize: '14px', maxWidth: '760px' }}>
+              This is the first live routing layer over segmented long-form media. It shows whether the system thinks a segment belongs in persona review, post planning, or direct social reaction work.
+            </p>
+          </div>
+          <span style={{ color: '#64748b', fontSize: '13px' }}>
+            {(longFormRoutes?.candidates ?? []).length} shown / {longFormRoutes?.segments_total ?? 0} routed segments
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+          <MiniMeta label="Assets Considered" value={`${longFormRoutes?.assets_considered ?? 0}`} detail="long-form sources checked" />
+          <MiniMeta label="Segments" value={`${longFormRoutes?.segments_total ?? 0}`} detail="claim-sized units extracted" />
+          <MiniMeta label="Comment Ready" value={`${longFormRouteCounts.comment ?? 0}`} detail="segments eligible for comment routing" />
+          <MiniMeta label="Repost Ready" value={`${longFormRouteCounts.repost ?? 0}`} detail="segments eligible for repost routing" />
+          <MiniMeta label="Post Seeds" value={`${longFormRouteCounts.post_seed ?? 0}`} detail="segments useful for original-post planning" />
+          <MiniMeta label="Belief Evidence" value={`${longFormRouteCounts.belief_evidence ?? 0}`} detail="segments useful for Brain/persona review" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+          <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+            <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Primary Route Mix</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {Object.entries(longFormPrimaryRouteCounts).length === 0 ? (
+                <EmptyPanel message="No routed long-form candidates yet." compact />
+              ) : (
+                Object.entries(longFormPrimaryRouteCounts)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([route, count]) => (
+                    <div key={route} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '13px' }}>
+                      <span style={{ color: '#e2e8f0' }}>{route}</span>
+                      <span style={{ color: '#93c5fd' }}>{count}</span>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+          <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+            <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Channels</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {Object.entries(longFormRoutes?.by_channel ?? {}).length === 0 ? (
+                <EmptyPanel message="No routed channels yet." compact />
+              ) : (
+                Object.entries(longFormRoutes?.by_channel ?? {})
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([channel, count]) => (
+                    <div key={channel} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '13px' }}>
+                      <span style={{ color: '#e2e8f0' }}>{channel}</span>
+                      <span style={{ color: '#c4b5fd' }}>{count}</span>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {(longFormRoutes?.candidates ?? []).slice(0, 6).map((candidate) => {
+            const mountedSource = findWorkspaceFileBySourcePath(linkedinFiles, candidate.source_path);
+            return (
+              <article key={candidate.candidate_id} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <p style={{ color: '#f8fafc', fontWeight: 700 }}>{candidate.title}</p>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>
+                      {[candidate.source_channel, candidate.lane_hint, candidate.stance].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#fbbf24', fontSize: '12px' }}>
+                      {candidate.primary_route}
+                    </span>
+                    <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>
+                      score {candidate.route_score ?? 0}
+                    </span>
+                  </div>
+                </div>
+                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.55, marginTop: '10px' }}>{candidate.segment}</p>
+                <p style={{ color: '#64748b', fontSize: '12px', marginTop: '8px' }}>{candidate.route_reason}</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
+                  {candidate.response_modes.map((mode) => (
+                    <span key={`${candidate.candidate_id}-${mode}`} style={{ borderRadius: '999px', border: '1px solid #334155', padding: '4px 10px', color: '#cbd5f5', fontSize: '12px' }}>
+                      {mode}
+                    </span>
+                  ))}
+                  <span style={{ borderRadius: '999px', border: '1px solid #334155', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>
+                    {candidate.target_file}
+                  </span>
+                </div>
+                {candidate.belief_summary ? <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '10px' }}>Belief: {candidate.belief_summary}</p> : null}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{candidate.source_path}</p>
+                  {candidate.source_url ? (
+                    <a href={candidate.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                      Open original source
+                    </a>
+                  ) : null}
+                  {mountedSource ? (
+                    <button
+                      onClick={() => onSelect(mountedSource.path)}
+                      style={{ border: 'none', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                    >
+                      Open source file
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+          {(longFormRoutes?.candidates ?? []).length === 0 && <EmptyPanel message="No routed long-form candidates are visible yet." />}
         </div>
       </section>
 
