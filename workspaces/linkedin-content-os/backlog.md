@@ -193,6 +193,15 @@
   - `backend/app/services/social_feed_preview_service.py`
   - `backend/app/routes/workspace.py`
 
+### LNK-025 - Add a main-safe verification workflow for the social workspace
+- Outcome: make `main` usable as the release lane with repeatable local and production gates.
+- Implementation surfaces:
+  - `scripts/verify_main.sh`
+  - `scripts/verify_production.sh`
+  - `backend/tests/test_workspace_smoke.py`
+  - `.githooks/pre-push`
+  - `package.json`
+
 ## Parked
 
 ### LNK-011 - Channel-specific automations

@@ -60,6 +60,7 @@ Current live workspace surfaces:
 - quote approval into persona deltas rather than direct persona-file writes
 - a live backend snapshot path at `/api/workspace/linkedin-os-snapshot`
 - backend-backed workspace state in `/ops` for plan/reaction/feed timestamps and feedback summary
+- a main-safe verification path through `npm run verify:main` and `npm run verify:production`
 
 Current implementation status:
 - source extraction is live
@@ -68,6 +69,9 @@ Current implementation status:
 - first-pass belief contrast and experience anchoring are now live
 - first-pass technique selection and evaluation readouts are now live
 - `/ops` now reads a persisted backend snapshot and the backend rebuilds stale social-feed snapshot rows from live runtime builders
+- backend smoke tests now cover health, snapshot, and ingest routes
+- the frontend production build is now part of the local main gate
+- a local pre-push hook can enforce the main gate automatically via `npm run hooks:install`
 - the next architecture phase is separating thesis extraction, deepening planner-side reuse, and tightening learning/tuning
 
 Current lane taxonomy:
@@ -92,3 +96,9 @@ Key operating docs:
 - `docs/linkedin_curation_workflow.md`
 - `docs/social_feed_architecture_plan.md`
 - `docs/social_intelligence_architecture.md`
+
+Verification entry points:
+- `scripts/verify_main.sh`
+- `scripts/verify_production.sh`
+- `.githooks/pre-push`
+- `backend/tests/test_workspace_smoke.py`

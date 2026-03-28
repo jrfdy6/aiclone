@@ -48,6 +48,35 @@ What is still not fully separated:
 
 The next architecture phase is to split those concerns.
 
+## Verification And Release Gates
+
+The social workspace now has an explicit main-safe verification path.
+
+Use these entry points:
+- `scripts/verify_main.sh`
+- `scripts/verify_production.sh`
+- `backend/tests/test_workspace_smoke.py`
+- `.githooks/pre-push`
+
+What the local gate checks:
+- backend smoke coverage for `GET /health`
+- backend smoke coverage for `GET /api/workspace/linkedin-os-snapshot`
+- backend smoke coverage for `POST /api/workspace/ingest-signal`
+- direct builder/service checks for social-feed richness
+- frontend production build success
+
+What the production gate checks:
+- backend health
+- live workspace snapshot richness
+- live ingest preview generation
+- analytics/logs fallback routes
+- frontend `/ops` availability
+
+Why this matters:
+- it lets `main` act as the release lane instead of relying on a side branch for confidence
+- it makes failures legible before push and again after deploy
+- it gives OpenClaw and Codex one shared release checklist instead of ad hoc manual testing
+
 ## Reuse Before Rebuild
 
 Do not treat this plan as a greenfield system.

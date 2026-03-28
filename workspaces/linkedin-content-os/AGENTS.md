@@ -13,8 +13,9 @@ This is a thin child workspace under Neo.
 4. Read `docs/operating_model.md` when you need the full workflow.
 5. If the task touches the Workspace feed, source capture, or comment/repost generation, read `docs/social_feed_architecture_plan.md` before changing code.
 6. If the task touches source ingestion, lane interpretation, belief modeling, technique selection, or tuning, read `docs/social_intelligence_architecture.md` before changing code.
-7. Use the canonical parent persona files before inventing new voice or claims.
-8. Use the current split-lens taxonomy from `README.md` and `docs/social_feed_architecture_plan.md`; do not reintroduce merged labels such as `AI + Ops` or `Therapy / Referral`.
+7. If the task touches deploy safety, smoke tests, or main-only release flow, read `scripts/verify_main.sh`, `scripts/verify_production.sh`, and `.githooks/pre-push` before changing code or pushing.
+8. Use the canonical parent persona files before inventing new voice or claims.
+9. Use the current split-lens taxonomy from `README.md` and `docs/social_feed_architecture_plan.md`; do not reintroduce merged labels such as `AI + Ops` or `Therapy / Referral`.
 
 ## Scope
 - LinkedIn strategy
@@ -34,3 +35,4 @@ This is a thin child workspace under Neo.
 - The current first-pass belief layer lives in `backend/app/services/social_belief_engine.py` and is wired through `backend/app/services/social_signal_utils.py`.
 - The current first-pass technique and evaluation layers live in `backend/app/services/social_technique_engine.py` and `backend/app/services/social_evaluation_engine.py`.
 - Use orchestration for product behavior, coding harnesses for implementation work, auto research for tuning, and dark-factory behavior only for low-risk offline generation.
+- `main` now has a local safety gate. Before pushing work that touches this workspace, run `npm run verify:main`. After deploy, run `npm run verify:production`.
