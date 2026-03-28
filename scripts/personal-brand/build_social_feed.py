@@ -6,9 +6,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-BACKEND_ROOT = ROOT / "backend"
-if str(BACKEND_ROOT) not in sys.path:
-    sys.path.insert(0, str(BACKEND_ROOT))
+for candidate in (ROOT / "backend", ROOT):
+    if (candidate / "app").exists():
+        if str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+        break
 
 from app.services.social_feed_builder_service import build_feed, discover_linkedin_workspace_root, write_feed_artifacts
 
