@@ -965,6 +965,53 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual(source_assets.get("counts", {}).get("total"), 1)
         self.assertEqual((source_assets.get("items") or [{}])[0].get("asset_id"), "persisted-asset")
 
+    def test_source_assets_payload_falls_back_to_long_form_review_metadata_when_inventory_is_empty(self) -> None:
+        delta = PersonaDelta(
+            id="delta-review-derived",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Trait A",
+            notes="notes",
+            status="draft",
+            metadata={
+                "review_source": "long_form_media.segment",
+                "source_asset_id": "asset-review-derived",
+                "source_class": "long_form_media",
+                "source_channel": "youtube",
+                "source_type": "youtube_transcript",
+                "source_url": "https://www.youtube.com/watch?v=abc123",
+                "source_path": "knowledge/ingestions/2026/03/example/normalized.md",
+                "evidence_source": "Example Source",
+                "segment_excerpt": "A durable segment.",
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+
+        with patch.object(
+            workspace_snapshot_module,
+            "build_source_asset_inventory",
+            return_value={
+                "generated_at": "2026-03-28T00:01:00+00:00",
+                "workspace": "linkedin-content-os",
+                "items": [],
+                "counts": {
+                    "total": 0,
+                    "long_form_media": 0,
+                    "pending_segmentation": 0,
+                    "feed_ready": 0,
+                    "by_channel": {},
+                },
+            },
+        ), patch.object(workspace_snapshot_module.persona_delta_service, "list_deltas", return_value=[delta]):
+            payload = workspace_snapshot_module._build_source_assets_payload()
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload.get("backfill_source"), "persona_review_summary")
+        self.assertEqual(payload.get("counts", {}).get("total"), 1)
+        self.assertEqual((payload.get("items") or [{}])[0].get("asset_id"), "asset-review-derived")
+        self.assertEqual((payload.get("items") or [{}])[0].get("source_channel"), "youtube")
+
     def test_workspace_snapshot_includes_persona_review_lifecycle_summary(self) -> None:
         now = datetime.now(timezone.utc)
         deltas = [

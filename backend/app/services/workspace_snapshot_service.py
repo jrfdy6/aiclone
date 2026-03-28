@@ -564,8 +564,17 @@ def _build_source_assets_payload() -> dict[str, Any] | None:
             repo_root=ROOT,
         )
     except Exception:
-        return None
-    return payload if _snapshot_is_usable(SNAPSHOT_SOURCE_ASSETS, payload) else None
+        payload = None
+
+    if _snapshot_is_usable(SNAPSHOT_SOURCE_ASSETS, payload or {}):
+        items = payload.get("items") or []
+        if items:
+            return payload
+
+    fallback = _build_source_assets_from_persona_review()
+    if _snapshot_is_usable(SNAPSHOT_SOURCE_ASSETS, fallback or {}):
+        return fallback
+    return payload if _snapshot_is_usable(SNAPSHOT_SOURCE_ASSETS, payload or {}) else None
 
 
 def _build_long_form_routes_payload() -> dict[str, Any] | None:
@@ -751,6 +760,83 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
             "resolved_stale": 0,
             "created": [],
         },
+    }
+
+
+def _build_source_assets_from_persona_review() -> dict[str, Any] | None:
+    try:
+        deltas = persona_delta_service.list_deltas(limit=400)
+    except Exception:
+        return None
+
+    items_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for delta in deltas:
+        metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
+        if _metadata_text(metadata, "review_source") != "long_form_media.segment":
+            continue
+
+        asset_id = _metadata_text(metadata, "source_asset_id")
+        source_path = _metadata_text(metadata, "source_path")
+        source_url = _metadata_text(metadata, "source_url")
+        evidence_source = _metadata_text(metadata, "evidence_source") or asset_id or source_path or "Long-form source"
+        key = (asset_id or source_path or evidence_source, source_path or "", source_url or "")
+        existing = items_by_key.get(key)
+
+        candidate = {
+            "asset_id": asset_id or f"review-derived-{len(items_by_key) + 1}",
+            "title": evidence_source,
+            "source_class": _metadata_text(metadata, "source_class") or "long_form_media",
+            "source_channel": _metadata_text(metadata, "source_channel") or "unknown",
+            "source_type": _metadata_text(metadata, "source_type") or "review_segment",
+            "source_url": source_url or "",
+            "author": "",
+            "captured_at": delta.created_at.isoformat() if delta.created_at else None,
+            "source_path": source_path or "",
+            "raw_path": "",
+            "summary": _metadata_text(metadata, "segment_excerpt") or evidence_source,
+            "topics": [],
+            "tags": ["review_derived"],
+            "response_modes": ["post_seed", "belief_evidence"],
+            "routing_status": "review_backfill",
+            "feed_ready": False,
+            "segmentation_ready": False,
+            "origin": "persona_review_backfill",
+            "word_count": None,
+        }
+        if existing is None:
+            items_by_key[key] = candidate
+            continue
+
+        existing_created = existing.get("captured_at") or ""
+        candidate_created = candidate.get("captured_at") or ""
+        if candidate_created > existing_created:
+            items_by_key[key] = candidate
+
+    items = sorted(
+        items_by_key.values(),
+        key=lambda item: ((item.get("captured_at") or ""), str(item.get("title") or "").lower()),
+        reverse=True,
+    )
+    if not items:
+        return None
+
+    by_channel: dict[str, int] = {}
+    for item in items:
+        channel = _clean_markdown_value(str(item.get("source_channel") or "")) or "unknown"
+        by_channel[channel] = by_channel.get(channel, 0) + 1
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "workspace": WORKSPACE_KEY,
+        "items": items,
+        "counts": {
+            "total": len(items),
+            "long_form_media": len(items),
+            "pending_segmentation": 0,
+            "feed_ready": 0,
+            "by_channel": by_channel,
+        },
+        "backfill_source": "persona_review_summary",
     }
 
 
