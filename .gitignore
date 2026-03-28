@@ -1,5 +1,24 @@
 node_modules/
 *.node
+__pycache__/
+*.py[cod]
+.DS_Store
+.railway-stage/
+tmp/backend-railway-deploy.current/
+tmp/frontend-railway-deploy.current/
+frontend/tsconfig.tsbuildinfo
+backups/
+logs/
+media/
+myenv312/
+knowledge/ingestions/
+knowledge/transcripts/
+memory/media_jobs/
+downloads/transcripts/
+downloads/*.wav
+downloads/*.vtt
+audio.*
+neo-core-backup.tar.gz
 
 # Security: Never commit service account keys
 keys/
