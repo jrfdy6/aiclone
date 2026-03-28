@@ -517,7 +517,11 @@ def _agreement_level(stance: str) -> str:
 def _build_stance_language(stance: str, belief_summary: str, experience_summary: str) -> dict[str, str]:
     belief_line = ""
     if belief_summary:
-        belief_line = ensure_period(f"For me, it keeps coming back to {belief_summary}")
+        cleaned_belief = clean_sentence(belief_summary)
+        if cleaned_belief.lower().startswith(("a ", "an ")):
+            belief_line = ensure_period(f"For me, it keeps coming back to being {cleaned_belief}")
+        else:
+            belief_line = ensure_period(f"For me, it keeps coming back to {cleaned_belief}")
 
     if stance == "reinforce":
         return {

@@ -172,13 +172,6 @@
   - `scripts/personal-brand/build_social_feed.py`
   - `scripts/deploy_railway_service.sh`
 
-### LNK-023 - Add auto-research for lane, stance, and technique tuning
-- Outcome: use lightweight experiments to optimize which combinations perform best, instead of hand-tuning prompts forever.
-- Source files:
-  - `docs/social_intelligence_architecture.md`
-  - `analytics/`
-  - `plans/`
-
 ## Recently Completed
 
 ### LNK-012 - Split merged social feed lanes
@@ -207,6 +200,14 @@
 ### LNK-011 - Channel-specific automations
 - Keep parked until the manual content loop is stable.
 
+### LNK-023 - Add auto-research for lane, stance, and technique tuning
+- Outcome: use lightweight experiments to optimize which combinations perform best, instead of hand-tuning prompts forever.
+- Status: explicitly parked until lane voice calibration, richer feedback logging, and the shared tuning dashboard are stable enough to give auto-research a trustworthy offline metric. Use it to tune policy later, not as the current implementation path.
+- Source files:
+  - `docs/social_intelligence_architecture.md`
+  - `analytics/`
+  - `plans/`
+
 ### Implementation order
 1. `LNK-016`
 2. `LNK-017`
@@ -215,4 +216,4 @@
 5. `LNK-014`
 6. `LNK-022`
 7. `LNK-020`
-8. `LNK-023`
+8. `LNK-023` (parked until tuning signals are trustworthy)

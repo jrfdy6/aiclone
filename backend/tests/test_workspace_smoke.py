@@ -182,6 +182,36 @@ class WorkspaceSmokeTests(unittest.TestCase):
         self.assertTrue(preview_item.get("lens_variants"))
         self.assertIn("title", preview_item)
 
+    def test_split_lane_outputs_stay_materially_distinct(self) -> None:
+        response = self.client.post(
+            "/api/workspace/ingest-signal",
+            json={
+                "text": (
+                    "AI agents fail from lack of context, not lack of smarts. "
+                    "Teams need cleaner handoffs, stronger ownership, and better judgment around outputs."
+                ),
+                "priority_lane": "ai",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        variants = (payload.get("preview_item") or {}).get("lens_variants") or {}
+
+        ai_comment = (variants.get("ai") or {}).get("comment", "").lower()
+        ops_comment = (variants.get("ops-pm") or {}).get("comment", "").lower()
+        leadership_comment = (variants.get("program-leadership") or {}).get("comment", "").lower()
+        current_role_comment = (variants.get("current-role") or {}).get("comment", "").lower()
+        therapy_comment = (variants.get("therapy") or {}).get("comment", "").lower()
+        referral_comment = (variants.get("referral") or {}).get("comment", "").lower()
+
+        self.assertNotEqual(ai_comment, ops_comment)
+        self.assertIn("judgment", ai_comment)
+        self.assertTrue(any(term in ops_comment for term in ["ownership", "handoff", "cadence", "workflow"]))
+        self.assertTrue(any(term in leadership_comment for term in ["leadership", "shared standards", "coaching"]))
+        self.assertTrue(any(term in current_role_comment for term in ["current role", "students", "families", "this week", "next owner"]))
+        self.assertTrue(any(term in therapy_comment for term in ["attuned", "container", "emotional", "regulated"]))
+        self.assertTrue(any(term in referral_comment for term in ["referral", "handoff", "partner", "confidence"]))
+
 
 if __name__ == "__main__":
     unittest.main()

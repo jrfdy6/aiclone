@@ -61,6 +61,7 @@
   4. make technique selection and evaluation data-informed instead of fully rule-based,
   5. expand the structured feedback layer so copy, approval, and post outcomes all feed the same tuning loop,
   6. only then build the shared tuning dashboard and auto-research loops.
+- `karpathy/autoresearch` is explicitly parked as a later Lab-stage tuning tool. Use it to optimize lane/stance/technique policy once the feedback loop and tuning dashboard are trustworthy, not as the current path for making the product smarter.
 - Use orchestration as the core species for the product behavior, coding harnesses for implementation work, auto research for tuning, and dark-factory behavior only for low-risk offline generation.
 - Canonical workspace implementation map: `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`
 

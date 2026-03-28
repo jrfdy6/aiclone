@@ -414,11 +414,21 @@ def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, 
 
 
 def comment_open(ctx: dict[str, str], fallback: str) -> str:
-    return ctx.get("stance_comment_open") or fallback
+    stance = ctx.get("stance", "")
+    stance_open = normalize_inline_text(ctx.get("stance_comment_open"))
+    lane_open = normalize_inline_text(fallback)
+    if stance in {"counter", "personal-anchor"}:
+        return stance_open or lane_open
+    return lane_open or stance_open
 
 
 def repost_open(ctx: dict[str, str], fallback: str) -> str:
-    return ctx.get("stance_repost_open") or fallback
+    stance = ctx.get("stance", "")
+    stance_open = normalize_inline_text(ctx.get("stance_repost_open"))
+    lane_open = normalize_inline_text(fallback)
+    if stance in {"counter", "personal-anchor"}:
+        return stance_open or lane_open
+    return lane_open or stance_open
 
 
 def bridge_line(ctx: dict[str, str]) -> str:
@@ -533,16 +543,16 @@ def build_current_role_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                 comment_open(ctx, "This lands for me in the day-to-day work."),
                 ctx["supporting_line"] or ctx["core_line"],
                 bridge_line(ctx),
-                "In the current role, the useful question is what this changes in the actual experience for students, families, staff, or execution right now.",
-                "That is usually the line between a smart observation and something a team can actually use this week.",
+                "In the current role, the real test is whether students, families, staff, or the next owner of the work actually feel the difference.",
+                "If it does not change follow-through, clarity, or support this week, it is still just a smart observation.",
             ]
         ),
-        "This maps to the current role fast.",
+        "If it does not change the next step, it is still theory.",
         join_parts(
             [
                 repost_open(ctx, ctx["core_line"]),
                 "I keep reading this through the current-job lens.",
-                "The value is not just agreeing with the idea. It is deciding what this changes in the real work immediately around the role.",
+                "The real question is what changes for students, families, staff, or execution this week because of it.",
             ]
         ),
     )
@@ -574,19 +584,19 @@ def build_program_leadership_comment(ctx: dict[str, str]) -> tuple[str, str, str
     return (
         join_parts(
             [
-                comment_open(ctx, "This is where leadership shows up."),
+                comment_open(ctx, "This is where leadership either compounds the signal or wastes it."),
                 ctx["supporting_line"] or ctx["core_line"],
                 bridge_line(ctx),
-                "The teams closest to the work usually hear the signal first, but leadership matters in what happens next.",
-                "If it does not get turned into shared process, it stays as anecdote instead of becoming execution.",
+                "The teams closest to the work usually hear the signal first, but leadership shows up in whether that becomes shared standards, coaching, and decision-making.",
+                "If it never gets translated into something the broader team can repeat, it stays as an anecdote instead of becoming execution.",
             ]
         ),
-        "Insight only matters if it becomes process.",
+        "Leaders have to turn the pattern into something repeatable.",
         join_parts(
             [
                 repost_open(ctx, ctx["core_line"]),
                 "This is a leadership signal as much as a content or systems signal.",
-                "Good operators listen for these patterns early, but good leaders turn them into something the broader team can actually use.",
+                "The job is not just spotting the pattern early. It is building the shared process and coaching around it before the drift gets expensive.",
             ]
         ),
     )
@@ -598,19 +608,19 @@ def build_therapy_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         return (
             join_parts(
                 [
-                    comment_open(ctx, "This reads like a human-regulation issue, not just a systems issue."),
+                    comment_open(ctx, "This lands for me as an attunement and regulation issue, not just a systems issue."),
                     ctx["supporting_line"] or ctx["core_line"],
                     bridge_line(ctx),
                     "People can usually feel the difference between support that is merely efficient and support that is actually containing, clear, and attuned.",
-                    "That is where the therapeutic layer shows up for me.",
+                    "That is where the therapeutic layer shows up for me because the quality of the container changes what people can do inside it.",
                 ]
             ),
-            "People feel the quality of the container.",
+            "People feel the quality of the container fast.",
             join_parts(
                 [
                     repost_open(ctx, ctx["core_line"]),
                     "The part I keep coming back to is the emotional experience underneath the process.",
-                    "Even a strong workflow can miss the mark if people do not feel accurately held inside it.",
+                    "Even a strong workflow can miss the mark if people do not feel accurately held, regulated, and understood inside it.",
                 ]
             ),
         )
@@ -618,14 +628,14 @@ def build_therapy_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     return (
         join_parts(
             [
-                comment_open(ctx, "Even when a post sounds practical, I still hear the human layer underneath it."),
+                comment_open(ctx, "Even when a post sounds practical, I still hear the attunement question underneath it."),
                 ctx["supporting_line"] or ctx["core_line"],
                 bridge_line(ctx),
-                "A lot of people can tolerate friction if they still feel seen, but they usually disengage once the experience feels cold or misattuned.",
+                "A lot of people can tolerate friction if they still feel seen, but they usually disengage once the experience feels cold, dysregulating, or misattuned.",
                 "That is what makes this feel like a therapy lens to me rather than only an ops lens.",
             ]
         ),
-        "People know when the process stops feeling human.",
+        "People know when the support stops feeling attuned.",
         join_parts(
             [
                 repost_open(ctx, ctx["core_line"]),
@@ -642,22 +652,22 @@ def build_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         return (
             join_parts(
                 [
-                    comment_open(ctx, "This feels like a referral-trust issue to me."),
+                    comment_open(ctx, "This feels like a referral-confidence issue to me."),
                     ctx["supporting_line"] or ctx["core_line"],
                     bridge_line(ctx),
-                    "Strong referral ecosystems usually grow when partners trust what happens after the handoff.",
-                    "That confidence is built through clarity, responsiveness, and a consistently legible experience.",
+                    "Strong referral ecosystems usually grow when partners trust what happens after the handoff, not just the pitch before it.",
+                    "That confidence gets built through clarity, responsiveness, and a receiving experience someone would feel good putting their name behind again.",
                 ]
             ),
-            "Referral trust usually lives in the handoff.",
+            "Referral trust usually lives after the handoff.",
             join_parts(
-                [
-                    repost_open(ctx, ctx["core_line"]),
-                    "I read this through the referral lens.",
-                    "The real question is whether a partner would feel confident sending someone into this experience again.",
-                ]
-            ),
-        )
+            [
+                repost_open(ctx, ctx["core_line"]),
+                "I read this through the referral lens.",
+                "The real question is whether a partner, parent, or trusted source would feel confident sending the next person into this experience again.",
+            ]
+        ),
+    )
 
     return (
         join_parts(
@@ -666,7 +676,7 @@ def build_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                 ctx["supporting_line"] or ctx["core_line"],
                 bridge_line(ctx),
                 "Partnerships usually get stronger when expectations are clear and the receiving experience is easy to trust.",
-                "That is what makes people send the next person with confidence instead of hesitation.",
+                "That is what makes people send the next person with confidence instead of hesitation because their own reputation is on the line too.",
             ]
         ),
         "Partners repeat what they can trust.",
@@ -674,7 +684,7 @@ def build_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             [
                 repost_open(ctx, ctx["core_line"]),
                 "The referral lens here is about confidence in the receiving system.",
-                "If the experience is not clear and dependable after the handoff, the partnership eventually weakens.",
+                "If the experience is not clear and dependable after the handoff, the partnership eventually weakens no matter how good the relationship sounded up front.",
             ]
         ),
     )
@@ -733,16 +743,16 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                     comment_open(ctx, "The AI point here is stronger than people think."),
                     ctx["supporting_line"] or ctx["core_line"],
                     bridge_line(ctx),
-                    "AI literacy is not just tool familiarity. It is knowing how to ask better questions, evaluate outputs, and use the system with judgment.",
-                    "That is usually the real divide once the technology is already in the room.",
+                    "AI literacy is not just tool familiarity. It is knowing how to ask better questions, pressure-test outputs, and keep human judgment in the loop.",
+                    "That is usually the real divide once the technology is already in the room because access alone does not teach discernment.",
                 ]
             ),
-            "AI literacy changes the ceiling fast.",
+            "AI literacy is judgment, not just access.",
             join_parts(
                 [
                     repost_open(ctx, ctx["core_line"]),
                     "I read this first through an AI lens.",
-                    "The practical gap is usually not access to the tool by itself. It is whether people know how to work with it well.",
+                    "The practical gap is rarely raw access anymore. It is whether people know how to direct the system well and challenge weak outputs when they show up.",
                 ]
             ),
         )
@@ -750,19 +760,19 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     return (
         join_parts(
             [
-                comment_open(ctx, "Even when a post is not explicitly about AI, it still points to an AI-literacy question."),
+                comment_open(ctx, "Even when a post is not explicitly about AI, it still points to an AI-judgment question."),
                 ctx["supporting_line"] or ctx["core_line"],
                 bridge_line(ctx),
                 "The difference usually comes down to whether people can evaluate, translate, and apply the output with discernment.",
-                "That is what makes the AI lens different from a general operations lens.",
+                "That is what makes the AI lens different from a general operations lens because the judgment layer has to stay visible.",
             ]
         ),
-        "The AI layer is often a literacy layer.",
+        "The AI layer is usually a judgment layer.",
         join_parts(
             [
                 repost_open(ctx, ctx["core_line"]),
                 "I still see an AI question sitting underneath this.",
-                "Once teams know how to direct and evaluate the system well, the downstream quality changes a lot.",
+                "Once teams know how to direct, evaluate, and challenge the system well, the downstream quality changes a lot.",
             ]
         ),
     )
@@ -774,19 +784,19 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         return (
             join_parts(
                 [
-                    comment_open(ctx, "This reads like an operations and project-management issue to me."),
+                    comment_open(ctx, "This reads like a delivery design problem before anything else."),
                     ctx["supporting_line"] or ctx["core_line"],
                     bridge_line(ctx),
-                    "Most teams do not break at the idea layer. They break at the handoff, ownership, cadence, and follow-through layer.",
-                    "That is why this feels more like workflow design than thought leadership.",
+                    "Most teams do not break at the strategy layer. They break at the handoff, ownership, cadence, and follow-through layer.",
+                    "That is why this feels more like workflow design and project control than thought leadership to me.",
                 ]
             ),
-            "Bad handoffs usually create the real problem.",
+            "Weak ownership usually kills the good idea.",
             join_parts(
                 [
-                    repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, ctx["core_line"]),
                     "I read this through an ops and PM lens.",
-                    "The real question is who owns the next step, how the work moves, and where the process is currently leaking.",
+                    "The real question is who owns the next step, how the work moves, and where the process is currently leaking before the delay becomes normal.",
                 ]
             ),
         )
@@ -798,7 +808,7 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                 ctx["supporting_line"] or ctx["core_line"],
                 bridge_line(ctx),
                 "Operations and project management usually show up in how work gets translated into repeatable action.",
-                "That is where clarity, cadence, and accountability start mattering more than the original idea.",
+                "That is where clarity, cadence, accountability, and clean handoffs start mattering more than the original idea.",
             ]
         ),
         "The delivery layer usually decides the outcome.",
