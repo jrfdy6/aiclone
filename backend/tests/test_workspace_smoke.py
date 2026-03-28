@@ -25,6 +25,7 @@ from app.services.workspace_snapshot_service import workspace_snapshot_service
 social_feedback_module = importlib.import_module("app.services.social_feedback_service")
 social_feed_builder_module = importlib.import_module("app.services.social_feed_builder_service")
 social_persona_review_module = importlib.import_module("app.services.social_persona_review_service")
+persona_route_module = importlib.import_module("app.routes.persona")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 
 
@@ -571,6 +572,49 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual(counts.get("brain_pending_review"), 1)
         self.assertEqual(counts.get("pending_promotion"), 1)
         self.assertEqual(counts.get("committed"), 1)
+
+    def test_persona_deltas_route_supports_brain_queue_view(self) -> None:
+        now = datetime.now(timezone.utc)
+        deltas = [
+            PersonaDelta(
+                id="delta-history",
+                persona_target="feeze.core",
+                trait="Historical workspace save",
+                notes="Already saved from workspace",
+                status="approved",
+                metadata={
+                    "review_source": "linkedin_workspace.feed_quote",
+                    "approval_state": "approved_from_workspace",
+                    "target_file": "identity/VOICE_PATTERNS.md",
+                },
+                created_at=now,
+            ),
+            PersonaDelta(
+                id="delta-longform",
+                persona_target="feeze.core",
+                trait="If your CEO is visibly using AI for prompting and agents, you're 5.2 times more likely to be successful with AI.",
+                notes="Active long-form review",
+                status="reviewed",
+                metadata={
+                    "review_source": "long_form_media.segment",
+                    "target_file": "identity/claims.md",
+                    "phrase_candidates": ["visibly using AI"],
+                    "frameworks": ["leadership adoption"],
+                },
+                created_at=now,
+            ),
+        ]
+
+        with patch.object(persona_route_module.persona_delta_service, "list_deltas", return_value=deltas):
+            response = self.client.get("/api/persona/deltas?limit=100&view=brain_queue")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload[0]["id"], "delta-longform")
+        self.assertEqual(payload[0]["metadata"]["queue_stage"], "brain_pending_review")
+        self.assertTrue(payload[0]["metadata"]["queue_promotion_ready"])
+        self.assertIn("queue_priority_score", payload[0]["metadata"])
+        self.assertEqual(payload[1]["metadata"]["queue_stage"], "workspace_saved")
 
     def test_long_form_persona_review_sync_creates_brain_review_deltas(self) -> None:
         inventory = build_source_asset_inventory(

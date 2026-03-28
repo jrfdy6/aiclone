@@ -6,13 +6,17 @@ from fastapi import APIRouter, HTTPException
 
 from app.models import PersonaDelta, PersonaDeltaCreate, PersonaDeltaResolve, PersonaDeltaUpdate
 from app.services import persona_delta_service
+from app.services.persona_review_queue_service import prepare_for_brain_queue
 
 router = APIRouter(tags=["Persona"], prefix="/api/persona")
 
 
 @router.get("/deltas", response_model=List[PersonaDelta])
-async def list_persona_deltas(status: Optional[str] = None, limit: int = 50):
-    return persona_delta_service.list_deltas(limit=limit, status=status)
+async def list_persona_deltas(status: Optional[str] = None, limit: int = 50, view: Optional[str] = None):
+    deltas = persona_delta_service.list_deltas(limit=limit, status=status)
+    if (view or "").strip().lower() == "brain_queue":
+        return prepare_for_brain_queue(deltas)
+    return deltas
 
 
 @router.post("/deltas", response_model=PersonaDelta)

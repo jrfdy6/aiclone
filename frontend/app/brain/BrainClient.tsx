@@ -158,7 +158,7 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
     async function loadData() {
       const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes] = await Promise.allSettled([
         fetch(`${API_URL}/api/briefs/?limit=50`).then((res) => res.json()),
-        fetch(`${API_URL}/api/persona/deltas?limit=100`).then((res) => res.json()),
+        fetch(`${API_URL}/api/persona/deltas?limit=100&view=brain_queue`).then((res) => res.json()),
         fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
         fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
         fetch(`${API_URL}/api/open-brain/health`).then((res) => res.json()),
@@ -1395,6 +1395,10 @@ function hasSelectablePromotionMetadata(metadata: Record<string, unknown> | unde
 }
 
 function promotionSignalCount(metadata: Record<string, unknown> | undefined) {
+  const explicit = metadata?.queue_promotion_signal_count;
+  if (typeof explicit === 'number' && Number.isFinite(explicit)) {
+    return explicit;
+  }
   return (
     metadataArray(metadata, 'talking_points').length +
     metadataArray(metadata, 'frameworks').length +
@@ -1405,6 +1409,9 @@ function promotionSignalCount(metadata: Record<string, unknown> | undefined) {
 }
 
 function isPromotionReady(status: string, metadata: Record<string, unknown> | undefined) {
+  if (typeof metadata?.queue_promotion_ready === 'boolean') {
+    return metadata.queue_promotion_ready;
+  }
   const normalized = (status || 'draft').toLowerCase();
   return (normalized === 'in_review' || normalized === 'reviewed') && hasSelectablePromotionMetadata(metadata);
 }
@@ -1466,6 +1473,9 @@ function looksWeakLongFormText(text: string) {
 }
 
 function shouldMuteActivePersonaDelta(delta: PersonaDeltaEntry, promotionCandidateCount: number) {
+  if (typeof delta.metadata?.queue_muted === 'boolean') {
+    return delta.metadata.queue_muted;
+  }
   const reviewSource = metadataText(delta.metadata, 'review_source');
   if (reviewSource !== 'long_form_media.segment') {
     return false;
@@ -1487,6 +1497,10 @@ function shouldMuteActivePersonaDelta(delta: PersonaDeltaEntry, promotionCandida
 }
 
 function personaDeltaPriorityScore(delta: PersonaDeltaEntry, promotionCandidateCount: number, muted: boolean) {
+  const explicit = delta.metadata?.queue_priority_score;
+  if (typeof explicit === 'number' && Number.isFinite(explicit)) {
+    return explicit;
+  }
   const targetFile = metadataText(delta.metadata, 'target_file');
   const reviewSource = metadataText(delta.metadata, 'review_source');
   let score = 0;
@@ -1520,6 +1534,8 @@ function isBrainPendingReview(status: string, metadata: Record<string, unknown> 
 }
 
 function personaDeltaStage(delta: PersonaDeltaEntry) {
+  const queuedStage = metadataText(delta.metadata, 'queue_stage');
+  if (queuedStage) return queuedStage;
   const status = (delta.status || 'draft').toLowerCase();
   if (status === 'committed') return 'committed';
   if (metadataBoolean(delta.metadata, 'pending_promotion')) return 'pending_promotion';
