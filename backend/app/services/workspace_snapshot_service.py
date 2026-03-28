@@ -1057,17 +1057,26 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
 
 class WorkspaceSnapshotService:
     def refresh_persisted_linkedin_os_state(self) -> dict[str, Any]:
-        snapshot_types = [
-            SNAPSHOT_SOURCE_ASSETS,
-            SNAPSHOT_LONG_FORM_ROUTES,
-            SNAPSHOT_WEEKLY_PLAN,
+        refreshed: dict[str, Any] = {}
+        source_assets = _runtime_snapshot_payload(SNAPSHOT_SOURCE_ASSETS)
+        if source_assets:
+            refreshed[SNAPSHOT_SOURCE_ASSETS] = _persist_snapshot(SNAPSHOT_SOURCE_ASSETS, source_assets, "refresh")
+
+        long_form_routes = _runtime_snapshot_payload(SNAPSHOT_LONG_FORM_ROUTES)
+        if long_form_routes:
+            refreshed[SNAPSHOT_LONG_FORM_ROUTES] = _persist_snapshot(SNAPSHOT_LONG_FORM_ROUTES, long_form_routes, "refresh")
+
+        weekly_plan = _runtime_snapshot_payload(SNAPSHOT_WEEKLY_PLAN)
+        weekly_plan = _augment_weekly_plan_payload(weekly_plan, long_form_routes)
+        if weekly_plan:
+            refreshed[SNAPSHOT_WEEKLY_PLAN] = _persist_snapshot(SNAPSHOT_WEEKLY_PLAN, weekly_plan, "refresh")
+
+        for snapshot_type in (
             SNAPSHOT_PERSONA_REVIEW_SUMMARY,
             SNAPSHOT_REACTION_QUEUE,
             SNAPSHOT_SOCIAL_FEED,
             SNAPSHOT_FEEDBACK_SUMMARY,
-        ]
-        refreshed: dict[str, Any] = {}
-        for snapshot_type in snapshot_types:
+        ):
             payload = _runtime_snapshot_payload(snapshot_type)
             if payload:
                 refreshed[snapshot_type] = _persist_snapshot(snapshot_type, payload, "refresh")
@@ -1077,6 +1086,7 @@ class WorkspaceSnapshotService:
         source_assets = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
         long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
         weekly_plan = _load_snapshot(SNAPSHOT_WEEKLY_PLAN)
+        weekly_plan = _augment_weekly_plan_payload(weekly_plan, long_form_routes)
         persona_review_summary = _load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
         reaction_queue = _load_snapshot(SNAPSHOT_REACTION_QUEUE)
         social_feed = _load_snapshot(SNAPSHOT_SOCIAL_FEED)

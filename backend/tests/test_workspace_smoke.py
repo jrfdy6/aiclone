@@ -717,6 +717,86 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertIn(workspace_snapshot_module.SNAPSHOT_LONG_FORM_ROUTES, refreshed)
         self.assertIn(workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN, refreshed)
 
+    def test_snapshot_response_reconciles_weekly_plan_against_loaded_long_form_routes(self) -> None:
+        stale_weekly_plan = {
+            "generated_at": "2026-03-27 19:21",
+            "workspace": "workspaces/linkedin-content-os",
+            "positioning_model": [],
+            "priority_lanes": [],
+            "recommendations": [],
+            "hold_items": [],
+            "market_signals": [],
+            "research_notes": [],
+            "source_counts": {"drafts": 6, "media": 0, "research": 4},
+        }
+        long_form_routes = {
+            "assets_considered": 4,
+            "segments_total": 6,
+            "route_counts": {"comment": 1, "repost": 0, "post_seed": 6, "belief_evidence": 6},
+            "primary_route_counts": {"comment": 1, "repost": 0, "post_seed": 3, "belief_evidence": 2},
+            "candidates": [
+                {
+                    "title": "Route source",
+                    "segment": "The key point is that teams fail when they chase tools before workflow clarity.",
+                    "primary_route": "post_seed",
+                    "route_reason": "segment is stronger as an original post angle than a direct reaction",
+                    "route_score": 11,
+                    "lane_hint": "program-leadership",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "source_url": "https://example.com/source",
+                    "target_file": "identity/VOICE_PATTERNS.md",
+                    "response_modes": ["post_seed", "belief_evidence"],
+                    "belief_summary": "people, process, and culture as the main levers of leadership",
+                },
+                {
+                    "title": "Belief route",
+                    "segment": "AI literacy is judgment, not just access.",
+                    "primary_route": "belief_evidence",
+                    "route_reason": "segment is better suited to persona language or worldview capture",
+                    "route_score": 10,
+                    "lane_hint": "ai",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "source_url": "https://example.com/source",
+                    "target_file": "identity/claims.md",
+                    "response_modes": ["post_seed", "belief_evidence"],
+                    "belief_summary": "an AI practitioner, not just a passive user",
+                },
+            ],
+        }
+
+        def fake_load_snapshot(snapshot_type: str):
+            mapping = {
+                workspace_snapshot_module.SNAPSHOT_SOURCE_ASSETS: {"items": [], "counts": {"total": 0}},
+                workspace_snapshot_module.SNAPSHOT_LONG_FORM_ROUTES: long_form_routes,
+                workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN: stale_weekly_plan,
+                workspace_snapshot_module.SNAPSHOT_PERSONA_REVIEW_SUMMARY: {"counts": {}, "recent": []},
+                workspace_snapshot_module.SNAPSHOT_REACTION_QUEUE: {"comment_opportunities": [], "post_seeds": []},
+                workspace_snapshot_module.SNAPSHOT_SOCIAL_FEED: {"items": [{"lens_variants": {}, "source_class": "short_form", "unit_kind": "full_post", "response_modes": []}]},
+                workspace_snapshot_module.SNAPSHOT_FEEDBACK_SUMMARY: {"total_events": 0},
+            }
+            return mapping[snapshot_type]
+
+        with patch.object(workspace_snapshot_module, "_load_snapshot", side_effect=fake_load_snapshot), patch.object(
+            workspace_snapshot_module,
+            "_load_workspace_files",
+            return_value=[],
+        ), patch.object(
+            workspace_snapshot_module,
+            "_load_doc_entries",
+            return_value=[],
+        ), patch.object(
+            workspace_snapshot_module.social_feed_refresh_service,
+            "get_status",
+            return_value={"running": False, "last_run": None, "started_at": None, "error": None},
+        ):
+            snapshot = workspace_snapshot_module.workspace_snapshot_service.get_linkedin_os_snapshot()
+
+        weekly_plan = snapshot.get("weekly_plan") or {}
+        self.assertEqual(weekly_plan.get("source_counts", {}).get("media"), 1)
+        self.assertEqual(weekly_plan.get("source_counts", {}).get("belief_evidence"), 1)
+        self.assertEqual(len(weekly_plan.get("media_post_seeds") or []), 1)
+        self.assertEqual(len(weekly_plan.get("belief_evidence_candidates") or []), 1)
+
     def test_workspace_snapshot_keeps_nonempty_persisted_source_assets_when_runtime_inventory_is_empty(self) -> None:
         persisted = {
             "generated_at": "2026-03-28T00:00:00+00:00",
