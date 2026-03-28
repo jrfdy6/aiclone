@@ -24,6 +24,7 @@ from app.services.workspace_snapshot_service import workspace_snapshot_service
 
 social_feedback_module = importlib.import_module("app.services.social_feedback_service")
 social_feed_builder_module = importlib.import_module("app.services.social_feed_builder_service")
+social_persona_review_module = importlib.import_module("app.services.social_persona_review_service")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 
 
@@ -526,6 +527,78 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual(counts.get("brain_pending_review"), 1)
         self.assertEqual(counts.get("pending_promotion"), 1)
         self.assertEqual(counts.get("committed"), 1)
+
+    def test_long_form_persona_review_sync_creates_brain_review_deltas(self) -> None:
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        created_payloads = []
+        now = datetime.now(timezone.utc)
+
+        def fake_create_delta(payload):
+            created_payloads.append(payload)
+            return PersonaDelta(
+                id=f"delta-{len(created_payloads)}",
+                persona_target=payload.persona_target,
+                trait=payload.trait,
+                notes=payload.notes,
+                status="draft",
+                metadata=payload.metadata,
+                created_at=now,
+            )
+
+        with patch.object(social_persona_review_module.persona_delta_service, "get_delta_by_review_key", return_value=None), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "create_delta",
+            side_effect=fake_create_delta,
+        ):
+            result = social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets=inventory,
+                max_assets=2,
+                max_segments_per_asset=2,
+            )
+
+        self.assertGreater(result.get("created_count", 0), 0)
+        self.assertEqual(result.get("created_count"), len(created_payloads))
+        self.assertTrue(all(payload.persona_target == "feeze.core" for payload in created_payloads))
+        self.assertTrue(all(payload.metadata.get("review_source") == "long_form_media.segment" for payload in created_payloads))
+        self.assertTrue(all(payload.metadata.get("response_mode") == "belief_evidence" for payload in created_payloads))
+        self.assertTrue(all(payload.metadata.get("target_file") for payload in created_payloads))
+        self.assertTrue(all(payload.metadata.get("source_path") for payload in created_payloads))
+        self.assertTrue(all(payload.metadata.get("why_showing") for payload in created_payloads))
+        self.assertTrue(all(payload.metadata.get("review_prompt") for payload in created_payloads))
+        self.assertTrue(
+            all(
+                any(payload.metadata.get(key) for key in ("talking_points", "phrase_candidates", "frameworks", "anecdotes", "stats"))
+                for payload in created_payloads
+            )
+        )
+
+    def test_workspace_snapshot_persona_review_summary_runs_long_form_sync(self) -> None:
+        sync_result = {
+            "assets_considered": 2,
+            "created_count": 2,
+            "skipped_existing": 1,
+            "skipped_no_segments": 0,
+            "created": [
+                {"id": "delta-a", "trait": "Trait A", "target_file": "identity/claims.md"},
+                {"id": "delta-b", "trait": "Trait B", "target_file": "history/story_bank.md"},
+            ],
+        }
+
+        with patch.object(
+            workspace_snapshot_module.social_persona_review_service,
+            "sync_long_form_worldview_reviews",
+            return_value=sync_result,
+        ) as sync_mock, patch.object(workspace_snapshot_module.persona_delta_service, "list_deltas", return_value=[]):
+            snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+
+        summary = snapshot.get("persona_review_summary") or {}
+        self.assertEqual((summary.get("long_form_sync") or {}).get("created_count"), 2)
+        sync_mock.assert_called()
 
     def test_ingest_signal_route(self) -> None:
         response = self.client.post(

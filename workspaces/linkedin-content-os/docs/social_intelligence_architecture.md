@@ -344,7 +344,7 @@ Current gap to keep in mind:
 - this is not a second system; it is the same system with different state transitions
 
 Next-phase expectation:
-- segmented long-form media should eventually enter this same persona-delta lane as reviewable worldview evidence
+- segmented long-form media now enters this same persona-delta lane in a first-pass sync through `backend/app/services/social_persona_review_service.py`
 - those items should usually arrive in Brain as pending review items, not as already-finalized canonical persona updates
 
 ## Intelligence Layers

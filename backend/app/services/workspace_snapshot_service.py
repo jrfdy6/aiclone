@@ -4,7 +4,7 @@ import importlib.util
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,7 @@ from app.services.social_feed_builder_service import (
 )
 from app.services.social_feedback_service import social_feedback_service
 from app.services.social_feed_refresh import social_feed_refresh_service
+from app.services.social_persona_review_service import social_persona_review_service
 from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.workspace_snapshot_store import get_snapshot_payload, upsert_snapshot
 
@@ -563,6 +564,19 @@ def _persona_review_stage(status: str, metadata: dict[str, Any] | None) -> str:
 
 
 def _build_persona_review_summary_payload() -> dict[str, Any] | None:
+    sync_result: dict[str, Any] | None = None
+    source_assets_payload = _build_source_assets_payload()
+    if source_assets_payload:
+        try:
+            sync_result = social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=ROOT,
+                source_assets=source_assets_payload,
+                transcripts_root=_transcripts_root(),
+                ingestions_root=_ingestions_root(),
+            )
+        except Exception:
+            sync_result = None
+
     try:
         deltas = persona_delta_service.list_deltas(limit=200)
     except Exception:
@@ -612,7 +626,7 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
             )
 
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "workspace": WORKSPACE_KEY,
         "counts": {
             "total": len(deltas),
@@ -622,6 +636,13 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
         "review_source_counts": review_source_counts,
         "target_file_counts": target_file_counts,
         "recent": recent,
+        "long_form_sync": sync_result or {
+            "assets_considered": 0,
+            "created_count": 0,
+            "skipped_existing": 0,
+            "skipped_no_segments": 0,
+            "created": [],
+        },
     }
 
 

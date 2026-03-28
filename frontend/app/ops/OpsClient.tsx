@@ -493,6 +493,19 @@ type PersonaReviewSummary = {
   review_source_counts?: Record<string, number>;
   target_file_counts?: Record<string, number>;
   recent?: PersonaReviewSummaryItem[];
+  long_form_sync?: {
+    assets_considered?: number;
+    created_count?: number;
+    skipped_existing?: number;
+    skipped_no_segments?: number;
+    created?: Array<{
+      id?: string;
+      trait?: string;
+      target_file?: string;
+      source_asset_id?: string;
+      review_key?: string;
+    }>;
+  };
 };
 
 type WorkspaceSnapshot = {
@@ -1428,6 +1441,7 @@ function WorkspacePanel({
     [sourceAssets],
   );
   const personaReviewCounts = personaReviewSummary?.counts ?? {};
+  const longFormSync = personaReviewSummary?.long_form_sync ?? null;
   const sourceRecords = useMemo(() => {
     const byPath = new Map<string, SourceRecord>();
 
@@ -1916,6 +1930,12 @@ function WorkspacePanel({
             <MiniMeta label="Approved Other" value={`${personaReviewCounts.approved_unpromoted ?? 0}`} detail="saved, not yet promoted" />
             <MiniMeta label="Pending Promotion" value={`${personaReviewCounts.pending_promotion ?? 0}`} detail="selected items queued" />
             <MiniMeta label="Promoted" value={`${personaReviewCounts.committed ?? 0}`} detail="committed to persona flow" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+            <MiniMeta label="Long-Form Assets" value={`${longFormSync?.assets_considered ?? 0}`} detail="checked during latest sync" />
+            <MiniMeta label="New Review Items" value={`${longFormSync?.created_count ?? 0}`} detail="created from source assets" />
+            <MiniMeta label="Already Synced" value={`${longFormSync?.skipped_existing ?? 0}`} detail="deduped by review key" />
+            <MiniMeta label="No Segments" value={`${longFormSync?.skipped_no_segments ?? 0}`} detail="no usable worldview unit" />
           </div>
           <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px' }}>
             <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Recent Persona Items</p>

@@ -657,6 +657,11 @@ Roadmap item:
 Outcome:
 - turn transcript-derived worldview segments into reviewable persona items with source context, stance, and optional promotion targets
 
+Current implementation state:
+- first pass is live
+- `backend/app/services/social_persona_review_service.py` now reads long-form `source_assets`, extracts claim-sized worldview segments, evaluates them through `social_belief_engine.py`, and writes draft review items into the shared `persona_deltas` lifecycle
+- `backend/app/services/workspace_snapshot_service.py` now runs that sync while rebuilding `persona_review_summary`, so Brain-facing worldview evidence is visible on the same shared approval substrate instead of a second queue
+
 Touch points:
 - `backend/app/services/social_belief_engine.py`
 - segmentation/routing outputs from `LNK-028` and `LNK-029`

@@ -73,6 +73,7 @@
   3. route those units into the correct downstream jobs (`comment`, `repost`, `post_seed`, `belief_evidence`) instead of forcing every source into a feed-card response,
   4. use those source contrasts to build reviewable worldview evidence for the persona system without auto-writing canonical persona files.
   5. route that worldview evidence into the shared `persona_deltas` lifecycle so Brain and Workspace stay on one approval substrate instead of parallel persona systems.
+     - First pass is now live through `backend/app/services/social_persona_review_service.py` and `backend/app/services/workspace_snapshot_service.py`, which sync transcript-derived worldview segments into draft `persona_deltas` during snapshot rebuilds.
   6. Workspace approval of a snippet should count as approval and should not create a duplicate Brain re-approval loop; Brain should focus on unresolved persona items and long-form worldview review.
   7. the first runtime source-asset inventory is now live in the workspace snapshot and `/ops`; transcript/media assets are visible upstream before segmentation but are not yet eligible for direct feed-card routing.
   8. keep the live `/ops` tuning dashboard as the benchmark source of truth, using `Avg Source`, `Avg Expr`, `Avg Δ`, `Weak Source`, `Lane Carried`, source-class health, and the attention queue as the main release metrics for each source-expansion step.

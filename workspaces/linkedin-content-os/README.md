@@ -80,8 +80,9 @@ Current implementation status:
 - expression-quality is now live as a relational signal in the social variant builder (`source_expression_quality`, `output_expression_quality`, `expression_delta`, structure preservation)
 - `/ops` now includes a first-pass tuning dashboard for live weak-source detection, warning hotspots, strategy mix, lane health, and the current attention queue
 - the first runtime source-taxonomy contract is now live across saved feed items, manual previews, snapshot rebuilds, and `/ops` (`source_class`, `unit_kind`, `response_modes`)
-- first-pass transcript/media source assets are now live in the workspace snapshot and `/ops` as upstream `long_form_media` inventory; they remain `post_seed` / `belief_evidence` assets until segmentation exists
+- first-pass transcript/media source assets are now live in the workspace snapshot and `/ops` as upstream `long_form_media` inventory; they remain upstream for feed-card routing until segmentation promotes specific claim-sized units into downstream jobs
 - the shared Workspace / Brain persona lifecycle is now partially visible in the live workspace snapshot and `/ops` through a first-pass `persona_review_summary`
+- first-pass transcript-derived worldview evidence now syncs into the shared `persona_deltas` review store through `social_persona_review_service.py`, so Brain can review long-form segments on the same substrate as Workspace-approved snippets
 - `/ops` now reads a persisted backend snapshot and the backend rebuilds stale social-feed snapshot rows from live runtime builders
 - backend smoke tests now cover health, snapshot, and ingest routes
 - the frontend production build is now part of the local main gate

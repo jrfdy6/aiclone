@@ -151,3 +151,23 @@ def get_delta_by_capture(capture_id: str) -> Optional[PersonaDelta]:
             )
             row = cur.fetchone()
     return _row_to_delta(row) if row else None
+
+
+def get_delta_by_review_key(review_key: str) -> Optional[PersonaDelta]:
+    if not review_key:
+        return None
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, capture_id, persona_target, trait, notes, status, metadata, created_at, committed_at
+                FROM persona_deltas
+                WHERE metadata->>'review_key' = %s
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (review_key,),
+            )
+            row = cur.fetchone()
+    return _row_to_delta(row) if row else None
