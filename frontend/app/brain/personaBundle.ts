@@ -80,11 +80,13 @@ export function loadPersonaWorkspace(): PersonaWorkspace {
       key,
       title: config.title ?? key,
       description: config.description ?? '',
-      sections: (config.files ?? []).map((relPath) => {
-        const fullPath = path.join(bundleRoot, relPath);
-        const text = fs.readFileSync(fullPath, 'utf-8');
-        return { path: relPath, content: stripFrontmatter(text) };
-      }),
+      sections: (config.files ?? [])
+        .filter((relPath) => fs.existsSync(path.join(bundleRoot, relPath)))
+        .map((relPath) => {
+          const fullPath = path.join(bundleRoot, relPath);
+          const text = fs.readFileSync(fullPath, 'utf-8');
+          return { path: relPath, content: stripFrontmatter(text) };
+        }),
     }));
 
     const allFiles = [
@@ -129,8 +131,7 @@ export function loadPersonaWorkspace(): PersonaWorkspace {
         status: missingFiles.length === 0 && missingFrontmatter.length === 0 ? 'ok' : 'error',
       },
     };
-  } catch (error) {
-    console.warn('Failed to load persona workspace', error);
+  } catch {
     return workspaceSnapshot.personaWorkspace as PersonaWorkspace;
   }
 }

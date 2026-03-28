@@ -1,6 +1,6 @@
 export const contentPipelineSnapshot = 
 {
-  "generatedAt": "2026-03-28T00:01:32.210Z",
+  "generatedAt": "2026-03-28T01:22:25.614Z",
   "weeklyPlan": {
     "generated_at": "2026-03-27T19:21:53",
     "workspace": "workspaces/linkedin-content-os",
@@ -548,7 +548,7 @@ export const contentPipelineSnapshot =
     }
   },
   "socialFeed": {
-    "generated_at": "2026-03-27T23:21:37.895962+00:00",
+    "generated_at": "2026-03-28T00:41:08.181092+00:00",
     "workspace": "linkedin-content-os",
     "strategy_mode": "production",
     "items": [
@@ -576,11 +576,11 @@ export const contentPipelineSnapshot =
         "ranking": {
           "priority_network": 50,
           "topic_match": 0,
-          "recency": 100,
+          "recency": 99,
           "engagement": 0,
           "persona_fit": 10,
           "source_quality": 15,
-          "total": 175
+          "total": 174
         },
         "lenses": [
           "ai"
@@ -1006,11 +1006,11 @@ export const contentPipelineSnapshot =
         "ranking": {
           "priority_network": 50,
           "topic_match": 0,
-          "recency": 100,
+          "recency": 99,
           "engagement": 0,
           "persona_fit": 10,
           "source_quality": 15,
-          "total": 175
+          "total": 174
         },
         "lenses": [
           "current-role"
@@ -1436,11 +1436,11 @@ export const contentPipelineSnapshot =
         "ranking": {
           "priority_network": 50,
           "topic_match": 0,
-          "recency": 100,
+          "recency": 99,
           "engagement": 0,
           "persona_fit": 10,
           "source_quality": 15,
-          "total": 175
+          "total": 174
         },
         "lenses": [
           "admissions"
@@ -1867,11 +1867,11 @@ export const contentPipelineSnapshot =
         "ranking": {
           "priority_network": 50,
           "topic_match": 0,
-          "recency": 100,
+          "recency": 99,
           "engagement": 0,
           "persona_fit": 10,
           "source_quality": 15,
-          "total": 175
+          "total": 174
         },
         "lenses": [
           "ai"
@@ -7045,14 +7045,5 @@ export const contentPipelineSnapshot =
       }
     ]
   },
-  "editorialMix": [
-    "Are we teaching enough?",
-    "Are we showing enough real story?",
-    "Are we making the current initiatives legible without turning the feed into a pitch deck?",
-    "`6` value / operator posts",
-    "`2` initiative / offer / authority posts",
-    "`2` personal / story posts",
-    "current build visibility",
-    "founder/operator positioning"
-  ]
+  "editorialMix": []
 } as const;

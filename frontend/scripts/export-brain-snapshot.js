@@ -56,11 +56,13 @@ function loadPersonaWorkspace() {
     key,
     title: config.title ?? key,
     description: config.description ?? '',
-    sections: (config.files ?? []).map((relPath) => {
-      const fullPath = path.join(bundleRoot, relPath);
-      const text = fs.readFileSync(fullPath, 'utf-8');
-      return { path: relPath, content: stripFrontmatter(text) };
-    }),
+    sections: (config.files ?? [])
+      .filter((relPath) => fs.existsSync(path.join(bundleRoot, relPath)))
+      .map((relPath) => {
+        const fullPath = path.join(bundleRoot, relPath);
+        const text = fs.readFileSync(fullPath, 'utf-8');
+        return { path: relPath, content: stripFrontmatter(text) };
+      }),
   }));
 
   const allFiles = [

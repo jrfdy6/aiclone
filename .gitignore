@@ -11,6 +11,7 @@ backups/
 logs/
 media/
 myenv312/
+.venv-main-safe/
 knowledge/ingestions/
 knowledge/transcripts/
 memory/media_jobs/

@@ -115,6 +115,25 @@ def _read_saved_signals(workspace_root: Path) -> list[dict[str, Any]]:
     return signals
 
 
+def _load_existing_feed(workspace_root: Path) -> dict[str, Any] | None:
+    plans_path = workspace_root / "plans" / "social_feed.json"
+    if not plans_path.exists():
+        return None
+    try:
+        payload = json.loads(plans_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+    first_item = items[0] if items else {}
+    if not isinstance(first_item, dict) or not first_item.get("lens_variants"):
+        return None
+    return payload
+
+
 def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_saved_signal(
         signal,
@@ -212,6 +231,10 @@ def build_feed(workspace_root: Path | None = None) -> dict[str, Any]:
     resolved_root = workspace_root or discover_linkedin_workspace_root()
     watchlist = _load_watchlist(resolved_root)
     signals = _read_saved_signals(resolved_root)
+    if not signals:
+        existing_feed = _load_existing_feed(resolved_root)
+        if existing_feed:
+            return existing_feed
     items = [_normalize_signal(signal, watchlist) for signal in signals]
     items.sort(key=lambda item: item["ranking"]["total"], reverse=True)
     return {
@@ -238,4 +261,3 @@ def write_feed_artifacts(feed: dict[str, Any], workspace_root: Path | None = Non
             lines.append(f"  - {item['source_url']}")
         lines.append(f"  - score: {item['ranking']['total']:.1f}")
     md_path.write_text("\n".join(lines), encoding="utf-8")
-
