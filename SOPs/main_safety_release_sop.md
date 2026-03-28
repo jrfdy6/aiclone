@@ -13,6 +13,7 @@ Make `main` safe enough to function as the release lane without relying on a lon
 - Hook installer: `npm run hooks:install`
 - Local hook: `.githooks/pre-push`
 - Backend smoke suite: `backend/tests/test_workspace_smoke.py`
+- Staged Railway deploy: `./scripts/deploy_railway_service.sh backend` and `./scripts/deploy_railway_service.sh frontend`
 
 ## Procedure
 1. `cd /Users/neo/.openclaw/workspace`
@@ -24,7 +25,11 @@ Make `main` safe enough to function as the release lane without relying on a lon
 4. If the local gate passes, commit only the intended files.
 5. Push to `main`.
    - If hooks are installed, the pre-push gate will rerun automatically.
-6. Deploy as normal.
+6. Deploy with the staged Railway script:
+   - `./scripts/deploy_railway_service.sh backend`
+   - `./scripts/deploy_railway_service.sh frontend`
+   - This stages only the service-specific deploy context plus the required workspace/persona assets.
+   - The backend deploy script now tolerates a missing `docs/persistent_memory_blueprint.md` instead of failing the release.
 7. After deploy completes, run the live smoke gate:
    - `npm run verify:production`
 8. If both gates pass, treat the release as operational.
@@ -78,5 +83,6 @@ The workflow-backed version is preserved locally on:
 
 ## Notes
 - `verify:main` may coexist with append-only memory files changing in the background. Review memory dirt separately from code dirt.
+- The staged deploy script is the canonical release path for Railway. Do not assume unrelated repo dirt will ship; the script stages a narrow deploy context on purpose.
 - The goal is not “nothing ever fails.” The goal is “failures are caught in a known gate with a known next step.”
 - Keep this SOP in sync with `SOPs/_index.md`, `workspaces/linkedin-content-os/AGENTS.md`, and `workspaces/linkedin-content-os/README.md`.

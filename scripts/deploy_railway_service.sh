@@ -55,7 +55,9 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   rsync -a "$WORKSPACE_ROOT/scripts/personal-brand/" "$STAGE_DIR/$CHILD_DIR/scripts/personal-brand/"
   rsync -a "$WORKSPACE_ROOT/SOPs/" "$STAGE_DIR/$CHILD_DIR/SOPs/"
   rsync -a "$WORKSPACE_ROOT/deliverables/" "$STAGE_DIR/$CHILD_DIR/deliverables/"
-  rsync -a "$WORKSPACE_ROOT/docs/persistent_memory_blueprint.md" "$STAGE_DIR/$CHILD_DIR/docs/persistent_memory_blueprint.md"
+  if [ -f "$WORKSPACE_ROOT/docs/persistent_memory_blueprint.md" ]; then
+    rsync -a "$WORKSPACE_ROOT/docs/persistent_memory_blueprint.md" "$STAGE_DIR/$CHILD_DIR/docs/persistent_memory_blueprint.md"
+  fi
 fi
 
 echo "Staged deploy context:"
