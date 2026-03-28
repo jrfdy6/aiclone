@@ -708,6 +708,75 @@ Another useful lesson is that leadership has to translate the pattern into a rep
         self.assertEqual(update_calls[0][1].status, "resolved")
         self.assertEqual(update_calls[0][1].metadata.get("sync_state"), "stale_segment")
 
+    def test_long_form_persona_review_sync_prefers_worldview_lines_over_self_credential_lines(self) -> None:
+        credential_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "credential_heavy_transcript"
+        credential_dir.mkdir(parents=True, exist_ok=True)
+        (credential_dir / "normalized.md").write_text(
+            """---
+id: credential_heavy_transcript
+title: Credential Heavy Transcript
+source_type: youtube_transcript
+captured_at: '2026-03-23T10:00:00Z'
+topics:
+- transcript
+- youtube
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=cred123
+author: unknown
+raw_files:
+- raw/cred.txt
+word_count: 98
+summary: 'Thank you everyone. I have been working in AI since 2013.'
+---
+
+# Clean Transcript / Document
+Thank you everyone. I have been working in AI since 2013. I am the Chief Business Officer for a unicorn software company.
+The more useful lesson is that teams fail when they chase tools before workflow clarity.
+And if your CEO is using AI for prompting and agents, you are far more likely to be successful because the culture changes with the tooling.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        items = [item for item in (inventory.get("items") or []) if item.get("asset_id") == "credential_heavy_transcript"]
+        created_payloads = []
+        now = datetime.now(timezone.utc)
+
+        def fake_create_delta(payload):
+            created_payloads.append(payload)
+            return PersonaDelta(
+                id=f"cred-{len(created_payloads)}",
+                persona_target=payload.persona_target,
+                trait=payload.trait,
+                notes=payload.notes,
+                status="draft",
+                metadata=payload.metadata,
+                created_at=now,
+            )
+
+        with patch.object(social_persona_review_module.persona_delta_service, "get_delta_by_review_key", return_value=None), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "create_delta",
+            side_effect=fake_create_delta,
+        ), patch.object(social_persona_review_module.persona_delta_service, "list_deltas", return_value=[]):
+            social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets={"items": items},
+                max_assets=1,
+                max_segments_per_asset=2,
+            )
+
+        combined_text = " ".join((payload.trait + " " + (payload.notes or "")) for payload in created_payloads).lower()
+        self.assertIn("teams fail when they chase tools before workflow clarity", combined_text)
+        self.assertNotIn("i have been working in ai since 2013", combined_text)
+        self.assertNotIn("chief business officer", combined_text)
+
     def test_workspace_snapshot_persona_review_summary_runs_long_form_sync(self) -> None:
         sync_result = {
             "assets_considered": 2,

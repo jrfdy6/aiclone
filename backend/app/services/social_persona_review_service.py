@@ -49,6 +49,14 @@ EVENT_META_TERMS = (
     "this presentation",
     "the slide",
 )
+SELF_CREDENTIAL_PATTERNS = (
+    r"\bi(?:'ve| have) been working in\b",
+    r"\bi am the chief\b",
+    r"\bi do have credibility\b",
+    r"\bi know what i(?:'m| am) talking about\b",
+    r"\bmy book\b",
+    r"\bi travel a lot\b",
+)
 NOISY_LINE_TERMS = (
     "pending owner review",
     "pending routing review",
@@ -213,6 +221,8 @@ def _score_sentence(sentence: str, asset: dict[str, Any]) -> tuple[int, int, int
         score -= 1
     if any(term in lowered for term in EVENT_META_TERMS):
         score -= 3
+    if any(re.search(pattern, lowered) for pattern in SELF_CREDENTIAL_PATTERNS):
+        score -= 4
     if _is_boilerplate(text, _clean_text(asset.get("title"))):
         score -= 4
     return score, len(words), -len(text)
