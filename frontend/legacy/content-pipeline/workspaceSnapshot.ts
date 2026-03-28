@@ -1,6 +1,6 @@
 export const contentPipelineSnapshot = 
 {
-  "generatedAt": "2026-03-28T23:14:11.123Z",
+  "generatedAt": "2026-03-28T23:41:18.320Z",
   "weeklyPlan": {
     "generated_at": "2026-03-27T19:21:53",
     "workspace": "workspaces/linkedin-content-os",

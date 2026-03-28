@@ -1130,6 +1130,8 @@ function PersonaPanel({
   );
   const stackPersonaShell = viewportWidth < 1220;
   const stackPersonaDetail = viewportWidth < 1480;
+  const usePinnedPersonaViewport = viewportWidth >= 1220;
+  const personaViewportHeight = usePinnedPersonaViewport ? 'calc(100vh - 185px)' : 'auto';
 
   useEffect(() => {
     if (!selectedDelta && reviewQueue[0]) {
@@ -1329,7 +1331,15 @@ function PersonaPanel({
   }
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <section
+      style={{
+        display: 'grid',
+        gap: '16px',
+        height: personaViewportHeight,
+        minHeight: 0,
+        gridTemplateRows: usePinnedPersonaViewport ? 'minmax(0, 1.2fr) minmax(0, 0.92fr)' : 'none',
+      }}
+    >
       <section
         style={{
           borderRadius: '18px',
@@ -1337,8 +1347,11 @@ function PersonaPanel({
           backgroundColor: '#050b19',
           padding: '18px',
           display: 'grid',
-          gap: '16px',
+          gap: '12px',
           alignItems: 'start',
+          minHeight: 0,
+          overflow: 'hidden',
+          gridTemplateRows: usePinnedPersonaViewport ? 'auto auto auto minmax(0, 1fr) auto' : 'none',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -1356,7 +1369,7 @@ function PersonaPanel({
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', gap: '10px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
           <StepCallout step="1" title="Choose item" description="Pick one review item from the left rail." />
           <StepCallout step="2" title="Review candidate" description="Read the proposed source material and decide what you actually think." />
           <StepCallout step="3" title="Save your take" description="Record agreement, disagreement, nuance, story, or wording. Queue promotion only if fragments deserve canon." />
@@ -1376,9 +1389,24 @@ function PersonaPanel({
               gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : '340px minmax(0, 1fr)',
               gap: '14px',
               alignItems: 'start',
+              minHeight: 0,
+              overflow: 'hidden',
             }}
           >
-            <aside style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '12px', alignSelf: 'start' }}>
+            <aside
+              style={{
+                borderRadius: '14px',
+                border: '1px solid #1f2937',
+                backgroundColor: '#020617',
+                padding: '14px',
+                display: 'grid',
+                gap: '12px',
+                alignSelf: 'stretch',
+                minHeight: 0,
+                overflow: 'hidden',
+                gridTemplateRows: 'auto auto minmax(0, 1fr)',
+              }}
+            >
               <div>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Review now</p>
                 <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
@@ -1417,7 +1445,7 @@ function PersonaPanel({
                   </button>
                 </div>
               )}
-              <div style={{ maxHeight: '620px', overflowY: 'auto', display: 'grid', gap: '10px', paddingRight: '2px' }}>
+              <div style={{ minHeight: 0, overflowY: 'auto', display: 'grid', gap: '10px', paddingRight: '2px' }}>
                 {visibleActiveReviewDeltas.map(({ delta, muted, promotionReady }) => {
                   const isActive = delta.id === (selectedDelta?.id ?? '');
                   return (
@@ -1456,9 +1484,25 @@ function PersonaPanel({
                 gridTemplateColumns: stackPersonaDetail ? 'minmax(0, 1fr)' : 'minmax(0, 1.08fr) minmax(420px, 0.92fr)',
                 gap: '14px',
                 alignItems: 'start',
+                minHeight: 0,
+                overflow: 'hidden',
               }}
             >
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start', minWidth: 0 }}>
+            <section
+              style={{
+                borderRadius: '14px',
+                border: '1px solid #1f2937',
+                backgroundColor: '#020617',
+                padding: '16px',
+                display: 'grid',
+                gap: '12px',
+                alignSelf: 'stretch',
+                minWidth: 0,
+                minHeight: 0,
+                overflow: 'hidden',
+                gridTemplateRows: 'auto auto auto minmax(0, 1fr)',
+              }}
+            >
               <div>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>What you are reviewing</p>
                 <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{reviewReason}</p>
@@ -1486,7 +1530,7 @@ function PersonaPanel({
                 {selectedScoredDelta && <InlineBadge label={`Priority ${selectedScoredDelta.score}`} tone="#22c55e" />}
               </div>
 
-              <div style={{ maxHeight: '620px', overflowY: 'auto', paddingRight: '4px' }}>
+              <div style={{ minHeight: 0, overflowY: 'auto', paddingRight: '4px' }}>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Proposed source material</p>
                 <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: '16px' }}>
                   {selectedDelta.notes || 'No candidate notes were attached to this review item.'}
@@ -1583,7 +1627,21 @@ function PersonaPanel({
               </div>
             </section>
 
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start', minWidth: 0 }}>
+            <section
+              style={{
+                borderRadius: '14px',
+                border: '1px solid #1f2937',
+                backgroundColor: '#020617',
+                padding: '16px',
+                display: 'grid',
+                gap: '12px',
+                alignSelf: 'stretch',
+                minWidth: 0,
+                minHeight: 0,
+                overflow: 'hidden',
+                gridTemplateRows: 'auto auto auto auto minmax(160px, 1fr) auto',
+              }}
+            >
               <div
                 style={{
                   borderRadius: '12px',
@@ -1649,8 +1707,9 @@ function PersonaPanel({
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
-                  minHeight: '220px',
-                  resize: 'vertical',
+                  minHeight: usePinnedPersonaViewport ? '0' : '220px',
+                  height: usePinnedPersonaViewport ? '100%' : undefined,
+                  resize: usePinnedPersonaViewport ? 'none' : 'vertical',
                   borderRadius: '14px',
                   border: '1px solid #1f2937',
                   backgroundColor: '#010617',
@@ -1740,6 +1799,9 @@ function PersonaPanel({
         {promotionState.message && promotionState.tone === 'success' && (
           <div
             style={{
+              position: usePinnedPersonaViewport ? 'sticky' : 'static',
+              top: usePinnedPersonaViewport ? '88px' : undefined,
+              zIndex: 2,
               borderRadius: '12px',
               border: '1px solid #14532d',
               backgroundColor: '#052e16',
@@ -1756,7 +1818,19 @@ function PersonaPanel({
         )}
       </section>
 
-      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '18px', display: 'grid', gap: '14px' }}>
+      <section
+        style={{
+          borderRadius: '18px',
+          border: '1px solid #1f2937',
+          backgroundColor: '#050b19',
+          padding: '18px',
+          display: 'grid',
+          gap: '14px',
+          minHeight: 0,
+          overflow: 'hidden',
+          gridTemplateRows: usePinnedPersonaViewport ? 'auto auto minmax(0, 1fr)' : 'none',
+        }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
             <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Persona Lifecycle</p>
@@ -1796,12 +1870,24 @@ function PersonaPanel({
           })}
         </div>
         {activeLifecycleGroup && (
-          <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '10px' }}>
+          <div
+            style={{
+              borderRadius: '14px',
+              border: '1px solid #1f2937',
+              backgroundColor: '#020617',
+              padding: '14px',
+              display: 'grid',
+              gap: '10px',
+              minHeight: 0,
+              overflow: 'hidden',
+              gridTemplateRows: 'auto minmax(0, 1fr)',
+            }}
+          >
             <div>
               <p style={{ color: activeLifecycleGroup.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{activeLifecycleGroup.title}</p>
               <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.55 }}>{activeLifecycleGroup.description}</p>
             </div>
-            <div style={{ display: 'grid', gap: '8px' }}>
+            <div style={{ display: 'grid', gap: '8px', minHeight: 0, overflowY: 'auto', paddingRight: '2px' }}>
               {activeLifecycleGroup.items.length === 0 ? (
                 <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this state right now.</p>
               ) : (
