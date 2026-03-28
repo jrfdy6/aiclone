@@ -1,13 +1,57 @@
 import fs from 'fs';
 import path from 'path';
-import BrainClient, { DocEntry } from './BrainClient';
+import { getApiUrl } from '@/lib/api-client';
+import BrainClient, {
+  Automation,
+  BrainWorkspaceSnapshot,
+  CaptureTelemetry,
+  DailyBriefEntry,
+  DocEntry,
+  OpenBrainHealth,
+  PersonaDeltaEntry,
+} from './BrainClient';
 import { loadPersonaWorkspace } from './personaBundle';
 import { workspaceSnapshot } from './workspaceSnapshot';
 
-export default function BrainPage() {
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+type BrainInitialState = {
+  briefs: DailyBriefEntry[];
+  personaDeltas: PersonaDeltaEntry[];
+  automations: Automation[];
+  telemetry: CaptureTelemetry | null;
+  telemetryHealth: OpenBrainHealth | null;
+  workspaceSnapshot: BrainWorkspaceSnapshot | null;
+};
+
+export default async function BrainPage() {
   const docs = loadDocs();
   const personaWorkspace = loadPersonaWorkspace();
-  return <BrainClient docs={docs} personaWorkspace={personaWorkspace} />;
+  const initialState = await loadBrainInitialState();
+  return <BrainClient docs={docs} personaWorkspace={personaWorkspace} initialState={initialState} />;
+}
+
+async function loadBrainInitialState(): Promise<BrainInitialState> {
+  const apiUrl = getApiUrl();
+  const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes, snapshotRes] = await Promise.allSettled([
+    fetch(`${apiUrl}/api/briefs/?limit=50`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/persona/deltas?limit=100&view=brain_queue`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/automations/`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/analytics/open-brain`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/open-brain/health`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/workspace/linkedin-os-snapshot`, { cache: 'no-store' }).then((res) => res.json()),
+  ]);
+
+  return {
+    briefs: briefsRes.status === 'fulfilled' && Array.isArray(briefsRes.value) ? briefsRes.value : [],
+    personaDeltas: personaRes.status === 'fulfilled' && Array.isArray(personaRes.value) ? personaRes.value : [],
+    automations:
+      automationsRes.status === 'fulfilled' && Array.isArray(automationsRes.value?.data) ? automationsRes.value.data : [],
+    telemetry: telemetryRes.status === 'fulfilled' ? (telemetryRes.value ?? null) : null,
+    telemetryHealth: healthRes.status === 'fulfilled' ? (healthRes.value ?? null) : null,
+    workspaceSnapshot: snapshotRes.status === 'fulfilled' ? (snapshotRes.value ?? null) : null,
+  };
 }
 
 function loadDocs(): DocEntry[] {

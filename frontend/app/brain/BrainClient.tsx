@@ -80,7 +80,7 @@ type BriefSourceIntelligence = {
   top_review_items?: BriefSourceIntelligenceReviewItem[];
 };
 
-type Automation = {
+export type Automation = {
   id: string;
   name: string;
   schedule: string;
@@ -90,7 +90,7 @@ type Automation = {
   next_run_at?: string;
 };
 
-type CaptureTelemetry = {
+export type CaptureTelemetry = {
   database_connected: boolean;
   captures: {
     total: number;
@@ -116,7 +116,7 @@ type CaptureSummary = {
   chunk_count: number;
 };
 
-type OpenBrainHealth = {
+export type OpenBrainHealth = {
   database_connected: boolean;
   vector_extension: boolean;
   embedding_type?: string | null;
@@ -130,7 +130,7 @@ type OpenBrainHealth = {
   search_ready: boolean;
 };
 
-type PersonaDeltaEntry = {
+export type PersonaDeltaEntry = {
   id: string;
   capture_id?: string | null;
   persona_target: string;
@@ -196,7 +196,7 @@ type PersonaReviewSummary = {
   belief_relation_counts?: Record<string, number>;
 };
 
-type BrainWorkspaceSnapshot = {
+export type BrainWorkspaceSnapshot = {
   doc_entries?: WorkspaceSnapshotDocEntry[];
   workspace_files?: WorkspaceFile[];
   source_assets?: SourceAssetInventory | null;
@@ -249,19 +249,36 @@ const brainTextareaStyle: CSSProperties = {
   lineHeight: 1.5,
 };
 
-export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry[]; personaWorkspace: PersonaWorkspace }) {
+type BrainClientInitialState = {
+  briefs?: DailyBriefEntry[];
+  personaDeltas?: PersonaDeltaEntry[];
+  automations?: Automation[];
+  telemetry?: CaptureTelemetry | null;
+  telemetryHealth?: OpenBrainHealth | null;
+  workspaceSnapshot?: BrainWorkspaceSnapshot | null;
+};
+
+export default function BrainClient({
+  docs,
+  personaWorkspace,
+  initialState,
+}: {
+  docs: DocEntry[];
+  personaWorkspace: PersonaWorkspace;
+  initialState?: BrainClientInitialState;
+}) {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [briefs, setBriefs] = useState<DailyBriefEntry[]>([]);
-  const [selectedBrief, setSelectedBrief] = useState<DailyBriefEntry | null>(null);
+  const [briefs, setBriefs] = useState<DailyBriefEntry[]>(initialState?.briefs ?? []);
+  const [selectedBrief, setSelectedBrief] = useState<DailyBriefEntry | null>(initialState?.briefs?.[0] ?? null);
   const [briefsError, setBriefsError] = useState<string | null>(null);
-  const [personaDeltas, setPersonaDeltas] = useState<PersonaDeltaEntry[]>([]);
+  const [personaDeltas, setPersonaDeltas] = useState<PersonaDeltaEntry[]>(initialState?.personaDeltas ?? []);
   const [personaDeltasError, setPersonaDeltasError] = useState<string | null>(null);
-  const [automations, setAutomations] = useState<Automation[]>([]);
+  const [automations, setAutomations] = useState<Automation[]>(initialState?.automations ?? []);
   const [automationsError, setAutomationsError] = useState<string | null>(null);
-  const [telemetry, setTelemetry] = useState<CaptureTelemetry | null>(null);
-  const [telemetryHealth, setTelemetryHealth] = useState<OpenBrainHealth | null>(null);
+  const [telemetry, setTelemetry] = useState<CaptureTelemetry | null>(initialState?.telemetry ?? null);
+  const [telemetryHealth, setTelemetryHealth] = useState<OpenBrainHealth | null>(initialState?.telemetryHealth ?? null);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
-  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<BrainWorkspaceSnapshot | null>(null);
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<BrainWorkspaceSnapshot | null>(initialState?.workspaceSnapshot ?? null);
   const [workspaceSnapshotError, setWorkspaceSnapshotError] = useState<string | null>(null);
   const [longFormIngest, setLongFormIngest] = useState<BrainLongFormIngestForm>({
     url: '',
