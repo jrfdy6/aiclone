@@ -410,6 +410,7 @@ Baseline checks:
 - belief clarity
 - lived-experience anchoring
 - voice match
+- expression quality
 - role safety
 - genericity penalty
 
@@ -420,11 +421,22 @@ Current implementation status:
   - `belief_clarity`
   - `experience_anchor_strength`
   - `voice_match`
+  - `expression_quality`
   - `role_safety_score`
   - `genericity_penalty`
+  - `source_expression_quality`
+  - `output_expression_quality`
+  - `expression_delta`
+  - source/output structure preservation
   - `overall`
 - it also emits lightweight warnings that now surface in `/ops`
 - this is observability-first, not a final gatekeeper yet
+
+Expression-quality is now a first-class relational signal in the live pipeline:
+- source expression is analyzed at the sentence-rewrite boundary
+- transformed expression is analyzed after rewrite selection
+- the system carries the delta between them instead of only scoring the final output in isolation
+- feedback logging now records these expression metrics alongside lane/stance/technique context
 
 ### 7. Feedback / Observability
 Current implementation status:

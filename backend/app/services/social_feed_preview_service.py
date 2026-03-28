@@ -65,6 +65,7 @@ class SocialFeedPreviewService:
             "emotional_profile": default_variant["emotional_profile"],
             "reason": default_variant["technique_reason"],
         }
+        expression_assessment = default_variant["expression_assessment"]
 
         return {
             "id": f"manual__{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
@@ -91,6 +92,7 @@ class SocialFeedPreviewService:
             "source_metadata": signal["source_metadata"],
             "belief_assessment": belief_assessment,
             "technique_assessment": technique_assessment,
+            "expression_assessment": expression_assessment,
             "evaluation": default_variant["evaluation"],
             "ranking": {"total": 999.0},
         }

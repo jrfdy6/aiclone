@@ -194,6 +194,7 @@ def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict
         "emotional_profile": default_variant["emotional_profile"],
         "reason": default_variant["technique_reason"],
     }
+    expression_assessment = default_variant["expression_assessment"]
 
     return {
         "id": f"{normalized.get('source_channel', 'unknown')}__{normalized.get('signal_id')}",
@@ -223,6 +224,7 @@ def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict
         "source_metadata": normalized.get("source_metadata", {}),
         "belief_assessment": belief_assessment,
         "technique_assessment": technique_assessment,
+        "expression_assessment": expression_assessment,
         "evaluation": default_variant["evaluation"],
     }
 

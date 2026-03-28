@@ -19,4 +19,7 @@ class SocialFeedbackCreate(BaseModel):
     experience_anchor: Optional[str] = None
     techniques: list[str] = []
     evaluation_overall: Optional[float] = None
+    source_expression_quality: Optional[float] = None
+    output_expression_quality: Optional[float] = None
+    expression_delta: Optional[float] = None
     why_this_angle: Optional[str] = None

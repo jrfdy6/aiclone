@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from app.services.social_belief_engine import social_belief_engine
 from app.services.social_evaluation_engine import social_evaluation_engine
+from app.services.social_expression_engine import social_expression_engine
 from app.services.social_technique_engine import social_technique_engine
 
 LENS_IDS: list[str] = [
@@ -389,7 +390,7 @@ def normalize_manual_signal(
     return normalize_saved_signal(signal, raw_text=raw_text)
 
 
-def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, str]:
+def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, Any]:
     standout = signal.get("standout_lines") or []
     core_line = clean_sentence(standout[0] if standout else signal.get("summary"))
     supporting_line = ""
@@ -410,11 +411,19 @@ def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, 
         if summary and summary.lower() != core_line.lower() and not contains_generic_phrase(summary):
             supporting_line = summary
     belief_context = social_belief_engine.assess_signal(signal, lane_id)
+    expression_context = select_source_takeaway(
+        candidates=[supporting_line, core_line, clean_sentence(signal.get("summary"))],
+        lane_id=lane_id,
+    )
     return {
         "title": clean_sentence(signal.get("title")),
         "core_line": ensure_period(core_line or clean_sentence(signal.get("title")) or "this post"),
         "supporting_line": ensure_period(supporting_line) if supporting_line else "",
         "summary": ensure_period(clean_sentence(signal.get("summary"))),
+        "source_takeaway": expression_context["output_text"],
+        "source_takeaway_origin": expression_context["source_text"],
+        "source_takeaway_strategy": expression_context["strategy"],
+        "expression_assessment": expression_context,
         "priority_lane": lane_id,
         "belief_used": belief_context["belief_used"],
         "belief_summary": belief_context["belief_summary"],
@@ -427,6 +436,43 @@ def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, 
         "stance_repost_open": belief_context["stance_repost_open"],
         "bridge_line": belief_context["bridge_line"],
     }
+
+
+def preserve_source_structure(text: str | None, lane_id: str) -> str:
+    cleaned = clean_sentence(text)
+    if not cleaned:
+        return ""
+
+    not_because_match = re.search(r"not because (?P<a>.+?) but because (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
+    if not_because_match:
+        a = clean_sentence(not_because_match.group("a"))
+        b = clean_sentence(not_because_match.group("b"))
+        return ensure_period(f"The issue is not {a}. It is {b}")
+
+    isnt_match = re.search(r"isn[’']t (?P<a>.+?), it[’']s (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
+    if isnt_match:
+        a = clean_sentence(isnt_match.group("a"))
+        b = clean_sentence(isnt_match.group("b"))
+        return ensure_period(f"The challenge is not {a}. It is {b}")
+
+    substitute_match = re.search(r"not a substitute for (?P<a>.+)$", cleaned, flags=re.IGNORECASE)
+    if substitute_match:
+        replacement = clean_sentence(substitute_match.group("a"))
+        return ensure_period(f"The tool can help, but it cannot replace {replacement}")
+
+    augment_match = re.search(r"can augment (?P<a>.+?), but humans still need to (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
+    if augment_match:
+        a = clean_sentence(augment_match.group("a"))
+        b = clean_sentence(augment_match.group("b"))
+        return ensure_period(f"AI can support {a}, but people still need to {b}")
+
+    start_with_match = re.search(r"if you want better (?P<a>.+?), start with (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
+    if start_with_match:
+        a = clean_sentence(start_with_match.group("a"))
+        b = clean_sentence(start_with_match.group("b"))
+        return ensure_period(f"If you want better {a}, you have to start closer to {b}")
+
+    return ""
 
 
 def rewrite_source_claim(text: str | None, lane_id: str) -> str:
@@ -491,16 +537,11 @@ def rewrite_source_claim(text: str | None, lane_id: str) -> str:
     return ""
 
 
-def source_takeaway(ctx: dict[str, str]) -> str:
-    lane_id = ctx.get("priority_lane", "")
-    for candidate in [ctx.get("supporting_line"), ctx.get("core_line"), ctx.get("summary")]:
-        rewritten = rewrite_source_claim(candidate, lane_id)
-        if rewritten:
-            return rewritten
-    return ""
+def source_takeaway(ctx: dict[str, Any]) -> str:
+    return normalize_inline_text(ctx.get("source_takeaway"))
 
 
-def repost_seed(ctx: dict[str, str]) -> str:
+def repost_seed(ctx: dict[str, Any]) -> str:
     seed = source_takeaway(ctx)
     if seed:
         return seed
@@ -519,7 +560,45 @@ def repost_seed(ctx: dict[str, str]) -> str:
     return fallback_by_lane.get(ctx.get("priority_lane", ""), "The underlying signal here is more practical than it first appears.")
 
 
-def comment_open(ctx: dict[str, str], fallback: str) -> str:
+def select_source_takeaway(*, candidates: list[str], lane_id: str) -> dict[str, Any]:
+    for candidate in candidates:
+        cleaned = clean_sentence(candidate)
+        if not cleaned:
+            continue
+
+        rewrite_candidates: list[dict[str, str]] = []
+        structure_preserving = preserve_source_structure(cleaned, lane_id)
+        if structure_preserving:
+            rewrite_candidates.append({"text": structure_preserving, "strategy": "structure-preserving"})
+
+        pattern_rewrite = rewrite_source_claim(cleaned, lane_id)
+        if pattern_rewrite and normalize_inline_text(pattern_rewrite).lower() not in {
+            normalize_inline_text(item["text"]).lower() for item in rewrite_candidates
+        }:
+            rewrite_candidates.append({"text": pattern_rewrite, "strategy": "pattern-rewrite"})
+
+        if not rewrite_candidates:
+            continue
+
+        return social_expression_engine.choose_candidate(cleaned, rewrite_candidates)
+
+    return {
+        "source_text": "",
+        "output_text": "",
+        "strategy": "none",
+        "source_structure": "none",
+        "output_structure": "none",
+        "structure_preserved": True,
+        "source_expression_quality": 0.0,
+        "output_expression_quality": 0.0,
+        "expression_delta": 0.0,
+        "overlap_ratio": 0.0,
+        "adjusted_output_quality": 0.0,
+        "warnings": [],
+    }
+
+
+def comment_open(ctx: dict[str, Any], fallback: str) -> str:
     stance = ctx.get("stance", "")
     stance_open = normalize_inline_text(ctx.get("stance_comment_open"))
     lane_open = normalize_inline_text(fallback)
@@ -528,7 +607,7 @@ def comment_open(ctx: dict[str, str], fallback: str) -> str:
     return lane_open or stance_open
 
 
-def repost_open(ctx: dict[str, str], fallback: str) -> str:
+def repost_open(ctx: dict[str, Any], fallback: str) -> str:
     stance = ctx.get("stance", "")
     stance_open = normalize_inline_text(ctx.get("stance_repost_open"))
     lane_open = normalize_inline_text(fallback)
@@ -537,7 +616,7 @@ def repost_open(ctx: dict[str, str], fallback: str) -> str:
     return lane_open or stance_open
 
 
-def bridge_line(ctx: dict[str, str]) -> str:
+def bridge_line(ctx: dict[str, Any]) -> str:
     return ctx.get("bridge_line", "")
 
 
@@ -959,12 +1038,14 @@ def build_variants(signal: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "experience_summary": context["experience_summary"],
             "role_safety": context["role_safety"],
         }
+        expression_assessment = context["expression_assessment"]
         technique_assessment = social_technique_engine.select_for_variant(signal, lens_id, belief_assessment)
         evaluation = social_evaluation_engine.evaluate_variant(
             lane_id=lens_id,
             signal=signal,
             belief=belief_assessment,
             technique=technique_assessment,
+            expression=expression_assessment,
             comment=normalized_comment,
             repost=normalized_repost,
             short_comment=normalized_short_comment,
@@ -985,6 +1066,7 @@ def build_variants(signal: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "techniques": technique_assessment["techniques"],
             "emotional_profile": technique_assessment["emotional_profile"],
             "technique_reason": technique_assessment["reason"],
+            "expression_assessment": expression_assessment,
             "evaluation": evaluation,
         }
     return variants

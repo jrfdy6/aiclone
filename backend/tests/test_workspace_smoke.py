@@ -15,6 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.main import app
+from app.services.social_expression_engine import social_expression_engine
 from app.services.social_feed_builder_service import build_feed
 from app.services.workspace_snapshot_service import workspace_snapshot_service
 
@@ -235,8 +236,33 @@ class WorkspaceSmokeTests(unittest.TestCase):
             "the real challenge in the classroom isn’t motivating students to use ai, it’s helping them learn to use it well.",
             comment,
         )
+        self.assertNotIn(
+            "the bigger challenge is less motivating students to use ai and more helping them learn to use it well.",
+            comment,
+        )
+        self.assertIn(
+            "the challenge is not motivating students to use ai. it is helping them learn to use it well.",
+            comment,
+        )
         self.assertNotIn("more than ever", comment)
         self.assertNotIn("copy still contains generic language", warnings)
+        self.assertGreater((current_role.get("evaluation") or {}).get("expression_delta", 0.0), 0.0)
+
+    def test_expression_engine_flags_flattened_contrast_as_degraded(self) -> None:
+        source = "The real challenge in the classroom isn’t motivating students to use AI, it’s helping them learn to use it well."
+        degraded = "The bigger challenge is less motivating students to use AI and more helping them learn to use it well."
+        preserved = "The challenge is not motivating students to use AI. It is helping them learn to use it well."
+
+        degraded_assessment = social_expression_engine.compare(source, degraded)
+        preserved_assessment = social_expression_engine.compare(source, preserved)
+
+        self.assertEqual(degraded_assessment["source_structure"], "contrast-direct")
+        self.assertFalse(degraded_assessment["structure_preserved"])
+        self.assertLess(degraded_assessment["expression_delta"], 0.0)
+        self.assertIn("rewrite lost source contrast structure", degraded_assessment["warnings"])
+
+        self.assertTrue(preserved_assessment["structure_preserved"])
+        self.assertGreater(preserved_assessment["expression_delta"], 0.0)
 
 
 if __name__ == "__main__":

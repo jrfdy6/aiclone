@@ -68,6 +68,7 @@ Current implementation status:
 - quick reply / comment / repost generation is live
 - first-pass belief contrast and experience anchoring are now live
 - first-pass technique selection and evaluation readouts are now live
+- expression-quality is now live as a relational signal in the social variant builder (`source_expression_quality`, `output_expression_quality`, `expression_delta`, structure preservation)
 - `/ops` now reads a persisted backend snapshot and the backend rebuilds stale social-feed snapshot rows from live runtime builders
 - backend smoke tests now cover health, snapshot, and ingest routes
 - the frontend production build is now part of the local main gate

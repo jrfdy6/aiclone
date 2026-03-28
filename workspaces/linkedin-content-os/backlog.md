@@ -125,7 +125,7 @@
 
 ### LNK-019 - Add a technique selection layer for rhetorical and emotional shaping
 - Outcome: add a small technique library so the system can intentionally choose how a response should feel, not just what it should say.
-- Status: first pass implemented. Shared variants now carry a rule-based technique bundle, emotional profile, and technique reason. The next step is to make those selections smarter and tune them against real feedback.
+- Status: first pass implemented. Shared variants now carry a rule-based technique bundle, emotional profile, and technique reason. Expression-aware source rewriting is now also live at the sentence boundary, so the system can choose a stronger structure-preserving paraphrase instead of blindly flattening the source claim. The next step is to make those selections smarter and tune them against real feedback.
 - Source files:
   - `docs/social_intelligence_architecture.md`
   - `docs/social_feed_architecture_plan.md`
@@ -136,6 +136,7 @@
 
 ### LNK-020 - Create a shared tuning dashboard contract
 - Outcome: define a dashboard/state contract that the user and the agents can both use to track narrative state, beliefs, performance, techniques, and next-step tuning decisions.
+- Status: partially live. The social variant pipeline now emits explicit expression-quality fields (`source_expression_quality`, `output_expression_quality`, `expression_delta`, structure preservation) alongside the existing lane / belief / technique / evaluation readout. The remaining step is to make those metrics a first-class dashboard surface instead of only a variant/evaluator field.
 - Source files:
   - `docs/social_intelligence_architecture.md`
   - `plans/README.md`
@@ -150,7 +151,7 @@
 
 ### LNK-022 - Expand feedback logging and evaluation endpoints
 - Outcome: extend the existing `/api/workspace/feedback` path to log copy actions, approvals, dislikes, and future posting outcomes into a structured feedback layer instead of using only UI state and implied behavior.
-- Status: first pass implemented. Feedback now writes structured JSONL alongside the markdown log, rebuilds a summary artifact, and `/ops` sends active lane/stance/technique/evaluation context for like, dislike, and copy interactions.
+- Status: first pass implemented. Feedback now writes structured JSONL alongside the markdown log, rebuilds a summary artifact, and `/ops` sends active lane/stance/technique/evaluation context for like, dislike, and copy interactions. Expression-quality fields now flow through the same path so the feedback layer can see source/output expression quality and the delta introduced by the transformation step.
 - Source files:
   - `docs/social_intelligence_architecture.md`
   - `backend/app/routes/social_feedback.py`

@@ -34,5 +34,6 @@ This is a thin child workspace under Neo.
 - Do not skip the belief-contrast step when the task is about response quality; the system should decide the relationship to the source before styling the response.
 - The current first-pass belief layer lives in `backend/app/services/social_belief_engine.py` and is wired through `backend/app/services/social_signal_utils.py`.
 - The current first-pass technique and evaluation layers live in `backend/app/services/social_technique_engine.py` and `backend/app/services/social_evaluation_engine.py`.
+- The current sentence-level expression-quality contract lives across `backend/app/services/social_expression_engine.py`, `backend/app/services/social_signal_utils.py`, and `backend/app/services/social_evaluation_engine.py`; if a task touches rewrites or evaluator quality, inspect those together.
 - Use orchestration for product behavior, coding harnesses for implementation work, auto research for tuning, and dark-factory behavior only for low-risk offline generation.
 - `main` now has a local safety gate. Before pushing work that touches this workspace, run `npm run verify:main`. After deploy, run `npm run verify:production`.

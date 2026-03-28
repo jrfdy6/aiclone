@@ -189,9 +189,31 @@ type VariantEvaluation = {
   belief_clarity: number;
   experience_anchor_strength: number;
   voice_match: number;
+  expression_quality?: number;
   role_safety_score: number;
   genericity_penalty: number;
+  source_expression_quality?: number;
+  output_expression_quality?: number;
+  expression_delta?: number;
+  source_structure?: string | null;
+  output_structure?: string | null;
+  structure_preserved?: boolean | null;
   overall: number;
+  warnings?: string[];
+};
+
+type VariantExpressionAssessment = {
+  source_text?: string;
+  output_text?: string;
+  strategy?: string;
+  source_structure?: string;
+  output_structure?: string;
+  structure_preserved?: boolean;
+  source_expression_quality?: number;
+  output_expression_quality?: number;
+  expression_delta?: number;
+  overlap_ratio?: number;
+  adjusted_output_quality?: number;
   warnings?: string[];
 };
 
@@ -227,6 +249,7 @@ type FeedVariant = {
   techniques?: string[];
   emotional_profile?: string[];
   technique_reason?: string;
+  expression_assessment?: VariantExpressionAssessment;
   evaluation?: VariantEvaluation;
 };
 
@@ -248,6 +271,7 @@ type SocialFeedItem = {
   summary?: string;
   belief_assessment?: VariantBeliefAssessment;
   technique_assessment?: VariantTechniqueAssessment;
+  expression_assessment?: VariantExpressionAssessment;
   evaluation?: VariantEvaluation;
   ranking: { total: number };
 };
@@ -272,6 +296,8 @@ type FeedbackSummary = {
   technique_counts?: Record<string, number>;
   stance_counts?: Record<string, number>;
   average_evaluation_overall?: number | null;
+  average_output_expression_quality?: number | null;
+  average_expression_delta?: number | null;
 };
 
 type WorkspaceSnapshot = {
@@ -1329,6 +1355,9 @@ function WorkspacePanel({
           experience_anchor: variant?.experience_anchor,
           techniques: variant?.techniques ?? [],
           evaluation_overall: variant?.evaluation?.overall,
+          source_expression_quality: variant?.evaluation?.source_expression_quality,
+          output_expression_quality: variant?.evaluation?.output_expression_quality,
+          expression_delta: variant?.evaluation?.expression_delta,
           why_this_angle: variant?.why_this_angle,
           notes: label,
         };
@@ -1501,6 +1530,9 @@ function WorkspacePanel({
           experience_anchor: variant?.experience_anchor,
           techniques: variant?.techniques ?? [],
           evaluation_overall: variant?.evaluation?.overall,
+          source_expression_quality: variant?.evaluation?.source_expression_quality,
+          output_expression_quality: variant?.evaluation?.output_expression_quality,
+          expression_delta: variant?.evaluation?.expression_delta,
           why_this_angle: variant?.why_this_angle,
         };
         const res = await fetch(`${API_URL}/api/workspace/feedback`, {
@@ -1797,6 +1829,7 @@ function WorkspacePanel({
             const evaluation = activeVariant?.evaluation ?? item.evaluation;
             const beliefAssessment = activeVariant ?? item.belief_assessment;
             const techniqueAssessment = activeVariant ?? item.technique_assessment;
+            const expressionAssessment = activeVariant?.expression_assessment ?? item.expression_assessment;
             return (
             <article key={item.id} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
@@ -1865,11 +1898,19 @@ function WorkspacePanel({
                     <span style={{ color: '#94a3b8' }}>Anchor:</span> {beliefAssessment.experience_summary}
                   </p>
                 )}
+                {expressionAssessment?.strategy && expressionAssessment?.output_text && (
+                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Expression:</span> {expressionAssessment.strategy} · {expressionAssessment.output_structure ?? 'plain'}
+                  </p>
+                )}
                 {evaluation && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }}>
                     <span style={{ color: '#94a3b8', fontSize: '11px' }}>Lane {evaluation.lane_distinctiveness?.toFixed(1)}</span>
                     <span style={{ color: '#94a3b8', fontSize: '11px' }}>Belief {evaluation.belief_clarity?.toFixed(1)}</span>
                     <span style={{ color: '#94a3b8', fontSize: '11px' }}>Voice {evaluation.voice_match?.toFixed(1)}</span>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Expr {evaluation.expression_quality?.toFixed(1) ?? 'n/a'}</span>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Src {evaluation.source_expression_quality?.toFixed(1) ?? 'n/a'}</span>
+                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Δ {evaluation.expression_delta?.toFixed(1) ?? '0.0'}</span>
                   </div>
                 )}
                 {(evaluation?.warnings?.length ?? 0) > 0 && (

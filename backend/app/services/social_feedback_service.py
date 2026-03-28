@@ -65,6 +65,8 @@ class SocialFeedbackService:
         stance_counts: dict[str, int] = {}
         technique_counts: dict[str, int] = {}
         scored_events: list[float] = []
+        expression_output_scores: list[float] = []
+        expression_deltas: list[float] = []
         low_score_events: list[dict[str, Any]] = []
 
         for event in events:
@@ -95,6 +97,14 @@ class SocialFeedbackService:
                         }
                     )
 
+            expression_output = event.get("output_expression_quality")
+            if isinstance(expression_output, (float, int)):
+                expression_output_scores.append(float(expression_output))
+
+            expression_delta = event.get("expression_delta")
+            if isinstance(expression_delta, (float, int)):
+                expression_deltas.append(float(expression_delta))
+
         summary = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "total_events": len(events),
@@ -103,6 +113,12 @@ class SocialFeedbackService:
             "stance_counts": stance_counts,
             "technique_counts": technique_counts,
             "average_evaluation_overall": round(sum(scored_events) / len(scored_events), 2) if scored_events else None,
+            "average_output_expression_quality": (
+                round(sum(expression_output_scores) / len(expression_output_scores), 2) if expression_output_scores else None
+            ),
+            "average_expression_delta": (
+                round(sum(expression_deltas) / len(expression_deltas), 2) if expression_deltas else None
+            ),
             "low_score_events": low_score_events[-10:],
             "recent_events": events[-10:],
         }

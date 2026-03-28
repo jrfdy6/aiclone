@@ -50,16 +50,17 @@
   4. quote approval into persona deltas is live,
   5. first-pass belief contrast and lived-experience anchoring are live in the shared social variant builder,
   6. first-pass technique selection and evaluation readouts are live in the shared social variant builder and `/ops`,
-  7. structured feedback logs now capture active lane/stance/technique/evaluation context,
-  8. `/ops` now reads a live backend workspace snapshot for plan/reaction/feed state and feedback analytics,
-  9. the backend now persists workspace snapshots in Postgres and rebuilds stale snapshot rows from live runtime builders instead of treating container-local artifacts as the source of truth.
-  10. `main` now has a repeatable social-workspace safety path: `npm run verify:main` for local smoke/build checks, `npm run verify:production` for live deployed checks, and `.githooks/pre-push` as the local enforcement option.
+  7. expression-quality is now a first-class relational signal in the social variant builder, with source/output quality, expression delta, and structure preservation flowing through evaluation and feedback,
+  8. structured feedback logs now capture active lane/stance/technique/evaluation context,
+  9. `/ops` now reads a live backend workspace snapshot for plan/reaction/feed state and feedback analytics,
+  10. the backend now persists workspace snapshots in Postgres and rebuilds stale snapshot rows from live runtime builders instead of treating container-local artifacts as the source of truth.
+  11. `main` now has a repeatable social-workspace safety path: `npm run verify:main` for local smoke/build checks, `npm run verify:production` for live deployed checks, and `.githooks/pre-push` as the local enforcement option.
 - Near-term implementation priority is not more generation. It is a cleaner intelligence stack:
   1. normalize all source paths into one `NormalizedSignal`,
   2. separate extraction from interpretation,
   3. deepen belief contrast beyond the current rule-based first pass and push it into planners,
   4. make technique selection and evaluation data-informed instead of fully rule-based,
-  5. expand the structured feedback layer so copy, approval, and post outcomes all feed the same tuning loop,
+  5. expand the structured feedback layer so copy, approval, post outcomes, and expression deltas all feed the same tuning loop,
   6. only then build the shared tuning dashboard and auto-research loops.
 - `karpathy/autoresearch` is explicitly parked as a later Lab-stage tuning tool. Use it to optimize lane/stance/technique policy once the feedback loop and tuning dashboard are trustworthy, not as the current path for making the product smarter.
 - Use orchestration as the core species for the product behavior, coding harnesses for implementation work, auto research for tuning, and dark-factory behavior only for low-risk offline generation.
