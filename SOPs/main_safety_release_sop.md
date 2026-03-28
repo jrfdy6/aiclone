@@ -33,6 +33,7 @@ Make `main` safe enough to function as the release lane without relying on a lon
      - `knowledge/aiclone/transcripts/`
      - `knowledge/ingestions/`
      Otherwise production will return an empty `source_assets` inventory even if local checks pass.
+   - The backend staged deploy excludes heavy raw media under `knowledge/ingestions/raw/` so Railway upload stays below timeout thresholds; runtime source-asset inventory and long-form sync only need the normalized/transcript review artifacts.
    - The backend deploy script now tolerates a missing `docs/persistent_memory_blueprint.md` instead of failing the release.
 7. After deploy completes, run the live smoke gate:
    - `npm run verify:production`

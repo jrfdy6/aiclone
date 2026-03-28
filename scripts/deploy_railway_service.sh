@@ -44,6 +44,16 @@ mkdir -p "$STAGE_DIR/$CHILD_DIR"
 rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE_DIR/" "$STAGE_DIR/$CHILD_DIR/"
 
 if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
+  INGEST_RSYNC_EXCLUDES=(
+    --exclude raw/
+    --exclude '*/raw/'
+    --exclude '*.webm'
+    --exclude '*.mp4'
+    --exclude '*.mov'
+    --exclude '*.m4a'
+    --exclude '*.wav'
+    --exclude '*.mp3'
+  )
   mkdir -p "$STAGE_DIR/knowledge/persona" "$STAGE_DIR/knowledge/aiclone" "$STAGE_DIR/knowledge/ingestions" "$STAGE_DIR/workspaces" "$STAGE_DIR/scripts"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/knowledge/persona" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions" "$STAGE_DIR/$CHILD_DIR/workspaces" "$STAGE_DIR/$CHILD_DIR/scripts"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/SOPs" "$STAGE_DIR/$CHILD_DIR/deliverables" "$STAGE_DIR/$CHILD_DIR/docs"
@@ -51,8 +61,8 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   rsync -a "$WORKSPACE_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/knowledge/persona/feeze/"
   rsync -a "$WORKSPACE_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/knowledge/aiclone/transcripts/"
   rsync -a "$WORKSPACE_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone/transcripts/"
-  rsync -a "$WORKSPACE_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"
-  rsync -a "$WORKSPACE_ROOT/knowledge/ingestions/" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions/"
+  rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$WORKSPACE_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"
+  rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$WORKSPACE_ROOT/knowledge/ingestions/" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions/"
   rsync -a "$WORKSPACE_ROOT/workspaces/linkedin-content-os/" "$STAGE_DIR/workspaces/linkedin-content-os/"
   rsync -a "$WORKSPACE_ROOT/workspaces/linkedin-content-os/" "$STAGE_DIR/$CHILD_DIR/workspaces/linkedin-content-os/"
   rsync -a "$WORKSPACE_ROOT/scripts/personal-brand/" "$STAGE_DIR/scripts/personal-brand/"

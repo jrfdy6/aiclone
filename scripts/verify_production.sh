@@ -25,7 +25,19 @@ feed = payload.get("social_feed") or {}
 items = feed.get("items") or []
 assert items, "social_feed.items is empty"
 assert items[0].get("lens_variants"), "first social feed item missing lens_variants"
-print(f"snapshot ok: {len(items)} items")
+source_assets = payload.get("source_assets") or {}
+source_asset_total = ((source_assets.get("counts") or {}).get("total")) or 0
+persona_review = payload.get("persona_review_summary") or {}
+review_source_counts = persona_review.get("review_source_counts") or {}
+long_form_review_total = review_source_counts.get("long_form_media.segment", 0) or 0
+long_form_sync = persona_review.get("long_form_sync") or {}
+assets_considered = long_form_sync.get("assets_considered", 0) or 0
+
+if long_form_review_total > 0:
+    assert source_asset_total > 0, "source_assets.counts.total is zero while long-form persona review items exist"
+    assert assets_considered > 0, "persona_review_summary.long_form_sync.assets_considered is zero despite long-form source assets"
+
+print(f"snapshot ok: {len(items)} items, {source_asset_total} source assets, {assets_considered} assets considered")
 PY
 
 echo "[3/5] Signal preview route"
