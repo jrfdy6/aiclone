@@ -264,6 +264,38 @@ class WorkspaceSmokeTests(unittest.TestCase):
         self.assertTrue(preserved_assessment["structure_preserved"])
         self.assertGreater(preserved_assessment["expression_delta"], 0.0)
 
+    def test_expression_engine_preserves_other_high_value_pattern_families(self) -> None:
+        cases = [
+            (
+                "AI agents fail not because models are weak but because enterprise context is missing.",
+                "The issue is not that models are weak. It is that enterprise context is missing.",
+                "contrast-causal",
+            ),
+            (
+                "AI is a tool, not a substitute for judgment, skepticism, or foundational knowledge.",
+                "The tool can help, but it cannot replace judgment, skepticism, or foundational knowledge.",
+                "boundary-substitute",
+            ),
+            (
+                "AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning.",
+                "AI can support parts of the work, but people still need to teach, correct, connect, and make meaning.",
+                "boundary-augment",
+            ),
+            (
+                "If you want better higher ed content, start with your admissions team.",
+                "If you want better higher ed content, you have to start closer to your admissions team.",
+                "directive-start-with",
+            ),
+        ]
+
+        for source, preserved, expected_structure in cases:
+            with self.subTest(source=source):
+                assessment = social_expression_engine.compare(source, preserved)
+                self.assertEqual(assessment["source_structure"], expected_structure)
+                self.assertEqual(assessment["output_structure"], expected_structure)
+                self.assertTrue(assessment["structure_preserved"])
+                self.assertGreaterEqual(assessment["expression_delta"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -77,17 +77,37 @@ def detect_expression_structure(text: str | None) -> str:
         return "none"
     if re.search(r"not because .+? but because .+$", cleaned, flags=re.IGNORECASE):
         return "contrast-causal"
+    if re.search(r"(the issue|the challenge) is not that .+?\. it is that .+$", cleaned, flags=re.IGNORECASE):
+        return "contrast-causal"
     if re.search(r"isn[’']t .+?, it[’']s .+$", cleaned, flags=re.IGNORECASE):
         return "contrast-direct"
     if re.search(r"not .+?\. it is .+$", lowered, flags=re.IGNORECASE):
         return "contrast-direct"
     if "not a substitute for" in lowered:
         return "boundary-substitute"
+    if "cannot replace" in lowered:
+        return "boundary-substitute"
     if re.search(r"can augment .+?, but humans still need to .+$", cleaned, flags=re.IGNORECASE):
+        return "boundary-augment"
+    if re.search(r"can (support|help) .+?, but (people|humans) still need to .+$", cleaned, flags=re.IGNORECASE):
+        return "boundary-augment"
+    if re.search(r"the win is augmentation around .+?, while the human layer still has to .+$", cleaned, flags=re.IGNORECASE):
         return "boundary-augment"
     if re.search(r"if you want better .+?, start with .+$", cleaned, flags=re.IGNORECASE):
         return "directive-start-with"
+    if re.search(r"if you want better .+?, you have to start .+$", cleaned, flags=re.IGNORECASE):
+        return "directive-start-with"
     return "plain"
+
+
+def structure_family(structure: str) -> str:
+    if structure.startswith("contrast"):
+        return "contrast"
+    if structure.startswith("boundary"):
+        return "boundary"
+    if structure.startswith("directive"):
+        return "directive"
+    return structure
 
 
 def similarity_ratio(a: str | None, b: str | None) -> float:
@@ -186,14 +206,18 @@ class SocialExpressionEngine:
         overlap = similarity_ratio(source_text, output_text)
         source_structure = source["structure"]
         output_structure = output["structure"]
-        structure_preserved = source_structure in {"none", "plain"} or source_structure == output_structure
+        source_family = structure_family(source_structure)
+        output_family = structure_family(output_structure)
+        structure_preserved = source_structure in {"none", "plain"} or source_family == output_family
         expression_delta = round_score(output["overall"] - source["overall"])
 
         warnings: list[str] = []
-        if source_structure.startswith("contrast") and not structure_preserved:
+        if source_family == "contrast" and not structure_preserved:
             warnings.append("rewrite lost source contrast structure")
-        if source_structure.startswith("boundary") and not structure_preserved:
+        if source_family == "boundary" and not structure_preserved:
             warnings.append("rewrite weakened source boundary framing")
+        if source_family == "directive" and not structure_preserved:
+            warnings.append("rewrite weakened source directive framing")
         if expression_delta < -0.5:
             warnings.append("rewrite weakened source expression")
         if overlap > 0.92:
@@ -204,7 +228,7 @@ class SocialExpressionEngine:
             adjusted_output_quality = round_score(clamp(adjusted_output_quality + expression_delta, 1.0, 10.0))
         if overlap > 0.92:
             adjusted_output_quality = round_score(clamp(adjusted_output_quality - 1.5, 1.0, 10.0))
-        if source_structure.startswith(("contrast", "boundary")) and not structure_preserved:
+        if source_family in {"contrast", "boundary", "directive"} and not structure_preserved:
             adjusted_output_quality = round_score(clamp(adjusted_output_quality - 1.2, 1.0, 10.0))
 
         return {

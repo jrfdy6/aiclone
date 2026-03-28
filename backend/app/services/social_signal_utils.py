@@ -447,7 +447,7 @@ def preserve_source_structure(text: str | None, lane_id: str) -> str:
     if not_because_match:
         a = clean_sentence(not_because_match.group("a"))
         b = clean_sentence(not_because_match.group("b"))
-        return ensure_period(f"The issue is not {a}. It is {b}")
+        return ensure_period(f"The issue is not that {a}. It is that {b}")
 
     isnt_match = re.search(r"isn[’']t (?P<a>.+?), it[’']s (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
     if isnt_match:
