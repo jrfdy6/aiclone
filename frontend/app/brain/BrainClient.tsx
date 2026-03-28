@@ -1,5 +1,6 @@
 'use client';
 
+import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
@@ -159,6 +160,14 @@ type WorkspaceFile = {
 };
 
 type SourceAssetInventory = {
+  items?: {
+    asset_id?: string;
+    title?: string;
+    source_channel?: string;
+    source_type?: string;
+    source_path?: string;
+    captured_at?: string;
+  }[];
   counts?: {
     total?: number;
     long_form_media?: number;
@@ -195,6 +204,14 @@ type BrainWorkspaceSnapshot = {
   persona_review_summary?: PersonaReviewSummary | null;
 };
 
+type BrainLongFormIngestForm = {
+  url: string;
+  title: string;
+  summary: string;
+  notes: string;
+  transcriptText: string;
+};
+
 type PromotionItemKind = 'talking_point' | 'framework' | 'anecdote' | 'phrase_candidate' | 'stat';
 
 type PromotionItem = {
@@ -216,6 +233,21 @@ type CaptureResponsePayload = {
 type Tab = 'dashboard' | 'briefs' | 'persona' | 'automations' | 'docs';
 
 const API_URL = getApiUrl();
+const brainInputStyle: CSSProperties = {
+  width: '100%',
+  borderRadius: '10px',
+  border: '1px solid #1f2937',
+  backgroundColor: '#020617',
+  color: 'white',
+  padding: '10px 12px',
+  fontSize: '13px',
+};
+const brainTextareaStyle: CSSProperties = {
+  ...brainInputStyle,
+  resize: 'vertical',
+  minHeight: '96px',
+  lineHeight: 1.5,
+};
 
 export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry[]; personaWorkspace: PersonaWorkspace }) {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
@@ -231,6 +263,16 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<BrainWorkspaceSnapshot | null>(null);
   const [workspaceSnapshotError, setWorkspaceSnapshotError] = useState<string | null>(null);
+  const [longFormIngest, setLongFormIngest] = useState<BrainLongFormIngestForm>({
+    url: '',
+    title: '',
+    summary: '',
+    notes: '',
+    transcriptText: '',
+  });
+  const [longFormIngestStatus, setLongFormIngestStatus] = useState<string | null>(null);
+  const [longFormIngestError, setLongFormIngestError] = useState<string | null>(null);
+  const [longFormSubmitting, setLongFormSubmitting] = useState(false);
   const mergedDocs = useMemo(() => mergeBrainDocs(docs, workspaceSnapshot), [docs, workspaceSnapshot]);
   const tabs = useMemo(
     () => [
@@ -243,9 +285,7 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
     [activeTab],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadData() {
+  async function loadData(cancelled = false) {
       const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes, snapshotRes] = await Promise.allSettled([
         fetch(`${API_URL}/api/briefs/?limit=50`).then((res) => res.json()),
         fetch(`${API_URL}/api/persona/deltas?limit=100&view=brain_queue`).then((res) => res.json()),
@@ -309,7 +349,10 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
       } else {
         setTelemetryError('Unable to load full Open Brain telemetry.');
       }
-    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
     loadData();
     const interval = setInterval(loadData, 60_000);
     return () => {
@@ -317,6 +360,37 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
       clearInterval(interval);
     };
   }, []);
+
+  async function submitLongFormIngest() {
+    setLongFormIngestStatus(null);
+    setLongFormIngestError(null);
+    setLongFormSubmitting(true);
+    try {
+      const response = await fetch(`${API_URL}/api/brain/ingest-long-form`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: longFormIngest.url || null,
+          title: longFormIngest.title || null,
+          summary: longFormIngest.summary || null,
+          notes: longFormIngest.notes || null,
+          transcript_text: longFormIngest.transcriptText || null,
+          run_refresh: true,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || payload?.message || 'Unable to register long-form source.');
+      }
+      setLongFormIngestStatus(`Registered ${payload.title || 'long-form source'} in Brain.`);
+      setLongFormIngest({ url: '', title: '', summary: '', notes: '', transcriptText: '' });
+      await loadData();
+    } catch (error) {
+      setLongFormIngestError(error instanceof Error ? error.message : 'Unable to register long-form source.');
+    } finally {
+      setLongFormSubmitting(false);
+    }
+  }
 
   return (
     <RuntimePage module="brain" tabs={tabs}>
@@ -330,6 +404,12 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
           telemetryError={telemetryError}
           workspaceSnapshot={workspaceSnapshot}
           workspaceSnapshotError={workspaceSnapshotError}
+          longFormIngest={longFormIngest}
+          setLongFormIngest={setLongFormIngest}
+          longFormIngestStatus={longFormIngestStatus}
+          longFormIngestError={longFormIngestError}
+          longFormSubmitting={longFormSubmitting}
+          onSubmitLongFormIngest={submitLongFormIngest}
         />
       )}
       {activeTab === 'briefs' && (
@@ -370,6 +450,12 @@ function DashboardPanel({
   telemetryError,
   workspaceSnapshot,
   workspaceSnapshotError,
+  longFormIngest,
+  setLongFormIngest,
+  longFormIngestStatus,
+  longFormIngestError,
+  longFormSubmitting,
+  onSubmitLongFormIngest,
 }: {
   briefCount: number;
   docCount: number;
@@ -379,6 +465,12 @@ function DashboardPanel({
   telemetryError: string | null;
   workspaceSnapshot: BrainWorkspaceSnapshot | null;
   workspaceSnapshotError: string | null;
+  longFormIngest: BrainLongFormIngestForm;
+  setLongFormIngest: (value: BrainLongFormIngestForm) => void;
+  longFormIngestStatus: string | null;
+  longFormIngestError: string | null;
+  longFormSubmitting: boolean;
+  onSubmitLongFormIngest: () => Promise<void>;
 }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -390,6 +482,15 @@ function DashboardPanel({
         telemetry={telemetry}
         workspaceSnapshot={workspaceSnapshot}
         workspaceSnapshotError={workspaceSnapshotError}
+      />
+      <BrainLongFormIngestPanel
+        value={longFormIngest}
+        onChange={setLongFormIngest}
+        status={longFormIngestStatus}
+        error={longFormIngestError}
+        submitting={longFormSubmitting}
+        onSubmit={onSubmitLongFormIngest}
+        workspaceSnapshot={workspaceSnapshot}
       />
       <CaptureTelemetryPanel metrics={telemetry} health={telemetryHealth} error={telemetryError} />
     </section>
@@ -493,6 +594,137 @@ function BrainControlPlanePanel({
           items={Object.entries(relationCounts).map(([key, value]) => `${humanizeBeliefRelation(key)}: ${value}`)}
           emptyLabel="No relation data yet."
         />
+      </div>
+    </section>
+  );
+}
+
+function BrainLongFormIngestPanel({
+  value,
+  onChange,
+  status,
+  error,
+  submitting,
+  onSubmit,
+  workspaceSnapshot,
+}: {
+  value: BrainLongFormIngestForm;
+  onChange: (value: BrainLongFormIngestForm) => void;
+  status: string | null;
+  error: string | null;
+  submitting: boolean;
+  onSubmit: () => Promise<void>;
+  workspaceSnapshot: BrainWorkspaceSnapshot | null;
+}) {
+  const recentAssets = (workspaceSnapshot?.source_assets?.items ?? []).slice(0, 4);
+
+  function updateField<K extends keyof BrainLongFormIngestForm>(key: K, next: BrainLongFormIngestForm[K]) {
+    onChange({ ...value, [key]: next });
+  }
+
+  return (
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '14px' }}>
+        <div>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Brain Long-Form Intake</p>
+          <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, maxWidth: '760px' }}>
+            Register YouTube videos, podcasts, and other long-form sources here so Brain becomes the global entry point. These land in the shared source system first, then feed briefs, planning, and persona review.
+          </p>
+        </div>
+        <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right' }}>
+          <div>Assets visible: {numberMeta(workspaceSnapshot?.source_assets?.counts?.total)}</div>
+          <div>Pending segmentation: {numberMeta(workspaceSnapshot?.source_assets?.counts?.pending_segmentation)}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '16px' }}>
+        <div style={{ display: 'grid', gap: '10px' }}>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Source URL</span>
+            <input
+              value={value.url}
+              onChange={(event) => updateField('url', event.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              style={brainInputStyle}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Title</span>
+            <input
+              value={value.title}
+              onChange={(event) => updateField('title', event.target.value)}
+              placeholder="Optional title override"
+              style={brainInputStyle}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Summary</span>
+            <textarea
+              value={value.summary}
+              onChange={(event) => updateField('summary', event.target.value)}
+              placeholder="One or two lines about why this source matters"
+              rows={3}
+              style={brainTextareaStyle}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Notes</span>
+            <textarea
+              value={value.notes}
+              onChange={(event) => updateField('notes', event.target.value)}
+              placeholder="Optional notes, implications, or what to look for"
+              rows={4}
+              style={brainTextareaStyle}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: '6px' }}>
+            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Transcript Text</span>
+            <textarea
+              value={value.transcriptText}
+              onChange={(event) => updateField('transcriptText', event.target.value)}
+              placeholder="Optional full or partial transcript if you already have it"
+              rows={8}
+              style={brainTextareaStyle}
+            />
+          </label>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => void onSubmit()}
+              disabled={submitting}
+              style={{
+                border: '1px solid rgba(56,189,248,0.45)',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                background: submitting ? '#0f172a' : 'rgba(8,47,73,0.8)',
+                color: 'white',
+                cursor: submitting ? 'progress' : 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {submitting ? 'Registering…' : 'Register Long-Form Source'}
+            </button>
+            {status && <span style={{ color: '#22c55e', fontSize: '12px' }}>{status}</span>}
+            {error && <span style={{ color: '#f87171', fontSize: '12px' }}>{error}</span>}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: '12px' }}>
+          <BriefOverlayBlock
+            title="What This Does"
+            items={[
+              'Writes a normalized long-form source into knowledge/ingestions/**.',
+              'Refreshes the shared snapshot used by Brain, briefs, planner, and /ops.',
+              'Keeps the source upstream until segmentation produces claim-sized units.',
+            ]}
+            emptyLabel=""
+          />
+          <BriefOverlayBlock
+            title="Recent Source Assets"
+            items={recentAssets.map((item) => `${item.title || 'Untitled'} · ${humanizeSnakeCase(item.source_channel || 'manual')}`)}
+            emptyLabel="No long-form assets are visible yet."
+          />
+        </div>
       </div>
     </section>
   );

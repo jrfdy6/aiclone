@@ -80,6 +80,12 @@ But Workspace should not become the primary home for:
 ## Long-form Source Rule
 Long-form media is upstream system input, not a Workspace-only feature.
 
+Brain should own the canonical registration surface for new long-form sources.
+That means:
+- if the operator drops in a YouTube video, podcast, or transcript source for system-wide use, the first-class intake should live in `Brain`
+- Workspace may still show project-local mirrors, reactions, or downstream seeds derived from that source
+- the intake should write into the shared source system, not a Brain-only side store
+
 The same source asset should be able to feed:
 - Brain daily briefs
 - Brain persona review

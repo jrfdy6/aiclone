@@ -247,6 +247,7 @@
 
 ### LNK-034 - Consolidate global source intelligence into Brain-first surfaces
 - Outcome: make Brain the canonical home for daily briefs, persona review, docs, and cross-project source intelligence, while leaving LinkedIn Workspace focused on project execution and thin mirrors/handoffs.
+- Status: in progress. Brain now loads the shared workspace snapshot directly, shows the global control-plane readout, surfaces knowledge/docs/brief overlays, and has a native long-form intake path through `POST /api/brain/ingest-long-form` plus the Brain dashboard intake panel. The next work is to thin remaining Workspace-owned global cards into mirrors/deep links instead of duplicate control surfaces.
 - Benchmark gate:
   - Brain is the primary home for global source-intelligence review
   - Workspace no longer acts like the canonical home for global persona-state interpretation

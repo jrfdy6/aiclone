@@ -1,6 +1,7 @@
 from . import (
     analytics,
     automations,
+    brain,
     build_reviews,
     briefs,
     calendar,
@@ -24,6 +25,7 @@ from . import (
 __all__ = [
     "analytics",
     "automations",
+    "brain",
     "build_reviews",
     "briefs",
     "calendar",

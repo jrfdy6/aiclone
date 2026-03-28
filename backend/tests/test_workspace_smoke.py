@@ -1717,6 +1717,36 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertTrue(preview_item.get("unit_kind"))
         self.assertIsInstance(preview_item.get("response_modes"), list)
 
+    def test_brain_ingest_long_form_route_registers_source_asset(self) -> None:
+        now = datetime.now(timezone.utc)
+        response = self.client.post(
+            "/api/brain/ingest-long-form",
+            json={
+                "url": "https://www.youtube.com/watch?v=brain123",
+                "title": "Brain-owned ingest test",
+                "notes": "This should enter the shared source system from Brain first.",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("source_channel"), "youtube")
+        self.assertEqual(payload.get("source_type"), "youtube_transcript")
+        self.assertIn("source_assets", payload)
+        self.assertGreaterEqual(((payload.get("source_assets") or {}).get("counts") or {}).get("total", 0), 1)
+        normalized_path = (
+            Path(self.temp_dir.name)
+            / "knowledge"
+            / "ingestions"
+            / now.strftime("%Y")
+            / now.strftime("%m")
+            / payload["asset_id"]
+            / "normalized.md"
+        )
+        self.assertTrue(normalized_path.exists())
+        normalized_text = normalized_path.read_text(encoding="utf-8")
+        self.assertIn("Brain-owned ingest test", normalized_text)
+        self.assertIn("https://www.youtube.com/watch?v=brain123", normalized_text)
+
     def test_split_lane_outputs_stay_materially_distinct(self) -> None:
         response = self.client.post(
             "/api/workspace/ingest-signal",

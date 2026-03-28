@@ -11,6 +11,7 @@ from app.utils import env_loader  # noqa: F401
 from app.routes import (
     analytics,
     automations,
+    brain,
     build_reviews,
     briefs,
     calendar,
@@ -150,6 +151,7 @@ app.include_router(calendar.router, prefix="/api/calendar")
 app.include_router(notifications.router, prefix="/api/notifications")
 app.include_router(system_logs.router, prefix="/api/system/logs")
 app.include_router(analytics.router, prefix="/api/analytics")
+app.include_router(brain.router)
 app.include_router(build_reviews.router)
 app.include_router(open_brain.router)
 app.include_router(persona.router)

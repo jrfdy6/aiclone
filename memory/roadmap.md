@@ -112,7 +112,7 @@
   1. restore rich Brain persona response controls for agreement, disagreement, nuance, personal story, and wording/context refinement
   2. reconcile Brain dashboard telemetry and Brain automations telemetry onto one explainable source of truth
   3. surface knowledge docs in the Brain Docs tab instead of leaving docs fragmented or invisible
-  4. move global source-intelligence interpretation toward Brain-first ownership, while keeping Workspace project-local
+  4. move global source-intelligence interpretation and long-form source registration toward Brain-first ownership, while keeping Workspace project-local
   5. keep Workspace approval as a fast approval path into the shared `persona_deltas` lifecycle without forcing duplicate Brain approval
 
 ## Parking lot (post-stabilization)
