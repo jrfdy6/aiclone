@@ -17,6 +17,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.main import app
 from app.services.social_expression_engine import social_expression_engine
 from app.services.social_feed_builder_service import build_feed
+from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.workspace_snapshot_service import workspace_snapshot_service
 
 social_feedback_module = importlib.import_module("app.services.social_feedback_service")
@@ -115,11 +116,54 @@ class WorkspaceSmokeTests(unittest.TestCase):
         cls.fixture_root = Path(cls.temp_dir.name) / "linkedin-content-os"
         plans_dir = cls.fixture_root / "plans"
         analytics_dir = cls.fixture_root / "analytics"
+        transcripts_dir = Path(cls.temp_dir.name) / "knowledge" / "aiclone" / "transcripts"
+        ingestions_dir = Path(cls.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "fixture_transcript_asset"
         plans_dir.mkdir(parents=True, exist_ok=True)
         analytics_dir.mkdir(parents=True, exist_ok=True)
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        ingestions_dir.mkdir(parents=True, exist_ok=True)
         (plans_dir / "social_feed.json").write_text(json.dumps(SAMPLE_FEED, indent=2), encoding="utf-8")
         (analytics_dir / "feed_feedback_summary.json").write_text(
             json.dumps(SAMPLE_FEEDBACK_SUMMARY, indent=2),
+            encoding="utf-8",
+        )
+        (transcripts_dir / "2026-03-06_goat-os-episode-1.md").write_text(
+            """---
+title: Goat OS Bootcamp – Episode 1 (Bedrock)
+source: YouTube live (https://www.youtube.com/live/jf9D4Oh7RwI)
+received: 2026-03-05
+raw_path: downloads/transcripts/jf9D4Oh7RwI.txt
+tags: [ops, brain, lab]
+---
+
+## Summary
+- Episode 1 is all about bootstrapping a fresh Goat OS agent.
+""",
+            encoding="utf-8",
+        )
+        (ingestions_dir / "normalized.md").write_text(
+            """---
+id: from_pilot_to_payoff_fixture
+title: From Pilot To Payoff
+source_type: youtube_transcript
+captured_at: '2026-03-21T22:07:15Z'
+topics:
+- transcript
+- youtube
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=P5yznR8dUj4
+author: unknown
+raw_files:
+- raw/transcript.txt
+word_count: 10177
+summary: AI pilots fail because teams miss some critical elements.
+---
+
+# Clean Transcript / Document
+AI pilots fail because teams miss some critical elements.
+""",
             encoding="utf-8",
         )
 
@@ -127,6 +171,8 @@ class WorkspaceSmokeTests(unittest.TestCase):
             patch.object(workspace_snapshot_module, "LINKEDIN_ROOT", cls.fixture_root),
             patch.object(workspace_snapshot_module, "get_snapshot_payload", lambda *args, **kwargs: None),
             patch.object(workspace_snapshot_module, "upsert_snapshot", lambda *args, **kwargs: None),
+            patch.object(workspace_snapshot_module, "_transcripts_root", lambda: transcripts_dir),
+            patch.object(workspace_snapshot_module, "_ingestions_root", lambda: Path(cls.temp_dir.name) / "knowledge" / "ingestions"),
             patch.object(social_feedback_module, "FEEDBACK_DIR", analytics_dir),
             patch.object(social_feedback_module, "FEEDBACK_PATH", analytics_dir / "feed_feedback.md"),
             patch.object(social_feedback_module, "FEEDBACK_JSONL_PATH", analytics_dir / "feed_feedback.jsonl"),
@@ -345,9 +391,13 @@ Faculty groups have slammed the measure and colleges are watching it closely.
     def test_workspace_snapshot_service_returns_live_sections(self) -> None:
         snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
         social_feed = snapshot.get("social_feed") or {}
+        source_assets = snapshot.get("source_assets") or {}
         items = social_feed.get("items") or []
+        asset_items = source_assets.get("items") or []
         self.assertGreater(len(items), 0)
         self.assertTrue(items[0].get("lens_variants"))
+        self.assertGreater(len(asset_items), 0)
+        self.assertEqual(asset_items[0].get("source_class"), "long_form_media")
         self.assertIn("feedback_summary", snapshot)
         self.assertIn("refresh_status", snapshot)
 
@@ -362,9 +412,24 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         social_feed = payload.get("social_feed") or {}
+        source_assets = payload.get("source_assets") or {}
         items = social_feed.get("items") or []
+        asset_items = source_assets.get("items") or []
         self.assertGreater(len(items), 0)
         self.assertTrue(items[0].get("lens_variants"))
+        self.assertGreater(len(asset_items), 0)
+
+    def test_source_asset_inventory_exposes_long_form_media_without_feed_routing(self) -> None:
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        items = inventory.get("items") or []
+        self.assertGreaterEqual(len(items), 1)
+        self.assertTrue(all(item.get("source_class") == "long_form_media" for item in items))
+        self.assertTrue(all(item.get("response_modes") == ["post_seed", "belief_evidence"] for item in items))
+        self.assertTrue(all(item.get("feed_ready") is False for item in items))
 
     def test_ingest_signal_route(self) -> None:
         response = self.client.post(

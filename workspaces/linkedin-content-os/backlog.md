@@ -163,12 +163,16 @@
 
 ### LNK-027 - Integrate transcript and media-ingest assets as source adapters
 - Outcome: treat transcript and media-ingest assets as first-class upstream sources by reusing the existing media-intake system instead of building a second audio/video ingestion stack.
+- Status: first runtime slice is now live. `GET /api/workspace/linkedin-os-snapshot` includes `source_assets`, and `/ops` now exposes those long-form assets as an upstream inventory with channel counts, routing status, and response-mode visibility. These assets are intentionally not routed into feed cards yet.
 - Benchmark gate: transcript assets are visible as `long_form_media`, but `0` transcript assets are pushed directly into the comment feed before segmentation/routing exists. Validate with immediate and next-cycle production checks.
 - Source files:
   - `docs/source_expansion_implementation_plan.md`
   - `memory/roadmap.md`
   - `knowledge/aiclone/transcripts/`
   - `knowledge/ingestions/`
+  - `backend/app/services/social_source_asset_service.py`
+  - `backend/app/services/workspace_snapshot_service.py`
+  - `frontend/app/ops/OpsClient.tsx`
 
 ### LNK-028 - Segment long-form media into claim-sized social signals
 - Outcome: split YouTube and podcast transcripts into timestamped or sectioned units so one long transcript can yield multiple claim-shaped candidate signals instead of one giant blob.

@@ -430,12 +430,48 @@ type TuningDashboard = {
   attentionQueue: TuningAttentionItem[];
 };
 
+type SourceAsset = {
+  asset_id: string;
+  title: string;
+  source_class: string;
+  source_channel: string;
+  source_type: string;
+  source_url?: string;
+  author?: string;
+  captured_at?: string;
+  source_path: string;
+  raw_path?: string;
+  summary?: string;
+  topics?: string[];
+  tags?: string[];
+  response_modes?: string[];
+  routing_status?: string;
+  feed_ready?: boolean;
+  segmentation_ready?: boolean;
+  origin?: string;
+  word_count?: number | null;
+};
+
+type SourceAssetInventory = {
+  generated_at?: string;
+  workspace?: string;
+  items: SourceAsset[];
+  counts?: {
+    total?: number;
+    long_form_media?: number;
+    pending_segmentation?: number;
+    feed_ready?: number;
+    by_channel?: Record<string, number>;
+  };
+};
+
 type WorkspaceSnapshot = {
   workspace_files?: WorkspaceFile[];
   doc_entries?: DocReference[];
   weekly_plan?: WeeklyPlan | null;
   reaction_queue?: ReactionQueue | null;
   social_feed?: SocialFeed | null;
+  source_assets?: SourceAssetInventory | null;
   feedback_summary?: FeedbackSummary | null;
   refresh_status?: FeedRefreshStatus | null;
 };
@@ -498,6 +534,24 @@ type SourceRecord = {
   sourceType?: string;
   sourceUrl?: string;
   hook?: string;
+};
+
+type SourceAssetRecord = {
+  assetId: string;
+  title: string;
+  sourcePath: string;
+  sourceChannel: string;
+  sourceType: string;
+  sourceClass: string;
+  summary: string;
+  responseModes: string[];
+  routingStatus?: string;
+  sourceUrl?: string;
+  wordCount?: number | null;
+  capturedAt?: string;
+  origin?: string;
+  tags: string[];
+  topics: string[];
 };
 
 type OpenBrainHealth = {
@@ -682,6 +736,7 @@ export default function OpsClient({
   const [liveWeeklyPlan, setLiveWeeklyPlan] = useState<WeeklyPlan | null>(null);
   const [liveReactionQueue, setLiveReactionQueue] = useState<ReactionQueue | null>(null);
   const [liveSocialFeed, setLiveSocialFeed] = useState<SocialFeed | null>(null);
+  const [liveSourceAssets, setLiveSourceAssets] = useState<SourceAssetInventory | null>(null);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   const [workspaceRefreshStatus, setWorkspaceRefreshStatus] = useState<FeedRefreshStatus | null>(null);
   const [workspaceSnapshotState, setWorkspaceSnapshotState] = useState<'loading' | 'live' | 'error'>('loading');
@@ -750,6 +805,7 @@ export default function OpsClient({
       setLiveWeeklyPlan(snapshot.weekly_plan ?? null);
       setLiveReactionQueue(snapshot.reaction_queue ?? null);
       setLiveSocialFeed(snapshot.social_feed ?? null);
+      setLiveSourceAssets(snapshot.source_assets ?? null);
       setFeedbackSummary(snapshot.feedback_summary ?? null);
       setWorkspaceRefreshStatus(snapshot.refresh_status ?? null);
       setWorkspaceSnapshotState('live');
@@ -985,6 +1041,7 @@ export default function OpsClient({
           plan={effectiveWeeklyPlan}
           reactionQueue={effectiveReactionQueue}
           socialFeed={effectiveSocialFeed}
+          sourceAssets={liveSourceAssets}
           workspaceSnapshotState={workspaceSnapshotState}
           workspaceSnapshotError={workspaceSnapshotError}
           workspaceRefreshStatus={workspaceRefreshStatus}
@@ -1257,6 +1314,7 @@ function WorkspacePanel({
   plan,
   reactionQueue,
   socialFeed,
+  sourceAssets,
   workspaceSnapshotState,
   workspaceSnapshotError,
   workspaceRefreshStatus,
@@ -1269,6 +1327,7 @@ function WorkspacePanel({
   plan: WeeklyPlan | null;
   reactionQueue: ReactionQueue | null;
   socialFeed: SocialFeed | null;
+  sourceAssets: SourceAssetInventory | null;
   workspaceSnapshotState: 'loading' | 'live' | 'error';
   workspaceSnapshotError: string | null;
   workspaceRefreshStatus: FeedRefreshStatus | null;
@@ -1311,6 +1370,27 @@ function WorkspacePanel({
     [linkedinFiles],
   );
   const [activeLens, setActiveLens] = useState<WorkspaceLensId>('all');
+  const sourceAssetRecords = useMemo<SourceAssetRecord[]>(
+    () =>
+      (sourceAssets?.items ?? []).map((asset) => ({
+        assetId: asset.asset_id,
+        title: asset.title,
+        sourcePath: asset.source_path,
+        sourceChannel: asset.source_channel,
+        sourceType: asset.source_type,
+        sourceClass: asset.source_class,
+        summary: asset.summary ?? '',
+        responseModes: asset.response_modes ?? [],
+        routingStatus: asset.routing_status,
+        sourceUrl: asset.source_url,
+        wordCount: asset.word_count ?? null,
+        capturedAt: asset.captured_at,
+        origin: asset.origin,
+        tags: asset.tags ?? [],
+        topics: asset.topics ?? [],
+      })),
+    [sourceAssets],
+  );
   const sourceRecords = useMemo(() => {
     const byPath = new Map<string, SourceRecord>();
 
@@ -1759,6 +1839,16 @@ function WorkspacePanel({
             label="Avg Eval"
             value={feedbackSummary?.average_evaluation_overall ? feedbackSummary.average_evaluation_overall.toFixed(1) : '-'}
             detail="recent recorded output quality"
+          />
+          <MiniMeta
+            label="Media Assets"
+            value={`${sourceAssets?.counts?.total ?? sourceAssetRecords.length}`}
+            detail="upstream long-form assets"
+          />
+          <MiniMeta
+            label="Pending Segments"
+            value={`${sourceAssets?.counts?.pending_segmentation ?? sourceAssetRecords.filter((item) => item.routingStatus === 'pending_segmentation').length}`}
+            detail="not yet routed into feed cards"
           />
         </div>
         {workspaceSnapshotError && <SectionAlert message={`Workspace snapshot error: ${workspaceSnapshotError}`} />}
@@ -2389,6 +2479,134 @@ function WorkspacePanel({
             );
           })}
           {filteredSignals.length === 0 && <EmptyPanel message={`No source-native signals match the ${activeLensMeta.label} lens yet.`} />}
+        </div>
+      </section>
+
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Long-form Assets</p>
+            <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Transcript and media inventory</h3>
+            <p style={{ color: '#94a3b8', fontSize: '14px', maxWidth: '760px' }}>
+              These are upstream YouTube, podcast, audio, and transcript assets visible to the system before segmentation. They should feed post seeds and belief evidence first, then graduate into feed cards only after claim-sized units exist.
+            </p>
+          </div>
+          <span style={{ color: '#64748b', fontSize: '13px' }}>
+            {sourceAssetRecords.length} shown / {sourceAssets?.counts?.total ?? sourceAssetRecords.length} tracked assets
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+          <MiniMeta
+            label="Total Assets"
+            value={`${sourceAssets?.counts?.total ?? sourceAssetRecords.length}`}
+            detail="long-form source inventory"
+          />
+          <MiniMeta
+            label="Pending Segments"
+            value={`${sourceAssets?.counts?.pending_segmentation ?? sourceAssetRecords.filter((item) => item.routingStatus === 'pending_segmentation').length}`}
+            detail="needs claim-sized extraction"
+          />
+          <MiniMeta
+            label="Feed Ready"
+            value={`${sourceAssets?.counts?.feed_ready ?? sourceAssetRecords.filter((item) => item.responseModes.includes('comment') || item.responseModes.includes('repost')).length}`}
+            detail="eligible for direct feed routing"
+          />
+          <MiniMeta
+            label="Channels"
+            value={`${Object.keys(sourceAssets?.counts?.by_channel ?? {}).length}`}
+            detail="distinct media channels"
+          />
+        </div>
+        {Object.keys(sourceAssets?.counts?.by_channel ?? {}).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
+            {Object.entries(sourceAssets?.counts?.by_channel ?? {})
+              .sort((a, b) => b[1] - a[1])
+              .map(([channel, count]) => (
+                <span
+                  key={channel}
+                  style={{
+                    borderRadius: '999px',
+                    border: '1px solid #334155',
+                    padding: '6px 10px',
+                    color: '#cbd5f5',
+                    fontSize: '12px',
+                    backgroundColor: '#020617',
+                  }}
+                >
+                  {channel} · {count}
+                </span>
+              ))}
+          </div>
+        )}
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {sourceAssetRecords.slice(0, 8).map((asset) => {
+            const mountedSource = findWorkspaceFileBySourcePath(linkedinFiles, asset.sourcePath);
+            return (
+              <article key={asset.assetId} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <p style={{ color: '#f8fafc', fontWeight: 700 }}>{asset.title}</p>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>
+                      {[asset.sourceChannel, asset.sourceType, asset.origin].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#cbd5f5', fontSize: '12px' }}>
+                      {asset.sourceClass}
+                    </span>
+                    {asset.routingStatus ? (
+                      <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#fbbf24', fontSize: '12px' }}>
+                        {asset.routingStatus}
+                      </span>
+                    ) : null}
+                    {asset.wordCount ? (
+                      <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>
+                        {asset.wordCount.toLocaleString()} words
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                {asset.summary ? <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.5, marginTop: '8px' }}>{asset.summary}</p> : null}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
+                  {asset.responseModes.map((mode) => (
+                    <span key={`${asset.assetId}-${mode}`} style={{ borderRadius: '999px', border: '1px solid #334155', padding: '4px 10px', color: '#86efac', fontSize: '11px' }}>
+                      {mode}
+                    </span>
+                  ))}
+                  {asset.topics.slice(0, 4).map((topic) => (
+                    <span key={`${asset.assetId}-topic-${topic}`} style={{ borderRadius: '999px', border: '1px solid #334155', padding: '4px 10px', color: '#93c5fd', fontSize: '11px' }}>
+                      {topic}
+                    </span>
+                  ))}
+                  {asset.tags.slice(0, 4).map((tag) => (
+                    <span key={`${asset.assetId}-tag-${tag}`} style={{ borderRadius: '999px', border: '1px solid #334155', padding: '4px 10px', color: '#f5d0fe', fontSize: '11px' }}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{asset.sourcePath}</p>
+                  {asset.capturedAt ? <span style={{ color: '#64748b', fontSize: '12px' }}>captured {asset.capturedAt}</span> : null}
+                  {asset.sourceUrl ? (
+                    <a href={asset.sourceUrl} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                      Open original source
+                    </a>
+                  ) : null}
+                  {mountedSource ? (
+                    <button
+                      onClick={() => onSelect(mountedSource.path)}
+                      style={{ border: 'none', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                    >
+                      Open source file
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+          {sourceAssetRecords.length === 0 && (
+            <EmptyPanel message="No transcript or media assets are visible yet. Once the transcript/media adapters are live, this panel becomes the upstream source-of-truth for long-form intake." />
+          )}
         </div>
       </section>
 

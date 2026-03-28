@@ -477,6 +477,7 @@ Touch points:
 
 Acceptance signal:
 - the social system can see transcript-derived source assets without manual copy/paste
+- `/ops` shows those assets as upstream inventory with routing status before any feed-card promotion happens
 
 Benchmark goal:
 - transcript / media-ingest assets appear as `source_class = long_form_media`

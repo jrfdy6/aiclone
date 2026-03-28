@@ -67,6 +67,7 @@
   2. segment long-form media into claim-sized units before they enter the social runtime,
   3. route those units into the correct downstream jobs (`comment`, `repost`, `post_seed`, `belief_evidence`) instead of forcing every source into a feed-card response,
   4. use those source contrasts to build reviewable worldview evidence for the persona system without auto-writing canonical persona files.
+  4a. the first runtime source-asset inventory is now live in the workspace snapshot and `/ops`; transcript/media assets are visible upstream before segmentation but are not yet eligible for direct feed-card routing.
   5. keep the live `/ops` tuning dashboard as the benchmark source of truth, using `Avg Source`, `Avg Expr`, `Avg Δ`, `Weak Source`, `Lane Carried`, source-class health, and the attention queue as the main release metrics for each source-expansion step.
   6. treat source-expansion work as incomplete until it passes the full production validation cadence:
      - immediate validation (`0-10m` after deploy),

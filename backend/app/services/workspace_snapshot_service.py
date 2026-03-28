@@ -14,6 +14,7 @@ from app.services.social_feed_builder_service import (
 )
 from app.services.social_feedback_service import social_feedback_service
 from app.services.social_feed_refresh import social_feed_refresh_service
+from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.workspace_snapshot_store import get_snapshot_payload, upsert_snapshot
 
 
@@ -110,6 +111,7 @@ SNAPSHOT_WEEKLY_PLAN = "weekly_plan"
 SNAPSHOT_REACTION_QUEUE = "reaction_queue"
 SNAPSHOT_SOCIAL_FEED = "social_feed"
 SNAPSHOT_FEEDBACK_SUMMARY = "feedback_summary"
+SNAPSHOT_SOURCE_ASSETS = "source_assets"
 
 
 def _load_module(module_name: str, script_path: Path) -> Any | None:
@@ -417,6 +419,13 @@ def _ingestions_root() -> Path:
     return ROOT / "knowledge" / "ingestions"
 
 
+def _transcripts_root() -> Path:
+    direct = _find_dir("backend/knowledge/aiclone/transcripts", "knowledge/aiclone/transcripts")
+    if direct:
+        return direct
+    return ROOT / "knowledge" / "aiclone" / "transcripts"
+
+
 def _build_weekly_plan_payload() -> dict[str, Any] | None:
     script_path = _find_file(
         "backend/scripts/personal-brand/generate_linkedin_weekly_plan.py",
@@ -466,6 +475,18 @@ def _build_social_feed_payload() -> dict[str, Any] | None:
     return payload if _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, payload) else None
 
 
+def _build_source_assets_payload() -> dict[str, Any] | None:
+    try:
+        payload = build_source_asset_inventory(
+            transcripts_root=_transcripts_root(),
+            ingestions_root=_ingestions_root(),
+            repo_root=ROOT,
+        )
+    except Exception:
+        return None
+    return payload if _snapshot_is_usable(SNAPSHOT_SOURCE_ASSETS, payload) else None
+
+
 def _load_feedback_summary_payload() -> dict[str, Any] | None:
     try:
         return social_feedback_service.load_summary()
@@ -499,6 +520,8 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
         return None
     if snapshot_type == SNAPSHOT_FEEDBACK_SUMMARY:
         return _load_feedback_summary_payload()
+    if snapshot_type == SNAPSHOT_SOURCE_ASSETS:
+        return _build_source_assets_payload()
     return None
 
 
@@ -536,6 +559,10 @@ def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
         return isinstance(payload.get("comment_opportunities"), list) and isinstance(payload.get("post_seeds"), list)
     if snapshot_type == SNAPSHOT_FEEDBACK_SUMMARY:
         return "total_events" in payload
+    if snapshot_type == SNAPSHOT_SOURCE_ASSETS:
+        items = payload.get("items")
+        counts = payload.get("counts")
+        return isinstance(items, list) and isinstance(counts, dict)
     return True
 
 
@@ -584,6 +611,7 @@ class WorkspaceSnapshotService:
             SNAPSHOT_REACTION_QUEUE,
             SNAPSHOT_SOCIAL_FEED,
             SNAPSHOT_FEEDBACK_SUMMARY,
+            SNAPSHOT_SOURCE_ASSETS,
         ]
         refreshed: dict[str, Any] = {}
         for snapshot_type in snapshot_types:
@@ -597,6 +625,7 @@ class WorkspaceSnapshotService:
         reaction_queue = _load_snapshot(SNAPSHOT_REACTION_QUEUE)
         social_feed = _load_snapshot(SNAPSHOT_SOCIAL_FEED)
         feedback_summary = _load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
+        source_assets = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
         return {
             "workspace_files": _load_workspace_files(),
             "doc_entries": _load_doc_entries(),
@@ -604,6 +633,7 @@ class WorkspaceSnapshotService:
             "reaction_queue": reaction_queue,
             "social_feed": social_feed,
             "feedback_summary": feedback_summary,
+            "source_assets": source_assets,
             "refresh_status": social_feed_refresh_service.get_status(),
         }
 

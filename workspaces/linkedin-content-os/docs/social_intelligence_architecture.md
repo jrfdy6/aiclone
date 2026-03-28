@@ -27,6 +27,7 @@ The live system already does these things:
 - generates lane-aware quick replies, comments, and repost drafts
 - lets the user approve lines into persona deltas
 - serves a live workspace snapshot through `GET /api/workspace/linkedin-os-snapshot`
+- serves upstream long-form `source_assets` through the same workspace snapshot for transcript/media inventory
 - uses one shared normalization helper for:
   - live manual preview generation
   - saved social-feed artifact generation
