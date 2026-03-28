@@ -300,6 +300,95 @@ type FeedbackSummary = {
   average_expression_delta?: number | null;
 };
 
+type TuningVariantRecord = {
+  itemId: string;
+  title: string;
+  platform: string;
+  lane: FeedLensId;
+  laneLabel: string;
+  overall: number;
+  expressionQuality: number;
+  sourceExpressionQuality: number;
+  expressionDelta: number;
+  sourceStructure: string;
+  outputStructure: string;
+  structurePreserved: boolean | null;
+  strategy: string;
+  sourceText: string;
+  outputText: string;
+  overlapRatio: number;
+  warnings: string[];
+};
+
+type TuningLaneHealth = {
+  lane: FeedLensId;
+  laneLabel: string;
+  variants: number;
+  avgOverall: number;
+  avgSource: number;
+  avgExpression: number;
+  avgDelta: number;
+  weakSourceCount: number;
+  warningCount: number;
+};
+
+type TuningAttentionItem = {
+  itemId: string;
+  title: string;
+  platform: string;
+  laneLabel: string;
+  reason: string;
+  overall: number;
+  sourceExpressionQuality: number;
+  expressionQuality: number;
+  expressionDelta: number;
+  sourceText: string;
+  outputText: string;
+};
+
+type TuningPlatformHealth = {
+  platform: string;
+  variants: number;
+  avgOverall: number;
+  avgSource: number;
+  avgExpression: number;
+  avgDelta: number;
+  weakSourceCount: number;
+};
+
+type TuningStructureHealth = {
+  structure: string;
+  variants: number;
+  avgSource: number;
+  avgExpression: number;
+  avgDelta: number;
+  preservedRate: number;
+};
+
+type TuningDashboard = {
+  itemCount: number;
+  variantCount: number;
+  avgOverall: number;
+  avgSourceExpressionQuality: number;
+  avgExpressionQuality: number;
+  avgExpressionDelta: number;
+  weakSourceCount: number;
+  warningVariantCount: number;
+  degradedCount: number;
+  neutralDeltaCount: number;
+  lowExpressionCount: number;
+  structureLossCount: number;
+  laneDominanceCount: number;
+  suspectTitleCount: number;
+  strategyCounts: Array<{ label: string; count: number }>;
+  warningCounts: Array<{ label: string; count: number }>;
+  failureModes: Array<{ label: string; count: number }>;
+  laneHealth: TuningLaneHealth[];
+  platformHealth: TuningPlatformHealth[];
+  structureHealth: TuningStructureHealth[];
+  attentionQueue: TuningAttentionItem[];
+};
+
 type WorkspaceSnapshot = {
   workspace_files?: WorkspaceFile[];
   doc_entries?: DocReference[];
@@ -1255,6 +1344,7 @@ function WorkspacePanel({
   const [manualFeedItems, setManualFeedItems] = useState<SocialFeedItem[]>([]);
   const feedItems = useMemo(() => socialFeed?.items ?? [], [socialFeed]);
   const visibleFeedItems = useMemo(() => [...manualFeedItems, ...feedItems], [feedItems, manualFeedItems]);
+  const tuningDashboard = useMemo(() => buildTuningDashboard(visibleFeedItems), [visibleFeedItems]);
   const [refreshingFeed, setRefreshingFeed] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
   const [ingestUrl, setIngestUrl] = useState('');
@@ -1801,6 +1891,12 @@ function WorkspacePanel({
             {ingestStatus && <p style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{ingestStatus}</p>}
           </div>
         </div>
+        {tuningDashboard && (
+          <TuningDashboardPanel
+            dashboard={tuningDashboard}
+            feedbackSummary={feedbackSummary}
+          />
+        )}
         {quoteStatus && (
           <div
             style={{
@@ -2439,6 +2535,182 @@ function DocsPanel({ docs, selected, onSelect }: { docs: DocReference[]; selecte
   );
 }
 
+function TuningDashboardPanel({
+  dashboard,
+  feedbackSummary,
+}: {
+  dashboard: TuningDashboard;
+  feedbackSummary: FeedbackSummary | null;
+}) {
+  return (
+    <section
+      style={{
+        borderRadius: '16px',
+        border: '1px solid rgba(56,189,248,0.22)',
+        background: 'linear-gradient(180deg, rgba(7,15,30,0.98), rgba(2,6,23,0.98))',
+        padding: '16px',
+        marginBottom: '16px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+        <div>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Tuning Dashboard</p>
+          <h4 style={{ color: 'white', fontSize: '22px', margin: 0 }}>Where the pipeline is weak</h4>
+          <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '6px', maxWidth: '760px' }}>
+            Live sample across {dashboard.variantCount} lane variants from {dashboard.itemCount} feed items. This is the fastest way to see whether the current problem is source grounding, expression quality, or lane writing.
+          </p>
+        </div>
+        <div style={{ color: '#94a3b8', fontSize: '12px', textAlign: 'right' }}>
+          <p>Feedback events: {feedbackSummary?.total_events ?? 0}</p>
+          <p>
+            Human avg expr: {feedbackSummary?.average_output_expression_quality?.toFixed(1) ?? '-'} · Human avg Δ:{' '}
+            {feedbackSummary?.average_expression_delta?.toFixed(1) ?? '-'}
+          </p>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        <MiniMeta label="Avg Overall" value={dashboard.avgOverall.toFixed(1)} detail="Current sample quality" />
+        <MiniMeta label="Avg Source" value={dashboard.avgSourceExpressionQuality.toFixed(1)} detail="Source grounding strength" />
+        <MiniMeta label="Avg Expr" value={dashboard.avgExpressionQuality.toFixed(1)} detail="Output expression quality" />
+        <MiniMeta label="Avg Δ" value={dashboard.avgExpressionDelta.toFixed(1)} detail="Output lift vs source" />
+        <MiniMeta label="Weak Source" value={`${dashboard.weakSourceCount}`} detail="Variants with no usable source grounding" />
+        <MiniMeta label="Lane Carried" value={`${dashboard.laneDominanceCount}`} detail="High-scoring variants with weak source grounding" />
+        <MiniMeta label="Warnings" value={`${dashboard.warningVariantCount}`} detail="Variants currently tripping warnings" />
+        <MiniMeta label="Suspect Titles" value={`${dashboard.suspectTitleCount}`} detail="Items that look like mastheads or title surfaces" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Failure Modes</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {dashboard.failureModes.map((mode) => (
+              <div key={mode.label} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '13px' }}>
+                <span style={{ color: '#e2e8f0' }}>{mode.label}</span>
+                <span style={{ color: '#fda4af' }}>{mode.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Warning Hotspots</p>
+          {dashboard.warningCounts.length === 0 ? (
+            <EmptyPanel message="No warning hotspots in the current sample." compact />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {dashboard.warningCounts.map((warning) => (
+                <div key={warning.label} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '13px' }}>
+                  <span style={{ color: '#e2e8f0' }}>{warning.label}</span>
+                  <span style={{ color: '#fca5a5' }}>{warning.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Expression Strategy Mix</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {dashboard.strategyCounts.map((strategy) => (
+              <div key={strategy.label} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '13px' }}>
+                <span style={{ color: '#e2e8f0' }}>{strategy.label}</span>
+                <span style={{ color: '#93c5fd' }}>{strategy.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Platform Health</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {dashboard.platformHealth.map((platform) => (
+              <div key={platform.platform} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '8px 10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ color: 'white', fontWeight: 600, fontSize: '13px' }}>{platform.platform}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>{platform.variants} variants</span>
+                </div>
+                <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                  overall {platform.avgOverall.toFixed(1)} · src {platform.avgSource.toFixed(1)} · expr {platform.avgExpression.toFixed(1)} · Δ {platform.avgDelta.toFixed(1)} · weak {platform.weakSourceCount}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Structure Health</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {dashboard.structureHealth.map((structure) => (
+              <div key={structure.structure} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '8px 10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ color: 'white', fontWeight: 600, fontSize: '13px' }}>{structure.structure}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>{structure.variants} variants</span>
+                </div>
+                <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                  src {structure.avgSource.toFixed(1)} · expr {structure.avgExpression.toFixed(1)} · Δ {structure.avgDelta.toFixed(1)} · preserve {(structure.preservedRate * 100).toFixed(0)}%
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 0.9fr)', gap: '12px' }}>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Lane Health</p>
+          <div style={{ display: 'grid', gap: '8px' }}>
+            {dashboard.laneHealth.map((lane) => (
+              <div
+                key={lane.lane}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(120px, 1.2fr) repeat(5, minmax(0, 0.8fr))',
+                  gap: '8px',
+                  alignItems: 'center',
+                  borderRadius: '12px',
+                  border: '1px solid #1f2937',
+                  padding: '8px 10px',
+                  fontSize: '12px',
+                }}
+              >
+                <span style={{ color: 'white', fontWeight: 600 }}>{lane.laneLabel}</span>
+                <span style={{ color: '#94a3b8' }}>O {lane.avgOverall.toFixed(1)}</span>
+                <span style={{ color: '#94a3b8' }}>S {lane.avgSource.toFixed(1)}</span>
+                <span style={{ color: '#94a3b8' }}>E {lane.avgExpression.toFixed(1)}</span>
+                <span style={{ color: '#94a3b8' }}>Δ {lane.avgDelta.toFixed(1)}</span>
+                <span style={{ color: lane.weakSourceCount > 0 ? '#fca5a5' : '#64748b' }}>weak {lane.weakSourceCount}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Attention Queue</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {dashboard.attentionQueue.map((item) => (
+              <div key={`${item.itemId}-${item.laneLabel}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '6px' }}>
+                  <span style={{ color: 'white', fontWeight: 600, fontSize: '13px' }}>{summarize(item.title, 58)}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>{item.laneLabel}</span>
+                </div>
+                <p style={{ color: '#fca5a5', fontSize: '12px', margin: '0 0 6px' }}>{item.reason}</p>
+                {item.sourceText && (
+                  <p style={{ color: '#cbd5f5', fontSize: '11px', margin: '0 0 4px' }}>
+                    <span style={{ color: '#64748b' }}>src:</span> {summarize(item.sourceText, 120)}
+                  </p>
+                )}
+                {item.outputText && (
+                  <p style={{ color: '#cbd5f5', fontSize: '11px', margin: '0 0 6px' }}>
+                    <span style={{ color: '#64748b' }}>out:</span> {summarize(item.outputText, 120)}
+                  </p>
+                )}
+                <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                  {item.platform} · overall {item.overall.toFixed(1)} · src {item.sourceExpressionQuality.toFixed(1)} · expr {item.expressionQuality.toFixed(1)} · Δ {item.expressionDelta.toFixed(1)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function SplitPane({ sidebar, content }: { sidebar: JSX.Element; content: JSX.Element }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: '16px', alignItems: 'start' }}>
@@ -2888,6 +3160,378 @@ function collectSaveRules(raw: string) {
   const dropMatch = section.match(/Do not keep a signal if:\s*([\s\S]*)/);
   const drop = dropMatch ? parseBullets(dropMatch[1]) : [];
   return { keep, drop };
+}
+
+function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
+  const variants: TuningVariantRecord[] = [];
+  const suspectItemIds = new Set<string>();
+
+  items.forEach((item) => {
+    if (looksLikeSurfaceTitle(item.title)) {
+      suspectItemIds.add(item.id);
+    }
+    const entries = Object.entries(item.lens_variants ?? {}) as Array<[string, FeedVariant | undefined]>;
+    if (!entries.length && item.evaluation) {
+      const fallbackLane = (item.lenses?.[0] as FeedLensId | undefined) ?? 'current-role';
+      variants.push({
+        itemId: item.id,
+        title: item.title,
+        platform: item.platform,
+        lane: fallbackLane,
+        laneLabel: POST_MODE_OPTIONS.find((mode) => mode.id === fallbackLane)?.label ?? fallbackLane,
+        overall: item.evaluation.overall ?? 0,
+        expressionQuality: item.evaluation.expression_quality ?? 0,
+        sourceExpressionQuality: item.evaluation.source_expression_quality ?? 0,
+        expressionDelta: item.evaluation.expression_delta ?? 0,
+        sourceStructure: item.evaluation.source_structure ?? 'none',
+        outputStructure: item.evaluation.output_structure ?? 'none',
+        structurePreserved: item.evaluation.structure_preserved ?? null,
+        strategy: item.expression_assessment?.strategy ?? 'none',
+        sourceText: item.expression_assessment?.source_text ?? '',
+        outputText: item.expression_assessment?.output_text ?? '',
+        overlapRatio: item.expression_assessment?.overlap_ratio ?? 0,
+        warnings: item.evaluation.warnings ?? [],
+      });
+      return;
+    }
+
+    entries.forEach(([lane, variant]) => {
+      if (!variant?.evaluation) {
+        return;
+      }
+      const normalizedLane = (normalizeFeedLensKey(lane) ?? 'current-role') as FeedLensId;
+      variants.push({
+        itemId: item.id,
+        title: item.title,
+        platform: item.platform,
+        lane: normalizedLane,
+        laneLabel: variant.label ?? POST_MODE_OPTIONS.find((mode) => mode.id === normalizedLane)?.label ?? normalizedLane,
+        overall: variant.evaluation.overall ?? 0,
+        expressionQuality: variant.evaluation.expression_quality ?? 0,
+        sourceExpressionQuality: variant.evaluation.source_expression_quality ?? 0,
+        expressionDelta: variant.evaluation.expression_delta ?? 0,
+        sourceStructure: variant.evaluation.source_structure ?? 'none',
+        outputStructure: variant.evaluation.output_structure ?? 'none',
+        structurePreserved: variant.evaluation.structure_preserved ?? null,
+        strategy: variant.expression_assessment?.strategy ?? 'none',
+        sourceText: variant.expression_assessment?.source_text ?? '',
+        outputText: variant.expression_assessment?.output_text ?? '',
+        overlapRatio: variant.expression_assessment?.overlap_ratio ?? 0,
+        warnings: variant.evaluation.warnings ?? [],
+      });
+    });
+  });
+
+  if (!variants.length) {
+    return null;
+  }
+
+  const warningCounts = new Map<string, number>();
+  const strategyCounts = new Map<string, number>();
+  const platformMap = new Map<string, {
+    count: number;
+    overallTotal: number;
+    sourceTotal: number;
+    expressionTotal: number;
+    deltaTotal: number;
+    weakSourceCount: number;
+  }>();
+  const structureMap = new Map<string, {
+    count: number;
+    sourceTotal: number;
+    expressionTotal: number;
+    deltaTotal: number;
+    preservedCount: number;
+  }>();
+  const laneMap = new Map<FeedLensId, {
+    count: number;
+    overallTotal: number;
+    sourceTotal: number;
+    expressionTotal: number;
+    deltaTotal: number;
+    weakSourceCount: number;
+    warningCount: number;
+  }>();
+
+  let totalOverall = 0;
+  let totalSource = 0;
+  let totalExpression = 0;
+  let totalDelta = 0;
+  let weakSourceCount = 0;
+  let warningVariantCount = 0;
+  let degradedCount = 0;
+  let neutralDeltaCount = 0;
+  let lowExpressionCount = 0;
+  let structureLossCount = 0;
+  let laneDominanceCount = 0;
+
+  variants.forEach((variant) => {
+    totalOverall += variant.overall;
+    totalSource += variant.sourceExpressionQuality;
+    totalExpression += variant.expressionQuality;
+    totalDelta += variant.expressionDelta;
+
+    const derivedWarnings = [...variant.warnings];
+    if (variant.sourceExpressionQuality <= 0.1) {
+      weakSourceCount += 1;
+      derivedWarnings.unshift('source grounding missing');
+    }
+    if (variant.expressionDelta < 0) {
+      degradedCount += 1;
+    }
+    if (variant.expressionDelta === 0) {
+      neutralDeltaCount += 1;
+    }
+    if (variant.expressionQuality < 6.5) {
+      lowExpressionCount += 1;
+    }
+    if (variant.structurePreserved === false) {
+      structureLossCount += 1;
+      derivedWarnings.push('source structure lost');
+    }
+    if (variant.sourceExpressionQuality <= 0.1 && variant.overall >= 7.2) {
+      laneDominanceCount += 1;
+      derivedWarnings.push('lane carries draft without source');
+    }
+    if (derivedWarnings.length > 0) {
+      warningVariantCount += 1;
+    }
+
+    derivedWarnings.forEach((warning) => {
+      warningCounts.set(warning, (warningCounts.get(warning) ?? 0) + 1);
+    });
+
+    const strategy = variant.strategy || 'none';
+    strategyCounts.set(strategy, (strategyCounts.get(strategy) ?? 0) + 1);
+
+    const platformEntry = platformMap.get(variant.platform) ?? {
+      count: 0,
+      overallTotal: 0,
+      sourceTotal: 0,
+      expressionTotal: 0,
+      deltaTotal: 0,
+      weakSourceCount: 0,
+    };
+    platformEntry.count += 1;
+    platformEntry.overallTotal += variant.overall;
+    platformEntry.sourceTotal += variant.sourceExpressionQuality;
+    platformEntry.expressionTotal += variant.expressionQuality;
+    platformEntry.deltaTotal += variant.expressionDelta;
+    if (variant.sourceExpressionQuality <= 0.1) {
+      platformEntry.weakSourceCount += 1;
+    }
+    platformMap.set(variant.platform, platformEntry);
+
+    const structureKey = variant.sourceStructure || 'none';
+    const structureEntry = structureMap.get(structureKey) ?? {
+      count: 0,
+      sourceTotal: 0,
+      expressionTotal: 0,
+      deltaTotal: 0,
+      preservedCount: 0,
+    };
+    structureEntry.count += 1;
+    structureEntry.sourceTotal += variant.sourceExpressionQuality;
+    structureEntry.expressionTotal += variant.expressionQuality;
+    structureEntry.deltaTotal += variant.expressionDelta;
+    if (variant.structurePreserved !== false) {
+      structureEntry.preservedCount += 1;
+    }
+    structureMap.set(structureKey, structureEntry);
+
+    const laneEntry = laneMap.get(variant.lane) ?? {
+      count: 0,
+      overallTotal: 0,
+      sourceTotal: 0,
+      expressionTotal: 0,
+      deltaTotal: 0,
+      weakSourceCount: 0,
+      warningCount: 0,
+    };
+    laneEntry.count += 1;
+    laneEntry.overallTotal += variant.overall;
+    laneEntry.sourceTotal += variant.sourceExpressionQuality;
+    laneEntry.expressionTotal += variant.expressionQuality;
+    laneEntry.deltaTotal += variant.expressionDelta;
+    if (variant.sourceExpressionQuality <= 0.1) {
+      laneEntry.weakSourceCount += 1;
+    }
+    if (derivedWarnings.length > 0) {
+      laneEntry.warningCount += 1;
+    }
+    laneMap.set(variant.lane, laneEntry);
+  });
+
+  const laneHealth: TuningLaneHealth[] = Array.from(laneMap.entries())
+    .map(([lane, metrics]) => ({
+      lane,
+      laneLabel: POST_MODE_OPTIONS.find((mode) => mode.id === lane)?.label ?? lane,
+      variants: metrics.count,
+      avgOverall: metrics.overallTotal / metrics.count,
+      avgSource: metrics.sourceTotal / metrics.count,
+      avgExpression: metrics.expressionTotal / metrics.count,
+      avgDelta: metrics.deltaTotal / metrics.count,
+      weakSourceCount: metrics.weakSourceCount,
+      warningCount: metrics.warningCount,
+    }))
+    .sort((a, b) => {
+      if (a.avgOverall !== b.avgOverall) {
+        return a.avgOverall - b.avgOverall;
+      }
+      return b.weakSourceCount - a.weakSourceCount;
+    });
+
+  const platformHealth: TuningPlatformHealth[] = Array.from(platformMap.entries())
+    .map(([platform, metrics]) => ({
+      platform,
+      variants: metrics.count,
+      avgOverall: metrics.overallTotal / metrics.count,
+      avgSource: metrics.sourceTotal / metrics.count,
+      avgExpression: metrics.expressionTotal / metrics.count,
+      avgDelta: metrics.deltaTotal / metrics.count,
+      weakSourceCount: metrics.weakSourceCount,
+    }))
+    .sort((a, b) => {
+      if (a.avgSource !== b.avgSource) {
+        return a.avgSource - b.avgSource;
+      }
+      return b.variants - a.variants;
+    });
+
+  const structureHealth: TuningStructureHealth[] = Array.from(structureMap.entries())
+    .map(([structure, metrics]) => ({
+      structure,
+      variants: metrics.count,
+      avgSource: metrics.sourceTotal / metrics.count,
+      avgExpression: metrics.expressionTotal / metrics.count,
+      avgDelta: metrics.deltaTotal / metrics.count,
+      preservedRate: metrics.preservedCount / metrics.count,
+    }))
+    .sort((a, b) => {
+      if (a.avgDelta !== b.avgDelta) {
+        return a.avgDelta - b.avgDelta;
+      }
+      return b.variants - a.variants;
+    });
+
+  const attentionQueue: TuningAttentionItem[] = [...variants]
+    .sort((a, b) => {
+      const aSeverity = tuningSeverity(a);
+      const bSeverity = tuningSeverity(b);
+      if (aSeverity !== bSeverity) {
+        return bSeverity - aSeverity;
+      }
+      if (a.overall !== b.overall) {
+        return a.overall - b.overall;
+      }
+      return a.expressionQuality - b.expressionQuality;
+    })
+    .slice(0, 6)
+    .map((variant) => ({
+      itemId: variant.itemId,
+      title: variant.title,
+      platform: variant.platform,
+      laneLabel: variant.laneLabel,
+      reason: deriveTuningReason(variant),
+      overall: variant.overall,
+      sourceExpressionQuality: variant.sourceExpressionQuality,
+      expressionQuality: variant.expressionQuality,
+      expressionDelta: variant.expressionDelta,
+      sourceText: variant.sourceText,
+      outputText: variant.outputText,
+    }));
+
+  return {
+    itemCount: items.length,
+    variantCount: variants.length,
+    avgOverall: totalOverall / variants.length,
+    avgSourceExpressionQuality: totalSource / variants.length,
+    avgExpressionQuality: totalExpression / variants.length,
+    avgExpressionDelta: totalDelta / variants.length,
+    weakSourceCount,
+    warningVariantCount,
+    degradedCount,
+    neutralDeltaCount,
+    lowExpressionCount,
+    structureLossCount,
+    laneDominanceCount,
+    suspectTitleCount: suspectItemIds.size,
+    strategyCounts: Array.from(strategyCounts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5),
+    warningCounts: Array.from(warningCounts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6),
+    failureModes: [
+      { label: 'source grounding missing', count: weakSourceCount },
+      { label: 'lane carries draft without source', count: laneDominanceCount },
+      { label: 'neutral rewrite with no lift', count: neutralDeltaCount },
+      { label: 'output expression still low', count: lowExpressionCount },
+      { label: 'rewrite degraded source', count: degradedCount },
+      { label: 'source structure lost', count: structureLossCount },
+    ],
+    laneHealth,
+    platformHealth,
+    structureHealth,
+    attentionQueue,
+  };
+}
+
+function normalizeFeedLensKey(value: string): FeedLensId | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'ai-entrepreneurship') {
+    return 'ai';
+  }
+  if (normalized === 'therapist-referral') {
+    return 'therapy';
+  }
+  if ((POST_MODE_OPTIONS as Array<{ id: string }>).some((mode) => mode.id === normalized)) {
+    return normalized as FeedLensId;
+  }
+  return null;
+}
+
+function tuningSeverity(variant: TuningVariantRecord) {
+  let score = 0;
+  if (variant.sourceExpressionQuality <= 0.1) score += 4;
+  if (variant.structurePreserved === false) score += 3;
+  if (variant.expressionDelta < 0) score += 2;
+  if (variant.overall < 7.0) score += 2;
+  score += Math.min(variant.warnings.length, 3);
+  return score;
+}
+
+function deriveTuningReason(variant: TuningVariantRecord) {
+  if (variant.sourceExpressionQuality <= 0.1 && variant.overall >= 7.2) {
+    return 'Lane template is carrying an ungrounded draft';
+  }
+  if (variant.sourceExpressionQuality <= 0.1) {
+    return 'No usable source grounding';
+  }
+  if (variant.structurePreserved === false) {
+    return 'Rewrite lost source structure';
+  }
+  if (variant.expressionDelta < 0) {
+    return 'Expression quality dropped after rewrite';
+  }
+  if (variant.warnings.length > 0) {
+    return variant.warnings[0];
+  }
+  return 'Lowest current score in sample';
+}
+
+function looksLikeSurfaceTitle(title: string) {
+  const cleaned = title.trim();
+  if (!cleaned) {
+    return false;
+  }
+  const upperLetters = cleaned.replace(/[^A-Z]/g, '').length;
+  const totalLetters = cleaned.replace(/[^A-Za-z]/g, '').length;
+  const upperRatio = totalLetters > 0 ? upperLetters / totalLetters : 0;
+  const hasDate = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(cleaned) && /\b20\d{2}\b/.test(cleaned);
+  return hasDate || upperRatio > 0.72;
 }
 
 function normalizeStatus(status: string) {

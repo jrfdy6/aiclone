@@ -136,7 +136,7 @@
 
 ### LNK-020 - Create a shared tuning dashboard contract
 - Outcome: define a dashboard/state contract that the user and the agents can both use to track narrative state, beliefs, performance, techniques, and next-step tuning decisions.
-- Status: partially live. The social variant pipeline now emits explicit expression-quality fields (`source_expression_quality`, `output_expression_quality`, `expression_delta`, structure preservation) alongside the existing lane / belief / technique / evaluation readout. The remaining step is to make those metrics a first-class dashboard surface instead of only a variant/evaluator field.
+- Status: partially live. The social variant pipeline now emits explicit expression-quality fields (`source_expression_quality`, `output_expression_quality`, `expression_delta`, structure preservation) alongside the existing lane / belief / technique / evaluation readout. `/ops` now includes a first-pass tuning dashboard that surfaces weak source grounding, warning hotspots, strategy mix, lane health, and the current attention queue directly from the live workspace snapshot. The next step is to push those signals into longer-horizon tuning memory and planner-side decision loops.
 - Source files:
   - `docs/social_intelligence_architecture.md`
   - `plans/README.md`

@@ -179,6 +179,12 @@ The tuning dashboard should extend this pattern before creating a separate front
   - reaction queue
   - social feed payload
   - feedback summary
+- `/ops` also now derives a first-pass tuning dashboard from the live social-feed snapshot itself:
+  - weak source grounding counts
+  - warning hotspots
+  - expression strategy mix
+  - lane health rollups
+  - an attention queue of the weakest current variants
 - the backend now persists these workspace snapshots in Postgres via `workspace_snapshots`
 - stale or thin snapshot rows are rebuilt from live runtime builders before they are returned
 - the social feed now has a backend-native builder path in `backend/app/services/social_feed_builder_service.py`
