@@ -204,6 +204,24 @@ export type BrainWorkspaceSnapshot = {
   persona_review_summary?: PersonaReviewSummary | null;
 };
 
+export type BrainControlPlanePayload = {
+  generated_at?: string;
+  automations?: Automation[];
+  telemetry?: CaptureTelemetry | null;
+  telemetry_health?: OpenBrainHealth | null;
+  workspace_snapshot?: BrainWorkspaceSnapshot | null;
+  summary?: {
+    automation_count?: number;
+    active_automation_count?: number;
+    capture_count?: number;
+    doc_count?: number;
+    workspace_file_count?: number;
+    pending_review_count?: number;
+    workspace_saved_count?: number;
+    source_asset_count?: number;
+  };
+};
+
 type BrainLongFormIngestForm = {
   url: string;
   title: string;
@@ -252,10 +270,7 @@ const brainTextareaStyle: CSSProperties = {
 type BrainClientInitialState = {
   briefs?: DailyBriefEntry[];
   personaDeltas?: PersonaDeltaEntry[];
-  automations?: Automation[];
-  telemetry?: CaptureTelemetry | null;
-  telemetryHealth?: OpenBrainHealth | null;
-  workspaceSnapshot?: BrainWorkspaceSnapshot | null;
+  controlPlane?: BrainControlPlanePayload | null;
 };
 
 export default function BrainClient({
@@ -273,12 +288,13 @@ export default function BrainClient({
   const [briefsError, setBriefsError] = useState<string | null>(null);
   const [personaDeltas, setPersonaDeltas] = useState<PersonaDeltaEntry[]>(initialState?.personaDeltas ?? []);
   const [personaDeltasError, setPersonaDeltasError] = useState<string | null>(null);
-  const [automations, setAutomations] = useState<Automation[]>(initialState?.automations ?? []);
+  const [controlPlane, setControlPlane] = useState<BrainControlPlanePayload | null>(initialState?.controlPlane ?? null);
+  const [automations, setAutomations] = useState<Automation[]>(initialState?.controlPlane?.automations ?? []);
   const [automationsError, setAutomationsError] = useState<string | null>(null);
-  const [telemetry, setTelemetry] = useState<CaptureTelemetry | null>(initialState?.telemetry ?? null);
-  const [telemetryHealth, setTelemetryHealth] = useState<OpenBrainHealth | null>(initialState?.telemetryHealth ?? null);
+  const [telemetry, setTelemetry] = useState<CaptureTelemetry | null>(initialState?.controlPlane?.telemetry ?? null);
+  const [telemetryHealth, setTelemetryHealth] = useState<OpenBrainHealth | null>(initialState?.controlPlane?.telemetry_health ?? null);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
-  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<BrainWorkspaceSnapshot | null>(initialState?.workspaceSnapshot ?? null);
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<BrainWorkspaceSnapshot | null>(initialState?.controlPlane?.workspace_snapshot ?? null);
   const [workspaceSnapshotError, setWorkspaceSnapshotError] = useState<string | null>(null);
   const [longFormIngest, setLongFormIngest] = useState<BrainLongFormIngestForm>({
     url: '',
@@ -303,13 +319,10 @@ export default function BrainClient({
   );
 
   async function loadData(cancelled = false) {
-      const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes, snapshotRes] = await Promise.allSettled([
+      const [briefsRes, personaRes, controlPlaneRes] = await Promise.allSettled([
         fetch(`${API_URL}/api/briefs/?limit=50`).then((res) => res.json()),
         fetch(`${API_URL}/api/persona/deltas?limit=100&view=brain_queue`).then((res) => res.json()),
-        fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
-        fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
-        fetch(`${API_URL}/api/open-brain/health`).then((res) => res.json()),
-        fetch(`${API_URL}/api/workspace/linkedin-os-snapshot`).then((res) => res.json()),
+        fetch(`${API_URL}/api/brain/control-plane`).then((res) => res.json()),
       ]);
 
       if (cancelled) {
@@ -333,37 +346,20 @@ export default function BrainClient({
         setPersonaDeltasError('Unable to load persona deltas right now.');
       }
 
-      if (automationsRes.status === 'fulfilled') {
-        setAutomations(Array.isArray(automationsRes.value?.data) ? automationsRes.value.data : []);
+      if (controlPlaneRes.status === 'fulfilled') {
+        const payload = controlPlaneRes.value ?? null;
+        setControlPlane(payload);
+        setAutomations(Array.isArray(payload?.automations) ? payload.automations : []);
+        setTelemetry(payload?.telemetry ?? null);
+        setTelemetryHealth(payload?.telemetry_health ?? null);
+        setWorkspaceSnapshot(payload?.workspace_snapshot ?? null);
         setAutomationsError(null);
-      } else {
-        console.error('Failed to load automations', automationsRes.reason);
-        setAutomationsError('Unable to load automations right now.');
-      }
-
-      if (telemetryRes.status === 'fulfilled') {
-        setTelemetry(telemetryRes.value ?? null);
-      } else {
-        console.error('Failed to load Open Brain telemetry', telemetryRes.reason);
-      }
-
-      if (healthRes.status === 'fulfilled') {
-        setTelemetryHealth(healthRes.value ?? null);
-      } else {
-        console.error('Failed to load Open Brain health', healthRes.reason);
-      }
-
-      if (snapshotRes.status === 'fulfilled') {
-        setWorkspaceSnapshot(snapshotRes.value ?? null);
         setWorkspaceSnapshotError(null);
-      } else {
-        console.error('Failed to load shared workspace snapshot for Brain', snapshotRes.reason);
-        setWorkspaceSnapshotError('Unable to load shared source intelligence right now.');
-      }
-
-      if (telemetryRes.status === 'fulfilled' && healthRes.status === 'fulfilled') {
         setTelemetryError(null);
       } else {
+        console.error('Failed to load Brain control plane', controlPlaneRes.reason);
+        setAutomationsError('Unable to load automations right now.');
+        setWorkspaceSnapshotError('Unable to load shared source intelligence right now.');
         setTelemetryError('Unable to load full Open Brain telemetry.');
       }
   }
@@ -451,7 +447,7 @@ export default function BrainClient({
             workspaceSnapshotError={workspaceSnapshotError}
           />
           <CaptureTelemetryPanel metrics={telemetry} health={telemetryHealth} error={telemetryError} />
-          <AutomationsPanel automations={automations} error={automationsError} />
+          <AutomationsPanel automations={automations} error={automationsError} controlPlane={controlPlane} />
         </section>
       )}
       {activeTab === 'docs' && <DocsPanel docs={mergedDocs} />}
@@ -1158,22 +1154,14 @@ function PersonaPanel({
       const result = (await response.json()) as CaptureResponsePayload;
       if (selectedDelta) {
         const reviewPayload = {
-          status: mode === 'approved' ? 'approved' : keepSelectableSourceOpen ? 'in_review' : 'reviewed',
-          metadata: {
-            review_state: mode === 'approved' ? 'approved' : keepSelectableSourceOpen ? 'in_review' : 'reviewed',
-            review_source: 'brain.persona.ui',
-            owner_response_kind: selectedResponseKind,
-            last_reviewed_at: new Date().toISOString(),
-            resolution_capture_id: result.capture_id,
-            pending_promotion: mode === 'approved' && selectedPromotionItems.length > 0,
-            owner_response_excerpt: trimmedReflection.slice(0, 4000),
-            selected_promotion_items: selectedPromotionItems,
-            selected_promotion_item_ids: selectedPromotionItems.map((item) => item.id),
-            selected_promotion_count: selectedPromotionItems.length,
-          },
+          mode,
+          response_kind: selectedResponseKind,
+          resolution_capture_id: result.capture_id,
+          reflection_excerpt: trimmedReflection.slice(0, 4000),
+          selected_promotion_items: selectedPromotionItems,
         };
-        const reviewResponse = await fetch(`${API_URL}/api/persona/deltas/${selectedDelta.id}`, {
-          method: 'PATCH',
+        const reviewResponse = await fetch(`${API_URL}/api/brain/persona-review/${selectedDelta.id}`, {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(reviewPayload),
         });
@@ -1789,16 +1777,32 @@ function TelemetryStat({ label, value, detail, tone }: { label: string; value: n
   );
 }
 
-function AutomationsPanel({ automations, error }: { automations: Automation[]; error: string | null }) {
+function AutomationsPanel({
+  automations,
+  error,
+  controlPlane,
+}: {
+  automations: Automation[];
+  error: string | null;
+  controlPlane: BrainControlPlanePayload | null;
+}) {
   if (error) {
     return <p style={{ color: '#f87171' }}>{error}</p>;
   }
   const hasRows = automations.length > 0;
+  const summary = controlPlane?.summary ?? null;
   return (
     <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
-      <div style={{ marginBottom: '12px' }}>
-        <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Automations</p>
-        <p style={{ color: '#64748b', fontSize: '13px' }}>Same manifest that powers Ops → Cron Jobs.</p>
+      <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Automations</p>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>Same manifest and telemetry contract that power the Brain dashboard.</p>
+        </div>
+        {summary && (
+          <p style={{ color: '#94a3b8', fontSize: '12px' }}>
+            {summary.active_automation_count ?? automations.length} active · {summary.capture_count ?? 0} captures · {summary.doc_count ?? 0} docs
+          </p>
+        )}
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>

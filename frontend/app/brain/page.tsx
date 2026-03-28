@@ -2,12 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { getApiUrl } from '@/lib/api-client';
 import BrainClient, {
-  Automation,
-  BrainWorkspaceSnapshot,
-  CaptureTelemetry,
+  BrainControlPlanePayload,
   DailyBriefEntry,
   DocEntry,
-  OpenBrainHealth,
   PersonaDeltaEntry,
 } from './BrainClient';
 import { loadPersonaWorkspace } from './personaBundle';
@@ -19,10 +16,7 @@ export const revalidate = 0;
 type BrainInitialState = {
   briefs: DailyBriefEntry[];
   personaDeltas: PersonaDeltaEntry[];
-  automations: Automation[];
-  telemetry: CaptureTelemetry | null;
-  telemetryHealth: OpenBrainHealth | null;
-  workspaceSnapshot: BrainWorkspaceSnapshot | null;
+  controlPlane: BrainControlPlanePayload | null;
 };
 
 export default async function BrainPage() {
@@ -35,23 +29,16 @@ export default async function BrainPage() {
 async function loadBrainInitialState(): Promise<BrainInitialState> {
   const apiUrl = getApiUrl();
   const requestTs = Date.now();
-  const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes, snapshotRes] = await Promise.allSettled([
+  const [briefsRes, personaRes, controlPlaneRes] = await Promise.allSettled([
     fetch(`${apiUrl}/api/briefs/?limit=50&brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
     fetch(`${apiUrl}/api/persona/deltas?limit=100&view=brain_queue&brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/automations/?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/analytics/open-brain?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/open-brain/health?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/workspace/linkedin-os-snapshot?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/brain/control-plane?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
   ]);
 
   return {
     briefs: briefsRes.status === 'fulfilled' && Array.isArray(briefsRes.value) ? briefsRes.value : [],
     personaDeltas: personaRes.status === 'fulfilled' && Array.isArray(personaRes.value) ? personaRes.value : [],
-    automations:
-      automationsRes.status === 'fulfilled' && Array.isArray(automationsRes.value?.data) ? automationsRes.value.data : [],
-    telemetry: telemetryRes.status === 'fulfilled' ? (telemetryRes.value ?? null) : null,
-    telemetryHealth: healthRes.status === 'fulfilled' ? (healthRes.value ?? null) : null,
-    workspaceSnapshot: snapshotRes.status === 'fulfilled' ? (snapshotRes.value ?? null) : null,
+    controlPlane: controlPlaneRes.status === 'fulfilled' ? (controlPlaneRes.value ?? null) : null,
   };
 }
 

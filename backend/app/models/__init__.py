@@ -13,7 +13,7 @@ from .core import (
     ProspectContact,
 )
 from .analytics import ModelDistributionBucket, SessionMetrics, SessionRow, SessionTotals
-from .brain import BrainLongFormIngestRequest
+from .brain import BrainLongFormIngestRequest, BrainPersonaReviewRequest
 from .build_reviews import BuildReview, BuildReviewUpdate, BuildReviewUpsert
 from .daily_briefs import DailyBrief
 from .open_brain import OpenBrainHealth, OpenBrainSearchHit, OpenBrainSearchRequest, OpenBrainSearchResponse
@@ -42,6 +42,7 @@ __all__ = [
     "SessionRow",
     "SessionTotals",
     "BrainLongFormIngestRequest",
+    "BrainPersonaReviewRequest",
     "BuildReview",
     "BuildReviewUpdate",
     "BuildReviewUpsert",

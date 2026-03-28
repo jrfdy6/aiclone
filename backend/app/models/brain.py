@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, model_validator
 
 
@@ -17,4 +19,20 @@ class BrainLongFormIngestRequest(BaseModel):
     def ensure_source(self) -> "BrainLongFormIngestRequest":
         if not ((self.url or "").strip() or (self.transcript_text or "").strip() or (self.notes or "").strip()):
             raise ValueError("Provide a url, transcript_text, or notes.")
+        return self
+
+
+class BrainPersonaReviewRequest(BaseModel):
+    mode: Literal["reviewed", "approved"] = "reviewed"
+    response_kind: Literal["agree", "disagree", "nuance", "story", "language"] = "nuance"
+    reflection_excerpt: str
+    resolution_capture_id: str | None = None
+    selected_promotion_items: list[dict] = []
+
+    @model_validator(mode="after")
+    def ensure_reflection_and_selection(self) -> "BrainPersonaReviewRequest":
+        if not (self.reflection_excerpt or "").strip():
+            raise ValueError("Provide reflection_excerpt.")
+        if self.mode == "approved" and not self.selected_promotion_items:
+            raise ValueError("Select at least one promotion item before approving.")
         return self

@@ -2,11 +2,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from app.models import BrainLongFormIngestRequest
+from app.models import BrainLongFormIngestRequest, BrainPersonaReviewRequest, PersonaDelta
+from app.services import persona_delta_service
 from app.services.brain_long_form_ingest_service import brain_long_form_ingest_service
+from app.services.brain_control_plane_service import build_brain_control_plane
+from app.services.persona_review_queue_service import annotate_for_brain_queue
 from app.services.workspace_snapshot_service import workspace_snapshot_service
 
 router = APIRouter(tags=["Brain"], prefix="/api/brain")
+
+
+@router.get("/control-plane")
+async def get_brain_control_plane():
+    try:
+        return build_brain_control_plane()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/ingest-long-form")
@@ -35,3 +46,25 @@ async def ingest_long_form(payload: BrainLongFormIngestRequest):
         "long_form_routes": snapshot.get("long_form_routes"),
         "persona_review_summary": snapshot.get("persona_review_summary"),
     }
+
+
+@router.post("/persona-review/{delta_id}", response_model=PersonaDelta)
+async def submit_brain_persona_review(delta_id: str, payload: BrainPersonaReviewRequest):
+    try:
+        updated = persona_delta_service.apply_brain_review(
+            delta_id,
+            mode=payload.mode,
+            response_kind=payload.response_kind,
+            reflection_excerpt=payload.reflection_excerpt,
+            resolution_capture_id=payload.resolution_capture_id,
+            selected_promotion_items=payload.selected_promotion_items,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Persona delta not found")
+
+    return annotate_for_brain_queue(updated)

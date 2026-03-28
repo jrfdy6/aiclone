@@ -28,6 +28,7 @@ social_long_form_signal_module = importlib.import_module("app.services.social_lo
 social_persona_review_module = importlib.import_module("app.services.social_persona_review_service")
 daily_brief_module = importlib.import_module("app.services.daily_brief_service")
 persona_route_module = importlib.import_module("app.routes.persona")
+brain_route_module = importlib.import_module("app.routes.brain")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 
 
@@ -1792,6 +1793,98 @@ summary: Leadership behavior drives AI implementation outcomes.
         normalized_text = normalized_path.read_text(encoding="utf-8")
         self.assertIn("Brain-owned ingest test", normalized_text)
         self.assertIn("https://www.youtube.com/watch?v=brain123", normalized_text)
+
+    def test_brain_control_plane_route_returns_canonical_payload(self) -> None:
+        fake_payload = {
+            "generated_at": "2026-03-28T19:30:00+00:00",
+            "automations": [{"id": "daily_brief", "name": "Daily Brief", "schedule": "Daily", "status": "active", "channel": "brain"}],
+            "telemetry": {"captures": {"total": 11, "last_24h": 1, "last_7d": 3}, "vectors": {"total": 0, "with_expiry": 0, "overdue": 0}, "recent_captures": []},
+            "telemetry_health": {"database_connected": True, "vector_extension": False, "embedder_dimension": 1536, "dimension_match": False, "capture_count": 11, "vector_count": 0, "non_expired_vector_count": 0, "search_ready": False},
+            "workspace_snapshot": {"doc_entries": [{"path": "SOPs/example.md"}], "workspace_files": [{"path": "workspaces/linkedin-content-os/README.md"}]},
+            "summary": {"automation_count": 1, "capture_count": 11, "doc_count": 1},
+        }
+        with patch.object(brain_route_module, "build_brain_control_plane", return_value=fake_payload):
+            response = self.client.get("/api/brain/control-plane")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual((payload.get("summary") or {}).get("automation_count"), 1)
+        self.assertEqual(((payload.get("workspace_snapshot") or {}).get("doc_entries") or [{}])[0].get("path"), "SOPs/example.md")
+
+    def test_apply_brain_review_persists_owner_response_metadata(self) -> None:
+        delta = PersonaDelta(
+            id="delta-review",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Trait under review",
+            notes="Original note",
+            status="draft",
+            metadata={
+                "review_source": "long_form_media.segment",
+                "talking_points": [{"id": "tp-1", "label": "Point", "content": "Point content"}],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+
+        def fake_update(delta_id: str, payload):
+            merged = dict(delta.metadata)
+            merged.update(payload.metadata or {})
+            return delta.model_copy(update={"status": payload.status or delta.status, "metadata": merged})
+
+        with patch.object(persona_route_module.persona_delta_service, "get_delta", return_value=delta), patch.object(
+            persona_route_module.persona_delta_service,
+            "update_delta",
+            side_effect=fake_update,
+        ):
+            updated = persona_route_module.persona_delta_service.apply_brain_review(
+                "delta-review",
+                mode="reviewed",
+                response_kind="nuance",
+                reflection_excerpt="This needs more context from my experience.",
+                resolution_capture_id="capture-123",
+                selected_promotion_items=[],
+            )
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "in_review")
+        self.assertEqual((updated.metadata or {}).get("owner_response_kind"), "nuance")
+        self.assertEqual((updated.metadata or {}).get("resolution_capture_id"), "capture-123")
+        self.assertIn("This needs more context", (updated.metadata or {}).get("owner_response_excerpt", ""))
+
+    def test_brain_persona_review_route_returns_annotated_delta(self) -> None:
+        delta = PersonaDelta(
+            id="delta-route-review",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Route-level review delta",
+            notes="Original note",
+            status="reviewed",
+            metadata={
+                "review_source": "brain.persona.ui",
+                "owner_response_kind": "agree",
+                "owner_response_excerpt": "This matches how I think about it.",
+                "talking_points": [{"id": "tp-1", "label": "Point", "content": "Point content"}],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+        with patch.object(brain_route_module.persona_delta_service, "apply_brain_review", return_value=delta):
+            response = self.client.post(
+                "/api/brain/persona-review/delta-route-review",
+                json={
+                    "mode": "reviewed",
+                    "response_kind": "agree",
+                    "reflection_excerpt": "This matches how I think about it.",
+                    "resolution_capture_id": "capture-456",
+                    "selected_promotion_items": [],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual((payload.get("metadata") or {}).get("owner_response_kind"), "agree")
+        self.assertIn("queue_stage", payload.get("metadata") or {})
 
     def test_split_lane_outputs_stay_materially_distinct(self) -> None:
         response = self.client.post(
