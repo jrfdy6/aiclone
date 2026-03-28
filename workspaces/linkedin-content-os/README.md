@@ -98,6 +98,7 @@ Key operating docs:
 - `docs/social_intelligence_architecture.md`
 
 Verification entry points:
+- `../../SOPs/main_safety_release_sop.md`
 - `scripts/verify_main.sh`
 - `scripts/verify_production.sh`
 - `.githooks/pre-push`
