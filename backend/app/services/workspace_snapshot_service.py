@@ -390,10 +390,17 @@ def _augment_weekly_plan_payload(payload: dict[str, Any] | None, long_form_route
     counts_dict["belief_evidence"] = len(belief_evidence_candidates)
 
     augmented = dict(payload)
+    base_generated_at = payload.get("generated_at")
+    route_generated_at = long_form_routes.get("generated_at")
+    has_route_overlay = bool(media_post_seeds or belief_evidence_candidates)
+    if has_route_overlay:
+        augmented["base_generated_at"] = base_generated_at
+        augmented["generated_at"] = route_generated_at or base_generated_at
     augmented["source_counts"] = counts_dict
     augmented["media_post_seeds"] = media_post_seeds
     augmented["belief_evidence_candidates"] = belief_evidence_candidates
     augmented["media_summary"] = {
+        "generated_at": route_generated_at,
         "assets_considered": int(long_form_routes.get("assets_considered") or 0),
         "segments_total": int(long_form_routes.get("segments_total") or 0),
         "route_counts": long_form_routes.get("route_counts") or {},

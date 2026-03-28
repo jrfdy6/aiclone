@@ -508,6 +508,7 @@ Faculty groups have slammed the measure and colleges are watching it closely.
             "source_counts": {"drafts": 1, "media": 0, "research": 0},
         }
         long_form_routes = {
+            "generated_at": "2026-03-28T01:30:00+00:00",
             "assets_considered": 2,
             "segments_total": 3,
             "route_counts": {"comment": 0, "repost": 0, "post_seed": 2, "belief_evidence": 1},
@@ -544,6 +545,8 @@ Faculty groups have slammed the measure and colleges are watching it closely.
 
         augmented = workspace_snapshot_module._augment_weekly_plan_payload(weekly_plan, long_form_routes)
 
+        self.assertEqual(augmented.get("generated_at"), "2026-03-28T01:30:00+00:00")
+        self.assertEqual(augmented.get("base_generated_at"), "2026-03-28T00:00:00+00:00")
         self.assertEqual(augmented.get("source_counts", {}).get("media"), 1)
         self.assertEqual(augmented.get("source_counts", {}).get("belief_evidence"), 1)
         self.assertEqual(len(augmented.get("media_post_seeds") or []), 1)
@@ -551,6 +554,7 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual((augmented.get("media_post_seeds") or [{}])[0].get("source_kind"), "long_form_post_seed")
         self.assertEqual((augmented.get("belief_evidence_candidates") or [{}])[0].get("source_kind"), "long_form_belief_evidence")
         self.assertEqual((augmented.get("media_summary") or {}).get("assets_considered"), 2)
+        self.assertEqual((augmented.get("media_summary") or {}).get("generated_at"), "2026-03-28T01:30:00+00:00")
 
     def test_weekly_plan_snapshot_refreshes_when_runtime_media_routes_change(self) -> None:
         persisted = {
@@ -617,6 +621,7 @@ Faculty groups have slammed the measure and colleges are watching it closely.
             "source_counts": {"drafts": 6, "media": 0, "research": 4},
         }
         long_form_routes = {
+            "generated_at": "2026-03-28T02:45:00+00:00",
             "assets_considered": 4,
             "segments_total": 6,
             "route_counts": {"comment": 1, "repost": 0, "post_seed": 6, "belief_evidence": 6},
@@ -658,6 +663,8 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         ):
             payload = workspace_snapshot_module._runtime_snapshot_payload(workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN)
 
+        self.assertEqual(payload.get("generated_at"), "2026-03-28T02:45:00+00:00")
+        self.assertEqual(payload.get("base_generated_at"), "2026-03-28T00:00:00+00:00")
         self.assertEqual(payload.get("source_counts", {}).get("media"), 1)
         self.assertEqual(payload.get("source_counts", {}).get("belief_evidence"), 1)
         self.assertEqual(len(payload.get("media_post_seeds") or []), 1)
