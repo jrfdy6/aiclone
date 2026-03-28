@@ -29,6 +29,10 @@ Make `main` safe enough to function as the release lane without relying on a lon
    - `./scripts/deploy_railway_service.sh backend`
    - `./scripts/deploy_railway_service.sh frontend`
    - This stages only the service-specific deploy context plus the required workspace/persona assets.
+   - If the release touches transcript/media source expansion, confirm the staged backend context also includes:
+     - `knowledge/aiclone/transcripts/`
+     - `knowledge/ingestions/`
+     Otherwise production will return an empty `source_assets` inventory even if local checks pass.
    - The backend deploy script now tolerates a missing `docs/persistent_memory_blueprint.md` instead of failing the release.
 7. After deploy completes, run the live smoke gate:
    - `npm run verify:production`
