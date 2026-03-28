@@ -426,7 +426,7 @@ export default function BrainClient({
   }
 
   return (
-    <RuntimePage module="brain" tabs={tabs}>
+    <RuntimePage module="brain" tabs={tabs} maxWidth="1560px">
       {activeTab === 'dashboard' && (
         <DashboardPanel
           briefCount={briefs.length}
@@ -1288,18 +1288,16 @@ function PersonaPanel({
   }
 
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: 'calc(100vh - 250px)', minHeight: 'calc(100vh - 250px)', overflow: 'hidden' }}>
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <section
         style={{
-          flex: 1,
-          minHeight: 0,
           borderRadius: '18px',
           border: '1px solid #1f2937',
           backgroundColor: '#050b19',
           padding: '18px',
           display: 'grid',
-          gridTemplateRows: 'auto minmax(0, 1fr)',
-          gap: '14px',
+          gap: '16px',
+          alignItems: 'start',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -1325,8 +1323,8 @@ function PersonaPanel({
         </div>
 
         {selectedDelta ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: '14px', minHeight: 0 }}>
-            <aside style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr)', gap: '12px', minHeight: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0, 1fr)', gap: '14px', alignItems: 'start' }}>
+            <aside style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '12px', alignSelf: 'start' }}>
               <div>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Review now</p>
                 <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
@@ -1365,7 +1363,7 @@ function PersonaPanel({
                   </button>
                 </div>
               )}
-              <div style={{ minHeight: 0, overflowY: 'auto', display: 'grid', gap: '10px', paddingRight: '2px' }}>
+              <div style={{ maxHeight: '620px', overflowY: 'auto', display: 'grid', gap: '10px', paddingRight: '2px' }}>
                 {visibleActiveReviewDeltas.map(({ delta, muted, promotionReady }) => {
                   const isActive = delta.id === (selectedDelta?.id ?? '');
                   return (
@@ -1397,8 +1395,8 @@ function PersonaPanel({
               </div>
             </aside>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(320px, 0.92fr)', gap: '14px', minHeight: 0 }}>
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr)', gap: '12px', minHeight: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(400px, 0.92fr)', gap: '14px', alignItems: 'start' }}>
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start' }}>
               <div>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Why I am showing this</p>
                 <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.65 }}>{reviewReason}</p>
@@ -1426,7 +1424,7 @@ function PersonaPanel({
                 {selectedScoredDelta && <InlineBadge label={`Priority ${selectedScoredDelta.score}`} tone="#22c55e" />}
               </div>
 
-              <div style={{ minHeight: 0, overflowY: 'auto', paddingRight: '4px' }}>
+              <div style={{ maxHeight: '620px', overflowY: 'auto', paddingRight: '4px' }}>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>What is being proposed</p>
                 <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: '16px' }}>
                   {selectedDelta.notes || 'No candidate notes were attached to this review item.'}
@@ -1510,7 +1508,7 @@ function PersonaPanel({
               </div>
             </section>
 
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto', gap: '12px', minHeight: 0 }}>
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start' }}>
               <div
                 style={{
                   borderRadius: '12px',
@@ -1566,8 +1564,8 @@ function PersonaPanel({
                 placeholder={`Example: Yes, this is true. I am building an AI project that supports these initiatives, but I want it framed as a system that strengthens AI Clone, BrandEasy, Outfit A Congo, Collective Fusion, market development, and public leadership rather than a flat list.`}
                 style={{
                   width: '100%',
-                  minHeight: 0,
-                  resize: 'none',
+                  minHeight: '220px',
+                  resize: 'vertical',
                   borderRadius: '14px',
                   border: '1px solid #1f2937',
                   backgroundColor: '#010617',
@@ -1576,6 +1574,7 @@ function PersonaPanel({
                   fontSize: '14px',
                   lineHeight: 1.6,
                   outline: 'none',
+                  overflowY: 'auto',
                 }}
               />
 
@@ -1696,7 +1695,7 @@ function PersonaPanel({
                   cursor: 'pointer',
                 }}
               >
-                {group.title} · {group.count}
+                {compactLifecycleLabel(group.key)} · {group.count}
               </button>
             );
           })}
@@ -1798,6 +1797,7 @@ function InlineBadge({ label, tone }: { label: string; tone: string }) {
       style={{
         display: 'inline-flex',
         alignItems: 'center',
+        maxWidth: '100%',
         borderRadius: '999px',
         border: `1px solid ${tone}44`,
         backgroundColor: `${tone}18`,
@@ -1807,6 +1807,9 @@ function InlineBadge({ label, tone }: { label: string; tone: string }) {
         fontWeight: 600,
         letterSpacing: '0.04em',
         textTransform: 'uppercase',
+        whiteSpace: 'normal',
+        overflowWrap: 'anywhere',
+        wordBreak: 'break-word',
       }}
     >
       {label}
@@ -2194,6 +2197,13 @@ function docsFilterButtonStyle(active: boolean): CSSProperties {
     fontWeight: 600,
     cursor: 'pointer',
   };
+}
+
+function compactLifecycleLabel(key: string) {
+  if (key === 'workspace_saved') return 'Saved';
+  if (key === 'pending_promotion') return 'Queued';
+  if (key === 'committed') return 'Committed';
+  return 'History';
 }
 
 function metadataText(metadata: Record<string, unknown> | undefined, key: string) {
