@@ -998,11 +998,18 @@ Faculty groups have slammed the measure and colleges are watching it closely.
 
         paths = {entry["path"] for entry in entries}
         groups = {entry["path"]: entry.get("group") for entry in entries}
-        self.assertIn("SOPs/brain_workspace_boundary_sop.md", paths)
-        self.assertIn("workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md", paths)
-        self.assertIn("AGENTS.md", paths)
-        self.assertEqual(groups["SOPs/brain_workspace_boundary_sop.md"], "Operating Docs")
-        self.assertEqual(groups["workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md"], "Workspace Reference")
+        sop_path = next((path for path in paths if path.endswith("SOPs/brain_workspace_boundary_sop.md")), None)
+        workspace_doc_path = next(
+            (path for path in paths if path.endswith("workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md")),
+            None,
+        )
+        agents_path = next((path for path in paths if path.endswith("AGENTS.md")), None)
+
+        self.assertIsNotNone(sop_path)
+        self.assertIsNotNone(workspace_doc_path)
+        self.assertIsNotNone(agents_path)
+        self.assertEqual(groups[sop_path], "Operating Docs")
+        self.assertEqual(groups[workspace_doc_path], "Workspace Reference")
 
     def test_source_assets_payload_falls_back_to_long_form_review_metadata_when_inventory_is_empty(self) -> None:
         delta = PersonaDelta(

@@ -127,6 +127,100 @@ def _discover_doc_targets() -> list[tuple[Path, str]]:
     return targets
 
 
+def _ordered_existing_paths(paths: list[Path]) -> list[Path]:
+    ordered: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except Exception:
+            resolved = path
+        if resolved in seen or not resolved.exists():
+            continue
+        seen.add(resolved)
+        ordered.append(resolved)
+    return ordered
+
+
+def _workspace_file_roots() -> list[tuple[Path, str]]:
+    persona_candidates = _ordered_existing_paths(
+        [
+            ROOT / "knowledge" / "persona" / "feeze",
+            ROOT.parent / "knowledge" / "persona" / "feeze",
+            _discover_persona_root(),
+        ]
+    )
+    linkedin_candidates = _ordered_existing_paths(
+        [
+            ROOT / "workspaces" / "linkedin-content-os",
+            ROOT.parent / "workspaces" / "linkedin-content-os",
+            _discover_linkedin_root(),
+        ]
+    )
+    roots: list[tuple[Path, str]] = []
+    roots.extend((path, "persona-bundle") for path in persona_candidates)
+    roots.extend((path, "linkedin-content-os") for path in linkedin_candidates)
+    return roots
+
+
+def _doc_root_candidates() -> list[tuple[Path, str]]:
+    candidates = [
+        (ROOT / "SOPs", "Operating Docs"),
+        (ROOT.parent / "SOPs", "Operating Docs"),
+        (ROOT / "docs", "System Docs"),
+        (ROOT.parent / "docs", "System Docs"),
+        (ROOT / "deliverables", "Reference Docs"),
+        (ROOT.parent / "deliverables", "Reference Docs"),
+        (ROOT / "workspaces" / "linkedin-content-os" / "docs", "Workspace Reference"),
+        (ROOT.parent / "workspaces" / "linkedin-content-os" / "docs", "Workspace Reference"),
+    ]
+    roots: list[tuple[Path, str]] = []
+    seen: set[Path] = set()
+    for path, label in candidates:
+        resolved = path.resolve() if path.exists() else path
+        if not resolved.exists() or not resolved.is_dir() or resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append((resolved, label))
+    for path, label in _discover_doc_roots():
+        resolved = path.resolve() if path.exists() else path
+        if not resolved.exists() or not resolved.is_dir() or resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append((resolved, label))
+    return roots
+
+
+def _doc_target_candidates() -> list[tuple[Path, str]]:
+    candidates = [
+        (ROOT / "AGENTS.md", "Operating Docs"),
+        (ROOT.parent / "AGENTS.md", "Operating Docs"),
+        (ROOT / "CODEX_STARTUP.md", "Operating Docs"),
+        (ROOT.parent / "CODEX_STARTUP.md", "Operating Docs"),
+        (ROOT / "README.md", "Reference Docs"),
+        (ROOT.parent / "README.md", "Reference Docs"),
+        (ROOT / "workspaces" / "linkedin-content-os" / "README.md", "Workspace Reference"),
+        (ROOT.parent / "workspaces" / "linkedin-content-os" / "README.md", "Workspace Reference"),
+        (ROOT / "workspaces" / "linkedin-content-os" / "AGENTS.md", "Workspace Reference"),
+        (ROOT.parent / "workspaces" / "linkedin-content-os" / "AGENTS.md", "Workspace Reference"),
+    ]
+    targets: list[tuple[Path, str]] = []
+    seen: set[Path] = set()
+    for path, label in candidates:
+        resolved = path.resolve() if path.exists() else path
+        if not resolved.exists() or not resolved.is_file() or resolved in seen:
+            continue
+        seen.add(resolved)
+        targets.append((resolved, label))
+    for path, label in _discover_doc_targets():
+        resolved = path.resolve() if path.exists() else path
+        if not resolved.exists() or not resolved.is_file() or resolved in seen:
+            continue
+        seen.add(resolved)
+        targets.append((resolved, label))
+    return targets
+
+
 WORKSPACE_KEY = "linkedin-content-os"
 SNAPSHOT_WEEKLY_PLAN = "weekly_plan"
 SNAPSHOT_REACTION_QUEUE = "reaction_queue"
@@ -196,12 +290,8 @@ def _serialize_file(file_path: Path, root: Path, label: str) -> dict[str, str]:
 
 
 def _load_workspace_files() -> list[dict[str, str]]:
-    roots = [
-        (_discover_persona_root(), "persona-bundle"),
-        (_discover_linkedin_root(), "linkedin-content-os"),
-    ]
     files: list[dict[str, str]] = []
-    for root, label in roots:
+    for root, label in _workspace_file_roots():
         if not root.exists():
             continue
         for file_path in _walk(root):
@@ -213,7 +303,7 @@ def _load_workspace_files() -> list[dict[str, str]]:
 
 def _load_doc_entries() -> list[dict[str, str]]:
     entries_by_path: dict[str, dict[str, str]] = {}
-    for root, label in _discover_doc_roots():
+    for root, label in _doc_root_candidates():
         for file_path in _walk(root):
             if file_path.suffix != ".md":
                 continue
@@ -221,7 +311,7 @@ def _load_doc_entries() -> list[dict[str, str]]:
             entry["group"] = label
             entries_by_path[entry["path"]] = entry
 
-    for file_path, label in _discover_doc_targets():
+    for file_path, label in _doc_target_candidates():
         raw = file_path.read_text(encoding="utf-8")
         stat = file_path.stat()
         try:
