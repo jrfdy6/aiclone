@@ -525,7 +525,7 @@ def _build_weekly_plan_payload() -> dict[str, Any] | None:
             "research": len(filtered_research_candidates),
         },
     )
-    long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
+    long_form_routes = _current_long_form_routes_payload()
     return _augment_weekly_plan_payload(payload, long_form_routes)
 
 
@@ -573,6 +573,14 @@ def _build_long_form_routes_payload() -> dict[str, Any] | None:
     except Exception:
         return None
     return payload if _snapshot_is_usable(SNAPSHOT_LONG_FORM_ROUTES, payload) else None
+
+
+def _current_long_form_routes_payload() -> dict[str, Any] | None:
+    runtime = _build_long_form_routes_payload()
+    if runtime:
+        return runtime
+    persisted = get_snapshot_payload(WORKSPACE_KEY, SNAPSHOT_LONG_FORM_ROUTES)
+    return persisted if persisted and _snapshot_is_usable(SNAPSHOT_LONG_FORM_ROUTES, persisted) else None
 
 
 def _load_feedback_summary_payload() -> dict[str, Any] | None:
@@ -739,7 +747,7 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
             or _load_json(LINKEDIN_ROOT / "plans" / "weekly_plan.json")
             or _parse_weekly_plan_markdown(LINKEDIN_ROOT / "plans" / "weekly_plan.md")
         )
-        long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
+        long_form_routes = _current_long_form_routes_payload()
         return _augment_weekly_plan_payload(payload, long_form_routes)
     if snapshot_type == SNAPSHOT_REACTION_QUEUE:
         return (

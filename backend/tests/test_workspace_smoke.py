@@ -604,6 +604,65 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual(len(payload.get("media_post_seeds") or []), 1)
         self.assertEqual(len(payload.get("belief_evidence_candidates") or []), 1)
 
+    def test_weekly_plan_runtime_payload_uses_current_long_form_routes(self) -> None:
+        weekly_plan = {
+            "generated_at": "2026-03-28T00:00:00+00:00",
+            "workspace": "workspaces/linkedin-content-os",
+            "positioning_model": [],
+            "priority_lanes": [],
+            "recommendations": [],
+            "hold_items": [],
+            "market_signals": [],
+            "research_notes": [],
+            "source_counts": {"drafts": 6, "media": 0, "research": 4},
+        }
+        long_form_routes = {
+            "assets_considered": 4,
+            "segments_total": 6,
+            "route_counts": {"comment": 1, "repost": 0, "post_seed": 6, "belief_evidence": 6},
+            "primary_route_counts": {"comment": 1, "repost": 0, "post_seed": 3, "belief_evidence": 2},
+            "candidates": [
+                {
+                    "title": "Route source",
+                    "segment": "The key point is that teams fail when they chase tools before workflow clarity.",
+                    "primary_route": "post_seed",
+                    "route_reason": "segment is stronger as an original post angle than a direct reaction",
+                    "route_score": 11,
+                    "lane_hint": "program-leadership",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "source_url": "https://example.com/source",
+                    "target_file": "identity/VOICE_PATTERNS.md",
+                    "response_modes": ["post_seed", "belief_evidence"],
+                    "belief_summary": "people, process, and culture as the main levers of leadership",
+                },
+                {
+                    "title": "Belief route",
+                    "segment": "AI literacy is judgment, not just access.",
+                    "primary_route": "belief_evidence",
+                    "route_reason": "segment is better suited to persona language or worldview capture",
+                    "route_score": 10,
+                    "lane_hint": "ai",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "source_url": "https://example.com/source",
+                    "target_file": "identity/claims.md",
+                    "response_modes": ["post_seed", "belief_evidence"],
+                    "belief_summary": "an AI practitioner, not just a passive user",
+                },
+            ],
+        }
+
+        with patch.object(workspace_snapshot_module, "_build_weekly_plan_payload", return_value=weekly_plan), patch.object(
+            workspace_snapshot_module,
+            "_current_long_form_routes_payload",
+            return_value=long_form_routes,
+        ):
+            payload = workspace_snapshot_module._runtime_snapshot_payload(workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN)
+
+        self.assertEqual(payload.get("source_counts", {}).get("media"), 1)
+        self.assertEqual(payload.get("source_counts", {}).get("belief_evidence"), 1)
+        self.assertEqual(len(payload.get("media_post_seeds") or []), 1)
+        self.assertEqual(len(payload.get("belief_evidence_candidates") or []), 1)
+
     def test_snapshot_response_loads_long_form_routes_before_weekly_plan(self) -> None:
         calls: list[str] = []
 
