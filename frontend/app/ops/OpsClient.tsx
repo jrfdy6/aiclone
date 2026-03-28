@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
-import { contentPipelineSnapshot } from '../../legacy/content-pipeline/workspaceSnapshot';
 
 const API_URL = getApiUrl();
 
@@ -529,7 +528,7 @@ export default function OpsClient({
   const [liveSocialFeed, setLiveSocialFeed] = useState<SocialFeed | null>(null);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   const [workspaceRefreshStatus, setWorkspaceRefreshStatus] = useState<FeedRefreshStatus | null>(null);
-  const [workspaceSnapshotState, setWorkspaceSnapshotState] = useState<'bundled' | 'live'>('bundled');
+  const [workspaceSnapshotState, setWorkspaceSnapshotState] = useState<'loading' | 'live' | 'error'>('loading');
   const [workspaceSnapshotError, setWorkspaceSnapshotError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [activePanel, setActivePanel] = useState<Panel>(initialPanel);
@@ -538,38 +537,9 @@ export default function OpsClient({
   const [globalError, setGlobalError] = useState<string | null>(null);
   const effectiveWorkspaceFiles = liveWorkspaceFiles ?? workspaceFiles;
   const effectiveDocEntries = liveDocEntries ?? docEntries;
-  const bundledWeeklyPlan = contentPipelineSnapshot.weeklyPlan as unknown as WeeklyPlan | null;
-  const bundledReactionQueue = contentPipelineSnapshot.reactionQueue as unknown as ReactionQueue | null;
-  const bundledLinkedinFiles = useMemo(
-    () => workspaceFiles.filter((file) => file.path.includes('/workspaces/linkedin-content-os/') || file.group.startsWith('linkedin-content-os')),
-    [workspaceFiles],
-  );
-  const bundledSocialFeed = useMemo<SocialFeed | null>(() => {
-    const socialFeedFile = findWorkspaceFile(bundledLinkedinFiles, 'plans/social_feed.json');
-    const snapshotSocialFeed = (contentPipelineSnapshot as unknown as { socialFeed?: SocialFeed }).socialFeed ?? null;
-    if (socialFeedFile) {
-      try {
-        return JSON.parse(socialFeedFile.content) as SocialFeed;
-      } catch {
-        return snapshotSocialFeed;
-      }
-    }
-    return snapshotSocialFeed;
-  }, [bundledLinkedinFiles]);
-  const effectiveWeeklyPlan = liveWeeklyPlan ?? bundledWeeklyPlan;
-  const effectiveReactionQueue = liveReactionQueue ?? bundledReactionQueue;
-  const effectiveSocialFeed = useMemo<SocialFeed | null>(() => {
-    if (liveSocialFeed?.items?.some((item) => Boolean(item.lens_variants && Object.keys(item.lens_variants).length))) {
-      return liveSocialFeed;
-    }
-    if (liveSocialFeed?.generated_at && bundledSocialFeed) {
-      return {
-        ...bundledSocialFeed,
-        generated_at: liveSocialFeed.generated_at,
-      };
-    }
-    return bundledSocialFeed;
-  }, [bundledSocialFeed, liveSocialFeed]);
+  const effectiveWeeklyPlan = liveWeeklyPlan;
+  const effectiveReactionQueue = liveReactionQueue;
+  const effectiveSocialFeed = liveSocialFeed;
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState(() => pickWorkspacePath(workspaceFiles, initialWorkspaceKey) ?? workspaceFiles[0]?.path ?? '');
   const [selectedDocPath, setSelectedDocPath] = useState(docEntries[0]?.path ?? '');
   const [sectionErrors, setSectionErrors] = useState<TelemetryErrors>({
@@ -629,7 +599,7 @@ export default function OpsClient({
       setWorkspaceSnapshotState('live');
       setWorkspaceSnapshotError(null);
     } catch (error) {
-      setWorkspaceSnapshotState('bundled');
+      setWorkspaceSnapshotState('error');
       setWorkspaceSnapshotError(toErrorMessage(error));
     }
   }, []);
@@ -1143,13 +1113,12 @@ function WorkspacePanel({
   plan: WeeklyPlan | null;
   reactionQueue: ReactionQueue | null;
   socialFeed: SocialFeed | null;
-  workspaceSnapshotState: 'bundled' | 'live';
+  workspaceSnapshotState: 'loading' | 'live' | 'error';
   workspaceSnapshotError: string | null;
   workspaceRefreshStatus: FeedRefreshStatus | null;
   feedbackSummary: FeedbackSummary | null;
   onReloadLiveSnapshot: () => Promise<void>;
 }) {
-  const editorialMix = Array.from(contentPipelineSnapshot.editorialMix ?? []);
   const linkedinFiles = useMemo(
     () => files.filter((file) => file.path.includes('/workspaces/linkedin-content-os/') || file.group.startsWith('linkedin-content-os')),
     [files],
@@ -1169,9 +1138,14 @@ function WorkspacePanel({
   }, [linkedinFiles]);
   const workflowDoc = useMemo(() => findWorkspaceFile(linkedinFiles, 'docs/linkedin_curation_workflow.md'), [linkedinFiles]);
   const backlogDoc = useMemo(() => findWorkspaceFile(linkedinFiles, 'backlog.md'), [linkedinFiles]);
+  const editorialMixDoc = useMemo(() => findWorkspaceFile(linkedinFiles, 'docs/editorial_mix.md'), [linkedinFiles]);
   const workflowSteps = useMemo(() => (workflowDoc ? parseSubsections(extractSection(workflowDoc.content, 'Core Workflow')) : []), [workflowDoc]);
   const saveRules = useMemo(() => (workflowDoc ? collectSaveRules(workflowDoc.content) : { keep: [], drop: [] }), [workflowDoc]);
   const backlogActive = useMemo(() => (backlogDoc ? parseSubsections(extractSection(backlogDoc.content, 'Active')) : []), [backlogDoc]);
+  const editorialMix = useMemo(
+    () => (editorialMixDoc ? parseBullets(extractSection(editorialMixDoc.content, 'Starting Mix Hypothesis')) : []),
+    [editorialMixDoc],
+  );
   const draftFiles = useMemo(
     () => linkedinFiles.filter((file) => file.path.includes('/drafts/') && file.path.endsWith('.md') && !file.path.endsWith('/README.md')),
     [linkedinFiles],
@@ -1593,8 +1567,20 @@ function WorkspacePanel({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '18px' }}>
           <MiniMeta
             label="Snapshot Source"
-            value={workspaceSnapshotState === 'live' ? 'Live backend' : 'Bundled fallback'}
-            detail={workspaceSnapshotState === 'live' ? 'stream-backed workspace state' : 'frontend deploy snapshot'}
+            value={
+              workspaceSnapshotState === 'live'
+                ? 'Persisted backend'
+                : workspaceSnapshotState === 'loading'
+                  ? 'Loading'
+                  : 'Snapshot error'
+            }
+            detail={
+              workspaceSnapshotState === 'live'
+                ? 'postgres-backed workspace state'
+                : workspaceSnapshotState === 'loading'
+                  ? 'fetching live workspace snapshot'
+                  : 'live workspace snapshot unavailable'
+            }
           />
           <MiniMeta
             label="Feed Refresh"
@@ -1612,7 +1598,7 @@ function WorkspacePanel({
             detail="recent recorded output quality"
           />
         </div>
-        {workspaceSnapshotError && <SectionAlert message={`Workspace snapshot fallback in use: ${workspaceSnapshotError}`} />}
+        {workspaceSnapshotError && <SectionAlert message={`Workspace snapshot error: ${workspaceSnapshotError}`} />}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
           {(plan?.positioning_model ?? []).slice(0, 4).map((item) => (
             <div key={item} style={{ borderRadius: '16px', border: '1px solid rgba(192,132,252,0.25)', backgroundColor: 'rgba(17,24,39,0.68)', padding: '14px' }}>

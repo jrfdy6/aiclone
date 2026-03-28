@@ -51,8 +51,8 @@
   5. first-pass belief contrast and lived-experience anchoring are live in the shared social variant builder,
   6. first-pass technique selection and evaluation readouts are live in the shared social variant builder and `/ops`,
   7. structured feedback logs now capture active lane/stance/technique/evaluation context,
-  8. `/ops` now reads a live backend workspace snapshot for plan/reaction/feed timestamps and feedback analytics,
-  9. the frontend now merges that live snapshot with bundled fallback feed data when the backend runtime only has Markdown workspace artifacts.
+  8. `/ops` now reads a live backend workspace snapshot for plan/reaction/feed state and feedback analytics,
+  9. the backend now persists workspace snapshots in Postgres and rebuilds stale snapshot rows from live runtime builders instead of treating container-local artifacts as the source of truth.
 - Near-term implementation priority is not more generation. It is a cleaner intelligence stack:
   1. normalize all source paths into one `NormalizedSignal`,
   2. separate extraction from interpretation,

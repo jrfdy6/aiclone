@@ -48,6 +48,12 @@ def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
     subprocess.run(cmd, cwd=ROOT, check=True)
 
 
+def _persist_workspace_snapshots() -> None:
+    from app.services.workspace_snapshot_service import workspace_snapshot_service
+
+    workspace_snapshot_service.refresh_persisted_linkedin_os_state()
+
+
 class SocialFeedRefreshService:
     def run_refresh(self, skip_fetch: bool = False, sources: Literal["safe", "all"] = "safe") -> None:
         with _state_lock:
@@ -59,6 +65,7 @@ class SocialFeedRefreshService:
 
         try:
             _run_command(skip_fetch, sources)
+            _persist_workspace_snapshots()
             with _state_lock:
                 _state["last_run"] = datetime.now(timezone.utc)
         except Exception as exc:

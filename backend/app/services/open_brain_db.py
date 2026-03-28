@@ -168,6 +168,19 @@ _BASE_SCHEMA_STATEMENTS = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS daily_briefs_date_idx ON daily_briefs(brief_date DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS workspace_snapshots (
+        id UUID PRIMARY KEY,
+        workspace_key TEXT NOT NULL,
+        snapshot_type TEXT NOT NULL,
+        payload JSONB DEFAULT '{}'::jsonb,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (workspace_key, snapshot_type)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS workspace_snapshots_workspace_idx ON workspace_snapshots(workspace_key, snapshot_type)",
 )
 
 

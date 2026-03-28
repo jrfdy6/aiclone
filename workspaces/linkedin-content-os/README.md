@@ -67,7 +67,7 @@ Current implementation status:
 - quick reply / comment / repost generation is live
 - first-pass belief contrast and experience anchoring are now live
 - first-pass technique selection and evaluation readouts are now live
-- `/ops` now merges live backend snapshot state with bundled fallback workspace artifacts when the live feed payload is thinner than the shipped card snapshot
+- `/ops` now reads a persisted backend snapshot and the backend rebuilds stale social-feed snapshot rows from live runtime builders
 - the next architecture phase is separating thesis extraction, deepening planner-side reuse, and tightening learning/tuning
 
 Current lane taxonomy:

@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.services.workspace_snapshot_store import upsert_snapshot
+
 def resolve_workspace_root() -> Path:
     current = Path(__file__).resolve()
     candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/")]
@@ -24,16 +26,28 @@ FEEDBACK_DIR = WORKSPACE_ROOT / "analytics"
 FEEDBACK_PATH = FEEDBACK_DIR / "feed_feedback.md"
 FEEDBACK_JSONL_PATH = FEEDBACK_DIR / "feed_feedback.jsonl"
 FEEDBACK_SUMMARY_PATH = FEEDBACK_DIR / "feed_feedback_summary.json"
+WORKSPACE_KEY = "linkedin-content-os"
+SNAPSHOT_TYPE = "feedback_summary"
 
 
 class SocialFeedbackService:
     def ensure_feedback_dir(self) -> None:
         FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
 
-    def _rebuild_summary(self) -> None:
+    def _persist_summary_snapshot(self, summary: dict[str, Any]) -> None:
+        upsert_snapshot(
+            WORKSPACE_KEY,
+            SNAPSHOT_TYPE,
+            summary,
+            metadata={"source": "social_feedback_service"},
+        )
+
+    def _rebuild_summary(self) -> dict[str, Any]:
         if not FEEDBACK_JSONL_PATH.exists():
-            FEEDBACK_SUMMARY_PATH.write_text(json.dumps({"total_events": 0}, indent=2), encoding="utf-8")
-            return
+            summary = {"total_events": 0, "generated_at": datetime.now(timezone.utc).isoformat()}
+            FEEDBACK_SUMMARY_PATH.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            self._persist_summary_snapshot(summary)
+            return summary
 
         events: list[dict[str, Any]] = []
         with FEEDBACK_JSONL_PATH.open("r", encoding="utf-8") as fh:
@@ -93,6 +107,8 @@ class SocialFeedbackService:
             "recent_events": events[-10:],
         }
         FEEDBACK_SUMMARY_PATH.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        self._persist_summary_snapshot(summary)
+        return summary
 
     def append_feedback(self, entry: dict[str, Any]) -> Path:
         self.ensure_feedback_dir()
@@ -109,6 +125,15 @@ class SocialFeedbackService:
             fh.write(json.dumps(json_entry, ensure_ascii=True) + "\n")
         self._rebuild_summary()
         return FEEDBACK_PATH
+
+    def load_summary(self) -> dict[str, Any]:
+        self.ensure_feedback_dir()
+        if FEEDBACK_SUMMARY_PATH.exists():
+            try:
+                return json.loads(FEEDBACK_SUMMARY_PATH.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                pass
+        return self._rebuild_summary()
 
 
 social_feedback_service = SocialFeedbackService()

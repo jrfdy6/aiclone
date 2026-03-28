@@ -161,11 +161,15 @@
 
 ### LNK-024 - Harden live workspace snapshots for `/ops`
 - Outcome: make `/ops` read live backend snapshot state for weekly plan, reaction queue, social feed timestamps, workspace files, and feedback analytics instead of depending only on frontend-bundled artifacts.
-- Status: first pass implemented. `GET /api/workspace/linkedin-os-snapshot` is live, `/ops` now fetches it, and the page merges live backend state with bundled fallback data when richer feed-card payloads are not present.
+- Status: live. `GET /api/workspace/linkedin-os-snapshot` is backed by persisted Postgres snapshot rows, stale social-feed snapshot rows self-heal from backend runtime builders, and `/ops` now trusts the backend snapshot path instead of depending on bundled feed fallback data for the live workspace state.
 - Source files:
   - `backend/app/routes/workspace.py`
+  - `backend/app/services/open_brain_db.py`
+  - `backend/app/services/workspace_snapshot_store.py`
   - `backend/app/services/workspace_snapshot_service.py`
+  - `backend/app/services/social_feed_builder_service.py`
   - `frontend/app/ops/OpsClient.tsx`
+  - `scripts/personal-brand/build_social_feed.py`
   - `scripts/deploy_railway_service.sh`
 
 ### LNK-023 - Add auto-research for lane, stance, and technique tuning

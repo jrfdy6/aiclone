@@ -148,10 +148,12 @@ The tuning dashboard should extend this pattern before creating a separate front
   - doc entries
   - weekly plan
   - reaction queue
-  - social-feed timestamps
+  - social feed payload
   - feedback summary
-- the frontend still keeps a bundled fallback snapshot for richer feed-card content when the live backend feed payload is thinner than the shipped frontend artifact
-- this is intentional for now because Railway has been inconsistent about preserving all generated `.json` workspace artifacts in the backend runtime even when the matching Markdown artifacts are present
+- the backend now persists these workspace snapshots in Postgres via `workspace_snapshots`
+- stale or thin snapshot rows are rebuilt from live runtime builders before they are returned
+- the social feed now has a backend-native builder path in `backend/app/services/social_feed_builder_service.py`
+- container-local `.json` artifacts are now secondary artifacts, not the runtime source of truth
 
 ### Existing orchestration example
 - `backend/app/services/topic_intelligence_service.py`

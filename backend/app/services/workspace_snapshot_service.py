@@ -8,7 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.services.social_feed_builder_service import build_feed as build_social_feed_runtime_payload
+from app.services.social_feedback_service import social_feedback_service
 from app.services.social_feed_refresh import social_feed_refresh_service
+from app.services.workspace_snapshot_store import get_snapshot_payload, upsert_snapshot
 
 
 def resolve_workspace_root() -> Path:
@@ -121,6 +124,11 @@ def _discover_doc_targets() -> list[Path]:
 PERSONA_ROOT = _discover_persona_root()
 LINKEDIN_ROOT = _discover_linkedin_root()
 DOC_TARGETS = _discover_doc_targets()
+WORKSPACE_KEY = "linkedin-content-os"
+SNAPSHOT_WEEKLY_PLAN = "weekly_plan"
+SNAPSHOT_REACTION_QUEUE = "reaction_queue"
+SNAPSHOT_SOCIAL_FEED = "social_feed"
+SNAPSHOT_FEEDBACK_SUMMARY = "feedback_summary"
 
 
 def _load_module(module_name: str, script_path: Path) -> Any | None:
@@ -133,6 +141,7 @@ def _load_module(module_name: str, script_path: Path) -> Any | None:
     if spec is None or spec.loader is None:
         return None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -427,7 +436,7 @@ def _ingestions_root() -> Path:
     return ROOT / "knowledge" / "ingestions"
 
 
-def _build_weekly_plan_fallback() -> dict[str, Any] | None:
+def _build_weekly_plan_payload() -> dict[str, Any] | None:
     script_path = _find_file(
         "backend/scripts/personal-brand/generate_linkedin_weekly_plan.py",
         "scripts/personal-brand/generate_linkedin_weekly_plan.py",
@@ -456,7 +465,7 @@ def _build_weekly_plan_fallback() -> dict[str, Any] | None:
     )
 
 
-def _build_reaction_queue_fallback() -> dict[str, Any] | None:
+def _build_reaction_queue_payload() -> dict[str, Any] | None:
     script_path = _find_file(
         "backend/scripts/personal-brand/generate_linkedin_reaction_queue.py",
         "scripts/personal-brand/generate_linkedin_reaction_queue.py",
@@ -468,41 +477,119 @@ def _build_reaction_queue_fallback() -> dict[str, Any] | None:
     return module.queue_payload(LINKEDIN_ROOT, items)
 
 
-def _build_social_feed_fallback() -> dict[str, Any] | None:
-    script_path = _find_file(
-        "backend/scripts/personal-brand/build_social_feed.py",
-        "scripts/personal-brand/build_social_feed.py",
-    )
-    module = _load_module("build_social_feed_runtime", script_path) if script_path else None
-    if module is None:
+def _build_social_feed_payload() -> dict[str, Any] | None:
+    try:
+        payload = build_social_feed_runtime_payload(LINKEDIN_ROOT)
+    except Exception:
         return None
-    return module.build_feed()
+    return payload if _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, payload) else None
+
+
+def _load_feedback_summary_payload() -> dict[str, Any] | None:
+    try:
+        return social_feedback_service.load_summary()
+    except Exception:
+        return _load_json(LINKEDIN_ROOT / "analytics" / "feed_feedback_summary.json")
+
+
+def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
+    if snapshot_type == SNAPSHOT_WEEKLY_PLAN:
+        return (
+            _build_weekly_plan_payload()
+            or _load_json(LINKEDIN_ROOT / "plans" / "weekly_plan.json")
+            or _parse_weekly_plan_markdown(LINKEDIN_ROOT / "plans" / "weekly_plan.md")
+        )
+    if snapshot_type == SNAPSHOT_REACTION_QUEUE:
+        return (
+            _build_reaction_queue_payload()
+            or _load_json(LINKEDIN_ROOT / "plans" / "reaction_queue.json")
+            or _parse_reaction_queue_markdown(LINKEDIN_ROOT / "plans" / "reaction_queue.md")
+        )
+    if snapshot_type == SNAPSHOT_SOCIAL_FEED:
+        built = _build_social_feed_payload()
+        if built:
+            return built
+        json_payload = _load_json(LINKEDIN_ROOT / "plans" / "social_feed.json")
+        if json_payload and _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, json_payload):
+            return json_payload
+        markdown_payload = _parse_social_feed_markdown(LINKEDIN_ROOT / "plans" / "social_feed.md")
+        if markdown_payload and _snapshot_is_usable(SNAPSHOT_SOCIAL_FEED, markdown_payload):
+            return markdown_payload
+        return None
+    if snapshot_type == SNAPSHOT_FEEDBACK_SUMMARY:
+        return _load_feedback_summary_payload()
+    return None
+
+
+def _persist_snapshot(snapshot_type: str, payload: dict[str, Any], source: str) -> dict[str, Any]:
+    upsert_snapshot(
+        WORKSPACE_KEY,
+        snapshot_type,
+        payload,
+        metadata={
+            "source": source,
+            "payload_generated_at": payload.get("generated_at"),
+        },
+    )
+    return payload
+
+
+def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
+    if not isinstance(payload, dict) or not payload:
+        return False
+    if snapshot_type == SNAPSHOT_SOCIAL_FEED:
+        items = payload.get("items")
+        if not isinstance(items, list) or not items:
+            return False
+        first_item = items[0]
+        return isinstance(first_item, dict) and bool(first_item.get("lens_variants"))
+    if snapshot_type == SNAPSHOT_WEEKLY_PLAN:
+        return isinstance(payload.get("recommendations"), list) and isinstance(payload.get("positioning_model"), list)
+    if snapshot_type == SNAPSHOT_REACTION_QUEUE:
+        return isinstance(payload.get("comment_opportunities"), list) and isinstance(payload.get("post_seeds"), list)
+    if snapshot_type == SNAPSHOT_FEEDBACK_SUMMARY:
+        return "total_events" in payload
+    return True
+
+
+def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
+    persisted = get_snapshot_payload(WORKSPACE_KEY, snapshot_type)
+    if persisted and _snapshot_is_usable(snapshot_type, persisted):
+        return persisted
+    payload = _runtime_snapshot_payload(snapshot_type)
+    if payload:
+        source = "runtime_refresh" if persisted else "runtime_bootstrap"
+        return _persist_snapshot(snapshot_type, payload, source)
+    return None
 
 
 class WorkspaceSnapshotService:
+    def refresh_persisted_linkedin_os_state(self) -> dict[str, Any]:
+        snapshot_types = [
+            SNAPSHOT_WEEKLY_PLAN,
+            SNAPSHOT_REACTION_QUEUE,
+            SNAPSHOT_SOCIAL_FEED,
+            SNAPSHOT_FEEDBACK_SUMMARY,
+        ]
+        refreshed: dict[str, Any] = {}
+        for snapshot_type in snapshot_types:
+            payload = _runtime_snapshot_payload(snapshot_type)
+            if payload:
+                refreshed[snapshot_type] = _persist_snapshot(snapshot_type, payload, "refresh")
+        return refreshed
+
     def get_linkedin_os_snapshot(self) -> dict[str, Any]:
-        weekly_plan = (
-            _load_json(LINKEDIN_ROOT / "plans" / "weekly_plan.json")
-            or _build_weekly_plan_fallback()
-            or _parse_weekly_plan_markdown(LINKEDIN_ROOT / "plans" / "weekly_plan.md")
-        )
-        reaction_queue = (
-            _load_json(LINKEDIN_ROOT / "plans" / "reaction_queue.json")
-            or _build_reaction_queue_fallback()
-            or _parse_reaction_queue_markdown(LINKEDIN_ROOT / "plans" / "reaction_queue.md")
-        )
-        social_feed = (
-            _load_json(LINKEDIN_ROOT / "plans" / "social_feed.json")
-            or _build_social_feed_fallback()
-            or _parse_social_feed_markdown(LINKEDIN_ROOT / "plans" / "social_feed.md")
-        )
+        weekly_plan = _load_snapshot(SNAPSHOT_WEEKLY_PLAN)
+        reaction_queue = _load_snapshot(SNAPSHOT_REACTION_QUEUE)
+        social_feed = _load_snapshot(SNAPSHOT_SOCIAL_FEED)
+        feedback_summary = _load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
         return {
             "workspace_files": _load_workspace_files(),
             "doc_entries": _load_doc_entries(),
             "weekly_plan": weekly_plan,
             "reaction_queue": reaction_queue,
             "social_feed": social_feed,
-            "feedback_summary": _load_json(LINKEDIN_ROOT / "analytics" / "feed_feedback_summary.json"),
+            "feedback_summary": feedback_summary,
             "refresh_status": social_feed_refresh_service.get_status(),
         }
 
