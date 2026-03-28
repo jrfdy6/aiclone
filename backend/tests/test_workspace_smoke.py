@@ -249,6 +249,53 @@ Faculty groups have slammed the measure and colleges are watching it closely.
 
             self.assertEqual(discovered, top_level.resolve())
 
+    def test_social_feed_builder_uses_alternate_workspace_feed_for_linkedin_preservation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            top_level = base / "workspaces" / "linkedin-content-os"
+            backend_copy = base / "backend" / "workspaces" / "linkedin-content-os"
+            (top_level / "plans").mkdir(parents=True, exist_ok=True)
+            (backend_copy / "plans").mkdir(parents=True, exist_ok=True)
+            (top_level / "research" / "market_signals").mkdir(parents=True, exist_ok=True)
+
+            top_level_feed = {
+                "generated_at": "2026-03-28T00:00:00+00:00",
+                "workspace": "linkedin-content-os",
+                "strategy_mode": "production",
+                "items": [],
+            }
+            backend_feed = dict(SAMPLE_FEED)
+
+            (top_level / "plans" / "social_feed.json").write_text(json.dumps(top_level_feed, indent=2), encoding="utf-8")
+            (backend_copy / "plans" / "social_feed.json").write_text(json.dumps(backend_feed, indent=2), encoding="utf-8")
+            (top_level / "research" / "market_signals" / "2026-03-28__rss__real.md").write_text(
+                """---
+kind: market_signal
+title: Kentucky Senate passes bill making it easier to cut faculty
+created_at: '2026-03-28T00:00:00+00:00'
+source_platform: rss
+source_type: article
+source_url: https://example.com/faculty-cuts
+author: Higher Ed Source
+priority_lane: admissions
+summary: Faculty groups have slammed the measure and colleges are watching it closely.
+why_it_matters: Higher-ed operations and enrollment-adjacent execution signals.
+---
+
+# Kentucky Senate passes bill making it easier to cut faculty
+
+Faculty groups have slammed the measure and colleges are watching it closely.
+""",
+                encoding="utf-8",
+            )
+
+            with patch.object(social_feed_builder_module, "_candidate_roots", return_value=[base, base / "backend"]):
+                feed = build_feed(workspace_root=top_level)
+
+            titles = [item.get("title") for item in feed.get("items") or []]
+            self.assertIn("Kentucky Senate passes bill making it easier to cut faculty", titles)
+            self.assertIn("AI agents fail from lack of context, not lack of smarts", titles)
+
     def test_workspace_snapshot_service_returns_live_sections(self) -> None:
         snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
         social_feed = snapshot.get("social_feed") or {}

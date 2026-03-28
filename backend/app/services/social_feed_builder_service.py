@@ -40,7 +40,7 @@ def _workspace_root_priority(candidate: Path) -> tuple[int, int, int, str]:
     )
 
 
-def discover_linkedin_workspace_root() -> Path:
+def _workspace_root_matches() -> list[Path]:
     patterns = [
         "workspaces/linkedin-content-os",
         "backend/workspaces/linkedin-content-os",
@@ -55,8 +55,13 @@ def discover_linkedin_workspace_root() -> Path:
                 continue
             seen.add(candidate)
             matches.append(candidate)
+    return sorted(matches, key=_workspace_root_priority)
+
+
+def discover_linkedin_workspace_root() -> Path:
+    matches = _workspace_root_matches()
     if matches:
-        return min(matches, key=_workspace_root_priority)
+        return matches[0]
     return Path(__file__).resolve().parents[3] / "workspaces" / "linkedin-content-os"
 
 
@@ -232,6 +237,18 @@ def _load_persisted_feed() -> dict[str, Any] | None:
     return payload
 
 
+def _load_alternate_feeds(workspace_root: Path) -> list[dict[str, Any]]:
+    feeds: list[dict[str, Any]] = []
+    resolved_workspace_root = workspace_root.resolve()
+    for candidate in _workspace_root_matches():
+        if candidate == resolved_workspace_root:
+            continue
+        feed = _load_existing_feed(candidate)
+        if feed:
+            feeds.append(feed)
+    return feeds
+
+
 def _item_fingerprint(item: dict[str, Any]) -> tuple[str, str, str]:
     return (
         _clean_text(item.get("platform") or ""),
@@ -360,13 +377,17 @@ def build_feed(workspace_root: Path | None = None) -> dict[str, Any]:
     signals = _read_saved_signals(resolved_root)
     existing_feed = _load_existing_feed(resolved_root)
     persisted_feed = _load_persisted_feed()
+    alternate_feeds = _load_alternate_feeds(resolved_root)
     if not signals:
         if existing_feed:
             return existing_feed
+        for alternate_feed in alternate_feeds:
+            if alternate_feed:
+                return alternate_feed
         if persisted_feed:
             return persisted_feed
     items = [_normalize_signal(signal, watchlist) for signal in signals]
-    items = _preserve_linkedin_items(items, existing_feed, persisted_feed)
+    items = _preserve_linkedin_items(items, existing_feed, persisted_feed, *alternate_feeds)
     items.sort(key=lambda item: item["ranking"]["total"], reverse=True)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
