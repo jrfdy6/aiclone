@@ -8,6 +8,9 @@ export type DocEntry = {
   name: string;
   path: string;
   snippet: string;
+  content?: string;
+  group?: string;
+  updatedAt?: string;
 };
 
 export type PersonaBundleHealth = {
@@ -138,6 +141,60 @@ type PersonaDeltaEntry = {
   committed_at?: string | null;
 };
 
+type WorkspaceSnapshotDocEntry = {
+  name: string;
+  path: string;
+  snippet: string;
+  content?: string;
+  updatedAt?: string;
+};
+
+type WorkspaceFile = {
+  group?: string;
+  name: string;
+  path: string;
+  snippet: string;
+  content?: string;
+  updatedAt?: string;
+};
+
+type SourceAssetInventory = {
+  counts?: {
+    total?: number;
+    long_form_media?: number;
+    pending_segmentation?: number;
+    feed_ready?: number;
+    by_channel?: Record<string, number>;
+  };
+};
+
+type LongFormRoutes = {
+  assets_considered?: number;
+  segments_total?: number;
+  route_counts?: Record<string, number>;
+  primary_route_counts?: Record<string, number>;
+};
+
+type PersonaReviewSummary = {
+  counts?: {
+    total?: number;
+    brain_pending_review?: number;
+    workspace_saved?: number;
+    approved_unpromoted?: number;
+    pending_promotion?: number;
+    committed?: number;
+  };
+  belief_relation_counts?: Record<string, number>;
+};
+
+type BrainWorkspaceSnapshot = {
+  doc_entries?: WorkspaceSnapshotDocEntry[];
+  workspace_files?: WorkspaceFile[];
+  source_assets?: SourceAssetInventory | null;
+  long_form_routes?: LongFormRoutes | null;
+  persona_review_summary?: PersonaReviewSummary | null;
+};
+
 type PromotionItemKind = 'talking_point' | 'framework' | 'anecdote' | 'phrase_candidate' | 'stat';
 
 type PromotionItem = {
@@ -172,6 +229,9 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
   const [telemetry, setTelemetry] = useState<CaptureTelemetry | null>(null);
   const [telemetryHealth, setTelemetryHealth] = useState<OpenBrainHealth | null>(null);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<BrainWorkspaceSnapshot | null>(null);
+  const [workspaceSnapshotError, setWorkspaceSnapshotError] = useState<string | null>(null);
+  const mergedDocs = useMemo(() => mergeBrainDocs(docs, workspaceSnapshot), [docs, workspaceSnapshot]);
   const tabs = useMemo(
     () => [
       { key: 'dashboard', label: 'Dashboard', active: activeTab === 'dashboard', onSelect: () => setActiveTab('dashboard') },
@@ -186,12 +246,13 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
   useEffect(() => {
     let cancelled = false;
     async function loadData() {
-      const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes] = await Promise.allSettled([
+      const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes, snapshotRes] = await Promise.allSettled([
         fetch(`${API_URL}/api/briefs/?limit=50`).then((res) => res.json()),
         fetch(`${API_URL}/api/persona/deltas?limit=100&view=brain_queue`).then((res) => res.json()),
         fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
         fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
         fetch(`${API_URL}/api/open-brain/health`).then((res) => res.json()),
+        fetch(`${API_URL}/api/workspace/linkedin-os-snapshot`).then((res) => res.json()),
       ]);
 
       if (cancelled) {
@@ -235,6 +296,14 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
         console.error('Failed to load Open Brain health', healthRes.reason);
       }
 
+      if (snapshotRes.status === 'fulfilled') {
+        setWorkspaceSnapshot(snapshotRes.value ?? null);
+        setWorkspaceSnapshotError(null);
+      } else {
+        console.error('Failed to load shared workspace snapshot for Brain', snapshotRes.reason);
+        setWorkspaceSnapshotError('Unable to load shared source intelligence right now.');
+      }
+
       if (telemetryRes.status === 'fulfilled' && healthRes.status === 'fulfilled') {
         setTelemetryError(null);
       } else {
@@ -254,11 +323,13 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
       {activeTab === 'dashboard' && (
         <DashboardPanel
           briefCount={briefs.length}
-          docCount={docs.length}
+          docCount={mergedDocs.length}
           automationCount={automations.length}
           telemetry={telemetry}
           telemetryHealth={telemetryHealth}
           telemetryError={telemetryError}
+          workspaceSnapshot={workspaceSnapshot}
+          workspaceSnapshotError={workspaceSnapshotError}
         />
       )}
       {activeTab === 'briefs' && (
@@ -273,11 +344,19 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
       )}
       {activeTab === 'automations' && (
         <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <BrainControlPlanePanel
+            briefCount={briefs.length}
+            docCount={mergedDocs.length}
+            automationCount={automations.length}
+            telemetry={telemetry}
+            workspaceSnapshot={workspaceSnapshot}
+            workspaceSnapshotError={workspaceSnapshotError}
+          />
           <CaptureTelemetryPanel metrics={telemetry} health={telemetryHealth} error={telemetryError} />
           <AutomationsPanel automations={automations} error={automationsError} />
         </section>
       )}
-      {activeTab === 'docs' && <DocsPanel docs={docs} />}
+      {activeTab === 'docs' && <DocsPanel docs={mergedDocs} />}
     </RuntimePage>
   );
 }
@@ -289,6 +368,8 @@ function DashboardPanel({
   telemetry,
   telemetryHealth,
   telemetryError,
+  workspaceSnapshot,
+  workspaceSnapshotError,
 }: {
   briefCount: number;
   docCount: number;
@@ -296,10 +377,20 @@ function DashboardPanel({
   telemetry: CaptureTelemetry | null;
   telemetryHealth: OpenBrainHealth | null;
   telemetryError: string | null;
+  workspaceSnapshot: BrainWorkspaceSnapshot | null;
+  workspaceSnapshotError: string | null;
 }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <HeroBlock briefCount={briefCount} docCount={docCount} automationCount={automationCount} />
+      <BrainControlPlanePanel
+        briefCount={briefCount}
+        docCount={docCount}
+        automationCount={automationCount}
+        telemetry={telemetry}
+        workspaceSnapshot={workspaceSnapshot}
+        workspaceSnapshotError={workspaceSnapshotError}
+      />
       <CaptureTelemetryPanel metrics={telemetry} health={telemetryHealth} error={telemetryError} />
     </section>
   );
@@ -339,6 +430,71 @@ function HeroStat({ label, value, tone }: { label: string; value: string; tone: 
       <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</p>
       <p style={{ color: tone, fontSize: '22px', fontWeight: 600 }}>{value}</p>
     </div>
+  );
+}
+
+function BrainControlPlanePanel({
+  briefCount,
+  docCount,
+  automationCount,
+  telemetry,
+  workspaceSnapshot,
+  workspaceSnapshotError,
+}: {
+  briefCount: number;
+  docCount: number;
+  automationCount: number;
+  telemetry: CaptureTelemetry | null;
+  workspaceSnapshot: BrainWorkspaceSnapshot | null;
+  workspaceSnapshotError: string | null;
+}) {
+  const sourceCounts = workspaceSnapshot?.source_assets?.counts;
+  const routeCounts = workspaceSnapshot?.long_form_routes?.primary_route_counts ?? workspaceSnapshot?.long_form_routes?.route_counts ?? {};
+  const personaCounts = workspaceSnapshot?.persona_review_summary?.counts;
+  const relationCounts = workspaceSnapshot?.persona_review_summary?.belief_relation_counts ?? {};
+
+  return (
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
+      <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Brain Control Plane</p>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>
+            Global briefs, docs, persona state, automations, and shared source intelligence should be understandable here without bouncing back to Workspace.
+          </p>
+        </div>
+        {workspaceSnapshotError && <p style={{ color: '#f87171', fontSize: '12px' }}>{workspaceSnapshotError}</p>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+        <TelemetryStat label="Briefs" value={briefCount} tone="#38bdf8" detail="Saved daily briefs" />
+        <TelemetryStat label="Automations" value={automationCount} tone="#fbbf24" detail="Configured jobs" />
+        <TelemetryStat label="Docs" value={docCount} tone="#34d399" detail="Docs visible in Brain" />
+        <TelemetryStat label="Captures" value={telemetry?.captures.total ?? 0} tone="#818cf8" detail="Open Brain all time" />
+        <TelemetryStat label="Pending Review" value={personaCounts?.brain_pending_review ?? 0} tone="#f97316" detail="Brain queue" />
+        <TelemetryStat label="Workspace Saved" value={personaCounts?.workspace_saved ?? 0} tone="#22c55e" detail="Already approved" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        <BriefOverlayBlock
+          title="Shared Source System"
+          items={[
+            `Source assets: ${numberMeta(sourceCounts?.total)}`,
+            `Long-form media: ${numberMeta(sourceCounts?.long_form_media)}`,
+            `Pending segmentation: ${numberMeta(sourceCounts?.pending_segmentation)}`,
+            `Feed-ready: ${numberMeta(sourceCounts?.feed_ready)}`,
+          ]}
+          emptyLabel="No shared source data yet."
+        />
+        <BriefOverlayBlock
+          title="Primary Routes"
+          items={Object.entries(routeCounts).map(([key, value]) => `${humanizeSnakeCase(key)}: ${value}`)}
+          emptyLabel="No route data yet."
+        />
+        <BriefOverlayBlock
+          title="Belief Relations"
+          items={Object.entries(relationCounts).map(([key, value]) => `${humanizeBeliefRelation(key)}: ${value}`)}
+          emptyLabel="No relation data yet."
+        />
+      </div>
+    </section>
   );
 }
 
@@ -594,6 +750,7 @@ function PersonaPanel({
     metadataText(selectedDelta?.metadata, 'evidence_source') ?? (selectedDelta?.capture_id ? `capture ${selectedDelta.capture_id}` : 'Not linked yet');
   const statusLabel = selectedDelta?.status ?? 'pending';
   const [selectedPromotionItemIds, setSelectedPromotionItemIds] = useState<string[]>([]);
+  const [selectedResponseKind, setSelectedResponseKind] = useState<'agree' | 'disagree' | 'nuance' | 'story' | 'language'>('nuance');
   const selectedPromotionItems = useMemo(
     () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
     [selectableItems, selectedPromotionItemIds],
@@ -657,17 +814,29 @@ function PersonaPanel({
     setSelectedPromotionItemIds(existingIds.filter((itemId) => availableIds.has(itemId)));
   }, [selectableItems, selectedDelta?.id, selectedDelta?.metadata]);
 
-  function queueTemplate(kind: 'agree' | 'nuance' | 'story' | 'language') {
+  useEffect(() => {
+    const existing = metadataText(selectedDelta?.metadata, 'owner_response_kind');
+    if (existing === 'agree' || existing === 'disagree' || existing === 'nuance' || existing === 'story' || existing === 'language') {
+      setSelectedResponseKind(existing);
+      return;
+    }
+    setSelectedResponseKind('nuance');
+  }, [selectedDelta?.id, selectedDelta?.metadata]);
+
+  function queueTemplate(kind: 'agree' | 'disagree' | 'nuance' | 'story' | 'language') {
     if (!selectedDelta) {
       return;
     }
+    setSelectedResponseKind(kind);
     const prefix =
       kind === 'agree'
         ? `What I agree with about "${selectedDelta.trait}":\n- `
+        : kind === 'disagree'
+        ? `What I disagree with about "${selectedDelta.trait}":\n- `
         : kind === 'nuance'
         ? `Nuance I want preserved for "${selectedDelta.trait}":\n- `
         : kind === 'story'
-        ? `Story or example that should shape "${selectedDelta.trait}":\n- `
+        ? `Personal story or example that should shape "${selectedDelta.trait}":\n- `
         : `Language and wording I prefer for "${selectedDelta.trait}":\n- `;
     setReflectionText((current) => (current.trim().length > 0 ? current : prefix));
     setReflectionState({ tone: 'idle', message: '' });
@@ -706,6 +875,7 @@ function PersonaPanel({
         metadata: {
           capture_kind: 'persona_reflection',
           origin: 'brain.persona.ui',
+          owner_response_kind: selectedResponseKind,
           linked_delta_id: selectedDelta?.id ?? null,
           linked_capture_id: selectedDelta?.capture_id ?? null,
           persona_target: selectedDelta?.persona_target ?? null,
@@ -733,6 +903,7 @@ function PersonaPanel({
           metadata: {
             review_state: mode === 'approved' ? 'approved' : keepSelectableSourceOpen ? 'in_review' : 'reviewed',
             review_source: 'brain.persona.ui',
+            owner_response_kind: selectedResponseKind,
             last_reviewed_at: new Date().toISOString(),
             resolution_capture_id: result.capture_id,
             pending_promotion: mode === 'approved' && selectedPromotionItems.length > 0,
@@ -1040,9 +1211,14 @@ function PersonaPanel({
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <QuickFillButton label="Agree" onClick={() => queueTemplate('agree')} />
+                  <QuickFillButton label="Disagree" onClick={() => queueTemplate('disagree')} />
                   <QuickFillButton label="Nuance" onClick={() => queueTemplate('nuance')} />
-                  <QuickFillButton label="Story" onClick={() => queueTemplate('story')} />
+                  <QuickFillButton label="Personal Story" onClick={() => queueTemplate('story')} />
                   <QuickFillButton label="Wording" onClick={() => queueTemplate('language')} />
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <InlineBadge label={`Response: ${humanizeResponseKind(selectedResponseKind)}`} tone="#38bdf8" />
+                  <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
                   {error && <p style={{ color: '#f87171', fontSize: '12px' }}>{error}</p>}
@@ -1359,21 +1535,96 @@ function AutomationsPanel({ automations, error }: { automations: Automation[]; e
 }
 
 function DocsPanel({ docs }: { docs: DocEntry[] }) {
+  const groupedDocs = useMemo(() => {
+    const groups = new Map<string, DocEntry[]>();
+    for (const doc of docs) {
+      const key = doc.group ?? inferDocGroup(doc.path);
+      const current = groups.get(key) ?? [];
+      current.push(doc);
+      groups.set(key, current);
+    }
+    return Array.from(groups.entries()).map(([group, items]) => ({
+      group,
+      items: items.sort((left, right) => left.name.localeCompare(right.name)),
+    }));
+  }, [docs]);
+  const [selectedDocPath, setSelectedDocPath] = useState<string>(docs[0]?.path ?? '');
+  const selectedDoc = useMemo(
+    () => groupedDocs.flatMap((entry) => entry.items).find((doc) => doc.path === selectedDocPath) ?? groupedDocs[0]?.items[0] ?? null,
+    [groupedDocs, selectedDocPath],
+  );
+
   return (
-    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
-      <div style={{ marginBottom: '12px' }}>
-        <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Documentation</p>
-        <p style={{ color: '#64748b', fontSize: '13px' }}>Primary knowledge files from knowledge/aiclone/.</p>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-        {docs.length === 0 && <p style={{ color: '#475569' }}>No documentation found.</p>}
-        {docs.map((doc) => (
-          <div key={doc.path} style={{ borderRadius: '14px', border: '1px solid #1f2937', padding: '16px', backgroundColor: '#0f172a' }}>
-            <h3 style={{ color: 'white', fontSize: '16px', marginBottom: '8px' }}>{doc.name}</h3>
-            <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '12px' }}>{doc.snippet}</p>
-            <a href={`/${doc.path}`} style={{ color: '#38bdf8', fontSize: '13px' }}>Open file ↗</a>
+    <section style={{ display: 'flex', gap: '16px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '520px' }}>
+      <div style={{ width: '320px', borderRight: '1px solid #0f172a', paddingRight: '12px', maxHeight: '480px', overflowY: 'auto' }}>
+        <div style={{ marginBottom: '12px' }}>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Knowledge Docs</p>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>
+            Brain is the canonical reading surface for operating docs, knowledge docs, persona files, and reference material.
+          </p>
+        </div>
+        {groupedDocs.length === 0 && <p style={{ color: '#475569' }}>No documentation found.</p>}
+        {groupedDocs.map((group) => (
+          <div key={group.group} style={{ marginBottom: '16px' }}>
+            <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>{group.group}</p>
+            <div style={{ display: 'grid', gap: '8px' }}>
+              {group.items.map((doc) => {
+                const isSelected = doc.path === (selectedDoc?.path ?? '');
+                return (
+                  <button
+                    key={doc.path}
+                    onClick={() => setSelectedDocPath(doc.path)}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px',
+                      borderRadius: '12px',
+                      border: isSelected ? '1px solid #38bdf8' : '1px solid transparent',
+                      backgroundColor: isSelected ? '#0f172a' : 'transparent',
+                      color: 'white',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <p style={{ fontSize: '13px', fontWeight: 600 }}>{doc.name}</p>
+                    <p style={{ fontSize: '12px', color: '#94a3b8', lineHeight: 1.45 }}>{doc.snippet}</p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ))}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {selectedDoc ? (
+          <div>
+            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{selectedDoc.group ?? inferDocGroup(selectedDoc.path)}</p>
+                <h2 style={{ color: 'white', fontSize: '24px', marginBottom: '6px' }}>{selectedDoc.name}</h2>
+                <p style={{ color: '#64748b', fontSize: '12px' }}>{selectedDoc.path}</p>
+              </div>
+              {selectedDoc.updatedAt && <p style={{ color: '#64748b', fontSize: '12px' }}>Updated {formatTimestamp(new Date(selectedDoc.updatedAt))}</p>}
+            </div>
+            <div
+              style={{
+                borderRadius: '14px',
+                border: '1px solid #1f2937',
+                backgroundColor: '#020617',
+                padding: '16px',
+                color: '#cbd5f5',
+                fontSize: '14px',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+                maxHeight: '440px',
+                overflowY: 'auto',
+              }}
+            >
+              {selectedDoc.content?.trim() || selectedDoc.snippet}
+            </div>
+          </div>
+        ) : (
+          <p style={{ color: '#475569' }}>Select a document to read it here.</p>
+        )}
       </div>
     </section>
   );
@@ -1839,4 +2090,60 @@ function humanizeBeliefRelation(value: string | null) {
   if (value === 'experience_match') return 'Experience match';
   if (value === 'system_translation') return 'System translation';
   return value.replace(/[_-]+/g, ' ');
+}
+
+function humanizeResponseKind(value: 'agree' | 'disagree' | 'nuance' | 'story' | 'language') {
+  if (value === 'agree') return 'Agreement';
+  if (value === 'disagree') return 'Disagreement';
+  if (value === 'nuance') return 'Nuance';
+  if (value === 'story') return 'Personal story';
+  return 'Wording';
+}
+
+function inferDocGroup(path: string) {
+  if (path.startsWith('SOPs/')) return 'Operating Docs';
+  if (path.startsWith('docs/')) return 'System Docs';
+  if (path.startsWith('knowledge/persona/')) return 'Persona Bundle';
+  if (path.startsWith('knowledge/aiclone/')) return 'Knowledge Docs';
+  if (path.startsWith('workspaces/')) return 'Workspace Reference';
+  return 'Reference Docs';
+}
+
+function mergeBrainDocs(docs: DocEntry[], workspaceSnapshot: BrainWorkspaceSnapshot | null) {
+  const registry = new Map<string, DocEntry>();
+  for (const doc of docs) {
+    registry.set(doc.path, {
+      ...doc,
+      group: doc.group ?? inferDocGroup(doc.path),
+    });
+  }
+  for (const doc of workspaceSnapshot?.doc_entries ?? []) {
+    registry.set(doc.path, {
+      name: doc.name,
+      path: doc.path,
+      snippet: doc.snippet,
+      content: doc.content,
+      updatedAt: doc.updatedAt,
+      group: inferDocGroup(doc.path),
+    });
+  }
+  for (const file of workspaceSnapshot?.workspace_files ?? []) {
+    const group = file.group ?? '';
+    const shouldInclude =
+      group.startsWith('persona-bundle/') ||
+      group.startsWith('linkedin-content-os/docs') ||
+      group.startsWith('linkedin-content-os/analytics');
+    if (!shouldInclude || registry.has(file.path)) {
+      continue;
+    }
+    registry.set(file.path, {
+      name: file.name,
+      path: file.path,
+      snippet: file.snippet,
+      content: file.content,
+      updatedAt: file.updatedAt,
+      group: group.startsWith('persona-bundle/') ? 'Persona Bundle' : 'Workspace Reference',
+    });
+  }
+  return Array.from(registry.values()).sort((left, right) => left.path.localeCompare(right.path));
 }
