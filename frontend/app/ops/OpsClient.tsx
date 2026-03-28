@@ -367,6 +367,8 @@ type TuningStructureHealth = {
 
 type TuningDashboard = {
   itemCount: number;
+  placeholderExcludedCount: number;
+  sampleMode: 'real-only' | 'all-items';
   variantCount: number;
   avgOverall: number;
   avgSourceExpressionQuality: number;
@@ -2557,8 +2559,13 @@ function TuningDashboardPanel({
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Tuning Dashboard</p>
           <h4 style={{ color: 'white', fontSize: '22px', margin: 0 }}>Where the pipeline is weak</h4>
           <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '6px', maxWidth: '760px' }}>
-            Live sample across {dashboard.variantCount} lane variants from {dashboard.itemCount} feed items. This is the fastest way to see whether the current problem is source grounding, expression quality, or lane writing.
+            {dashboard.sampleMode === 'real-only' ? 'Real-only sample' : 'All-items fallback sample'} across {dashboard.variantCount} lane variants from {dashboard.itemCount} feed items. This is the fastest way to see whether the current problem is source grounding, expression quality, or lane writing.
           </p>
+          {dashboard.placeholderExcludedCount > 0 && (
+            <p style={{ color: '#64748b', fontSize: '12px', marginTop: '6px' }}>
+              Excluded {dashboard.placeholderExcludedCount} placeholder feed item{dashboard.placeholderExcludedCount === 1 ? '' : 's'} from the tuning sample.
+            </p>
+          )}
         </div>
         <div style={{ color: '#94a3b8', fontSize: '12px', textAlign: 'right' }}>
           <p>Feedback events: {feedbackSummary?.total_events ?? 0}</p>
@@ -3163,10 +3170,13 @@ function collectSaveRules(raw: string) {
 }
 
 function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
+  const placeholderExcludedCount = items.filter((item) => isPlaceholderFeedItem(item)).length;
+  const sampledItems = placeholderExcludedCount < items.length ? items.filter((item) => !isPlaceholderFeedItem(item)) : items;
+  const sampleMode: TuningDashboard['sampleMode'] = placeholderExcludedCount < items.length ? 'real-only' : 'all-items';
   const variants: TuningVariantRecord[] = [];
   const suspectItemIds = new Set<string>();
 
-  items.forEach((item) => {
+  sampledItems.forEach((item) => {
     if (looksLikeSurfaceTitle(item.title)) {
       suspectItemIds.add(item.id);
     }
@@ -3442,7 +3452,9 @@ function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
     }));
 
   return {
-    itemCount: items.length,
+    itemCount: sampledItems.length,
+    placeholderExcludedCount,
+    sampleMode,
     variantCount: variants.length,
     avgOverall: totalOverall / variants.length,
     avgSourceExpressionQuality: totalSource / variants.length,
@@ -3520,6 +3532,37 @@ function deriveTuningReason(variant: TuningVariantRecord) {
     return variant.warnings[0];
   }
   return 'Lowest current score in sample';
+}
+
+function isPlaceholderFeedItem(item: SocialFeedItem) {
+  const markerText = [
+    item.title,
+    item.summary,
+    item.comment_draft,
+    item.repost_draft,
+    item.why_it_matters,
+    ...(item.standout_lines ?? []),
+    ...Object.values(item.lens_variants ?? {}).flatMap((variant) =>
+      variant
+        ? [
+            variant.comment,
+            variant.short_comment ?? '',
+            variant.repost,
+            variant.expression_assessment?.source_text ?? '',
+            variant.expression_assessment?.output_text ?? '',
+          ]
+        : [],
+    ),
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return (
+    markerText.includes('placeholder capture for ') ||
+    markerText.includes('# reddit placeholder') ||
+    markerText.includes('# rss placeholder') ||
+    markerText.includes('rss capture for ')
+  );
 }
 
 function looksLikeSurfaceTitle(title: string) {
