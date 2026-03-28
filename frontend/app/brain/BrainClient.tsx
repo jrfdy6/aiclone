@@ -388,6 +388,7 @@ function PersonaPanel({
   error: string | null;
 }) {
   const [completedDeltaIds, setCompletedDeltaIds] = useState<string[]>([]);
+  const [showMutedActive, setShowMutedActive] = useState(false);
   const visibleDeltas = useMemo(() => deltas.filter((delta) => !completedDeltaIds.includes(delta.id)), [completedDeltaIds, deltas]);
   const activeReviewDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'brain_pending_review'), [visibleDeltas]);
   const workspaceSavedDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'workspace_saved'), [visibleDeltas]);
@@ -401,7 +402,35 @@ function PersonaPanel({
       }),
     [visibleDeltas],
   );
-  const reviewQueue = activeReviewDeltas;
+  const scoredActiveReviewDeltas = useMemo(
+    () =>
+      activeReviewDeltas
+        .map((delta) => {
+          const promotionCandidateCount = promotionSignalCount(delta.metadata);
+          const muted = shouldMuteActivePersonaDelta(delta, promotionCandidateCount);
+          return {
+            delta,
+            muted,
+            promotionCandidateCount,
+            promotionReady: isPromotionReady(delta.status, delta.metadata),
+            score: personaDeltaPriorityScore(delta, promotionCandidateCount, muted),
+          };
+        })
+        .sort((left, right) => {
+          if (right.score !== left.score) return right.score - left.score;
+          return new Date(right.delta.created_at).getTime() - new Date(left.delta.created_at).getTime();
+        }),
+    [activeReviewDeltas],
+  );
+  const primaryActiveReviewDeltas = useMemo(() => scoredActiveReviewDeltas.filter((item) => !item.muted), [scoredActiveReviewDeltas]);
+  const mutedActiveReviewDeltas = useMemo(() => scoredActiveReviewDeltas.filter((item) => item.muted), [scoredActiveReviewDeltas]);
+  const visibleActiveReviewDeltas = useMemo(() => {
+    if (primaryActiveReviewDeltas.length === 0) {
+      return mutedActiveReviewDeltas;
+    }
+    return showMutedActive ? [...primaryActiveReviewDeltas, ...mutedActiveReviewDeltas] : primaryActiveReviewDeltas;
+  }, [mutedActiveReviewDeltas, primaryActiveReviewDeltas, showMutedActive]);
+  const reviewQueue = useMemo(() => visibleActiveReviewDeltas.map((item) => item.delta), [visibleActiveReviewDeltas]);
   const [selectedDeltaId, setSelectedDeltaId] = useState<string>(reviewQueue[0]?.id ?? '');
   const [reflectionText, setReflectionText] = useState('');
   const [reflectionState, setReflectionState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({
@@ -413,13 +442,16 @@ function PersonaPanel({
     () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
     [reviewQueue, selectedDeltaId],
   );
+  const selectedScoredDelta = useMemo(
+    () => scoredActiveReviewDeltas.find((item) => item.delta.id === selectedDelta?.id) ?? null,
+    [scoredActiveReviewDeltas, selectedDelta],
+  );
   const targetFile = selectedDelta ? metadataText(selectedDelta.metadata, 'target_file') : null;
   const linkedPack = useMemo(() => findPackBySection(packs, targetFile) ?? packs[0] ?? null, [packs, targetFile]);
   const targetSection = useMemo(() => findPackSection(packs, targetFile), [packs, targetFile]);
   const activeContext = targetSection?.content ?? linkedPack?.sections[0]?.content ?? null;
   const activeContextPath = targetSection?.path ?? linkedPack?.sections[0]?.path ?? null;
   const selectableItems = useMemo(() => buildPromotionItems(selectedDelta, targetFile), [selectedDelta, targetFile]);
-  const pendingCount = activeReviewDeltas.length;
   const reviewHeadline = selectedDelta ? buildReviewHeadline(selectedDelta, targetFile) : 'No persona review items queued.';
   const reviewReason = selectedDelta ? buildReviewReason(selectedDelta, targetFile, activeContextPath) : 'There is no pending persona item to review right now.';
   const reviewAsk = selectedDelta ? buildReviewAsk(selectedDelta, targetFile) : 'You can still save a general thought to memory if you want to capture something new.';
@@ -431,6 +463,10 @@ function PersonaPanel({
     () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
     [selectableItems, selectedPromotionItemIds],
   );
+  const pendingCount = primaryActiveReviewDeltas.length;
+  const totalPendingCount = scoredActiveReviewDeltas.length;
+  const mutedCount = mutedActiveReviewDeltas.length;
+  const promotionReadyCount = scoredActiveReviewDeltas.filter((item) => item.promotionReady).length;
   const lifecycleGroups = useMemo(
     () => [
       {
@@ -629,7 +665,9 @@ function PersonaPanel({
             <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Active Review</p>
             <h2 style={{ color: 'white', fontSize: '28px', margin: '4px 0 8px' }}>{reviewHeadline}</h2>
             <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 }}>
-              {selectedDelta ? `${pendingCount} pending review${pendingCount === 1 ? '' : 's'} remaining.` : 'No pending reviews right now.'}
+              {selectedDelta
+                ? `${pendingCount} primary review item${pendingCount === 1 ? '' : 's'} remaining${mutedCount > 0 ? `, plus ${mutedCount} muted long-form item${mutedCount === 1 ? '' : 's'}` : ''}.`
+                : 'No pending reviews right now.'}
             </p>
           </div>
           <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
@@ -638,16 +676,54 @@ function PersonaPanel({
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <ReviewMetaChip label="Active" value={String(activeReviewDeltas.length)} tone="#38bdf8" />
+          <ReviewMetaChip label="Active" value={String(totalPendingCount)} tone="#38bdf8" />
+          <ReviewMetaChip label="Primary" value={String(pendingCount)} tone="#0ea5e9" />
+          <ReviewMetaChip label="Muted" value={String(mutedCount)} tone="#64748b" />
+          <ReviewMetaChip label="Promotion Ready" value={String(promotionReadyCount)} tone="#f59e0b" />
           <ReviewMetaChip label="Workspace Saved" value={String(workspaceSavedDeltas.length)} tone="#22c55e" />
           <ReviewMetaChip label="Queued" value={String(pendingPromotionDeltas.length)} tone="#f59e0b" />
           <ReviewMetaChip label="Committed" value={String(committedDeltas.length)} tone="#818cf8" />
           <ReviewMetaChip label="History" value={String(resolvedHistoryDeltas.length)} tone="#64748b" />
         </div>
 
+        {primaryActiveReviewDeltas.length > 0 && mutedActiveReviewDeltas.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: '12px',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              padding: '12px 14px',
+              borderRadius: '14px',
+              border: '1px solid #1f2937',
+              backgroundColor: '#020617',
+            }}
+          >
+            <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+              Lower-confidence long-form items are muted by default so the active queue stays focused on the strongest review work first.
+            </p>
+            <button
+              onClick={() => setShowMutedActive((current) => !current)}
+              style={{
+                borderRadius: '999px',
+                border: '1px solid #334155',
+                backgroundColor: showMutedActive ? '#0f172a' : '#020617',
+                color: '#cbd5f5',
+                padding: '8px 12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {showMutedActive ? `Hide muted (${mutedCount})` : `Show muted (${mutedCount})`}
+            </button>
+          </div>
+        )}
+
         {reviewQueue.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
-            {reviewQueue.map((delta) => {
+            {visibleActiveReviewDeltas.map(({ delta, muted, promotionReady, promotionCandidateCount, score }) => {
               const isActive = delta.id === (selectedDelta?.id ?? '');
               return (
                 <button
@@ -663,9 +739,16 @@ function PersonaPanel({
                   }}
                 >
                   <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>{truncateText(delta.trait, 120)}</p>
-                  <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
+                  <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    <InlineBadge label={humanizeReviewSource(metadataText(delta.metadata, 'review_source'))} tone="#64748b" />
+                    <InlineBadge label={`score ${score}`} tone={muted ? '#64748b' : '#38bdf8'} />
+                    <InlineBadge label={`${promotionCandidateCount} promo`} tone={promotionCandidateCount > 0 ? '#818cf8' : '#64748b'} />
+                    {promotionReady && <InlineBadge label="promotion-ready" tone="#f59e0b" />}
+                    {muted && <InlineBadge label="muted" tone="#64748b" />}
+                  </div>
                   <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    {humanizeReviewSource(metadataText(delta.metadata, 'review_source'))}
+                    {formatTimestamp(new Date(delta.created_at))}
                   </p>
                 </button>
               );
@@ -687,6 +770,19 @@ function PersonaPanel({
                 <span>{evidenceLabel}</span>
                 <span style={{ margin: '0 8px' }}>·</span>
                 <span>{statusLabel}</span>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <InlineBadge
+                  label={selectedScoredDelta?.promotionReady ? 'Promotion-ready path open' : 'Needs review before promotion'}
+                  tone={selectedScoredDelta?.promotionReady ? '#f59e0b' : '#38bdf8'}
+                />
+                <InlineBadge
+                  label={`${selectableItems.length} canonical candidate${selectableItems.length === 1 ? '' : 's'}`}
+                  tone={selectableItems.length > 0 ? '#818cf8' : '#64748b'}
+                />
+                {selectedScoredDelta?.muted && <InlineBadge label="Muted long-form item" tone="#64748b" />}
+                {selectedScoredDelta && <InlineBadge label={`Priority ${selectedScoredDelta.score}`} tone="#22c55e" />}
               </div>
 
               <div style={{ minHeight: 0, overflowY: 'auto', paddingRight: '4px' }}>
@@ -775,7 +871,9 @@ function PersonaPanel({
 
             <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto', gap: '12px', minHeight: 0 }}>
               <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6 }}>
-                {reviewAsk}
+                {selectableItems.length > 0
+                  ? `${reviewAsk} Select the canonical-worthy pieces below, then queue them for promotion when your wording is ready.`
+                  : `${reviewAsk} This item is not promotion-ready yet, so focus on your agreement, nuance, story context, or wording.`}
               </div>
 
               <textarea
@@ -843,7 +941,7 @@ function PersonaPanel({
                         fontWeight: 500,
                       }}
                     >
-                      Save + queue selected
+                      Queue for promotion
                     </button>
                   </div>
                 </div>
@@ -948,6 +1046,28 @@ function ReviewMetaChip({ label, value, tone }: { label: string; value: string; 
       <span style={{ color: '#94a3b8', fontSize: '11px', marginRight: '6px', textTransform: 'uppercase' }}>{label}</span>
       <span style={{ color: tone, fontSize: '12px', fontWeight: 600 }}>{value}</span>
     </div>
+  );
+}
+
+function InlineBadge({ label, tone }: { label: string; tone: string }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        borderRadius: '999px',
+        border: `1px solid ${tone}44`,
+        backgroundColor: `${tone}18`,
+        color: tone,
+        padding: '4px 8px',
+        fontSize: '11px',
+        fontWeight: 600,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+      }}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -1272,6 +1392,116 @@ function hasSelectablePromotionMetadata(metadata: Record<string, unknown> | unde
     metadataArray(metadata, 'phrase_candidates').length > 0 ||
     metadataArray(metadata, 'stats').length > 0
   );
+}
+
+function promotionSignalCount(metadata: Record<string, unknown> | undefined) {
+  return (
+    metadataArray(metadata, 'talking_points').length +
+    metadataArray(metadata, 'frameworks').length +
+    metadataArray(metadata, 'anecdotes').length +
+    metadataArray(metadata, 'phrase_candidates').length +
+    metadataArray(metadata, 'stats').length
+  );
+}
+
+function isPromotionReady(status: string, metadata: Record<string, unknown> | undefined) {
+  const normalized = (status || 'draft').toLowerCase();
+  return (normalized === 'in_review' || normalized === 'reviewed') && hasSelectablePromotionMetadata(metadata);
+}
+
+function targetPriority(targetFile: string | null) {
+  if (!targetFile) return 1;
+  if (targetFile.includes('identity/claims')) return 5;
+  if (targetFile.includes('identity/VOICE_PATTERNS')) return 5;
+  if (targetFile.includes('identity/philosophy')) return 4;
+  if (targetFile.includes('identity/decision_principles')) return 4;
+  if (targetFile.includes('prompts/content_pillars')) return 4;
+  if (targetFile.includes('history/story_bank')) return 3;
+  if (targetFile.includes('history/wins')) return 3;
+  if (targetFile.includes('history/initiatives')) return 2;
+  if (targetFile.includes('history/resume')) return 1;
+  return 1;
+}
+
+function recencyPriority(createdAt: string) {
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (ageMs <= dayMs) return 4;
+  if (ageMs <= 3 * dayMs) return 3;
+  if (ageMs <= 7 * dayMs) return 2;
+  if (ageMs <= 30 * dayMs) return 1;
+  return 0;
+}
+
+function reviewStatePriority(status: string, metadata: Record<string, unknown> | undefined) {
+  const normalized = (status || 'draft').toLowerCase();
+  if (isPromotionReady(normalized, metadata)) return 6;
+  if (normalized === 'in_review') return 5;
+  if (normalized === 'reviewed') return 4;
+  if (normalized === 'pending') return 3;
+  if (normalized === 'draft') return 2;
+  return 0;
+}
+
+function reviewSourcePriority(reviewSource: string | null) {
+  if (reviewSource === 'brain.persona.ui') return 3;
+  if (reviewSource === 'linkedin_workspace.feed_quote') return 2;
+  if (reviewSource === 'long_form_media.segment') return 1;
+  return 0;
+}
+
+function looksWeakLongFormText(text: string) {
+  const normalized = text.toLowerCase();
+  return [
+    '# clean transcript',
+    '**open questions:**',
+    'machine learning is a subset of ai',
+    'that element in green',
+    "my team and i thought",
+    "i'm super proud",
+    'alive in spirit',
+    'not very well done',
+    'why does it have to be that way',
+  ].some((pattern) => normalized.includes(pattern));
+}
+
+function shouldMuteActivePersonaDelta(delta: PersonaDeltaEntry, promotionCandidateCount: number) {
+  const reviewSource = metadataText(delta.metadata, 'review_source');
+  if (reviewSource !== 'long_form_media.segment') {
+    return false;
+  }
+  if (metadataText(delta.metadata, 'sync_state') === 'stale_segment') {
+    return true;
+  }
+  if (looksWeakLongFormText(delta.trait) || looksWeakLongFormText(delta.notes || '')) {
+    return true;
+  }
+  if (promotionCandidateCount === 0) {
+    return true;
+  }
+  const hasStrongSignal =
+    metadataArray(delta.metadata, 'frameworks').length > 0 ||
+    metadataArray(delta.metadata, 'anecdotes').length > 0 ||
+    metadataArray(delta.metadata, 'phrase_candidates').length > 0;
+  return !hasStrongSignal && promotionCandidateCount < 3;
+}
+
+function personaDeltaPriorityScore(delta: PersonaDeltaEntry, promotionCandidateCount: number, muted: boolean) {
+  const targetFile = metadataText(delta.metadata, 'target_file');
+  const reviewSource = metadataText(delta.metadata, 'review_source');
+  let score = 0;
+  score += targetPriority(targetFile) * 4;
+  score += promotionCandidateCount * 2;
+  score += recencyPriority(delta.created_at);
+  score += reviewStatePriority(delta.status, delta.metadata);
+  score += reviewSourcePriority(reviewSource);
+  if (metadataBoolean(delta.metadata, 'pending_promotion')) {
+    score += 4;
+  }
+  if (muted) {
+    score -= 8;
+  }
+  return score;
 }
 
 function isWorkspaceApproved(status: string, metadata: Record<string, unknown> | undefined) {
