@@ -9,8 +9,8 @@ source_url: https://www.linkedin.com/posts/esther-harclerode-a209792b_do-i-think
 author: Esther Harclerode
 role_alignment: market_signal
 priority_lane: ai
-summary: AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning.
-why_it_matters: This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done.
+"summary": "AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning."
+"why_it_matters": "This gives you a role-safe education lens for AI content: human connection stays central, while AI should improve how the work gets done."
 watchlist_matches:
   - linkedin
   - ai
@@ -23,7 +23,7 @@ core_claim: AI can augment parts of the work, but humans still need to teach, co
 supporting_claims:
   - AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation.
   - Humans still need to teach, correct, connect, and make meaning.
-raw_text: AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning.
+"raw_text": "AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning."
 ---
 
 # AI will not replace higher education, but it can augment it
