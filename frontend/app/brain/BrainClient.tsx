@@ -158,7 +158,7 @@ export default function BrainClient({ docs, personaWorkspace }: { docs: DocEntry
     async function loadData() {
       const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes] = await Promise.allSettled([
         fetch(`${API_URL}/api/briefs/?limit=50`).then((res) => res.json()),
-        fetch(`${API_URL}/api/persona/deltas?limit=20`).then((res) => res.json()),
+        fetch(`${API_URL}/api/persona/deltas?limit=100`).then((res) => res.json()),
         fetch(`${API_URL}/api/automations/`).then((res) => res.json()),
         fetch(`${API_URL}/api/analytics/open-brain`).then((res) => res.json()),
         fetch(`${API_URL}/api/open-brain/health`).then((res) => res.json()),
@@ -388,22 +388,20 @@ function PersonaPanel({
   error: string | null;
 }) {
   const [completedDeltaIds, setCompletedDeltaIds] = useState<string[]>([]);
-  const pendingStatuses = useMemo(() => new Set(['draft', 'pending', 'in_review']), []);
-  const pendingDeltas = useMemo(
+  const visibleDeltas = useMemo(() => deltas.filter((delta) => !completedDeltaIds.includes(delta.id)), [completedDeltaIds, deltas]);
+  const activeReviewDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'brain_pending_review'), [visibleDeltas]);
+  const workspaceSavedDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'workspace_saved'), [visibleDeltas]);
+  const pendingPromotionDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'pending_promotion'), [visibleDeltas]);
+  const committedDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'committed'), [visibleDeltas]);
+  const resolvedHistoryDeltas = useMemo(
     () =>
-      deltas.filter((delta) => {
-        if (completedDeltaIds.includes(delta.id)) {
-          return false;
-        }
-        const status = (delta.status || 'draft').toLowerCase();
-        if (pendingStatuses.has(status)) {
-          return true;
-        }
-        return status === 'reviewed' && hasSelectablePromotionMetadata(delta.metadata) && !metadataBoolean(delta.metadata, 'pending_promotion');
+      visibleDeltas.filter((delta) => {
+        const stage = personaDeltaStage(delta);
+        return stage === 'resolved' || stage === 'approved_unpromoted' || stage === 'reviewed';
       }),
-    [completedDeltaIds, deltas, pendingStatuses],
+    [visibleDeltas],
   );
-  const reviewQueue = pendingDeltas;
+  const reviewQueue = activeReviewDeltas;
   const [selectedDeltaId, setSelectedDeltaId] = useState<string>(reviewQueue[0]?.id ?? '');
   const [reflectionText, setReflectionText] = useState('');
   const [reflectionState, setReflectionState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({
@@ -421,7 +419,7 @@ function PersonaPanel({
   const activeContext = targetSection?.content ?? linkedPack?.sections[0]?.content ?? null;
   const activeContextPath = targetSection?.path ?? linkedPack?.sections[0]?.path ?? null;
   const selectableItems = useMemo(() => buildPromotionItems(selectedDelta, targetFile), [selectedDelta, targetFile]);
-  const pendingCount = pendingDeltas.length;
+  const pendingCount = activeReviewDeltas.length;
   const reviewHeadline = selectedDelta ? buildReviewHeadline(selectedDelta, targetFile) : 'No persona review items queued.';
   const reviewReason = selectedDelta ? buildReviewReason(selectedDelta, targetFile, activeContextPath) : 'There is no pending persona item to review right now.';
   const reviewAsk = selectedDelta ? buildReviewAsk(selectedDelta, targetFile) : 'You can still save a general thought to memory if you want to capture something new.';
@@ -432,6 +430,43 @@ function PersonaPanel({
   const selectedPromotionItems = useMemo(
     () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
     [selectableItems, selectedPromotionItemIds],
+  );
+  const lifecycleGroups = useMemo(
+    () => [
+      {
+        key: 'workspace_saved',
+        title: 'Workspace Saved',
+        description: 'Approved from Workspace and already saved. No second approval needed here.',
+        count: workspaceSavedDeltas.length,
+        items: workspaceSavedDeltas.slice(0, 5),
+        tone: '#22c55e',
+      },
+      {
+        key: 'pending_promotion',
+        title: 'Queued For Promotion',
+        description: 'Reviewed in Brain and holding selected canonical items for later promotion.',
+        count: pendingPromotionDeltas.length,
+        items: pendingPromotionDeltas.slice(0, 5),
+        tone: '#38bdf8',
+      },
+      {
+        key: 'committed',
+        title: 'Committed',
+        description: 'Already written into canonical persona files.',
+        count: committedDeltas.length,
+        items: committedDeltas.slice(0, 5),
+        tone: '#818cf8',
+      },
+      {
+        key: 'resolved',
+        title: 'Resolved / Replaced',
+        description: 'Historical items that were handled, superseded, or intentionally cleared.',
+        count: resolvedHistoryDeltas.length,
+        items: resolvedHistoryDeltas.slice(0, 5),
+        tone: '#64748b',
+      },
+    ],
+    [committedDeltas, pendingPromotionDeltas, resolvedHistoryDeltas, workspaceSavedDeltas],
   );
 
   useEffect(() => {
@@ -598,9 +633,45 @@ function PersonaPanel({
             </p>
           </div>
           <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
-            Saving here records evidence in Open Brain. It does not rewrite the canonical bundle automatically.
+            Workspace approvals already count as saved. Brain is the place to review unresolved items, add nuance, and queue canonical promotion without auto-rewriting the bundle.
           </div>
         </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <ReviewMetaChip label="Active" value={String(activeReviewDeltas.length)} tone="#38bdf8" />
+          <ReviewMetaChip label="Workspace Saved" value={String(workspaceSavedDeltas.length)} tone="#22c55e" />
+          <ReviewMetaChip label="Queued" value={String(pendingPromotionDeltas.length)} tone="#f59e0b" />
+          <ReviewMetaChip label="Committed" value={String(committedDeltas.length)} tone="#818cf8" />
+          <ReviewMetaChip label="History" value={String(resolvedHistoryDeltas.length)} tone="#64748b" />
+        </div>
+
+        {reviewQueue.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+            {reviewQueue.map((delta) => {
+              const isActive = delta.id === (selectedDelta?.id ?? '');
+              return (
+                <button
+                  key={delta.id}
+                  onClick={() => setSelectedDeltaId(delta.id)}
+                  style={{
+                    textAlign: 'left',
+                    borderRadius: '14px',
+                    border: `1px solid ${isActive ? '#38bdf8' : '#1f2937'}`,
+                    backgroundColor: isActive ? '#082f49' : '#020617',
+                    padding: '12px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>{truncateText(delta.trait, 120)}</p>
+                  <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
+                  <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    {humanizeReviewSource(metadataText(delta.metadata, 'review_source'))}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {selectedDelta ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(320px, 0.92fr)', gap: '14px', minHeight: 0 }}>
@@ -806,6 +877,47 @@ function PersonaPanel({
             </div>
           </div>
         )}
+      </section>
+
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '18px', display: 'grid', gap: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div>
+            <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Persona Lifecycle</p>
+            <h3 style={{ color: 'white', fontSize: '22px', margin: '4px 0 8px' }}>Saved and historical items</h3>
+            <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 }}>
+              Active review stays above. Everything below is already saved, queued, committed, or resolved so you can audit state without confusing it with the work that still needs judgment.
+            </p>
+          </div>
+          <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
+            Brain should answer one question clearly: what still needs your attention right now versus what the system has already handled.
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          {lifecycleGroups.map((group) => (
+            <div key={group.key} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '10px' }}>
+              <div>
+                <p style={{ color: group.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{group.title}</p>
+                <p style={{ color: '#e2e8f0', fontSize: '28px', fontWeight: 700, margin: '4px 0 6px' }}>{group.count}</p>
+                <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.55 }}>{group.description}</p>
+              </div>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {group.items.length === 0 ? (
+                  <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this state right now.</p>
+                ) : (
+                  group.items.map((item) => (
+                    <div key={item.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '10px', backgroundColor: '#0b1220' }}>
+                      <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, marginBottom: '6px' }}>{truncateText(item.trait, 110)}</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ color: '#64748b', fontSize: '11px' }}>{humanizeReviewSource(metadataText(item.metadata, 'review_source'))}</span>
+                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
     </section>
   );
@@ -1162,6 +1274,31 @@ function hasSelectablePromotionMetadata(metadata: Record<string, unknown> | unde
   );
 }
 
+function isWorkspaceApproved(status: string, metadata: Record<string, unknown> | undefined) {
+  const normalized = (status || 'draft').toLowerCase();
+  const reviewSource = metadataText(metadata, 'review_source');
+  const approvalState = metadataText(metadata, 'approval_state');
+  return normalized === 'approved' && (reviewSource === 'linkedin_workspace.feed_quote' || approvalState === 'approved_from_workspace');
+}
+
+function isBrainPendingReview(status: string, metadata: Record<string, unknown> | undefined) {
+  const normalized = (status || 'draft').toLowerCase();
+  if (normalized === 'draft' || normalized === 'pending' || normalized === 'in_review') {
+    return true;
+  }
+  return normalized === 'reviewed' && hasSelectablePromotionMetadata(metadata) && !metadataBoolean(metadata, 'pending_promotion');
+}
+
+function personaDeltaStage(delta: PersonaDeltaEntry) {
+  const status = (delta.status || 'draft').toLowerCase();
+  if (status === 'committed') return 'committed';
+  if (metadataBoolean(delta.metadata, 'pending_promotion')) return 'pending_promotion';
+  if (isWorkspaceApproved(status, delta.metadata)) return 'workspace_saved';
+  if (isBrainPendingReview(status, delta.metadata)) return 'brain_pending_review';
+  if (status === 'approved') return 'approved_unpromoted';
+  return status || 'draft';
+}
+
 function findPackBySection(packs: PersonaPack[], relPath: string | null) {
   if (!relPath) return null;
   return packs.find((pack) => pack.sections.some((section) => section.path === relPath)) ?? null;
@@ -1272,4 +1409,12 @@ function buildReflectionCaptureText({
 
 function formatTimestamp(value: Date) {
   return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+}
+
+function humanizeReviewSource(source: string | null) {
+  if (!source) return 'No source';
+  if (source === 'long_form_media.segment') return 'Long-form segment';
+  if (source === 'linkedin_workspace.feed_quote') return 'Workspace approval';
+  if (source === 'brain.persona.ui') return 'Brain review';
+  return source.replace(/[_./-]+/g, ' ');
 }
