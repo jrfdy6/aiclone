@@ -641,6 +641,7 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
             "created_count": 0,
             "skipped_existing": 0,
             "skipped_no_segments": 0,
+            "resolved_stale": 0,
             "created": [],
         },
     }

@@ -498,6 +498,7 @@ type PersonaReviewSummary = {
     created_count?: number;
     skipped_existing?: number;
     skipped_no_segments?: number;
+    resolved_stale?: number;
     created?: Array<{
       id?: string;
       trait?: string;
@@ -1935,6 +1936,7 @@ function WorkspacePanel({
             <MiniMeta label="Long-Form Assets" value={`${longFormSync?.assets_considered ?? 0}`} detail="checked during latest sync" />
             <MiniMeta label="New Review Items" value={`${longFormSync?.created_count ?? 0}`} detail="created from source assets" />
             <MiniMeta label="Already Synced" value={`${longFormSync?.skipped_existing ?? 0}`} detail="deduped by review key" />
+            <MiniMeta label="Stale Cleared" value={`${longFormSync?.resolved_stale ?? 0}`} detail="outdated draft segments resolved" />
             <MiniMeta label="No Segments" value={`${longFormSync?.skipped_no_segments ?? 0}`} detail="no usable worldview unit" />
           </div>
           <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px' }}>

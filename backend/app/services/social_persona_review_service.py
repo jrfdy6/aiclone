@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from app.models import PersonaDeltaCreate
+from app.models import PersonaDeltaCreate, PersonaDeltaUpdate
 from app.services import persona_delta_service
 from app.services.social_belief_engine import social_belief_engine
 from app.services.social_source_asset_service import build_source_asset_inventory
@@ -40,6 +40,26 @@ BOILERPLATE_PREFIXES = (
     "one question is",
     "that's a great question",
 )
+EVENT_META_TERMS = (
+    "south by",
+    "show of hands",
+    "closing keynote",
+    "give it up",
+    "you guys",
+    "this presentation",
+    "the slide",
+)
+NOISY_LINE_TERMS = (
+    "pending owner review",
+    "pending routing review",
+    "quotes to reuse",
+    "open questions",
+    "review build implications",
+    "review persona implications",
+    "validation transcript",
+    "media background queue",
+)
+NOISY_SECTION_HEADINGS = ("owner notes", "follow-ups")
 TARGET_CLAIMS = "identity/claims.md"
 TARGET_VOICE = "identity/VOICE_PATTERNS.md"
 TARGET_STORIES = "history/story_bank.md"
@@ -61,23 +81,61 @@ def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
     return yaml.safe_load(parts[1]) or {}, parts[2].strip()
 
 
+def _trim_noise_sections(text: str) -> str:
+    if not text:
+        return ""
+    pattern = re.compile(
+        r"^\s*##\s+(?:"
+        + "|".join(re.escape(section) for section in NOISY_SECTION_HEADINGS)
+        + r")\s*$",
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    match = pattern.search(text)
+    return text[: match.start()].strip() if match else text.strip()
+
+
+def _normalize_source_line(raw_line: str) -> str:
+    line = raw_line.strip()
+    if not line:
+        return ""
+    if line.startswith("#"):
+        return ""
+    if re.match(r"^- \[[ xX]\]\s+", line):
+        return ""
+    line = re.sub(r"^\d+\.\s+", "", line)
+    line = re.sub(r"^-+\s+", "", line)
+    line = re.sub(r"^\*\*[^*]+\*\*:\s*", "", line)
+    line = re.sub(r"^(Transcript\s+Host|Host|Speaker\s*\d+|Moderator|Interviewer|Question|Audience):\s*", "", line, flags=re.IGNORECASE)
+    line = re.sub(r"^Transcript\s*$", "", line, flags=re.IGNORECASE)
+    line = _clean_text(line)
+    lowered = line.lower()
+    if not line:
+        return ""
+    if any(term in lowered for term in NOISY_LINE_TERMS):
+        return ""
+    if lowered.endswith(":") and len(lowered.split()) <= 4:
+        return ""
+    return line
+
+
 def _candidate_sentences(text: str, limit: int = 60) -> list[str]:
-    cleaned = _clean_text(text)
-    if not cleaned:
-        return []
-    normalized = re.sub(r"\s+", " ", cleaned)
-    raw_parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])", normalized)
     sentences: list[str] = []
     seen: set[str] = set()
-    for part in raw_parts:
-        candidate = _clean_text(part)
-        lowered = candidate.lower()
-        if not candidate or lowered in seen:
+    for raw_line in text.splitlines():
+        line = _normalize_source_line(raw_line)
+        if not line:
             continue
-        seen.add(lowered)
-        sentences.append(candidate)
-        if len(sentences) >= limit:
-            break
+        normalized = re.sub(r"\s+", " ", line)
+        raw_parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])", normalized)
+        for part in raw_parts:
+            candidate = _clean_text(part)
+            lowered = candidate.lower()
+            if not candidate or lowered in seen:
+                continue
+            seen.add(lowered)
+            sentences.append(candidate)
+            if len(sentences) >= limit:
+                return sentences
     return sentences
 
 
@@ -87,9 +145,9 @@ def _bullet_lines(text: str, limit: int = 20) -> list[str]:
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if line.startswith("- "):
-            candidate = _clean_text(line[2:])
+            candidate = _normalize_source_line(line[2:])
         elif re.match(r"^\d+\.\s+", line):
-            candidate = _clean_text(re.sub(r"^\d+\.\s+", "", line))
+            candidate = _normalize_source_line(re.sub(r"^\d+\.\s+", "", line))
         else:
             continue
         lowered = candidate.lower()
@@ -110,12 +168,15 @@ def _read_asset_content(asset: dict[str, Any], repo_root: Path) -> tuple[dict[st
     if not path.exists():
         return {}, ""
     raw = path.read_text(encoding="utf-8")
-    return _parse_frontmatter(raw)
+    meta, body = _parse_frontmatter(raw)
+    return meta, _trim_noise_sections(body)
 
 
 def _is_boilerplate(sentence: str, asset_title: str) -> bool:
     lowered = f" {_clean_text(sentence).lower()} "
     if any(lowered.strip().startswith(prefix) for prefix in BOILERPLATE_PREFIXES):
+        return True
+    if any(term in lowered for term in NOISY_LINE_TERMS):
         return True
     title = _clean_text(asset_title).lower()
     if title and lowered.strip() == title:
@@ -150,6 +211,8 @@ def _score_sentence(sentence: str, asset: dict[str, Any]) -> tuple[int, int, int
         score += 1
     if _clean_text(asset.get("source_channel")) in {"youtube", "podcast"} and "question" in lowered:
         score -= 1
+    if any(term in lowered for term in EVENT_META_TERMS):
+        score -= 3
     if _is_boilerplate(text, _clean_text(asset.get("title"))):
         score -= 4
     return score, len(words), -len(text)
@@ -383,13 +446,32 @@ class SocialPersonaReviewService:
             and "belief_evidence" in (item.get("response_modes") or [])
         ]
 
+        try:
+            existing_deltas = persona_delta_service.list_deltas(limit=400)
+        except Exception:
+            existing_deltas = []
+        existing_review_keys: dict[str, Any] = {}
+        for delta in existing_deltas:
+            metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
+            if _clean_text(metadata.get("review_source")) != "long_form_media.segment":
+                continue
+            review_key = _clean_text(metadata.get("review_key"))
+            if review_key:
+                existing_review_keys[review_key] = delta
+
         created: list[dict[str, Any]] = []
         skipped_existing = 0
         skipped_no_segments = 0
+        resolved_stale = 0
         assets_considered = 0
+        desired_review_keys: set[str] = set()
+        considered_asset_ids: set[str] = set()
 
         for asset in items[:max_assets]:
             assets_considered += 1
+            asset_id = _clean_text(asset.get("asset_id"))
+            if asset_id:
+                considered_asset_ids.add(asset_id)
             _, body = _read_asset_content(asset, repo_root)
             if not body:
                 skipped_no_segments += 1
@@ -406,8 +488,9 @@ class SocialPersonaReviewService:
                 metadata = _build_metadata(asset, segment, lane_id, target_file, assessment)
                 metadata["segment_index"] = index
                 metadata["segment_total"] = len(segments)
+                desired_review_keys.add(str(metadata["review_key"]))
 
-                if persona_delta_service.get_delta_by_review_key(str(metadata["review_key"])):
+                if existing_review_keys.get(str(metadata["review_key"])) or persona_delta_service.get_delta_by_review_key(str(metadata["review_key"])):
                     skipped_existing += 1
                     continue
 
@@ -428,11 +511,32 @@ class SocialPersonaReviewService:
                     }
                 )
 
+        for review_key, delta in existing_review_keys.items():
+            metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
+            if review_key in desired_review_keys:
+                continue
+            if _clean_text(metadata.get("source_asset_id")) not in considered_asset_ids:
+                continue
+            if (delta.status or "draft").strip().lower() != "draft":
+                continue
+            if metadata.get("resolution_capture_id") or metadata.get("pending_promotion"):
+                continue
+            update = PersonaDeltaUpdate(
+                status="resolved",
+                metadata={
+                    "sync_state": "stale_segment",
+                    "stale_reason": "segment no longer selected by current worldview extractor",
+                },
+            )
+            if persona_delta_service.update_delta(delta.id, update):
+                resolved_stale += 1
+
         return {
             "assets_considered": assets_considered,
             "created_count": len(created),
             "skipped_existing": skipped_existing,
             "skipped_no_segments": skipped_no_segments,
+            "resolved_stale": resolved_stale,
             "created": created,
         }
 
