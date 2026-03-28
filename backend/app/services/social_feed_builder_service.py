@@ -10,8 +10,14 @@ import yaml
 from app.services.workspace_snapshot_store import get_snapshot_payload
 from app.services.social_signal_utils import (
     build_variants,
+    infer_response_modes,
+    infer_source_class,
+    infer_unit_kind,
     normalize_lane,
+    normalize_response_modes,
     normalize_saved_signal,
+    normalize_source_class,
+    normalize_unit_kind,
 )
 
 
@@ -208,7 +214,7 @@ def _load_existing_feed(workspace_root: Path) -> dict[str, Any] | None:
     items = payload.get("items")
     if not isinstance(items, list) or not items:
         return None
-    filtered_items = [item for item in items if isinstance(item, dict) and not _is_placeholder_item(item)]
+    filtered_items = [_ensure_source_contract(item) for item in items if isinstance(item, dict) and not _is_placeholder_item(item)]
     if filtered_items:
         payload["items"] = filtered_items
     else:
@@ -229,7 +235,7 @@ def _load_persisted_feed() -> dict[str, Any] | None:
     items = payload.get("items")
     if not isinstance(items, list) or not items:
         return None
-    filtered_items = [item for item in items if isinstance(item, dict) and not _is_placeholder_item(item)]
+    filtered_items = [_ensure_source_contract(item) for item in items if isinstance(item, dict) and not _is_placeholder_item(item)]
     if not filtered_items:
         return None
     payload = dict(payload)
@@ -257,7 +263,51 @@ def _item_fingerprint(item: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
-def _preserve_linkedin_items(items: list[dict[str, Any]], *feeds: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _ensure_source_contract(item: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(item)
+    source_metadata = dict(enriched.get("source_metadata") or {})
+    source_channel = _clean_text(enriched.get("platform") or source_metadata.get("source_channel") or "manual")
+    source_type = _clean_text(enriched.get("source_type") or source_metadata.get("source_type") or "post")
+    capture_method = _clean_text(enriched.get("capture_method") or source_metadata.get("capture_method") or "saved_signal")
+    extraction_method = _clean_text(source_metadata.get("extraction_method") or capture_method or "saved_signal")
+    raw_text = "\n\n".join(
+        part
+        for part in [
+            _clean_text(enriched.get("core_claim")),
+            _clean_text(enriched.get("summary")),
+            "\n".join(_list_strings(enriched.get("standout_lines"), 2)),
+        ]
+        if part
+    )
+    source_class = normalize_source_class(enriched.get("source_class")) or infer_source_class(
+        source_channel=source_channel,
+        source_type=source_type,
+        capture_method=capture_method,
+        extraction_method=extraction_method,
+    )
+    unit_kind = normalize_unit_kind(enriched.get("unit_kind")) or infer_unit_kind(
+        source_class=source_class,
+        source_type=source_type,
+        capture_method=capture_method,
+        raw_text=raw_text,
+    )
+    response_modes = normalize_response_modes(enriched.get("response_modes")) or infer_response_modes(
+        source_class=source_class,
+        unit_kind=unit_kind,
+    )
+    source_metadata.setdefault("extraction_method", extraction_method)
+    source_metadata["source_class"] = source_class
+    source_metadata["unit_kind"] = unit_kind
+    source_metadata["response_modes"] = response_modes
+    enriched["source_type"] = source_type
+    enriched["source_class"] = source_class
+    enriched["unit_kind"] = unit_kind
+    enriched["response_modes"] = response_modes
+    enriched["source_metadata"] = source_metadata
+    return enriched
+
+
+def _preserve_existing_real_items(items: list[dict[str, Any]], *feeds: dict[str, Any] | None) -> list[dict[str, Any]]:
     merged = list(items)
     seen = {_item_fingerprint(item) for item in merged}
     for feed in feeds:
@@ -266,12 +316,10 @@ def _preserve_linkedin_items(items: list[dict[str, Any]], *feeds: dict[str, Any]
         for item in feed.get("items") or []:
             if not isinstance(item, dict):
                 continue
-            if _clean_text(item.get("platform")) != "linkedin":
-                continue
             fingerprint = _item_fingerprint(item)
             if fingerprint in seen:
                 continue
-            merged.append(item)
+            merged.append(_ensure_source_contract(item))
             seen.add(fingerprint)
     return merged
 
@@ -391,7 +439,7 @@ def build_feed(workspace_root: Path | None = None) -> dict[str, Any]:
         if persisted_feed:
             return persisted_feed
     items = [_normalize_signal(signal, watchlist) for signal in signals]
-    items = _preserve_linkedin_items(items, existing_feed, persisted_feed, *alternate_feeds)
+    items = _preserve_existing_real_items(items, existing_feed, persisted_feed, *alternate_feeds)
     items.sort(key=lambda item: item["ranking"]["total"], reverse=True)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),

@@ -241,6 +241,45 @@ Faculty groups have slammed the measure and colleges are watching it closely.
 
         rss_path.unlink(missing_ok=True)
 
+    def test_social_feed_builder_preserves_real_safe_source_items_and_backfills_source_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir) / "linkedin-content-os"
+            plans_dir = workspace_root / "plans"
+            research_root = workspace_root / "research" / "market_signals"
+            plans_dir.mkdir(parents=True, exist_ok=True)
+            research_root.mkdir(parents=True, exist_ok=True)
+
+            feed_payload = {
+                "generated_at": "2026-03-28T00:00:00+00:00",
+                "workspace": "linkedin-content-os",
+                "strategy_mode": "production",
+                "items": [
+                    {
+                        "id": "rss__kentucky",
+                        "platform": "rss",
+                        "title": "Kentucky Senate passes bill making it easier to cut faculty",
+                        "author": "Higher Ed Source",
+                        "source_url": "https://example.com/faculty-cuts",
+                        "summary": "Faculty groups have slammed the measure and colleges are watching it closely.",
+                        "standout_lines": ["Faculty groups have slammed the measure and colleges are watching it closely."],
+                        "comment_draft": "Admissions teams usually hear the market before the rest of the institution does.",
+                        "repost_draft": "The repeated questions are often the clearest signal.",
+                        "lens_variants": {"admissions": {"comment": "Admissions teams usually hear the market before the rest of the institution does.", "repost": "The repeated questions are often the clearest signal.", "evaluation": {"overall": 7.6, "warnings": []}}},
+                        "ranking": {"total": 175.0},
+                    }
+                ],
+            }
+            (plans_dir / "social_feed.json").write_text(json.dumps(feed_payload, indent=2), encoding="utf-8")
+
+            feed = build_feed(workspace_root=workspace_root)
+            items = feed.get("items") or []
+
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].get("platform"), "rss")
+            self.assertEqual(items[0].get("source_class"), "article")
+            self.assertEqual(items[0].get("unit_kind"), "paragraph")
+            self.assertEqual(items[0].get("response_modes"), ["comment", "repost", "post_seed", "belief_evidence"])
+
     def test_workspace_root_discovery_prefers_top_level_workspace_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)
