@@ -1480,11 +1480,22 @@ function PersonaPanel({
                   {selectedDelta.notes || 'No candidate notes were attached to this review item.'}
                 </p>
                 {selectableItems.length > 0 && (
-                  <details style={{ marginBottom: '16px' }}>
-                    <summary style={{ color: '#818cf8', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
-                      Canonical fragments ({selectedPromotionItems.length} selected)
-                    </summary>
-                    <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginBottom: '10px', flexWrap: 'wrap' }}>
+                      <p style={{ color: '#818cf8', fontSize: '13px', fontWeight: 700, margin: 0 }}>
+                        Canonical fragments
+                      </p>
+                      <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                        {selectedPromotionItems.length} selected
+                      </p>
+                    </div>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: viewportWidth >= 1180 ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)',
+                        gap: '10px',
+                      }}
+                    >
                       {selectableItems.map((item) => {
                         const checked = selectedPromotionItemIds.includes(item.id);
                         return (
@@ -1496,7 +1507,7 @@ function PersonaPanel({
                               borderRadius: '12px',
                               border: `1px solid ${checked ? '#38bdf8' : '#1f2937'}`,
                               backgroundColor: checked ? '#082f49' : '#020617',
-                              padding: '12px',
+                              padding: '10px 12px',
                               cursor: 'pointer',
                               boxSizing: 'border-box',
                             }}
@@ -1523,20 +1534,20 @@ function PersonaPanel({
                               />
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '6px', flexWrap: 'wrap' }}>
-                                  <div>
-                                    <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{item.label}</p>
-                                    <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{humanizePromotionKind(item.kind)}</p>
-                                  </div>
+                                  <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, overflowWrap: 'anywhere', wordBreak: 'break-word', margin: 0 }}>
+                                    {item.label}
+                                  </p>
+                                  <InlineBadge label={humanizePromotionKind(item.kind)} tone="#64748b" />
                                 </div>
-                                <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{item.content}</p>
-                                {item.evidence && <p style={{ color: '#64748b', fontSize: '12px', marginTop: '6px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>Evidence: {item.evidence}</p>}
+                                <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.5, overflowWrap: 'anywhere', wordBreak: 'break-word', margin: 0 }}>{item.content}</p>
+                                {item.evidence && <p style={{ color: '#64748b', fontSize: '12px', margin: '6px 0 0', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>Evidence: {item.evidence}</p>}
                               </div>
                             </div>
                           </label>
                         );
                       })}
                     </div>
-                  </details>
+                  </div>
                 )}
                 <details>
                   <summary style={{ color: '#818cf8', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
