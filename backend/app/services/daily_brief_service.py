@@ -108,37 +108,16 @@ def _normalize_candidate_items(items: Any, *, limit: int = 3) -> list[dict[str, 
 
 def _snapshot_payloads() -> dict[str, dict[str, Any]]:
     try:
-        from app.services.workspace_snapshot_service import (
-            SNAPSHOT_LONG_FORM_ROUTES,
-            SNAPSHOT_PERSONA_REVIEW_SUMMARY,
-            SNAPSHOT_SOURCE_ASSETS,
-            SNAPSHOT_WEEKLY_PLAN,
-            WORKSPACE_KEY,
-            workspace_snapshot_service,
-        )
-        from app.services.workspace_snapshot_store import get_snapshot_payload
+        from app.services.workspace_snapshot_service import workspace_snapshot_service
     except Exception:
         return {}
-
-    payloads: dict[str, dict[str, Any]] = {}
-    for snapshot_type in (
-        SNAPSHOT_WEEKLY_PLAN,
-        SNAPSHOT_LONG_FORM_ROUTES,
-        SNAPSHOT_SOURCE_ASSETS,
-        SNAPSHOT_PERSONA_REVIEW_SUMMARY,
-    ):
-        payload = get_snapshot_payload(WORKSPACE_KEY, snapshot_type)
-        if isinstance(payload, dict):
-            payloads[snapshot_type] = payload
-
-    if payloads:
-        return payloads
 
     try:
         snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
     except Exception:
         return {}
 
+    payloads: dict[str, dict[str, Any]] = {}
     for key in ("weekly_plan", "long_form_routes", "source_assets", "persona_review_summary"):
         payload = snapshot.get(key)
         if isinstance(payload, dict):
