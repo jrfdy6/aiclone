@@ -608,6 +608,7 @@ Current runtime state:
 - `/ops` now shows route counts, primary-route mix, channels, and top routed long-form candidates
 - `social_persona_review_service.py` now consumes the shared long-form candidate set for `belief_evidence` instead of maintaining a separate transcript parsing path
 - the weekly-plan snapshot now reuses the shared long-form route set for planner-visible `media_post_seeds` and `belief_evidence_candidates` instead of treating media planning as a separate inference path
+- production now returns the routed planner overlay correctly, but the current follow-on is metadata reconciliation: `weekly_plan.generated_at` still comes from the base file-backed planner artifact and should be updated to reflect the augmented planner state once the route overlay is applied
 - long-form routing is still upstream-oriented: comment/repost eligibility is classified, but transcript-derived units are expected to land primarily in `post_seed` / `belief_evidence` until production benchmarks prove otherwise
 
 Production validation timing:
