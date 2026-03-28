@@ -70,6 +70,26 @@ WORLDVIEW_TERMS = (
     "ai pilots",
     "failing",
 )
+DIRECT_REACTION_TERMS = (
+    "fail",
+    "failing",
+    "successful",
+    "trust",
+    "judgment",
+    "bias",
+    "hallucinations",
+    "workflow clarity",
+    "rollout",
+    "adoption",
+    "leadership",
+    "replace",
+    "more likely",
+)
+REACTION_DISCOURAGED_PREFIXES = (
+    "the ",
+    "that's ",
+    "a company ",
+)
 SELF_CREDENTIAL_PATTERNS = (
     r"\bi(?:'ve| have) been working in\b",
     r"\bi am the chief\b",
@@ -441,14 +461,43 @@ def _route_score(segment: str, assessment: dict[str, str], target_file: str, wor
     return score
 
 
+def _is_comment_ready_segment(segment: str, score: int, target_file: str) -> bool:
+    cleaned = _clean_text(segment)
+    lowered = f" {cleaned.lower()} "
+    words = cleaned.split()
+    if target_file == TARGET_STORIES:
+        return False
+    if not 8 <= len(words) <= 18:
+        return False
+    if score < 12:
+        return False
+    if any(cleaned.lower().startswith(prefix) for prefix in REACTION_DISCOURAGED_PREFIXES):
+        return False
+    if re.search(r"\b\d+\b", cleaned):
+        return True
+    if any(term in lowered for term in CONTRAST_TERMS):
+        return True
+    return any(term in lowered for term in DIRECT_REACTION_TERMS)
+
+
+def _is_repost_ready_segment(segment: str, score: int, target_file: str) -> bool:
+    cleaned = _clean_text(segment)
+    if not _is_comment_ready_segment(cleaned, score, target_file):
+        return False
+    if len(cleaned.split()) > 15 or score < 14:
+        return False
+    lowered = f" {cleaned.lower()} "
+    return bool(re.search(r"\b\d+\b", cleaned) or any(term in lowered for term in CONTRAST_TERMS))
+
+
 def _classify_routes(segment: str, assessment: dict[str, str], target_file: str, worldview_score: int) -> tuple[list[str], str, str, int]:
     routes = {"post_seed", "belief_evidence"}
     score = _route_score(segment, assessment, target_file, worldview_score)
     words = len(segment.split())
 
-    if score >= 8 and words <= 30:
+    if _is_comment_ready_segment(segment, score, target_file):
         routes.add("comment")
-    if score >= 10 and words <= 24:
+    if _is_repost_ready_segment(segment, score, target_file):
         routes.add("repost")
 
     if "comment" in routes:

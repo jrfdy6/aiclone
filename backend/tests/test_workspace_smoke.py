@@ -487,8 +487,11 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         route_counts = summary.get("route_counts") or {}
         self.assertGreater(route_counts.get("belief_evidence", 0), 0)
         self.assertGreater(route_counts.get("post_seed", 0), 0)
+        self.assertLess(route_counts.get("comment", 0), route_counts.get("belief_evidence", 0))
         candidates = summary.get("candidates") or []
         self.assertTrue(candidates)
+        primary_routes = {candidate.get("primary_route") for candidate in candidates}
+        self.assertTrue(primary_routes & {"post_seed", "belief_evidence"})
         self.assertIn(candidates[0].get("primary_route"), {"comment", "post_seed", "belief_evidence"})
         self.assertIsInstance(candidates[0].get("response_modes"), list)
 
