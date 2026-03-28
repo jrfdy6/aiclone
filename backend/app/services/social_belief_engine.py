@@ -5,6 +5,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from app.services.persona_promotion_service import (
+    TARGET_CLAIMS,
+    TARGET_INITIATIVES,
+    TARGET_STORIES,
+    build_committed_persona_overlay,
+)
+
 
 def resolve_workspace_root() -> Path:
     current = Path(__file__).resolve()
@@ -290,15 +297,127 @@ def _parse_initiatives(text: str) -> list[dict[str, str]]:
     return initiatives
 
 
+def _claim_type_for_promotion(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized == "framework":
+        return "philosophical"
+    if normalized == "anecdote":
+        return "identity"
+    if normalized == "stat":
+        return "factual"
+    if normalized == "phrase_candidate":
+        return "positioning"
+    return "philosophical"
+
+
+def _merge_promoted_claims(base_claims: list[dict[str, str]], promoted_items: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows = list(base_claims)
+    seen = {normalize_inline_text(entry.get("claim")).lower() for entry in rows if normalize_inline_text(entry.get("claim"))}
+    for item in promoted_items:
+        claim = ensure_period(str(item.get("content") or ""))
+        if not claim:
+            continue
+        key = normalize_inline_text(claim).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "claim": claim,
+                "type": _claim_type_for_promotion(str(item.get("kind") or "")),
+                "evidence": ensure_period(str(item.get("evidence") or item.get("trait") or "")),
+                "usage_rule": "Promoted from Brain review and committed to the canonical runtime overlay.",
+            }
+        )
+    return rows
+
+
+def _merge_promoted_stories(base_stories: list[dict[str, str]], promoted_items: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows = list(base_stories)
+    seen = {normalize_inline_text(entry.get("title")).lower() for entry in rows if normalize_inline_text(entry.get("title"))}
+    for item in promoted_items:
+        core_point = ensure_period(str(item.get("content") or ""))
+        if not core_point:
+            continue
+        title = normalize_inline_text(str(item.get("label") or "")) or clean_sentence(core_point)[:80]
+        key = title.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "title": title,
+                "story_type": humanize_promotion_kind(str(item.get("kind") or "")),
+                "use_when": ensure_period(str(item.get("owner_response_excerpt") or item.get("evidence") or "")),
+                "core_point": core_point,
+            }
+        )
+    return rows
+
+
+def _merge_promoted_initiatives(base_initiatives: list[dict[str, str]], promoted_items: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows = list(base_initiatives)
+    seen = {normalize_inline_text(entry.get("title")).lower() for entry in rows if normalize_inline_text(entry.get("title"))}
+    for item in promoted_items:
+        purpose = ensure_period(str(item.get("content") or ""))
+        if not purpose:
+            continue
+        title = normalize_inline_text(str(item.get("label") or "")) or clean_sentence(purpose)[:80]
+        key = title.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "title": title,
+                "status": "active",
+                "purpose": purpose,
+                "value": ensure_period(str(item.get("owner_response_excerpt") or "")),
+                "proof": ensure_period(str(item.get("evidence") or "")),
+            }
+        )
+    return rows
+
+
+def humanize_promotion_kind(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized == "talking_point":
+        return "Talking point"
+    if normalized == "framework":
+        return "Framework"
+    if normalized == "anecdote":
+        return "Anecdote"
+    if normalized == "phrase_candidate":
+        return "Reusable phrase"
+    if normalized == "stat":
+        return "Proof point"
+    return "Promoted item"
+
+
 @lru_cache(maxsize=1)
 def load_persona_truth() -> dict[str, list[dict[str, str]]]:
     if not (CLAIMS_PATH.exists() and STORY_BANK_PATH.exists() and INITIATIVES_PATH.exists()):
-        return FALLBACK_PERSONA_TRUTH
-    return {
-        "claims": _parse_claims_table(CLAIMS_PATH.read_text(encoding="utf-8")),
-        "stories": _parse_story_bank(STORY_BANK_PATH.read_text(encoding="utf-8")),
-        "initiatives": _parse_initiatives(INITIATIVES_PATH.read_text(encoding="utf-8")),
-    }
+        truth = {
+            "claims": list(FALLBACK_PERSONA_TRUTH["claims"]),
+            "stories": list(FALLBACK_PERSONA_TRUTH["stories"]),
+            "initiatives": list(FALLBACK_PERSONA_TRUTH["initiatives"]),
+        }
+    else:
+        truth = {
+            "claims": _parse_claims_table(CLAIMS_PATH.read_text(encoding="utf-8")),
+            "stories": _parse_story_bank(STORY_BANK_PATH.read_text(encoding="utf-8")),
+            "initiatives": _parse_initiatives(INITIATIVES_PATH.read_text(encoding="utf-8")),
+        }
+
+    overlay = build_committed_persona_overlay()
+    promoted = overlay.get("by_target_file") if isinstance(overlay, dict) else {}
+    truth["claims"] = _merge_promoted_claims(truth["claims"], promoted.get(TARGET_CLAIMS, []) if isinstance(promoted, dict) else [])
+    truth["stories"] = _merge_promoted_stories(truth["stories"], promoted.get(TARGET_STORIES, []) if isinstance(promoted, dict) else [])
+    truth["initiatives"] = _merge_promoted_initiatives(
+        truth["initiatives"],
+        promoted.get(TARGET_INITIATIVES, []) if isinstance(promoted, dict) else [],
+    )
+    return truth
 
 
 def _find_claim(claims: list[dict[str, str]], phrase: str) -> dict[str, str]:

@@ -248,6 +248,17 @@ type CaptureResponsePayload = {
   expires_at?: string | null;
 };
 
+type BrainPromotionResponse = {
+  message?: string;
+  delta: PersonaDeltaEntry;
+  overlay_counts?: {
+    items?: number;
+    deltas?: number;
+    target_files?: number;
+  };
+  committed_target_files?: string[];
+};
+
 type Tab = 'dashboard' | 'briefs' | 'persona' | 'automations' | 'docs';
 
 const API_URL = getApiUrl();
@@ -991,6 +1002,11 @@ function PersonaPanel({
     message: '',
   });
   const [isSavingReflection, setIsSavingReflection] = useState(false);
+  const [promotionState, setPromotionState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({
+    tone: 'idle',
+    message: '',
+  });
+  const [promotingDeltaId, setPromotingDeltaId] = useState<string | null>(null);
   const selectedDelta = useMemo(
     () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
     [reviewQueue, selectedDeltaId],
@@ -1091,6 +1107,38 @@ function PersonaPanel({
     setReflectionText(metadataText(selectedDelta?.metadata, 'owner_response_excerpt') ?? '');
     setReflectionState({ tone: 'idle', message: '' });
   }, [selectedDelta?.id, selectedDelta?.metadata]);
+
+  async function commitPromotion(delta: PersonaDeltaEntry) {
+    setPromotionState({ tone: 'idle', message: '' });
+    setPromotingDeltaId(delta.id);
+    try {
+      const response = await fetch(`${API_URL}/api/brain/persona-promote/${delta.id}`, {
+        method: 'POST',
+        headers: { 'Cache-Control': 'no-store' },
+        cache: 'no-store',
+      });
+      const payload = (await response.json()) as BrainPromotionResponse | { detail?: string };
+      if (!response.ok) {
+        throw new Error((payload as { detail?: string }).detail || `Promotion failed with ${response.status}`);
+      }
+      mergeUpdatedDelta((payload as BrainPromotionResponse).delta);
+      await refreshBrainData();
+      setPromotionState({
+        tone: 'success',
+        message: `${(payload as BrainPromotionResponse).message || 'Promotion committed.'} Target files: ${(((payload as BrainPromotionResponse).committed_target_files || []) as string[]).join(', ') || 'n/a'}.`,
+      });
+      if (selectedDeltaId === delta.id) {
+        setSelectedDeltaId(reviewQueue[0]?.id ?? '');
+      }
+    } catch (error) {
+      setPromotionState({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to commit this promotion right now.',
+      });
+    } finally {
+      setPromotingDeltaId(null);
+    }
+  }
 
   function queueTemplate(kind: 'agree' | 'disagree' | 'nuance' | 'story' | 'language') {
     if (!selectedDelta) {
@@ -1592,6 +1640,9 @@ function PersonaPanel({
             Brain should answer one question clearly: what still needs your attention right now versus what the system has already handled.
           </div>
         </div>
+        {promotionState.message && (
+          <p style={{ color: promotionState.tone === 'success' ? '#22c55e' : '#f87171', fontSize: '12px' }}>{promotionState.message}</p>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
           {lifecycleGroups.map((group) => (
             <div key={group.key} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '10px' }}>
@@ -1626,6 +1677,26 @@ function PersonaPanel({
                         <span style={{ color: '#64748b', fontSize: '11px' }}>{humanizeReviewSource(metadataText(item.metadata, 'review_source'))}</span>
                         <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
                       </div>
+                      {group.key === 'pending_promotion' && (
+                        <button
+                          onClick={() => void commitPromotion(item)}
+                          disabled={promotingDeltaId === item.id}
+                          style={{
+                            marginTop: '10px',
+                            width: '100%',
+                            borderRadius: '10px',
+                            border: '1px solid #818cf8',
+                            backgroundColor: promotingDeltaId === item.id ? '#312e81' : '#1e1b4b',
+                            color: 'white',
+                            padding: '8px 10px',
+                            cursor: promotingDeltaId === item.id ? 'wait' : 'pointer',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {promotingDeltaId === item.id ? 'Committing…' : 'Commit to canon'}
+                        </button>
+                      )}
                     </div>
                   ))
                 )}

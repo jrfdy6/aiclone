@@ -30,6 +30,8 @@ daily_brief_module = importlib.import_module("app.services.daily_brief_service")
 persona_route_module = importlib.import_module("app.routes.persona")
 brain_route_module = importlib.import_module("app.routes.brain")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
+persona_promotion_module = importlib.import_module("app.services.persona_promotion_service")
+belief_engine_module = importlib.import_module("app.services.social_belief_engine")
 
 
 SAMPLE_FEED = {
@@ -1906,6 +1908,107 @@ summary: Leadership behavior drives AI implementation outcomes.
         payload = response.json()
         self.assertEqual((payload.get("metadata") or {}).get("owner_response_kind"), "agree")
         self.assertIn("queue_stage", payload.get("metadata") or {})
+
+    def test_promote_delta_to_canon_marks_delta_committed(self) -> None:
+        delta = PersonaDelta(
+            id="delta-promote",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Promote this to canon",
+            notes="Promotion note",
+            status="approved",
+            metadata={
+                "pending_promotion": True,
+                "target_file": "identity/claims.md",
+                "selected_promotion_items": [
+                    {
+                        "id": "claim-1",
+                        "kind": "talking_point",
+                        "label": "Claim",
+                        "content": "Operator clarity matters more than hype.",
+                        "targetFile": "identity/claims.md",
+                    }
+                ],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+
+        def fake_update(delta_id: str, payload):
+            merged = dict(delta.metadata)
+            merged.update(payload.metadata or {})
+            return delta.model_copy(update={"status": payload.status or delta.status, "metadata": merged, "committed_at": datetime.now(timezone.utc)})
+
+        with patch.object(persona_promotion_module.persona_delta_service, "get_delta", return_value=delta), patch.object(
+            persona_promotion_module.persona_delta_service,
+            "update_delta",
+            side_effect=fake_update,
+        ):
+            updated = persona_promotion_module.promote_delta_to_canon("delta-promote")
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "committed")
+        self.assertFalse((updated.metadata or {}).get("pending_promotion"))
+        self.assertEqual((updated.metadata or {}).get("committed_item_count"), 1)
+
+    def test_brain_persona_promote_route_returns_committed_delta(self) -> None:
+        delta = PersonaDelta(
+            id="delta-route-promote",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Route-level promote delta",
+            notes="Original note",
+            status="committed",
+            metadata={
+                "selected_promotion_items": [
+                    {
+                        "id": "claim-1",
+                        "kind": "talking_point",
+                        "label": "Claim",
+                        "content": "Operator clarity matters more than hype.",
+                        "targetFile": "identity/claims.md",
+                    }
+                ],
+                "committed_target_files": ["identity/claims.md"],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=datetime.now(timezone.utc),
+        )
+        with patch.object(brain_route_module, "promote_delta_to_canon", return_value=delta), patch.object(
+            brain_route_module,
+            "build_committed_persona_overlay",
+            return_value={"counts": {"items": 1, "deltas": 1, "target_files": 1}},
+        ):
+            response = self.client.post("/api/brain/persona-promote/delta-route-promote")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual((payload.get("delta") or {}).get("status"), "committed")
+        self.assertEqual((payload.get("overlay_counts") or {}).get("items"), 1)
+
+    def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
+        belief_engine_module.load_persona_truth.cache_clear()
+        with patch.object(
+            belief_engine_module,
+            "build_committed_persona_overlay",
+            return_value={
+                "by_target_file": {
+                    "identity/claims.md": [
+                        {
+                            "id": "claim-1",
+                            "kind": "talking_point",
+                            "label": "Claim",
+                            "content": "Operator clarity matters more than hype.",
+                            "evidence": "Promoted from Brain review.",
+                        }
+                    ]
+                }
+            },
+        ):
+            truth = belief_engine_module.load_persona_truth()
+
+        self.assertTrue(any("Operator clarity matters more than hype." in row.get("claim", "") for row in truth["claims"]))
+        belief_engine_module.load_persona_truth.cache_clear()
 
     def test_split_lane_outputs_stay_materially_distinct(self) -> None:
         response = self.client.post(
