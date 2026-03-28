@@ -16,13 +16,21 @@ async def compliance_metrics() -> Dict[str, int]:
     now = datetime.utcnow()
     window_start = now - timedelta(days=1)
 
-    logs = firestore_client.list_documents("system_logs")
+    try:
+        logs = firestore_client.list_documents("system_logs")
+    except Exception as exc:
+        print(f"⚠️ compliance_metrics: falling back to local logs cache after Firestore error: {exc}", flush=True)
+        logs = []
     if logs:
         approvals = sum(1 for log in logs if log.get("component") == "approvals" and log.get("level") == "INFO")
     else:
         approvals = sum(1 for log in load_logs(200) if log.component == "approvals" and log.timestamp >= window_start)
 
-    prospects = firestore_client.list_documents("prospects")
+    try:
+        prospects = firestore_client.list_documents("prospects")
+    except Exception as exc:
+        print(f"⚠️ compliance_metrics: falling back to local prospect cache after Firestore error: {exc}", flush=True)
+        prospects = []
     if prospects:
         ready = sum(1 for prospect in prospects if prospect.get("contact", {}).get("email"))
     else:

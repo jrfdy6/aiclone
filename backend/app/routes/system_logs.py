@@ -14,13 +14,24 @@ router = APIRouter(tags=["System Logs"])
 
 def persist_log(entry: LogEntry) -> None:
     if firestore_client.get_firestore_client() is not None:
-        firestore_client.write_document("system_logs", entry.id, entry.model_dump())
-    else:
-        append_log(entry)
+        try:
+            firestore_client.write_document("system_logs", entry.id, entry.model_dump())
+            return
+        except Exception as exc:
+            print(f"⚠️ persist_log: falling back to local log cache after Firestore error: {exc}", flush=True)
+    append_log(entry)
+
+
+def _load_firestore_logs() -> List[dict]:
+    try:
+        return firestore_client.list_documents("system_logs")
+    except Exception as exc:
+        print(f"⚠️ list_logs: falling back to local log cache after Firestore error: {exc}", flush=True)
+        return []
 
 
 def _load(limit: int) -> List[LogEntry]:
-    payload = firestore_client.list_documents("system_logs")
+    payload = _load_firestore_logs()
     if payload:
         entries = [LogEntry(**item) for item in payload]
         return sorted(entries, key=lambda e: e.timestamp, reverse=True)[:limit]

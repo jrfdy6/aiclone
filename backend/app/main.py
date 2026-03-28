@@ -72,6 +72,17 @@ additional_origins = os.getenv("CORS_ADDITIONAL_ORIGINS", "")
 if additional_origins:
     default_cors_origins.extend([origin.strip() for origin in additional_origins.split(",") if origin.strip()])
 
+
+def _cors_headers_for_request(request: Request) -> dict[str, str]:
+    origin = request.headers.get("origin", "").strip()
+    if not origin or origin not in default_cors_origins:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+    }
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=default_cors_origins,
@@ -109,6 +120,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "path": str(request.url.path),
             "error": str(exc),
         },
+        headers=_cors_headers_for_request(request),
     )
 
 
@@ -122,6 +134,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "message": "Validation error",
             "errors": exc.errors(),
         },
+        headers=_cors_headers_for_request(request),
     )
 
 
