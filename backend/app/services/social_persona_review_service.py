@@ -545,6 +545,53 @@ def _build_metadata(asset: dict[str, Any], segment: str, lane_id: str, target_fi
     }
 
 
+def _is_legacy_relation_note(notes: str, belief_summary: str) -> bool:
+    note_text = _clean_text(notes)
+    summary_text = _clean_text(belief_summary)
+    if not note_text or not summary_text:
+        return False
+    return f"Belief relation: {summary_text}" in note_text and "Belief summary:" not in note_text
+
+
+def _needs_existing_refresh(
+    existing_delta: Any,
+    *,
+    notes: str,
+    metadata: dict[str, Any],
+    trait: str,
+) -> bool:
+    status = _clean_text(getattr(existing_delta, "status", "")).lower() or "draft"
+    if status != "draft":
+        return False
+
+    existing_metadata = existing_delta.metadata if isinstance(existing_delta.metadata, dict) else {}
+    if _clean_text(existing_metadata.get("review_source")) != "long_form_media.segment":
+        return False
+    if existing_metadata.get("resolution_capture_id") or existing_metadata.get("pending_promotion"):
+        return False
+
+    required_fields = (
+        "belief_relation",
+        "review_prompt",
+        "why_showing",
+        "primary_route",
+        "route_reason",
+        "route_score",
+        "response_modes",
+    )
+    if any(not existing_metadata.get(field) for field in required_fields):
+        return True
+
+    existing_notes = existing_delta.notes or ""
+    if _is_legacy_relation_note(existing_notes, metadata.get("belief_summary", "")):
+        return True
+
+    if _clean_text(existing_delta.trait) != _clean_text(trait):
+        return True
+
+    return False
+
+
 class SocialPersonaReviewService:
     def sync_long_form_worldview_reviews(
         self,
@@ -585,6 +632,7 @@ class SocialPersonaReviewService:
 
         created: list[dict[str, Any]] = []
         skipped_existing = 0
+        refreshed_existing = 0
         skipped_no_segments = int(extracted.get("skipped_no_segments") or 0)
         resolved_stale = 0
         assets_considered = int(extracted.get("assets_considered") or 0)
@@ -603,10 +651,6 @@ class SocialPersonaReviewService:
                 considered_asset_ids.add(asset_id)
             desired_review_keys.add(review_key)
 
-            if existing_review_keys.get(review_key) or persona_delta_service.get_delta_by_review_key(review_key):
-                skipped_existing += 1
-                continue
-
             metadata = _build_metadata(asset, segment, lane_id, target_file, assessment)
             metadata["review_key"] = review_key
             metadata["segment_index"] = int(candidate.get("segment_index") or 1)
@@ -615,11 +659,25 @@ class SocialPersonaReviewService:
             metadata["primary_route"] = _clean_text(candidate.get("primary_route"))
             metadata["route_reason"] = _clean_text(candidate.get("route_reason"))
             metadata["route_score"] = int(candidate.get("route_score") or 0)
+            trait = _trait_label(segment, target_file)
+            notes = _build_notes(asset, segment, lane_id, target_file, assessment)
+
+            existing_delta = existing_review_keys.get(review_key) or persona_delta_service.get_delta_by_review_key(review_key)
+            if existing_delta:
+                skipped_existing += 1
+                if _needs_existing_refresh(existing_delta, notes=notes, metadata=metadata, trait=trait):
+                    update = PersonaDeltaUpdate(
+                        notes=notes,
+                        metadata=metadata,
+                    )
+                    if persona_delta_service.update_delta(existing_delta.id, update):
+                        refreshed_existing += 1
+                continue
 
             payload = PersonaDeltaCreate(
                 persona_target=PERSONA_TARGET,
-                trait=_trait_label(segment, target_file),
-                notes=_build_notes(asset, segment, lane_id, target_file, assessment),
+                trait=trait,
+                notes=notes,
                 metadata=metadata,
             )
             delta = persona_delta_service.create_delta(payload)
@@ -657,6 +715,7 @@ class SocialPersonaReviewService:
             "assets_considered": assets_considered,
             "created_count": len(created),
             "skipped_existing": skipped_existing,
+            "refreshed_existing": refreshed_existing,
             "skipped_no_segments": skipped_no_segments,
             "resolved_stale": resolved_stale,
             "created": created,
