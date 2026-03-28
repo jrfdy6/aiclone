@@ -200,6 +200,39 @@ New funding is going into AI teacher training programs across K-12 systems.
         placeholder_path.unlink(missing_ok=True)
         real_path.unlink(missing_ok=True)
 
+    def test_social_feed_builder_preserves_existing_linkedin_items_when_refreshing_safe_sources(self) -> None:
+        research_root = self.fixture_root / "research" / "market_signals"
+        research_root.mkdir(parents=True, exist_ok=True)
+        rss_path = research_root / "2026-03-28__rss__real.md"
+        rss_path.write_text(
+            """---
+kind: market_signal
+title: Kentucky Senate passes bill making it easier to cut faculty
+created_at: '2026-03-28T00:00:00+00:00'
+source_platform: rss
+source_type: article
+source_url: https://example.com/faculty-cuts
+author: Higher Ed Source
+priority_lane: admissions
+summary: Faculty groups have slammed the measure and colleges are watching it closely.
+why_it_matters: Higher-ed operations and enrollment-adjacent execution signals.
+---
+
+# Kentucky Senate passes bill making it easier to cut faculty
+
+Faculty groups have slammed the measure and colleges are watching it closely.
+""",
+            encoding="utf-8",
+        )
+
+        feed = build_feed(workspace_root=self.fixture_root)
+        titles = [item.get("title") for item in feed.get("items") or []]
+
+        self.assertIn("AI agents fail from lack of context, not lack of smarts", titles)
+        self.assertIn("Kentucky Senate passes bill making it easier to cut faculty", titles)
+
+        rss_path.unlink(missing_ok=True)
+
     def test_workspace_snapshot_service_returns_live_sections(self) -> None:
         snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
         social_feed = snapshot.get("social_feed") or {}

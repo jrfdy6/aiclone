@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from app.services.workspace_snapshot_store import get_snapshot_payload
 from app.services.social_signal_utils import (
     build_variants,
     normalize_lane,
@@ -195,6 +196,51 @@ def _load_existing_feed(workspace_root: Path) -> dict[str, Any] | None:
     return payload
 
 
+def _load_persisted_feed() -> dict[str, Any] | None:
+    try:
+        payload = get_snapshot_payload("linkedin-content-os", "social_feed")
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+    filtered_items = [item for item in items if isinstance(item, dict) and not _is_placeholder_item(item)]
+    if not filtered_items:
+        return None
+    payload = dict(payload)
+    payload["items"] = filtered_items
+    return payload
+
+
+def _item_fingerprint(item: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        _clean_text(item.get("platform") or ""),
+        _clean_text(item.get("source_url") or ""),
+        _clean_text(item.get("title") or "").lower(),
+    )
+
+
+def _preserve_linkedin_items(items: list[dict[str, Any]], *feeds: dict[str, Any] | None) -> list[dict[str, Any]]:
+    merged = list(items)
+    seen = {_item_fingerprint(item) for item in merged}
+    for feed in feeds:
+        if not isinstance(feed, dict):
+            continue
+        for item in feed.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            if _clean_text(item.get("platform")) != "linkedin":
+                continue
+            fingerprint = _item_fingerprint(item)
+            if fingerprint in seen:
+                continue
+            merged.append(item)
+            seen.add(fingerprint)
+    return merged
+
+
 def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_saved_signal(
         signal,
@@ -294,11 +340,15 @@ def build_feed(workspace_root: Path | None = None) -> dict[str, Any]:
     resolved_root = workspace_root or discover_linkedin_workspace_root()
     watchlist = _load_watchlist(resolved_root)
     signals = _read_saved_signals(resolved_root)
+    existing_feed = _load_existing_feed(resolved_root)
+    persisted_feed = _load_persisted_feed()
     if not signals:
-        existing_feed = _load_existing_feed(resolved_root)
         if existing_feed:
             return existing_feed
+        if persisted_feed:
+            return persisted_feed
     items = [_normalize_signal(signal, watchlist) for signal in signals]
+    items = _preserve_linkedin_items(items, existing_feed, persisted_feed)
     items.sort(key=lambda item: item["ranking"]["total"], reverse=True)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
