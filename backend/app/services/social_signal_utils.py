@@ -429,6 +429,96 @@ def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, 
     }
 
 
+def rewrite_source_claim(text: str | None, lane_id: str) -> str:
+    cleaned = clean_sentence(text)
+    if not cleaned:
+        return ""
+
+    lowered = cleaned.lower()
+
+    not_because_match = re.search(r"not because (?P<a>.+?) but because (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
+    if not_because_match:
+        a = clean_sentence(not_because_match.group("a"))
+        b = clean_sentence(not_because_match.group("b"))
+        return ensure_period(f"The constraint is usually {b}, not {a}")
+
+    isnt_match = re.search(r"isn[’']t (?P<a>.+?), it[’']s (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
+    if isnt_match:
+        a = clean_sentence(isnt_match.group("a"))
+        b = clean_sentence(isnt_match.group("b"))
+        return ensure_period(f"The bigger challenge is less {a} and more {b}")
+
+    substitute_match = re.search(r"not a substitute for (?P<a>.+)$", cleaned, flags=re.IGNORECASE)
+    if substitute_match:
+        replacement = clean_sentence(substitute_match.group("a"))
+        return ensure_period(f"The tool can assist, but it cannot replace {replacement}")
+
+    augment_match = re.search(r"can augment (?P<a>.+?), but humans still need to (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
+    if augment_match:
+        a = clean_sentence(augment_match.group("a"))
+        b = clean_sentence(augment_match.group("b"))
+        return ensure_period(f"The win is augmentation around {a}, while the human layer still has to {b}")
+
+    start_with_match = re.search(r"if you want better (?P<a>.+?), start with (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
+    if start_with_match:
+        b = clean_sentence(start_with_match.group("b"))
+        return ensure_period(f"The strongest signal usually sits closer to {b} than the headline team realizes")
+
+    if "they hear the real questions" in lowered or "questions prospects ask" in lowered:
+        return "The frontline usually hears the real questions before the rest of the system does."
+
+    if "human connection" in lowered and "make meaning" in lowered:
+        return "The point is not removing the human layer. It is creating more room for judgment, connection, and meaning."
+
+    if "more than ever" in lowered or contains_generic_phrase(cleaned):
+        return ""
+
+    if lane_id == "ai" and contains_any(lowered, ["ai", "model", "tool", "prompt", "judgment"]):
+        return "The real gap is usually not access by itself. It is whether people know how to use the system with judgment."
+    if lane_id == "ops-pm" and contains_any(lowered, ["workflow", "handoff", "ownership", "process", "execution"]):
+        return "The issue usually shows up in ownership, handoffs, and how the work actually moves."
+    if lane_id == "current-role" and contains_any(lowered, ["student", "family", "staff", "classroom", "education"]):
+        return "The useful question is what this changes in the lived experience of the work right now."
+    if lane_id == "program-leadership" and contains_any(lowered, ["team", "leadership", "manager", "organization"]):
+        return "The leadership move is turning the pattern into shared standards and follow-through."
+    if lane_id == "therapy" and contains_any(lowered, ["therapy", "human", "support", "emotion", "trust"]):
+        return "The deeper issue is whether the experience still feels clear, containing, and human."
+    if lane_id == "referral" and contains_any(lowered, ["partner", "referral", "trust", "family"]):
+        return "The referral question is whether someone would feel confident sending the next person into this experience."
+    if lane_id == "admissions" and contains_any(lowered, ["admissions", "prospect", "student journey", "enrollment"]):
+        return "The frontline signal usually shows up first in the questions people keep asking."
+
+    return ""
+
+
+def source_takeaway(ctx: dict[str, str]) -> str:
+    lane_id = ctx.get("priority_lane", "")
+    for candidate in [ctx.get("supporting_line"), ctx.get("core_line"), ctx.get("summary")]:
+        rewritten = rewrite_source_claim(candidate, lane_id)
+        if rewritten:
+            return rewritten
+    return ""
+
+
+def repost_seed(ctx: dict[str, str]) -> str:
+    seed = source_takeaway(ctx)
+    if seed:
+        return seed
+    fallback_by_lane = {
+        "current-role": "The practical value here only shows up once it changes the work.",
+        "program-leadership": "The pattern only matters once leadership turns it into process.",
+        "ai": "The AI question usually starts at the judgment layer.",
+        "ops-pm": "The delivery layer is usually where the real constraint shows up.",
+        "therapy": "The human experience underneath the process is usually the real signal.",
+        "referral": "The trust question usually shows up after the handoff, not before it.",
+        "admissions": "The frontline usually hears the clearest signal first.",
+        "enrollment-management": "The journey friction usually appears before the conversion problem does.",
+        "entrepreneurship": "The edge usually comes from what gets operationalized, not what gets noticed.",
+        "personal-story": "Some lessons only make sense once you have lived them yourself.",
+    }
+    return fallback_by_lane.get(ctx.get("priority_lane", ""), "The underlying signal here is more practical than it first appears.")
+
+
 def comment_open(ctx: dict[str, str], fallback: str) -> str:
     stance = ctx.get("stance", "")
     stance_open = normalize_inline_text(ctx.get("stance_comment_open"))
@@ -493,7 +583,7 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             join_parts(
                 [
                     comment_open(ctx, "That part matters."),
-                    ctx["supporting_line"] or ctx["core_line"],
+                    source_takeaway(ctx),
                     bridge_line(ctx),
                     "That is usually where the real market signal shows up before the website, campaign, or pitch deck catches up.",
                     "When teams feed that back into messaging and follow-up, trust and enrollment both get stronger.",
@@ -502,7 +592,7 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             "The frontline questions are usually the strategy.",
             join_parts(
                 [
-                    repost_open(ctx, ctx["core_line"]),
+                    repost_open(ctx, repost_seed(ctx)),
                     "Admissions teams usually hear the market before the rest of the institution does.",
                     "The repeated questions are often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
                 ]
@@ -513,7 +603,7 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         join_parts(
             [
                 comment_open(ctx, "This is what teams miss."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff.",
                 "When that context is tighter, the experience feels more human and the pipeline gets stronger.",
@@ -522,7 +612,7 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "Context gaps show up fast in admissions.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
                 "That is usually where experience, trust, and conversion all start moving in the wrong direction.",
             ]
@@ -535,7 +625,7 @@ def build_entrepreneurship_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         join_parts(
             [
                 comment_open(ctx, "There is a real builder lesson in this."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "The edge is usually not the headline idea by itself. It is what you do with that signal operationally.",
                 "The builders who turn repeated insight into process usually compound faster.",
@@ -544,7 +634,7 @@ def build_entrepreneurship_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "The edge is usually in the system.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "This feels more like an execution lesson than a content lesson.",
                 "The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
             ]
@@ -557,7 +647,7 @@ def build_current_role_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         join_parts(
             [
                 comment_open(ctx, "This lands for me in the day-to-day work."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "In the current role, the real test is whether students, families, staff, or the next owner of the work actually feel the difference.",
                 "If it does not change follow-through, clarity, or support this week, it is still just a smart observation.",
@@ -566,7 +656,7 @@ def build_current_role_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "If it does not change the next step, it is still theory.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "I keep reading this through the current-job lens.",
                 "The real question is what changes for students, families, staff, or execution this week because of it.",
             ]
@@ -579,7 +669,7 @@ def build_personal_story_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         join_parts(
             [
                 comment_open(ctx, "This hits a nerve for me."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance.",
                 "That is usually where the insight stops being abstract and starts changing how you work.",
@@ -588,7 +678,7 @@ def build_personal_story_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "This one feels lived-in.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "I have learned some version of this the hard way.",
                 "The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
             ]
@@ -601,7 +691,7 @@ def build_program_leadership_comment(ctx: dict[str, str]) -> tuple[str, str, str
         join_parts(
             [
                 comment_open(ctx, "This is where leadership either compounds the signal or wastes it."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "The teams closest to the work usually hear the signal first, but leadership shows up in whether that becomes shared standards, coaching, and decision-making.",
                 "If it never gets translated into something the broader team can repeat, it stays as an anecdote instead of becoming execution.",
@@ -610,7 +700,7 @@ def build_program_leadership_comment(ctx: dict[str, str]) -> tuple[str, str, str
         "Leaders have to turn the pattern into something repeatable.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "This is a leadership signal as much as a content or systems signal.",
                 "The job is not just spotting the pattern early. It is building the shared process and coaching around it before the drift gets expensive.",
             ]
@@ -625,7 +715,7 @@ def build_therapy_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             join_parts(
                 [
                     comment_open(ctx, "This lands for me as an attunement and regulation issue, not just a systems issue."),
-                    ctx["supporting_line"] or ctx["core_line"],
+                    source_takeaway(ctx),
                     bridge_line(ctx),
                     "People can usually feel the difference between support that is merely efficient and support that is actually containing, clear, and attuned.",
                     "That is where the therapeutic layer shows up for me because the quality of the container changes what people can do inside it.",
@@ -634,7 +724,7 @@ def build_therapy_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             "People feel the quality of the container fast.",
             join_parts(
                 [
-                    repost_open(ctx, ctx["core_line"]),
+                    repost_open(ctx, repost_seed(ctx)),
                     "The part I keep coming back to is the emotional experience underneath the process.",
                     "Even a strong workflow can miss the mark if people do not feel accurately held, regulated, and understood inside it.",
                 ]
@@ -645,7 +735,7 @@ def build_therapy_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         join_parts(
             [
                 comment_open(ctx, "Even when a post sounds practical, I still hear the attunement question underneath it."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "A lot of people can tolerate friction if they still feel seen, but they usually disengage once the experience feels cold, dysregulating, or misattuned.",
                 "That is what makes this feel like a therapy lens to me rather than only an ops lens.",
@@ -654,7 +744,7 @@ def build_therapy_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "People know when the support stops feeling attuned.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "I keep hearing the human side of the experience in this.",
                 "A lot of process questions are also emotional-safety questions once a real person is living inside the system.",
             ]
@@ -669,7 +759,7 @@ def build_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             join_parts(
                 [
                     comment_open(ctx, "This feels like a referral-confidence issue to me."),
-                    ctx["supporting_line"] or ctx["core_line"],
+                    source_takeaway(ctx),
                     bridge_line(ctx),
                     "Strong referral ecosystems usually grow when partners trust what happens after the handoff, not just the pitch before it.",
                     "That confidence gets built through clarity, responsiveness, and a receiving experience someone would feel good putting their name behind again.",
@@ -678,7 +768,7 @@ def build_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             "Referral trust usually lives after the handoff.",
             join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "I read this through the referral lens.",
                 "The real question is whether a partner, parent, or trusted source would feel confident sending the next person into this experience again.",
             ]
@@ -689,7 +779,7 @@ def build_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         join_parts(
             [
                 comment_open(ctx, "This still sounds like a referral-system question to me."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "Partnerships usually get stronger when expectations are clear and the receiving experience is easy to trust.",
                 "That is what makes people send the next person with confidence instead of hesitation because their own reputation is on the line too.",
@@ -698,7 +788,7 @@ def build_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "Partners repeat what they can trust.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "The referral lens here is about confidence in the receiving system.",
                 "If the experience is not clear and dependable after the handoff, the partnership eventually weakens no matter how good the relationship sounded up front.",
             ]
@@ -713,7 +803,7 @@ def build_enrollment_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             join_parts(
                 [
                     comment_open(ctx, "This is an enrollment signal to me."),
-                    ctx["supporting_line"] or ctx["core_line"],
+                    source_takeaway(ctx),
                     bridge_line(ctx),
                     "Repeated confusion is usually a journey problem before it becomes a conversion problem.",
                     "The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
@@ -721,19 +811,19 @@ def build_enrollment_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             ),
             "Repeated confusion is usually a journey problem.",
             join_parts(
-                [
-                    repost_open(ctx, ctx["core_line"]),
-                    "I read this as an enrollment operations signal.",
-                    "Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
-                ]
-            ),
+            [
+                repost_open(ctx, repost_seed(ctx)),
+                "I read this as an enrollment operations signal.",
+                "Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
+            ]
+        ),
         )
 
     return (
         join_parts(
             [
                 comment_open(ctx, "I still read this as an enrollment operations issue."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "This is what happens when teams do not have enough context to guide the next step well.",
                 "That usually shows up later as weaker follow-through and more avoidable friction.",
@@ -742,7 +832,7 @@ def build_enrollment_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "Bad context usually becomes enrollment friction.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "This still reads like an enrollment operations issue to me.",
                 "When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
             ]
@@ -757,7 +847,7 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             join_parts(
                 [
                     comment_open(ctx, "The AI point here is stronger than people think."),
-                    ctx["supporting_line"] or ctx["core_line"],
+                    source_takeaway(ctx),
                     bridge_line(ctx),
                     "AI literacy is not just tool familiarity. It is knowing how to ask better questions, pressure-test outputs, and keep human judgment in the loop.",
                     "That is usually the real divide once the technology is already in the room because access alone does not teach discernment.",
@@ -765,19 +855,19 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             ),
             "AI literacy is judgment, not just access.",
             join_parts(
-                [
-                    repost_open(ctx, ctx["core_line"]),
-                    "I read this first through an AI lens.",
-                    "The practical gap is rarely raw access anymore. It is whether people know how to direct the system well and challenge weak outputs when they show up.",
-                ]
-            ),
+            [
+                repost_open(ctx, repost_seed(ctx)),
+                "I read this first through an AI lens.",
+                "The practical gap is rarely raw access anymore. It is whether people know how to direct the system well and challenge weak outputs when they show up.",
+            ]
+        ),
         )
 
     return (
         join_parts(
             [
                 comment_open(ctx, "Even when a post is not explicitly about AI, it still points to an AI-judgment question."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "The difference usually comes down to whether people can evaluate, translate, and apply the output with discernment.",
                 "That is what makes the AI lens different from a general operations lens because the judgment layer has to stay visible.",
@@ -786,7 +876,7 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "The AI layer is usually a judgment layer.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "I still see an AI question sitting underneath this.",
                 "Once teams know how to direct, evaluate, and challenge the system well, the downstream quality changes a lot.",
             ]
@@ -801,7 +891,7 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             join_parts(
                 [
                     comment_open(ctx, "This reads like a delivery design problem before anything else."),
-                    ctx["supporting_line"] or ctx["core_line"],
+                    source_takeaway(ctx),
                     bridge_line(ctx),
                     "Most teams do not break at the strategy layer. They break at the handoff, ownership, cadence, and follow-through layer.",
                     "That is why this feels more like workflow design and project control than thought leadership to me.",
@@ -810,7 +900,7 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             "Weak ownership usually kills the good idea.",
             join_parts(
                 [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                     "I read this through an ops and PM lens.",
                     "The real question is who owns the next step, how the work moves, and where the process is currently leaking before the delay becomes normal.",
                 ]
@@ -821,7 +911,7 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         join_parts(
             [
                 comment_open(ctx, "Even if the post sounds strategic, I still hear a delivery problem inside it."),
-                ctx["supporting_line"] or ctx["core_line"],
+                source_takeaway(ctx),
                 bridge_line(ctx),
                 "Operations and project management usually show up in how work gets translated into repeatable action.",
                 "That is where clarity, cadence, accountability, and clean handoffs start mattering more than the original idea.",
@@ -830,7 +920,7 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
         "The delivery layer usually decides the outcome.",
         join_parts(
             [
-                repost_open(ctx, ctx["core_line"]),
+                repost_open(ctx, repost_seed(ctx)),
                 "This sounds like an ops and PM question to me.",
                 "If the ownership model and workflow are weak, the idea usually stalls no matter how strong it sounded up front.",
             ]

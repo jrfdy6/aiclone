@@ -231,6 +231,10 @@ class WorkspaceSmokeTests(unittest.TestCase):
         comment = current_role.get("comment", "").lower()
         warnings = ((current_role.get("evaluation") or {}).get("warnings") or [])
 
+        self.assertNotIn(
+            "the real challenge in the classroom isn’t motivating students to use ai, it’s helping them learn to use it well.",
+            comment,
+        )
         self.assertNotIn("more than ever", comment)
         self.assertNotIn("copy still contains generic language", warnings)
 
