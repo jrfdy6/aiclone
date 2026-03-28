@@ -209,6 +209,11 @@ def _reddit_url(subreddit: str, limit: int) -> str:
     return f"https://www.reddit.com/r/{clean}/hot.json?limit={limit}&raw_json=1"
 
 
+def _reddit_rss_url(subreddit: str) -> str:
+    clean = subreddit.replace("r/", "").strip()
+    return f"https://www.reddit.com/r/{clean}/.rss"
+
+
 def _build_reddit_entry(source: dict[str, Any], post: dict[str, Any]) -> tuple[dict[str, Any], str, str]:
     subreddit = source.get("subreddit", "reddit").replace("r/", "").strip()
     title = _clean_text(post.get("title")) or f"r/{subreddit} post"
@@ -264,6 +269,44 @@ def _build_reddit_entry(source: dict[str, Any], post: dict[str, Any]) -> tuple[d
     return entry, body, filename
 
 
+def _build_reddit_feed_entry(source: dict[str, Any], entry: dict[str, str]) -> tuple[dict[str, Any], str, str]:
+    subreddit = source.get("subreddit", "reddit").replace("r/", "").strip()
+    title = _clean_text(entry.get("title")) or f"r/{subreddit} post"
+    summary = _truncate(_clean_text(entry.get("summary")) or title, 320)
+    source_url = _clean_text(entry.get("link")) or _reddit_rss_url(subreddit)
+    published_at = _parse_datetime(entry.get("published_at"))
+    purpose = _clean_text(source.get("purpose")) or "Practitioner signal"
+    raw_text = "\n\n".join(part for part in [title, summary] if part).strip()
+    guid = _clean_text(entry.get("guid")) or source_url or title
+    signal = {
+        "kind": "market_signal",
+        "title": title,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "published_at": published_at,
+        "source_platform": "reddit",
+        "source_type": "post",
+        "source_url": source_url,
+        "author": _clean_text(entry.get("author")) or "reddit",
+        "role_alignment": "market_signal",
+        "priority_lane": _clean_text(source.get("priority_lane")) or "current-role",
+        "summary": summary,
+        "why_it_matters": purpose,
+        "watchlist_matches": ["reddit", f"r/{subreddit}"],
+        "topics": [purpose],
+        "headline_candidates": [title],
+        "core_claim": title,
+        "supporting_claims": [summary] if summary and summary.lower() != title.lower() else [],
+        "raw_text": raw_text,
+        "source_metadata": {
+            "extraction_method": "reddit_rss",
+            "subreddit": subreddit,
+            "entry_guid": guid,
+        },
+    }
+    filename = f"{published_at[:10]}__reddit__{_slugify(subreddit)}__{_slugify(guid)[:80]}.md"
+    return signal, raw_text, filename
+
+
 def fetch_reddit_signals(workspace_root: Path | None = None, *, limit_per_source: int = DEFAULT_REDDIT_LIMIT) -> list[Path]:
     _, signals_root, _ = _workspace_paths(workspace_root)
     watchlist = ensure_watchlist(workspace_root)
@@ -277,16 +320,30 @@ def fetch_reddit_signals(workspace_root: Path | None = None, *, limit_per_source
         _clear_source_family(signals_root, f"*__reddit__{slug}__*.md")
         try:
             payload = json.loads(_http_get(_reddit_url(subreddit, limit_per_source), accept="application/json"))
+            posts = (((payload or {}).get("data") or {}).get("children") or [])
+            for post_wrapper in posts[:limit_per_source]:
+                data = post_wrapper.get("data") or {}
+                if data.get("stickied") or not _clean_text(data.get("title")):
+                    continue
+                entry, body, filename = _build_reddit_entry(source, data)
+                written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
+            if posts:
+                continue
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+            LOGGER.warning("Reddit JSON fetch failed for %s, falling back to RSS: %s", subreddit, exc)
+
+        try:
+            raw_feed = _http_get(_reddit_rss_url(subreddit), accept="application/rss+xml, application/atom+xml, text/xml, application/xml")
+            root = ET.fromstring(raw_feed)
+            entries = _iter_feed_entries(root)
+        except (HTTPError, URLError, TimeoutError, ET.ParseError) as exc:
             LOGGER.warning("Skipping reddit source %s: %s", subreddit, exc)
             continue
 
-        posts = (((payload or {}).get("data") or {}).get("children") or [])
-        for post_wrapper in posts[:limit_per_source]:
-            data = post_wrapper.get("data") or {}
-            if data.get("stickied") or not _clean_text(data.get("title")):
+        for feed_entry in entries[:limit_per_source]:
+            if not _clean_text(feed_entry.get("title")):
                 continue
-            entry, body, filename = _build_reddit_entry(source, data)
+            entry, body, filename = _build_reddit_feed_entry(source, feed_entry)
             written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
     return written
 
