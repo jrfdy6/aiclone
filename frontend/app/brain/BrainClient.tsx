@@ -1054,6 +1054,7 @@ function PersonaPanel({
     message: '',
   });
   const [promotingDeltaId, setPromotingDeltaId] = useState<string | null>(null);
+  const [recentlyQueuedDeltaId, setRecentlyQueuedDeltaId] = useState<string | null>(null);
   const selectedDelta = useMemo(
     () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
     [reviewQueue, selectedDeltaId],
@@ -1286,6 +1287,17 @@ function PersonaPanel({
         }
         const updatedDelta = (await reviewResponse.json()) as PersonaDeltaEntry;
         mergeUpdatedDelta(updatedDelta);
+        if (mode === 'approved') {
+          setRecentlyQueuedDeltaId(updatedDelta.id);
+          setLifecycleView('pending_promotion');
+          setPromotionState({
+            tone: 'success',
+            message: `Queued for promotion: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}".`,
+          });
+        } else {
+          setPromotionState({ tone: 'idle', message: '' });
+          setRecentlyQueuedDeltaId(null);
+        }
       }
       const nextQueue = selectedDelta ? reviewQueue.filter((delta) => delta.id !== selectedDelta.id) : reviewQueue;
       await refreshBrainData();
@@ -1725,6 +1737,23 @@ function PersonaPanel({
             </div>
           </div>
         )}
+        {promotionState.message && promotionState.tone === 'success' && (
+          <div
+            style={{
+              borderRadius: '12px',
+              border: '1px solid #14532d',
+              backgroundColor: '#052e16',
+              padding: '12px 14px',
+            }}
+          >
+            <p style={{ color: '#86efac', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
+              Promotion Queue Updated
+            </p>
+            <p style={{ color: '#dcfce7', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+              {promotionState.message} It now lives in the <strong>Queued</strong> lane below.
+            </p>
+          </div>
+        )}
       </section>
 
       <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '18px', display: 'grid', gap: '14px' }}>
@@ -1740,8 +1769,8 @@ function PersonaPanel({
             Brain should answer one question clearly: what still needs your attention right now versus what the system has already handled.
           </div>
         </div>
-        {promotionState.message && (
-          <p style={{ color: promotionState.tone === 'success' ? '#22c55e' : '#f87171', fontSize: '12px' }}>{promotionState.message}</p>
+        {promotionState.message && promotionState.tone !== 'success' && (
+          <p style={{ color: '#f87171', fontSize: '12px' }}>{promotionState.message}</p>
         )}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {lifecycleGroups.map((group) => {
@@ -1777,11 +1806,25 @@ function PersonaPanel({
                 <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this state right now.</p>
               ) : (
                 activeLifecycleGroup.items.slice(0, 12).map((item) => (
-                  <div key={item.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '10px', backgroundColor: '#0b1220' }}>
+                  <div
+                    key={item.id}
+                    style={{
+                      borderRadius: '12px',
+                      border: `1px solid ${recentlyQueuedDeltaId === item.id ? '#38bdf8' : '#1f2937'}`,
+                      padding: '10px',
+                      backgroundColor: recentlyQueuedDeltaId === item.id ? '#082f49' : '#0b1220',
+                    }}
+                  >
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '6px' }}>
                       <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{truncateText(item.trait, 140)}</p>
                       <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
                     </div>
+                    {recentlyQueuedDeltaId === item.id && (
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                        <InlineBadge label="just queued" tone="#38bdf8" />
+                        <InlineBadge label={`${metadataArray(item.metadata, 'selected_promotion_items').length} selected`} tone="#f59e0b" />
+                      </div>
+                    )}
                     {metadataText(item.metadata, 'owner_response_excerpt') && (
                       <div style={{ marginBottom: '8px' }}>
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
