@@ -145,6 +145,61 @@ class WorkspaceSmokeTests(unittest.TestCase):
         self.assertTrue(items[0].get("lens_variants"))
         self.assertTrue(feed.get("generated_at"))
 
+    def test_social_feed_builder_filters_placeholder_saved_signals(self) -> None:
+        research_root = self.fixture_root / "research" / "market_signals"
+        research_root.mkdir(parents=True, exist_ok=True)
+        placeholder_path = research_root / "2026-03-28__reddit__placeholder.md"
+        real_path = research_root / "2026-03-28__rss__real.md"
+
+        placeholder_path.write_text(
+            """---
+kind: market_signal
+title: r/ai_in_education signal snapshot
+created_at: '2026-03-28T00:00:00+00:00'
+source_platform: reddit
+source_type: post
+source_url: https://reddit.com/r/ai_in_education
+author: reddit
+summary: Placeholder capture for r/ai_in_education.
+why_it_matters: Practitioner edge cases and growth experiments
+---
+
+# Reddit placeholder
+
+Placeholder capture for r/ai_in_education.
+""",
+            encoding="utf-8",
+        )
+        real_path.write_text(
+            """---
+kind: market_signal
+title: NSF Awards $11 Million for K-12 AI Teacher Training
+created_at: '2026-03-28T00:00:00+00:00'
+source_platform: rss
+source_type: article
+source_url: https://example.com/nsf-ai-teacher-training
+author: Higher Ed Source
+priority_lane: program-leadership
+summary: New funding is going into AI teacher training programs across K-12 systems.
+why_it_matters: Leadership, training capacity, and implementation readiness signals.
+---
+
+# NSF Awards $11 Million for K-12 AI Teacher Training
+
+New funding is going into AI teacher training programs across K-12 systems.
+""",
+            encoding="utf-8",
+        )
+
+        feed = build_feed(workspace_root=self.fixture_root)
+        titles = [item.get("title") for item in feed.get("items") or []]
+
+        self.assertIn("NSF Awards $11 Million for K-12 AI Teacher Training", titles)
+        self.assertNotIn("r/ai_in_education signal snapshot", titles)
+
+        placeholder_path.unlink(missing_ok=True)
+        real_path.unlink(missing_ok=True)
+
     def test_workspace_snapshot_service_returns_live_sections(self) -> None:
         snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
         social_feed = snapshot.get("social_feed") or {}

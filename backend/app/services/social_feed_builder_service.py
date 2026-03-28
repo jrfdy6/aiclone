@@ -87,6 +87,60 @@ def _parse_datetime(value: str | None) -> datetime | None:
     return dt
 
 
+def _placeholder_marker(value: str | None) -> bool:
+    if not value:
+        return False
+    lowered = _clean_text(value).lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "placeholder capture for ",
+            "# reddit placeholder",
+            "# rss placeholder",
+            "rss capture for ",
+        )
+    )
+
+
+def _is_placeholder_signal(signal: dict[str, Any]) -> bool:
+    fields: list[str] = [
+        str(signal.get("title") or ""),
+        str(signal.get("summary") or ""),
+        str(signal.get("body_text") or ""),
+        str(signal.get("core_claim") or ""),
+        str(signal.get("why_it_matters") or ""),
+    ]
+    fields.extend(str(item) for item in _list_strings(signal.get("headline_candidates"), 4))
+    fields.extend(str(item) for item in _list_strings(signal.get("supporting_claims"), 4))
+    return any(_placeholder_marker(field) for field in fields)
+
+
+def _is_placeholder_item(item: dict[str, Any]) -> bool:
+    fields: list[str] = [
+        str(item.get("title") or ""),
+        str(item.get("summary") or ""),
+        str(item.get("comment_draft") or ""),
+        str(item.get("repost_draft") or ""),
+        str(item.get("why_it_matters") or ""),
+        str(item.get("core_claim") or ""),
+    ]
+    for standout in item.get("standout_lines") or []:
+        fields.append(str(standout))
+    for variant in (item.get("lens_variants") or {}).values():
+        if not isinstance(variant, dict):
+            continue
+        fields.extend(
+            [
+                str(variant.get("comment") or ""),
+                str(variant.get("repost") or ""),
+                str(variant.get("short_comment") or ""),
+                str(((variant.get("expression_assessment") or {}).get("source_text") or "")),
+                str(((variant.get("expression_assessment") or {}).get("output_text") or "")),
+            ]
+        )
+    return any(_placeholder_marker(field) for field in fields)
+
+
 def _load_watchlist(workspace_root: Path) -> dict[str, Any]:
     watchlist_path = workspace_root / "research" / "watchlists.yaml"
     if not watchlist_path.exists():
@@ -111,6 +165,8 @@ def _read_saved_signals(workspace_root: Path) -> list[dict[str, Any]]:
         meta["source_path"] = path.relative_to(workspace_root).as_posix()
         meta["id"] = path.stem
         meta["body_text"] = body_text
+        if _is_placeholder_signal(meta):
+            continue
         signals.append(meta)
     return signals
 
@@ -128,7 +184,12 @@ def _load_existing_feed(workspace_root: Path) -> dict[str, Any] | None:
     items = payload.get("items")
     if not isinstance(items, list) or not items:
         return None
-    first_item = items[0] if items else {}
+    filtered_items = [item for item in items if isinstance(item, dict) and not _is_placeholder_item(item)]
+    if filtered_items:
+        payload["items"] = filtered_items
+    else:
+        return None
+    first_item = payload["items"][0] if payload["items"] else {}
     if not isinstance(first_item, dict) or not first_item.get("lens_variants"):
         return None
     return payload

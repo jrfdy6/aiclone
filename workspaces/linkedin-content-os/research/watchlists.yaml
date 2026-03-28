@@ -1,0 +1,66 @@
+sources:
+  primary:
+    - platform: linkedin
+      purpose: Native platform language, operator framing, intrapreneurial AI use cases
+  secondary:
+    - platform: reddit
+      purpose: Practitioner pain, objections, and implementation friction
+    - platform: blogs_news
+      purpose: Product launches, market shifts, and benchmark essays
+
+priority_people:
+  - name: AI-native operators in education
+    platform: linkedin
+    relationship: followed
+    profile_url: https://www.linkedin.com/in/ai-native-operator
+    reason: Role-safe intrapreneur language and education implementation signals
+    lenses: [current-role, program-leadership, ai]
+    priority_weight: 0.9
+  - name: GTM / revenue / growth operators
+    platform: linkedin
+    relationship: connected
+    profile_url: https://www.linkedin.com/in/gtm-operator
+    reason: Market-development, outreach, and trust-building language
+    lenses: [admissions, entrepreneurship]
+    priority_weight: 0.85
+
+rss_sources:
+  - url: https://www.oneusefulthing.org/feed
+    label: AI-native Ops (Substack)
+    platform: substack
+    purpose: AI workflow design, operator judgment, and education implementation signals
+    priority_lane: ai
+  - url: https://www.highereddive.com/feeds/news/
+    label: Admissions + Ops
+    platform: rss
+    purpose: Higher-ed operations, enrollment shifts, and student-journey execution signals
+    priority_lane: admissions
+
+reddit_sources:
+  - subreddit: Using_AI_in_Education
+    purpose: Practitioner edge cases and growth experiments
+    priority_lane: ai
+  - subreddit: edtech
+    purpose: Product launches, funding news, and operator lessons
+    priority_lane: current-role
+
+topics:
+  - ai implementation in education
+  - admissions and outreach systems
+  - market development and referral trust
+  - leadership and operator clarity
+  - intrapreneurship
+  - edtech product launches
+  - workflow automation
+
+filters:
+  prioritize:
+    - operator language
+    - role-safe AI positioning
+    - intrapreneurial framing
+    - leadership lessons
+    - market-development relevance
+  avoid:
+    - obvious exit-signaling language
+    - generic hustle content
+    - trend chasing without operational value
