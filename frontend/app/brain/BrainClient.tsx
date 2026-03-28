@@ -264,6 +264,7 @@ type Tab = 'dashboard' | 'briefs' | 'persona' | 'automations' | 'docs';
 const API_URL = getApiUrl();
 const brainInputStyle: CSSProperties = {
   width: '100%',
+  boxSizing: 'border-box',
   borderRadius: '10px',
   border: '1px solid #1f2937',
   backgroundColor: '#020617',
@@ -317,6 +318,7 @@ export default function BrainClient({
   const [longFormIngestStatus, setLongFormIngestStatus] = useState<string | null>(null);
   const [longFormIngestError, setLongFormIngestError] = useState<string | null>(null);
   const [longFormSubmitting, setLongFormSubmitting] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(1600);
   const mergedDocs = useMemo(() => mergeBrainDocs(docs, workspaceSnapshot), [docs, workspaceSnapshot]);
   const tabs = useMemo(
     () => [
@@ -383,6 +385,16 @@ export default function BrainClient({
         setTelemetryError('Unable to load full Open Brain telemetry.');
       }
   }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const syncWidth = () => setViewportWidth(window.innerWidth);
+    syncWidth();
+    window.addEventListener('resize', syncWidth);
+    return () => window.removeEventListener('resize', syncWidth);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -453,6 +465,7 @@ export default function BrainClient({
           packs={personaWorkspace.packs}
           deltas={personaDeltas}
           error={personaDeltasError}
+          viewportWidth={viewportWidth}
           refreshBrainData={() => loadData()}
           mergeUpdatedDelta={(updatedDelta) =>
             setPersonaDeltas((current) => current.map((delta) => (delta.id === updatedDelta.id ? updatedDelta : delta)))
@@ -961,12 +974,14 @@ function PersonaPanel({
   packs,
   deltas,
   error,
+  viewportWidth,
   refreshBrainData,
   mergeUpdatedDelta,
 }: {
   packs: PersonaPack[];
   deltas: PersonaDeltaEntry[];
   error: string | null;
+  viewportWidth: number;
   refreshBrainData: () => Promise<void>;
   mergeUpdatedDelta: (updatedDelta: PersonaDeltaEntry) => void;
 }) {
@@ -1100,6 +1115,8 @@ function PersonaPanel({
     () => lifecycleGroups.find((group) => group.key === lifecycleView) ?? lifecycleGroups[0],
     [lifecycleGroups, lifecycleView],
   );
+  const stackPersonaShell = viewportWidth < 1220;
+  const stackPersonaDetail = viewportWidth < 1480;
 
   useEffect(() => {
     if (!selectedDelta && reviewQueue[0]) {
@@ -1323,7 +1340,14 @@ function PersonaPanel({
         </div>
 
         {selectedDelta ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0, 1fr)', gap: '14px', alignItems: 'start' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : '340px minmax(0, 1fr)',
+              gap: '14px',
+              alignItems: 'start',
+            }}
+          >
             <aside style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '12px', alignSelf: 'start' }}>
               <div>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Review now</p>
@@ -1395,8 +1419,15 @@ function PersonaPanel({
               </div>
             </aside>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(400px, 0.92fr)', gap: '14px', alignItems: 'start' }}>
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: stackPersonaDetail ? 'minmax(0, 1fr)' : 'minmax(0, 1.08fr) minmax(420px, 0.92fr)',
+                gap: '14px',
+                alignItems: 'start',
+              }}
+            >
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start', minWidth: 0 }}>
               <div>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Why I am showing this</p>
                 <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.65 }}>{reviewReason}</p>
@@ -1508,7 +1539,7 @@ function PersonaPanel({
               </div>
             </section>
 
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start' }}>
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '12px', alignSelf: 'start', minWidth: 0 }}>
               <div
                 style={{
                   borderRadius: '12px',
@@ -1564,6 +1595,7 @@ function PersonaPanel({
                 placeholder={`Example: Yes, this is true. I am building an AI project that supports these initiatives, but I want it framed as a system that strengthens AI Clone, BrandEasy, Outfit A Congo, Collective Fusion, market development, and public leadership rather than a flat list.`}
                 style={{
                   width: '100%',
+                  boxSizing: 'border-box',
                   minHeight: '220px',
                   resize: 'vertical',
                   borderRadius: '14px',
