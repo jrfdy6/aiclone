@@ -255,6 +255,9 @@ Recommended fields:
   "ingest_mode": "manual|harvested",
   "source_channel": "linkedin|reddit|substack|web|rss|manual",
   "source_type": "post|article|comment_thread|dm|note",
+  "source_class": "short_form|article|long_form_media|manual",
+  "unit_kind": "full_post|paragraph|section|segment|quote_cluster|claim_block",
+  "response_modes": ["comment", "repost", "post_seed", "belief_evidence"],
   "source_url": "https://...",
   "source_path": "workspaces/linkedin-content-os/research/market_signals/...",
   "title": "Short title",
@@ -274,6 +277,8 @@ Recommended fields:
   }
 }
 ```
+
+The first runtime slice of that source taxonomy is now live in the social feed builder, manual preview path, persisted snapshot rebuild, and `/ops` diagnostics. Long-form media routing still needs the later source-expansion tasks.
 
 Everything after extraction should operate on `NormalizedSignal`, not on raw HTML, not on feed-specific JSON, and not on pasted text directly.
 

@@ -32,6 +32,10 @@ SAMPLE_FEED = {
         {
             "id": "fixture__signal-001",
             "platform": "linkedin",
+            "source_type": "post",
+            "source_class": "short_form",
+            "unit_kind": "full_post",
+            "response_modes": ["comment", "repost", "post_seed", "belief_evidence"],
             "source_lane": "market_signal",
             "capture_method": "fixture",
             "title": "AI agents fail from lack of context, not lack of smarts",
@@ -144,6 +148,9 @@ class WorkspaceSmokeTests(unittest.TestCase):
         items = feed.get("items") or []
         self.assertGreater(len(items), 0)
         self.assertTrue(items[0].get("lens_variants"))
+        self.assertIn(items[0].get("source_class"), {"short_form", "article", "long_form_media", "manual"})
+        self.assertTrue(items[0].get("unit_kind"))
+        self.assertIsInstance(items[0].get("response_modes"), list)
         self.assertTrue(feed.get("generated_at"))
 
     def test_social_feed_builder_filters_placeholder_saved_signals(self) -> None:
@@ -333,6 +340,9 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         preview_item = payload.get("preview_item") or {}
         self.assertTrue(preview_item.get("lens_variants"))
         self.assertIn("title", preview_item)
+        self.assertEqual(preview_item.get("source_class"), "manual")
+        self.assertTrue(preview_item.get("unit_kind"))
+        self.assertIsInstance(preview_item.get("response_modes"), list)
 
     def test_split_lane_outputs_stay_materially_distinct(self) -> None:
         response = self.client.post(

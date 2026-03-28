@@ -152,6 +152,7 @@
 
 ### LNK-026 - Define a source taxonomy and response-routing contract
 - Outcome: explicitly model `source_class`, `unit_kind`, and `response_modes` so the system knows whether a source should become a comment candidate, repost candidate, post seed, or belief-evidence item.
+- Status: first runtime slice is now live. Saved feed items, manual previews, persisted snapshot rebuilds, and `/ops` diagnostics all carry `source_class`, `unit_kind`, and `response_modes`. The remaining work is to use those fields for real media/transcript routing instead of only short-form/article classification.
 - Benchmark gate: `100%` runtime coverage of the new fields with no regression in feed availability or snapshot richness. Validate in production with immediate and deterministic rebuild checks from `docs/source_expansion_implementation_plan.md`.
 - Source files:
   - `docs/source_expansion_implementation_plan.md`

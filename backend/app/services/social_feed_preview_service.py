@@ -70,6 +70,10 @@ class SocialFeedPreviewService:
         return {
             "id": f"manual__{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
             "platform": signal["source_channel"],
+            "source_type": signal["source_type"],
+            "source_class": signal["source_class"],
+            "unit_kind": signal["unit_kind"],
+            "response_modes": signal["response_modes"],
             "source_lane": signal["source_lane"],
             "capture_method": signal["capture_method"],
             "title": signal["title"],

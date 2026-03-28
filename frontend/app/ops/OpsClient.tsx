@@ -256,6 +256,10 @@ type FeedVariant = {
 type SocialFeedItem = {
   id: string;
   platform: string;
+  source_type?: string;
+  source_class?: string;
+  unit_kind?: string;
+  response_modes?: string[];
   source_lane: string;
   capture_method?: string;
   title: string;
@@ -304,6 +308,9 @@ type TuningVariantRecord = {
   itemId: string;
   title: string;
   platform: string;
+  sourceClass: string;
+  unitKind: string;
+  responseModes: string[];
   lane: FeedLensId;
   laneLabel: string;
   overall: number;
@@ -356,6 +363,35 @@ type TuningPlatformHealth = {
   weakSourceCount: number;
 };
 
+type TuningSourceClassHealth = {
+  sourceClass: string;
+  variants: number;
+  avgOverall: number;
+  avgSource: number;
+  avgExpression: number;
+  avgDelta: number;
+  weakSourceCount: number;
+};
+
+type TuningUnitKindHealth = {
+  unitKind: string;
+  variants: number;
+  avgSource: number;
+  avgExpression: number;
+  avgDelta: number;
+  weakSourceCount: number;
+};
+
+type TuningResponseModeHealth = {
+  mode: string;
+  itemCount: number;
+  variants: number;
+  avgSource: number;
+  avgExpression: number;
+  avgDelta: number;
+  weakSourceCount: number;
+};
+
 type TuningStructureHealth = {
   structure: string;
   variants: number;
@@ -387,6 +423,9 @@ type TuningDashboard = {
   failureModes: Array<{ label: string; count: number }>;
   laneHealth: TuningLaneHealth[];
   platformHealth: TuningPlatformHealth[];
+  sourceClassHealth: TuningSourceClassHealth[];
+  unitKindHealth: TuningUnitKindHealth[];
+  responseModeHealth: TuningResponseModeHealth[];
   structureHealth: TuningStructureHealth[];
   attentionQueue: TuningAttentionItem[];
 };
@@ -1928,6 +1967,9 @@ function WorkspacePanel({
             const beliefAssessment = activeVariant ?? item.belief_assessment;
             const techniqueAssessment = activeVariant ?? item.technique_assessment;
             const expressionAssessment = activeVariant?.expression_assessment ?? item.expression_assessment;
+            const sourceContractClass = item.source_class ?? deriveSourceClass(item);
+            const sourceContractUnit = item.unit_kind ?? deriveUnitKind(item, sourceContractClass);
+            const sourceContractModes = item.response_modes ?? deriveResponseModes(item, sourceContractClass, sourceContractUnit);
             return (
             <article key={item.id} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
@@ -1996,6 +2038,9 @@ function WorkspacePanel({
                     <span style={{ color: '#94a3b8' }}>Anchor:</span> {beliefAssessment.experience_summary}
                   </p>
                 )}
+                <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                  <span style={{ color: '#94a3b8' }}>Source contract:</span> {sourceContractClass} · {sourceContractUnit} · {sourceContractModes.join(', ')}
+                </p>
                 {expressionAssessment?.strategy && expressionAssessment?.output_text && (
                   <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
                     <span style={{ color: '#94a3b8' }}>Expression:</span> {expressionAssessment.strategy} · {expressionAssessment.output_structure ?? 'plain'}
@@ -2626,6 +2671,56 @@ function TuningDashboardPanel({
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginBottom: '16px' }}>
         <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Source Class Health</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {dashboard.sourceClassHealth.map((sourceClass) => (
+              <div key={sourceClass.sourceClass} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '8px 10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ color: 'white', fontWeight: 600, fontSize: '13px' }}>{sourceClass.sourceClass}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>{sourceClass.variants} variants</span>
+                </div>
+                <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                  overall {sourceClass.avgOverall.toFixed(1)} · src {sourceClass.avgSource.toFixed(1)} · expr {sourceClass.avgExpression.toFixed(1)} · Δ {sourceClass.avgDelta.toFixed(1)} · weak {sourceClass.weakSourceCount}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Unit Kind Health</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {dashboard.unitKindHealth.map((unitKind) => (
+              <div key={unitKind.unitKind} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '8px 10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ color: 'white', fontWeight: 600, fontSize: '13px' }}>{unitKind.unitKind}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>{unitKind.variants} variants</span>
+                </div>
+                <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                  src {unitKind.avgSource.toFixed(1)} · expr {unitKind.avgExpression.toFixed(1)} · Δ {unitKind.avgDelta.toFixed(1)} · weak {unitKind.weakSourceCount}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
+          <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Response Mode Health</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {dashboard.responseModeHealth.map((mode) => (
+              <div key={mode.mode} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '8px 10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ color: 'white', fontWeight: 600, fontSize: '13px' }}>{mode.mode}</span>
+                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>{mode.itemCount} items · {mode.variants} variants</span>
+                </div>
+                <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                  src {mode.avgSource.toFixed(1)} · expr {mode.avgExpression.toFixed(1)} · Δ {mode.avgDelta.toFixed(1)} · weak {mode.weakSourceCount}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
           <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Platform Health</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {dashboard.platformHealth.map((platform) => (
@@ -3169,6 +3264,53 @@ function collectSaveRules(raw: string) {
   return { keep, drop };
 }
 
+function deriveSourceClass(item: SocialFeedItem) {
+  const explicit = item.source_class?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const sourceType = item.source_type?.toLowerCase() ?? '';
+  const captureMethod = item.capture_method?.toLowerCase() ?? '';
+  if (item.platform === 'manual' || captureMethod === 'manual') {
+    return 'manual';
+  }
+  if (['video', 'episode', 'transcript', 'audio', 'podcast'].includes(sourceType) || ['youtube', 'podcast'].includes(item.platform)) {
+    return 'long_form_media';
+  }
+  if (['article', 'essay', 'newsletter'].includes(sourceType) || ['rss', 'substack', 'web'].includes(item.platform)) {
+    return 'article';
+  }
+  return 'short_form';
+}
+
+function deriveUnitKind(item: SocialFeedItem, sourceClass: string) {
+  const explicit = item.unit_kind?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  if (sourceClass === 'article') {
+    return 'paragraph';
+  }
+  if (sourceClass === 'long_form_media') {
+    return 'section';
+  }
+  if (sourceClass === 'manual' && (item.summary?.split(/[.!?]+/).filter(Boolean).length ?? 0) <= 2) {
+    return 'claim_block';
+  }
+  return 'full_post';
+}
+
+function deriveResponseModes(item: SocialFeedItem, sourceClass: string, unitKind: string) {
+  const explicit = (item.response_modes ?? []).map((mode) => mode.trim()).filter(Boolean);
+  if (explicit.length > 0) {
+    return explicit;
+  }
+  if (sourceClass === 'long_form_media' && !['segment', 'quote_cluster', 'claim_block'].includes(unitKind)) {
+    return ['post_seed', 'belief_evidence'];
+  }
+  return ['comment', 'repost', 'post_seed', 'belief_evidence'];
+}
+
 function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
   const placeholderExcludedCount = items.filter((item) => isPlaceholderFeedItem(item)).length;
   const sampledItems = placeholderExcludedCount < items.length ? items.filter((item) => !isPlaceholderFeedItem(item)) : items;
@@ -3180,6 +3322,9 @@ function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
     if (looksLikeSurfaceTitle(item.title)) {
       suspectItemIds.add(item.id);
     }
+    const sourceClass = deriveSourceClass(item);
+    const unitKind = deriveUnitKind(item, sourceClass);
+    const responseModes = deriveResponseModes(item, sourceClass, unitKind);
     const entries = Object.entries(item.lens_variants ?? {}) as Array<[string, FeedVariant | undefined]>;
     if (!entries.length && item.evaluation) {
       const fallbackLane = (item.lenses?.[0] as FeedLensId | undefined) ?? 'current-role';
@@ -3187,6 +3332,9 @@ function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
         itemId: item.id,
         title: item.title,
         platform: item.platform,
+        sourceClass,
+        unitKind,
+        responseModes,
         lane: fallbackLane,
         laneLabel: POST_MODE_OPTIONS.find((mode) => mode.id === fallbackLane)?.label ?? fallbackLane,
         overall: item.evaluation.overall ?? 0,
@@ -3214,6 +3362,9 @@ function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
         itemId: item.id,
         title: item.title,
         platform: item.platform,
+        sourceClass,
+        unitKind,
+        responseModes,
         lane: normalizedLane,
         laneLabel: variant.label ?? POST_MODE_OPTIONS.find((mode) => mode.id === normalizedLane)?.label ?? normalizedLane,
         overall: variant.evaluation.overall ?? 0,
@@ -3241,6 +3392,29 @@ function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
   const platformMap = new Map<string, {
     count: number;
     overallTotal: number;
+    sourceTotal: number;
+    expressionTotal: number;
+    deltaTotal: number;
+    weakSourceCount: number;
+  }>();
+  const sourceClassMap = new Map<string, {
+    count: number;
+    overallTotal: number;
+    sourceTotal: number;
+    expressionTotal: number;
+    deltaTotal: number;
+    weakSourceCount: number;
+  }>();
+  const unitKindMap = new Map<string, {
+    count: number;
+    sourceTotal: number;
+    expressionTotal: number;
+    deltaTotal: number;
+    weakSourceCount: number;
+  }>();
+  const responseModeMap = new Map<string, {
+    itemIds: Set<string>;
+    count: number;
     sourceTotal: number;
     expressionTotal: number;
     deltaTotal: number;
@@ -3332,6 +3506,60 @@ function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
     }
     platformMap.set(variant.platform, platformEntry);
 
+    const sourceClassEntry = sourceClassMap.get(variant.sourceClass) ?? {
+      count: 0,
+      overallTotal: 0,
+      sourceTotal: 0,
+      expressionTotal: 0,
+      deltaTotal: 0,
+      weakSourceCount: 0,
+    };
+    sourceClassEntry.count += 1;
+    sourceClassEntry.overallTotal += variant.overall;
+    sourceClassEntry.sourceTotal += variant.sourceExpressionQuality;
+    sourceClassEntry.expressionTotal += variant.expressionQuality;
+    sourceClassEntry.deltaTotal += variant.expressionDelta;
+    if (variant.sourceExpressionQuality <= 0.1) {
+      sourceClassEntry.weakSourceCount += 1;
+    }
+    sourceClassMap.set(variant.sourceClass, sourceClassEntry);
+
+    const unitKindEntry = unitKindMap.get(variant.unitKind) ?? {
+      count: 0,
+      sourceTotal: 0,
+      expressionTotal: 0,
+      deltaTotal: 0,
+      weakSourceCount: 0,
+    };
+    unitKindEntry.count += 1;
+    unitKindEntry.sourceTotal += variant.sourceExpressionQuality;
+    unitKindEntry.expressionTotal += variant.expressionQuality;
+    unitKindEntry.deltaTotal += variant.expressionDelta;
+    if (variant.sourceExpressionQuality <= 0.1) {
+      unitKindEntry.weakSourceCount += 1;
+    }
+    unitKindMap.set(variant.unitKind, unitKindEntry);
+
+    variant.responseModes.forEach((mode) => {
+      const responseModeEntry = responseModeMap.get(mode) ?? {
+        itemIds: new Set<string>(),
+        count: 0,
+        sourceTotal: 0,
+        expressionTotal: 0,
+        deltaTotal: 0,
+        weakSourceCount: 0,
+      };
+      responseModeEntry.itemIds.add(variant.itemId);
+      responseModeEntry.count += 1;
+      responseModeEntry.sourceTotal += variant.sourceExpressionQuality;
+      responseModeEntry.expressionTotal += variant.expressionQuality;
+      responseModeEntry.deltaTotal += variant.expressionDelta;
+      if (variant.sourceExpressionQuality <= 0.1) {
+        responseModeEntry.weakSourceCount += 1;
+      }
+      responseModeMap.set(mode, responseModeEntry);
+    });
+
     const structureKey = variant.sourceStructure || 'none';
     const structureEntry = structureMap.get(structureKey) ?? {
       count: 0,
@@ -3406,6 +3634,56 @@ function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
         return a.avgSource - b.avgSource;
       }
       return b.variants - a.variants;
+    });
+
+  const sourceClassHealth: TuningSourceClassHealth[] = Array.from(sourceClassMap.entries())
+    .map(([sourceClass, metrics]) => ({
+      sourceClass,
+      variants: metrics.count,
+      avgOverall: metrics.overallTotal / metrics.count,
+      avgSource: metrics.sourceTotal / metrics.count,
+      avgExpression: metrics.expressionTotal / metrics.count,
+      avgDelta: metrics.deltaTotal / metrics.count,
+      weakSourceCount: metrics.weakSourceCount,
+    }))
+    .sort((a, b) => {
+      if (a.avgSource !== b.avgSource) {
+        return a.avgSource - b.avgSource;
+      }
+      return b.variants - a.variants;
+    });
+
+  const unitKindHealth: TuningUnitKindHealth[] = Array.from(unitKindMap.entries())
+    .map(([unitKind, metrics]) => ({
+      unitKind,
+      variants: metrics.count,
+      avgSource: metrics.sourceTotal / metrics.count,
+      avgExpression: metrics.expressionTotal / metrics.count,
+      avgDelta: metrics.deltaTotal / metrics.count,
+      weakSourceCount: metrics.weakSourceCount,
+    }))
+    .sort((a, b) => {
+      if (a.avgSource !== b.avgSource) {
+        return a.avgSource - b.avgSource;
+      }
+      return b.variants - a.variants;
+    });
+
+  const responseModeHealth: TuningResponseModeHealth[] = Array.from(responseModeMap.entries())
+    .map(([mode, metrics]) => ({
+      mode,
+      itemCount: metrics.itemIds.size,
+      variants: metrics.count,
+      avgSource: metrics.sourceTotal / metrics.count,
+      avgExpression: metrics.expressionTotal / metrics.count,
+      avgDelta: metrics.deltaTotal / metrics.count,
+      weakSourceCount: metrics.weakSourceCount,
+    }))
+    .sort((a, b) => {
+      if (a.avgSource !== b.avgSource) {
+        return a.avgSource - b.avgSource;
+      }
+      return b.itemCount - a.itemCount;
     });
 
   const structureHealth: TuningStructureHealth[] = Array.from(structureMap.entries())
@@ -3486,6 +3764,9 @@ function buildTuningDashboard(items: SocialFeedItem[]): TuningDashboard | null {
     ],
     laneHealth,
     platformHealth,
+    sourceClassHealth,
+    unitKindHealth,
+    responseModeHealth,
     structureHealth,
     attentionQueue,
   };

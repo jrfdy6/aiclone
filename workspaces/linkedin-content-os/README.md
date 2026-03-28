@@ -79,6 +79,7 @@ Current implementation status:
 - first-pass technique selection and evaluation readouts are now live
 - expression-quality is now live as a relational signal in the social variant builder (`source_expression_quality`, `output_expression_quality`, `expression_delta`, structure preservation)
 - `/ops` now includes a first-pass tuning dashboard for live weak-source detection, warning hotspots, strategy mix, lane health, and the current attention queue
+- the first runtime source-taxonomy contract is now live across saved feed items, manual previews, snapshot rebuilds, and `/ops` (`source_class`, `unit_kind`, `response_modes`)
 - `/ops` now reads a persisted backend snapshot and the backend rebuilds stale social-feed snapshot rows from live runtime builders
 - backend smoke tests now cover health, snapshot, and ingest routes
 - the frontend production build is now part of the local main gate

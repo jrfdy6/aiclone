@@ -523,7 +523,13 @@ def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
         if not isinstance(items, list) or not items:
             return False
         first_item = items[0]
-        return isinstance(first_item, dict) and bool(first_item.get("lens_variants"))
+        return (
+            isinstance(first_item, dict)
+            and bool(first_item.get("lens_variants"))
+            and bool(first_item.get("source_class"))
+            and bool(first_item.get("unit_kind"))
+            and isinstance(first_item.get("response_modes"), list)
+        )
     if snapshot_type == SNAPSHOT_WEEKLY_PLAN:
         return isinstance(payload.get("recommendations"), list) and isinstance(payload.get("positioning_model"), list)
     if snapshot_type == SNAPSHOT_REACTION_QUEUE:

@@ -341,6 +341,10 @@ def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict
     return {
         "id": f"{normalized.get('source_channel', 'unknown')}__{normalized.get('signal_id')}",
         "platform": normalized.get("source_channel", "linkedin"),
+        "source_type": normalized.get("source_type", "post"),
+        "source_class": normalized.get("source_class", "short_form"),
+        "unit_kind": normalized.get("unit_kind", "full_post"),
+        "response_modes": normalized.get("response_modes", []),
         "source_lane": normalized.get("source_lane", "market_signal"),
         "capture_method": normalized.get("capture_method", "saved_signal"),
         "title": title,

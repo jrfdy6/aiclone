@@ -95,6 +95,9 @@ LANE_ALIASES = {
 }
 
 DEFAULT_ENGAGEMENT = {"likes": 0, "comments": 0, "shares": 0}
+SOURCE_CLASS_IDS = {"short_form", "article", "long_form_media", "manual"}
+UNIT_KIND_IDS = {"full_post", "paragraph", "section", "segment", "quote_cluster", "claim_block"}
+RESPONSE_MODE_IDS = ("comment", "repost", "post_seed", "belief_evidence")
 
 
 def normalize_inline_text(value: str | None) -> str:
@@ -181,6 +184,28 @@ def normalize_lane(value: str | None) -> str:
     return normalized if normalized in LENS_IDS else "current-role"
 
 
+def normalize_source_class(value: str | None) -> str:
+    normalized = normalize_inline_text(value).lower().replace("-", "_").replace(" ", "_")
+    return normalized if normalized in SOURCE_CLASS_IDS else ""
+
+
+def normalize_unit_kind(value: str | None) -> str:
+    normalized = normalize_inline_text(value).lower().replace("-", "_").replace(" ", "_")
+    return normalized if normalized in UNIT_KIND_IDS else ""
+
+
+def normalize_response_modes(value: Any) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in list_strings(value, 8):
+        mode = item.lower().replace("-", "_").replace(" ", "_")
+        if mode not in RESPONSE_MODE_IDS or mode in seen:
+            continue
+        seen.add(mode)
+        normalized.append(mode)
+    return normalized
+
+
 def contains_generic_phrase(text: str | None) -> bool:
     lowered = normalize_inline_text(text).lower()
     if not lowered:
@@ -228,6 +253,51 @@ def infer_source_channel(*, source_url: str | None = None, source_platform: str 
     if not host:
         return "manual"
     return host.split(".")[0]
+
+
+def infer_source_class(*, source_channel: str, source_type: str, capture_method: str, extraction_method: str) -> str:
+    normalized_channel = normalize_inline_text(source_channel).lower()
+    normalized_type = normalize_inline_text(source_type).lower()
+    normalized_capture = normalize_inline_text(capture_method).lower()
+    normalized_extraction = normalize_inline_text(extraction_method).lower()
+
+    if normalized_channel == "manual" or normalized_capture == "manual" or normalized_extraction.startswith("manual"):
+        return "manual"
+    if normalized_type in {"video", "episode", "transcript", "audio", "podcast"} or normalized_channel in {"youtube", "podcast"}:
+        return "long_form_media"
+    if normalized_type in {"article", "essay", "newsletter"} or normalized_channel in {"rss", "substack", "web"}:
+        return "article"
+    return "short_form"
+
+
+def infer_unit_kind(*, source_class: str, source_type: str, capture_method: str, raw_text: str) -> str:
+    normalized_class = normalize_source_class(source_class) or "short_form"
+    normalized_type = normalize_inline_text(source_type).lower()
+    normalized_capture = normalize_inline_text(capture_method).lower()
+    sentence_count = len(split_sentences(raw_text))
+
+    if normalized_class == "long_form_media":
+        if normalized_type in {"segment", "clip"}:
+            return "segment"
+        if normalized_type == "quote_cluster":
+            return "quote_cluster"
+        return "section"
+    if normalized_class == "article":
+        return "paragraph"
+    if normalized_class == "manual" and (normalized_type in {"quote", "note"} or normalized_capture == "manual" and sentence_count <= 2):
+        return "claim_block"
+    return "full_post"
+
+
+def infer_response_modes(*, source_class: str, unit_kind: str) -> list[str]:
+    normalized_class = normalize_source_class(source_class) or "short_form"
+    normalized_unit = normalize_unit_kind(unit_kind) or "full_post"
+
+    if normalized_class == "long_form_media":
+        if normalized_unit in {"segment", "quote_cluster", "claim_block"}:
+            return ["comment", "repost", "post_seed", "belief_evidence"]
+        return ["post_seed", "belief_evidence"]
+    return ["comment", "repost", "post_seed", "belief_evidence"]
 
 
 def _timestamp_now() -> str:
@@ -292,6 +362,7 @@ def normalize_saved_signal(
     source_url = normalize_inline_text(signal.get("source_url"))
     source_channel = infer_source_channel(source_url=source_url, source_platform=signal.get("source_platform"))
     source_type = normalize_inline_text(signal.get("source_type")) or "post"
+    capture_method = normalize_inline_text(signal.get("capture_method")) or "saved_signal"
     captured_at = normalize_inline_text(signal.get("captured_at") or signal.get("created_at")) or _timestamp_now()
     published_at = normalize_inline_text(signal.get("published_at") or signal.get("created_at")) or captured_at
     engagement = dict(DEFAULT_ENGAGEMENT)
@@ -320,6 +391,25 @@ def normalize_saved_signal(
         or "saved_signal"
     )
     source_metadata.setdefault("extraction_method", extraction_method)
+    source_class = normalize_source_class(signal.get("source_class")) or infer_source_class(
+        source_channel=source_channel,
+        source_type=source_type,
+        capture_method=capture_method,
+        extraction_method=extraction_method,
+    )
+    unit_kind = normalize_unit_kind(signal.get("unit_kind")) or infer_unit_kind(
+        source_class=source_class,
+        source_type=source_type,
+        capture_method=capture_method,
+        raw_text=raw_text_value,
+    )
+    response_modes = normalize_response_modes(signal.get("response_modes")) or infer_response_modes(
+        source_class=source_class,
+        unit_kind=unit_kind,
+    )
+    source_metadata.setdefault("source_class", source_class)
+    source_metadata.setdefault("unit_kind", unit_kind)
+    source_metadata.setdefault("response_modes", response_modes)
 
     trust_notes = list_strings(signal.get("trust_notes"), 4)
     if extraction_method and extraction_method not in trust_notes:
@@ -334,10 +424,13 @@ def normalize_saved_signal(
         "ingest_mode": normalize_inline_text(signal.get("ingest_mode")) or ("manual" if signal.get("capture_method") == "manual" else "harvested"),
         "source_channel": source_channel,
         "source_type": source_type,
+        "source_class": source_class,
+        "unit_kind": unit_kind,
+        "response_modes": response_modes,
         "source_url": source_url,
         "source_path": source_path or normalize_inline_text(signal.get("source_path")),
         "source_lane": normalize_inline_text(signal.get("source_kind")) or "market_signal",
-        "capture_method": normalize_inline_text(signal.get("capture_method")) or "saved_signal",
+        "capture_method": capture_method,
         "title": title,
         "author": normalize_inline_text(signal.get("author")) or "Unknown",
         "published_at": published_at,
@@ -377,11 +470,14 @@ def normalize_manual_signal(
         "capture_method": "manual",
         "source_platform": source_channel,
         "source_type": source_type,
+        "source_class": "manual",
         "source_url": url or "",
         "author": author or "manual preview",
         "title": title or first_meaningful_line(raw_text)[:120],
         "summary": summarize_text(raw_text),
         "headline_candidates": standout_lines_from_text(raw_text),
+        "unit_kind": "claim_block" if len(split_sentences(raw_text)) <= 2 else "full_post",
+        "response_modes": ["comment", "repost", "post_seed", "belief_evidence"],
         "priority_lane": normalize_lane(priority_lane),
         "raw_text": raw_text,
         "source_metadata": {"extraction_method": extraction_method},
