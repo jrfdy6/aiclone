@@ -431,6 +431,33 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertTrue(all(item.get("response_modes") == ["post_seed", "belief_evidence"] for item in items))
         self.assertTrue(all(item.get("feed_ready") is False for item in items))
 
+    def test_workspace_snapshot_rebuilds_persisted_empty_source_assets_from_runtime(self) -> None:
+        empty_persisted = {
+            "generated_at": "2026-03-28T00:00:00+00:00",
+            "workspace": "linkedin-content-os",
+            "items": [],
+            "counts": {
+                "total": 0,
+                "long_form_media": 0,
+                "pending_segmentation": 0,
+                "feed_ready": 0,
+                "by_channel": {},
+            },
+        }
+
+        def fake_get_snapshot_payload(workspace_key: str, snapshot_type: str):
+            if snapshot_type == workspace_snapshot_module.SNAPSHOT_SOURCE_ASSETS:
+                return empty_persisted
+            return None
+
+        with patch.object(workspace_snapshot_module, "get_snapshot_payload", fake_get_snapshot_payload):
+            snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+
+        source_assets = snapshot.get("source_assets") or {}
+        items = source_assets.get("items") or []
+        self.assertGreater(len(items), 0)
+        self.assertEqual(source_assets.get("counts", {}).get("total"), len(items))
+
     def test_ingest_signal_route(self) -> None:
         response = self.client.post(
             "/api/workspace/ingest-signal",

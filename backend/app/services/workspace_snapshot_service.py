@@ -582,6 +582,22 @@ def _social_feed_signature(payload: dict[str, Any]) -> list[tuple[str, str, str]
     return signature
 
 
+def _source_assets_signature(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
+    items = payload.get("items") or []
+    signature: list[tuple[str, str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        signature.append(
+            (
+                str(item.get("asset_id") or ""),
+                str(item.get("source_path") or ""),
+                str(item.get("title") or ""),
+            )
+        )
+    return signature
+
+
 def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
     persisted = get_snapshot_payload(WORKSPACE_KEY, snapshot_type)
     if snapshot_type == SNAPSHOT_SOCIAL_FEED:
@@ -590,6 +606,17 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
             if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
                 return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
             if _social_feed_signature(persisted) != _social_feed_signature(runtime):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
+            return runtime
+        if persisted and _snapshot_is_usable(snapshot_type, persisted):
+            return persisted
+        return None
+    if snapshot_type == SNAPSHOT_SOURCE_ASSETS:
+        runtime = _runtime_snapshot_payload(snapshot_type)
+        if runtime:
+            if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
+            if _source_assets_signature(persisted) != _source_assets_signature(runtime):
                 return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
             return runtime
         if persisted and _snapshot_is_usable(snapshot_type, persisted):
