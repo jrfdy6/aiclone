@@ -16,6 +16,8 @@ Use this document when the task touches:
 - narrative learning
 - social strategy state
 
+If the task is specifically about expanding source classes into YouTube, podcasts, transcript segments, post-seed routing, or belief-evidence capture, read `docs/source_expansion_implementation_plan.md` alongside this document.
+
 ## Current Position
 
 The live system already does these things:
@@ -122,6 +124,14 @@ Do not build a third extractor. Consolidate around the better path.
 These already create harvested signal artifacts.
 They are currently thin and partly placeholder-driven, but they are still the right pipeline anchors.
 
+### Existing media-intake and transcript surfaces
+- `knowledge/aiclone/transcripts/`
+- `knowledge/ingestions/**`
+- parent `memory/roadmap.md`
+
+These are the correct upstream surfaces for YouTube, podcast, and transcript-derived sources.
+Do not create a parallel audio/video ingestion stack inside the social workspace.
+
 ### Existing feedback endpoint
 - `backend/app/routes/social_feedback.py`
 - `backend/app/services/social_feedback_service.py`
@@ -220,6 +230,14 @@ There are two different input paths:
 - Substack / RSS / web posts
 - other curated external sources
 - system pulls, ranks, stores, and surfaces candidates asynchronously
+
+The next source-expansion phase adds a third upstream family:
+
+### 3. Long-form media capture
+- transcript metadata notes
+- normalized ingestion artifacts
+- YouTube and podcast transcript segments
+- system extracts claim-sized units and routes them into comments, reposts, post seeds, or belief evidence depending on fit
 
 These paths are different operationally, but they should converge into the same shared object:
 

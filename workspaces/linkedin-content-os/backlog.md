@@ -144,10 +144,64 @@
 
 ### LNK-021 - Expand the source adapters beyond LinkedIn-first capture
 - Outcome: treat Reddit, Substack/RSS, and web articles as first-class source channels while preserving one shared interpretation path and one lane system.
+- Status: partially live. Reddit, RSS/Substack, manual URL/text preview, and restored LinkedIn saved signals are now all flowing through the shared social feed runtime. The next phase is expanding from short-form/article sources into transcript-derived long-form media and routing those signals into the right downstream jobs instead of treating every source like a comment card.
 - Source files:
   - `docs/social_intelligence_architecture.md`
   - `docs/market_intelligence.md`
   - `research/watchlists.yaml`
+
+### LNK-026 - Define a source taxonomy and response-routing contract
+- Outcome: explicitly model `source_class`, `unit_kind`, and `response_modes` so the system knows whether a source should become a comment candidate, repost candidate, post seed, or belief-evidence item.
+- Benchmark gate: `100%` runtime coverage of the new fields with no regression in feed availability or snapshot richness. Validate in production with immediate and deterministic rebuild checks from `docs/source_expansion_implementation_plan.md`.
+- Source files:
+  - `docs/source_expansion_implementation_plan.md`
+  - `backend/app/services/social_signal_utils.py`
+  - `backend/app/services/social_feed_builder_service.py`
+  - `backend/app/services/workspace_snapshot_service.py`
+
+### LNK-027 - Integrate transcript and media-ingest assets as source adapters
+- Outcome: treat transcript and media-ingest assets as first-class upstream sources by reusing the existing media-intake system instead of building a second audio/video ingestion stack.
+- Benchmark gate: transcript assets are visible as `long_form_media`, but `0` transcript assets are pushed directly into the comment feed before segmentation/routing exists. Validate with immediate and next-cycle production checks.
+- Source files:
+  - `docs/source_expansion_implementation_plan.md`
+  - `memory/roadmap.md`
+  - `knowledge/aiclone/transcripts/`
+  - `knowledge/ingestions/`
+
+### LNK-028 - Segment long-form media into claim-sized social signals
+- Outcome: split YouTube and podcast transcripts into timestamped or sectioned units so one long transcript can yield multiple claim-shaped candidate signals instead of one giant blob.
+- Benchmark gate: `0` full-transcript blobs in the feed, multi-segment yield from a test transcript, and transcript-derived comment/repost candidates targeting `Avg Source >= 4.5`, `Weak Source <= 25%`, `Avg Δ >= 0.2`.
+- Source files:
+  - `docs/source_expansion_implementation_plan.md`
+  - `backend/app/services/social_signal_extraction.py`
+  - `backend/app/services/social_signal_utils.py`
+
+### LNK-029 - Route media-derived signals into the right downstream jobs
+- Outcome: route each normalized signal into `comment`, `repost`, `post_seed`, or `belief_evidence` instead of treating every source like a feed-card response opportunity.
+- Benchmark gate: transcript/media units primarily route to `post_seed` or `belief_evidence`; any media-derived comment-ready feed item should target `Src >= 5.0`, `Expr >= 6.5`, `Δ >= 0.3`. Validate with deterministic rebuild, full refresh, and next-cycle production checks.
+- Source files:
+  - `docs/source_expansion_implementation_plan.md`
+  - `backend/app/services/social_feed_builder_service.py`
+  - `backend/app/services/workspace_snapshot_service.py`
+  - planner and reaction queue surfaces
+
+### LNK-030 - Capture worldview and persona evidence from external sources
+- Outcome: let source contrast produce saved agreement, disagreement, translation, and experience-match artifacts that can later inform persona review without auto-writing canonical persona files.
+- Benchmark gate: every worldview evidence record includes source reference + stance + belief relation, and `0` automatic writes happen to canonical persona files. Validate immediately and on the next-cycle production check.
+- Source files:
+  - `docs/source_expansion_implementation_plan.md`
+  - `backend/app/services/social_belief_engine.py`
+  - `backend/app/services/social_feedback_service.py`
+  - parent persona truth files under `knowledge/persona/feeze/`
+
+### LNK-031 - Extend `/ops` and planning with source-class intelligence
+- Outcome: make the dashboard and planner show source-class health, segment yield, response-mode mix, belief-evidence queues, and post-seed queues so source expansion remains observable.
+- Benchmark gate: `/ops` and planner surfaces expose the new source-class and response-mode rollups, and those rollups are testable through immediate, deterministic rebuild, and full refresh production checks.
+- Source files:
+  - `docs/source_expansion_implementation_plan.md`
+  - `frontend/app/ops/OpsClient.tsx`
+  - `backend/app/services/workspace_snapshot_service.py`
+  - planner outputs under `plans/`
 
 ### LNK-022 - Expand feedback logging and evaluation endpoints
 - Outcome: extend the existing `/api/workspace/feedback` path to log copy actions, approvals, dislikes, and future posting outcomes into a structured feedback layer instead of using only UI state and implied behavior.
@@ -217,4 +271,11 @@
 5. `LNK-014`
 6. `LNK-022`
 7. `LNK-020`
-8. `LNK-023` (parked until tuning signals are trustworthy)
+8. `LNK-021`
+9. `LNK-026`
+10. `LNK-027`
+11. `LNK-028`
+12. `LNK-029`
+13. `LNK-030`
+14. `LNK-031`
+15. `LNK-023` (parked until tuning signals are trustworthy)

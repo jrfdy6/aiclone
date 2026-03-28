@@ -62,9 +62,21 @@
   4. make technique selection and evaluation data-informed instead of fully rule-based,
   5. expand the structured feedback layer so copy, approval, post outcomes, and expression deltas all feed the same tuning loop,
   6. only then build the shared tuning dashboard and auto-research loops.
+- The next source-expansion phase should reuse the parent `Media Intake System` instead of creating a separate transcript stack in the social workspace:
+  1. treat YouTube, podcasts, and transcript files as upstream source assets,
+  2. segment long-form media into claim-sized units before they enter the social runtime,
+  3. route those units into the correct downstream jobs (`comment`, `repost`, `post_seed`, `belief_evidence`) instead of forcing every source into a feed-card response,
+  4. use those source contrasts to build reviewable worldview evidence for the persona system without auto-writing canonical persona files.
+  5. keep the live `/ops` tuning dashboard as the benchmark source of truth, using `Avg Source`, `Avg Expr`, `Avg Δ`, `Weak Source`, `Lane Carried`, source-class health, and the attention queue as the main release metrics for each source-expansion step.
+  6. treat source-expansion work as incomplete until it passes the full production validation cadence:
+     - immediate validation (`0-10m` after deploy),
+     - deterministic rebuild validation (`10-20m`),
+     - full refresh validation (`20-60m`),
+     - next-cycle validation (`12-24h`).
 - `karpathy/autoresearch` is explicitly parked as a later Lab-stage tuning tool. Use it to optimize lane/stance/technique policy once the feedback loop and tuning dashboard are trustworthy, not as the current path for making the product smarter.
 - Use orchestration as the core species for the product behavior, coding harnesses for implementation work, auto research for tuning, and dark-factory behavior only for low-risk offline generation.
 - Canonical workspace implementation map: `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`
+- Source-expansion implementation map: `workspaces/linkedin-content-os/docs/source_expansion_implementation_plan.md`
 
 ## Parking lot (post-stabilization)
 - Memory optimizer skill (nightly tier‑1 audit + progressive disclosure guardrails).

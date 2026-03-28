@@ -53,6 +53,15 @@ It should also support curated source capture from:
 
 Those different source paths should converge into one shared internal signal contract before lane interpretation and voice generation.
 
+The next source-expansion phase should also support:
+- YouTube transcript segments
+- podcast transcript segments
+- long-form media post seeds
+- belief-evidence capture from external sources
+
+That work is mapped in:
+- `docs/source_expansion_implementation_plan.md`
+
 Current live workspace surfaces:
 - a LinkedIn-first social feed in `/ops`
 - manual URL/text preview ingestion through `/api/workspace/ingest-signal`
@@ -98,6 +107,7 @@ Key operating docs:
 - `docs/linkedin_curation_workflow.md`
 - `docs/social_feed_architecture_plan.md`
 - `docs/social_intelligence_architecture.md`
+- `docs/source_expansion_implementation_plan.md`
 
 Verification entry points:
 - `../../SOPs/main_safety_release_sop.md`

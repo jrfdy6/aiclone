@@ -13,9 +13,10 @@ This is a thin child workspace under Neo.
 4. Read `docs/operating_model.md` when you need the full workflow.
 5. If the task touches the Workspace feed, source capture, or comment/repost generation, read `docs/social_feed_architecture_plan.md` before changing code.
 6. If the task touches source ingestion, lane interpretation, belief modeling, technique selection, or tuning, read `docs/social_intelligence_architecture.md` before changing code.
-7. If the task touches deploy safety, smoke tests, or main-only release flow, read `../../SOPs/main_safety_release_sop.md`, `scripts/verify_main.sh`, `scripts/verify_production.sh`, and `.githooks/pre-push` before changing code or pushing.
-8. Use the canonical parent persona files before inventing new voice or claims.
-9. Use the current split-lens taxonomy from `README.md` and `docs/social_feed_architecture_plan.md`; do not reintroduce merged labels such as `AI + Ops` or `Therapy / Referral`.
+7. If the task touches source-adapter expansion, transcript-derived signals, podcasts, YouTube, or belief capture from external sources, read `docs/source_expansion_implementation_plan.md` before changing code.
+8. If the task touches deploy safety, smoke tests, or main-only release flow, read `../../SOPs/main_safety_release_sop.md`, `scripts/verify_main.sh`, `scripts/verify_production.sh`, and `.githooks/pre-push` before changing code or pushing.
+9. Use the canonical parent persona files before inventing new voice or claims.
+10. Use the current split-lens taxonomy from `README.md` and `docs/social_feed_architecture_plan.md`; do not reintroduce merged labels such as `AI + Ops` or `Therapy / Referral`.
 
 ## Scope
 - LinkedIn strategy
