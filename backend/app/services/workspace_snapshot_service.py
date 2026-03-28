@@ -846,6 +846,42 @@ def _source_assets_signature(payload: dict[str, Any]) -> list[tuple[str, str, st
     return signature
 
 
+def _weekly_plan_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
+    recommendations = payload.get("recommendations") or []
+    media_post_seeds = payload.get("media_post_seeds") or []
+    belief_evidence_candidates = payload.get("belief_evidence_candidates") or []
+    source_counts = payload.get("source_counts") or {}
+    if not isinstance(recommendations, list):
+        recommendations = []
+    if not isinstance(media_post_seeds, list):
+        media_post_seeds = []
+    if not isinstance(belief_evidence_candidates, list):
+        belief_evidence_candidates = []
+    if not isinstance(source_counts, dict):
+        source_counts = {}
+
+    def _candidate_signature(items: list[Any]) -> tuple[tuple[str, str, str], ...]:
+        signature: list[tuple[str, str, str]] = []
+        for item in items[:12]:
+            if not isinstance(item, dict):
+                continue
+            signature.append(
+                (
+                    str(item.get("title") or ""),
+                    str(item.get("source_path") or ""),
+                    str(item.get("priority_lane") or ""),
+                )
+            )
+        return tuple(signature)
+
+    return (
+        tuple(sorted((str(key), int(value)) for key, value in source_counts.items() if isinstance(value, (int, float)))),
+        _candidate_signature(recommendations),
+        _candidate_signature(media_post_seeds),
+        _candidate_signature(belief_evidence_candidates),
+    )
+
+
 def _source_assets_count(payload: dict[str, Any] | None) -> int:
     if not isinstance(payload, dict):
         return 0
@@ -943,6 +979,17 @@ def _long_form_routes_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
 
 def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
     persisted = get_snapshot_payload(WORKSPACE_KEY, snapshot_type)
+    if snapshot_type == SNAPSHOT_WEEKLY_PLAN:
+        runtime = _runtime_snapshot_payload(snapshot_type)
+        if runtime:
+            if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
+            if _weekly_plan_signature(persisted) != _weekly_plan_signature(runtime):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
+            return runtime
+        if persisted and _snapshot_is_usable(snapshot_type, persisted):
+            return persisted
+        return None
     if snapshot_type == SNAPSHOT_SOCIAL_FEED:
         runtime = _runtime_snapshot_payload(snapshot_type)
         if runtime:

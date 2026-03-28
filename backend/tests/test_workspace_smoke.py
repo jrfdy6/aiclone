@@ -552,6 +552,58 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual((augmented.get("belief_evidence_candidates") or [{}])[0].get("source_kind"), "long_form_belief_evidence")
         self.assertEqual((augmented.get("media_summary") or {}).get("assets_considered"), 2)
 
+    def test_weekly_plan_snapshot_refreshes_when_runtime_media_routes_change(self) -> None:
+        persisted = {
+            "generated_at": "2026-03-28T00:00:00+00:00",
+            "workspace": "workspaces/linkedin-content-os",
+            "positioning_model": [],
+            "priority_lanes": [],
+            "recommendations": [],
+            "hold_items": [],
+            "market_signals": [],
+            "research_notes": [],
+            "source_counts": {"drafts": 1, "media": 0, "research": 0},
+        }
+        runtime = {
+            **persisted,
+            "source_counts": {"drafts": 1, "media": 1, "research": 0, "belief_evidence": 1},
+            "media_post_seeds": [
+                {
+                    "title": "Route source",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "priority_lane": "program-leadership",
+                }
+            ],
+            "belief_evidence_candidates": [
+                {
+                    "title": "Belief route",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "priority_lane": "ai",
+                }
+            ],
+        }
+
+        def fake_get_snapshot_payload(workspace_key: str, snapshot_type: str):
+            if snapshot_type == workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN:
+                return persisted
+            return None
+
+        def fake_runtime_snapshot(snapshot_type: str):
+            if snapshot_type == workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN:
+                return runtime
+            return None
+
+        with patch.object(workspace_snapshot_module, "get_snapshot_payload", fake_get_snapshot_payload), patch.object(
+            workspace_snapshot_module,
+            "_runtime_snapshot_payload",
+            side_effect=fake_runtime_snapshot,
+        ), patch.object(workspace_snapshot_module, "upsert_snapshot"):
+            payload = workspace_snapshot_module._load_snapshot(workspace_snapshot_module.SNAPSHOT_WEEKLY_PLAN)
+
+        self.assertEqual(payload.get("source_counts", {}).get("media"), 1)
+        self.assertEqual(len(payload.get("media_post_seeds") or []), 1)
+        self.assertEqual(len(payload.get("belief_evidence_candidates") or []), 1)
+
     def test_workspace_snapshot_keeps_nonempty_persisted_source_assets_when_runtime_inventory_is_empty(self) -> None:
         persisted = {
             "generated_at": "2026-03-28T00:00:00+00:00",
