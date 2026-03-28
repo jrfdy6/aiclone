@@ -63,6 +63,11 @@ That means the same transcript/media asset can inform:
 - Brain persona review
 - social feed routing
 
+Current runtime status:
+- `/ops` already shows the shared source-intelligence and routing view
+- `weekly_plan` already exposes live `post_seed` / `belief_evidence` media overlays
+- Brain daily briefs now read that same live source-intelligence overlay instead of a separate brief-only inference path
+
 The goal is not to build a second transcript stack inside the LinkedIn workspace. The goal is to reuse the parent transcript/ingestion surfaces and route the resulting signal into the right job.
 
 The next source-expansion phase should also support:

@@ -206,11 +206,14 @@
 
 ### LNK-031 - Extend `/ops` and planning with source-class intelligence
 - Outcome: make the dashboard and planner show source-class health, segment yield, response-mode mix, belief-evidence queues, and post-seed queues so source expansion remains observable.
+- Status: first planner/brief slice is now live. `/ops` already exposes source-class and route intelligence from the shared workspace snapshot, the weekly-plan payload now carries live `media_post_seeds` / `belief_evidence_candidates`, and the Brain daily-brief surface now attaches the same live source-intelligence overlay through `backend/app/services/daily_brief_service.py` and `frontend/app/brain/BrainClient.tsx`. The live brief overlay now matches the planner contract on production for `generated_at`, `source_counts`, route mix, and belief-relation counts instead of reading a stale planner subset.
 - Benchmark gate: `/ops` and planner surfaces expose the new source-class and response-mode rollups, and those rollups are testable through immediate, deterministic rebuild, and full refresh production checks.
 - Source files:
   - `docs/source_expansion_implementation_plan.md`
   - `frontend/app/ops/OpsClient.tsx`
   - `backend/app/services/workspace_snapshot_service.py`
+  - `backend/app/services/daily_brief_service.py`
+  - `frontend/app/brain/BrainClient.tsx`
   - planner outputs under `plans/`
 
 ### LNK-032 - Formalize the shared Workspace / Brain persona-review contract

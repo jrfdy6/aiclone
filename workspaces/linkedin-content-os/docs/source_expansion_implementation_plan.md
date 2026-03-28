@@ -738,7 +738,15 @@ Benchmark goal:
   - feed-ready signals
   - post seeds
   - belief evidence
+- the Brain daily-brief surface can read the same live source-intelligence overlay as the planner, including route counts, belief-relation counts, and top `post_seed` / `belief_evidence` candidates
 - benchmark comparisons can be made from one deploy to the next without reconstructing the sample manually
+
+Current production note (`2026-03-28`):
+- this phase is now partially live end to end
+- `/ops` exposes the route/source-class intelligence
+- the weekly-plan payload now returns the routed media overlay with fresh planner timestamps
+- `/api/briefs` and the Brain daily-brief panel now read the same live source-intelligence overlay instead of a brief-only inference path
+- the next follow-on is deeper brief/planner consumption, not another source stack
 
 Production validation timing:
 - immediate validation
