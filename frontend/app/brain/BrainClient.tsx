@@ -460,18 +460,7 @@ export default function BrainClient({
         />
       )}
       {activeTab === 'automations' && (
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <BrainControlPlanePanel
-            briefCount={briefs.length}
-            docCount={mergedDocs.length}
-            automationCount={automations.length}
-            telemetry={telemetry}
-            workspaceSnapshot={workspaceSnapshot}
-            workspaceSnapshotError={workspaceSnapshotError}
-          />
-          <CaptureTelemetryPanel metrics={telemetry} health={telemetryHealth} error={telemetryError} />
-          <AutomationsPanel automations={automations} error={automationsError} controlPlane={controlPlane} />
-        </section>
+        <AutomationsPanel automations={automations} error={automationsError} controlPlane={controlPlane} />
       )}
       {activeTab === 'docs' && <DocsPanel docs={mergedDocs} />}
     </RuntimePage>
@@ -780,8 +769,8 @@ function DailyBriefsPanel({
 }) {
   const selectedSourceIntelligence = selected ? briefSourceIntelligence(selected) : null;
   return (
-    <section style={{ display: 'flex', gap: '16px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '460px' }}>
-      <div style={{ width: '260px', borderRight: '1px solid #0f172a', paddingRight: '12px', maxHeight: '420px', overflowY: 'auto' }}>
+    <section style={{ display: 'flex', gap: '18px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '520px' }}>
+      <div style={{ width: '280px', borderRight: '1px solid #0f172a', paddingRight: '14px', maxHeight: '480px', overflowY: 'auto' }}>
         {error && <p style={{ color: '#f87171' }}>{error}</p>}
         {!error && briefs.length === 0 && <p style={{ color: '#475569' }}>No daily briefs saved yet.</p>}
         {briefs.map((entry) => (
@@ -805,12 +794,14 @@ function DailyBriefsPanel({
           </button>
         ))}
       </div>
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         {selected ? (
-          <div>
+          <div style={{ display: 'grid', gap: '14px' }}>
             <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{selected.brief_date}</p>
-            <h2 style={{ color: 'white', fontSize: '24px', marginBottom: '8px' }}>{selected.title}</h2>
-            {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>}
+            <div>
+              <h2 style={{ color: 'white', fontSize: '26px', marginBottom: '8px' }}>{selected.title}</h2>
+              {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>}
+            </div>
             {selectedSourceIntelligence && <BriefSourceIntelligencePanel overlay={selectedSourceIntelligence} />}
             <div
               style={{
@@ -824,6 +815,7 @@ function DailyBriefsPanel({
                 whiteSpace: 'pre-wrap',
               }}
             >
+              <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 10px' }}>Saved Brief</p>
               {selected.content_markdown}
             </div>
           </div>
@@ -873,6 +865,24 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
         <InlineBadge label={`assets ${numberMeta(assetCounts.total)}`} tone="#818cf8" />
         <InlineBadge label={`segments ${numberMeta(routeCounts.post_seed)}/${numberMeta(routeCounts.belief_evidence)}`} tone="#f59e0b" />
         <InlineBadge label={`relations ${Object.keys(relationCounts).length}`} tone="#64748b" />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+        <PriorityFocusCard
+          title="What deserves a post"
+          description={mediaSeeds[0] ? compactBriefCandidate(mediaSeeds[0]) : 'No strong media-derived post seed has surfaced yet.'}
+          tone="#38bdf8"
+        />
+        <PriorityFocusCard
+          title="What shapes worldview"
+          description={beliefEvidence[0] ? compactBriefCandidate(beliefEvidence[0]) : 'No strong belief-evidence candidate is visible right now.'}
+          tone="#22c55e"
+        />
+        <PriorityFocusCard
+          title="What needs judgment"
+          description={reviewItems[0] ? compactReviewItem(reviewItems[0]) : 'No worldview review item is at the top of the queue right now.'}
+          tone="#818cf8"
+        />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
@@ -938,6 +948,15 @@ function BriefOverlayBlock({ title, items, emptyLabel }: { title: string; items:
   );
 }
 
+function PriorityFocusCard({ title, description, tone }: { title: string; description: string; tone: string }) {
+  return (
+    <div style={{ borderRadius: '12px', border: `1px solid ${tone}33`, backgroundColor: `${tone}10`, padding: '12px' }}>
+      <p style={{ color: tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>{title}</p>
+      <p style={{ color: '#dbe7ff', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{description}</p>
+    </div>
+  );
+}
+
 function PersonaPanel({
   packs,
   deltas,
@@ -953,6 +972,7 @@ function PersonaPanel({
 }) {
   const [completedDeltaIds, setCompletedDeltaIds] = useState<string[]>([]);
   const [showMutedActive, setShowMutedActive] = useState(false);
+  const [lifecycleView, setLifecycleView] = useState<'pending_promotion' | 'workspace_saved' | 'committed' | 'resolved'>('pending_promotion');
   const visibleDeltas = useMemo(() => deltas.filter((delta) => !completedDeltaIds.includes(delta.id)), [completedDeltaIds, deltas]);
   const activeReviewDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'brain_pending_review'), [visibleDeltas]);
   const workspaceSavedDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'workspace_saved'), [visibleDeltas]);
@@ -1046,7 +1066,7 @@ function PersonaPanel({
         title: 'Workspace Saved',
         description: 'Approved from Workspace and already saved. No second approval needed here.',
         count: workspaceSavedDeltas.length,
-        items: workspaceSavedDeltas.slice(0, 5),
+        items: workspaceSavedDeltas,
         tone: '#22c55e',
       },
       {
@@ -1054,7 +1074,7 @@ function PersonaPanel({
         title: 'Queued For Promotion',
         description: 'Reviewed in Brain and holding selected canonical items for later promotion.',
         count: pendingPromotionDeltas.length,
-        items: pendingPromotionDeltas.slice(0, 5),
+        items: pendingPromotionDeltas,
         tone: '#38bdf8',
       },
       {
@@ -1062,7 +1082,7 @@ function PersonaPanel({
         title: 'Committed',
         description: 'Already written into canonical persona files.',
         count: committedDeltas.length,
-        items: committedDeltas.slice(0, 5),
+        items: committedDeltas,
         tone: '#818cf8',
       },
       {
@@ -1070,11 +1090,15 @@ function PersonaPanel({
         title: 'Resolved / Replaced',
         description: 'Historical items that were handled, superseded, or intentionally cleared.',
         count: resolvedHistoryDeltas.length,
-        items: resolvedHistoryDeltas.slice(0, 5),
+        items: resolvedHistoryDeltas,
         tone: '#64748b',
       },
     ],
     [committedDeltas, pendingPromotionDeltas, resolvedHistoryDeltas, workspaceSavedDeltas],
+  );
+  const activeLifecycleGroup = useMemo(
+    () => lifecycleGroups.find((group) => group.key === lifecycleView) ?? lifecycleGroups[0],
+    [lifecycleGroups, lifecycleView],
   );
 
   useEffect(() => {
@@ -1295,88 +1319,85 @@ function PersonaPanel({
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <ReviewMetaChip label="Active" value={String(totalPendingCount)} tone="#38bdf8" />
-          <ReviewMetaChip label="Primary" value={String(pendingCount)} tone="#0ea5e9" />
-          <ReviewMetaChip label="Muted" value={String(mutedCount)} tone="#64748b" />
           <ReviewMetaChip label="Promotion Ready" value={String(promotionReadyCount)} tone="#f59e0b" />
-          <ReviewMetaChip label="Workspace Saved" value={String(workspaceSavedDeltas.length)} tone="#22c55e" />
           <ReviewMetaChip label="Queued" value={String(pendingPromotionDeltas.length)} tone="#f59e0b" />
-          <ReviewMetaChip label="Committed" value={String(committedDeltas.length)} tone="#818cf8" />
-          <ReviewMetaChip label="History" value={String(resolvedHistoryDeltas.length)} tone="#64748b" />
+          <ReviewMetaChip label="History" value={String(resolvedHistoryDeltas.length + workspaceSavedDeltas.length + committedDeltas.length)} tone="#64748b" />
         </div>
 
-        {primaryActiveReviewDeltas.length > 0 && mutedActiveReviewDeltas.length > 0 && (
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: '12px',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              padding: '12px 14px',
-              borderRadius: '14px',
-              border: '1px solid #1f2937',
-              backgroundColor: '#020617',
-            }}
-          >
-            <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-              Lower-confidence long-form items are muted by default so the active queue stays focused on the strongest review work first.
-            </p>
-            <button
-              onClick={() => setShowMutedActive((current) => !current)}
-              style={{
-                borderRadius: '999px',
-                border: '1px solid #334155',
-                backgroundColor: showMutedActive ? '#0f172a' : '#020617',
-                color: '#cbd5f5',
-                padding: '8px 12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              {showMutedActive ? `Hide muted (${mutedCount})` : `Show muted (${mutedCount})`}
-            </button>
-          </div>
-        )}
-
-        {reviewQueue.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
-            {visibleActiveReviewDeltas.map(({ delta, muted, promotionReady, promotionCandidateCount, score }) => {
-              const isActive = delta.id === (selectedDelta?.id ?? '');
-              return (
-                <button
-                  key={delta.id}
-                  onClick={() => setSelectedDeltaId(delta.id)}
+        {selectedDelta ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: '14px', minHeight: 0 }}>
+            <aside style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr)', gap: '12px', minHeight: 0 }}>
+              <div>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Review now</p>
+                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                  Focus on the strongest unresolved items first. Muted long-form fragments stay out of the way unless you choose to inspect them.
+                </p>
+              </div>
+              {primaryActiveReviewDeltas.length > 0 && mutedActiveReviewDeltas.length > 0 && (
+                <div
                   style={{
-                    textAlign: 'left',
-                    borderRadius: '14px',
-                    border: `1px solid ${isActive ? '#38bdf8' : '#1f2937'}`,
-                    backgroundColor: isActive ? '#082f49' : '#020617',
-                    padding: '12px',
-                    cursor: 'pointer',
+                    display: 'grid',
+                    gap: '8px',
+                    padding: '10px 12px',
+                    borderRadius: '12px',
+                    border: '1px solid #1f2937',
+                    backgroundColor: '#010617',
                   }}
                 >
-                  <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>{truncateText(delta.trait, 120)}</p>
-                  <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                    <InlineBadge label={humanizeReviewSource(metadataText(delta.metadata, 'review_source'))} tone="#64748b" />
-                    <InlineBadge label={humanizeBeliefRelation(metadataText(delta.metadata, 'belief_relation'))} tone="#22c55e" />
-                    <InlineBadge label={`score ${score}`} tone={muted ? '#64748b' : '#38bdf8'} />
-                    <InlineBadge label={`${promotionCandidateCount} promo`} tone={promotionCandidateCount > 0 ? '#818cf8' : '#64748b'} />
-                    {promotionReady && <InlineBadge label="promotion-ready" tone="#f59e0b" />}
-                    {muted && <InlineBadge label="muted" tone="#64748b" />}
-                  </div>
-                  <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    {formatTimestamp(new Date(delta.created_at))}
+                  <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                    {mutedCount} lower-confidence long-form item{mutedCount === 1 ? '' : 's'} muted by default.
                   </p>
-                </button>
-              );
-            })}
-          </div>
-        )}
+                  <button
+                    onClick={() => setShowMutedActive((current) => !current)}
+                    style={{
+                      borderRadius: '999px',
+                      border: '1px solid #334155',
+                      backgroundColor: showMutedActive ? '#0f172a' : '#020617',
+                      color: '#cbd5f5',
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      justifySelf: 'start',
+                    }}
+                  >
+                    {showMutedActive ? `Hide muted (${mutedCount})` : `Show muted (${mutedCount})`}
+                  </button>
+                </div>
+              )}
+              <div style={{ minHeight: 0, overflowY: 'auto', display: 'grid', gap: '10px', paddingRight: '2px' }}>
+                {visibleActiveReviewDeltas.map(({ delta, muted, promotionReady }) => {
+                  const isActive = delta.id === (selectedDelta?.id ?? '');
+                  return (
+                    <button
+                      key={delta.id}
+                      onClick={() => setSelectedDeltaId(delta.id)}
+                      style={{
+                        textAlign: 'left',
+                        borderRadius: '14px',
+                        border: `1px solid ${isActive ? '#38bdf8' : '#1f2937'}`,
+                        backgroundColor: isActive ? '#082f49' : '#020617',
+                        padding: '12px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>{truncateText(delta.trait, 110)}</p>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                        <InlineBadge label={humanizeBeliefRelation(metadataText(delta.metadata, 'belief_relation'))} tone="#22c55e" />
+                        {promotionReady && <InlineBadge label="promotion-ready" tone="#f59e0b" />}
+                        {muted && <InlineBadge label="muted" tone="#64748b" />}
+                      </div>
+                      <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                        {formatTimestamp(new Date(delta.created_at))}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </aside>
 
-        {selectedDelta ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(320px, 0.92fr)', gap: '14px', minHeight: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(320px, 0.92fr)', gap: '14px', minHeight: 0 }}>
             <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gridTemplateRows: 'auto auto minmax(0, 1fr)', gap: '12px', minHeight: 0 }}>
               <div>
                 <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Why I am showing this</p>
@@ -1490,6 +1511,19 @@ function PersonaPanel({
             </section>
 
             <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto', gap: '12px', minHeight: 0 }}>
+              <div
+                style={{
+                  borderRadius: '12px',
+                  border: '1px solid #1f2937',
+                  backgroundColor: '#010617',
+                  padding: '12px',
+                }}
+              >
+                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Next step</p>
+                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
+                  Save your judgment first. If the source has canonical-worthy fragments, then queue those exact fragments for promotion. Committing to canon only happens later from the queued lane.
+                </p>
+              </div>
               <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6 }}>
                 {selectableItems.length > 0
                   ? `${reviewAsk} Select the canonical-worthy pieces below, then queue them for promotion when your wording is ready.`
@@ -1597,6 +1631,7 @@ function PersonaPanel({
                 </div>
               </div>
             </section>
+            </div>
           </div>
         ) : (
           <div
@@ -1631,7 +1666,7 @@ function PersonaPanel({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
             <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Persona Lifecycle</p>
-            <h3 style={{ color: 'white', fontSize: '22px', margin: '4px 0 8px' }}>Saved and historical items</h3>
+            <h3 style={{ color: 'white', fontSize: '22px', margin: '4px 0 8px' }}>Saved, queued, and historical items</h3>
             <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 }}>
               Active review stays above. Everything below is already saved, queued, committed, or resolved so you can audit state without confusing it with the work that still needs judgment.
             </p>
@@ -1643,47 +1678,67 @@ function PersonaPanel({
         {promotionState.message && (
           <p style={{ color: promotionState.tone === 'success' ? '#22c55e' : '#f87171', fontSize: '12px' }}>{promotionState.message}</p>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-          {lifecycleGroups.map((group) => (
-            <div key={group.key} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '10px' }}>
-              <div>
-                <p style={{ color: group.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{group.title}</p>
-                <p style={{ color: '#e2e8f0', fontSize: '28px', fontWeight: 700, margin: '4px 0 6px' }}>{group.count}</p>
-                <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.55 }}>{group.description}</p>
-              </div>
-              <div style={{ display: 'grid', gap: '8px' }}>
-                {group.items.length === 0 ? (
-                  <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this state right now.</p>
-                ) : (
-                  group.items.map((item) => (
-                    <div key={item.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '10px', backgroundColor: '#0b1220' }}>
-                      <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, marginBottom: '6px' }}>{truncateText(item.trait, 110)}</p>
-                      {metadataText(item.metadata, 'owner_response_excerpt') && (
-                        <div style={{ marginBottom: '8px' }}>
-                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                            {metadataText(item.metadata, 'owner_response_kind') && (
-                              <InlineBadge label={humanizeSavedResponseKind(metadataText(item.metadata, 'owner_response_kind') ?? '')} tone="#818cf8" />
-                            )}
-                            {metadataText(item.metadata, 'belief_relation') && (
-                              <InlineBadge label={humanizeBeliefRelation(metadataText(item.metadata, 'belief_relation'))} tone="#22c55e" />
-                            )}
-                          </div>
-                          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
-                            {truncateText(metadataText(item.metadata, 'owner_response_excerpt') ?? '', 140)}
-                          </p>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {lifecycleGroups.map((group) => {
+            const active = lifecycleView === group.key;
+            return (
+              <button
+                key={group.key}
+                onClick={() => setLifecycleView(group.key as 'pending_promotion' | 'workspace_saved' | 'committed' | 'resolved')}
+                style={{
+                  borderRadius: '999px',
+                  border: `1px solid ${active ? `${group.tone}88` : '#1f2937'}`,
+                  backgroundColor: active ? `${group.tone}18` : '#020617',
+                  color: active ? '#f8fafc' : '#94a3b8',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {group.title} · {group.count}
+              </button>
+            );
+          })}
+        </div>
+        {activeLifecycleGroup && (
+          <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '10px' }}>
+            <div>
+              <p style={{ color: activeLifecycleGroup.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{activeLifecycleGroup.title}</p>
+              <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.55 }}>{activeLifecycleGroup.description}</p>
+            </div>
+            <div style={{ display: 'grid', gap: '8px' }}>
+              {activeLifecycleGroup.items.length === 0 ? (
+                <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this state right now.</p>
+              ) : (
+                activeLifecycleGroup.items.slice(0, 12).map((item) => (
+                  <div key={item.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '10px', backgroundColor: '#0b1220' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '6px' }}>
+                      <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{truncateText(item.trait, 140)}</p>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
+                    </div>
+                    {metadataText(item.metadata, 'owner_response_excerpt') && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                          {metadataText(item.metadata, 'owner_response_kind') && (
+                            <InlineBadge label={humanizeSavedResponseKind(metadataText(item.metadata, 'owner_response_kind') ?? '')} tone="#818cf8" />
+                          )}
+                          {metadataText(item.metadata, 'belief_relation') && (
+                            <InlineBadge label={humanizeBeliefRelation(metadataText(item.metadata, 'belief_relation'))} tone="#22c55e" />
+                          )}
                         </div>
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={{ color: '#64748b', fontSize: '11px' }}>{humanizeReviewSource(metadataText(item.metadata, 'review_source'))}</span>
-                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                          {truncateText(metadataText(item.metadata, 'owner_response_excerpt') ?? '', 180)}
+                        </p>
                       </div>
-                      {group.key === 'pending_promotion' && (
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ color: '#64748b', fontSize: '11px' }}>{humanizeReviewSource(metadataText(item.metadata, 'review_source'))}</span>
+                      {activeLifecycleGroup.key === 'pending_promotion' && (
                         <button
                           onClick={() => void commitPromotion(item)}
                           disabled={promotingDeltaId === item.id}
                           style={{
-                            marginTop: '10px',
-                            width: '100%',
                             borderRadius: '10px',
                             border: '1px solid #818cf8',
                             backgroundColor: promotingDeltaId === item.id ? '#312e81' : '#1e1b4b',
@@ -1698,12 +1753,12 @@ function PersonaPanel({
                         </button>
                       )}
                     </div>
-                  ))
-                )}
-              </div>
+                  </div>
+                ))
+              )}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </section>
     </section>
   );
@@ -1879,11 +1934,11 @@ function AutomationsPanel({
   const hasRows = automations.length > 0;
   const summary = controlPlane?.summary ?? null;
   return (
-    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', display: 'grid', gap: '14px' }}>
       <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Automations</p>
-          <p style={{ color: '#64748b', fontSize: '13px' }}>Same manifest and telemetry contract that power the Brain dashboard.</p>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>Use this tab as the operational surface: which jobs exist, when they ran, and whether the system is healthy enough to trust them.</p>
         </div>
         {summary && (
           <p style={{ color: '#94a3b8', fontSize: '12px' }}>
@@ -1891,6 +1946,14 @@ function AutomationsPanel({
           </p>
         )}
       </div>
+      {summary && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+          <TelemetryMeta label="Active Jobs" value={String(summary.active_automation_count ?? automations.length)} detail="Currently visible automation contracts" />
+          <TelemetryMeta label="Captures" value={String(summary.capture_count ?? 0)} detail="Open Brain capture total" />
+          <TelemetryMeta label="Pending Review" value={String(summary.pending_review_count ?? 0)} detail="Brain persona queue" />
+          <TelemetryMeta label="Source Assets" value={String(summary.source_asset_count ?? 0)} detail="Shared long-form source inventory" />
+        </div>
+      )}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -1926,9 +1989,22 @@ function AutomationsPanel({
 }
 
 function DocsPanel({ docs }: { docs: DocEntry[] }) {
+  const [docQuery, setDocQuery] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState('all');
+  const [recentDocPaths, setRecentDocPaths] = useState<string[]>([]);
+  const filteredDocs = useMemo(() => {
+    const query = docQuery.trim().toLowerCase();
+    return docs.filter((doc) => {
+      const group = doc.group ?? inferDocGroup(doc.path);
+      const matchesGroup = selectedGroup === 'all' || group === selectedGroup;
+      const haystack = `${doc.name}\n${doc.path}\n${doc.snippet}\n${doc.content ?? ''}`.toLowerCase();
+      const matchesQuery = query.length === 0 || haystack.includes(query);
+      return matchesGroup && matchesQuery;
+    });
+  }, [docQuery, docs, selectedGroup]);
   const groupedDocs = useMemo(() => {
     const groups = new Map<string, DocEntry[]>();
-    for (const doc of docs) {
+    for (const doc of filteredDocs) {
       const key = doc.group ?? inferDocGroup(doc.path);
       const current = groups.get(key) ?? [];
       current.push(doc);
@@ -1938,22 +2014,87 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
       group,
       items: items.sort((left, right) => left.name.localeCompare(right.name)),
     }));
-  }, [docs]);
+  }, [filteredDocs]);
+  const allGroups = useMemo(() => Array.from(new Set(docs.map((doc) => doc.group ?? inferDocGroup(doc.path)))).sort(), [docs]);
   const [selectedDocPath, setSelectedDocPath] = useState<string>(docs[0]?.path ?? '');
   const selectedDoc = useMemo(
     () => groupedDocs.flatMap((entry) => entry.items).find((doc) => doc.path === selectedDocPath) ?? groupedDocs[0]?.items[0] ?? null,
     [groupedDocs, selectedDocPath],
   );
+  const recentDocs = useMemo(
+    () => recentDocPaths.map((path) => docs.find((doc) => doc.path === path)).filter((doc): doc is DocEntry => Boolean(doc)),
+    [docs, recentDocPaths],
+  );
+
+  useEffect(() => {
+    if (selectedDoc) {
+      return;
+    }
+    if (groupedDocs[0]?.items[0]) {
+      setSelectedDocPath(groupedDocs[0].items[0].path);
+    }
+  }, [groupedDocs, selectedDoc]);
 
   return (
-    <section style={{ display: 'flex', gap: '16px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '520px' }}>
-      <div style={{ width: '320px', borderRight: '1px solid #0f172a', paddingRight: '12px', maxHeight: '480px', overflowY: 'auto' }}>
+    <section style={{ display: 'flex', gap: '18px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '560px' }}>
+      <div style={{ width: '320px', borderRight: '1px solid #0f172a', paddingRight: '12px', maxHeight: '520px', overflowY: 'auto' }}>
         <div style={{ marginBottom: '12px' }}>
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Knowledge Docs</p>
           <p style={{ color: '#64748b', fontSize: '13px' }}>
             Brain is the canonical reading surface for operating docs, knowledge docs, persona files, and reference material.
           </p>
         </div>
+        <div style={{ display: 'grid', gap: '10px', marginBottom: '14px' }}>
+          <input
+            value={docQuery}
+            onChange={(event) => setDocQuery(event.target.value)}
+            placeholder="Search docs, paths, or content"
+            style={brainInputStyle}
+          />
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setSelectedGroup('all')}
+              style={docsFilterButtonStyle(selectedGroup === 'all')}
+            >
+              All
+            </button>
+            {allGroups.map((group) => (
+              <button
+                key={group}
+                onClick={() => setSelectedGroup(group)}
+                style={docsFilterButtonStyle(selectedGroup === group)}
+              >
+                {group}
+              </button>
+            ))}
+          </div>
+        </div>
+        {recentDocs.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Recently viewed</p>
+            <div style={{ display: 'grid', gap: '8px' }}>
+              {recentDocs.slice(0, 3).map((doc) => (
+                <button
+                  key={`recent-${doc.path}`}
+                  onClick={() => setSelectedDocPath(doc.path)}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '10px',
+                    borderRadius: '12px',
+                    border: '1px solid #1f2937',
+                    backgroundColor: '#020617',
+                    color: 'white',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <p style={{ fontSize: '13px', fontWeight: 600 }}>{doc.name}</p>
+                  <p style={{ fontSize: '12px', color: '#94a3b8', lineHeight: 1.45 }}>{truncateText(doc.snippet, 90)}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {groupedDocs.length === 0 && <p style={{ color: '#475569' }}>No documentation found.</p>}
         {groupedDocs.map((group) => (
           <div key={group.group} style={{ marginBottom: '16px' }}>
@@ -1964,7 +2105,10 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
                 return (
                   <button
                     key={doc.path}
-                    onClick={() => setSelectedDocPath(doc.path)}
+                    onClick={() => {
+                      setSelectedDocPath(doc.path);
+                      setRecentDocPaths((current) => [doc.path, ...current.filter((entry) => entry !== doc.path)].slice(0, 5));
+                    }}
                     style={{
                       width: '100%',
                       textAlign: 'left',
@@ -2006,7 +2150,7 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
                 fontSize: '14px',
                 lineHeight: 1.6,
                 whiteSpace: 'pre-wrap',
-                maxHeight: '440px',
+                maxHeight: '500px',
                 overflowY: 'auto',
               }}
             >
@@ -2037,6 +2181,19 @@ function statusBadge(status?: string) {
       {status ?? 'unknown'}
     </span>
   );
+}
+
+function docsFilterButtonStyle(active: boolean): CSSProperties {
+  return {
+    borderRadius: '999px',
+    border: active ? '1px solid #38bdf8' : '1px solid #1f2937',
+    backgroundColor: active ? '#082f49' : '#020617',
+    color: active ? '#f8fafc' : '#94a3b8',
+    padding: '7px 11px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
 }
 
 function metadataText(metadata: Record<string, unknown> | undefined, key: string) {
@@ -2366,6 +2523,12 @@ function compactBriefCandidate(item: BriefSourceIntelligenceCandidate) {
   const title = item.title?.trim() || 'Untitled candidate';
   const parts = [item.priority_lane?.trim(), item.target_file?.trim(), item.route_reason?.trim()].filter(Boolean);
   return parts.length > 0 ? `${title} · ${parts.join(' · ')}` : title;
+}
+
+function compactReviewItem(item: BriefSourceIntelligenceReviewItem) {
+  const trait = item.trait?.trim() || 'Untitled review item';
+  const parts = [item.belief_relation ? humanizeBeliefRelation(item.belief_relation) : null, humanizeReviewSource(item.review_source ?? null)].filter(Boolean);
+  return parts.length > 0 ? `${trait} · ${parts.join(' · ')}` : trait;
 }
 
 function truncateText(text: string, limit: number) {

@@ -54,7 +54,7 @@ export function RuntimePage({
         minHeight: '100vh',
         background: 'radial-gradient(circle at top, rgba(24, 32, 54, 0.92), #040816 48%, #020611 100%)',
         color: 'white',
-        paddingBottom: '136px',
+        paddingBottom: '112px',
       }}
     >
       <div
@@ -148,16 +148,17 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
   }, []);
 
   return (
-    <div style={{ position: 'fixed', bottom: '24px', left: 0, right: 0, zIndex: 50, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+    <div style={{ position: 'fixed', bottom: '14px', left: 0, right: 0, zIndex: 50, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
       <div
         style={{
           display: 'flex',
-          gap: '8px',
-          padding: '10px',
-          background: 'rgba(8, 13, 28, 0.92)',
-          border: '1px solid rgba(148, 163, 184, 0.18)',
-          borderRadius: '20px',
-          boxShadow: '0 24px 60px rgba(0, 0, 0, 0.45)',
+          gap: '6px',
+          padding: '8px',
+          background: 'rgba(8, 13, 28, 0.82)',
+          border: '1px solid rgba(148, 163, 184, 0.14)',
+          borderRadius: '18px',
+          boxShadow: '0 18px 44px rgba(0, 0, 0, 0.34)',
+          backdropFilter: 'blur(16px)',
           pointerEvents: 'auto',
         }}
       >
@@ -190,14 +191,14 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
 
 function dockButtonStyle(active: boolean, tone: string): CSSProperties {
   return {
-    minWidth: '84px',
+    minWidth: '0',
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '6px',
-    padding: '10px 12px',
-    borderRadius: '14px',
+    gap: '8px',
+    padding: '9px 12px',
+    borderRadius: '12px',
     textDecoration: 'none',
     color: active ? 'white' : '#94a3b8',
     border: active ? `1px solid ${tone}` : '1px solid transparent',
