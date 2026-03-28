@@ -34,13 +34,14 @@ export default async function BrainPage() {
 
 async function loadBrainInitialState(): Promise<BrainInitialState> {
   const apiUrl = getApiUrl();
+  const requestTs = Date.now();
   const [briefsRes, personaRes, automationsRes, telemetryRes, healthRes, snapshotRes] = await Promise.allSettled([
-    fetch(`${apiUrl}/api/briefs/?limit=50`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/persona/deltas?limit=100&view=brain_queue`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/automations/`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/analytics/open-brain`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/open-brain/health`, { cache: 'no-store' }).then((res) => res.json()),
-    fetch(`${apiUrl}/api/workspace/linkedin-os-snapshot`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/briefs/?limit=50&brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/persona/deltas?limit=100&view=brain_queue&brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/automations/?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/analytics/open-brain?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/open-brain/health?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
+    fetch(`${apiUrl}/api/workspace/linkedin-os-snapshot?brain_bootstrap_ts=${requestTs}`, { cache: 'no-store' }).then((res) => res.json()),
   ]);
 
   return {
