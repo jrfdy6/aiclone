@@ -47,6 +47,15 @@ FORBIDDEN_PHRASES = [
     "from an ai and ops lens",
 ]
 
+GENERIC_SOURCE_PHRASES = [
+    "this is important",
+    "in today's world",
+    "leverage",
+    "game changer",
+    "synergy",
+    "more than ever",
+]
+
 PREFERRED_REPLACEMENTS = {
     "agreed.": "That part matters.",
     "completely agree.": "This is the part a lot of teams miss.",
@@ -169,6 +178,13 @@ def normalize_lane(value: str | None) -> str:
     lowered = normalize_inline_text(value).lower()
     normalized = LANE_ALIASES.get(lowered, lowered.replace("_", "-").replace(" ", "-"))
     return normalized if normalized in LENS_IDS else "current-role"
+
+
+def contains_generic_phrase(text: str | None) -> bool:
+    lowered = normalize_inline_text(text).lower()
+    if not lowered:
+        return False
+    return any(phrase in lowered for phrase in GENERIC_SOURCE_PHRASES)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -379,19 +395,19 @@ def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, 
     supporting_line = ""
     for candidate in standout:
         cleaned = clean_sentence(candidate)
-        if cleaned and cleaned.lower() != core_line.lower():
+        if cleaned and cleaned.lower() != core_line.lower() and not contains_generic_phrase(cleaned):
             supporting_line = cleaned
             break
     if not supporting_line:
         supporting = signal.get("supporting_claims") or []
         for candidate in supporting:
             cleaned = clean_sentence(candidate)
-            if cleaned and cleaned.lower() != core_line.lower():
+            if cleaned and cleaned.lower() != core_line.lower() and not contains_generic_phrase(cleaned):
                 supporting_line = cleaned
                 break
     if not supporting_line:
         summary = clean_sentence(signal.get("summary"))
-        if summary and summary.lower() != core_line.lower():
+        if summary and summary.lower() != core_line.lower() and not contains_generic_phrase(summary):
             supporting_line = summary
     belief_context = social_belief_engine.assess_signal(signal, lane_id)
     return {

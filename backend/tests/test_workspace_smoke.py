@@ -212,6 +212,28 @@ class WorkspaceSmokeTests(unittest.TestCase):
         self.assertTrue(any(term in therapy_comment for term in ["attuned", "container", "emotional", "regulated"]))
         self.assertTrue(any(term in referral_comment for term in ["referral", "handoff", "partner", "confidence"]))
 
+    def test_generic_source_phrase_is_not_blindly_echoed_into_current_role_comment(self) -> None:
+        response = self.client.post(
+            "/api/workspace/ingest-signal",
+            json={
+                "text": (
+                    "I’ve been reflecting on the role of AI in education and its rapid advancement.\n\n"
+                    "The real challenge in the classroom isn’t motivating students to use AI, it’s helping them learn to use it well.\n\n"
+                    "AI is a tool, not a substitute for judgment, skepticism, or foundational knowledge. You can’t prompt your way through what you don’t understand.\n\n"
+                    "Whether it’s analyzing financial statements, applying accounting standards, preparing for the CPA exam, or navigating future careers, core knowledge still matters. In fact, it matters more than ever."
+                ),
+                "priority_lane": "current-role",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        current_role = ((payload.get("preview_item") or {}).get("lens_variants") or {}).get("current-role") or {}
+        comment = current_role.get("comment", "").lower()
+        warnings = ((current_role.get("evaluation") or {}).get("warnings") or [])
+
+        self.assertNotIn("more than ever", comment)
+        self.assertNotIn("copy still contains generic language", warnings)
+
 
 if __name__ == "__main__":
     unittest.main()
