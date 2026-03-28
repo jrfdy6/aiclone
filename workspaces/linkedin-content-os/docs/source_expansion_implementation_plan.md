@@ -607,6 +607,7 @@ Current runtime state:
 - the persisted workspace snapshot now exposes `long_form_routes`
 - `/ops` now shows route counts, primary-route mix, channels, and top routed long-form candidates
 - `social_persona_review_service.py` now consumes the shared long-form candidate set for `belief_evidence` instead of maintaining a separate transcript parsing path
+- the weekly-plan snapshot now reuses the shared long-form route set for planner-visible `media_post_seeds` and `belief_evidence_candidates` instead of treating media planning as a separate inference path
 - long-form routing is still upstream-oriented: comment/repost eligibility is classified, but transcript-derived units are expected to land primarily in `post_seed` / `belief_evidence` until production benchmarks prove otherwise
 
 Production validation timing:

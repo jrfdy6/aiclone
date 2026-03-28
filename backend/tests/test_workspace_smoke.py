@@ -495,6 +495,63 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertIn(candidates[0].get("primary_route"), {"comment", "post_seed", "belief_evidence"})
         self.assertIsInstance(candidates[0].get("response_modes"), list)
 
+    def test_weekly_plan_augmentation_uses_shared_long_form_routes(self) -> None:
+        weekly_plan = {
+            "generated_at": "2026-03-28T00:00:00+00:00",
+            "workspace": "workspaces/linkedin-content-os",
+            "positioning_model": [],
+            "priority_lanes": [],
+            "recommendations": [],
+            "hold_items": [],
+            "market_signals": [],
+            "research_notes": [],
+            "source_counts": {"drafts": 1, "media": 0, "research": 0},
+        }
+        long_form_routes = {
+            "assets_considered": 2,
+            "segments_total": 3,
+            "route_counts": {"comment": 0, "repost": 0, "post_seed": 2, "belief_evidence": 1},
+            "primary_route_counts": {"comment": 0, "repost": 0, "post_seed": 2, "belief_evidence": 1},
+            "candidates": [
+                {
+                    "title": "Route source",
+                    "segment": "The key point is that teams fail when they chase tools before workflow clarity.",
+                    "primary_route": "post_seed",
+                    "route_reason": "segment is stronger as an original post angle than a direct reaction",
+                    "route_score": 11,
+                    "lane_hint": "program-leadership",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "source_url": "https://example.com/source",
+                    "target_file": "identity/VOICE_PATTERNS.md",
+                    "response_modes": ["post_seed", "belief_evidence"],
+                    "belief_summary": "people, process, and culture as the main levers of leadership",
+                },
+                {
+                    "title": "Route source",
+                    "segment": "AI literacy is judgment, not just access.",
+                    "primary_route": "belief_evidence",
+                    "route_reason": "segment is better suited to persona language or worldview capture",
+                    "route_score": 10,
+                    "lane_hint": "ai",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "source_url": "https://example.com/source",
+                    "target_file": "identity/claims.md",
+                    "response_modes": ["post_seed", "belief_evidence"],
+                    "belief_summary": "an AI practitioner, not just a passive user",
+                },
+            ],
+        }
+
+        augmented = workspace_snapshot_module._augment_weekly_plan_payload(weekly_plan, long_form_routes)
+
+        self.assertEqual(augmented.get("source_counts", {}).get("media"), 1)
+        self.assertEqual(augmented.get("source_counts", {}).get("belief_evidence"), 1)
+        self.assertEqual(len(augmented.get("media_post_seeds") or []), 1)
+        self.assertEqual(len(augmented.get("belief_evidence_candidates") or []), 1)
+        self.assertEqual((augmented.get("media_post_seeds") or [{}])[0].get("source_kind"), "long_form_post_seed")
+        self.assertEqual((augmented.get("belief_evidence_candidates") or [{}])[0].get("source_kind"), "long_form_belief_evidence")
+        self.assertEqual((augmented.get("media_summary") or {}).get("assets_considered"), 2)
+
     def test_workspace_snapshot_keeps_nonempty_persisted_source_assets_when_runtime_inventory_is_empty(self) -> None:
         persisted = {
             "generated_at": "2026-03-28T00:00:00+00:00",

@@ -124,6 +124,10 @@ type PlanCandidate = {
   source_path: string;
   score: number;
   priority_lane?: string;
+  source_url?: string;
+  target_file?: string;
+  route_reason?: string;
+  response_modes?: string[];
 };
 
 type WeeklyPlan = {
@@ -134,10 +138,19 @@ type WeeklyPlan = {
   recommendations: PlanCandidate[];
   hold_items: PlanCandidate[];
   market_signals: PlanMarketSignal[];
+  media_post_seeds?: PlanCandidate[];
+  belief_evidence_candidates?: PlanCandidate[];
+  media_summary?: {
+    assets_considered?: number;
+    segments_total?: number;
+    route_counts?: Record<string, number>;
+    primary_route_counts?: Record<string, number>;
+  };
   source_counts: {
     drafts: number;
     media: number;
     research: number;
+    belief_evidence?: number;
   };
 };
 
@@ -1523,14 +1536,19 @@ function WorkspacePanel({
         id: lens.id,
         count:
           (plan?.recommendations ?? []).filter((item) => matchesWorkspaceLens(lens.id, item)).length +
+          (plan?.media_post_seeds ?? []).filter((item) => matchesWorkspaceLens(lens.id, item)).length +
           (reactionQueue?.comment_opportunities ?? []).filter((item) => matchesWorkspaceLens(lens.id, item)).length +
           sourceRecords.filter((item) => matchesWorkspaceLens(lens.id, item)).length,
       })),
-    [plan?.recommendations, reactionQueue?.comment_opportunities, sourceRecords],
+    [plan?.media_post_seeds, plan?.recommendations, reactionQueue?.comment_opportunities, sourceRecords],
   );
   const filteredRecommendations = useMemo(
     () => (plan?.recommendations ?? []).filter((item) => matchesWorkspaceLens(activeLens, item)),
     [activeLens, plan?.recommendations],
+  );
+  const filteredMediaPostSeeds = useMemo(
+    () => (plan?.media_post_seeds ?? []).filter((item) => matchesWorkspaceLens(activeLens, item)),
+    [activeLens, plan?.media_post_seeds],
   );
   const filteredSignals = useMemo(
     () => sourceRecords.filter((item) => matchesWorkspaceLens(activeLens, item)),
@@ -1895,6 +1913,8 @@ function WorkspacePanel({
           <MiniMeta label="Reaction Queue" value={reactionQueue?.generated_at ?? '-'} detail="reaction_queue snapshot" />
           <MiniMeta label="Draft Queue" value={`${draftFiles.length || plan?.source_counts.drafts || 0}`} detail="Ready or in progress" />
           <MiniMeta label="Signals" value={`${plan?.market_signals.length ?? 0}`} detail="Captured market signals" />
+          <MiniMeta label="Media Seeds" value={`${plan?.source_counts.media ?? 0}`} detail="Routed long-form post seeds" />
+          <MiniMeta label="Belief Evidence" value={`${plan?.source_counts.belief_evidence ?? 0}`} detail="Planner-visible worldview units" />
         </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '18px' }}>
@@ -2552,6 +2572,80 @@ function WorkspacePanel({
             );
           })}
           {(longFormRoutes?.candidates ?? []).length === 0 && <EmptyPanel message="No routed long-form candidates are visible yet." />}
+        </div>
+      </section>
+
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Long-form Planner Feed</p>
+            <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Routed media post seeds</h3>
+            <p style={{ color: '#94a3b8', fontSize: '14px', maxWidth: '760px' }}>
+              These are planner-facing post seeds coming from the shared long-form route contract, not a separate transcript planner.
+            </p>
+          </div>
+          <span style={{ color: '#64748b', fontSize: '13px' }}>
+            {filteredMediaPostSeeds.length} shown / {plan?.media_post_seeds?.length ?? 0} routed seeds
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+          <MiniMeta label="Assets Considered" value={`${plan?.media_summary?.assets_considered ?? 0}`} detail="shared long-form sources" />
+          <MiniMeta label="Segments" value={`${plan?.media_summary?.segments_total ?? 0}`} detail="claim-sized units ranked" />
+          <MiniMeta label="Post Seeds" value={`${plan?.media_summary?.primary_route_counts?.post_seed ?? 0}`} detail="primary planner route" />
+          <MiniMeta label="Belief Evidence" value={`${plan?.media_summary?.primary_route_counts?.belief_evidence ?? 0}`} detail="persona-facing planner route" />
+        </div>
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {filteredMediaPostSeeds.slice(0, 4).map((item, index) => {
+            const mountedSource = findWorkspaceFileBySourcePath(linkedinFiles, item.source_path);
+            return (
+              <article key={`${item.source_path}-${item.hook}-${index}`} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                  <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#f8fafc', fontSize: '12px' }}>{index + 1}</span>
+                  <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#cbd5f5', fontSize: '12px' }}>{item.source_kind}</span>
+                  {item.priority_lane ? <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>{item.priority_lane}</span> : null}
+                  {item.target_file ? <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#86efac', fontSize: '12px' }}>{item.target_file}</span> : null}
+                </div>
+                <h4 style={{ fontSize: '18px', color: 'white', margin: '0 0 6px' }}>{item.title}</h4>
+                <p style={{ color: '#f5d0fe', fontSize: '14px', marginBottom: '8px' }}>{item.hook}</p>
+                <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.55 }}>{item.rationale}</p>
+                {item.route_reason ? (
+                  <p style={{ color: '#64748b', fontSize: '12px', marginTop: '10px' }}>Route reason: {item.route_reason}</p>
+                ) : null}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '12px' }}>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{item.source_path}</p>
+                  {item.source_url ? (
+                    <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                      Open original source
+                    </a>
+                  ) : null}
+                  {mountedSource ? (
+                    <button
+                      onClick={() => onSelect(mountedSource.path)}
+                      style={{ border: 'none', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                    >
+                      Open source file
+                    </button>
+                  ) : null}
+                </div>
+                <button
+                  onClick={() => setSelectedRecommendation(item)}
+                  style={{
+                    marginTop: '10px',
+                    border: '1px solid #38bdf8',
+                    borderRadius: '12px',
+                    padding: '8px 12px',
+                    background: 'rgba(56,189,248,0.08)',
+                    color: '#38bdf8',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Create post from this seed
+                </button>
+              </article>
+            );
+          })}
+          {filteredMediaPostSeeds.length === 0 && <EmptyPanel message={`No long-form post seeds match the ${activeLensMeta.label} lens yet.`} />}
         </div>
       </section>
 

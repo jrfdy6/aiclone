@@ -335,6 +335,73 @@ def _parse_weekly_plan_markdown(path: Path) -> dict[str, Any] | None:
     }
 
 
+def _long_form_plan_candidate(candidate: dict[str, Any], *, source_kind: str) -> dict[str, Any]:
+    lane_hint = str(candidate.get("lane_hint") or "").strip()
+    title = str(candidate.get("title") or "Long-form source").strip() or "Long-form source"
+    segment = str(candidate.get("segment") or "").strip()
+    route_reason = str(candidate.get("route_reason") or "").strip()
+    belief_summary = str(candidate.get("belief_summary") or "").strip()
+    rationale = route_reason
+    if belief_summary:
+        rationale = f"{route_reason} Belief: {belief_summary}.".strip()
+    return {
+        "source_kind": source_kind,
+        "title": title,
+        "category": "Long-form media",
+        "role_alignment": "operator clarity",
+        "risk_level": "review",
+        "publish_posture": "draft",
+        "hook": segment,
+        "rationale": rationale,
+        "source_path": str(candidate.get("source_path") or ""),
+        "score": int(candidate.get("route_score") or 0),
+        "priority_lane": lane_hint,
+        "source_url": str(candidate.get("source_url") or ""),
+        "target_file": str(candidate.get("target_file") or ""),
+        "route_reason": route_reason,
+        "response_modes": list(candidate.get("response_modes") or []),
+    }
+
+
+def _augment_weekly_plan_payload(payload: dict[str, Any] | None, long_form_routes: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return payload
+    if not isinstance(long_form_routes, dict):
+        return payload
+
+    candidates = long_form_routes.get("candidates")
+    if not isinstance(candidates, list):
+        return payload
+
+    media_post_seeds = [
+        _long_form_plan_candidate(candidate, source_kind="long_form_post_seed")
+        for candidate in candidates
+        if isinstance(candidate, dict) and str(candidate.get("primary_route") or "") == "post_seed"
+    ][:6]
+    belief_evidence_candidates = [
+        _long_form_plan_candidate(candidate, source_kind="long_form_belief_evidence")
+        for candidate in candidates
+        if isinstance(candidate, dict) and str(candidate.get("primary_route") or "") == "belief_evidence"
+    ][:6]
+
+    counts = payload.get("source_counts")
+    counts_dict = dict(counts) if isinstance(counts, dict) else {}
+    counts_dict["media"] = len(media_post_seeds)
+    counts_dict["belief_evidence"] = len(belief_evidence_candidates)
+
+    augmented = dict(payload)
+    augmented["source_counts"] = counts_dict
+    augmented["media_post_seeds"] = media_post_seeds
+    augmented["belief_evidence_candidates"] = belief_evidence_candidates
+    augmented["media_summary"] = {
+        "assets_considered": int(long_form_routes.get("assets_considered") or 0),
+        "segments_total": int(long_form_routes.get("segments_total") or 0),
+        "route_counts": long_form_routes.get("route_counts") or {},
+        "primary_route_counts": long_form_routes.get("primary_route_counts") or {},
+    }
+    return augmented
+
+
 def _parse_reaction_queue_markdown(path: Path) -> dict[str, Any] | None:
     text = _read_text(path)
     if not text:
@@ -446,7 +513,7 @@ def _build_weekly_plan_payload() -> dict[str, Any] | None:
     all_candidates = sorted(draft_candidates + media_candidates + filtered_research_candidates, key=lambda item: (-item.score, item.title.lower()))
     recommendations = [item for item in all_candidates if item.publish_posture != "hold_private"][:5]
     hold_items = [item for item in all_candidates if item.publish_posture == "hold_private" or item.risk_level == "high"][:10]
-    return module.plan_payload(
+    payload = module.plan_payload(
         workspace_dir=LINKEDIN_ROOT,
         recommendations=recommendations,
         hold_items=hold_items,
@@ -458,6 +525,8 @@ def _build_weekly_plan_payload() -> dict[str, Any] | None:
             "research": len(filtered_research_candidates),
         },
     )
+    long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
+    return _augment_weekly_plan_payload(payload, long_form_routes)
 
 
 def _build_reaction_queue_payload() -> dict[str, Any] | None:
@@ -665,11 +734,13 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
 
 def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
     if snapshot_type == SNAPSHOT_WEEKLY_PLAN:
-        return (
+        payload = (
             _build_weekly_plan_payload()
             or _load_json(LINKEDIN_ROOT / "plans" / "weekly_plan.json")
             or _parse_weekly_plan_markdown(LINKEDIN_ROOT / "plans" / "weekly_plan.md")
         )
+        long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
+        return _augment_weekly_plan_payload(payload, long_form_routes)
     if snapshot_type == SNAPSHOT_REACTION_QUEUE:
         return (
             _build_reaction_queue_payload()

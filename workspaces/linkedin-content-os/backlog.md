@@ -185,7 +185,7 @@
 ### LNK-029 - Route media-derived signals into the right downstream jobs
 - Outcome: route each normalized signal into `comment`, `repost`, `post_seed`, or `belief_evidence` instead of treating every source like a feed-card response opportunity.
 - Benchmark gate: transcript/media units primarily route to `post_seed` or `belief_evidence`; any media-derived comment-ready feed item should target `Src >= 5.0`, `Expr >= 6.5`, `Δ >= 0.3`. Validate with deterministic rebuild, full refresh, and next-cycle production checks.
-- Status: first runtime slice is now live. `backend/app/services/social_long_form_signal_service.py` classifies long-form segments onto shared response modes, `workspace_snapshot_service.py` persists `long_form_routes`, `/ops` shows the route mix and top routed candidates, and `social_persona_review_service.py` now consumes the same shared candidate set for worldview review instead of re-parsing long-form assets separately.
+- Status: first runtime slice is now live. `backend/app/services/social_long_form_signal_service.py` classifies long-form segments onto shared response modes, `workspace_snapshot_service.py` persists `long_form_routes`, `/ops` shows the route mix and top routed candidates, `social_persona_review_service.py` now consumes the same shared candidate set for worldview review instead of re-parsing long-form assets separately, and the weekly-plan snapshot now reads routed `post_seed` / `belief_evidence` outputs from that same contract.
 - Source files:
   - `docs/source_expansion_implementation_plan.md`
   - `backend/app/services/social_long_form_signal_service.py`
