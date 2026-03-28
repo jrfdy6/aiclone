@@ -465,6 +465,36 @@ type SourceAssetInventory = {
   };
 };
 
+type PersonaReviewSummaryItem = {
+  id: string;
+  trait: string;
+  persona_target: string;
+  status: string;
+  stage: string;
+  review_source?: string | null;
+  target_file?: string | null;
+  approval_state?: string | null;
+  created_at?: string | null;
+  committed_at?: string | null;
+};
+
+type PersonaReviewSummary = {
+  generated_at?: string;
+  workspace?: string;
+  counts?: {
+    total?: number;
+    brain_pending_review?: number;
+    workspace_saved?: number;
+    approved_unpromoted?: number;
+    pending_promotion?: number;
+    committed?: number;
+  };
+  status_counts?: Record<string, number>;
+  review_source_counts?: Record<string, number>;
+  target_file_counts?: Record<string, number>;
+  recent?: PersonaReviewSummaryItem[];
+};
+
 type WorkspaceSnapshot = {
   workspace_files?: WorkspaceFile[];
   doc_entries?: DocReference[];
@@ -472,6 +502,7 @@ type WorkspaceSnapshot = {
   reaction_queue?: ReactionQueue | null;
   social_feed?: SocialFeed | null;
   source_assets?: SourceAssetInventory | null;
+  persona_review_summary?: PersonaReviewSummary | null;
   feedback_summary?: FeedbackSummary | null;
   refresh_status?: FeedRefreshStatus | null;
 };
@@ -737,6 +768,7 @@ export default function OpsClient({
   const [liveReactionQueue, setLiveReactionQueue] = useState<ReactionQueue | null>(null);
   const [liveSocialFeed, setLiveSocialFeed] = useState<SocialFeed | null>(null);
   const [liveSourceAssets, setLiveSourceAssets] = useState<SourceAssetInventory | null>(null);
+  const [livePersonaReviewSummary, setLivePersonaReviewSummary] = useState<PersonaReviewSummary | null>(null);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   const [workspaceRefreshStatus, setWorkspaceRefreshStatus] = useState<FeedRefreshStatus | null>(null);
   const [workspaceSnapshotState, setWorkspaceSnapshotState] = useState<'loading' | 'live' | 'error'>('loading');
@@ -806,6 +838,7 @@ export default function OpsClient({
       setLiveReactionQueue(snapshot.reaction_queue ?? null);
       setLiveSocialFeed(snapshot.social_feed ?? null);
       setLiveSourceAssets(snapshot.source_assets ?? null);
+      setLivePersonaReviewSummary(snapshot.persona_review_summary ?? null);
       setFeedbackSummary(snapshot.feedback_summary ?? null);
       setWorkspaceRefreshStatus(snapshot.refresh_status ?? null);
       setWorkspaceSnapshotState('live');
@@ -1042,6 +1075,7 @@ export default function OpsClient({
           reactionQueue={effectiveReactionQueue}
           socialFeed={effectiveSocialFeed}
           sourceAssets={liveSourceAssets}
+          personaReviewSummary={livePersonaReviewSummary}
           workspaceSnapshotState={workspaceSnapshotState}
           workspaceSnapshotError={workspaceSnapshotError}
           workspaceRefreshStatus={workspaceRefreshStatus}
@@ -1315,6 +1349,7 @@ function WorkspacePanel({
   reactionQueue,
   socialFeed,
   sourceAssets,
+  personaReviewSummary,
   workspaceSnapshotState,
   workspaceSnapshotError,
   workspaceRefreshStatus,
@@ -1328,6 +1363,7 @@ function WorkspacePanel({
   reactionQueue: ReactionQueue | null;
   socialFeed: SocialFeed | null;
   sourceAssets: SourceAssetInventory | null;
+  personaReviewSummary: PersonaReviewSummary | null;
   workspaceSnapshotState: 'loading' | 'live' | 'error';
   workspaceSnapshotError: string | null;
   workspaceRefreshStatus: FeedRefreshStatus | null;
@@ -1391,6 +1427,7 @@ function WorkspacePanel({
       })),
     [sourceAssets],
   );
+  const personaReviewCounts = personaReviewSummary?.counts ?? {};
   const sourceRecords = useMemo(() => {
     const byPath = new Map<string, SourceRecord>();
 
@@ -1851,6 +1888,56 @@ function WorkspacePanel({
             detail="not yet routed into feed cards"
           />
         </div>
+        <section
+          style={{
+            borderRadius: '16px',
+            border: '1px solid rgba(148,163,184,0.2)',
+            backgroundColor: 'rgba(2,6,23,0.72)',
+            padding: '16px',
+            marginBottom: '18px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
+            <div>
+              <p style={{ color: '#c4b5fd', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Persona Review Lifecycle</p>
+              <h4 style={{ color: 'white', fontSize: '22px', margin: 0 }}>One shared approval lane</h4>
+              <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '6px', maxWidth: '760px' }}>
+                Workspace approvals are already saved into the shared persona-delta system. Brain pending items are the ones that still need nuance, context, or promotion judgment.
+              </p>
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '12px', textAlign: 'right' }}>
+              <p>Total persona deltas: {personaReviewCounts.total ?? 0}</p>
+              <p>Updated: {personaReviewSummary?.generated_at ?? '-'}</p>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+            <MiniMeta label="Brain Pending" value={`${personaReviewCounts.brain_pending_review ?? 0}`} detail="still needs judgment" />
+            <MiniMeta label="Workspace Saved" value={`${personaReviewCounts.workspace_saved ?? 0}`} detail="approved from feed/workspace" />
+            <MiniMeta label="Approved Other" value={`${personaReviewCounts.approved_unpromoted ?? 0}`} detail="saved, not yet promoted" />
+            <MiniMeta label="Pending Promotion" value={`${personaReviewCounts.pending_promotion ?? 0}`} detail="selected items queued" />
+            <MiniMeta label="Promoted" value={`${personaReviewCounts.committed ?? 0}`} detail="committed to persona flow" />
+          </div>
+          <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '12px' }}>
+            <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '10px' }}>Recent Persona Items</p>
+            {(personaReviewSummary?.recent ?? []).length === 0 ? (
+              <EmptyPanel message="No persona review items have been recorded yet." compact />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {(personaReviewSummary?.recent ?? []).slice(0, 6).map((item) => (
+                  <div key={item.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                      <span style={{ color: 'white', fontWeight: 600, fontSize: '13px' }}>{summarize(item.trait, 72)}</span>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>{item.stage.replace(/_/g, ' ')}</span>
+                    </div>
+                    <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                      {item.review_source ?? 'unknown'} · {item.target_file ?? 'no target file'} · {item.created_at ? formatTimestamp(new Date(item.created_at)) : '-'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
         {workspaceSnapshotError && <SectionAlert message={`Workspace snapshot error: ${workspaceSnapshotError}`} />}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
           {(plan?.positioning_model ?? []).slice(0, 4).map((item) => (

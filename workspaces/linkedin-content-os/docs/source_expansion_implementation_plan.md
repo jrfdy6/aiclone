@@ -313,6 +313,47 @@ But the promotion boundary remains:
 - the system may log
 - canonical persona files still require approval
 
+## Shared Workspace / Brain Persona Contract
+
+Source expansion should feed one shared persona-review system, not create a second one.
+
+The contract is:
+- `Workspace` can fast-approve high-signal snippets or phrasing into `persona_deltas`
+- `Brain` remains the main place for pending review, nuance, story/context, wording refinement, and promotion selection
+- canonical persona files still do not auto-update from either surface
+
+Operational meaning:
+- if the user explicitly approves a snippet in Workspace, that counts as a valid approval and should not require a duplicate Brain approval just to save it
+- if the system produces a larger or less-settled worldview item, that should land in Brain as a pending review item instead of bypassing the review queue
+
+This gives the system one judgment center with two entry surfaces:
+- `Workspace finds and saves candidate language quickly`
+- `Brain decides what needs additional context, disagreement, story, or canonical placement`
+
+Long-form media should follow this path:
+
+```text
+SourceAsset
+  -> SignalUnit
+  -> NormalizedSignal
+  -> response_mode = belief_evidence
+  -> persona_delta candidate
+  -> Brain review
+  -> optional canonical promotion
+```
+
+Current design rule:
+- do not force segmented long-form worldview evidence through Workspace approval first
+- send it into the shared persona-delta lane with enough source context that Brain can review it directly
+
+Observability requirement:
+- `/ops` should eventually show:
+  - workspace-approved persona items
+  - pending Brain review items
+  - approved-but-not-promoted items
+  - long-form evidence awaiting review by source class
+- Brain should remain the place where the operator can clear the pending review queue intentionally
+
 ## Benchmark Baseline
 
 Use the live `/ops` tuning dashboard as the benchmark source of truth for this phase.
@@ -577,7 +618,69 @@ Production validation timing:
 - immediate validation
 - next-cycle validation
 
-### Phase 6. Dashboard and planner intelligence
+### Phase 6. Shared persona-review contract
+Roadmap item:
+- `LNK-032`
+
+Outcome:
+- formalize the shared Workspace / Brain persona lifecycle so fast snippet approvals and deeper persona review both use the same delta contract without duplicate approvals
+
+Touch points:
+- `frontend/app/ops/OpsClient.tsx`
+- `frontend/app/brain/BrainClient.tsx`
+- `backend/app/routes/persona.py`
+- `backend/app/services/persona_delta_service.py`
+- this document and `docs/social_intelligence_architecture.md`
+
+Acceptance signal:
+- a Workspace snippet approval creates a saved approved delta without requiring duplicate Brain approval
+- Brain pending reviews only show items that still need context, nuance, or promotion judgment
+- canonical persona files still remain behind the explicit promotion boundary
+- `/ops` can show the shared lifecycle counts from the live workspace snapshot instead of hiding this state inside separate UIs
+
+Benchmark goal:
+- `0` duplicate approval loops for workspace-approved snippets
+- `0` automatic writes to canonical persona files
+- the system can explain, from UI state alone, whether an item is:
+  - saved from Workspace
+  - pending Brain review
+  - approved but not promoted
+
+Production validation timing:
+- immediate validation
+- deterministic rebuild validation
+
+### Phase 7. Route segmented worldview evidence into Brain review
+Roadmap item:
+- `LNK-033`
+
+Outcome:
+- turn transcript-derived worldview segments into reviewable persona items with source context, stance, and optional promotion targets
+
+Touch points:
+- `backend/app/services/social_belief_engine.py`
+- segmentation/routing outputs from `LNK-028` and `LNK-029`
+- `frontend/app/brain/BrainClient.tsx`
+- snapshot and dashboard surfaces
+
+Acceptance signal:
+- one segmented long-form source can produce multiple reviewable persona items
+- Brain can show those items with source reference, stance, and target-file context
+- no full transcript appears as one giant persona-review item
+
+Benchmark goal:
+- at least one test transcript yields multiple reviewable worldview items
+- every review item includes:
+  - source reference
+  - stance or belief relation
+  - target file or promotion hint when available
+- no transcript-derived worldview item requires a second manual approval after an explicit Workspace approval
+
+Production validation timing:
+- deterministic rebuild validation
+- next-cycle validation
+
+### Phase 8. Dashboard and planner intelligence
 Roadmap item:
 - `LNK-031`
 
@@ -596,6 +699,7 @@ Acceptance signal:
   - response-mode mix
   - belief-evidence queue
   - post-seed queue
+  - persona-review queue state by source class and approval stage
 
 Benchmark goal:
 - `/ops` exposes source-class health for every active source class
@@ -620,8 +724,10 @@ This is the recommended implementation order inside the existing system:
 3. `LNK-028`
 4. `LNK-029`
 5. `LNK-030`
-6. `LNK-031`
-7. return to tuning improvements once source quality is stronger
+6. `LNK-032`
+7. `LNK-033`
+8. `LNK-031`
+9. return to tuning improvements once source quality is stronger
 
 ## What Success Looks Like
 
@@ -631,6 +737,7 @@ The source system is working when:
 - YouTube / podcast transcripts produce sharp post seeds instead of mushy feed cards
 - the dashboard shows which source classes are paying off
 - the persona system accumulates reviewable belief evidence from the world without rewriting itself automatically
+- Workspace and Brain are visibly using one shared persona lifecycle instead of parallel approval loops
 - the production validation cadence can confirm each of those claims after deploy rather than relying on spot checks
 
 ## Non-Goals

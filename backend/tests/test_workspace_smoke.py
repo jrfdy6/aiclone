@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.main import app
+from app.models import PersonaDelta
 from app.services.social_expression_engine import social_expression_engine
 from app.services.social_feed_builder_service import build_feed
 from app.services.social_source_asset_service import build_source_asset_inventory
@@ -392,12 +394,15 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
         social_feed = snapshot.get("social_feed") or {}
         source_assets = snapshot.get("source_assets") or {}
+        persona_review_summary = snapshot.get("persona_review_summary") or {}
         items = social_feed.get("items") or []
         asset_items = source_assets.get("items") or []
         self.assertGreater(len(items), 0)
         self.assertTrue(items[0].get("lens_variants"))
         self.assertGreater(len(asset_items), 0)
         self.assertEqual(asset_items[0].get("source_class"), "long_form_media")
+        self.assertIn("counts", persona_review_summary)
+        self.assertIsInstance(persona_review_summary.get("recent"), list)
         self.assertIn("feedback_summary", snapshot)
         self.assertIn("refresh_status", snapshot)
 
@@ -413,11 +418,13 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         payload = response.json()
         social_feed = payload.get("social_feed") or {}
         source_assets = payload.get("source_assets") or {}
+        persona_review_summary = payload.get("persona_review_summary") or {}
         items = social_feed.get("items") or []
         asset_items = source_assets.get("items") or []
         self.assertGreater(len(items), 0)
         self.assertTrue(items[0].get("lens_variants"))
         self.assertGreater(len(asset_items), 0)
+        self.assertIn("counts", persona_review_summary)
 
     def test_source_asset_inventory_exposes_long_form_media_without_feed_routing(self) -> None:
         inventory = build_source_asset_inventory(
@@ -457,6 +464,68 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         items = source_assets.get("items") or []
         self.assertGreater(len(items), 0)
         self.assertEqual(source_assets.get("counts", {}).get("total"), len(items))
+
+    def test_workspace_snapshot_includes_persona_review_lifecycle_summary(self) -> None:
+        now = datetime.now(timezone.utc)
+        deltas = [
+            PersonaDelta(
+                id="delta-workspace",
+                persona_target="feeze.core",
+                trait="Reusable phrase",
+                notes="Approved from workspace",
+                status="approved",
+                metadata={
+                    "review_source": "linkedin_workspace.feed_quote",
+                    "approval_state": "approved_from_workspace",
+                    "target_file": "identity/VOICE_PATTERNS.md",
+                },
+                created_at=now,
+            ),
+            PersonaDelta(
+                id="delta-brain-pending",
+                persona_target="feeze.core",
+                trait="Needs nuance",
+                notes="Pending review",
+                status="draft",
+                metadata={"target_file": "identity/claims.md"},
+                created_at=now,
+            ),
+            PersonaDelta(
+                id="delta-promotion",
+                persona_target="feeze.core",
+                trait="Queued for promotion",
+                notes="Approved with promotion items",
+                status="approved",
+                metadata={
+                    "pending_promotion": True,
+                    "review_source": "brain.persona.ui",
+                    "target_file": "history/story_bank.md",
+                },
+                created_at=now,
+            ),
+            PersonaDelta(
+                id="delta-committed",
+                persona_target="feeze.core",
+                trait="Committed item",
+                notes="Already promoted",
+                status="committed",
+                metadata={"target_file": "identity/claims.md"},
+                created_at=now,
+                committed_at=now,
+            ),
+        ]
+
+        with patch.object(workspace_snapshot_module.persona_delta_service, "list_deltas", return_value=deltas):
+            snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+
+        summary = snapshot.get("persona_review_summary") or {}
+        counts = summary.get("counts") or {}
+
+        self.assertEqual(counts.get("total"), 4)
+        self.assertEqual(counts.get("workspace_saved"), 1)
+        self.assertEqual(counts.get("brain_pending_review"), 1)
+        self.assertEqual(counts.get("pending_promotion"), 1)
+        self.assertEqual(counts.get("committed"), 1)
 
     def test_ingest_signal_route(self) -> None:
         response = self.client.post(

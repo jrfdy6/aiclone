@@ -28,6 +28,7 @@ The live system already does these things:
 - lets the user approve lines into persona deltas
 - serves a live workspace snapshot through `GET /api/workspace/linkedin-os-snapshot`
 - serves upstream long-form `source_assets` through the same workspace snapshot for transcript/media inventory
+- serves a first-pass `persona_review_summary` through the same workspace snapshot so `/ops` can show Brain-pending vs Workspace-approved persona state
 - uses one shared normalization helper for:
   - live manual preview generation
   - saved social-feed artifact generation
@@ -302,6 +303,49 @@ Source Adapter
 ```
 
 That is the intended architecture for both manual previews and harvested-feed items.
+
+## Shared Persona Review Contract
+
+The Workspace and Brain surfaces are meant to share one persona-review substrate, not maintain two separate persona systems.
+
+The shared substrate is:
+- `POST /api/persona/deltas`
+- `PATCH /api/persona/deltas/{delta_id}`
+- `backend/app/services/persona_delta_service.py`
+- the `persona_deltas` table in `backend/app/services/open_brain_db.py`
+
+Current intended behavior:
+- `Workspace` is the fast capture / approval surface for high-signal snippets, approved lines, and source-native phrasing worth saving.
+- `Brain` is the deeper review / nuance / reflection / promotion-selection surface for persona items that still need judgment, story context, wording edits, or canonical placement decisions.
+- canonical persona files under `knowledge/persona/feeze/**` remain a separate promotion boundary.
+
+Important operational rule:
+- a user approval inside Workspace already counts as a real approval at the persona-delta layer
+- it should not require a second approval in Brain just to be considered saved
+
+That means the current Workspace action:
+- creates a persona delta
+- marks it `approved`
+- stores metadata such as `target_file`, `review_source`, source attribution, and lens context
+
+That is different from Brain, which typically works with:
+- `draft`
+- `pending`
+- `in_review`
+- selective `reviewed` items that still need promotion or context refinement
+
+So the systems should be understood like this:
+- `Workspace approves snippets directly into shared persona-delta storage`
+- `Brain reviews items that still need human shaping, nuance, or promotion decisions`
+- `Neither surface should auto-write canonical persona files`
+
+Current gap to keep in mind:
+- because Workspace currently marks some deltas `approved` immediately, those items will usually not appear in Brain's pending review queue
+- this is not a second system; it is the same system with different state transitions
+
+Next-phase expectation:
+- segmented long-form media should eventually enter this same persona-delta lane as reviewable worldview evidence
+- those items should usually arrive in Brain as pending review items, not as already-finalized canonical persona updates
 
 ## Intelligence Layers
 

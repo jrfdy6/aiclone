@@ -209,6 +209,33 @@
   - `backend/app/services/workspace_snapshot_service.py`
   - planner outputs under `plans/`
 
+### LNK-032 - Formalize the shared Workspace / Brain persona-review contract
+- Outcome: make Workspace snippet approval and Brain persona review two surfaces over one shared `persona_deltas` lifecycle, with no duplicate approval requirement and no automatic canonical-file writes.
+- Status: partially live. Both surfaces already share `/api/persona/deltas`; Workspace quote approval creates an approved delta immediately, Brain reviews pending / in-review items and saves reflection captures into Open Brain, and `/api/workspace/linkedin-os-snapshot` plus `/ops` now expose a first-pass `persona_review_summary` so the shared lifecycle is visible from the live workspace snapshot. The remaining work is deeper Brain-side routing for segmented worldview evidence and clearer promotion-state handling.
+- Benchmark gate:
+  - approving a snippet from Workspace creates a saved approved delta with no duplicate Brain approval loop
+  - Brain pending reviews only show items that still need context, nuance, or promotion judgment
+  - `0` automatic writes occur to canonical persona files
+- Source files:
+  - `docs/source_expansion_implementation_plan.md`
+  - `docs/social_intelligence_architecture.md`
+  - `frontend/app/ops/OpsClient.tsx`
+  - `frontend/app/brain/BrainClient.tsx`
+  - `backend/app/routes/persona.py`
+  - `backend/app/services/persona_delta_service.py`
+
+### LNK-033 - Route segmented worldview evidence into Brain review
+- Outcome: make transcript-derived worldview segments and other belief-evidence units appear as reviewable persona items in Brain with source reference, stance, and promotion context.
+- Benchmark gate:
+  - one segmented long-form source yields multiple reviewable persona items
+  - each review item includes source reference + stance or belief relation
+  - `0` full transcripts appear as one giant persona-review item
+- Source files:
+  - `docs/source_expansion_implementation_plan.md`
+  - `backend/app/services/social_belief_engine.py`
+  - `frontend/app/brain/BrainClient.tsx`
+  - segmentation/routing outputs from `LNK-028` and `LNK-029`
+
 ### LNK-022 - Expand feedback logging and evaluation endpoints
 - Outcome: extend the existing `/api/workspace/feedback` path to log copy actions, approvals, dislikes, and future posting outcomes into a structured feedback layer instead of using only UI state and implied behavior.
 - Status: first pass implemented. Feedback now writes structured JSONL alongside the markdown log, rebuilds a summary artifact, and `/ops` sends active lane/stance/technique/evaluation context for like, dislike, and copy interactions. Expression-quality fields now flow through the same path so the feedback layer can see source/output expression quality and the delta introduced by the transformation step.
@@ -283,5 +310,7 @@
 11. `LNK-028`
 12. `LNK-029`
 13. `LNK-030`
-14. `LNK-031`
-15. `LNK-023` (parked until tuning signals are trustworthy)
+14. `LNK-032`
+15. `LNK-033`
+16. `LNK-031`
+17. `LNK-023` (parked until tuning signals are trustworthy)

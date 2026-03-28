@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.services import persona_delta_service
 from app.services.social_feed_builder_service import (
     build_feed as build_social_feed_runtime_payload,
     discover_linkedin_workspace_root,
@@ -112,6 +113,7 @@ SNAPSHOT_REACTION_QUEUE = "reaction_queue"
 SNAPSHOT_SOCIAL_FEED = "social_feed"
 SNAPSHOT_FEEDBACK_SUMMARY = "feedback_summary"
 SNAPSHOT_SOURCE_ASSETS = "source_assets"
+SNAPSHOT_PERSONA_REVIEW_SUMMARY = "persona_review_summary"
 
 
 def _load_module(module_name: str, script_path: Path) -> Any | None:
@@ -494,6 +496,135 @@ def _load_feedback_summary_payload() -> dict[str, Any] | None:
         return _load_json(LINKEDIN_ROOT / "analytics" / "feed_feedback_summary.json")
 
 
+def _metadata_text(metadata: dict[str, Any] | None, key: str) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get(key)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _metadata_bool(metadata: dict[str, Any] | None, key: str) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    value = metadata.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def _metadata_array(metadata: dict[str, Any] | None, key: str) -> list[Any]:
+    if not isinstance(metadata, dict):
+        return []
+    value = metadata.get(key)
+    return value if isinstance(value, list) else []
+
+
+def _has_selectable_promotion_metadata(metadata: dict[str, Any] | None) -> bool:
+    return any(
+        _metadata_array(metadata, key)
+        for key in ("talking_points", "frameworks", "anecdotes", "phrase_candidates", "stats")
+    )
+
+
+def _is_brain_pending_review(status: str, metadata: dict[str, Any] | None) -> bool:
+    normalized = (status or "draft").strip().lower()
+    if normalized in {"draft", "pending", "in_review"}:
+        return True
+    return normalized == "reviewed" and _has_selectable_promotion_metadata(metadata) and not _metadata_bool(metadata, "pending_promotion")
+
+
+def _is_workspace_approved(status: str, metadata: dict[str, Any] | None) -> bool:
+    normalized = (status or "draft").strip().lower()
+    review_source = _metadata_text(metadata, "review_source")
+    approval_state = _metadata_text(metadata, "approval_state")
+    return normalized == "approved" and (
+        review_source == "linkedin_workspace.feed_quote" or approval_state == "approved_from_workspace"
+    )
+
+
+def _persona_review_stage(status: str, metadata: dict[str, Any] | None) -> str:
+    normalized = (status or "draft").strip().lower()
+    if normalized == "committed":
+        return "committed"
+    if _metadata_bool(metadata, "pending_promotion"):
+        return "pending_promotion"
+    if _is_workspace_approved(normalized, metadata):
+        return "workspace_saved"
+    if _is_brain_pending_review(normalized, metadata):
+        return "brain_pending_review"
+    if normalized == "approved":
+        return "approved_unpromoted"
+    return normalized or "draft"
+
+
+def _build_persona_review_summary_payload() -> dict[str, Any] | None:
+    try:
+        deltas = persona_delta_service.list_deltas(limit=200)
+    except Exception:
+        deltas = []
+
+    stage_counts = {
+        "brain_pending_review": 0,
+        "workspace_saved": 0,
+        "approved_unpromoted": 0,
+        "pending_promotion": 0,
+        "committed": 0,
+    }
+    status_counts: dict[str, int] = {}
+    review_source_counts: dict[str, int] = {}
+    target_file_counts: dict[str, int] = {}
+    recent: list[dict[str, Any]] = []
+
+    for delta in deltas:
+        metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
+        status = (delta.status or "draft").strip().lower()
+        stage = _persona_review_stage(status, metadata)
+        if stage in stage_counts:
+            stage_counts[stage] += 1
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+        review_source = _metadata_text(metadata, "review_source") or "unknown"
+        review_source_counts[review_source] = review_source_counts.get(review_source, 0) + 1
+
+        target_file = _metadata_text(metadata, "target_file")
+        if target_file:
+            target_file_counts[target_file] = target_file_counts.get(target_file, 0) + 1
+
+        if len(recent) < 12:
+            recent.append(
+                {
+                    "id": delta.id,
+                    "trait": delta.trait,
+                    "persona_target": delta.persona_target,
+                    "status": status,
+                    "stage": stage,
+                    "review_source": review_source,
+                    "target_file": target_file,
+                    "approval_state": _metadata_text(metadata, "approval_state"),
+                    "created_at": delta.created_at.isoformat() if delta.created_at else None,
+                    "committed_at": delta.committed_at.isoformat() if delta.committed_at else None,
+                }
+            )
+
+    return {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "workspace": WORKSPACE_KEY,
+        "counts": {
+            "total": len(deltas),
+            **stage_counts,
+        },
+        "status_counts": status_counts,
+        "review_source_counts": review_source_counts,
+        "target_file_counts": target_file_counts,
+        "recent": recent,
+    }
+
+
 def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
     if snapshot_type == SNAPSHOT_WEEKLY_PLAN:
         return (
@@ -522,6 +653,8 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
         return _load_feedback_summary_payload()
     if snapshot_type == SNAPSHOT_SOURCE_ASSETS:
         return _build_source_assets_payload()
+    if snapshot_type == SNAPSHOT_PERSONA_REVIEW_SUMMARY:
+        return _build_persona_review_summary_payload()
     return None
 
 
@@ -563,6 +696,8 @@ def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
         items = payload.get("items")
         counts = payload.get("counts")
         return isinstance(items, list) and isinstance(counts, dict)
+    if snapshot_type == SNAPSHOT_PERSONA_REVIEW_SUMMARY:
+        return isinstance(payload.get("counts"), dict) and isinstance(payload.get("recent"), list)
     return True
 
 
@@ -598,6 +733,13 @@ def _source_assets_signature(payload: dict[str, Any]) -> list[tuple[str, str, st
     return signature
 
 
+def _persona_review_signature(payload: dict[str, Any]) -> tuple[tuple[str, int], ...]:
+    counts = payload.get("counts") or {}
+    if not isinstance(counts, dict):
+        return tuple()
+    return tuple(sorted((str(key), int(value)) for key, value in counts.items() if isinstance(value, (int, float))))
+
+
 def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
     persisted = get_snapshot_payload(WORKSPACE_KEY, snapshot_type)
     if snapshot_type == SNAPSHOT_SOCIAL_FEED:
@@ -622,6 +764,17 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
         if persisted and _snapshot_is_usable(snapshot_type, persisted):
             return persisted
         return None
+    if snapshot_type == SNAPSHOT_PERSONA_REVIEW_SUMMARY:
+        runtime = _runtime_snapshot_payload(snapshot_type)
+        if runtime:
+            if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
+            if _persona_review_signature(persisted) != _persona_review_signature(runtime):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
+            return runtime
+        if persisted and _snapshot_is_usable(snapshot_type, persisted):
+            return persisted
+        return None
     if persisted and _snapshot_is_usable(snapshot_type, persisted):
         return persisted
     payload = _runtime_snapshot_payload(snapshot_type)
@@ -639,6 +792,7 @@ class WorkspaceSnapshotService:
             SNAPSHOT_SOCIAL_FEED,
             SNAPSHOT_FEEDBACK_SUMMARY,
             SNAPSHOT_SOURCE_ASSETS,
+            SNAPSHOT_PERSONA_REVIEW_SUMMARY,
         ]
         refreshed: dict[str, Any] = {}
         for snapshot_type in snapshot_types:
@@ -653,6 +807,7 @@ class WorkspaceSnapshotService:
         social_feed = _load_snapshot(SNAPSHOT_SOCIAL_FEED)
         feedback_summary = _load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
         source_assets = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+        persona_review_summary = _load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
         return {
             "workspace_files": _load_workspace_files(),
             "doc_entries": _load_doc_entries(),
@@ -661,6 +816,7 @@ class WorkspaceSnapshotService:
             "social_feed": social_feed,
             "feedback_summary": feedback_summary,
             "source_assets": source_assets,
+            "persona_review_summary": persona_review_summary,
             "refresh_status": social_feed_refresh_service.get_status(),
         }
 

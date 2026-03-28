@@ -81,11 +81,20 @@ Current implementation status:
 - `/ops` now includes a first-pass tuning dashboard for live weak-source detection, warning hotspots, strategy mix, lane health, and the current attention queue
 - the first runtime source-taxonomy contract is now live across saved feed items, manual previews, snapshot rebuilds, and `/ops` (`source_class`, `unit_kind`, `response_modes`)
 - first-pass transcript/media source assets are now live in the workspace snapshot and `/ops` as upstream `long_form_media` inventory; they remain `post_seed` / `belief_evidence` assets until segmentation exists
+- the shared Workspace / Brain persona lifecycle is now partially visible in the live workspace snapshot and `/ops` through a first-pass `persona_review_summary`
 - `/ops` now reads a persisted backend snapshot and the backend rebuilds stale social-feed snapshot rows from live runtime builders
 - backend smoke tests now cover health, snapshot, and ingest routes
 - the frontend production build is now part of the local main gate
 - a local pre-push hook can enforce the main gate automatically via `npm run hooks:install`
 - the next architecture phase is separating thesis extraction, deepening planner-side reuse, and tightening learning/tuning
+
+Workspace / Brain persona contract:
+- Workspace is the fast capture and snippet-approval surface
+- Brain is the deeper persona review and promotion-selection surface
+- both already share the same `persona_deltas` backend resource
+- a Workspace approval counts as a real approval at the delta layer and should not require duplicate Brain approval just to save it
+- canonical persona files under `../../knowledge/persona/feeze/**` still do not auto-update from either surface
+- long-form media segments should eventually enter that same shared review lane as pending worldview evidence, not as automatic canonical writes
 
 Current lane taxonomy:
 - `admissions`

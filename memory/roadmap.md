@@ -20,6 +20,10 @@
 - Split review surfaces by job:
   1. build implications stay in OpenClaw for immediate operator decisions,
   2. persona implications go to the Railway Brain/Persona review surface for approval, nuance, and emphasis.
+- Shared persona-review rule:
+  1. Workspace snippet approval counts as real approval at the shared `persona_deltas` layer,
+  2. Brain remains the primary review surface for items that still need context, disagreement, story, wording, or promotion selection,
+  3. neither surface auto-writes canonical persona files under `knowledge/persona/feeze/**`.
 - Generate draft implications automatically from each ingestion: summary, likely build opportunities, likely persona deltas, standout quotes/stories, and a short review packet for each lane.
 - Preserve the promotion boundary: ingest is automatic, but canonical persona updates still require explicit review/approval before writing into `knowledge/persona/feeze/**`.
 - Do not create duplicate pipelines for text vs audio vs video; transcription is only the upstream converter, not a separate architecture.
@@ -55,6 +59,7 @@
   9. `/ops` now reads a live backend workspace snapshot for plan/reaction/feed state and feedback analytics,
   10. the backend now persists workspace snapshots in Postgres and rebuilds stale snapshot rows from live runtime builders instead of treating container-local artifacts as the source of truth.
   11. `main` now has a repeatable social-workspace safety path: `npm run verify:main` for local smoke/build checks, `npm run verify:production` for live deployed checks, and `.githooks/pre-push` as the local enforcement option.
+  12. the live workspace snapshot now carries a first-pass `persona_review_summary`, so `/ops` can show Brain-pending vs Workspace-approved persona state from the same backend source of truth.
 - Near-term implementation priority is not more generation. It is a cleaner intelligence stack:
   1. normalize all source paths into one `NormalizedSignal`,
   2. separate extraction from interpretation,
@@ -67,14 +72,16 @@
   2. segment long-form media into claim-sized units before they enter the social runtime,
   3. route those units into the correct downstream jobs (`comment`, `repost`, `post_seed`, `belief_evidence`) instead of forcing every source into a feed-card response,
   4. use those source contrasts to build reviewable worldview evidence for the persona system without auto-writing canonical persona files.
-  4a. the first runtime source-asset inventory is now live in the workspace snapshot and `/ops`; transcript/media assets are visible upstream before segmentation but are not yet eligible for direct feed-card routing.
-  5. keep the live `/ops` tuning dashboard as the benchmark source of truth, using `Avg Source`, `Avg Expr`, `Avg Δ`, `Weak Source`, `Lane Carried`, source-class health, and the attention queue as the main release metrics for each source-expansion step.
-  6. treat source-expansion work as incomplete until it passes the full production validation cadence:
+  5. route that worldview evidence into the shared `persona_deltas` lifecycle so Brain and Workspace stay on one approval substrate instead of parallel persona systems.
+  6. Workspace approval of a snippet should count as approval and should not create a duplicate Brain re-approval loop; Brain should focus on unresolved persona items and long-form worldview review.
+  7. the first runtime source-asset inventory is now live in the workspace snapshot and `/ops`; transcript/media assets are visible upstream before segmentation but are not yet eligible for direct feed-card routing.
+  8. keep the live `/ops` tuning dashboard as the benchmark source of truth, using `Avg Source`, `Avg Expr`, `Avg Δ`, `Weak Source`, `Lane Carried`, source-class health, and the attention queue as the main release metrics for each source-expansion step.
+  9. treat source-expansion work as incomplete until it passes the full production validation cadence:
      - immediate validation (`0-10m` after deploy),
      - deterministic rebuild validation (`10-20m`),
      - full refresh validation (`20-60m`),
      - next-cycle validation (`12-24h`).
-  7. current production note (`2026-03-28`): after the source-taxonomy rollout, the refreshed mixed feed recovered LinkedIn + RSS/Substack items but did not surface Reddit. If that is still true on the next-cycle check, reprioritize Reddit source-adapter debugging ahead of transcript/media expansion.
+  10. current production note (`2026-03-28`): after the source-taxonomy rollout, the refreshed mixed feed recovered LinkedIn + RSS/Substack items but did not surface Reddit. If that is still true on the next-cycle check, reprioritize Reddit source-adapter debugging ahead of transcript/media expansion.
 - `karpathy/autoresearch` is explicitly parked as a later Lab-stage tuning tool. Use it to optimize lane/stance/technique policy once the feedback loop and tuning dashboard are trustworthy, not as the current path for making the product smarter.
 - Use orchestration as the core species for the product behavior, coding harnesses for implementation work, auto research for tuning, and dark-factory behavior only for low-risk offline generation.
 - Canonical workspace implementation map: `workspaces/linkedin-content-os/docs/social_intelligence_architecture.md`
