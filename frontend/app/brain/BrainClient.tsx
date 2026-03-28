@@ -437,6 +437,7 @@ export default function BrainClient({
           packs={personaWorkspace.packs}
           deltas={personaDeltas}
           error={personaDeltasError}
+          refreshBrainData={() => loadData()}
         />
       )}
       {activeTab === 'automations' && (
@@ -922,10 +923,12 @@ function PersonaPanel({
   packs,
   deltas,
   error,
+  refreshBrainData,
 }: {
   packs: PersonaPack[];
   deltas: PersonaDeltaEntry[];
   error: string | null;
+  refreshBrainData: () => Promise<void>;
 }) {
   const [completedDeltaIds, setCompletedDeltaIds] = useState<string[]>([]);
   const [showMutedActive, setShowMutedActive] = useState(false);
@@ -998,6 +1001,8 @@ function PersonaPanel({
   const evidenceLabel =
     metadataText(selectedDelta?.metadata, 'evidence_source') ?? (selectedDelta?.capture_id ? `capture ${selectedDelta.capture_id}` : 'Not linked yet');
   const statusLabel = selectedDelta?.status ?? 'pending';
+  const savedResponseKind = metadataText(selectedDelta?.metadata, 'owner_response_kind');
+  const savedResponseExcerpt = metadataText(selectedDelta?.metadata, 'owner_response_excerpt');
   const [selectedPromotionItemIds, setSelectedPromotionItemIds] = useState<string[]>([]);
   const [selectedResponseKind, setSelectedResponseKind] = useState<'agree' | 'disagree' | 'nuance' | 'story' | 'language'>('nuance');
   const selectedPromotionItems = useMemo(
@@ -1070,6 +1075,11 @@ function PersonaPanel({
       return;
     }
     setSelectedResponseKind('nuance');
+  }, [selectedDelta?.id, selectedDelta?.metadata]);
+
+  useEffect(() => {
+    setReflectionText(metadataText(selectedDelta?.metadata, 'owner_response_excerpt') ?? '');
+    setReflectionState({ tone: 'idle', message: '' });
   }, [selectedDelta?.id, selectedDelta?.metadata]);
 
   function queueTemplate(kind: 'agree' | 'disagree' | 'nuance' | 'story' | 'language') {
@@ -1173,6 +1183,7 @@ function PersonaPanel({
         }
       }
       const nextQueue = selectedDelta ? reviewQueue.filter((delta) => delta.id !== selectedDelta.id) : reviewQueue;
+      await refreshBrainData();
       if (selectedDelta && !keepSelectableSourceOpen) {
         setCompletedDeltaIds((current) => (current.includes(selectedDelta.id) ? current : [...current, selectedDelta.id]));
       }
@@ -1433,6 +1444,31 @@ function PersonaPanel({
                   : `${reviewAsk} This item is not promotion-ready yet, so focus on your agreement, nuance, story context, or wording.`}
               </div>
 
+              {savedResponseExcerpt && (
+                <div
+                  style={{
+                    borderRadius: '12px',
+                    border: '1px solid #1f2937',
+                    backgroundColor: '#0b1220',
+                    padding: '12px',
+                    color: '#cbd5f5',
+                  }}
+                >
+                  <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>
+                    Your current take
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    {savedResponseKind && <InlineBadge label={humanizeSavedResponseKind(savedResponseKind)} tone="#818cf8" />}
+                    {metadataText(selectedDelta.metadata, 'resolution_capture_id') && (
+                      <InlineBadge label={`capture ${metadataText(selectedDelta.metadata, 'resolution_capture_id')}`} tone="#64748b" />
+                    )}
+                  </div>
+                  <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: 0 }}>
+                    {truncateText(savedResponseExcerpt, 900)}
+                  </p>
+                </div>
+              )}
+
               <textarea
                 value={reflectionText}
                 onChange={(event) => {
@@ -1567,6 +1603,21 @@ function PersonaPanel({
                   group.items.map((item) => (
                     <div key={item.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '10px', backgroundColor: '#0b1220' }}>
                       <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, marginBottom: '6px' }}>{truncateText(item.trait, 110)}</p>
+                      {metadataText(item.metadata, 'owner_response_excerpt') && (
+                        <div style={{ marginBottom: '8px' }}>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                            {metadataText(item.metadata, 'owner_response_kind') && (
+                              <InlineBadge label={humanizeSavedResponseKind(metadataText(item.metadata, 'owner_response_kind') ?? '')} tone="#818cf8" />
+                            )}
+                            {metadataText(item.metadata, 'belief_relation') && (
+                              <InlineBadge label={humanizeBeliefRelation(metadataText(item.metadata, 'belief_relation'))} tone="#22c55e" />
+                            )}
+                          </div>
+                          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                            {truncateText(metadataText(item.metadata, 'owner_response_excerpt') ?? '', 140)}
+                          </p>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <span style={{ color: '#64748b', fontSize: '11px' }}>{humanizeReviewSource(metadataText(item.metadata, 'review_source'))}</span>
                         <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
@@ -2347,6 +2398,13 @@ function humanizeResponseKind(value: 'agree' | 'disagree' | 'nuance' | 'story' |
   if (value === 'nuance') return 'Nuance';
   if (value === 'story') return 'Personal story';
   return 'Wording';
+}
+
+function humanizeSavedResponseKind(value: string) {
+  if (value === 'agree' || value === 'disagree' || value === 'nuance' || value === 'story' || value === 'language') {
+    return humanizeResponseKind(value);
+  }
+  return value.replace(/[_-]+/g, ' ');
 }
 
 function inferDocGroup(path: string) {
