@@ -4136,6 +4136,29 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(finalized)
         self.assertRegex(finalized[0], r"\n\n(Explicit handoffs\.|Shared state\.|Proof-aware prompts\.)\n\n")
 
+    def test_finalize_planned_options_rewrites_generic_warning_body_and_strips_label_prefix(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="warning",
+            primary_claim="Unified Brain, Ops, daily briefs, planner, persona review, and long-form routing around one routed workspace snapshot so operator context travels across the system instead of living in isolated tools.",
+            proof_packet="Wins: Unified Brain, Ops, daily briefs, planner, persona review, and long-form routing around one routed workspace snapshot so operator context travels across the system instead of living in isolated tools.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Without that, it breaks.\n\nFor effective AI, all components of the operation must be interconnected.\n\nThis integration is crucial; without it, the system breaks.\n\nWins: Unified Brain, Ops, daily briefs, planner, persona review, and long-form routing around one routed workspace snapshot so operator context travels across the system instead of living in isolated tools."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertIn("operator context travels", finalized[0].lower())
+        self.assertNotIn("For effective AI", finalized[0])
+        self.assertNotIn("interconnected", finalized[0].lower())
+        self.assertNotIn("Wins:", finalized[0])
+
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(
             "### OPTION 1\nPrompting alone is not an AI strategy.\n---OPTION---\n### OPTION 2\nIf there is no artifact, stay at the level of principle."

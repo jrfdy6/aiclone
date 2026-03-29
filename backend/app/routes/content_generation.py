@@ -208,6 +208,9 @@ SOFT_GENERIC_PATTERNS = (
     re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
     re.compile(r"\bthis isn['’]?t just\b", re.IGNORECASE),
     re.compile(r"\bit['’]s not just about\b", re.IGNORECASE),
+    re.compile(r"\bfor effective ai\b", re.IGNORECASE),
+    re.compile(r"\bcomponents of the operation must be interconnected\b", re.IGNORECASE),
+    re.compile(r"\bthis integration is crucial\b", re.IGNORECASE),
     re.compile(r"\b(?:fundamental|major|complete)\s+transformation\b", re.IGNORECASE),
     re.compile(r"\bpaving the way\b", re.IGNORECASE),
     re.compile(r"\bbigger picture\b", re.IGNORECASE),
@@ -233,6 +236,9 @@ TASTE_NEGATIVE_PATTERNS = (
     re.compile(r"\bdependable architecture\b", re.IGNORECASE),
     re.compile(r"\bcomprehensive view\b", re.IGNORECASE),
     re.compile(r"\bunified approach\b", re.IGNORECASE),
+    re.compile(r"\bfor effective ai\b", re.IGNORECASE),
+    re.compile(r"\binterconnected\b", re.IGNORECASE),
+    re.compile(r"\bthis integration is crucial\b", re.IGNORECASE),
     re.compile(r"\b(?:transition|transitioned|transitioning)\b.*\barchitecture\b", re.IGNORECASE),
     re.compile(r"\bnew level of efficiency\b", re.IGNORECASE),
     re.compile(r"\bstreamlined workflow\b", re.IGNORECASE),
@@ -1864,6 +1870,7 @@ def _proof_packet_evidence_text(packet: str) -> str:
     parts = (packet or "").split("->", 1)
     text = parts[1].strip() if len(parts) == 2 else (packet or "").strip()
     text = text.split(" Use when:", 1)[0]
+    text = re.sub(r"^(?:wins?|initiative|proof|story|example):\s*", "", text, flags=re.IGNORECASE)
     return text.strip()
 
 
@@ -2597,6 +2604,7 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
             normalized = " ".join(sentence.split()).strip()
             if not normalized:
                 continue
+            normalized = re.sub(r"^(?:wins?|initiative|proof|story|example):\s*", "", normalized, flags=re.IGNORECASE)
             base_sentence = normalized.rstrip(".!?")
             integrate_match = re.match(
                 r"^(?:our|the) system now integrates (.+?) into (?:a )?unified approach$",
@@ -2640,6 +2648,19 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
                 flags=re.IGNORECASE,
             ):
                 rewritten.append("The operating model is the strategy.")
+                continue
+            if re.match(
+                r"^for effective ai, .+\binterconnected\b.*$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("Operator context has to travel.")
+                continue
+            if re.match(
+                r"^this integration is crucial; without it, the system breaks$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
                 continue
             if re.match(r"^everything(?:['’]s| is) interconnected\b", base_sentence, flags=re.IGNORECASE):
                 continue
