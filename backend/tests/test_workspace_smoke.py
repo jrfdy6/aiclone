@@ -4116,6 +4116,26 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertNotIn("unified approach", finalized[0].lower())
         self.assertNotIn("it's not just about", finalized[0].lower())
 
+    def test_finalize_planned_options_inserts_mid_punch_line_when_no_short_sentence_exists(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nJohnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.\n\nBrain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts.\n\nIsolated prompting just doesn't cut it anymore."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertRegex(finalized[0], r"\n\n(Explicit handoffs\.|Shared state\.|Proof-aware prompts\.)\n\n")
+
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(
             "### OPTION 1\nPrompting alone is not an AI strategy.\n---OPTION---\n### OPTION 2\nIf there is no artifact, stay at the level of principle."

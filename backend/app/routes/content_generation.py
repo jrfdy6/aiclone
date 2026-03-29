@@ -2397,6 +2397,30 @@ def _punch_line_from_brief(brief: ContentOptionBrief) -> str:
     return ""
 
 
+def _mid_punch_line_from_brief(brief: ContentOptionBrief, option: str) -> str:
+    existing = " ".join((option or "").lower().split())
+    if brief.framing_mode == "contrarian_reframe" and re.search(
+        r"\bprompting alone\b", brief.primary_claim, flags=re.IGNORECASE
+    ):
+        for candidate in ("That will not work.", "That dog will not hunt."):
+            if candidate.lower() not in existing:
+                return candidate
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    for candidate, pattern in (
+        ("Explicit handoffs.", r"\bexplicit handoffs\b"),
+        ("Shared state.", r"\bshared workspace state\b"),
+        ("Proof-aware prompts.", r"\bproof-aware prompts\b"),
+    ):
+        if re.search(pattern, evidence, flags=re.IGNORECASE) and candidate.lower() not in existing:
+            return candidate
+    fallback = _punch_line_from_brief(brief)
+    if fallback and fallback.lower() not in existing:
+        return fallback
+    if brief.framing_mode == "warning" and "that is where it breaks." not in existing:
+        return "That is where it breaks."
+    return ""
+
+
 def _brief_prefers_operator_voice(brief: ContentOptionBrief) -> bool:
     text = f"{brief.primary_claim} {_proof_packet_evidence_text(brief.proof_packet)} {brief.story_beat}"
     return bool(_significant_terms(text).intersection(STRICT_AUDIENCE_ANCHOR_TERMS.get("tech_ai", set())))
@@ -2491,9 +2515,12 @@ def _ensure_paragraph_cadence(option: str, brief: ContentOptionBrief) -> str:
         else:
             revised.append(" ".join(sentences).strip())
     if not any(len(sentence.split()) <= 6 for paragraph in revised for sentence in _split_sentences(paragraph)):
-        punch_line = _punch_line_from_brief(brief)
+        punch_line = _mid_punch_line_from_brief(brief, "\n\n".join(revised))
         if punch_line and all(punch_line.lower() not in paragraph.lower() for paragraph in revised):
-            revised.append(punch_line)
+            insert_at = len(revised)
+            if len(revised) >= 3:
+                insert_at = len(revised) - 1
+            revised.insert(insert_at, punch_line)
     return "\n\n".join(paragraph for paragraph in revised if paragraph)
 
 
