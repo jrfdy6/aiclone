@@ -2426,6 +2426,85 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("workflow clarity", (payload.get("persona_context") or "").lower())
         self.assertEqual(payload.get("options"), ["Bundle-first option"])
 
+    def test_curate_persona_prompt_chunks_orders_core_support_legacy_then_retrieval(self) -> None:
+        bundle_chunks = [
+            {
+                "chunk": "Core philosophy about workflow clarity.",
+                "persona_tag": "PHILOSOPHY",
+                "source_file_id": "identity/philosophy.md",
+                "metadata": {
+                    "source": "canonical persona bundle",
+                    "source_kind": "canonical_bundle",
+                    "bundle_path": "identity/philosophy.md",
+                    "file_name": "identity/philosophy.md",
+                },
+            },
+            {
+                "chunk": "Supporting story about stakeholder trust.",
+                "persona_tag": "EXPERIENCES",
+                "source_file_id": "history/story_bank.md",
+                "metadata": {
+                    "source": "canonical persona bundle",
+                    "source_kind": "canonical_bundle",
+                    "bundle_path": "history/story_bank.md",
+                    "file_name": "history/story_bank.md",
+                },
+            },
+        ]
+        legacy_support_chunks = [
+            {
+                "chunk": "Legacy bridge-builder positioning from the optimized persona file.",
+                "persona_tag": "BIO_FACTS",
+                "metadata": {"source": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md", "file_name": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md"},
+            }
+        ]
+        retrieved_chunks = [
+            {
+                "chunk": "Fresh retrieval support from a newer working note.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"source": "operator-note.md", "file_name": "operator-note.md"},
+            }
+        ]
+
+        curated = content_generation_module.curate_persona_prompt_chunks(
+            bundle_chunks=bundle_chunks,
+            legacy_support_chunks=legacy_support_chunks,
+            retrieved_chunks=retrieved_chunks,
+            top_k=4,
+        )
+
+        sections = [item.get("metadata", {}).get("prompt_section") for item in curated]
+        self.assertEqual(
+            sections,
+            ["CORE CANON", "SUPPORTING CANON", "LEGACY SUPPORT", "RETRIEVAL SUPPORT"],
+        )
+
+    def test_retrieve_curated_example_chunks_prefers_legacy_linkedin_examples(self) -> None:
+        calls = []
+        legacy_example = {
+            "chunk": "Legacy LinkedIn example",
+            "metadata": {"source": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md", "file_name": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md"},
+        }
+
+        def _fake_retrieve_similar(**kwargs):
+            calls.append(kwargs)
+            if kwargs.get("source_filter") == "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md" and kwargs.get("tag_filter") == ["LINKEDIN_EXAMPLES"]:
+                return [legacy_example]
+            return []
+
+        with patch.object(content_generation_module, "retrieve_similar", side_effect=_fake_retrieve_similar):
+            results = content_generation_module.retrieve_curated_example_chunks(
+                user_id="default-user",
+                query_embedding=[0.1, 0.2, 0.3],
+                content_type="linkedin_post",
+                top_k=3,
+            )
+
+        self.assertEqual(results, [legacy_example])
+        self.assertGreaterEqual(len(calls), 1)
+        self.assertEqual(calls[0].get("source_filter"), "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md")
+        self.assertEqual(calls[0].get("tag_filter"), ["LINKEDIN_EXAMPLES"])
+
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
         with patch.object(

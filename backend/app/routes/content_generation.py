@@ -20,6 +20,37 @@ from app.services.retrieval import retrieve_similar, retrieve_weighted
 
 router = APIRouter()
 
+CORE_BUNDLE_PATHS = {
+    "identity/claims.md",
+    "identity/philosophy.md",
+    "identity/decision_principles.md",
+    "identity/VOICE_PATTERNS.md",
+    "identity/audience_communication.md",
+    "prompts/content_guardrails.md",
+    "prompts/content_pillars.md",
+    "prompts/channel_playbooks.md",
+    "prompts/outreach_playbook.md",
+}
+SUPPORT_BUNDLE_PATHS = {
+    "identity/bio_facts.md",
+    "history/story_bank.md",
+    "history/wins.md",
+    "history/timeline.md",
+    "history/initiatives.md",
+    "history/resume.md",
+}
+LEGACY_PERSONA_SOURCES = (
+    "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
+    "JOHNNIE_FIELDS_PERSONA.md",
+)
+LEGACY_EXAMPLE_TAGS = ["LINKEDIN_EXAMPLES"]
+PROMPT_SECTION_ORDER = [
+    "CORE CANON",
+    "SUPPORTING CANON",
+    "LEGACY SUPPORT",
+    "RETRIEVAL SUPPORT",
+]
+
 
 class ContentGenerationRequest(BaseModel):
     user_id: str = Field(..., description="User ID for knowledge base lookup")
@@ -37,6 +68,143 @@ class ContentGenerationResponse(BaseModel):
     options: List[str]
     persona_context: Optional[str] = None
     examples_used: List[str] = []
+
+
+def _normalized_chunk_key(item: Dict[str, Any]) -> str:
+    return " ".join(str(item.get("chunk") or "").split()).strip().lower()
+
+
+def _item_metadata(item: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = item.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _source_name(item: Dict[str, Any]) -> str:
+    metadata = _item_metadata(item)
+    return str(metadata.get("file_name") or metadata.get("source") or "")
+
+
+def _bundle_path(item: Dict[str, Any]) -> str:
+    metadata = _item_metadata(item)
+    return str(metadata.get("bundle_path") or item.get("source_file_id") or "")
+
+
+def _with_prompt_section(item: Dict[str, Any], section: str) -> Dict[str, Any]:
+    hydrated = dict(item)
+    metadata = dict(_item_metadata(item))
+    metadata["prompt_section"] = section
+    hydrated["metadata"] = metadata
+    return hydrated
+
+
+def _append_unique(
+    destination: List[Dict[str, Any]],
+    candidates: List[Dict[str, Any]],
+    *,
+    limit: int,
+    seen: set[str],
+    section: str,
+) -> None:
+    for item in candidates:
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        destination.append(_with_prompt_section(item, section))
+        if len(destination) >= limit:
+            return
+
+
+def curate_persona_prompt_chunks(
+    *,
+    bundle_chunks: List[Dict[str, Any]],
+    legacy_support_chunks: List[Dict[str, Any]],
+    retrieved_chunks: List[Dict[str, Any]],
+    top_k: int = 9,
+) -> List[Dict[str, Any]]:
+    core_chunks = [item for item in bundle_chunks if _bundle_path(item) in CORE_BUNDLE_PATHS]
+    support_chunks = [item for item in bundle_chunks if _bundle_path(item) in SUPPORT_BUNDLE_PATHS]
+    bundle_other_chunks = [
+        item
+        for item in bundle_chunks
+        if _bundle_path(item) not in CORE_BUNDLE_PATHS and _bundle_path(item) not in SUPPORT_BUNDLE_PATHS
+    ]
+    legacy_chunks = [
+        item
+        for item in legacy_support_chunks
+        if _source_name(item) in LEGACY_PERSONA_SOURCES and item.get("persona_tag") != "LINKEDIN_EXAMPLES"
+    ]
+    retrieval_support_chunks = [
+        item
+        for item in retrieved_chunks
+        if _source_name(item) not in LEGACY_PERSONA_SOURCES and item.get("persona_tag") != "LINKEDIN_EXAMPLES"
+    ]
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    _append_unique(curated, core_chunks, limit=min(top_k, 4), seen=seen, section="CORE CANON")
+    _append_unique(curated, support_chunks, limit=min(top_k, 7), seen=seen, section="SUPPORTING CANON")
+    _append_unique(curated, legacy_chunks, limit=min(top_k, 9), seen=seen, section="LEGACY SUPPORT")
+    _append_unique(curated, bundle_other_chunks, limit=min(top_k, 9), seen=seen, section="SUPPORTING CANON")
+    _append_unique(curated, retrieval_support_chunks, limit=top_k, seen=seen, section="RETRIEVAL SUPPORT")
+    return curated[:top_k]
+
+
+def retrieve_legacy_support_chunks(
+    *,
+    user_id: str,
+    query_embedding: List[float],
+    top_k: int = 6,
+) -> List[Dict[str, Any]]:
+    for source_name in LEGACY_PERSONA_SOURCES:
+        items = retrieve_similar(
+            user_id=user_id,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            source_filter=source_name,
+        )
+        if items:
+            return items
+    return []
+
+
+def retrieve_curated_example_chunks(
+    *,
+    user_id: str,
+    query_embedding: List[float],
+    content_type: str,
+    top_k: int = 3,
+) -> List[Dict[str, Any]]:
+    if content_type == "linkedin_post":
+        for source_name in LEGACY_PERSONA_SOURCES:
+            items = retrieve_similar(
+                user_id=user_id,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                tag_filter=LEGACY_EXAMPLE_TAGS,
+                source_filter=source_name,
+            )
+            if items:
+                return items
+    return retrieve_similar(
+        user_id=user_id,
+        query_embedding=query_embedding,
+        top_k=top_k,
+    )
+
+
+def summarize_persona_context(persona_chunks: List[Dict[str, Any]], topic: str) -> Optional[str]:
+    normalized_topic = " ".join((topic or "").lower().split())
+    if normalized_topic:
+        for item in persona_chunks:
+            chunk = str(item.get("chunk") or "")
+            if normalized_topic in chunk.lower():
+                return chunk[:200]
+    for preferred_section in PROMPT_SECTION_ORDER:
+        for item in persona_chunks:
+            if _item_metadata(item).get("prompt_section") == preferred_section:
+                return str(item.get("chunk") or "")[:200]
+    return None
 
 
 def get_openai_client():
@@ -61,29 +229,21 @@ def build_content_prompt(
 ) -> str:
     """Build the prompt for content generation."""
     
-    # Extract persona info with tag labels for context
-    # Group chunks by tag for better organization in the prompt
-    persona_sections = {}
-    for c in persona_chunks[:7]:
-        tag = c.get("persona_tag", "GENERAL")
-        chunk_text = c.get("chunk", "")
-        if chunk_text:
-            if tag not in persona_sections:
-                persona_sections[tag] = []
-            persona_sections[tag].append(chunk_text)
-    
-    # Build persona text with section labels
+    # Group chunks by prompt layer so canon stays ahead of legacy support.
+    persona_sections: Dict[str, List[str]] = {}
+    for c in persona_chunks[:9]:
+        tag = str(c.get("persona_tag", "GENERAL")).replace("_", " ").title()
+        section = str(_item_metadata(c).get("prompt_section") or "RETRIEVAL SUPPORT")
+        chunk_text = str(c.get("chunk") or "").strip()
+        if not chunk_text:
+            continue
+        persona_sections.setdefault(section, []).append(f"- [{tag}] {chunk_text}")
+
     persona_parts = []
-    # Order chunks for narrative flow: voice → struggles → experiences → philosophy
-    tag_order = ["VOICE_PATTERNS", "STRUGGLES", "EXPERIENCES", "PHILOSOPHY", "VENTURES", "BIO_FACTS", "LINKEDIN_EXAMPLES"]
-    for tag in tag_order:
-        if tag in persona_sections:
-            persona_parts.append(f"### {tag.replace('_', ' ').title()}\n" + "\n".join(persona_sections[tag]))
-    # Add any remaining tags
-    for tag, chunks in persona_sections.items():
-        if tag not in tag_order:
-            persona_parts.append(f"### {tag.replace('_', ' ').title()}\n" + "\n".join(chunks))
-    
+    for section in PROMPT_SECTION_ORDER:
+        chunks = persona_sections.get(section)
+        if chunks:
+            persona_parts.append(f"### {section}\n" + "\n".join(chunks))
     persona_text = "\n\n".join(persona_parts)
     
     # Extract example content
@@ -188,45 +348,14 @@ TIGHTENING RULES:
     # Channel-specific examples - USE REAL POSTS FROM PERSONA, not fabricated stories
     channel_examples = {
         "linkedin_post": """
-REAL LINKEDIN POST EXAMPLES FROM THIS PERSON (match this voice EXACTLY):
+Use the knowledge-base examples below as the primary post references.
 
-EXAMPLE 1 (Life Update - 2,348 impressions):
----
-🔔 Life Update
-
-A couple weeks ago, I got word that my position was being eliminated. Tell you what tho, I'm feeling thankful. Thankful for the space it gave me to reset, and for the lessons I learned about leadership and navigating challenges with grace.
-
-I'm especially grateful for the colleagues who encouraged me, challenged me, and made the journey meaningful.
-
-Today, I'm excited to share that I've started my new role as Director of Admissions at Fusion Academy. I'm energized, aligned, and ready to grow.
-
-#stayready #education #technology #leadership #turnoverchain
----
-
-EXAMPLE 2 (Event Recap - 1,767 impressions):
----
-Wrapping up an incredible Season of Coffee & Convo with the final event of 2025 being hosted at Fusion Academy DC!
-
-Yall we had a DYNAMIC conversation around pervasive drive for autonomy (PDA). Say it with me:
-
-🗣️ Pervasive Drive for Autonomy!
-
-A huge thank you to our amazing panelists:
-Natalie Morton – Director of Education at Fusion DC
-Kaitlyn Tiplady – Licensed Clinical Psychologist, Georgetown Psychology
-Elizabeth Sokolov – Founder of NeuroPossible
-
-And a big shout-out to our cosponsor, Newport Healthcare. This event would not have been the same without your partnership!
-
-Coffee & Convo has been about creating space for meaningful dialogue and collaboration. We're so grateful to everyone who joined us and contributed to these conversations. We'll be back in 2026 with fresh topics and opportunities to connect... Stay tuned!
----
-
-EXAMPLE 3 (Commentary - 782 impressions):
----
-Just read Krugman's piece on how the U.S. is pushing away international students. As someone who worked with them daily, this one hit home.
-
-They bring talent, drive, fresh perspective and billions to the economy. Turning our backs? Makes no sense. Period.
----
+Match their rhythm:
+- strong hook up top
+- short line breaks
+- specific names, systems, and stakes
+- recognition where it is earned
+- a clean close, not a generic recap
 
 VOICE RULES (MANDATORY - VARY these patterns across options):
 - CRITICAL: Each option must use a DIFFERENT opener. Never start all 3 with "Yall"
@@ -238,9 +367,9 @@ VOICE RULES (MANDATORY - VARY these patterns across options):
 - Emphasis: "Are you hearing what I'm telling you?", "I'm just being real.", "For real, for real."
 - Short, punchy sentences for emphasis
 - **Bold** key insight statements
-- Tag people with their title/org
+- Tag people with their title/org when that is actually part of the story
 - Hashtags grouped at end (5-7 max)
-- 🔔 for announcements, 💜 for Fusion content, 📸 before photos
+- Use legacy examples for rhythm and specificity, never for copy-paste
 """,
         "cold_email": """
 EMAIL STYLE RULES (based on this person's voice):
@@ -628,7 +757,7 @@ Voice audit:
 
 ---
 
-## PERSONA (write AS this person):
+## PERSONA STACK (core canon first, then support, then legacy):
 {persona_text if persona_text else "No persona data available - use a professional, authentic voice."}
 
 ## EXAMPLES FROM THEIR KNOWLEDGE BASE:
@@ -684,29 +813,6 @@ Generate 3 content options, separated by "---OPTION---":
     
     return prompt
 
-
-def merge_persona_chunks(
-    bundle_chunks: List[Dict[str, Any]],
-    retrieved_chunks: List[Dict[str, Any]],
-    top_k: int = 7,
-) -> List[Dict[str, Any]]:
-    merged: List[Dict[str, Any]] = []
-    seen: set[str] = set()
-    for bucket in (bundle_chunks, retrieved_chunks):
-        for item in bucket:
-            chunk = " ".join(str(item.get("chunk") or "").split()).strip()
-            if not chunk:
-                continue
-            key = chunk.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(item)
-            if len(merged) >= top_k:
-                return merged
-    return merged
-
-
 @router.post("/generate", response_model=ContentGenerationResponse)
 async def generate_content(req: ContentGenerationRequest):
     """
@@ -723,7 +829,12 @@ async def generate_content(req: ContentGenerationRequest):
             query_embedding=persona_embedding,
             category=req.category,
             channel=req.content_type,
-            top_k=7,
+            top_k=10,
+        )
+        legacy_support_chunks = retrieve_legacy_support_chunks(
+            user_id=req.user_id,
+            query_embedding=persona_embedding,
+            top_k=6,
         )
 
         retrieved_persona_chunks = retrieve_weighted(
@@ -731,10 +842,15 @@ async def generate_content(req: ContentGenerationRequest):
             query_embedding=persona_embedding,
             category=req.category,  # value, sales, or personal
             channel=req.content_type,  # linkedin_post, linkedin_dm, cold_email, instagram_post
-            top_k=7,  # Get more chunks since they're now properly weighted
+            top_k=8,  # Retrieval now supports canon rather than leading it
         )
 
-        persona_chunks = merge_persona_chunks(bundle_persona_chunks, retrieved_persona_chunks, top_k=7)
+        persona_chunks = curate_persona_prompt_chunks(
+            bundle_chunks=bundle_persona_chunks,
+            legacy_support_chunks=legacy_support_chunks,
+            retrieved_chunks=retrieved_persona_chunks,
+            top_k=9,
+        )
 
         # Log what tags were retrieved for debugging
         if persona_chunks:
@@ -744,12 +860,13 @@ async def generate_content(req: ContentGenerationRequest):
                 tag_summary[tag] = tag_summary.get(tag, 0) + 1
             print(f"[content_gen] Retrieved persona chunks by tag: {tag_summary}", flush=True)
         
-        # Step 2: Retrieve high-performing content examples (still use standard retrieval)
+        # Step 2: Retrieve high-performing content examples from the curated legacy example lane first.
         examples_query = f"high performing content example {req.content_type} {req.category} {req.topic}"
         examples_embedding = embed_text(examples_query)
-        example_chunks = retrieve_similar(
+        example_chunks = retrieve_curated_example_chunks(
             user_id=req.user_id,
             query_embedding=examples_embedding,
+            content_type=req.content_type,
             top_k=3,
         )
         
@@ -819,7 +936,7 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
         return ContentGenerationResponse(
             success=True,
             options=options[:3],  # Max 3 options
-            persona_context=persona_chunks[0].get("chunk", "")[:200] if persona_chunks else None,
+            persona_context=summarize_persona_context(persona_chunks, req.topic),
             examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]]
         )
         
