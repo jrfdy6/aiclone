@@ -623,6 +623,10 @@ def build_content_prompt(
     grounding_mode: Optional[str] = None,
     grounding_reason: Optional[str] = None,
     framing_modes: Optional[List[str]] = None,
+    primary_claims: Optional[List[str]] = None,
+    proof_packets: Optional[List[str]] = None,
+    story_beats: Optional[List[str]] = None,
+    disallowed_moves: Optional[List[str]] = None,
 ) -> str:
     """Build the prompt for content generation."""
     topic_anchor_chunks = topic_anchor_chunks or select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
@@ -656,6 +660,14 @@ def build_content_prompt(
         f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
         for mode in approved_framing_modes
     )
+    primary_claims = primary_claims or []
+    proof_packets = proof_packets or []
+    story_beats = story_beats or []
+    disallowed_moves = disallowed_moves or []
+    primary_claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- No primary claims were pre-composed. Stay tightly inside the topic anchors."
+    proof_packets_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No approved proof packets. Use principle only."
+    story_beats_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No story beat approved for this request."
+    disallowed_moves_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
     
     visible_persona_chunks = _collect_prompt_visible_chunks(
         persona_chunks=persona_chunks,
@@ -1238,6 +1250,18 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 ## APPROVED FRAMING MODES (preserve the legacy rhetorical edge):
 {framing_modes_text}
 
+## PRIMARY CLAIMS YOU MAY MAKE:
+{primary_claims_text}
+
+## APPROVED PROOF PACKETS:
+{proof_packets_text}
+
+## OPTIONAL STORY BEATS:
+{story_beats_text}
+
+## DISALLOWED MOVES:
+{disallowed_moves_text}
+
 ## NARRATIVE ARC (follow this structure):
 1. **HOOK/CONTEXT** - Start with something relatable, surprising, or attention-grabbing. Use voice markers.
 2. **OPERATING LESSON** - Build the post around a real lesson, framework, proof point, or experience from the topic anchors.
@@ -1255,6 +1279,9 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 9. Generate 3 different options with varying hooks/angles.
 10. Keep the writing vivid. Use tension, agreement, contrast, or drama only when it stays grounded in the approved framing modes above.
 11. Use a different approved framing mode for each option so the three drafts do not collapse into one flat shape.
+12. Pick one PRIMARY CLAIM per option and stay inside it. Do not merge multiple weak ideas together.
+13. If `proof_ready`, each option must use one APPROVED PROOF PACKET faithfully. Keep the original subject and meaning intact.
+14. If `principle_only`, do not mention named systems, employers, projects, or metrics unless they already appear in PRIMARY CLAIMS.
 
 ## ANTI-HALLUCINATION RULES (CRITICAL):
 - ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
@@ -1303,6 +1330,10 @@ def build_refinement_prompt(
     grounding_mode: Optional[str] = None,
     grounding_reason: Optional[str] = None,
     framing_modes: Optional[List[str]] = None,
+    primary_claims: Optional[List[str]] = None,
+    proof_packets: Optional[List[str]] = None,
+    story_beats: Optional[List[str]] = None,
+    disallowed_moves: Optional[List[str]] = None,
 ) -> str:
     topic_anchor_chunks = topic_anchor_chunks or select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     eligible_story_chunks = eligible_story_chunks or select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
@@ -1329,6 +1360,14 @@ def build_refinement_prompt(
         f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
         for mode in approved_framing_modes
     )
+    primary_claims = primary_claims or []
+    proof_packets = proof_packets or []
+    story_beats = story_beats or []
+    disallowed_moves = disallowed_moves or []
+    primary_claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- No pre-composed primary claims."
+    proof_packets_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No approved proof packets."
+    story_beats_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No approved story beats."
+    disallowed_moves_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
     rough_text = "\n---OPTION---\n".join(rough_options)
     return f"""You are revising drafted posts so they sound sharper, more specific, and more faithful to this person's canon.
 
@@ -1351,6 +1390,18 @@ GROUNDING MODE:
 APPROVED FRAMING MODES:
 {framing_modes_text}
 
+PRIMARY CLAIMS YOU MAY MAKE:
+{primary_claims_text}
+
+APPROVED PROOF PACKETS:
+{proof_packets_text}
+
+OPTIONAL STORY BEATS:
+{story_beats_text}
+
+DISALLOWED MOVES:
+{disallowed_moves_text}
+
 ROUGH OPTIONS TO REWRITE:
 {rough_text}
 
@@ -1367,6 +1418,9 @@ REVISION RULES:
 - If no eligible story anchor exists, do not force a story. Stay with proof, pattern, and operating insight.
 - Replace vague claims with concrete operator language: workflow, handoff, prompt, system, proof, constraint, operating cadence.
 - Cut weak setup lines. Start faster.
+- Use one PRIMARY CLAIM per option and make it legible in the first lines.
+- If `proof_ready`, tie each option to one APPROVED PROOF PACKET and preserve its exact meaning.
+- If `principle_only`, remove stray named examples that are not explicitly present in PRIMARY CLAIMS.
 
 Output only the rewritten options, separated by ---OPTION---.
 """
@@ -1386,6 +1440,10 @@ def refine_generated_options(
     grounding_mode: Optional[str] = None,
     grounding_reason: Optional[str] = None,
     framing_modes: Optional[List[str]] = None,
+    primary_claims: Optional[List[str]] = None,
+    proof_packets: Optional[List[str]] = None,
+    story_beats: Optional[List[str]] = None,
+    disallowed_moves: Optional[List[str]] = None,
 ) -> List[str]:
     if content_type != "linkedin_post" or not rough_options:
         return rough_options
@@ -1410,6 +1468,10 @@ def refine_generated_options(
                     grounding_mode=grounding_mode,
                     grounding_reason=grounding_reason,
                     framing_modes=framing_modes,
+                    primary_claims=primary_claims,
+                    proof_packets=proof_packets,
+                    story_beats=story_beats,
+                    disallowed_moves=disallowed_moves,
                 ),
             },
         ],
@@ -1462,6 +1524,10 @@ async def generate_content(req: ContentGenerationRequest):
             grounding_mode=content_context.grounding_mode,
             grounding_reason=content_context.grounding_reason,
             framing_modes=content_context.framing_modes,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            disallowed_moves=content_context.disallowed_moves,
         )
         
         # Step 4: Generate content with OpenAI
@@ -1517,6 +1583,10 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             grounding_mode=content_context.grounding_mode,
             grounding_reason=content_context.grounding_reason,
             framing_modes=content_context.framing_modes,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            disallowed_moves=content_context.disallowed_moves,
         )
 
         return ContentGenerationResponse(

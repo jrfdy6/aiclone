@@ -105,6 +105,10 @@ class ContentGenerationContext:
     grounding_mode: str
     grounding_reason: str
     framing_modes: list[str]
+    primary_claims: list[str]
+    proof_packets: list[str]
+    story_beats: list[str]
+    disallowed_moves: list[str]
     persona_context_summary: str | None
 
 
@@ -456,6 +460,101 @@ def summarize_persona_context(persona_chunks: list[dict[str, Any]], topic: str) 
     return None
 
 
+def _dedupe_texts(items: list[str], *, limit: int) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in items:
+        normalized = " ".join((item or "").split()).strip()
+        key = normalized.lower()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        unique.append(normalized)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def _split_sentences(text: str) -> list[str]:
+    normalized = " ".join((text or "").split()).strip()
+    if not normalized:
+        return []
+    return [segment.strip(" -") for segment in re.split(r"(?<=[.!?])\s+", normalized) if segment.strip()]
+
+
+def _extract_label_from_chunk(chunk: str) -> str:
+    primary_text, _ = _split_use_when_text(chunk)
+    cleaned = primary_text.replace("Public-facing proof:", " ").replace("Proof:", " ").replace("Evidence:", " ")
+    first_sentence = _split_sentences(cleaned)[0] if _split_sentences(cleaned) else cleaned
+    return first_sentence.strip(" .")
+
+
+def _extract_primary_claims(
+    *,
+    topic_anchor_chunks: list[dict[str, Any]],
+    proof_anchor_chunks: list[dict[str, Any]],
+    grounding_mode: str,
+) -> list[str]:
+    candidates: list[str] = []
+    source_chunks = proof_anchor_chunks + topic_anchor_chunks if grounding_mode == "proof_ready" else topic_anchor_chunks + proof_anchor_chunks
+    for item in source_chunks:
+        primary_text, _ = _split_use_when_text(str(item.get("chunk") or ""))
+        text = re.sub(r"\b(Proof|Evidence|Public-facing proof|Value):.*", "", primary_text, flags=re.IGNORECASE).strip(" .")
+        if text:
+            candidates.append(text)
+    return _dedupe_texts(candidates, limit=3)
+
+
+def _extract_proof_packets(proof_anchor_chunks: list[dict[str, Any]]) -> list[str]:
+    packets: list[str] = []
+    for item in proof_anchor_chunks:
+        chunk = str(item.get("chunk") or "")
+        label = _extract_label_from_chunk(chunk)
+        proof_segments: list[str] = []
+        for marker in ("Public-facing proof:", "Proof:", "Evidence:"):
+            if marker.lower() in chunk.lower():
+                split_parts = re.split(marker, chunk, maxsplit=1, flags=re.IGNORECASE)
+                if len(split_parts) == 2:
+                    proof_segments.extend(_split_sentences(split_parts[1]))
+        if not proof_segments:
+            proof_segments = [
+                sentence
+                for sentence in _split_sentences(chunk)
+                if _proof_signal_score(sentence) > 0 or bool(re.search(r"\b\d[\d.,x%$m]*\b", sentence))
+            ]
+        if not proof_segments:
+            continue
+        packets.append(f"{label} -> {proof_segments[0].strip(' .')}.")
+    return _dedupe_texts(packets, limit=4)
+
+
+def _extract_story_beats(story_anchor_chunks: list[dict[str, Any]]) -> list[str]:
+    beats: list[str] = []
+    for item in story_anchor_chunks:
+        primary_text, _ = _split_use_when_text(str(item.get("chunk") or ""))
+        sentences = _split_sentences(primary_text)
+        if sentences:
+            beats.append(sentences[0].strip(" .") + ".")
+    return _dedupe_texts(beats, limit=3)
+
+
+def _build_disallowed_moves(*, audience: str, grounding_mode: str) -> list[str]:
+    moves = [
+        "Do not invent outcomes, causal claims, or cleaner metrics than the approved proof actually states.",
+        "Do not borrow names, employers, systems, or projects that are not present in the approved claims, proof packets, or story beats.",
+    ]
+    if audience == "tech_ai":
+        moves.extend(
+            [
+                "Do not drift into generic leadership, admissions, school-process, or community anecdotes for AI/operator posts.",
+                "Do not use generic AI filler like seamless integration, unlock potential, efficiency skyrocketed, or game changer.",
+            ]
+        )
+    if grounding_mode == "principle_only":
+        moves.append("Do not use named metrics, case studies, employers, or systems unless they appear directly in the approved primary claims.")
+    return moves
+
+
 def select_topic_anchor_chunks(
     persona_chunks: list[dict[str, Any]],
     *,
@@ -740,6 +839,17 @@ def build_content_generation_context(
         proof_anchor_chunks=proof_anchor_chunks,
         story_anchor_chunks=story_anchor_chunks,
     )
+    primary_claims = _extract_primary_claims(
+        topic_anchor_chunks=topic_anchor_chunks,
+        proof_anchor_chunks=proof_anchor_chunks,
+        grounding_mode=grounding_mode,
+    )
+    proof_packets = _extract_proof_packets(proof_anchor_chunks)
+    story_beats = _extract_story_beats(story_anchor_chunks)
+    disallowed_moves = _build_disallowed_moves(
+        audience=audience,
+        grounding_mode=grounding_mode,
+    )
 
     core_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "core"]
     proof_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "proof"]
@@ -759,5 +869,9 @@ def build_content_generation_context(
         grounding_mode=grounding_mode,
         grounding_reason=grounding_reason,
         framing_modes=framing_modes,
+        primary_claims=primary_claims,
+        proof_packets=proof_packets,
+        story_beats=story_beats,
+        disallowed_moves=disallowed_moves,
         persona_context_summary=summarize_persona_context(persona_chunks, topic),
     )

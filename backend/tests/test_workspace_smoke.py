@@ -2494,6 +2494,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
             grounding_mode="proof_ready",
             grounding_reason="Artifact-backed proof is available.",
             framing_modes=["operator_lesson", "contrarian_reframe", "drama_tension"],
+            primary_claims=["Teams fail when they chase tools before workflow clarity."],
+            proof_packets=["Workflow clarity -> Teams fail when they chase tools before workflow clarity."],
+            story_beats=[],
+            disallowed_moves=["Do not invent metrics."],
             persona_context_summary="Teams fail when they chase tools before workflow clarity.",
         )
 
@@ -2616,6 +2620,8 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(any(chunk.get("metadata", {}).get("memory_role") == "story" for chunk in context_pack.story_chunks))
         self.assertIn("contrarian_reframe", context_pack.framing_modes)
         self.assertIn("drama_tension", context_pack.framing_modes)
+        self.assertGreaterEqual(len(context_pack.primary_claims), 1)
+        self.assertGreaterEqual(len(context_pack.proof_packets), 1)
         self.assertEqual(context_pack.example_chunks, [legacy_example])
 
     def test_content_generation_context_service_drops_off_domain_tech_ai_support_and_fails_closed(self) -> None:
@@ -2721,6 +2727,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
             grounding_mode="proof_ready",
             grounding_reason="Artifact-backed proof is available, so the post can lead with real evidence.",
             framing_modes=["contrarian_reframe", "drama_tension", "operator_lesson"],
+            primary_claims=["Builds and translates AI execution patterns into clear operator guidance."],
+            proof_packets=["AI Clone / Brain System -> Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views."],
+            story_beats=[],
+            disallowed_moves=["Do not invent outcomes."],
         )
 
         self.assertIn("## GROUNDING MODE:", prompt)
@@ -2728,6 +2738,8 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("## APPROVED FRAMING MODES", prompt)
         self.assertIn("`contrarian_reframe`", prompt)
         self.assertIn("`drama_tension`", prompt)
+        self.assertIn("## PRIMARY CLAIMS YOU MAY MAKE:", prompt)
+        self.assertIn("## APPROVED PROOF PACKETS:", prompt)
 
     def test_build_content_prompt_principle_only_mode_forbids_named_case_study_reach(self) -> None:
         persona_chunks = [
@@ -2754,6 +2766,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
             grounding_mode="principle_only",
             grounding_reason="No AI/operator proof survived the domain gate, so the post should stay principle-led.",
             framing_modes=["operator_lesson", "warning"],
+            primary_claims=["Builds and translates AI execution patterns into clear operator guidance."],
+            proof_packets=[],
+            story_beats=[],
+            disallowed_moves=["Do not use named metrics, case studies, employers, or systems unless they appear directly in the approved primary claims."],
         )
 
         self.assertIn("`principle_only`", prompt)
