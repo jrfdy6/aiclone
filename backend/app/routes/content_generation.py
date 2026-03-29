@@ -168,6 +168,39 @@ UNSUPPORTED_EVIDENCE_PLACEHOLDERS = {
     "video",
     "webinar",
 }
+DEFAULT_VOICE_DIRECTIVES = [
+    "Lead with clarity, not hype.",
+    "Front-load the thesis instead of warming up slowly.",
+    "Use short, punchy lines when the point needs force.",
+    "Let strategy lead and let proof support it.",
+    "Keep the writing casual, direct, and operator-grounded.",
+    "Avoid generic opener formulas like 'X is essential' or 'In today's world'.",
+]
+VOICE_DIRECTIVE_HINTS = (
+    "lead with",
+    "front-load",
+    "use short",
+    "keep ",
+    "avoid ",
+    "start from",
+    "end with",
+    "let ",
+    "sound like",
+    "tell you what tho",
+    "y'all",
+    "yall",
+    "say it with me",
+    "big shout-out",
+    "makes no sense",
+)
+FLAT_GENERIC_PATTERNS = (
+    re.compile(r"\bin today's\b", re.IGNORECASE),
+    re.compile(r"\b(?:workflow clarity|agent orchestration|leadership|ai|clarity)\s+is\s+(?:essential|critical|important)\b", re.IGNORECASE),
+    re.compile(r"\bthe real value lies\b", re.IGNORECASE),
+    re.compile(r"\bhere(?:'s| is) the takeaway\b", re.IGNORECASE),
+    re.compile(r"\b(?:this|that|it)\s+is\s+(?:essential|critical|important|powerful)\b", re.IGNORECASE),
+    re.compile(r"\b(?:game changer|unlock potential|drive results|magic happens)\b", re.IGNORECASE),
+)
 
 
 class ContentGenerationRequest(BaseModel):
@@ -639,6 +672,132 @@ def build_proof_guidance(proof_anchor_chunks: List[Dict[str, Any]]) -> str:
     )
 
 
+def _clean_voice_directive(text: str) -> str:
+    directive = " ".join((text or "").strip().strip("-*").split())
+    directive = re.sub(r"^[A-Z ]+:\s*", "", directive)
+    return directive.strip()
+
+
+def _extract_voice_directives(persona_chunks: List[Dict[str, Any]], *, limit: int = 8) -> List[str]:
+    directives: List[str] = []
+    seen: set[str] = set()
+    for item in persona_chunks:
+        metadata = _item_metadata(item)
+        bundle_path = str(metadata.get("bundle_path") or item.get("source_file_id") or "")
+        chunk = str(item.get("chunk") or "")
+        tag = str(item.get("persona_tag") or "")
+        if bundle_path != "identity/VOICE_PATTERNS.md" and "VOICE" not in tag and "voice" not in chunk.lower():
+            continue
+        for raw_line in re.split(r"[\r\n]+", chunk):
+            directive = _clean_voice_directive(raw_line)
+            lowered = directive.lower()
+            if not directive or len(directive) < 10:
+                continue
+            if lowered in seen:
+                continue
+            if "voice patterns" in lowered or "reusable language patterns" in lowered:
+                continue
+            if any(hint in lowered for hint in VOICE_DIRECTIVE_HINTS):
+                seen.add(lowered)
+                directives.append(directive)
+            if len(directives) >= limit:
+                return directives
+    for directive in DEFAULT_VOICE_DIRECTIVES:
+        lowered = directive.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        directives.append(directive)
+        if len(directives) >= limit:
+            break
+    return directives
+
+
+def _build_option_framing_plan(
+    *,
+    framing_modes: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    option_count: int = 3,
+) -> List[Dict[str, str]]:
+    approved_framing_modes = framing_modes or ["operator_lesson", "contrarian_reframe", "reframe"]
+    approved_claims = primary_claims or ["Stay tightly inside the topic anchors."]
+    approved_proofs = proof_packets or ["No proof packet approved. Use principle and operator language only."]
+    approved_stories = story_beats or []
+    plan: List[Dict[str, str]] = []
+    for index in range(option_count):
+        mode = approved_framing_modes[index % len(approved_framing_modes)]
+        claim = approved_claims[index % len(approved_claims)]
+        proof = approved_proofs[index % len(approved_proofs)]
+        story = approved_stories[index % len(approved_stories)] if approved_stories else ""
+        plan.append(
+            {
+                "option": str(index + 1),
+                "mode": mode,
+                "claim": claim,
+                "proof": proof,
+                "story": story,
+            }
+        )
+    return plan
+
+
+def _render_option_framing_plan(option_plan: List[Dict[str, str]]) -> str:
+    if not option_plan:
+        return "- No explicit option framing plan."
+    rendered: List[str] = []
+    for item in option_plan:
+        parts = [
+            f"Option {item.get('option')}: `{item.get('mode')}`",
+            f"lead claim: {item.get('claim')}",
+            f"supporting proof: {item.get('proof')}",
+        ]
+        story = str(item.get("story") or "")
+        if story:
+            parts.append(f"optional story beat: {story}")
+        rendered.append("- " + " | ".join(parts))
+    return "\n".join(rendered)
+
+
+def _first_content_line(option: str) -> str:
+    for line in (option or "").splitlines():
+        cleaned = " ".join(line.split()).strip()
+        if cleaned:
+            return cleaned
+    return " ".join((option or "").split()).strip()
+
+
+def _option_needs_voice_sharpening(option: str) -> bool:
+    lowered = " ".join((option or "").lower().split())
+    if not lowered:
+        return False
+    if any(pattern.search(lowered) for pattern in FLAT_GENERIC_PATTERNS):
+        return True
+    first_line = _first_content_line(option)
+    first_line_lower = first_line.lower()
+    if first_line_lower.startswith(("workflow clarity is", "agent orchestration is", "leadership is", "clarity is", "ai is")):
+        return True
+    if first_line_lower.startswith(("this is", "that is", "it is")) and len(first_line.split()) <= 10:
+        return True
+    return False
+
+
+def _options_need_voice_sharpening(options: List[str]) -> bool:
+    meaningful_options = [option for option in options if option.strip()]
+    if not meaningful_options:
+        return False
+    if any(_option_needs_voice_sharpening(option) for option in meaningful_options):
+        return True
+    first_words = []
+    for option in meaningful_options:
+        first_line = _first_content_line(option)
+        if not first_line:
+            continue
+        first_words.append(re.findall(r"[A-Za-z']+", first_line)[0].lower())
+    return len(first_words) >= 2 and len(set(first_words)) == 1
+
+
 def get_openai_client():
     """Get OpenAI client for content generation."""
     import openai
@@ -711,6 +870,16 @@ def build_content_prompt(
     disallowed_moves_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
     approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
     approved_reference_text = "\n".join(f"- {term}" for term in approved_reference_terms) or "- No approved named references."
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    voice_directives_text = "\n".join(f"- {directive}" for directive in voice_directives)
+    option_framing_plan = _build_option_framing_plan(
+        framing_modes=approved_framing_modes,
+        primary_claims=primary_claims,
+        proof_packets=proof_packets,
+        story_beats=story_beats,
+        option_count=3,
+    )
+    option_framing_plan_text = _render_option_framing_plan(option_framing_plan)
     
     visible_persona_chunks = _collect_prompt_visible_chunks(
         persona_chunks=persona_chunks,
@@ -1293,6 +1462,9 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 ## APPROVED FRAMING MODES (preserve the legacy rhetorical edge):
 {framing_modes_text}
 
+## OPTION FRAMING PLAN (follow this so the three options do not collapse into one shape):
+{option_framing_plan_text}
+
 ## PRIMARY CLAIMS YOU MAY MAKE:
 {primary_claims_text}
 
@@ -1307,6 +1479,9 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 
 ## DISALLOWED MOVES:
 {disallowed_moves_text}
+
+## VOICE SHAPING RULES:
+{voice_directives_text}
 
 ## NARRATIVE ARC (follow this structure):
 1. **HOOK/CONTEXT** - Start with something relatable, surprising, or attention-grabbing. Use voice markers.
@@ -1327,10 +1502,12 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 11. Generate 3 different options with varying hooks/angles.
 10. Keep the writing vivid. Use tension, agreement, contrast, or drama only when it stays grounded in the approved framing modes above.
 11. Use a different approved framing mode for each option so the three drafts do not collapse into one flat shape.
+12. Follow the OPTION FRAMING PLAN above. Option 1, 2, and 3 should feel materially different in hook, posture, and payoff.
 12. Pick one PRIMARY CLAIM per option and stay inside it. Do not merge multiple weak ideas together.
 13. If `proof_ready`, each option must use one APPROVED PROOF PACKET faithfully. Keep the original subject and meaning intact.
 14. If `principle_only`, do not mention named systems, employers, projects, or metrics unless they already appear in PRIMARY CLAIMS.
 15. If a named reference is not in APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES, remove it.
+16. Use the VOICE SHAPING RULES above. Keep the language casual, sharp, and spoken. Do not flatten the writing into generic professional summaries.
 
 ## ANTI-HALLUCINATION RULES (CRITICAL):
 - ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
@@ -1489,6 +1666,7 @@ def build_proof_enforcement_prompt(
     proof_packets: List[str],
     story_beats: List[str],
     framing_modes: List[str],
+    voice_directives: Optional[List[str]] = None,
 ) -> str:
     options_text = "\n---OPTION---\n".join(rough_options)
     claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- Stay inside the topic."
@@ -1500,6 +1678,16 @@ def build_proof_enforcement_prompt(
         f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
         for mode in framing_modes
     ) or "- `operator_lesson`"
+    voice_text = "\n".join(f"- {directive}" for directive in (voice_directives or DEFAULT_VOICE_DIRECTIVES[:6]))
+    option_plan_text = _render_option_framing_plan(
+        _build_option_framing_plan(
+            framing_modes=framing_modes,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+            option_count=max(len(rough_options), 3),
+        )
+    )
     return f"""You are repairing draft posts that are too generic and are not carrying the approved proof strongly enough.
 
 Topic: {topic}
@@ -1520,6 +1708,12 @@ ONLY THESE NAMED REFERENCES MAY APPEAR:
 APPROVED FRAMING MODES:
 {framing_text}
 
+OPTION FRAMING PLAN:
+{option_plan_text}
+
+VOICE SHAPING RULES:
+{voice_text}
+
 DRAFTS TO REWRITE:
 {options_text}
 
@@ -1534,6 +1728,7 @@ REWRITE RULES:
 - Do not use phrases like seamless, unlock potential, drive results, or everything flows.
 - Preserve the person's casual rhythm and punchy style.
 - Use different framing modes across the options.
+- Use the assigned OPTION FRAMING PLAN so the three options do not flatten into the same shape.
 
 Output only the rewritten options, separated by ---OPTION---.
 """
@@ -1591,6 +1786,17 @@ def build_refinement_prompt(
     disallowed_moves_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
     approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
     approved_reference_text = "\n".join(f"- {term}" for term in approved_reference_terms) or "- No approved named references."
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    voice_directives_text = "\n".join(f"- {directive}" for directive in voice_directives)
+    option_framing_plan_text = _render_option_framing_plan(
+        _build_option_framing_plan(
+            framing_modes=approved_framing_modes,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+            option_count=max(len(rough_options), 3),
+        )
+    )
     rough_text = "\n---OPTION---\n".join(rough_options)
     return f"""You are revising drafted posts so they sound sharper, more specific, and more faithful to this person's canon.
 
@@ -1613,6 +1819,9 @@ GROUNDING MODE:
 APPROVED FRAMING MODES:
 {framing_modes_text}
 
+OPTION FRAMING PLAN:
+{option_framing_plan_text}
+
 PRIMARY CLAIMS YOU MAY MAKE:
 {primary_claims_text}
 
@@ -1627,6 +1836,9 @@ ONLY THESE NAMED REFERENCES MAY APPEAR:
 
 DISALLOWED MOVES:
 {disallowed_moves_text}
+
+VOICE SHAPING RULES:
+{voice_directives_text}
 
 ROUGH OPTIONS TO REWRITE:
 {rough_text}
@@ -1648,9 +1860,84 @@ REVISION RULES:
 - Do not rely on the label side of a proof packet when the evidence side contains the real operator proof.
 - Cut weak setup lines. Start faster.
 - Use one PRIMARY CLAIM per option and make it legible in the first lines.
+- Use the OPTION FRAMING PLAN above so each option lands with a different rhetorical posture.
+- Use the VOICE SHAPING RULES above. Keep the writing spoken, specific, and sharp.
 - If `proof_ready`, tie each option to one APPROVED PROOF PACKET and preserve its exact meaning.
 - If `principle_only`, remove stray named examples that are not explicitly present in PRIMARY CLAIMS.
 - If a named reference is not in the APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES list, remove it.
+
+Output only the rewritten options, separated by ---OPTION---.
+"""
+
+
+def build_voice_sharpen_prompt(
+    *,
+    topic: str,
+    audience: str,
+    rough_options: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    framing_modes: List[str],
+    voice_directives: List[str],
+) -> str:
+    options_text = "\n---OPTION---\n".join(rough_options)
+    claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- Stay tightly inside the topic."
+    proof_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No approved proof packets."
+    story_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No approved story beats."
+    voice_text = "\n".join(f"- {directive}" for directive in voice_directives) or "\n".join(
+        f"- {directive}" for directive in DEFAULT_VOICE_DIRECTIVES[:6]
+    )
+    option_plan_text = _render_option_framing_plan(
+        _build_option_framing_plan(
+            framing_modes=framing_modes,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+            option_count=max(len(rough_options), 3),
+        )
+    )
+    approved_reference_text = "\n".join(
+        f"- {reference}"
+        for reference in _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    ) or "- No approved named references."
+    return f"""You are the final editorial pass. The facts are already approved. Your job is to make the writing sound sharper, more strategic, and more like this person.
+
+Topic: {topic}
+Audience: {audience}
+
+PRIMARY CLAIMS:
+{claims_text}
+
+APPROVED PROOF PACKETS:
+{proof_text}
+
+OPTIONAL STORY BEATS:
+{story_text}
+
+OPTION FRAMING PLAN:
+{option_plan_text}
+
+VOICE SHAPING RULES:
+{voice_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+DRAFTS TO SHARPEN:
+{options_text}
+
+SHARPENING RULES:
+- Keep 3 options.
+- Do not add new facts, names, or proof.
+- Preserve the approved claim and proof meaning exactly.
+- Remove flat openers like "X is essential", "X is critical", or "In today's world".
+- Start faster. Lead with tension, contrast, recognition, warning, or operator insight.
+- Keep the writing casual, direct, and punchy.
+- Use the OPTION FRAMING PLAN so each option lands differently.
+- Do not collapse the options into the same rhythm or hook.
+- Keep line breaks and cadence human.
+- If a line sounds like generic LinkedIn advice, replace it with sharper operator language.
 
 Output only the rewritten options, separated by ---OPTION---.
 """
@@ -1712,6 +1999,64 @@ def refine_generated_options(
     return refined[:3] if refined else rough_options
 
 
+def sharpen_editorial_options(
+    *,
+    client: Any,
+    topic: str,
+    audience: str,
+    content_type: str,
+    grounding_mode: str,
+    persona_chunks: List[Dict[str, Any]],
+    rough_options: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    framing_modes: List[str],
+) -> List[str]:
+    if content_type != "linkedin_post" or not rough_options or not _options_need_voice_sharpening(rough_options):
+        return rough_options
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a final editorial sharpener. Improve rhetoric and cadence without changing approved facts or voice.",
+            },
+            {
+                "role": "user",
+                "content": build_voice_sharpen_prompt(
+                    topic=topic,
+                    audience=audience,
+                    rough_options=rough_options,
+                    primary_claims=primary_claims,
+                    proof_packets=proof_packets,
+                    story_beats=story_beats,
+                    framing_modes=framing_modes,
+                    voice_directives=voice_directives,
+                ),
+            },
+        ],
+        temperature=0.4,
+        max_tokens=1800,
+    )
+    sharpened = parse_content_options(response.choices[0].message.content or "")
+    sharpened = sharpened[:3] if sharpened else rough_options
+    if grounding_mode == "proof_ready" and proof_packets:
+        approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+        if not all(
+            option_mentions_approved_proof(option, proof_packets)
+            and not option_uses_unapproved_reference(
+                option,
+                approved_reference_terms=approved_reference_terms,
+                audience=audience,
+            )
+            for option in sharpened
+        ):
+            return rough_options
+    return sharpened
+
+
 def enforce_grounding_on_options(
     *,
     client: Any,
@@ -1756,6 +2101,7 @@ def enforce_grounding_on_options(
                     proof_packets=proof_packets,
                     story_beats=story_beats,
                     framing_modes=framing_modes,
+                    voice_directives=DEFAULT_VOICE_DIRECTIVES[:6],
                 ),
             },
         ],
@@ -1884,10 +2230,31 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             story_beats=content_context.story_beats,
             framing_modes=content_context.framing_modes,
         )
+        options = sharpen_editorial_options(
+            client=client,
+            topic=req.topic,
+            audience=req.audience,
+            content_type=req.content_type,
+            grounding_mode=content_context.grounding_mode,
+            persona_chunks=persona_chunks,
+            rough_options=options,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            framing_modes=content_context.framing_modes,
+        )
         approved_references = _extract_approved_reference_terms(
             content_context.primary_claims,
             content_context.proof_packets,
             content_context.story_beats,
+        )
+        voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+        option_framing_plan = _build_option_framing_plan(
+            framing_modes=content_context.framing_modes,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            option_count=3,
         )
         topic_anchor_preview = [
             _render_anchor_chunk(item)[:220]
@@ -1912,6 +2279,8 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
                 "primary_claims": content_context.primary_claims,
                 "proof_packets": content_context.proof_packets,
                 "approved_references": approved_references,
+                "voice_directives": voice_directives,
+                "option_framing_plan": option_framing_plan,
                 "topic_anchor_preview": topic_anchor_preview,
                 "core_chunk_preview": core_chunk_preview,
                 "proof_anchor_preview": proof_anchor_preview,

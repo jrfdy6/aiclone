@@ -3014,6 +3014,15 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 "persona_tag": "VENTURES",
                 "metadata": {"prompt_section": "SUPPORTING CANON", "memory_role": "proof"},
             },
+            {
+                "chunk": "Lead with clarity, not hype.\nTell you what tho\nAvoid opener formulas like \"X is essential\".",
+                "persona_tag": "VOICE_PATTERNS",
+                "metadata": {
+                    "prompt_section": "CORE CANON",
+                    "memory_role": "core",
+                    "bundle_path": "identity/VOICE_PATTERNS.md",
+                },
+            },
         ]
 
         prompt = content_generation_module.build_content_prompt(
@@ -3041,11 +3050,15 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("## GROUNDING MODE:", prompt)
         self.assertIn("Current mode: `proof_ready`", prompt)
         self.assertIn("## APPROVED FRAMING MODES", prompt)
+        self.assertIn("## OPTION FRAMING PLAN", prompt)
         self.assertIn("`contrarian_reframe`", prompt)
         self.assertIn("`drama_tension`", prompt)
         self.assertIn("## PRIMARY CLAIMS YOU MAY MAKE:", prompt)
         self.assertIn("## APPROVED PROOF PACKETS:", prompt)
         self.assertIn("## ONLY THESE NAMED REFERENCES MAY APPEAR:", prompt)
+        self.assertIn("## VOICE SHAPING RULES:", prompt)
+        self.assertIn("Lead with clarity, not hype.", prompt)
+        self.assertIn("Tell you what tho", prompt)
         self.assertIn("AI Clone / Brain System", prompt)
         self.assertNotIn("Use Georgetown, Salesforce, Fusion, or Easy Outfit", prompt)
 
@@ -3226,6 +3239,86 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertEqual(len(repaired), 3)
         self.assertTrue(all("Georgetown" not in option for option in repaired))
         self.assertTrue(all("video" not in option.lower() for option in repaired))
+
+    def test_options_need_voice_sharpening_flags_flat_generic_openers(self) -> None:
+        self.assertTrue(
+            content_generation_module._options_need_voice_sharpening(
+                [
+                    "Workflow clarity is essential if you want better AI outcomes.",
+                    "Workflow clarity is important for good teams.",
+                    "Workflow clarity is critical for modern operators.",
+                ]
+            )
+        )
+        self.assertFalse(
+            content_generation_module._options_need_voice_sharpening(
+                [
+                    "Prompting alone is not an AI strategy.\n\nTell you what tho: orchestration is where the operating model actually shows up.",
+                    "Most teams do not have an AI problem.\nThey have a handoff problem.",
+                    "Big shout-out to explicit workflows.\nThey keep the system honest.",
+                ]
+            )
+        )
+
+    def test_sharpen_editorial_options_rewrites_flat_openers_without_losing_proof(self) -> None:
+        class _FakeResponse:
+            def __init__(self, content: str) -> None:
+                self.choices = [type("Choice", (), {"message": type("Message", (), {"content": content})()})()]
+
+        class _FakeCompletions:
+            def create(self, **kwargs):
+                return _FakeResponse(
+                    "Most teams do not have an orchestration problem.\nBrain and Ops now read from the same workspace state instead of isolated views.\n---OPTION---\n"
+                    "Most orchestration advice is too loose.\nDaily briefs and planner now share the same routed workspace state.\n---OPTION---\n"
+                    "Tell you what tho: workflow clarity shows up in the handoff.\nLong-form routing now moves through the same shared workspace state."
+                )
+
+        class _FakeChat:
+            def __init__(self) -> None:
+                self.completions = _FakeCompletions()
+
+        class _FakeClient:
+            def __init__(self) -> None:
+                self.chat = _FakeChat()
+
+        persona_chunks = [
+            {
+                "chunk": "Lead with clarity, not hype.\nTell you what tho\nUse short, punchy lines when the point needs force.",
+                "persona_tag": "VOICE_PATTERNS",
+                "metadata": {
+                    "prompt_section": "CORE CANON",
+                    "memory_role": "core",
+                    "bundle_path": "identity/VOICE_PATTERNS.md",
+                },
+            }
+        ]
+        sharpened = content_generation_module.sharpen_editorial_options(
+            client=_FakeClient(),
+            topic="agent orchestration",
+            audience="tech_ai",
+            content_type="linkedin_post",
+            grounding_mode="principle_only",
+            persona_chunks=persona_chunks,
+            rough_options=[
+                "Workflow clarity is essential for AI systems.",
+                "Agent orchestration is critical for teams.",
+                "Workflow clarity is important for operators.",
+            ],
+            primary_claims=["Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone."],
+            proof_packets=[
+                "AI Clone / Brain System -> Brain and Ops now read from the same workspace state instead of isolated views.",
+                "Daily briefs / Planner -> Daily briefs and planner now share the same routed workspace state.",
+                "Long-form routing -> Long-form routing now moves through the same shared workspace state.",
+            ],
+            story_beats=[],
+            framing_modes=["operator_lesson", "contrarian_reframe", "drama_tension"],
+        )
+
+        self.assertEqual(len(sharpened), 3)
+        self.assertTrue(any("brain and ops" in option.lower() for option in sharpened))
+        self.assertTrue(any("daily briefs" in option.lower() for option in sharpened))
+        self.assertTrue(any("long-form routing" in option.lower() for option in sharpened))
+        self.assertTrue(all("is essential" not in option.lower() for option in sharpened))
 
     def test_curate_persona_prompt_chunks_orders_core_support_legacy_then_retrieval(self) -> None:
         bundle_chunks = [
