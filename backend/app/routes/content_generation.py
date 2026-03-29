@@ -186,6 +186,7 @@ class ContentGenerationResponse(BaseModel):
     options: List[str]
     persona_context: Optional[str] = None
     examples_used: List[str] = []
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _normalized_chunk_key(item: Dict[str, Any]) -> str:
@@ -1866,12 +1867,23 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             story_beats=content_context.story_beats,
             framing_modes=content_context.framing_modes,
         )
+        approved_references = _extract_approved_reference_terms(
+            content_context.primary_claims,
+            content_context.proof_packets,
+            content_context.story_beats,
+        )
 
         return ContentGenerationResponse(
             success=True,
             options=options[:3],  # Max 3 options
             persona_context=content_context.persona_context_summary,
-            examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]]
+            examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]],
+            diagnostics={
+                "grounding_mode": content_context.grounding_mode,
+                "primary_claims": content_context.primary_claims,
+                "proof_packets": content_context.proof_packets,
+                "approved_references": approved_references,
+            },
         )
         
     except Exception as e:

@@ -2526,6 +2526,18 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(payload.get("success"))
         self.assertIn("workflow clarity", (payload.get("persona_context") or "").lower())
         self.assertEqual(payload.get("options"), ["Bundle-first option"])
+        diagnostics = payload.get("diagnostics") or {}
+        self.assertEqual(diagnostics.get("grounding_mode"), "proof_ready")
+        self.assertEqual(
+            diagnostics.get("primary_claims"),
+            ["Teams fail when they chase tools before workflow clarity."],
+        )
+        self.assertEqual(
+            diagnostics.get("proof_packets"),
+            ["Workflow clarity -> Teams fail when they chase tools before workflow clarity."],
+        )
+        approved_references_text = " ".join(diagnostics.get("approved_references") or []).lower()
+        self.assertIn("workflow clarity", approved_references_text)
 
     def test_content_generation_context_service_splits_typed_lanes_and_preserves_framing_modes(self) -> None:
         bundle_chunks = [
