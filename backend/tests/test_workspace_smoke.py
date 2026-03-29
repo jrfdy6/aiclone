@@ -2309,6 +2309,68 @@ generated_at: "2026-03-28T00:00:00+00:00"
             self.assertIn("workflow clarity", (chunks[0].get("chunk") or "").lower())
             self.assertEqual(chunks[0].get("metadata", {}).get("source_kind"), "canonical_bundle")
 
+    def test_persona_bundle_context_loads_typed_metadata_for_bundle_chunks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_root = Path(temp_dir) / "knowledge" / "persona" / "feeze"
+            claims_path = bundle_root / "identity" / "claims.md"
+            initiatives_path = bundle_root / "history" / "initiatives.md"
+            stories_path = bundle_root / "history" / "story_bank.md"
+            claims_path.parent.mkdir(parents=True, exist_ok=True)
+            initiatives_path.parent.mkdir(parents=True, exist_ok=True)
+            stories_path.parent.mkdir(parents=True, exist_ok=True)
+
+            claims_path.write_text(
+                """| Claim | Type | Evidence | Usage rule |
+| --- | --- | --- | --- |
+| Prompting plus agent orchestration beats prompting alone. | positioning | Promoted from Brain review. | Safe for AI systems and operator writing. |
+""",
+                encoding="utf-8",
+            )
+            initiatives_path.write_text(
+                """## AI Clone / Brain System
+- Purpose: Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance.
+- Value to persona: Proves Johnnie can turn messy AI/operator work into durable operating surfaces.
+- Public-facing proof: Brain, Ops, planner, and briefs now read from the same routed workspace state.
+- Use when: Use for posts about AI systems, operator clarity, and workflow orchestration.
+""",
+                encoding="utf-8",
+            )
+            stories_path.write_text(
+                """## Lunch Before Coaching
+- Story type: leadership
+- Use when: leadership, coaching, trust-building
+- Core point: Taking a struggling AC to lunch as a peer changed the relationship and improved adoption.
+""",
+                encoding="utf-8",
+            )
+
+            with patch.object(persona_bundle_context_module, "resolve_persona_bundle_root", return_value=bundle_root):
+                chunks = persona_bundle_context_module.load_bundle_persona_chunks()
+
+        by_path = {chunk.get("source_file_id"): chunk for chunk in chunks}
+
+        claim_meta = by_path["identity/claims.md"]["metadata"]
+        self.assertEqual(claim_meta.get("memory_role"), "core")
+        self.assertEqual(claim_meta.get("proof_kind"), "claim")
+        self.assertFalse(claim_meta.get("artifact_backed"))
+        self.assertIn("ai_systems", claim_meta.get("domain_tags", []))
+        self.assertIn("tech_ai", claim_meta.get("audience_tags", []))
+        self.assertIn("always_on", claim_meta.get("usage_modes", []))
+
+        initiative_meta = by_path["history/initiatives.md"]["metadata"]
+        self.assertEqual(initiative_meta.get("memory_role"), "proof")
+        self.assertEqual(initiative_meta.get("proof_kind"), "initiative")
+        self.assertEqual(initiative_meta.get("proof_strength"), "strong")
+        self.assertTrue(initiative_meta.get("artifact_backed"))
+        self.assertIn("ai_systems", initiative_meta.get("domain_tags", []))
+        self.assertIn("proof_anchor", initiative_meta.get("usage_modes", []))
+
+        story_meta = by_path["history/story_bank.md"]["metadata"]
+        self.assertEqual(story_meta.get("memory_role"), "story")
+        self.assertEqual(story_meta.get("story_kind"), "leadership")
+        self.assertEqual(story_meta.get("proof_strength"), "medium")
+        self.assertIn("story_anchor", story_meta.get("usage_modes", []))
+
     def test_persona_bundle_context_reads_committed_overlay_for_immediate_content_use(self) -> None:
         with patch.object(
             persona_bundle_context_module,
@@ -2334,6 +2396,33 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertGreaterEqual(len(chunks), 1)
         self.assertIn("5.2x more likely", (chunks[0].get("chunk") or ""))
         self.assertEqual(chunks[0].get("metadata", {}).get("source_kind"), "committed_overlay")
+
+    def test_persona_bundle_context_overlay_chunks_include_typed_metadata(self) -> None:
+        with patch.object(
+            persona_bundle_context_module,
+            "build_committed_persona_overlay",
+            return_value={
+                "by_target_file": {
+                    "history/initiatives.md": [
+                        {
+                            "canon_value": "Strengthens Johnnie's positioning as an AI systems operator grounded in real execution.",
+                            "canon_proof": "Brain, Ops, planner, and briefs now share the same routed workspace state.",
+                            "artifact_summary": "AI Clone / Brain system rollout",
+                            "proof_strength": "strong",
+                        }
+                    ]
+                }
+            },
+        ):
+            chunks = persona_bundle_context_module.load_committed_overlay_chunks()
+
+        self.assertEqual(len(chunks), 1)
+        metadata = chunks[0].get("metadata", {})
+        self.assertEqual(metadata.get("memory_role"), "proof")
+        self.assertEqual(metadata.get("proof_kind"), "initiative")
+        self.assertEqual(metadata.get("proof_strength"), "strong")
+        self.assertTrue(metadata.get("artifact_backed"))
+        self.assertIn("proof_anchor", metadata.get("usage_modes", []))
 
     def test_persona_bundle_context_prefers_semantic_initiative_overlay_fields(self) -> None:
         with patch.object(

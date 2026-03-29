@@ -46,6 +46,51 @@ TAG_BY_TARGET = {
     TARGET_STORIES: "EXPERIENCES",
 }
 
+CORE_TARGETS = {
+    TARGET_VOICE,
+    TARGET_CLAIMS,
+    TARGET_PHILOSOPHY,
+    TARGET_COMMUNICATION,
+    TARGET_DECISION_PRINCIPLES,
+    TARGET_GUARDRAILS,
+    TARGET_OUTREACH,
+    TARGET_PILLARS,
+    TARGET_CHANNELS,
+}
+PROOF_TARGETS = {
+    TARGET_INITIATIVES,
+    TARGET_WINS,
+}
+STORY_TARGETS = {
+    TARGET_STORIES,
+    TARGET_RESUME,
+    TARGET_TIMELINE,
+}
+AMBIENT_TARGETS = {
+    TARGET_BIO,
+}
+
+DOMAIN_KEYWORDS = {
+    "ai_systems": {"agent", "agents", "ai", "automation", "brain", "ops", "orchestration", "planner", "prompt", "prompting", "routing", "system", "systems"},
+    "operator_workflows": {"cadence", "clarity", "documentation", "handoff", "handoffs", "operating", "process", "processes", "workflow", "workflows"},
+    "leadership": {"adoption", "coach", "coaching", "culture", "leadership", "manager", "managers", "stakeholder", "stakeholders", "team", "teams"},
+    "education_admissions": {"admissions", "enrollment", "family", "families", "fordham", "fusion", "howard", "msw", "referral", "school", "schools", "student", "students"},
+    "neurodivergent_advocacy": {"learning", "neurodivergent"},
+    "fashion_identity": {"closet", "confidence", "fashion", "outfit", "style", "wardrobe"},
+    "content_strategy": {"audience", "content", "linkedin", "messaging", "narrative", "outreach", "post", "posts", "voice"},
+    "systems_operations": {"migration", "portfolio", "portfolios", "revenue", "salesforce", "technical", "zoom"},
+}
+AUDIOENCE_BY_DOMAIN = {
+    "ai_systems": {"tech_ai", "entrepreneurs"},
+    "operator_workflows": {"tech_ai", "leadership", "entrepreneurs"},
+    "leadership": {"leadership"},
+    "education_admissions": {"education_admissions"},
+    "neurodivergent_advocacy": {"education_admissions", "neurodivergent"},
+    "fashion_identity": {"fashion"},
+    "content_strategy": {"general", "entrepreneurs"},
+    "systems_operations": {"leadership", "tech_ai"},
+}
+
 
 def _strip_frontmatter(text: str) -> str:
     if text.startswith("---"):
@@ -74,6 +119,148 @@ def _read_text(path: Path) -> str:
     return _strip_frontmatter(path.read_text(encoding="utf-8"))
 
 
+def _infer_memory_role(rel_path: str) -> str:
+    if rel_path in CORE_TARGETS:
+        return "core"
+    if rel_path in PROOF_TARGETS:
+        return "proof"
+    if rel_path in STORY_TARGETS:
+        return "story"
+    if rel_path in AMBIENT_TARGETS:
+        return "ambient"
+    return "ambient"
+
+
+def _infer_domain_tags(rel_path: str, chunk: str) -> list[str]:
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    tags: set[str] = set()
+    if rel_path in CORE_TARGETS:
+        tags.add("identity_core")
+    for domain_tag, keywords in DOMAIN_KEYWORDS.items():
+        if any(keyword in normalized_chunk for keyword in keywords):
+            tags.add(domain_tag)
+    if rel_path == TARGET_STORIES:
+        tags.add("lived_experience")
+    if rel_path in {TARGET_INITIATIVES, TARGET_WINS}:
+        tags.add("public_proof")
+    return sorted(tags)
+
+
+def _infer_audience_tags(domain_tags: list[str]) -> list[str]:
+    tags: set[str] = set()
+    for domain_tag in domain_tags:
+        tags.update(AUDIOENCE_BY_DOMAIN.get(domain_tag, set()))
+    if not tags:
+        tags.add("general")
+    return sorted(tags)
+
+
+def _infer_proof_kind(rel_path: str) -> str:
+    if rel_path == TARGET_INITIATIVES:
+        return "initiative"
+    if rel_path == TARGET_WINS:
+        return "win"
+    if rel_path == TARGET_STORIES:
+        return "story"
+    if rel_path == TARGET_CLAIMS:
+        return "claim"
+    if rel_path == TARGET_VOICE:
+        return "voice_pattern"
+    if rel_path in {TARGET_PHILOSOPHY, TARGET_DECISION_PRINCIPLES, TARGET_GUARDRAILS, TARGET_PILLARS}:
+        return "guiding_rule"
+    return "support"
+
+
+def _infer_proof_strength(rel_path: str, chunk: str, *, artifact_backed: bool) -> str:
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    if rel_path in PROOF_TARGETS and artifact_backed:
+        return "strong"
+    if rel_path == TARGET_CLAIMS and "evidence:" in normalized_chunk:
+        return "medium"
+    if rel_path in STORY_TARGETS:
+        return "medium"
+    if rel_path in CORE_TARGETS:
+        return "none"
+    return "weak"
+
+
+def _infer_artifact_backed(rel_path: str, chunk: str) -> bool:
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    if rel_path in {TARGET_INITIATIVES, TARGET_WINS}:
+        return True
+    return any(token in normalized_chunk for token in {"proof:", "public-facing proof:", "$", "%", "launched", "migration", "shipped"})
+
+
+def _infer_usage_modes(memory_role: str) -> list[str]:
+    if memory_role == "core":
+        return ["always_on", "topic_anchor"]
+    if memory_role == "proof":
+        return ["proof_anchor", "topic_anchor"]
+    if memory_role == "story":
+        return ["story_anchor", "optional_support"]
+    if memory_role == "example":
+        return ["style_reference"]
+    return ["support"]
+
+
+def _build_chunk_metadata(
+    *,
+    rel_path: str,
+    persona_tag: str,
+    chunk: str,
+    source_kind: str,
+    source: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    artifact_backed = _infer_artifact_backed(rel_path, chunk)
+    domain_tags = _infer_domain_tags(rel_path, chunk)
+    metadata: dict[str, Any] = {
+        "source": source,
+        "source_kind": source_kind,
+        "file_name": rel_path,
+        "persona_tag": persona_tag,
+        "bundle_path": rel_path,
+        "memory_role": _infer_memory_role(rel_path),
+        "domain_tags": domain_tags,
+        "audience_tags": _infer_audience_tags(domain_tags),
+        "proof_kind": _infer_proof_kind(rel_path),
+        "proof_strength": _infer_proof_strength(rel_path, chunk, artifact_backed=artifact_backed),
+        "artifact_backed": artifact_backed,
+        "usage_modes": _infer_usage_modes(_infer_memory_role(rel_path)),
+    }
+    if extra:
+        metadata.update({key: value for key, value in extra.items() if value is not None})
+    return metadata
+
+
+def _build_chunk_record(
+    *,
+    source_id: str,
+    rel_path: str,
+    chunk_index: int,
+    chunk: str,
+    persona_tag: str,
+    source_kind: str,
+    source: str,
+    extra_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "source_file_id": rel_path,
+        "chunk_index": chunk_index,
+        "chunk": chunk,
+        "persona_tag": persona_tag,
+        "metadata": _build_chunk_metadata(
+            rel_path=rel_path,
+            persona_tag=persona_tag,
+            chunk=chunk,
+            source_kind=source_kind,
+            source=source,
+            extra=extra_metadata,
+        ),
+    }
+
+
 def _claim_tag(claim_type: str) -> str:
     normalized = _normalize_inline(claim_type).lower()
     if normalized == "philosophical":
@@ -97,20 +284,16 @@ def _iter_claim_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
         if not chunk:
             continue
         items.append(
-            {
-                "source_id": f"bundle:{rel_path}:{idx}",
-                "source_file_id": rel_path,
-                "chunk_index": idx,
-                "chunk": chunk,
-                "persona_tag": _claim_tag(claim_type),
-                "metadata": {
-                    "source": "canonical persona bundle",
-                    "source_kind": "canonical_bundle",
-                    "file_name": rel_path,
-                    "persona_tag": _claim_tag(claim_type),
-                    "bundle_path": rel_path,
-                },
-            }
+            _build_chunk_record(
+                source_id=f"bundle:{rel_path}:{idx}",
+                rel_path=rel_path,
+                chunk_index=idx,
+                chunk=chunk,
+                persona_tag=_claim_tag(claim_type),
+                source_kind="canonical_bundle",
+                source="canonical persona bundle",
+                extra_metadata={"claim_type": _normalize_inline(claim_type).lower()},
+            )
         )
     return items
 
@@ -130,20 +313,16 @@ def _iter_story_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
                     f"{title}. {core_point} Story type: {story_type} Use when: {use_when}"
                 )
                 items.append(
-                    {
-                        "source_id": f"bundle:{rel_path}:{idx}",
-                        "source_file_id": rel_path,
-                        "chunk_index": idx,
-                        "chunk": chunk,
-                        "persona_tag": "EXPERIENCES",
-                        "metadata": {
-                            "source": "canonical persona bundle",
-                            "source_kind": "canonical_bundle",
-                            "file_name": rel_path,
-                            "persona_tag": "EXPERIENCES",
-                            "bundle_path": rel_path,
-                        },
-                    }
+                    _build_chunk_record(
+                        source_id=f"bundle:{rel_path}:{idx}",
+                        rel_path=rel_path,
+                        chunk_index=idx,
+                        chunk=chunk,
+                        persona_tag="EXPERIENCES",
+                        source_kind="canonical_bundle",
+                        source="canonical persona bundle",
+                        extra_metadata={"story_kind": story_type or "general"},
+                    )
                 )
                 idx += 1
             title = line.replace("## ", "", 1).strip()
@@ -160,20 +339,16 @@ def _iter_story_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
     if title and core_point:
         chunk = _normalize_inline(f"{title}. {core_point} Story type: {story_type} Use when: {use_when}")
         items.append(
-            {
-                "source_id": f"bundle:{rel_path}:{idx}",
-                "source_file_id": rel_path,
-                "chunk_index": idx,
-                "chunk": chunk,
-                "persona_tag": "EXPERIENCES",
-                "metadata": {
-                    "source": "canonical persona bundle",
-                    "source_kind": "canonical_bundle",
-                    "file_name": rel_path,
-                    "persona_tag": "EXPERIENCES",
-                    "bundle_path": rel_path,
-                },
-            }
+            _build_chunk_record(
+                source_id=f"bundle:{rel_path}:{idx}",
+                rel_path=rel_path,
+                chunk_index=idx,
+                chunk=chunk,
+                persona_tag="EXPERIENCES",
+                source_kind="canonical_bundle",
+                source="canonical persona bundle",
+                extra_metadata={"story_kind": story_type or "general"},
+            )
         )
     return items
 
@@ -192,20 +367,15 @@ def _iter_initiative_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
             if title and purpose:
                 chunk = _normalize_inline(f"{title}. {purpose} Value: {value} Proof: {proof} Use when: {use_when}")
                 items.append(
-                    {
-                        "source_id": f"bundle:{rel_path}:{idx}",
-                        "source_file_id": rel_path,
-                        "chunk_index": idx,
-                        "chunk": chunk,
-                        "persona_tag": "VENTURES",
-                        "metadata": {
-                            "source": "canonical persona bundle",
-                            "source_kind": "canonical_bundle",
-                            "file_name": rel_path,
-                            "persona_tag": "VENTURES",
-                            "bundle_path": rel_path,
-                        },
-                    }
+                    _build_chunk_record(
+                        source_id=f"bundle:{rel_path}:{idx}",
+                        rel_path=rel_path,
+                        chunk_index=idx,
+                        chunk=chunk,
+                        persona_tag="VENTURES",
+                        source_kind="canonical_bundle",
+                        source="canonical persona bundle",
+                    )
                 )
                 idx += 1
             title = line.replace("## ", "", 1).strip()
@@ -225,20 +395,15 @@ def _iter_initiative_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
     if title and purpose:
         chunk = _normalize_inline(f"{title}. {purpose} Value: {value} Proof: {proof} Use when: {use_when}")
         items.append(
-            {
-                "source_id": f"bundle:{rel_path}:{idx}",
-                "source_file_id": rel_path,
-                "chunk_index": idx,
-                "chunk": chunk,
-                "persona_tag": "VENTURES",
-                "metadata": {
-                    "source": "canonical persona bundle",
-                    "source_kind": "canonical_bundle",
-                    "file_name": rel_path,
-                    "persona_tag": "VENTURES",
-                    "bundle_path": rel_path,
-                },
-            }
+            _build_chunk_record(
+                source_id=f"bundle:{rel_path}:{idx}",
+                rel_path=rel_path,
+                chunk_index=idx,
+                chunk=chunk,
+                persona_tag="VENTURES",
+                source_kind="canonical_bundle",
+                source="canonical persona bundle",
+            )
         )
     return items
 
@@ -260,20 +425,15 @@ def _iter_section_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
             continue
         chunk = bullet if not section_title else f"{section_title}: {bullet}"
         items.append(
-            {
-                "source_id": f"bundle:{rel_path}:{idx}",
-                "source_file_id": rel_path,
-                "chunk_index": idx,
-                "chunk": chunk,
-                "persona_tag": tag,
-                "metadata": {
-                    "source": "canonical persona bundle",
-                    "source_kind": "canonical_bundle",
-                    "file_name": rel_path,
-                    "persona_tag": tag,
-                    "bundle_path": rel_path,
-                },
-            }
+            _build_chunk_record(
+                source_id=f"bundle:{rel_path}:{idx}",
+                rel_path=rel_path,
+                chunk_index=idx,
+                chunk=chunk,
+                persona_tag=tag,
+                source_kind="canonical_bundle",
+                source="canonical persona bundle",
+            )
         )
         idx += 1
     return items
@@ -357,20 +517,19 @@ def load_committed_overlay_chunks() -> list[dict[str, Any]]:
                 continue
             chunk = content if not evidence else f"{content} Evidence: {evidence}"
             chunks.append(
-                {
-                    "source_id": f"overlay:{rel_path}:{idx}",
-                    "source_file_id": rel_path,
-                    "chunk_index": idx,
-                    "chunk": chunk,
-                    "persona_tag": tag,
-                    "metadata": {
-                        "source": "committed persona overlay",
-                        "source_kind": "committed_overlay",
-                        "file_name": rel_path,
-                        "persona_tag": tag,
-                        "bundle_path": rel_path,
+                _build_chunk_record(
+                    source_id=f"overlay:{rel_path}:{idx}",
+                    rel_path=rel_path,
+                    chunk_index=idx,
+                    chunk=chunk,
+                    persona_tag=tag,
+                    source_kind="committed_overlay",
+                    source="committed persona overlay",
+                    extra_metadata={
+                        "artifact_backed": bool(item.get("artifact_summary") or item.get("canon_proof") or item.get("proof_signal")),
+                        "proof_strength": str(item.get("proof_strength") or "").lower() or None,
                     },
-                }
+                )
             )
     return chunks
 
