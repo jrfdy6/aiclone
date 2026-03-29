@@ -239,6 +239,7 @@ TASTE_NEGATIVE_PATTERNS = (
     re.compile(r"\bdependable architecture\b", re.IGNORECASE),
     re.compile(r"\bcomprehensive view\b", re.IGNORECASE),
     re.compile(r"\bunified approach\b", re.IGNORECASE),
+    re.compile(r"\bseamless(?:ly)?\b", re.IGNORECASE),
     re.compile(r"\bfor effective ai\b", re.IGNORECASE),
     re.compile(r"\binterconnected\b", re.IGNORECASE),
     re.compile(r"\bthis integration is crucial\b", re.IGNORECASE),
@@ -912,6 +913,13 @@ def score_option_taste(
     else:
         score -= 8
         warnings.append("proof_not_visible")
+    if _brief_prefers_operator_voice(active_brief):
+        if _option_has_named_reference_specificity(cleaned, active_brief):
+            score += 4
+            strengths.append("named_reference_specificity")
+        else:
+            score -= 8
+            warnings.append("named_reference_missing")
 
     negative_hits = [pattern.pattern for pattern in TASTE_NEGATIVE_PATTERNS if pattern.search(cleaned)]
     if negative_hits:
@@ -1943,6 +1951,29 @@ def _extract_approved_reference_terms(
         for phrase in _collect_curated_reference_phrases(text):
             _append_approved_reference(approved, seen, phrase)
     return approved[:12]
+
+
+def _option_has_named_reference_specificity(option: str, brief: ContentOptionBrief) -> bool:
+    option_terms = _normalized_terms(option)
+    if not option_terms:
+        return False
+    candidate_references = _extract_approved_reference_terms(
+        [brief.primary_claim],
+        [brief.proof_packet] if brief.proof_packet else [],
+        [brief.story_beat] if brief.story_beat else [],
+    )
+    label = _proof_packet_label(brief.proof_packet)
+    if label:
+        candidate_references = [label] + candidate_references
+    for reference in candidate_references:
+        if _phrase_is_flat_label(reference):
+            continue
+        reference_terms = _normalized_terms(reference)
+        if len(reference_terms) < 2:
+            continue
+        if len(option_terms.intersection(reference_terms)) >= 2:
+            return True
+    return False
 
 
 def build_planned_writer_prompt(

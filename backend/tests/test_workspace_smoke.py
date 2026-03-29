@@ -3462,6 +3462,23 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("weak_closer", scored.get("warnings", []))
         self.assertIn("soft_operator_pronoun", scored.get("warnings", []))
 
+    def test_score_option_taste_flags_missing_named_reference_for_operator_warning(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="warning",
+            primary_claim="Unified Brain, Ops, daily briefs, planner, persona review, and long-form routing around one routed workspace snapshot so operator context travels across the system instead of living in isolated tools.",
+            proof_packet="Wins: Unified Brain, Ops, daily briefs, planner, persona review, and long-form routing around one routed workspace snapshot so operator context travels across the system instead of living in isolated tools.",
+            story_beat="",
+        )
+
+        scored = content_generation_module.score_option_taste(
+            "Without that, it breaks.\n\nNot living in isolated tools.\n\nNow, operator context flows seamlessly across the system instead of getting trapped in isolated tools.",
+            brief=brief,
+        )
+
+        self.assertIn("named_reference_missing", scored.get("warnings", []))
+        self.assertIn("taste_negative", scored.get("warnings", []))
+
     def test_rank_options_by_taste_surfaces_best_option_first(self) -> None:
         options = [
             "Prompting alone is not the strategy.",
