@@ -2776,6 +2776,66 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("do not reach for named projects, employers, metrics, or case studies", prompt.lower())
         self.assertIn("Only reference named ventures, employers, systems, programs, or stories if they appear in the TOPIC / ELIGIBLE STORY / PROOF anchors above", prompt)
 
+    def test_option_mentions_approved_proof_requires_meaningful_overlap(self) -> None:
+        proof_packets = [
+            "AI Clone / Brain System -> Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views."
+        ]
+
+        self.assertTrue(
+            content_generation_module.option_mentions_approved_proof(
+                "Brain and Ops now read from the same workspace state instead of isolated views.",
+                proof_packets,
+            )
+        )
+        self.assertFalse(
+            content_generation_module.option_mentions_approved_proof(
+                "Agent orchestration matters because clarity is important for good workflows.",
+                proof_packets,
+            )
+        )
+
+    def test_enforce_grounding_on_options_repairs_generic_proof_ready_drafts(self) -> None:
+        class _FakeResponse:
+            def __init__(self, content: str) -> None:
+                self.choices = [type("Choice", (), {"message": type("Message", (), {"content": content})()})()]
+
+        class _FakeCompletions:
+            def create(self, **kwargs):
+                return _FakeResponse(
+                    "Brain and Ops now read from the same workspace state instead of isolated views.\n---OPTION---\n"
+                    "Daily briefs and planner share the same routed workspace state.\n---OPTION---\n"
+                    "Long-form routing now flows through the same shared workspace state."
+                )
+
+        class _FakeChat:
+            def __init__(self) -> None:
+                self.completions = _FakeCompletions()
+
+        class _FakeClient:
+            def __init__(self) -> None:
+                self.chat = _FakeChat()
+
+        repaired = content_generation_module.enforce_grounding_on_options(
+            client=_FakeClient(),
+            topic="agent orchestration",
+            audience="tech_ai",
+            content_type="linkedin_post",
+            grounding_mode="proof_ready",
+            rough_options=[
+                "Agent orchestration helps teams stay aligned.",
+                "Clear workflows matter for AI systems.",
+                "Good orchestration keeps things efficient.",
+            ],
+            primary_claims=["Builds and translates AI execution patterns into clear operator guidance."],
+            proof_packets=[
+                "AI Clone / Brain System -> Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views."
+            ],
+            framing_modes=["operator_lesson", "contrarian_reframe", "drama_tension"],
+        )
+
+        self.assertEqual(len(repaired), 3)
+        self.assertTrue(all("workspace state" in option.lower() or "brain" in option.lower() for option in repaired))
+
     def test_curate_persona_prompt_chunks_orders_core_support_legacy_then_retrieval(self) -> None:
         bundle_chunks = [
             {

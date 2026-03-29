@@ -1318,6 +1318,71 @@ def parse_content_options(raw_content: str) -> List[str]:
     return [raw_content.strip()] if raw_content.strip() else []
 
 
+def _normalized_terms(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(token) > 2 and token not in STOPWORDS
+    }
+
+
+def option_mentions_approved_proof(option: str, proof_packets: List[str]) -> bool:
+    option_terms = _normalized_terms(option)
+    if not option_terms or not proof_packets:
+        return False
+    for packet in proof_packets:
+        packet_terms = _normalized_terms(packet)
+        if len(option_terms.intersection(packet_terms)) >= 2:
+            return True
+    return False
+
+
+def build_proof_enforcement_prompt(
+    *,
+    topic: str,
+    audience: str,
+    rough_options: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    framing_modes: List[str],
+) -> str:
+    options_text = "\n---OPTION---\n".join(rough_options)
+    claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- Stay inside the topic."
+    proof_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No proof packets available."
+    framing_text = "\n".join(
+        f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
+        for mode in framing_modes
+    ) or "- `operator_lesson`"
+    return f"""You are repairing draft posts that are too generic and are not carrying the approved proof strongly enough.
+
+Topic: {topic}
+Audience: {audience}
+
+PRIMARY CLAIMS:
+{claims_text}
+
+APPROVED PROOF PACKETS:
+{proof_text}
+
+APPROVED FRAMING MODES:
+{framing_text}
+
+DRAFTS TO REWRITE:
+{options_text}
+
+REWRITE RULES:
+- Keep 3 options.
+- Each option must use one PRIMARY CLAIM.
+- Each option must explicitly mention at least one named system, artifact, or evidence phrase from an APPROVED PROOF PACKET.
+- Keep the original proof meaning intact. Do not generalize it into vague productivity language.
+- Do not use phrases like seamless, unlock potential, drive results, or everything flows.
+- Preserve the person's casual rhythm and punchy style.
+- Use different framing modes across the options.
+
+Output only the rewritten options, separated by ---OPTION---.
+"""
+
+
 def build_refinement_prompt(
     *,
     topic: str,
@@ -1481,6 +1546,49 @@ def refine_generated_options(
     refined = parse_content_options(response.choices[0].message.content or "")
     return refined[:3] if refined else rough_options
 
+
+def enforce_grounding_on_options(
+    *,
+    client: Any,
+    topic: str,
+    audience: str,
+    content_type: str,
+    grounding_mode: str,
+    rough_options: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    framing_modes: List[str],
+) -> List[str]:
+    if content_type != "linkedin_post" or grounding_mode != "proof_ready" or not proof_packets or not rough_options:
+        return rough_options
+    if all(option_mentions_approved_proof(option, proof_packets) for option in rough_options):
+        return rough_options
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a strict factual editor. Keep the voice, but force the writing to carry the approved proof explicitly.",
+            },
+            {
+                "role": "user",
+                "content": build_proof_enforcement_prompt(
+                    topic=topic,
+                    audience=audience,
+                    rough_options=rough_options,
+                    primary_claims=primary_claims,
+                    proof_packets=proof_packets,
+                    framing_modes=framing_modes,
+                ),
+            },
+        ],
+        temperature=0.2,
+        max_tokens=1800,
+    )
+    repaired = parse_content_options(response.choices[0].message.content or "")
+    return repaired[:3] if repaired else rough_options
+
 @router.post("/generate", response_model=ContentGenerationResponse)
 async def generate_content(req: ContentGenerationRequest):
     """
@@ -1563,7 +1671,7 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.85,  # Slightly higher for more natural variation
+            temperature=0.68 if req.audience == "tech_ai" else 0.85,
             max_tokens=2000,
         )
         
@@ -1587,6 +1695,17 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             proof_packets=content_context.proof_packets,
             story_beats=content_context.story_beats,
             disallowed_moves=content_context.disallowed_moves,
+        )
+        options = enforce_grounding_on_options(
+            client=client,
+            topic=req.topic,
+            audience=req.audience,
+            content_type=req.content_type,
+            grounding_mode=content_context.grounding_mode,
+            rough_options=options,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            framing_modes=content_context.framing_modes,
         )
 
         return ContentGenerationResponse(
