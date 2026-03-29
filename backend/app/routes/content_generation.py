@@ -3379,6 +3379,34 @@ def _generate_staged_options(
     )
     return finalized[:3], briefs, "planner_writer_critic"
 
+
+def _mode_priority_bonus(mode: str) -> int:
+    return {
+        "contrarian_reframe": 4,
+        "warning": 3,
+        "operator_lesson": 2,
+        "drama_tension": 1,
+    }.get(mode or "", 0)
+
+
+def _rank_options_by_taste(
+    *,
+    options: List[str],
+    briefs: List[ContentOptionBrief],
+    taste_scores: List[Dict[str, Any]],
+) -> tuple[List[str], List[ContentOptionBrief], List[Dict[str, Any]]]:
+    ranked: List[tuple[int, int, int]] = []
+    for index, option in enumerate(options[:3]):
+        brief = briefs[index] if index < len(briefs) else briefs[-1]
+        taste = taste_scores[index] if index < len(taste_scores) else {}
+        overall = int(taste.get("overall") or 0)
+        ranked.append((overall + _mode_priority_bonus(brief.framing_mode), overall, index))
+    ordered_indices = [index for _, _, index in sorted(ranked, reverse=True)]
+    ordered_options = [options[index] for index in ordered_indices]
+    ordered_briefs = [briefs[index] if index < len(briefs) else briefs[-1] for index in ordered_indices]
+    ordered_tastes = [taste_scores[index] if index < len(taste_scores) else {} for index in ordered_indices]
+    return ordered_options, ordered_briefs, ordered_tastes
+
 @router.post("/generate", response_model=ContentGenerationResponse)
 async def generate_content(req: ContentGenerationRequest):
     """
@@ -3463,6 +3491,11 @@ async def generate_content(req: ContentGenerationRequest):
             )
             for index, option in enumerate(options[:3])
         ]
+        options, option_briefs, taste_scores = _rank_options_by_taste(
+            options=options[:3],
+            briefs=option_briefs,
+            taste_scores=taste_scores,
+        )
 
         return ContentGenerationResponse(
             success=True,

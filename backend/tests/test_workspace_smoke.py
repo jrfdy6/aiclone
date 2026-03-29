@@ -3462,6 +3462,51 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("weak_closer", scored.get("warnings", []))
         self.assertIn("soft_operator_pronoun", scored.get("warnings", []))
 
+    def test_rank_options_by_taste_surfaces_best_option_first(self) -> None:
+        options = [
+            "Prompting alone is not the strategy.",
+            "Prompting alone is not an AI strategy.",
+            "Without that, it breaks.",
+        ]
+        briefs = [
+            content_generation_module.ContentOptionBrief(
+                option_number=1,
+                framing_mode="contrarian_reframe",
+                primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+                proof_packet="",
+                story_beat="",
+            ),
+            content_generation_module.ContentOptionBrief(
+                option_number=2,
+                framing_mode="operator_lesson",
+                primary_claim="Prompting alone is not an AI strategy.",
+                proof_packet="",
+                story_beat="",
+            ),
+            content_generation_module.ContentOptionBrief(
+                option_number=3,
+                framing_mode="warning",
+                primary_claim="Without that, it breaks.",
+                proof_packet="",
+                story_beat="",
+            ),
+        ]
+        taste_scores = [
+            {"overall": 77},
+            {"overall": 95},
+            {"overall": 97},
+        ]
+
+        ranked_options, ranked_briefs, ranked_scores = content_generation_module._rank_options_by_taste(
+            options=options,
+            briefs=briefs,
+            taste_scores=taste_scores,
+        )
+
+        self.assertEqual(ranked_options[0], "Without that, it breaks.")
+        self.assertEqual(ranked_briefs[0].framing_mode, "warning")
+        self.assertEqual(ranked_scores[0].get("overall"), 97)
+
     def test_sharpen_editorial_options_rewrites_flat_openers_without_losing_proof(self) -> None:
         class _FakeResponse:
             def __init__(self, content: str) -> None:
