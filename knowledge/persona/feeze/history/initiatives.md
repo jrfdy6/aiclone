@@ -9,7 +9,7 @@ generated_at: "2026-03-29T15:00:00+00:00"
 - Status: active
 - Purpose: Build a restart-safe AI operating system for memory, persona review, source routing, planning, and content execution.
 - Value to persona: Demonstrates that Johnnie can move from AI commentary to operator-grade system design, tightening a system until generation, validation, memory, and downstream usage all work together instead of acting like a fragile demo, while still being honest about where reliability is unfinished.
-- Public-facing proof: Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes; stricter output handling and validation are now part of the architecture even though output reliability is still being improved rather than declared solved.
+- Public-facing proof: Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes; before the current rebuild, malformed JSON, extra explanations, and weak schema discipline kept breaking downstream behavior; stricter output handling and validation are now part of the architecture even though output reliability is still being improved rather than declared solved.
 - Use when: Use for posts about AI systems, agent orchestration, workflow clarity, prompt-plus-agent handoffs, restart-safe memory, and shipping durable internal tools.
 
 ## Grounded Content Generation System
