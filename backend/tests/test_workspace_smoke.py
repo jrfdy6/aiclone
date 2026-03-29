@@ -2705,6 +2705,30 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("AI Clone / Brain System", prompt)
         self.assertNotIn("Fordham MSW documentation", prompt)
 
+    def test_filter_example_chunks_by_topic_drops_off_topic_legacy_examples(self) -> None:
+        example_chunks = [
+            {
+                "chunk": "When I launched the wiki for Fordham MSW documentation, version control was a nightmare until I created a quality-assurance process.",
+                "persona_tag": "LINKEDIN_EXAMPLES",
+                "metadata": {"source": "JOHNNIE_FIELDS_PERSONA.md"},
+            },
+            {
+                "chunk": "Prompting plus agent orchestration works best when every handoff is explicit and every proof surface is shared.",
+                "persona_tag": "LINKEDIN_EXAMPLES",
+                "metadata": {"source": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md"},
+            },
+        ]
+
+        filtered = content_generation_module.filter_example_chunks_by_topic(
+            example_chunks,
+            topic="agent orchestration",
+            audience="tech_ai",
+            limit=3,
+        )
+
+        self.assertEqual(len(filtered), 1)
+        self.assertIn("agent orchestration", filtered[0].get("chunk", "").lower())
+
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
         with patch.object(

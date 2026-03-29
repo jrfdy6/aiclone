@@ -299,6 +299,35 @@ def retrieve_curated_example_chunks(
     )
 
 
+def filter_example_chunks_by_topic(
+    example_chunks: List[Dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 3,
+) -> List[Dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    ranked: List[tuple[int, Dict[str, Any]]] = []
+    for item in example_chunks:
+        primary_text, _ = _split_use_when_text(str(item.get("chunk") or ""))
+        score = _chunk_focus_score(primary_text, focus_terms, topic)
+        if score <= 0:
+            continue
+        ranked.append((score, item))
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, item in sorted(ranked, key=lambda entry: entry[0], reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
+
+
 def summarize_persona_context(persona_chunks: List[Dict[str, Any]], topic: str) -> Optional[str]:
     normalized_topic = " ".join((topic or "").lower().split())
     if normalized_topic:
@@ -1344,6 +1373,12 @@ async def generate_content(req: ContentGenerationRequest):
             query_embedding=examples_embedding,
             content_type=req.content_type,
             top_k=3,
+        )
+        example_chunks = filter_example_chunks_by_topic(
+            example_chunks,
+            topic=req.topic,
+            audience=req.audience,
+            limit=3,
         )
         
         # Step 3: Build prompt with all context
