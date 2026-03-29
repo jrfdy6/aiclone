@@ -1913,6 +1913,11 @@ def _phrase_is_flat_label(phrase: str) -> bool:
         return True
     return normalized in {
         "agent orchestration",
+        "daily briefs",
+        "long-form routing",
+        "planner",
+        "persona review",
+        "routed workspace snapshot",
         "workflow clarity",
         "operator guidance",
         "ai execution patterns",
@@ -2606,6 +2611,8 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
                 continue
             normalized = re.sub(r"^(?:wins?|initiative|proof|story|example):\s*", "", normalized, flags=re.IGNORECASE)
             base_sentence = normalized.rstrip(".!?")
+            if _phrase_is_flat_label(base_sentence):
+                continue
             integrate_match = re.match(
                 r"^(?:our|the) system now integrates (.+?) into (?:a )?unified approach$",
                 base_sentence,
@@ -2648,6 +2655,20 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
                 flags=re.IGNORECASE,
             ):
                 rewritten.append("The operating model is the strategy.")
+                continue
+            if re.match(
+                r"^previously, we dealt with malformed json and inconsistent schema discipline$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("Malformed JSON kept breaking the flow.")
+                continue
+            if re.match(
+                r"^we(?:['’]?re| are) enhancing output handling and validation, even as we continue to improve reliability$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("Output handling is stricter now. Reliability is better, but not done.")
                 continue
             if re.match(
                 r"^for effective ai, .+\binterconnected\b.*$",

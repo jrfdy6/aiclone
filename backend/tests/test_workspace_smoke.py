@@ -4159,6 +4159,29 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertNotIn("interconnected", finalized[0].lower())
         self.assertNotIn("Wins:", finalized[0])
 
+    def test_finalize_planned_options_rewrites_brain_reliability_body_lines(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing operate from a single routed workspace snapshot. Previously, we dealt with malformed JSON and inconsistent schema discipline. We're enhancing output handling and validation, even as we continue to improve reliability.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nThe AI Clone / Brain System illustrates this clearly. Now, Brain, Ops, daily briefs, planner, persona review, and long-form routing operate from a single routed workspace snapshot. Previously, we dealt with malformed JSON and inconsistent schema discipline. Daily briefs. We're enhancing output handling and validation, even as we continue to improve reliability. That is the operating model."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertNotIn("Daily briefs.", finalized[0])
+        self.assertIn("Malformed JSON kept breaking the flow.", finalized[0])
+        self.assertIn("Output handling is stricter now.", finalized[0])
+        self.assertIn("Reliability is better, but not done.", finalized[0])
+
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(
             "### OPTION 1\nPrompting alone is not an AI strategy.\n---OPTION---\n### OPTION 2\nIf there is no artifact, stay at the level of principle."
