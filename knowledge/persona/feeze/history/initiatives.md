@@ -2,15 +2,22 @@
 title: "Initiatives"
 persona_id: "johnnie_fields"
 target_file: "history/initiatives.md"
-generated_at: "2026-03-29T10:24:11.485316+00:00"
+generated_at: "2026-03-29T15:00:00+00:00"
 ---
 
 ## AI Clone / Brain System
 - Status: active
-- Purpose: Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance.
-- Value to persona: Proves Johnnie can turn messy AI/operator work into durable operating surfaces that support memory, planning, review, and content generation.
-- Public-facing proof: Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views.
-- Use when: Use for posts about AI systems, operator clarity, prompt-plus-agent orchestration, restart-safe memory, and shipping durable internal tools.
+- Purpose: Build a restart-safe AI operating system for memory, persona review, source routing, planning, and content execution.
+- Value to persona: Demonstrates that Johnnie can move from AI commentary to operator-grade system design, turning prompt ideas into durable workflows, review loops, and shipping surfaces.
+- Public-facing proof: Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; committed canon syncs into a disk-backed bundle and that same canon is read back into content generation.
+- Use when: Use for posts about AI systems, agent orchestration, workflow clarity, prompt-plus-agent handoffs, restart-safe memory, and shipping durable internal tools.
+
+## Grounded Content Generation System
+- Status: active
+- Purpose: Make the content engine read persona canon through typed core, proof, story, and example lanes instead of one blended retrieval pile.
+- Value to persona: Shows that Johnnie can translate memory architecture into better writing behavior, not just better storage, and can tighten a system until it stops borrowing weak proof.
+- Public-facing proof: The content route now uses typed retrieval, domain gates, grounding modes, structured proof briefs, and proof-packet enforcement before final drafts.
+- Use when: Use for posts about AI writing systems, context engineering, retrieval quality, evaluation, and operator-grade content tooling.
 
 ## Fusion Academy Market Development
 - Status: active
