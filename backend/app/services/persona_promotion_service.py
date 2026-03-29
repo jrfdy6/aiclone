@@ -5,6 +5,7 @@ from typing import Any
 
 from app.models import PersonaDelta, PersonaDeltaUpdate
 from app.services import persona_delta_service
+from app.services.persona_bundle_writer import write_promotion_items_to_bundle
 
 TARGET_CLAIMS = "identity/claims.md"
 TARGET_VOICE = "identity/VOICE_PATTERNS.md"
@@ -121,6 +122,7 @@ def promote_delta_to_canon(delta_id: str) -> PersonaDelta | None:
     if not normalized_items:
         raise ValueError("Selected promotion items are missing canonical target information.")
 
+    bundle_write = write_promotion_items_to_bundle(normalized_items)
     committed_at = datetime.now(timezone.utc).isoformat()
     update_metadata = {
         "pending_promotion": False,
@@ -130,6 +132,9 @@ def promote_delta_to_canon(delta_id: str) -> PersonaDelta | None:
         "committed_item_count": len(normalized_items),
         "selected_promotion_items": selected_items,
         "selected_promotion_item_ids": [item["id"] for item in normalized_items if item.get("id")],
+        "bundle_root": bundle_write.get("bundle_root"),
+        "bundle_written_files": bundle_write.get("written_files") or [],
+        "bundle_file_results": bundle_write.get("file_results") or {},
     }
     update = PersonaDeltaUpdate(status="committed", metadata=update_metadata)
     return persona_delta_service.update_delta(delta_id, update)

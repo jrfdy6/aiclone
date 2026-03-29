@@ -11,6 +11,7 @@ from app.services.persona_promotion_service import (
     TARGET_STORIES,
     build_committed_persona_overlay,
 )
+from app.services.persona_bundle_writer import preferred_promotion_title
 
 
 def resolve_workspace_root() -> Path:
@@ -339,7 +340,7 @@ def _merge_promoted_stories(base_stories: list[dict[str, str]], promoted_items: 
         core_point = ensure_period(str(item.get("content") or ""))
         if not core_point:
             continue
-        title = normalize_inline_text(str(item.get("label") or "")) or clean_sentence(core_point)[:80]
+        title = preferred_promotion_title(item)
         key = title.lower()
         if key in seen:
             continue
@@ -362,7 +363,7 @@ def _merge_promoted_initiatives(base_initiatives: list[dict[str, str]], promoted
         purpose = ensure_period(str(item.get("content") or ""))
         if not purpose:
             continue
-        title = normalize_inline_text(str(item.get("label") or "")) or clean_sentence(purpose)[:80]
+        title = preferred_promotion_title(item)
         key = title.lower()
         if key in seen:
             continue

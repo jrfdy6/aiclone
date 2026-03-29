@@ -32,6 +32,7 @@ brain_route_module = importlib.import_module("app.routes.brain")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 persona_promotion_module = importlib.import_module("app.services.persona_promotion_service")
 belief_engine_module = importlib.import_module("app.services.social_belief_engine")
+persona_bundle_writer_module = importlib.import_module("app.services.persona_bundle_writer")
 
 
 SAMPLE_FEED = {
@@ -1943,6 +1944,10 @@ summary: Leadership behavior drives AI implementation outcomes.
             persona_promotion_module.persona_delta_service,
             "update_delta",
             side_effect=fake_update,
+        ), patch.object(
+            persona_promotion_module,
+            "write_promotion_items_to_bundle",
+            return_value={"bundle_root": "/tmp/persona", "written_files": ["identity/claims.md"], "file_results": {"identity/claims.md": {"added": 1, "skipped": 0}}},
         ):
             updated = persona_promotion_module.promote_delta_to_canon("delta-promote")
 
@@ -1950,6 +1955,7 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertEqual(updated.status, "committed")
         self.assertFalse((updated.metadata or {}).get("pending_promotion"))
         self.assertEqual((updated.metadata or {}).get("committed_item_count"), 1)
+        self.assertEqual((updated.metadata or {}).get("bundle_written_files"), ["identity/claims.md"])
 
     def test_brain_persona_promote_route_returns_committed_delta(self) -> None:
         delta = PersonaDelta(
@@ -1970,6 +1976,7 @@ summary: Leadership behavior drives AI implementation outcomes.
                     }
                 ],
                 "committed_target_files": ["identity/claims.md"],
+                "bundle_written_files": ["identity/claims.md"],
             },
             created_at=datetime.now(timezone.utc),
             committed_at=datetime.now(timezone.utc),
@@ -1985,6 +1992,30 @@ summary: Leadership behavior drives AI implementation outcomes.
         payload = response.json()
         self.assertEqual((payload.get("delta") or {}).get("status"), "committed")
         self.assertEqual((payload.get("overlay_counts") or {}).get("items"), 1)
+        self.assertEqual(payload.get("bundle_written_files"), ["identity/claims.md"])
+
+    def test_persona_bundle_writer_persists_claims_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_root = Path(temp_dir) / "knowledge" / "persona" / "feeze"
+            with patch.object(persona_bundle_writer_module, "resolve_persona_bundle_root", return_value=bundle_root):
+                result = persona_bundle_writer_module.write_promotion_items_to_bundle(
+                    [
+                        {
+                            "id": "claim-1",
+                            "kind": "talking_point",
+                            "label": "Claim",
+                            "content": "Operator clarity matters more than hype.",
+                            "evidence": "Saved from Brain review.",
+                            "target_file": "identity/claims.md",
+                            "trait": "Promote this to canon",
+                        }
+                    ]
+                )
+
+            claims_path = bundle_root / "identity" / "claims.md"
+            self.assertTrue(claims_path.exists())
+            self.assertIn("Operator clarity matters more than hype.", claims_path.read_text(encoding="utf-8"))
+            self.assertEqual(result.get("written_files"), ["identity/claims.md"])
 
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
