@@ -73,3 +73,17 @@ Recommended operating model:
 
 - Brain `Commit to canon` updates runtime canon immediately.
 - `persona_bundle_sync.py` is the local durability step that makes the same promotion survive deploys and feed bundle-first content generation.
+
+Install the local LaunchAgent:
+
+```bash
+cp /Users/neo/.openclaw/workspace/automations/com.neo.persona_bundle_sync.plist ~/Library/LaunchAgents/com.neo.persona_bundle_sync.plist
+launchctl bootout "gui/$UID" ~/Library/LaunchAgents/com.neo.persona_bundle_sync.plist 2>/dev/null || true
+launchctl bootstrap "gui/$UID" ~/Library/LaunchAgents/com.neo.persona_bundle_sync.plist
+```
+
+Check the latest sync log:
+
+```bash
+tail -n 40 /Users/neo/.openclaw/logs/persona_bundle_sync.log
+```

@@ -2052,6 +2052,32 @@ generated_at: "2026-03-28T00:00:00+00:00"
             self.assertIn("workflow clarity", (chunks[0].get("chunk") or "").lower())
             self.assertEqual(chunks[0].get("metadata", {}).get("source_kind"), "canonical_bundle")
 
+    def test_persona_bundle_context_reads_committed_overlay_for_immediate_content_use(self) -> None:
+        with patch.object(
+            persona_bundle_context_module,
+            "build_committed_persona_overlay",
+            return_value={
+                "by_target_file": {
+                    "identity/claims.md": [
+                        {
+                            "content": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                            "evidence": "Promoted from Brain review.",
+                        }
+                    ]
+                }
+            },
+        ), patch.object(persona_bundle_context_module, "resolve_persona_bundle_root", return_value=Path("/tmp/does-not-exist")):
+            chunks = persona_bundle_context_module.retrieve_bundle_persona_chunks(
+                query_text="CEO prompting and agent usage",
+                category="value",
+                channel="linkedin_post",
+                top_k=3,
+            )
+
+        self.assertGreaterEqual(len(chunks), 1)
+        self.assertIn("5.2x more likely", (chunks[0].get("chunk") or ""))
+        self.assertEqual(chunks[0].get("metadata", {}).get("source_kind"), "committed_overlay")
+
     def test_content_generation_prefers_bundle_persona_chunks(self) -> None:
         class _FakeResponse:
             def __init__(self, content: str) -> None:

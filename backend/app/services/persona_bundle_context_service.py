@@ -8,6 +8,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from app.services.embedders import embed_text, embed_texts
 from app.services.persona_bundle_writer import resolve_persona_bundle_root
+from app.services.persona_promotion_service import build_committed_persona_overlay
 from app.services.retrieval import get_combined_weights
 
 
@@ -312,6 +313,49 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
     return chunks
 
 
+def load_committed_overlay_chunks() -> list[dict[str, Any]]:
+    try:
+        overlay = build_committed_persona_overlay()
+    except Exception:
+        return []
+    if not isinstance(overlay, dict):
+        return []
+    by_target_file = overlay.get("by_target_file")
+    if not isinstance(by_target_file, dict):
+        return []
+
+    chunks: list[dict[str, Any]] = []
+    for rel_path, items in by_target_file.items():
+        if not isinstance(items, list):
+            continue
+        tag = TAG_BY_TARGET.get(rel_path, "PHILOSOPHY")
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            content = _normalize_inline(str(item.get("content") or ""))
+            if not content:
+                continue
+            evidence = _normalize_inline(str(item.get("evidence") or ""))
+            chunk = content if not evidence else f"{content} Evidence: {evidence}"
+            chunks.append(
+                {
+                    "source_id": f"overlay:{rel_path}:{idx}",
+                    "source_file_id": rel_path,
+                    "chunk_index": idx,
+                    "chunk": chunk,
+                    "persona_tag": tag,
+                    "metadata": {
+                        "source": "committed persona overlay",
+                        "source_kind": "committed_overlay",
+                        "file_name": rel_path,
+                        "persona_tag": tag,
+                        "bundle_path": rel_path,
+                    },
+                }
+            )
+    return chunks
+
+
 def retrieve_bundle_persona_chunks(
     *,
     query_text: str | None = None,
@@ -320,7 +364,7 @@ def retrieve_bundle_persona_chunks(
     channel: str = "linkedin_post",
     top_k: int = 7,
 ) -> list[dict[str, Any]]:
-    items = load_bundle_persona_chunks()
+    items = load_committed_overlay_chunks() + load_bundle_persona_chunks()
     if not items:
         return []
 
