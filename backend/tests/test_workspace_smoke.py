@@ -2904,6 +2904,8 @@ generated_at: "2026-03-28T00:00:00+00:00"
         diagnostics = payload.get("diagnostics") or {}
         self.assertEqual(diagnostics.get("grounding_mode"), "proof_ready")
         self.assertEqual(diagnostics.get("generation_strategy"), "planner_writer_critic")
+        self.assertEqual(len(diagnostics.get("taste_scores") or []), 1)
+        self.assertGreaterEqual((diagnostics.get("taste_scores") or [{}])[0].get("overall", 0), 60)
         self.assertEqual(
             diagnostics.get("primary_claims"),
             ["Teams fail when they chase tools before workflow clarity."],
@@ -3417,6 +3419,29 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 ]
             )
         )
+
+    def test_score_option_taste_prefers_claim_led_operator_copy_over_generic_copy(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        grounded = content_generation_module.score_option_taste(
+            "Prompting alone is not an AI strategy.\n\nBrain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.\n\nThat is the operating model.",
+            brief=brief,
+        )
+        generic = content_generation_module.score_option_taste(
+            "Agent orchestration is critical for driving results.\n\nThis gives teams a cohesive system and a comprehensive view of their work.\n\nWe're moving in the right direction.",
+            brief=brief,
+        )
+
+        self.assertGreater(grounded.get("overall", 0), generic.get("overall", 0))
+        self.assertIn("claim_led_opening", grounded.get("strengths", []))
+        self.assertIn("proof_grounded", grounded.get("strengths", []))
+        self.assertIn("taste_negative", generic.get("warnings", []))
 
     def test_sharpen_editorial_options_rewrites_flat_openers_without_losing_proof(self) -> None:
         class _FakeResponse:

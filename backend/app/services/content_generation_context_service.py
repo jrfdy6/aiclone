@@ -16,7 +16,10 @@ LEGACY_PERSONA_SOURCES = (
     "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
     "JOHNNIE_FIELDS_PERSONA.md",
 )
-CANONICAL_EXAMPLE_BUNDLE_PATH = "prompts/content_examples.md"
+CANONICAL_EXAMPLE_BUNDLE_PATHS = {
+    "prompts/content_examples.md",
+    "prompts/taste_examples.md",
+}
 LEGACY_EXAMPLE_TAGS = ["LINKEDIN_EXAMPLES"]
 PROMPT_SECTION_CORE = "CORE CANON"
 PROMPT_SECTION_SUPPORT = "SUPPORTING CANON"
@@ -439,7 +442,8 @@ def retrieve_bundle_example_chunks(
     ranked: list[tuple[int, dict[str, Any]]] = []
     for item in load_bundle_persona_chunks():
         metadata = _item_metadata(item)
-        if str(metadata.get("bundle_path") or "") != CANONICAL_EXAMPLE_BUNDLE_PATH:
+        bundle_path = str(metadata.get("bundle_path") or "")
+        if bundle_path not in CANONICAL_EXAMPLE_BUNDLE_PATHS:
             continue
         primary_text, use_when_text = _split_use_when_text(str(item.get("chunk") or ""))
         score = (_chunk_focus_score(primary_text, focus_terms, topic) * 2) + _chunk_focus_score(use_when_text, focus_terms, topic)
@@ -448,6 +452,8 @@ def retrieve_bundle_example_chunks(
         normalized = primary_text.lower()
         if normalized.startswith("good examples:"):
             score += 3
+        elif normalized.startswith("taste anchors:"):
+            score += 4
         elif normalized.startswith("avoid patterns:"):
             score += 1
         ranked.append((score, _hydrate_bundle_chunk(item)))

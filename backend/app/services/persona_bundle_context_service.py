@@ -23,6 +23,7 @@ TARGET_COMMUNICATION = "identity/audience_communication.md"
 TARGET_DECISION_PRINCIPLES = "identity/decision_principles.md"
 TARGET_GUARDRAILS = "prompts/content_guardrails.md"
 TARGET_CONTENT_EXAMPLES = "prompts/content_examples.md"
+TARGET_TASTE_EXAMPLES = "prompts/taste_examples.md"
 TARGET_OUTREACH = "prompts/outreach_playbook.md"
 TARGET_PILLARS = "prompts/content_pillars.md"
 TARGET_CHANNELS = "prompts/channel_playbooks.md"
@@ -51,6 +52,7 @@ TAG_BY_TARGET = {
     TARGET_DECISION_PRINCIPLES: "PHILOSOPHY",
     TARGET_GUARDRAILS: "PHILOSOPHY",
     TARGET_CONTENT_EXAMPLES: "LINKEDIN_EXAMPLES",
+    TARGET_TASTE_EXAMPLES: "LINKEDIN_EXAMPLES",
     TARGET_OUTREACH: "VOICE_PATTERNS",
     TARGET_PILLARS: "PHILOSOPHY",
     TARGET_CHANNELS: "VOICE_PATTERNS",
@@ -74,6 +76,7 @@ CORE_TARGETS = {
 }
 EXAMPLE_TARGETS = {
     TARGET_CONTENT_EXAMPLES,
+    TARGET_TASTE_EXAMPLES,
 }
 PROOF_TARGETS = {
     TARGET_INITIATIVES,
@@ -542,6 +545,7 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
         TARGET_DECISION_PRINCIPLES,
         TARGET_GUARDRAILS,
         TARGET_CONTENT_EXAMPLES,
+        TARGET_TASTE_EXAMPLES,
         TARGET_OUTREACH,
         TARGET_PILLARS,
         TARGET_CHANNELS,

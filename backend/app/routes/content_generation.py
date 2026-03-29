@@ -219,6 +219,37 @@ GENERIC_CLOSER_PATTERNS = (
     re.compile(r"\bkeep pushing\b", re.IGNORECASE),
     re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
 )
+TASTE_NEGATIVE_PATTERNS = (
+    re.compile(r"\bcohesive system\b", re.IGNORECASE),
+    re.compile(r"\bdependable architecture\b", re.IGNORECASE),
+    re.compile(r"\bcomprehensive view\b", re.IGNORECASE),
+    re.compile(r"\b(?:transition|transitioned|transitioning)\b.*\barchitecture\b", re.IGNORECASE),
+    re.compile(r"\bnew level of efficiency\b", re.IGNORECASE),
+    re.compile(r"\bstreamlined workflow\b", re.IGNORECASE),
+    re.compile(r"\b(?:enhance|enhances|enhancing)\s+(?:execution|strategy|collaboration)\b", re.IGNORECASE),
+    re.compile(r"\bfunction in unison\b", re.IGNORECASE),
+    re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
+)
+TASTE_POSITIVE_PATTERNS = (
+    re.compile(r"\breal talk\b", re.IGNORECASE),
+    re.compile(r"\btell you what tho\b", re.IGNORECASE),
+    re.compile(r"\bmakes no sense\.?\s*period\b", re.IGNORECASE),
+    re.compile(r"\bthat will not work\b", re.IGNORECASE),
+    re.compile(r"\bthat dog will not hunt\b", re.IGNORECASE),
+    re.compile(r"\bwhere'?s the artifact\b", re.IGNORECASE),
+    re.compile(r"\bpeople are not gonna use that\b", re.IGNORECASE),
+    re.compile(r"\bwrite that down\b", re.IGNORECASE),
+    re.compile(r"\bread that again\b", re.IGNORECASE),
+    re.compile(r"\bbig shout-out\b", re.IGNORECASE),
+    re.compile(r"\by['’]?all\b", re.IGNORECASE),
+)
+TASTE_CONTRAST_PATTERNS = (
+    re.compile(r"\bnot\b", re.IGNORECASE),
+    re.compile(r"\binstead of\b", re.IGNORECASE),
+    re.compile(r"\bbut\b", re.IGNORECASE),
+    re.compile(r"\bif\b", re.IGNORECASE),
+    re.compile(r"\bthat sounds good, but\b", re.IGNORECASE),
+)
 
 
 class ContentGenerationRequest(BaseModel):
@@ -815,6 +846,105 @@ def _genericity_score(option: str) -> int:
     return score
 
 
+def score_option_taste(
+    option: str,
+    *,
+    brief: ContentOptionBrief | None = None,
+    primary_claims: Optional[List[str]] = None,
+    proof_packets: Optional[List[str]] = None,
+    story_beats: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    cleaned = (option or "").strip()
+    primary_claims = primary_claims or []
+    proof_packets = proof_packets or []
+    story_beats = story_beats or []
+    active_brief = brief or ContentOptionBrief(
+        option_number=1,
+        framing_mode="operator_lesson",
+        primary_claim=primary_claims[0] if primary_claims else "",
+        proof_packet=proof_packets[0] if proof_packets else "",
+        story_beat=story_beats[0] if story_beats else "",
+    )
+    warnings: List[str] = []
+    strengths: List[str] = []
+    score = 60
+
+    genericity = _genericity_score(cleaned)
+    if genericity:
+        score -= genericity * 6
+        warnings.append(f"genericity:{genericity}")
+    else:
+        strengths.append("low_genericity")
+
+    first_line = _first_content_line(cleaned)
+    if _claim_near_opening(cleaned, active_brief.primary_claim):
+        score += 10
+        strengths.append("claim_led_opening")
+    else:
+        score -= 10
+        warnings.append("claim_not_leading")
+
+    if option_mentions_approved_proof(cleaned, [active_brief.proof_packet] if active_brief.proof_packet else proof_packets):
+        score += 10
+        strengths.append("proof_grounded")
+    else:
+        score -= 8
+        warnings.append("proof_not_visible")
+
+    negative_hits = [pattern.pattern for pattern in TASTE_NEGATIVE_PATTERNS if pattern.search(cleaned)]
+    if negative_hits:
+        score -= len(negative_hits) * 6
+        warnings.extend("taste_negative" for _ in negative_hits)
+    else:
+        strengths.append("no_corporate_taste_hits")
+
+    positive_hits = [pattern.pattern for pattern in TASTE_POSITIVE_PATTERNS if pattern.search(cleaned)]
+    if positive_hits:
+        score += min(8, len(positive_hits) * 3)
+        strengths.append("johnnie_phrase_energy")
+
+    contrast_hits = [pattern.pattern for pattern in TASTE_CONTRAST_PATTERNS if pattern.search(cleaned)]
+    if contrast_hits:
+        score += min(6, len(contrast_hits) * 2)
+        strengths.append("contrast_present")
+    else:
+        warnings.append("low_contrast")
+
+    sentences = _split_sentences(cleaned)
+    if sentences:
+        lengths = [len(sentence.split()) for sentence in sentences if sentence.split()]
+        if lengths:
+            if any(length <= 6 for length in lengths):
+                score += 3
+                strengths.append("short_punchy_sentence")
+            else:
+                warnings.append("no_short_sentence")
+            average_length = sum(lengths) / len(lengths)
+            if average_length > 18:
+                score -= 4
+                warnings.append("too_smoothed")
+            elif average_length < 15:
+                score += 2
+                strengths.append("spoken_sentence_length")
+    if cleaned.count("\n\n") >= 2:
+        score += 2
+        strengths.append("human_paragraph_cadence")
+    else:
+        warnings.append("paragraph_cadence_flat")
+
+    if first_line.lower().startswith(("we ", "we’ve ", "we've ", "this ", "it ", "our ")):
+        score -= 4
+        warnings.append("soft_opening_subject")
+
+    overall = max(0, min(100, score))
+    return {
+        "overall": overall,
+        "warnings": warnings,
+        "strengths": strengths,
+        "first_line": first_line,
+    }
+
+
 def _option_needs_voice_sharpening(option: str) -> bool:
     lowered = " ".join((option or "").lower().split())
     if not lowered:
@@ -856,6 +986,10 @@ def get_openai_client():
     return openai.OpenAI(api_key=api_key)
 
 
+def _final_editor_model() -> str:
+    return os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o")
+
+
 def _split_example_references(example_chunks: List[Dict[str, Any]], *, limit: int = 3) -> tuple[List[str], List[str]]:
     good_examples: List[str] = []
     avoid_examples: List[str] = []
@@ -864,7 +998,7 @@ def _split_example_references(example_chunks: List[Dict[str, Any]], *, limit: in
         if not chunk:
             continue
         normalized = chunk.lower()
-        if normalized.startswith("avoid patterns:"):
+        if normalized.startswith(("avoid patterns:", "avoid fillers:")):
             avoid_examples.append(chunk[:500])
         else:
             good_examples.append(chunk[:500])
@@ -2518,30 +2652,39 @@ def sharpen_editorial_options(
     if content_type != "linkedin_post" or not rough_options or not _options_need_voice_sharpening(rough_options):
         return rough_options
     voice_directives = _extract_voice_directives(persona_chunks, limit=8)
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a final editorial sharpener. Improve rhetoric and cadence without changing approved facts or voice.",
-            },
-            {
-                "role": "user",
-                "content": build_voice_sharpen_prompt(
-                    topic=topic,
-                    audience=audience,
-                    rough_options=rough_options,
-                    primary_claims=primary_claims,
-                    proof_packets=proof_packets,
-                    story_beats=story_beats,
-                    framing_modes=framing_modes,
-                    voice_directives=voice_directives,
-                ),
-            },
-        ],
-        temperature=0.4,
-        max_tokens=1800,
-    )
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a final editorial sharpener. Improve rhetoric and cadence without changing approved facts or voice.",
+        },
+        {
+            "role": "user",
+            "content": build_voice_sharpen_prompt(
+                topic=topic,
+                audience=audience,
+                rough_options=rough_options,
+                primary_claims=primary_claims,
+                proof_packets=proof_packets,
+                story_beats=story_beats,
+                framing_modes=framing_modes,
+                voice_directives=voice_directives,
+            ),
+        },
+    ]
+    try:
+        response = client.chat.completions.create(
+            model=_final_editor_model(),
+            messages=messages,
+            temperature=0.35,
+            max_tokens=1800,
+        )
+    except Exception:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.35,
+            max_tokens=1800,
+        )
     sharpened = parse_content_options(response.choices[0].message.content or "")
     sharpened = sharpened[:3] if sharpened else rough_options
     if grounding_mode == "proof_ready" and proof_packets:
@@ -2556,6 +2699,26 @@ def sharpen_editorial_options(
             for option in sharpened
         ):
             return rough_options
+    baseline_score = sum(
+        score_option_taste(
+            option,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+        )["overall"]
+        for option in rough_options
+    )
+    sharpened_score = sum(
+        score_option_taste(
+            option,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+        )["overall"]
+        for option in sharpened
+    )
+    if sharpened_score + 3 < baseline_score:
+        return rough_options
     return sharpened
 
 
@@ -2879,6 +3042,16 @@ async def generate_content(req: ContentGenerationRequest):
             _render_anchor_chunk(item)[:220]
             for item in content_context.proof_anchor_chunks[:4]
         ]
+        taste_scores = [
+            score_option_taste(
+                option,
+                brief=option_briefs[index] if index < len(option_briefs) else None,
+                primary_claims=content_context.primary_claims,
+                proof_packets=content_context.proof_packets,
+                story_beats=content_context.story_beats,
+            )
+            for index, option in enumerate(options[:3])
+        ]
 
         return ContentGenerationResponse(
             success=True,
@@ -2903,6 +3076,7 @@ async def generate_content(req: ContentGenerationRequest):
                     }
                     for brief in option_briefs
                 ],
+                "taste_scores": taste_scores,
                 "topic_anchor_preview": topic_anchor_preview,
                 "core_chunk_preview": core_chunk_preview,
                 "proof_anchor_preview": proof_anchor_preview,
