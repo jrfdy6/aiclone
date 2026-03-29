@@ -2740,6 +2740,9 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("`drama_tension`", prompt)
         self.assertIn("## PRIMARY CLAIMS YOU MAY MAKE:", prompt)
         self.assertIn("## APPROVED PROOF PACKETS:", prompt)
+        self.assertIn("## ONLY THESE NAMED REFERENCES MAY APPEAR:", prompt)
+        self.assertIn("AI Clone / Brain System", prompt)
+        self.assertNotIn("Use Georgetown, Salesforce, Fusion, or Easy Outfit", prompt)
 
     def test_build_content_prompt_principle_only_mode_forbids_named_case_study_reach(self) -> None:
         persona_chunks = [
@@ -2794,6 +2797,38 @@ generated_at: "2026-03-28T00:00:00+00:00"
             )
         )
 
+    def test_option_uses_unapproved_reference_flags_stray_named_entities_and_placeholders(self) -> None:
+        approved_reference_terms = [
+            "AI Clone / Brain System",
+            "Brain",
+            "Ops",
+            "daily briefs",
+            "long-form routing",
+            "routed workspace state",
+        ]
+
+        self.assertFalse(
+            content_generation_module.option_uses_unapproved_reference(
+                "Brain and Ops now read from the same routed workspace state.",
+                approved_reference_terms=approved_reference_terms,
+                audience="tech_ai",
+            )
+        )
+        self.assertTrue(
+            content_generation_module.option_uses_unapproved_reference(
+                "That incredible video on AI execution patterns changed how I think about orchestration.",
+                approved_reference_terms=approved_reference_terms,
+                audience="tech_ai",
+            )
+        )
+        self.assertTrue(
+            content_generation_module.option_uses_unapproved_reference(
+                "Big shout-out to Georgetown for showing what workflow clarity looks like.",
+                approved_reference_terms=approved_reference_terms,
+                audience="tech_ai",
+            )
+        )
+
     def test_enforce_grounding_on_options_repairs_generic_proof_ready_drafts(self) -> None:
         class _FakeResponse:
             def __init__(self, content: str) -> None:
@@ -2830,11 +2865,56 @@ generated_at: "2026-03-28T00:00:00+00:00"
             proof_packets=[
                 "AI Clone / Brain System -> Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views."
             ],
+            story_beats=[],
             framing_modes=["operator_lesson", "contrarian_reframe", "drama_tension"],
         )
 
         self.assertEqual(len(repaired), 3)
         self.assertTrue(all("workspace state" in option.lower() or "brain" in option.lower() for option in repaired))
+
+    def test_enforce_grounding_on_options_repairs_stray_named_references(self) -> None:
+        class _FakeResponse:
+            def __init__(self, content: str) -> None:
+                self.choices = [type("Choice", (), {"message": type("Message", (), {"content": content})()})()]
+
+        class _FakeCompletions:
+            def create(self, **kwargs):
+                return _FakeResponse(
+                    "Brain and Ops now depend on explicit handoffs instead of isolated prompts.\n---OPTION---\n"
+                    "Daily briefs and long-form routing now share the same routed workspace state.\n---OPTION---\n"
+                    "Planner and content generation now inherit proof-aware prompts from the same system."
+                )
+
+        class _FakeChat:
+            def __init__(self) -> None:
+                self.completions = _FakeCompletions()
+
+        class _FakeClient:
+            def __init__(self) -> None:
+                self.chat = _FakeChat()
+
+        repaired = content_generation_module.enforce_grounding_on_options(
+            client=_FakeClient(),
+            topic="workflow clarity",
+            audience="tech_ai",
+            content_type="linkedin_post",
+            grounding_mode="proof_ready",
+            rough_options=[
+                "That incredible video on AI execution patterns made workflow clarity click for me.",
+                "Big shout-out to Georgetown for showing me that clear handoffs matter.",
+                "Agent orchestration works better when the system is clear.",
+            ],
+            primary_claims=["Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone."],
+            proof_packets=[
+                "AI Clone / Brain System -> Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting."
+            ],
+            story_beats=[],
+            framing_modes=["operator_lesson", "contrarian_reframe", "drama_tension"],
+        )
+
+        self.assertEqual(len(repaired), 3)
+        self.assertTrue(all("Georgetown" not in option for option in repaired))
+        self.assertTrue(all("video" not in option.lower() for option in repaired))
 
     def test_curate_persona_prompt_chunks_orders_core_support_legacy_then_retrieval(self) -> None:
         bundle_chunks = [

@@ -128,6 +128,46 @@ FRAMING_MODE_GUIDANCE = {
     "warning": "Name the failure mode or hidden cost directly and explain why it matters.",
     "reframe": "Take a familiar idea and make the audience see it through a different lens.",
 }
+GENERIC_SENTENCE_OPENERS = {
+    "Are",
+    "Big",
+    "Can",
+    "Clear",
+    "Clarity",
+    "Good",
+    "Here",
+    "How",
+    "I",
+    "If",
+    "It",
+    "Listen",
+    "Look",
+    "Most",
+    "Read",
+    "Real",
+    "Teams",
+    "That",
+    "The",
+    "This",
+    "Without",
+    "Workflow",
+    "Write",
+    "Yall",
+    "You",
+    "Your",
+}
+UNSUPPORTED_EVIDENCE_PLACEHOLDERS = {
+    "article",
+    "case study",
+    "company",
+    "course",
+    "podcast",
+    "school",
+    "talk",
+    "university",
+    "video",
+    "webinar",
+}
 
 
 class ContentGenerationRequest(BaseModel):
@@ -668,6 +708,8 @@ def build_content_prompt(
     proof_packets_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No approved proof packets. Use principle only."
     story_beats_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No story beat approved for this request."
     disallowed_moves_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
+    approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    approved_reference_text = "\n".join(f"- {term}" for term in approved_reference_terms) or "- No approved named references."
     
     visible_persona_chunks = _collect_prompt_visible_chunks(
         persona_chunks=persona_chunks,
@@ -922,7 +964,7 @@ EXAMPLE HOOKS FOR THIS AUDIENCE:
 SPECIFIC STORIES TO DRAW FROM:
 - Only use a story if it appears in the eligible story anchors below
 - Prefer operator proof: workflow clarity, prompting, automation, handoffs, shipped systems
-- Use Georgetown, Salesforce, Fusion, or Easy Outfit only when the topic anchors make them directly relevant""",
+- Only use institutions, employers, or named projects when they appear directly in the approved proof or story anchors for this request""",
 
         "fashion": """TARGET AUDIENCE: Fashion & Style enthusiasts
 - Use visual, sensory language
@@ -1259,6 +1301,9 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 ## OPTIONAL STORY BEATS:
 {story_beats_text}
 
+## ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
 ## DISALLOWED MOVES:
 {disallowed_moves_text}
 
@@ -1282,6 +1327,7 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 12. Pick one PRIMARY CLAIM per option and stay inside it. Do not merge multiple weak ideas together.
 13. If `proof_ready`, each option must use one APPROVED PROOF PACKET faithfully. Keep the original subject and meaning intact.
 14. If `principle_only`, do not mention named systems, employers, projects, or metrics unless they already appear in PRIMARY CLAIMS.
+15. If a named reference is not in APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES, remove it.
 
 ## ANTI-HALLUCINATION RULES (CRITICAL):
 - ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
@@ -1326,6 +1372,80 @@ def _normalized_terms(text: str) -> set[str]:
     }
 
 
+def _extract_approved_reference_terms(
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+) -> List[str]:
+    sources = primary_claims + proof_packets + story_beats
+    approved: List[str] = []
+    seen: set[str] = set()
+    for text in sources:
+        normalized_text = " ".join((text or "").split())
+        if not normalized_text:
+            continue
+        for pattern in (
+            r"(?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s*/\s*(?:[A-Z]{2,}|[A-Z][a-z]+))+",
+            r"(?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+(?:[A-Z]{2,}|[A-Z][a-z]+)){0,3}",
+        ):
+            for match in re.finditer(pattern, normalized_text):
+                phrase = " ".join(match.group(0).replace("/", " / ").split()).strip()
+                key = phrase.lower()
+                if len(key) < 2 or key in seen:
+                    continue
+                seen.add(key)
+                approved.append(phrase)
+        for phrase in re.findall(
+            r"(explicit handoffs|shared workspace state|proof-aware prompts|routed workspace snapshot|bundle-first content generation|long-form routing|daily briefs|workflow clarity|agent orchestration)",
+            normalized_text,
+            flags=re.IGNORECASE,
+        ):
+            normalized_phrase = " ".join(phrase.split()).strip()
+            key = normalized_phrase.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            approved.append(normalized_phrase)
+    return approved[:12]
+
+
+def _extract_named_reference_candidates(text: str) -> set[str]:
+    candidates: set[str] = set()
+    cleaned = re.sub(r"[*_`#]", " ", text or "")
+    for sentence in re.split(r"(?<=[.!?])\s+", cleaned):
+        tokens = re.findall(r"[A-Za-z][A-Za-z/&+-]*", sentence)
+        for index, token in enumerate(tokens):
+            if not token:
+                continue
+            if index == 0 and token in GENERIC_SENTENCE_OPENERS:
+                continue
+            if token.lower() in STOPWORDS:
+                continue
+            if re.fullmatch(r"[A-Z]{2,}", token) or re.fullmatch(r"[A-Z][a-z]+", token):
+                if len(token) >= 4 or token.isupper():
+                    candidates.add(token.lower())
+    return candidates
+
+
+def option_uses_unapproved_reference(
+    option: str,
+    *,
+    approved_reference_terms: List[str],
+    audience: str,
+) -> bool:
+    approved_terms = _normalized_terms(" ".join(approved_reference_terms))
+    approved_terms.update(_extract_named_reference_candidates(" ".join(approved_reference_terms)))
+    if _extract_named_reference_candidates(option) - approved_terms:
+        return True
+
+    if audience == "tech_ai":
+        option_text = " ".join((option or "").lower().split())
+        for placeholder in UNSUPPORTED_EVIDENCE_PLACEHOLDERS:
+            if placeholder in option_text and placeholder not in approved_terms:
+                return True
+    return False
+
+
 def option_mentions_approved_proof(option: str, proof_packets: List[str]) -> bool:
     option_terms = _normalized_terms(option)
     if not option_terms or not proof_packets:
@@ -1344,11 +1464,15 @@ def build_proof_enforcement_prompt(
     rough_options: List[str],
     primary_claims: List[str],
     proof_packets: List[str],
+    story_beats: List[str],
     framing_modes: List[str],
 ) -> str:
     options_text = "\n---OPTION---\n".join(rough_options)
     claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- Stay inside the topic."
     proof_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No proof packets available."
+    story_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No approved story beats."
+    approved_references = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    approved_reference_text = "\n".join(f"- {reference}" for reference in approved_references) or "- No approved named references."
     framing_text = "\n".join(
         f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
         for mode in framing_modes
@@ -1364,6 +1488,12 @@ PRIMARY CLAIMS:
 APPROVED PROOF PACKETS:
 {proof_text}
 
+OPTIONAL STORY BEATS:
+{story_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
 APPROVED FRAMING MODES:
 {framing_text}
 
@@ -1374,6 +1504,8 @@ REWRITE RULES:
 - Keep 3 options.
 - Each option must use one PRIMARY CLAIM.
 - Each option must explicitly mention at least one named system, artifact, or evidence phrase from an APPROVED PROOF PACKET.
+- Only use named references that appear in the APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES list above.
+- Remove unsupported references like videos, schools, employers, or projects that are not explicitly approved above.
 - Keep the original proof meaning intact. Do not generalize it into vague productivity language.
 - Do not use phrases like seamless, unlock potential, drive results, or everything flows.
 - Preserve the person's casual rhythm and punchy style.
@@ -1433,6 +1565,8 @@ def build_refinement_prompt(
     proof_packets_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No approved proof packets."
     story_beats_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No approved story beats."
     disallowed_moves_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
+    approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    approved_reference_text = "\n".join(f"- {term}" for term in approved_reference_terms) or "- No approved named references."
     rough_text = "\n---OPTION---\n".join(rough_options)
     return f"""You are revising drafted posts so they sound sharper, more specific, and more faithful to this person's canon.
 
@@ -1464,6 +1598,9 @@ APPROVED PROOF PACKETS:
 OPTIONAL STORY BEATS:
 {story_beats_text}
 
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
 DISALLOWED MOVES:
 {disallowed_moves_text}
 
@@ -1486,6 +1623,7 @@ REVISION RULES:
 - Use one PRIMARY CLAIM per option and make it legible in the first lines.
 - If `proof_ready`, tie each option to one APPROVED PROOF PACKET and preserve its exact meaning.
 - If `principle_only`, remove stray named examples that are not explicitly present in PRIMARY CLAIMS.
+- If a named reference is not in the APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES list, remove it.
 
 Output only the rewritten options, separated by ---OPTION---.
 """
@@ -1557,11 +1695,21 @@ def enforce_grounding_on_options(
     rough_options: List[str],
     primary_claims: List[str],
     proof_packets: List[str],
+    story_beats: List[str],
     framing_modes: List[str],
 ) -> List[str]:
     if content_type != "linkedin_post" or grounding_mode != "proof_ready" or not proof_packets or not rough_options:
         return rough_options
-    if all(option_mentions_approved_proof(option, proof_packets) for option in rough_options):
+    approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    if all(
+        option_mentions_approved_proof(option, proof_packets)
+        and not option_uses_unapproved_reference(
+            option,
+            approved_reference_terms=approved_reference_terms,
+            audience=audience,
+        )
+        for option in rough_options
+    ):
         return rough_options
 
     response = client.chat.completions.create(
@@ -1579,6 +1727,7 @@ def enforce_grounding_on_options(
                     rough_options=rough_options,
                     primary_claims=primary_claims,
                     proof_packets=proof_packets,
+                    story_beats=story_beats,
                     framing_modes=framing_modes,
                 ),
             },
@@ -1705,6 +1854,7 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             rough_options=options,
             primary_claims=content_context.primary_claims,
             proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
             framing_modes=content_context.framing_modes,
         )
 
