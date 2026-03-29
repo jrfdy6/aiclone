@@ -303,6 +303,66 @@ class ContentOptionBrief:
     story_beat: str
 
 
+@dataclass
+class ContentLLMProvider:
+    name: str
+    client: Any
+    fast_model: str
+    editor_model: str
+
+
+class _ContentProviderChatCompletions:
+    def __init__(self, router: "ContentLLMRouterClient") -> None:
+        self._router = router
+
+    def create(self, *, model: str, **kwargs):
+        return self._router.create_chat_completion(model=model, **kwargs)
+
+
+class _ContentProviderChat:
+    def __init__(self, router: "ContentLLMRouterClient") -> None:
+        self.completions = _ContentProviderChatCompletions(router)
+
+
+class ContentLLMRouterClient:
+    def __init__(self, providers: List[ContentLLMProvider]) -> None:
+        if not providers:
+            raise ValueError("No LLM providers configured for content generation")
+        self.providers = providers
+        self.chat = _ContentProviderChat(self)
+        self.provider_trace: List[Dict[str, Any]] = []
+
+    def create_chat_completion(self, *, model: str, **kwargs):
+        errors: List[str] = []
+        for provider in self.providers:
+            actual_model = _resolve_provider_model(provider, model)
+            try:
+                response = provider.client.chat.completions.create(model=actual_model, **kwargs)
+                self.provider_trace.append(
+                    {
+                        "provider": provider.name,
+                        "requested_model": model,
+                        "actual_model": actual_model,
+                        "status": "success",
+                    }
+                )
+                return response
+            except Exception as exc:
+                self.provider_trace.append(
+                    {
+                        "provider": provider.name,
+                        "requested_model": model,
+                        "actual_model": actual_model,
+                        "status": "failed",
+                        "error": str(exc)[:240],
+                    }
+                )
+                if not _should_fallback_provider(exc):
+                    raise
+                errors.append(f"{provider.name}:{actual_model}:{exc}")
+        raise RuntimeError("All content-generation providers failed: " + " | ".join(errors))
+
+
 def _normalized_chunk_key(item: Dict[str, Any]) -> str:
     return " ".join(str(item.get("chunk") or "").split()).strip().lower()
 
@@ -1024,13 +1084,153 @@ def _options_need_voice_sharpening(options: List[str]) -> bool:
     return len(first_words) >= 2 and len(set(first_words)) == 1
 
 
+def _runtime_is_production() -> bool:
+    explicit = (os.getenv("CONTENT_GENERATION_RUNTIME") or "").strip().lower()
+    if explicit in {"production", "prod"}:
+        return True
+    if explicit in {"development", "dev", "local"}:
+        return False
+    return bool(
+        os.getenv("RAILWAY_PROJECT_ID")
+        or os.getenv("RAILWAY_ENVIRONMENT")
+        or os.getenv("RAILWAY_ENVIRONMENT_ID")
+        or os.getenv("K_SERVICE")
+        or (os.getenv("NODE_ENV") or "").strip().lower() == "production"
+    )
+
+
+def _parse_provider_order(value: str) -> List[str]:
+    allowed = {"openai", "gemini", "ollama"}
+    ordered: List[str] = []
+    seen: set[str] = set()
+    for raw in (value or "").split(","):
+        provider = raw.strip().lower()
+        if not provider or provider not in allowed or provider in seen:
+            continue
+        seen.add(provider)
+        ordered.append(provider)
+    return ordered
+
+
+def _default_content_provider_order() -> List[str]:
+    configured = _parse_provider_order(os.getenv("CONTENT_GENERATION_PROVIDER_ORDER", ""))
+    if configured:
+        return configured
+    if _runtime_is_production():
+        return ["gemini", "openai"]
+    return ["ollama", "openai"]
+
+
+def _normalize_openai_base_url(url: str) -> str:
+    normalized = (url or "").strip()
+    if not normalized:
+        return normalized
+    return normalized if normalized.endswith("/") else f"{normalized}/"
+
+
+def _provider_is_configured(name: str) -> bool:
+    if name == "openai":
+        return bool((os.getenv("OPENAI_API_KEY") or "").strip())
+    if name == "gemini":
+        return bool((os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip())
+    if name == "ollama":
+        return True
+    return False
+
+
+def _uses_fast_model_alias(requested_model: str) -> bool:
+    normalized = (requested_model or "").strip().lower()
+    if not normalized:
+        return True
+    return any(token in normalized for token in ("mini", "flash", "fast"))
+
+
+def _resolve_provider_model(provider: ContentLLMProvider, requested_model: str) -> str:
+    if provider.name == "openai":
+        return requested_model
+    if _uses_fast_model_alias(requested_model):
+        return provider.fast_model
+    return provider.editor_model or provider.fast_model
+
+
+def _should_fallback_provider(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+    message = str(exc).lower()
+    if status_code in {401, 402, 403, 404, 408, 409, 429, 500, 502, 503, 504}:
+        return True
+    fallback_signals = (
+        "insufficient_quota",
+        "resource_exhausted",
+        "quota",
+        "billing",
+        "credit",
+        "api key",
+        "authentication",
+        "connection refused",
+        "timed out",
+        "timeout",
+        "temporarily unavailable",
+        "overloaded",
+        "model not found",
+        "does not exist",
+        "max retries exceeded",
+    )
+    return any(signal in message for signal in fallback_signals)
+
+
 def get_openai_client():
-    """Get OpenAI client for content generation."""
+    """Get routed LLM client for content generation."""
     import openai
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY not set")
-    return openai.OpenAI(api_key=api_key)
+
+    providers: List[ContentLLMProvider] = []
+    for provider_name in _default_content_provider_order():
+        if not _provider_is_configured(provider_name):
+            continue
+        if provider_name == "openai":
+            providers.append(
+                ContentLLMProvider(
+                    name="openai",
+                    client=openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY")),
+                    fast_model=os.getenv("CONTENT_GENERATION_OPENAI_FAST_MODEL", "gpt-4o-mini"),
+                    editor_model=os.getenv("CONTENT_GENERATION_OPENAI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o")),
+                )
+            )
+            continue
+        if provider_name == "gemini":
+            providers.append(
+                ContentLLMProvider(
+                    name="gemini",
+                    client=openai.OpenAI(
+                        api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
+                        base_url=_normalize_openai_base_url(
+                            os.getenv("GEMINI_OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+                        ),
+                    ),
+                    fast_model=os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash"),
+                    editor_model=os.getenv("CONTENT_GENERATION_GEMINI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash")),
+                )
+            )
+            continue
+        if provider_name == "ollama":
+            providers.append(
+                ContentLLMProvider(
+                    name="ollama",
+                    client=openai.OpenAI(
+                        api_key=os.getenv("OLLAMA_API_KEY", "ollama"),
+                        base_url=_normalize_openai_base_url(os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")),
+                    ),
+                    fast_model=os.getenv("CONTENT_GENERATION_OLLAMA_FAST_MODEL", "llama3.1"),
+                    editor_model=os.getenv("CONTENT_GENERATION_OLLAMA_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_OLLAMA_FAST_MODEL", "llama3.1")),
+                )
+            )
+    if not providers:
+        raise ValueError(
+            "No content-generation providers configured. Set Ollama locally, or GEMINI_API_KEY / OPENAI_API_KEY."
+        )
+    return ContentLLMRouterClient(providers)
 
 
 def _final_editor_model() -> str:
@@ -3673,6 +3873,7 @@ async def generate_content(req: ContentGenerationRequest):
                 "topic_anchor_preview": topic_anchor_preview,
                 "core_chunk_preview": core_chunk_preview,
                 "proof_anchor_preview": proof_anchor_preview,
+                "llm_provider_trace": getattr(client, "provider_trace", []),
             },
         )
         

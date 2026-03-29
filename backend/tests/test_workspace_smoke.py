@@ -3462,6 +3462,117 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("weak_closer", scored.get("warnings", []))
         self.assertIn("soft_operator_pronoun", scored.get("warnings", []))
 
+    def test_default_content_provider_order_prefers_ollama_locally_and_gemini_in_production(self) -> None:
+        with patch.dict(content_generation_module.os.environ, {}, clear=True):
+            self.assertEqual(
+                content_generation_module._default_content_provider_order(),
+                ["ollama", "openai"],
+            )
+        with patch.dict(content_generation_module.os.environ, {"RAILWAY_PROJECT_ID": "railway-project"}, clear=True):
+            self.assertEqual(
+                content_generation_module._default_content_provider_order(),
+                ["gemini", "openai"],
+            )
+
+    def test_resolve_provider_model_maps_fast_and_editor_models(self) -> None:
+        gemini_provider = content_generation_module.ContentLLMProvider(
+            name="gemini",
+            client=object(),
+            fast_model="gemini-2.5-flash",
+            editor_model="gemini-2.5-pro",
+        )
+        ollama_provider = content_generation_module.ContentLLMProvider(
+            name="ollama",
+            client=object(),
+            fast_model="llama3.1",
+            editor_model="qwen2.5:14b",
+        )
+
+        self.assertEqual(
+            content_generation_module._resolve_provider_model(gemini_provider, "gpt-4o-mini"),
+            "gemini-2.5-flash",
+        )
+        self.assertEqual(
+            content_generation_module._resolve_provider_model(gemini_provider, "gpt-4o"),
+            "gemini-2.5-pro",
+        )
+        self.assertEqual(
+            content_generation_module._resolve_provider_model(ollama_provider, "gpt-4o"),
+            "qwen2.5:14b",
+        )
+
+    def test_content_llm_router_client_falls_back_on_quota_or_connection_error(self) -> None:
+        class _ProviderError(Exception):
+            def __init__(self, message: str, status_code: int | None = None) -> None:
+                super().__init__(message)
+                self.status_code = status_code
+
+        class _FakeCompletions:
+            def __init__(self, *, response=None, exc: Exception | None = None) -> None:
+                self.response = response
+                self.exc = exc
+                self.calls = []
+
+            def create(self, **kwargs):
+                self.calls.append(kwargs)
+                if self.exc:
+                    raise self.exc
+                return self.response
+
+        class _FakeChat:
+            def __init__(self, completions) -> None:
+                self.completions = completions
+
+        class _FakeClient:
+            def __init__(self, completions) -> None:
+                self.chat = _FakeChat(completions)
+
+        success_response = type(
+            "Response",
+            (),
+            {
+                "choices": [
+                    type(
+                        "Choice",
+                        (),
+                        {"message": type("Message", (), {"content": "ok"})()},
+                    )()
+                ]
+            },
+        )()
+        primary_completions = _FakeCompletions(exc=_ProviderError("RESOURCE_EXHAUSTED", status_code=429))
+        fallback_completions = _FakeCompletions(response=success_response)
+        router = content_generation_module.ContentLLMRouterClient(
+            [
+                content_generation_module.ContentLLMProvider(
+                    name="gemini",
+                    client=_FakeClient(primary_completions),
+                    fast_model="gemini-2.5-flash",
+                    editor_model="gemini-2.5-pro",
+                ),
+                content_generation_module.ContentLLMProvider(
+                    name="openai",
+                    client=_FakeClient(fallback_completions),
+                    fast_model="gpt-4o-mini",
+                    editor_model="gpt-4o",
+                ),
+            ]
+        )
+
+        response = router.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "test"}],
+            temperature=0.2,
+        )
+
+        self.assertIs(response, success_response)
+        self.assertEqual(primary_completions.calls[0]["model"], "gemini-2.5-flash")
+        self.assertEqual(fallback_completions.calls[0]["model"], "gpt-4o-mini")
+        self.assertEqual(router.provider_trace[0]["provider"], "gemini")
+        self.assertEqual(router.provider_trace[0]["status"], "failed")
+        self.assertEqual(router.provider_trace[1]["provider"], "openai")
+        self.assertEqual(router.provider_trace[1]["status"], "success")
+
     def test_score_option_taste_flags_missing_named_reference_for_operator_warning(self) -> None:
         brief = content_generation_module.ContentOptionBrief(
             option_number=1,
