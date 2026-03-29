@@ -121,6 +121,15 @@
      - stop writing review-note language directly into canonical initiative fields
      - keep local bundle sync as the durability lane and bundle-first content generation as the immediate-read lane
   7. implementation source of truth for that work now lives in `SOPs/persona_canon_promotion_sop.md`
+  8. define a separate Brain `Identity State` tab for:
+     - tight core identity
+     - absorbed bundle material
+     - explicit `reinforces_core` / `reshapes_core` / `context_only` / `unresolved_tension` relationships
+     - a visible current-state readout of who Johnnie is becoming over time
+  9. pin `Identity State` implementation behind persona-to-content quality:
+     - do not make this the active build while content generation still needs work reading persona canon and producing meaningful posts
+     - current build priority remains bundle-first persona context plus stronger content-generation usage of that canon
+  10. implementation source of truth for that future tab now lives in `SOPs/persona_identity_state_sop.md`
 
 ## Parking lot (post-stabilization)
 - Memory optimizer skill (nightly tier‑1 audit + progressive disclosure guardrails).

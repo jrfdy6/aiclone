@@ -294,6 +294,20 @@
   - `automations/persona_bundle_sync.py`
   - `backend/app/services/persona_bundle_context_service.py`
 
+### LNK-038 - Separate Brain identity state from supporting bundles
+- Outcome: give Brain a dedicated `Identity State` tab that shows a tight core, absorbed bundle material, and explicit identity-shift relationships instead of treating canon as one undifferentiated archive.
+- Benchmark gate:
+  - committed canon items can be classified as `reinforces_core`, `reshapes_core`, `context_only`, or `unresolved_tension`
+  - Brain can show a current identity-state readout without flattening stories, wins, initiatives, and principles into one blob
+  - content generation still reads core identity first and bundle material second
+- Status: documented and pinned. This is a real future project, but it stays behind the current persona-to-content quality work so we do not split focus before the system is consistently generating meaningful posts from the existing persona bundle.
+- Source files:
+  - `../../SOPs/persona_identity_state_sop.md`
+  - `../../memory/roadmap.md`
+  - `frontend/app/brain/BrainClient.tsx`
+  - `backend/app/services/persona_bundle_context_service.py`
+  - `backend/app/routes/content_generation.py`
+
 ### LNK-022 - Expand feedback logging and evaluation endpoints
 - Outcome: extend the existing `/api/workspace/feedback` path to log copy actions, approvals, dislikes, and future posting outcomes into a structured feedback layer instead of using only UI state and implied behavior.
 - Status: first pass implemented. Feedback now writes structured JSONL alongside the markdown log, rebuilds a summary artifact, and `/ops` sends active lane/stance/technique/evaluation context for like, dislike, and copy interactions. Expression-quality fields now flow through the same path so the feedback layer can see source/output expression quality and the delta introduced by the transformation step.
