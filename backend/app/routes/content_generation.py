@@ -84,8 +84,8 @@ AUDIENCE_FOCUS_TERMS = {
     "entrepreneurs": {"build", "building", "founder", "founders", "product", "shipping", "market", "customers"},
 }
 TOPIC_FOCUS_BOOSTS = {
-    "workflow clarity": {"workflow", "clarity", "process", "processes", "handoff", "handoffs", "alignment", "operator", "system", "systems"},
-    "agent orchestration": {"agent", "agents", "orchestration", "workflow", "workflows", "automation", "prompting", "handoff", "handoffs", "operator", "system", "systems"},
+    "workflow clarity": {"workflow", "clarity", "process", "processes", "handoff", "handoffs", "alignment", "operator", "system", "systems", "brain", "ops", "planner", "briefs", "snapshot", "routing"},
+    "agent orchestration": {"agent", "agents", "orchestration", "workflow", "workflows", "automation", "prompting", "handoff", "handoffs", "operator", "system", "systems", "brain", "ops", "planner", "briefs", "snapshot", "routing"},
 }
 PROOF_KEYWORDS = {
     "built",

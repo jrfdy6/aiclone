@@ -184,12 +184,13 @@ def _iter_initiative_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
     purpose = ""
     value = ""
     proof = ""
+    use_when = ""
     idx = 0
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if line.startswith("## "):
             if title and purpose:
-                chunk = _normalize_inline(f"{title}. {purpose} Value: {value} Proof: {proof}")
+                chunk = _normalize_inline(f"{title}. {purpose} Value: {value} Proof: {proof} Use when: {use_when}")
                 items.append(
                     {
                         "source_id": f"bundle:{rel_path}:{idx}",
@@ -211,6 +212,7 @@ def _iter_initiative_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
             purpose = ""
             value = ""
             proof = ""
+            use_when = ""
             continue
         if line.startswith("- Purpose:"):
             purpose = _clean_line(line.replace("- Purpose:", "", 1))
@@ -218,8 +220,10 @@ def _iter_initiative_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
             value = _clean_line(line.replace("- Value to persona:", "", 1))
         elif line.startswith("- Public-facing proof:"):
             proof = _clean_line(line.replace("- Public-facing proof:", "", 1))
+        elif line.startswith("- Use when:"):
+            use_when = _clean_line(line.replace("- Use when:", "", 1))
     if title and purpose:
-        chunk = _normalize_inline(f"{title}. {purpose} Value: {value} Proof: {proof}")
+        chunk = _normalize_inline(f"{title}. {purpose} Value: {value} Proof: {proof} Use when: {use_when}")
         items.append(
             {
                 "source_id": f"bundle:{rel_path}:{idx}",

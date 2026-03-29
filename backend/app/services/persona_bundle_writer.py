@@ -82,16 +82,24 @@ SEED_INITIATIVES = [
         "title": "AI Clone / Brain System",
         "status": "active",
         "purpose": "Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance.",
-        "value": "Strengthens operator clarity, content generation, and persistent memory.",
-        "proof": "Brain, Ops, and long-form source routing are all part of the same evolving system.",
+        "value": "Proves Johnnie can turn messy AI/operator work into durable operating surfaces that support memory, planning, review, and content generation.",
+        "proof": "Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views.",
+        "use_when": "Use for posts about AI systems, operator clarity, prompt-plus-agent orchestration, restart-safe memory, and shipping durable internal tools.",
     },
     {
         "title": "Fusion Academy Market Development",
         "status": "active",
         "purpose": "Strengthen referral relationships, enrollment outcomes, and family trust.",
-        "value": "Keeps role-grounded leadership and trust-building central to the persona.",
-        "proof": "Admissions, outreach, and community-facing work reinforce this through lived experience.",
+        "value": "Keeps leadership, trust-building, and community-facing execution grounded in a live operating role rather than abstract commentary.",
+        "proof": "Coffee and Convo events, outreach planning, referral-network development, and concierge family experience all make the work externally legible.",
+        "use_when": "Use for posts about relationship-first leadership, referral systems, trust-building, neurodivergent advocacy, and role-grounded market development.",
     },
+]
+
+SEED_WINS = [
+    "Unified Brain, Ops, daily briefs, and planner around one shared snapshot contract so operator context travels across the system instead of living in isolated tools. Use when: AI systems, workflow clarity, operating cadence, restart-safe execution.",
+    "Best Practices work improved front row utilization 300% and MC Follow-up 30% while also increasing team participation. Use when: coaching, performance systems, adoption, and team enablement.",
+    "Spearheaded a $1M Salesforce migration across 3 instances in a portfolio context tied to $34M in annual revenue. Use when: systems migration, change management, technical operations, and cross-functional execution.",
 ]
 
 
@@ -200,6 +208,7 @@ def _render_story_bank(rows: list[dict[str, str]]) -> str:
 def _render_initiatives(rows: list[dict[str, str]]) -> str:
     blocks: list[str] = []
     for row in rows:
+        use_when = row.get("use_when", "")
         blocks.append(
             "\n".join(
                 [
@@ -208,6 +217,7 @@ def _render_initiatives(rows: list[dict[str, str]]) -> str:
                     f"- Purpose: {row['purpose']}",
                     f"- Value to persona: {row['value']}",
                     f"- Public-facing proof: {row['proof']}",
+                    *( [f"- Use when: {use_when}"] if use_when else [] ),
                 ]
             )
         )
@@ -329,7 +339,7 @@ def _default_file_content(rel_path: str) -> str:
         return _frontmatter("Wins", rel_path) + _render_sectioned_list(
             "Wins",
             "Proof points and notable outcomes.",
-            {"Wins": ["Built systems that improved metrics and team participation."]},
+            {"Wins": SEED_WINS},
         )
     if rel_path == "inbox/pending_deltas.md":
         return _frontmatter("Pending Deltas", rel_path) + "# Pending Persona Deltas\n\nThis inbox is reserved for future bundle-oriented review workflows.\n"
@@ -496,15 +506,17 @@ def _write_initiatives(path: Path, items: list[dict[str, Any]]) -> tuple[int, in
     purpose = ""
     value = ""
     proof = ""
+    use_when = ""
     for line in lines:
         if line.startswith("## "):
             if title:
-                existing.append({"title": title, "status": status, "purpose": purpose, "value": value, "proof": proof})
+                existing.append({"title": title, "status": status, "purpose": purpose, "value": value, "proof": proof, "use_when": use_when})
             title = line.replace("## ", "", 1).strip()
             status = ""
             purpose = ""
             value = ""
             proof = ""
+            use_when = ""
         elif line.startswith("- Status:"):
             status = line.replace("- Status:", "", 1).strip()
         elif line.startswith("- Purpose:"):
@@ -513,8 +525,10 @@ def _write_initiatives(path: Path, items: list[dict[str, Any]]) -> tuple[int, in
             value = line.replace("- Value to persona:", "", 1).strip()
         elif line.startswith("- Public-facing proof:"):
             proof = line.replace("- Public-facing proof:", "", 1).strip()
+        elif line.startswith("- Use when:"):
+            use_when = line.replace("- Use when:", "", 1).strip()
     if title:
-        existing.append({"title": title, "status": status, "purpose": purpose, "value": value, "proof": proof})
+        existing.append({"title": title, "status": status, "purpose": purpose, "value": value, "proof": proof, "use_when": use_when})
 
     seen = {_normalize_inline(entry["title"]).lower() for entry in existing}
     added = 0
@@ -539,6 +553,14 @@ def _write_initiatives(path: Path, items: list[dict[str, Any]]) -> tuple[int, in
                 ),
                 "proof": _ensure_period(
                     str(item.get("canon_proof") or item.get("proof_signal") or item.get("artifact_summary") or item.get("evidence") or "")
+                ),
+                "use_when": _ensure_period(
+                    str(
+                        item.get("usage_rule")
+                        or item.get("use_when")
+                        or item.get("owner_response_excerpt")
+                        or "Use when writing about this initiative's operating lesson or proof."
+                    )
                 ),
             }
         )
