@@ -247,6 +247,9 @@ TASTE_CONTRAST_PATTERNS = (
     re.compile(r"\bnot\b", re.IGNORECASE),
     re.compile(r"\binstead of\b", re.IGNORECASE),
     re.compile(r"\bbut\b", re.IGNORECASE),
+    re.compile(r"\bthan\b", re.IGNORECASE),
+    re.compile(r"\bnow\b", re.IGNORECASE),
+    re.compile(r"\bpreviously\b", re.IGNORECASE),
     re.compile(r"\bif\b", re.IGNORECASE),
     re.compile(r"\bthat sounds good, but\b", re.IGNORECASE),
 )
@@ -926,7 +929,7 @@ def score_option_taste(
             elif average_length < 15:
                 score += 2
                 strengths.append("spoken_sentence_length")
-    if cleaned.count("\n\n") >= 2:
+    if cleaned.count("\n\n") >= 1:
         score += 2
         strengths.append("human_paragraph_cadence")
     else:
@@ -2247,6 +2250,100 @@ def _sentence_is_signal_bearing(sentence: str, brief: ContentOptionBrief) -> boo
     return len(anchor_terms.intersection(sentence_terms)) >= 3
 
 
+def _contrast_line_from_brief(brief: ContentOptionBrief) -> str:
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    if not evidence:
+        return ""
+    instead_match = re.search(r"\binstead of ([^.]+)", evidence, flags=re.IGNORECASE)
+    if instead_match:
+        phrase = re.sub(r"^(?:the|a|an)\s+", "", instead_match.group(1).strip(" ."), flags=re.IGNORECASE)
+        if phrase:
+            return _ensure_sentence(f"Not {phrase}")
+    if re.search(r"\bshared workspace state\b", evidence, flags=re.IGNORECASE):
+        return "Shared state."
+    if re.search(r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE):
+        return "Explicit handoffs."
+    return ""
+
+
+def _option_mentions_specific_contrast(option: str, brief: ContentOptionBrief) -> bool:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return False
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    if not evidence:
+        return any(pattern.search(cleaned) for pattern in TASTE_CONTRAST_PATTERNS)
+    instead_match = re.search(r"\binstead of ([^.]+)", evidence, flags=re.IGNORECASE)
+    if instead_match:
+        phrase = re.sub(r"^(?:the|a|an)\s+", "", instead_match.group(1).strip(" ."), flags=re.IGNORECASE)
+        if phrase:
+            phrase_terms = _significant_terms(phrase)
+            option_terms = _significant_terms(cleaned)
+            if phrase_terms and phrase_terms.issubset(option_terms):
+                return True
+        return False
+    return any(pattern.search(cleaned) for pattern in TASTE_CONTRAST_PATTERNS)
+
+
+def _punch_line_from_brief(brief: ContentOptionBrief) -> str:
+    phrases = _collect_curated_reference_phrases(
+        f"{brief.primary_claim} {_proof_packet_evidence_text(brief.proof_packet)} {brief.story_beat}"
+    )
+    for phrase in phrases:
+        normalized = " ".join((phrase or "").split()).strip(" .")
+        if any(ch.isdigit() for ch in normalized):
+            continue
+        words = normalized.split()
+        if 1 < len(words) <= 4:
+            return _ensure_sentence(normalized.capitalize())
+    if re.search(r"\boperating pattern\b", brief.primary_claim, flags=re.IGNORECASE):
+        return "That is the operating model."
+    if re.search(r"\bartifact\b", brief.primary_claim, flags=re.IGNORECASE):
+        return "Show me the artifact."
+    return ""
+
+
+def _ensure_contrast_shape(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    contrast_line = _contrast_line_from_brief(brief)
+    if _option_mentions_specific_contrast(cleaned, brief):
+        return cleaned
+    if not contrast_line:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return contrast_line
+    if len(paragraphs) == 1:
+        return "\n\n".join([paragraphs[0], contrast_line])
+    return "\n\n".join([paragraphs[0], contrast_line] + paragraphs[1:])
+
+
+def _ensure_paragraph_cadence(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    revised: List[str] = []
+    for paragraph in paragraphs:
+        sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(paragraph) if sentence.strip()]
+        if not sentences:
+            continue
+        if len(paragraph.split()) > 28 and len(sentences) >= 2:
+            revised.append(sentences[0])
+            remainder = " ".join(sentences[1:]).strip()
+            if remainder:
+                revised.append(remainder)
+        else:
+            revised.append(" ".join(sentences).strip())
+    if not any(len(sentence.split()) <= 6 for paragraph in revised for sentence in _split_sentences(paragraph)):
+        punch_line = _punch_line_from_brief(brief)
+        if punch_line and all(punch_line.lower() not in paragraph.lower() for paragraph in revised):
+            revised.append(punch_line)
+    return "\n\n".join(paragraph for paragraph in revised if paragraph)
+
+
 def _clean_generic_sentences(option: str, brief: ContentOptionBrief) -> str:
     cleaned = (option or "").strip()
     if not cleaned:
@@ -2288,7 +2385,9 @@ def finalize_planned_options(
         revised = _force_claim_lead(revised, brief)
         if grounding_mode == "proof_ready":
             revised = _force_brief_proof_support(revised, brief)
+        revised = _ensure_contrast_shape(revised, brief)
         revised = _clean_generic_sentences(revised, brief)
+        revised = _ensure_paragraph_cadence(revised, brief)
         finalized.append(revised)
     return finalized[: len(briefs)]
 

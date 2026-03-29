@@ -3442,6 +3442,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("claim_led_opening", grounded.get("strengths", []))
         self.assertIn("proof_grounded", grounded.get("strengths", []))
         self.assertIn("taste_negative", generic.get("warnings", []))
+        self.assertIn("human_paragraph_cadence", grounded.get("strengths", []))
 
     def test_sharpen_editorial_options_rewrites_flat_openers_without_losing_proof(self) -> None:
         class _FakeResponse:
@@ -3935,6 +3936,27 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("shared workspace state", finalized[0].lower())
         self.assertNotIn("breaking down silos", finalized[0].lower())
         self.assertNotIn("let's keep pushing", finalized[0].lower())
+
+    def test_finalize_planned_options_inserts_contrast_and_punch_line_when_missing(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone -> Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.\n\nBrain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertIn("not isolated prompting", finalized[0].lower())
+        self.assertGreaterEqual(finalized[0].count("\n\n"), 2)
 
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(
