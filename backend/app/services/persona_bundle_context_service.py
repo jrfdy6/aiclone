@@ -497,19 +497,29 @@ def load_committed_overlay_chunks() -> list[dict[str, Any]]:
             if not isinstance(item, dict):
                 continue
             if rel_path == TARGET_INITIATIVES:
-                content = _normalize_inline(
+                title = _normalize_inline(str(item.get("label") or item.get("artifact_summary") or ""))
+                purpose = _normalize_inline(
+                    str(item.get("canon_purpose") or item.get("artifact_summary") or item.get("content") or "")
+                )
+                value = _normalize_inline(
                     str(
                         item.get("canon_value")
                         or item.get("leverage_signal")
                         or item.get("capability_signal")
                         or item.get("positioning_signal")
-                        or item.get("content")
                         or ""
                     )
                 )
-                evidence = _normalize_inline(
+                proof = _normalize_inline(
                     str(item.get("canon_proof") or item.get("proof_signal") or item.get("artifact_summary") or item.get("evidence") or "")
                 )
+                parts = [part for part in (title, purpose) if part]
+                content = ". ".join(parts)
+                if value:
+                    content = _normalize_inline(f"{content} Value: {value}")
+                if proof:
+                    content = _normalize_inline(f"{content} Proof: {proof}")
+                evidence = proof
             else:
                 content = _normalize_inline(str(item.get("content") or ""))
                 evidence = _normalize_inline(str(item.get("evidence") or ""))

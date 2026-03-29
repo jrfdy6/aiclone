@@ -1380,40 +1380,53 @@ def _proof_packet_evidence_text(packet: str) -> str:
     return (packet or "").strip()
 
 
+def _proof_packet_label(packet: str) -> str:
+    parts = (packet or "").split("->", 1)
+    return parts[0].strip() if len(parts) == 2 else ""
+
+
+def _append_approved_reference(approved: List[str], seen: set[str], phrase: str | None) -> None:
+    normalized_phrase = " ".join((phrase or "").split()).strip(" .")
+    key = normalized_phrase.lower()
+    if not normalized_phrase or len(key) < 3 or key in seen:
+        return
+    seen.add(key)
+    approved.append(normalized_phrase)
+
+
+def _collect_curated_reference_phrases(text: str) -> list[str]:
+    normalized_text = " ".join((text or "").split())
+    if not normalized_text:
+        return []
+
+    phrases: list[str] = []
+    if re.search(r"\b\d", normalized_text):
+        phrases.append(normalized_text.rstrip("."))
+    phrases.extend(
+        phrase.strip()
+        for phrase in re.findall(
+            r"(explicit handoffs|shared workspace state|proof-aware prompts|routed workspace snapshot|bundle-first content generation|long-form routing|daily briefs|workflow clarity|agent orchestration|AI systems operator|operator guidance|prompting plus agent usage|AI execution patterns)",
+            normalized_text,
+            flags=re.IGNORECASE,
+        )
+    )
+    return phrases
+
+
 def _extract_approved_reference_terms(
     primary_claims: List[str],
     proof_packets: List[str],
     story_beats: List[str],
 ) -> List[str]:
-    sources = primary_claims + proof_packets + story_beats
     approved: List[str] = []
     seen: set[str] = set()
-    for text in sources:
-        normalized_text = " ".join((text or "").split())
-        if not normalized_text:
-            continue
-        for pattern in (
-            r"(?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s*/\s*(?:[A-Z]{2,}|[A-Z][a-z]+))+",
-            r"(?:[A-Z]{2,}|[A-Z][a-z]+)(?:\s+(?:[A-Z]{2,}|[A-Z][a-z]+)){0,3}",
-        ):
-            for match in re.finditer(pattern, normalized_text):
-                phrase = " ".join(match.group(0).replace("/", " / ").split()).strip()
-                key = phrase.lower()
-                if len(key) < 2 or key in seen:
-                    continue
-                seen.add(key)
-                approved.append(phrase)
-        for phrase in re.findall(
-            r"(explicit handoffs|shared workspace state|proof-aware prompts|routed workspace snapshot|bundle-first content generation|long-form routing|daily briefs|workflow clarity|agent orchestration)",
-            normalized_text,
-            flags=re.IGNORECASE,
-        ):
-            normalized_phrase = " ".join(phrase.split()).strip()
-            key = normalized_phrase.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            approved.append(normalized_phrase)
+    for packet in proof_packets:
+        _append_approved_reference(approved, seen, _proof_packet_label(packet))
+        for phrase in _collect_curated_reference_phrases(_proof_packet_evidence_text(packet)):
+            _append_approved_reference(approved, seen, phrase)
+    for text in primary_claims + story_beats:
+        for phrase in _collect_curated_reference_phrases(text):
+            _append_approved_reference(approved, seen, phrase)
     return approved[:12]
 
 

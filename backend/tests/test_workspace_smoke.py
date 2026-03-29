@@ -2451,6 +2451,8 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 "by_target_file": {
                     "history/initiatives.md": [
                         {
+                            "label": "AI Clone / Brain System",
+                            "canon_purpose": "Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance.",
                             "canon_value": "Strengthens Johnnie's positioning as an AI systems operator grounded in real execution.",
                             "canon_proof": "Brain, Ops, planner, and briefs now share the same routed workspace state.",
                             "artifact_summary": "AI Clone / Brain system rollout",
@@ -2463,6 +2465,9 @@ generated_at: "2026-03-28T00:00:00+00:00"
             chunks = persona_bundle_context_module.load_committed_overlay_chunks()
 
         self.assertEqual(len(chunks), 1)
+        self.assertIn("AI Clone / Brain System", chunks[0].get("chunk", ""))
+        self.assertIn("Build a durable system for restart-safe memory", chunks[0].get("chunk", ""))
+        self.assertIn("Proof: Brain, Ops, planner, and briefs now share the same routed workspace state", chunks[0].get("chunk", ""))
         metadata = chunks[0].get("metadata", {})
         self.assertEqual(metadata.get("memory_role"), "proof")
         self.assertEqual(metadata.get("proof_kind"), "initiative")
@@ -2478,6 +2483,8 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 "by_target_file": {
                     "history/initiatives.md": [
                         {
+                            "label": "AI Clone / Brain System",
+                            "canon_purpose": "Use quantified AI execution proof to ground initiative-level canon.",
                             "content": "Raw review-shaped content that should not lead.",
                             "evidence": "Reflective note that should not lead.",
                             "canon_value": "Strengthens Johnnie's positioning as an AI systems operator grounded in real execution.",
@@ -2495,9 +2502,45 @@ generated_at: "2026-03-28T00:00:00+00:00"
             )
 
         self.assertGreaterEqual(len(chunks), 1)
-        self.assertIn("AI systems operator grounded in real execution", (chunks[0].get("chunk") or ""))
+        self.assertIn("Use quantified AI execution proof to ground initiative-level canon", (chunks[0].get("chunk") or ""))
         self.assertIn("5.2x success signal tied to visible prompting and agent usage", (chunks[0].get("chunk") or ""))
         self.assertNotIn("Raw review-shaped content", (chunks[0].get("chunk") or ""))
+
+    def test_content_generation_context_extracts_primary_claim_from_initiative_purpose(self) -> None:
+        claims = content_context_service_module._extract_primary_claims(
+            topic_anchor_chunks=[],
+            proof_anchor_chunks=[
+                {
+                    "chunk": (
+                        "AI Clone / Brain System. Build a durable system for restart-safe memory, evidence capture, "
+                        "persona development, and content assistance. Value: Strengthens Johnnie's positioning as an AI "
+                        "systems operator grounded in real execution. Proof: Brain, Ops, planner, and briefs now share the same routed workspace state."
+                    )
+                }
+            ],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertEqual(
+            claims,
+            ["AI Clone / Brain System. Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance."],
+        )
+
+    def test_extract_approved_reference_terms_prefers_labels_and_evidence_phrases(self) -> None:
+        approved = content_generation_module._extract_approved_reference_terms(
+            primary_claims=[
+                "AI Clone / Brain System. Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance."
+            ],
+            proof_packets=[
+                "AI Clone / Brain System -> CEO prompting plus agent usage makes AI success 5.2x more likely."
+            ],
+            story_beats=[],
+        )
+
+        approved_text = " | ".join(approved)
+        self.assertIn("AI Clone / Brain System", approved_text)
+        self.assertIn("CEO prompting plus agent usage makes AI success 5.2x more likely", approved_text)
+        self.assertNotIn("Builds", approved_text)
 
     def test_content_generation_prefers_bundle_persona_chunks(self) -> None:
         class _FakeResponse:

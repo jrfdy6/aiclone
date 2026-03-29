@@ -489,6 +489,17 @@ def _extract_label_from_chunk(chunk: str) -> str:
     return first_sentence.strip(" .")
 
 
+def _extract_claim_text_from_chunk(chunk: str) -> str:
+    primary_text, _ = _split_use_when_text(chunk)
+    cleaned = re.split(r"\b(?:Value|Proof|Evidence|Public-facing proof):", primary_text, maxsplit=1, flags=re.IGNORECASE)[0]
+    sentences = _split_sentences(cleaned)
+    if not sentences:
+        return ""
+    if len(sentences) >= 2 and len(sentences[0].split()) <= 8:
+        return f"{sentences[0].strip(' .')}. {sentences[1].strip(' .')}."
+    return sentences[0].strip(" .") + "."
+
+
 def _extract_primary_claims(
     *,
     topic_anchor_chunks: list[dict[str, Any]],
@@ -498,8 +509,7 @@ def _extract_primary_claims(
     candidates: list[str] = []
     source_chunks = proof_anchor_chunks + topic_anchor_chunks if grounding_mode == "proof_ready" else topic_anchor_chunks + proof_anchor_chunks
     for item in source_chunks:
-        primary_text, _ = _split_use_when_text(str(item.get("chunk") or ""))
-        text = re.sub(r"\b(Proof|Evidence|Public-facing proof|Value):.*", "", primary_text, flags=re.IGNORECASE).strip(" .")
+        text = _extract_claim_text_from_chunk(str(item.get("chunk") or ""))
         if text:
             candidates.append(text)
     return _dedupe_texts(candidates, limit=3)
