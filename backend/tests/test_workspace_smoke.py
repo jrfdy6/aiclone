@@ -2089,6 +2089,51 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertEqual(normalized[0]["proof_strength"], "strong")
         self.assertEqual(normalized[0]["gate_decision"], "allow")
 
+    def test_normalize_selected_promotion_items_keeps_review_voice_out_of_proof_by_default(self) -> None:
+        delta = PersonaDelta(
+            id="delta-semantic-proof-clean",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Proof cleanup delta",
+            notes="Original review note that should not become proof.",
+            status="committed",
+            metadata={
+                "owner_response_kind": "nuance",
+                "owner_response_excerpt": "This is an incredible video.",
+                "selected_promotion_items": [
+                    {
+                        "id": "initiative-stat-1",
+                        "kind": "stat",
+                        "label": "Proof point",
+                        "content": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                        "targetFile": "history/initiatives.md",
+                    }
+                ],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=datetime.now(timezone.utc),
+        )
+
+        normalized = persona_promotion_utils_module.normalize_selected_promotion_items(delta)
+        extracted = persona_promotion_extractor_module.extract_canonical_promotion_items(normalized)
+
+        self.assertEqual(len(normalized), 1)
+        self.assertIsNone(normalized[0]["evidence"])
+        self.assertIsNone(normalized[0]["proof_signal"])
+        self.assertEqual(
+            normalized[0]["review_interpretation"],
+            "This is an incredible video.",
+        )
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(
+            extracted[0]["canon_proof"],
+            "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+        )
+        self.assertNotIn(
+            "incredible video",
+            (extracted[0]["canon_proof"] or "").lower(),
+        )
+
     def test_brain_persona_promote_route_returns_committed_delta(self) -> None:
         delta = PersonaDelta(
             id="delta-route-promote",

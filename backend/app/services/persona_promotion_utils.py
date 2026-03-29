@@ -32,7 +32,7 @@ def normalize_promotion_item(item: dict[str, Any], delta: PersonaDelta) -> dict[
     if not target_file:
         return None
 
-    evidence = str(item.get("evidence") or metadata_text(metadata, "owner_response_excerpt") or delta.notes or "").strip()
+    evidence = str(item.get("evidence") or "").strip()
     artifact_summary = str(item.get("artifactSummary") or "").strip() or None
     artifact_kind = str(item.get("artifactKind") or "").strip() or None
     artifact_ref = str(item.get("artifactRef") or "").strip() or None
