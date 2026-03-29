@@ -310,6 +310,7 @@
 
 ### LNK-039 - Rebuild persona-to-content grounding around typed retrieval
 - Outcome: make content generation read persona canon through explicit `core`, `proof`, `story`, and `example` lanes instead of a blended prompt stack that still allows weakly related history to leak into AI/operator posts.
+- Status: in progress. Typed bundle metadata is live, and the next live slice is the dedicated context-service split so retrieval composition, grounding mode, and framing-mode recommendations stop living inside one growing route file. The framing layer is explicitly preserved: grounded posts still need room for contrarian takes, drama/tension, agreement-and-extend, recognition, and story payoff instead of collapsing into bland “safe” writing.
 - Benchmark gate:
   - `tech_ai` prompts use AI/operator-grounded proof or fall back to principle-only drafts
   - examples influence rhythm without changing factual grounding

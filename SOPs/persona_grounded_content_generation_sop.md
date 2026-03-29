@@ -69,6 +69,30 @@ Every chunk used for content generation must belong to one of these roles:
 - `ambient`
   - optional retrieval support, lowest priority
 
+### Framing layer
+Grounding and rhetoric are separate concerns.
+
+- `grounding`
+  - decides what is true enough to use
+  - controls core / proof / story / example eligibility
+- `framing`
+  - decides how the post lands
+  - preserves the legacy strengths that must not be flattened out of the system
+
+The new grounded path must preserve explicit framing modes such as:
+
+- `contrarian_reframe`
+- `agree_and_extend`
+- `drama_tension`
+- `story_with_payoff`
+- `operator_lesson`
+- `recognition`
+- `warning`
+- `reframe`
+
+Rule:
+Do not let safety work erase rhetorical sharpness. The system should get more grounded without becoming flatter, safer, or more generic.
+
 ### Generation order
 The route must compose context in this order:
 
@@ -139,6 +163,7 @@ Responsibilities:
 - `retrieve_story_context(...)`
 - `retrieve_example_context(...)`
 - `score_grounding_confidence(...)`
+- `recommend_framing_modes(...)`
 
 Source files:
 
@@ -216,6 +241,7 @@ Prompt sections should become:
 - `OPTIONAL STORY SUPPORT`
 - `STYLE REFERENCES`
 - `GROUNDING MODE`
+- `APPROVED FRAMING MODES`
 
 And the route should explicitly tell the model which mode it is in:
 
@@ -228,6 +254,14 @@ If mode is `principle_only`, the prompt must forbid:
 - unsupported named metrics
 - unrelated case-study borrowing
 - implicit extrapolation from non-AI projects into AI claims
+
+And regardless of grounding mode, the prompt must still preserve:
+
+- contrast
+- tension
+- agreement / disagreement structure
+- drama when it is grounded in real proof
+- story payoff when an eligible story actually exists
 
 Source files:
 

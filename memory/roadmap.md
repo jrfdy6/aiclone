@@ -150,6 +150,14 @@
   - proof kind / strength
   - artifact grounding
 - Move prompt assembly and retrieval composition out of `backend/app/routes/content_generation.py` into a dedicated context service so the route stops hand-managing all retrieval concerns inline.
+- Preserve the rhetorical layer as a separate concern from grounding:
+  - contrarian reframe
+  - agreement-and-extend
+  - drama/tension
+  - story with payoff
+  - recognition
+  - warning
+  - the system should get more factual and more controlled without getting flatter or more generic
 - Add a grounding evaluator before drafting:
   - `proof_ready`
   - `principle_only`

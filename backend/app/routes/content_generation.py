@@ -16,6 +16,10 @@ import json
 import re
 
 from app.services.embedders import embed_text
+from app.services.content_generation_context_service import (
+    ContentGenerationContext,
+    build_content_generation_context,
+)
 from app.services.persona_bundle_context_service import retrieve_bundle_persona_chunks
 from app.services.retrieval import retrieve_similar, retrieve_weighted
 
@@ -113,6 +117,16 @@ PROOF_KEYWORDS = {
     "system",
     "systems",
     "workflow",
+}
+FRAMING_MODE_GUIDANCE = {
+    "contrarian_reframe": "Push against a lazy default belief, then replace it with a sharper operating truth.",
+    "agree_and_extend": "Start from agreement, then extend it with a stronger lesson or pattern.",
+    "drama_tension": "Use real tension, stakes, or friction from the work without inventing facts.",
+    "story_with_payoff": "Use a real eligible story, then land on a clear payoff.",
+    "operator_lesson": "Lead through workflow, handoff, prompt, system, or operating-pattern clarity.",
+    "recognition": "Center recognition or gratitude when real people or teams are part of the proof.",
+    "warning": "Name the failure mode or hidden cost directly and explain why it matters.",
+    "reframe": "Take a familiar idea and make the audience see it through a different lens.",
 }
 
 
@@ -602,12 +616,18 @@ def build_content_prompt(
     tone: str,
     persona_chunks: List[Dict],
     example_chunks: List[Dict],
-    audience: str = "general"
+    audience: str = "general",
+    topic_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    eligible_story_chunks: Optional[List[Dict[str, Any]]] = None,
+    proof_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    grounding_mode: Optional[str] = None,
+    grounding_reason: Optional[str] = None,
+    framing_modes: Optional[List[str]] = None,
 ) -> str:
     """Build the prompt for content generation."""
-    topic_anchor_chunks = select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
-    eligible_story_chunks = select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
-    proof_anchor_chunks = select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    topic_anchor_chunks = topic_anchor_chunks or select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    eligible_story_chunks = eligible_story_chunks or select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
+    proof_anchor_chunks = proof_anchor_chunks or select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     topic_anchor_text = "\n".join(f"- {_render_anchor_chunk(item)}" for item in topic_anchor_chunks) or "- No topic anchors available."
     eligible_story_text = (
         "\n".join(f"- {_render_anchor_chunk(item, include_use_when=True)}" for item in eligible_story_chunks)
@@ -625,6 +645,17 @@ def build_content_prompt(
         eligible_story_chunks=eligible_story_chunks,
     )
     proof_guidance = build_proof_guidance(proof_anchor_chunks)
+    grounding_mode = grounding_mode or ("proof_ready" if proof_anchor_chunks else "principle_only")
+    grounding_reason = grounding_reason or (
+        "Concrete proof anchors are available, so the post can lead with real evidence."
+        if proof_anchor_chunks
+        else "No strong proof anchor was found, so the post should stay principle-led."
+    )
+    approved_framing_modes = framing_modes or ["operator_lesson", "contrarian_reframe", "reframe"]
+    framing_modes_text = "\n".join(
+        f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
+        for mode in approved_framing_modes
+    )
     
     visible_persona_chunks = _collect_prompt_visible_chunks(
         persona_chunks=persona_chunks,
@@ -1196,6 +1227,14 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 ## PROOF DISCIPLINE:
 {proof_guidance}
 
+## GROUNDING MODE:
+- Current mode: `{grounding_mode}`
+- {grounding_reason}
+- This mode controls what kind of claim is allowed. Do not upgrade weak support into hard proof.
+
+## APPROVED FRAMING MODES (preserve the legacy rhetorical edge):
+{framing_modes_text}
+
 ## NARRATIVE ARC (follow this structure):
 1. **HOOK/CONTEXT** - Start with something relatable, surprising, or attention-grabbing. Use voice markers.
 2. **OPERATING LESSON** - Build the post around a real lesson, framework, proof point, or experience from the topic anchors.
@@ -1211,6 +1250,8 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 7. If you use a metric, keep its original subject intact. Never convert a participation, utilization, or revenue metric into a generic productivity or completion-time claim.
 8. Be specific and actionable, not generic.
 9. Generate 3 different options with varying hooks/angles.
+10. Keep the writing vivid. Use tension, agreement, contrast, or drama only when it stays grounded in the approved framing modes above.
+11. Use a different approved framing mode for each option so the three drafts do not collapse into one flat shape.
 
 ## ANTI-HALLUCINATION RULES (CRITICAL):
 - ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
@@ -1253,10 +1294,16 @@ def build_refinement_prompt(
     audience: str,
     persona_chunks: List[Dict[str, Any]],
     rough_options: List[str],
+    topic_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    eligible_story_chunks: Optional[List[Dict[str, Any]]] = None,
+    proof_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    grounding_mode: Optional[str] = None,
+    grounding_reason: Optional[str] = None,
+    framing_modes: Optional[List[str]] = None,
 ) -> str:
-    topic_anchor_chunks = select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
-    eligible_story_chunks = select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
-    proof_anchor_chunks = select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    topic_anchor_chunks = topic_anchor_chunks or select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    eligible_story_chunks = eligible_story_chunks or select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
+    proof_anchor_chunks = proof_anchor_chunks or select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     topic_anchor_text = "\n".join(f"- {_render_anchor_chunk(item)}" for item in topic_anchor_chunks) or "- No topic anchors available."
     eligible_story_text = (
         "\n".join(f"- {_render_anchor_chunk(item, include_use_when=True)}" for item in eligible_story_chunks)
@@ -1267,6 +1314,17 @@ def build_refinement_prompt(
         "\n".join(f"- {_render_anchor_chunk(item)}" for item in proof_anchor_chunks)
         if proof_anchor_chunks
         else "- No strong proof anchor found. Stay concrete about process and role."
+    )
+    grounding_mode = grounding_mode or ("proof_ready" if proof_anchor_chunks else "principle_only")
+    grounding_reason = grounding_reason or (
+        "Concrete proof anchors are available, so the post can stay specific."
+        if proof_anchor_chunks
+        else "No strong proof anchor was found, so the post should stay principle-led."
+    )
+    approved_framing_modes = framing_modes or ["operator_lesson", "contrarian_reframe", "reframe"]
+    framing_modes_text = "\n".join(
+        f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
+        for mode in approved_framing_modes
     )
     rough_text = "\n---OPTION---\n".join(rough_options)
     return f"""You are revising drafted posts so they sound sharper, more specific, and more faithful to this person's canon.
@@ -1283,6 +1341,13 @@ ELIGIBLE STORY / PROOF ANCHORS:
 PROOF ANCHORS:
 {proof_anchor_text}
 
+GROUNDING MODE:
+- `{grounding_mode}`
+- {grounding_reason}
+
+APPROVED FRAMING MODES:
+{framing_modes_text}
+
 ROUGH OPTIONS TO REWRITE:
 {rough_text}
 
@@ -1290,6 +1355,7 @@ REVISION RULES:
 - Keep 3 options.
 - Preserve the person's casual voice and punchy rhythm.
 - Remove generic filler, motivational fluff, and any language that could apply to anyone.
+- Preserve the dramatic, contrarian, agreement, or tension-based framing when it is grounded in the approved framing modes above.
 - Ban phrases like "magic happens", "synergy", "game changer", "nice-to-have", "backbone", and "thrive in AI".
 - Every option must be grounded in the topic anchors above.
 - Only use a personal anecdote if it appears in the eligible story / proof anchors above.
@@ -1311,6 +1377,12 @@ def refine_generated_options(
     content_type: str,
     persona_chunks: List[Dict[str, Any]],
     rough_options: List[str],
+    topic_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    eligible_story_chunks: Optional[List[Dict[str, Any]]] = None,
+    proof_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    grounding_mode: Optional[str] = None,
+    grounding_reason: Optional[str] = None,
+    framing_modes: Optional[List[str]] = None,
 ) -> List[str]:
     if content_type != "linkedin_post" or not rough_options:
         return rough_options
@@ -1329,6 +1401,12 @@ def refine_generated_options(
                     audience=audience,
                     persona_chunks=persona_chunks,
                     rough_options=rough_options,
+                    topic_anchor_chunks=topic_anchor_chunks,
+                    eligible_story_chunks=eligible_story_chunks,
+                    proof_anchor_chunks=proof_anchor_chunks,
+                    grounding_mode=grounding_mode,
+                    grounding_reason=grounding_reason,
+                    framing_modes=framing_modes,
                 ),
             },
         ],
@@ -1344,38 +1422,16 @@ async def generate_content(req: ContentGenerationRequest):
     Generate AI-powered content using persona and examples from knowledge base.
     """
     try:
-        # Step 1: Use WEIGHTED retrieval based on category + channel
-        # This automatically prioritizes the right tags for each content type
-        persona_query = f"persona voice style {req.topic} {req.category} content writing"
-        persona_embedding = embed_text(persona_query)
-        
-        bundle_persona_chunks = retrieve_bundle_persona_chunks(
-            query_text=persona_query,
-            query_embedding=persona_embedding,
+        content_context: ContentGenerationContext = build_content_generation_context(
+            user_id=req.user_id,
+            topic=req.topic,
+            context=req.context,
+            content_type=req.content_type,
             category=req.category,
-            channel=req.content_type,
-            top_k=10,
+            tone=req.tone,
+            audience=req.audience,
         )
-        legacy_support_chunks = retrieve_legacy_support_chunks(
-            user_id=req.user_id,
-            query_embedding=persona_embedding,
-            top_k=6,
-        )
-
-        retrieved_persona_chunks = retrieve_weighted(
-            user_id=req.user_id,
-            query_embedding=persona_embedding,
-            category=req.category,  # value, sales, or personal
-            channel=req.content_type,  # linkedin_post, linkedin_dm, cold_email, instagram_post
-            top_k=8,  # Retrieval now supports canon rather than leading it
-        )
-
-        persona_chunks = curate_persona_prompt_chunks(
-            bundle_chunks=bundle_persona_chunks,
-            legacy_support_chunks=legacy_support_chunks,
-            retrieved_chunks=retrieved_persona_chunks,
-            top_k=9,
-        )
+        persona_chunks = content_context.persona_chunks
 
         # Log what tags were retrieved for debugging
         if persona_chunks:
@@ -1384,22 +1440,7 @@ async def generate_content(req: ContentGenerationRequest):
                 tag = chunk.get("persona_tag", "UNKNOWN")
                 tag_summary[tag] = tag_summary.get(tag, 0) + 1
             print(f"[content_gen] Retrieved persona chunks by tag: {tag_summary}", flush=True)
-        
-        # Step 2: Retrieve high-performing content examples from the curated legacy example lane first.
-        examples_query = f"high performing content example {req.content_type} {req.category} {req.topic}"
-        examples_embedding = embed_text(examples_query)
-        example_chunks = retrieve_curated_example_chunks(
-            user_id=req.user_id,
-            query_embedding=examples_embedding,
-            content_type=req.content_type,
-            top_k=3,
-        )
-        example_chunks = filter_example_chunks_by_topic(
-            example_chunks,
-            topic=req.topic,
-            audience=req.audience,
-            limit=3,
-        )
+        example_chunks = content_context.example_chunks
         
         # Step 3: Build prompt with all context
         prompt = build_content_prompt(
@@ -1411,7 +1452,13 @@ async def generate_content(req: ContentGenerationRequest):
             tone=req.tone,
             persona_chunks=persona_chunks,
             example_chunks=example_chunks,
-            audience=req.audience
+            audience=req.audience,
+            topic_anchor_chunks=content_context.topic_anchor_chunks,
+            eligible_story_chunks=content_context.story_anchor_chunks,
+            proof_anchor_chunks=content_context.proof_anchor_chunks,
+            grounding_mode=content_context.grounding_mode,
+            grounding_reason=content_context.grounding_reason,
+            framing_modes=content_context.framing_modes,
         )
         
         # Step 4: Generate content with OpenAI
@@ -1461,12 +1508,18 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             content_type=req.content_type,
             persona_chunks=persona_chunks,
             rough_options=options,
+            topic_anchor_chunks=content_context.topic_anchor_chunks,
+            eligible_story_chunks=content_context.story_anchor_chunks,
+            proof_anchor_chunks=content_context.proof_anchor_chunks,
+            grounding_mode=content_context.grounding_mode,
+            grounding_reason=content_context.grounding_reason,
+            framing_modes=content_context.framing_modes,
         )
 
         return ContentGenerationResponse(
             success=True,
             options=options[:3],  # Max 3 options
-            persona_context=summarize_persona_context(persona_chunks, req.topic),
+            persona_context=content_context.persona_context_summary,
             examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]]
         )
         

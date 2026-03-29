@@ -30,6 +30,7 @@ daily_brief_module = importlib.import_module("app.services.daily_brief_service")
 persona_route_module = importlib.import_module("app.routes.persona")
 brain_route_module = importlib.import_module("app.routes.brain")
 content_generation_module = importlib.import_module("app.routes.content_generation")
+content_context_service_module = importlib.import_module("app.services.content_generation_context_service")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 persona_promotion_module = importlib.import_module("app.services.persona_promotion_service")
 persona_promotion_utils_module = importlib.import_module("app.services.persona_promotion_utils")
@@ -2473,26 +2474,33 @@ generated_at: "2026-03-28T00:00:00+00:00"
         bundle_chunk = {
             "chunk": "Teams fail when they chase tools before workflow clarity.",
             "persona_tag": "PHILOSOPHY",
-            "metadata": {"source": "canonical persona bundle", "source_kind": "canonical_bundle"},
+            "metadata": {
+                "source": "canonical persona bundle",
+                "source_kind": "canonical_bundle",
+                "prompt_section": "CORE CANON",
+                "memory_role": "core",
+            },
         }
-        retrieved_chunk = {
-            "chunk": "Older retrieval memory that should come after the canonical bundle.",
-            "persona_tag": "VOICE_PATTERNS",
-            "metadata": {"source": "retrieval memory"},
-        }
+        context_pack = content_context_service_module.ContentGenerationContext(
+            persona_chunks=[bundle_chunk],
+            example_chunks=[],
+            core_chunks=[bundle_chunk],
+            proof_chunks=[],
+            story_chunks=[],
+            ambient_chunks=[],
+            topic_anchor_chunks=[bundle_chunk],
+            proof_anchor_chunks=[bundle_chunk],
+            story_anchor_chunks=[],
+            grounding_mode="proof_ready",
+            grounding_reason="Artifact-backed proof is available.",
+            framing_modes=["operator_lesson", "contrarian_reframe", "drama_tension"],
+            persona_context_summary="Teams fail when they chase tools before workflow clarity.",
+        )
 
-        with patch.object(content_generation_module, "embed_text", return_value=[0.1, 0.2, 0.3]), patch.object(
+        with patch.object(
             content_generation_module,
-            "retrieve_bundle_persona_chunks",
-            return_value=[bundle_chunk],
-        ), patch.object(
-            content_generation_module,
-            "retrieve_weighted",
-            return_value=[retrieved_chunk],
-        ), patch.object(
-            content_generation_module,
-            "retrieve_similar",
-            return_value=[],
+            "build_content_generation_context",
+            return_value=context_pack,
         ), patch.object(
             content_generation_module,
             "get_openai_client",
@@ -2514,6 +2522,139 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(payload.get("success"))
         self.assertIn("workflow clarity", (payload.get("persona_context") or "").lower())
         self.assertEqual(payload.get("options"), ["Bundle-first option"])
+
+    def test_content_generation_context_service_splits_typed_lanes_and_preserves_framing_modes(self) -> None:
+        bundle_chunks = [
+            {
+                "chunk": "Builds and translates AI execution patterns into clear operator guidance.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {
+                    "source": "canonical persona bundle",
+                    "source_kind": "canonical_bundle",
+                    "bundle_path": "identity/philosophy.md",
+                    "file_name": "identity/philosophy.md",
+                    "memory_role": "core",
+                    "proof_strength": "none",
+                    "artifact_backed": False,
+                },
+            },
+            {
+                "chunk": "AI Clone / Brain System. Proof: Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views.",
+                "persona_tag": "VENTURES",
+                "metadata": {
+                    "source": "canonical persona bundle",
+                    "source_kind": "canonical_bundle",
+                    "bundle_path": "history/initiatives.md",
+                    "file_name": "history/initiatives.md",
+                    "memory_role": "proof",
+                    "proof_strength": "strong",
+                    "artifact_backed": True,
+                },
+            },
+            {
+                "chunk": "When I stopped letting handoffs stay vague, the work moved faster and the team trusted the system more.",
+                "persona_tag": "EXPERIENCES",
+                "metadata": {
+                    "source": "canonical persona bundle",
+                    "source_kind": "canonical_bundle",
+                    "bundle_path": "history/story_bank.md",
+                    "file_name": "history/story_bank.md",
+                    "memory_role": "story",
+                    "proof_strength": "medium",
+                    "artifact_backed": False,
+                },
+            },
+        ]
+        legacy_support = {
+            "chunk": "The best operator posts create tension first, then land the lesson cleanly.",
+            "persona_tag": "EXPERIENCES",
+            "metadata": {
+                "source": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
+                "file_name": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
+            },
+        }
+        legacy_example = {
+            "chunk": "Real talk: vague handoffs are where good ideas go to die.",
+            "persona_tag": "LINKEDIN_EXAMPLES",
+            "metadata": {
+                "source": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
+                "file_name": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
+            },
+        }
+
+        def _fake_retrieve_similar(**kwargs):
+            if kwargs.get("tag_filter") == ["LINKEDIN_EXAMPLES"]:
+                return [legacy_example]
+            return [legacy_support]
+
+        with patch.object(content_context_service_module, "embed_text", return_value=[0.1, 0.2, 0.3]), patch.object(
+            content_context_service_module,
+            "retrieve_bundle_persona_chunks",
+            return_value=bundle_chunks,
+        ), patch.object(
+            content_context_service_module,
+            "retrieve_weighted",
+            return_value=[],
+        ), patch.object(
+            content_context_service_module,
+            "retrieve_similar",
+            side_effect=_fake_retrieve_similar,
+        ):
+            context_pack = content_context_service_module.build_content_generation_context(
+                user_id="default-user",
+                topic="agent orchestration",
+                context="",
+                content_type="linkedin_post",
+                category="value",
+                tone="expert_direct",
+                audience="tech_ai",
+            )
+
+        self.assertEqual(context_pack.grounding_mode, "proof_ready")
+        self.assertTrue(any(chunk.get("metadata", {}).get("memory_role") == "core" for chunk in context_pack.core_chunks))
+        self.assertTrue(any(chunk.get("metadata", {}).get("memory_role") == "proof" for chunk in context_pack.proof_chunks))
+        self.assertTrue(any(chunk.get("metadata", {}).get("memory_role") == "story" for chunk in context_pack.story_chunks))
+        self.assertIn("contrarian_reframe", context_pack.framing_modes)
+        self.assertIn("drama_tension", context_pack.framing_modes)
+        self.assertEqual(context_pack.example_chunks, [legacy_example])
+
+    def test_build_content_prompt_includes_grounding_mode_and_framing_modes(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Builds and translates AI execution patterns into clear operator guidance.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"prompt_section": "CORE CANON", "memory_role": "core"},
+            },
+            {
+                "chunk": "AI Clone / Brain System. Proof: Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views.",
+                "persona_tag": "VENTURES",
+                "metadata": {"prompt_section": "SUPPORTING CANON", "memory_role": "proof"},
+            },
+        ]
+
+        prompt = content_generation_module.build_content_prompt(
+            topic="agent orchestration",
+            context="",
+            content_type="linkedin_post",
+            category="value",
+            pacer_elements=[],
+            tone="expert_direct",
+            persona_chunks=persona_chunks,
+            example_chunks=[],
+            audience="tech_ai",
+            topic_anchor_chunks=persona_chunks[:1],
+            eligible_story_chunks=[],
+            proof_anchor_chunks=persona_chunks[1:],
+            grounding_mode="proof_ready",
+            grounding_reason="Artifact-backed proof is available, so the post can lead with real evidence.",
+            framing_modes=["contrarian_reframe", "drama_tension", "operator_lesson"],
+        )
+
+        self.assertIn("## GROUNDING MODE:", prompt)
+        self.assertIn("Current mode: `proof_ready`", prompt)
+        self.assertIn("## APPROVED FRAMING MODES", prompt)
+        self.assertIn("`contrarian_reframe`", prompt)
+        self.assertIn("`drama_tension`", prompt)
 
     def test_curate_persona_prompt_chunks_orders_core_support_legacy_then_retrieval(self) -> None:
         bundle_chunks = [
