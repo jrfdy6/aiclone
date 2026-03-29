@@ -89,6 +89,16 @@ AUDIENCE_DOMAIN_PRIORITY = {
     "neurodivergent": {"neurodivergent_advocacy", "education_admissions", "identity_core"},
     "entrepreneurs": {"ai_systems", "content_strategy", "operator_workflows", "identity_core"},
 }
+GENERIC_PROOF_LABELS = {
+    "anecdote",
+    "claim",
+    "framework",
+    "phrase candidate",
+    "proof point",
+    "promoted item",
+    "stat",
+    "talking point",
+}
 
 
 @dataclass
@@ -485,8 +495,15 @@ def _split_sentences(text: str) -> list[str]:
 def _extract_label_from_chunk(chunk: str) -> str:
     primary_text, _ = _split_use_when_text(chunk)
     cleaned = primary_text.replace("Public-facing proof:", " ").replace("Proof:", " ").replace("Evidence:", " ")
-    first_sentence = _split_sentences(cleaned)[0] if _split_sentences(cleaned) else cleaned
-    return first_sentence.strip(" .")
+    sentences = _split_sentences(cleaned)
+    if not sentences:
+        return cleaned.strip(" .")
+    first_sentence = sentences[0].strip(" .")
+    if first_sentence.lower() in GENERIC_PROOF_LABELS:
+        if len(sentences) >= 2:
+            return sentences[1].strip(" .")
+        return ""
+    return first_sentence
 
 
 def _extract_claim_text_from_chunk(chunk: str) -> str:
@@ -495,6 +512,8 @@ def _extract_claim_text_from_chunk(chunk: str) -> str:
     sentences = _split_sentences(cleaned)
     if not sentences:
         return ""
+    if sentences[0].strip(" .").lower() in GENERIC_PROOF_LABELS:
+        return sentences[1].strip(" .") + "." if len(sentences) >= 2 else ""
     if len(sentences) >= 2 and len(sentences[0].split()) <= 8:
         return f"{sentences[0].strip(' .')}. {sentences[1].strip(' .')}."
     return sentences[0].strip(" .") + "."
@@ -534,7 +553,11 @@ def _extract_proof_packets(proof_anchor_chunks: list[dict[str, Any]]) -> list[st
             ]
         if not proof_segments:
             continue
-        packets.append(f"{label} -> {proof_segments[0].strip(' .')}.")
+        proof_text = proof_segments[0].strip(" .") + "."
+        if not label or label.lower() == proof_segments[0].strip(" .").lower():
+            packets.append(proof_text)
+            continue
+        packets.append(f"{label} -> {proof_text}")
     return _dedupe_texts(packets, limit=4)
 
 

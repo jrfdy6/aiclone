@@ -27,6 +27,16 @@ TARGET_TIMELINE = "history/timeline.md"
 TARGET_INITIATIVES = "history/initiatives.md"
 TARGET_WINS = "history/wins.md"
 TARGET_STORIES = "history/story_bank.md"
+GENERIC_PROMOTION_LABELS = {
+    "anecdote",
+    "claim",
+    "framework",
+    "phrase candidate",
+    "proof point",
+    "promoted item",
+    "stat",
+    "talking point",
+}
 
 TAG_BY_TARGET = {
     TARGET_VOICE: "VOICE_PATTERNS",
@@ -110,6 +120,13 @@ def _clean_line(text: str | None) -> str:
     normalized = _normalize_inline(text)
     if normalized.endswith("."):
         return normalized[:-1]
+    return normalized
+
+
+def _meaningful_title(value: str | None) -> str:
+    normalized = _normalize_inline(value)
+    if normalized.lower() in GENERIC_PROMOTION_LABELS:
+        return ""
     return normalized
 
 
@@ -497,7 +514,7 @@ def load_committed_overlay_chunks() -> list[dict[str, Any]]:
             if not isinstance(item, dict):
                 continue
             if rel_path == TARGET_INITIATIVES:
-                title = _normalize_inline(str(item.get("label") or item.get("artifact_summary") or ""))
+                title = _meaningful_title(str(item.get("label") or "")) or _meaningful_title(str(item.get("artifact_summary") or ""))
                 purpose = _normalize_inline(
                     str(item.get("canon_purpose") or item.get("artifact_summary") or item.get("content") or "")
                 )

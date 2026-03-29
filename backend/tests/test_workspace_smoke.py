@@ -2526,6 +2526,35 @@ generated_at: "2026-03-28T00:00:00+00:00"
             ["AI Clone / Brain System. Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance."],
         )
 
+    def test_content_generation_context_drops_generic_proof_point_prefixes(self) -> None:
+        claims = content_context_service_module._extract_primary_claims(
+            topic_anchor_chunks=[],
+            proof_anchor_chunks=[
+                {
+                    "chunk": (
+                        "Proof point. CEO prompting plus agent usage makes AI success 5.2x more likely. "
+                        "Value: Builds and translates AI execution patterns into clear operator guidance. "
+                        "Proof: CEO prompting plus agent usage makes AI success 5.2x more likely."
+                    )
+                }
+            ],
+            grounding_mode="proof_ready",
+        )
+        packets = content_context_service_module._extract_proof_packets(
+            [
+                {
+                    "chunk": (
+                        "Proof point. CEO prompting plus agent usage makes AI success 5.2x more likely. "
+                        "Value: Builds and translates AI execution patterns into clear operator guidance. "
+                        "Proof: CEO prompting plus agent usage makes AI success 5.2x more likely."
+                    )
+                }
+            ]
+        )
+
+        self.assertEqual(claims, ["CEO prompting plus agent usage makes AI success 5.2x more likely."])
+        self.assertEqual(packets, ["CEO prompting plus agent usage makes AI success 5.2x more likely."])
+
     def test_extract_approved_reference_terms_prefers_labels_and_evidence_phrases(self) -> None:
         approved = content_generation_module._extract_approved_reference_terms(
             primary_claims=[
