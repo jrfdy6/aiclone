@@ -3893,6 +3893,18 @@ generated_at: "2026-03-28T00:00:00+00:00"
             ],
         )
 
+        bold_options = content_generation_module.parse_content_options(
+            "**OPTION 1**  \nPrompting alone is not an AI strategy.\n---OPTION---\n**OPTION 2**  \nIf there is no artifact, stay at the level of principle."
+        )
+
+        self.assertEqual(
+            bold_options,
+            [
+                "Prompting alone is not an AI strategy.",
+                "If there is no artifact, stay at the level of principle.",
+            ],
+        )
+
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
         with patch.object(

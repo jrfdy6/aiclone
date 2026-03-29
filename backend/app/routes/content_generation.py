@@ -1572,6 +1572,7 @@ def parse_content_options(raw_content: str) -> List[str]:
     def _clean_option(text: str) -> str:
         cleaned = (text or "").strip()
         cleaned = re.sub(r"^#+\s*OPTION\s+\d+\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^\*\*OPTION\s+\d+\*\*\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"^\*\*Option\s+\d+:\s*`[^`]+`\*\*\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"^Option\s+\d+:\s*`?[^`\n]+`?\s*", "", cleaned, flags=re.IGNORECASE)
         return cleaned.strip()
