@@ -2153,32 +2153,39 @@ function PersonaPanel({
       <section
         style={{
           borderRadius: '18px',
-          border: '1px solid #1f2937',
-          backgroundColor: '#050b19',
+          border: '1px solid #334155',
+          background: 'linear-gradient(180deg, #071224 0%, #050b19 100%)',
           padding: '18px',
           display: 'grid',
-          gap: '14px',
+          gap: '16px',
           minHeight: 0,
           overflow: 'hidden',
           gridTemplateRows: usePinnedPersonaViewport ? 'auto auto minmax(0, 1fr)' : 'none',
+          boxShadow: '0 18px 40px rgba(2, 6, 23, 0.35)',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Persona Lifecycle</p>
-            <h3 style={{ color: 'white', fontSize: '22px', margin: '4px 0 8px' }}>Saved, queued, and historical items</h3>
+            <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Promotion Lifecycle</p>
+            <h3 style={{ color: 'white', fontSize: '24px', margin: '0 0 8px' }}>What has been saved, queued, committed, or resolved</h3>
             <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 }}>
               Active review stays above. Everything below is already saved, queued, committed, or resolved so you can audit state without confusing it with the work that still needs judgment.
             </p>
           </div>
           <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
-            Brain should answer one question clearly: what still needs your attention right now versus what the system has already handled.
+            This section is the audit trail. It should show what happened to your canon candidates after review, not just repeat the review screen.
           </div>
         </div>
         {promotionState.message && promotionState.tone !== 'success' && (
           <p style={{ color: '#f87171', fontSize: '12px' }}>{promotionState.message}</p>
         )}
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: viewportWidth >= 1160 ? 'repeat(4, minmax(0, 1fr))' : viewportWidth >= 760 ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)',
+            gap: '10px',
+          }}
+        >
           {lifecycleGroups.map((group) => {
             const active = lifecycleView === group.key;
             return (
@@ -2186,17 +2193,26 @@ function PersonaPanel({
                 key={group.key}
                 onClick={() => setLifecycleView(group.key as 'pending_promotion' | 'workspace_saved' | 'committed' | 'resolved')}
                 style={{
-                  borderRadius: '999px',
+                  borderRadius: '14px',
                   border: `1px solid ${active ? `${group.tone}88` : '#1f2937'}`,
                   backgroundColor: active ? `${group.tone}18` : '#020617',
                   color: active ? '#f8fafc' : '#94a3b8',
-                  padding: '8px 12px',
+                  padding: '12px 14px',
                   fontSize: '12px',
                   fontWeight: 700,
                   cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'grid',
+                  gap: '6px',
                 }}
               >
-                {compactLifecycleLabel(group.key)} · {group.count}
+                <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', color: active ? group.tone : '#64748b' }}>
+                  {compactLifecycleLabel(group.key)}
+                </span>
+                <span style={{ fontSize: '22px', lineHeight: 1, color: '#f8fafc' }}>{group.count}</span>
+                <span style={{ color: active ? '#dbe7ff' : '#94a3b8', fontSize: '11px', lineHeight: 1.5 }}>
+                  {group.description}
+                </span>
               </button>
             );
           })}
@@ -2216,8 +2232,23 @@ function PersonaPanel({
             }}
           >
             <div>
-              <p style={{ color: activeLifecycleGroup.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em' }}>{activeLifecycleGroup.title}</p>
-              <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.55 }}>{activeLifecycleGroup.description}</p>
+              <div
+                style={{
+                  borderRadius: '12px',
+                  border: `1px solid ${activeLifecycleGroup.tone}44`,
+                  backgroundColor: `${activeLifecycleGroup.tone}12`,
+                  padding: '12px 14px',
+                  display: 'grid',
+                  gap: '6px',
+                }}
+              >
+                <p style={{ color: activeLifecycleGroup.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>
+                  You are viewing {activeLifecycleGroup.title}
+                </p>
+                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.55, margin: 0 }}>
+                  {activeLifecycleGroup.description}
+                </p>
+              </div>
             </div>
             <div style={{ display: 'grid', gap: '8px', minHeight: 0, overflowY: 'auto', paddingRight: '2px' }}>
               {activeLifecycleGroup.items.length === 0 ? (
@@ -2251,6 +2282,12 @@ function PersonaPanel({
                       backgroundColor: isRecentlyCommitted ? '#052e1b' : isRecentlyQueued ? '#082f49' : '#0b1220',
                     }}
                   >
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                      <InlineBadge label={activeLifecycleGroup.title} tone={activeLifecycleGroup.tone} />
+                      {activeLifecycleGroup.key === 'pending_promotion' && (
+                        <InlineBadge label={humanizeGateDecision(gateSummary.decision)} tone={gateDecisionTone(gateSummary.decision)} />
+                      )}
+                    </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '6px' }}>
                       <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{truncateText(item.trait, 140)}</p>
                       <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
