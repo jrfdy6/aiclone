@@ -2899,7 +2899,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("workflow clarity", (payload.get("persona_context") or "").lower())
         self.assertEqual(
             payload.get("options"),
-            ["Teams fail when they chase tools before workflow clarity.\n\nBundle-first option"],
+            ["Teams fail when they chase tools before workflow clarity.\n\nBundle-first option."],
         )
         diagnostics = payload.get("diagnostics") or {}
         self.assertEqual(diagnostics.get("grounding_mode"), "proof_ready")
@@ -3399,6 +3399,15 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 ]
             )
         )
+        self.assertTrue(
+            content_generation_module._options_need_voice_sharpening(
+                [
+                    "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.\n\nWe are moving in the right direction.",
+                    "Prompting alone is not an AI strategy.\n\nLet's keep pushing forward.",
+                    "If there is no artifact, stay at the level of principle.\n\nThis isn't just a shift. It's a transformation.",
+                ]
+            )
+        )
         self.assertFalse(
             content_generation_module._options_need_voice_sharpening(
                 [
@@ -3879,6 +3888,28 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(finalized)
         self.assertIn("Prompting alone is not an AI strategy.", finalized[0])
         self.assertIn("Brain, Ops, planner, and briefs now share the same routed workspace state.", finalized[0])
+
+    def test_finalize_planned_options_drops_generic_closer_lines(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone -> Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.\n\nBrain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.\n\nWe're breaking down silos and fostering collaboration at every step. Let's keep pushing forward."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertIn("shared workspace state", finalized[0].lower())
+        self.assertNotIn("breaking down silos", finalized[0].lower())
+        self.assertNotIn("let's keep pushing", finalized[0].lower())
 
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(

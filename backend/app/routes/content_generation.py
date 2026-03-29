@@ -202,6 +202,23 @@ FLAT_GENERIC_PATTERNS = (
     re.compile(r"\b(?:this|that|it)\s+is\s+(?:essential|critical|important|powerful)\b", re.IGNORECASE),
     re.compile(r"\b(?:game changer|unlock potential|drive results|magic happens)\b", re.IGNORECASE),
 )
+SOFT_GENERIC_PATTERNS = (
+    re.compile(r"\bbreaking down silos\b", re.IGNORECASE),
+    re.compile(r"\bfostering collaboration\b", re.IGNORECASE),
+    re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
+    re.compile(r"\bthis isn['’]?t just\b", re.IGNORECASE),
+    re.compile(r"\b(?:fundamental|major|complete)\s+transformation\b", re.IGNORECASE),
+    re.compile(r"\bpaving the way\b", re.IGNORECASE),
+    re.compile(r"\bbigger picture\b", re.IGNORECASE),
+    re.compile(r"\bai thrives when\b", re.IGNORECASE),
+    re.compile(r"\b(?:empower|empowers|empowering)\b.*\bteam\b", re.IGNORECASE),
+)
+GENERIC_CLOSER_PATTERNS = (
+    re.compile(r"^let['’]?s\s+(?:keep|continue)\b", re.IGNORECASE),
+    re.compile(r"\bcontinue\s+striving\b", re.IGNORECASE),
+    re.compile(r"\bkeep pushing\b", re.IGNORECASE),
+    re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
+)
 
 
 class ContentGenerationRequest(BaseModel):
@@ -778,11 +795,33 @@ def _first_content_line(option: str) -> str:
     return " ".join((option or "").split()).strip()
 
 
+def _significant_terms(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(token) > 3 and token not in STOPWORDS
+    }
+
+
+def _genericity_score(option: str) -> int:
+    normalized = " ".join((option or "").lower().split())
+    if not normalized:
+        return 0
+    score = sum(2 for pattern in FLAT_GENERIC_PATTERNS if pattern.search(normalized))
+    score += sum(1 for pattern in SOFT_GENERIC_PATTERNS if pattern.search(normalized))
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", option or "") if segment.strip()]
+    if paragraphs and any(pattern.search(paragraphs[-1]) for pattern in GENERIC_CLOSER_PATTERNS):
+        score += 2
+    return score
+
+
 def _option_needs_voice_sharpening(option: str) -> bool:
     lowered = " ".join((option or "").lower().split())
     if not lowered:
         return False
     if any(pattern.search(lowered) for pattern in FLAT_GENERIC_PATTERNS):
+        return True
+    if _genericity_score(option) >= 2:
         return True
     first_line = _first_content_line(option)
     first_line_lower = first_line.lower()
@@ -2057,6 +2096,51 @@ def _force_brief_proof_support(option: str, brief: ContentOptionBrief) -> str:
     return f"{cleaned}\n\n{evidence}".strip()
 
 
+def _sentence_is_signal_bearing(sentence: str, brief: ContentOptionBrief) -> bool:
+    normalized = " ".join((sentence or "").split()).strip()
+    if not normalized:
+        return False
+    if option_mentions_approved_proof(normalized, [brief.proof_packet]):
+        return True
+    if re.search(r"\b\d[\d.,x%$m]*\b", normalized):
+        return True
+    anchor_terms = _significant_terms(
+        f"{brief.primary_claim} {_proof_packet_evidence_text(brief.proof_packet)} {brief.story_beat}"
+    )
+    if not anchor_terms:
+        return False
+    sentence_terms = _significant_terms(normalized)
+    return len(anchor_terms.intersection(sentence_terms)) >= 3
+
+
+def _clean_generic_sentences(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    revised_paragraphs: List[str] = []
+    for paragraph in paragraphs:
+        sentences = _split_sentences(paragraph)
+        if not sentences:
+            continue
+        kept: List[str] = []
+        for index, sentence in enumerate(sentences):
+            is_last_sentence = index == len(sentences) - 1
+            normalized_sentence = sentence.strip()
+            if not normalized_sentence:
+                continue
+            if any(pattern.search(normalized_sentence) for pattern in GENERIC_CLOSER_PATTERNS) and not _sentence_is_signal_bearing(normalized_sentence, brief):
+                continue
+            if any(pattern.search(normalized_sentence) for pattern in SOFT_GENERIC_PATTERNS) and not _sentence_is_signal_bearing(normalized_sentence, brief):
+                continue
+            if is_last_sentence and len(sentences) > 1 and _genericity_score(normalized_sentence) > 0 and not _sentence_is_signal_bearing(normalized_sentence, brief):
+                continue
+            kept.append(_ensure_sentence(normalized_sentence))
+        if kept:
+            revised_paragraphs.append(" ".join(kept).strip())
+    return "\n\n".join(revised_paragraphs) if revised_paragraphs else cleaned
+
+
 def finalize_planned_options(
     *,
     options: List[str],
@@ -2070,6 +2154,7 @@ def finalize_planned_options(
         revised = _force_claim_lead(revised, brief)
         if grounding_mode == "proof_ready":
             revised = _force_brief_proof_support(revised, brief)
+        revised = _clean_generic_sentences(revised, brief)
         finalized.append(revised)
     return finalized[: len(briefs)]
 
@@ -2700,6 +2785,24 @@ def _generate_staged_options(
             story_beats=content_context.story_beats,
             framing_modes=content_context.framing_modes,
         )
+    finalized = sharpen_editorial_options(
+        client=client,
+        topic=req.topic,
+        audience=req.audience,
+        content_type=req.content_type,
+        grounding_mode=content_context.grounding_mode,
+        persona_chunks=persona_chunks,
+        rough_options=finalized,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        framing_modes=content_context.framing_modes,
+    )
+    finalized = finalize_planned_options(
+        options=finalized,
+        briefs=briefs,
+        grounding_mode=content_context.grounding_mode,
+    )
     return finalized[:3], briefs, "planner_writer_critic"
 
 @router.post("/generate", response_model=ContentGenerationResponse)
