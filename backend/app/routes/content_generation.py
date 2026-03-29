@@ -1889,6 +1889,18 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             content_context.proof_packets,
             content_context.story_beats,
         )
+        topic_anchor_preview = [
+            _render_anchor_chunk(item)[:220]
+            for item in content_context.topic_anchor_chunks[:4]
+        ]
+        core_chunk_preview = [
+            _render_anchor_chunk(item)[:220]
+            for item in content_context.core_chunks[:4]
+        ]
+        proof_anchor_preview = [
+            _render_anchor_chunk(item)[:220]
+            for item in content_context.proof_anchor_chunks[:4]
+        ]
 
         return ContentGenerationResponse(
             success=True,
@@ -1900,6 +1912,9 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
                 "primary_claims": content_context.primary_claims,
                 "proof_packets": content_context.proof_packets,
                 "approved_references": approved_references,
+                "topic_anchor_preview": topic_anchor_preview,
+                "core_chunk_preview": core_chunk_preview,
+                "proof_anchor_preview": proof_anchor_preview,
             },
         )
         
