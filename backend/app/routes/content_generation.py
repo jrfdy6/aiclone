@@ -1001,6 +1001,96 @@ Generate 3 content options, separated by "---OPTION---":
     
     return prompt
 
+
+def parse_content_options(raw_content: str) -> List[str]:
+    if "---OPTION 1---" in raw_content:
+        options = re.split(r"---OPTION \d+---", raw_content)
+        return [opt.strip() for opt in options if opt.strip()]
+    if "---OPTION---" in raw_content:
+        return [opt.strip() for opt in raw_content.split("---OPTION---") if opt.strip()]
+    return [raw_content.strip()] if raw_content.strip() else []
+
+
+def build_refinement_prompt(
+    *,
+    topic: str,
+    audience: str,
+    persona_chunks: List[Dict[str, Any]],
+    rough_options: List[str],
+) -> str:
+    topic_anchor_chunks = select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    eligible_story_chunks = select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
+    topic_anchor_text = "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in topic_anchor_chunks) or "- No topic anchors available."
+    eligible_story_text = (
+        "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in eligible_story_chunks)
+        if eligible_story_chunks
+        else "- No directly relevant story anchor found. Do not force one."
+    )
+    rough_text = "\n---OPTION---\n".join(rough_options)
+    return f"""You are revising drafted posts so they sound sharper, more specific, and more faithful to this person's canon.
+
+Topic: {topic}
+Audience: {audience}
+
+TOPIC ANCHORS:
+{topic_anchor_text}
+
+ELIGIBLE STORY / PROOF ANCHORS:
+{eligible_story_text}
+
+ROUGH OPTIONS TO REWRITE:
+{rough_text}
+
+REVISION RULES:
+- Keep 3 options.
+- Preserve the person's casual voice and punchy rhythm.
+- Remove generic filler, motivational fluff, and any language that could apply to anyone.
+- Ban phrases like "magic happens", "synergy", "game changer", "nice-to-have", "backbone", and "thrive in AI".
+- Every option must be grounded in the topic anchors above.
+- Only use a personal anecdote if it appears in the eligible story / proof anchors above.
+- If no eligible story anchor exists, do not force a story. Stay with proof, pattern, and operating insight.
+- Replace vague claims with concrete operator language: workflow, handoff, prompt, system, proof, constraint, operating cadence.
+- Cut weak setup lines. Start faster.
+
+Output only the rewritten options, separated by ---OPTION---.
+"""
+
+
+def refine_generated_options(
+    *,
+    client: Any,
+    topic: str,
+    audience: str,
+    content_type: str,
+    persona_chunks: List[Dict[str, Any]],
+    rough_options: List[str],
+) -> List[str]:
+    if content_type != "linkedin_post" or not rough_options:
+        return rough_options
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a strict editorial pass. Make the writing sharper and more concrete without changing the author's voice.",
+            },
+            {
+                "role": "user",
+                "content": build_refinement_prompt(
+                    topic=topic,
+                    audience=audience,
+                    persona_chunks=persona_chunks,
+                    rough_options=rough_options,
+                ),
+            },
+        ],
+        temperature=0.35,
+        max_tokens=1800,
+    )
+    refined = parse_content_options(response.choices[0].message.content or "")
+    return refined[:3] if refined else rough_options
+
 @router.post("/generate", response_model=ContentGenerationResponse)
 async def generate_content(req: ContentGenerationRequest):
     """
@@ -1108,21 +1198,18 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             max_tokens=2000,
         )
         
-        # Step 5: Parse options
-        raw_content = response.choices[0].message.content
-        
-        # Try multiple separator patterns
-        if "---OPTION 1---" in raw_content:
-            # Split by numbered options
-            import re
-            options = re.split(r'---OPTION \d+---', raw_content)
-            options = [opt.strip() for opt in options if opt.strip()]
-        elif "---OPTION---" in raw_content:
-            options = [opt.strip() for opt in raw_content.split("---OPTION---") if opt.strip()]
-        else:
-            # No separator found, treat as single option
-            options = [raw_content.strip()]
-        
+        # Step 5: Parse and refine options.
+        raw_content = response.choices[0].message.content or ""
+        options = parse_content_options(raw_content)
+        options = refine_generated_options(
+            client=client,
+            topic=req.topic,
+            audience=req.audience,
+            content_type=req.content_type,
+            persona_chunks=persona_chunks,
+            rough_options=options,
+        )
+
         return ContentGenerationResponse(
             success=True,
             options=options[:3],  # Max 3 options
