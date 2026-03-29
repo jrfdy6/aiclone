@@ -207,6 +207,7 @@ SOFT_GENERIC_PATTERNS = (
     re.compile(r"\bfostering collaboration\b", re.IGNORECASE),
     re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
     re.compile(r"\bthis isn['’]?t just\b", re.IGNORECASE),
+    re.compile(r"\bit['’]s not just about\b", re.IGNORECASE),
     re.compile(r"\b(?:fundamental|major|complete)\s+transformation\b", re.IGNORECASE),
     re.compile(r"\bpaving the way\b", re.IGNORECASE),
     re.compile(r"\bbigger picture\b", re.IGNORECASE),
@@ -231,6 +232,7 @@ TASTE_NEGATIVE_PATTERNS = (
     re.compile(r"\bcohesive system\b", re.IGNORECASE),
     re.compile(r"\bdependable architecture\b", re.IGNORECASE),
     re.compile(r"\bcomprehensive view\b", re.IGNORECASE),
+    re.compile(r"\bunified approach\b", re.IGNORECASE),
     re.compile(r"\b(?:transition|transitioned|transitioning)\b.*\barchitecture\b", re.IGNORECASE),
     re.compile(r"\bnew level of efficiency\b", re.IGNORECASE),
     re.compile(r"\bstreamlined workflow\b", re.IGNORECASE),
@@ -2568,14 +2570,33 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
             normalized = " ".join(sentence.split()).strip()
             if not normalized:
                 continue
-            rely_match = re.match(r"^(?:now,\s*)?we rely on (.+)$", normalized, flags=re.IGNORECASE)
+            base_sentence = normalized.rstrip(".!?")
+            integrate_match = re.match(
+                r"^(?:our|the) system now integrates (.+?) into (?:a )?unified approach$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if integrate_match:
+                payload = integrate_match.group(1).rstrip(".")
+                rewritten.append(_ensure_sentence(f"Now {payload} run on the same system"))
+                continue
+            rely_match = re.match(r"^(?:now,\s*)?we rely on (.+)$", base_sentence, flags=re.IGNORECASE)
             if rely_match:
                 payload = rely_match.group(1).rstrip(".")
                 rewritten.append(_ensure_sentence(f"Now it runs on {payload}"))
                 continue
+            means_rely_match = re.match(r"^(?:this means )?we rely on (.+?) instead of (.+)$", base_sentence, flags=re.IGNORECASE)
+            if means_rely_match:
+                payload = means_rely_match.group(1).rstrip(".")
+                contrast = means_rely_match.group(2).rstrip(".")
+                rewritten.append(_ensure_sentence(f"Now it runs on {payload}"))
+                contrast_sentence = _compress_operator_contrast_fragment(contrast)
+                if contrast_sentence:
+                    rewritten.append(contrast_sentence)
+                continue
             abstract_match = re.match(
                 r"^(?:this|that) (?:approach|system|setup) (?:ensures|means|keeps) (.+?) instead of (.+)$",
-                normalized,
+                base_sentence,
                 flags=re.IGNORECASE,
             )
             if abstract_match:
@@ -2586,9 +2607,16 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
                 if contrast:
                     rewritten.append(contrast)
                 continue
-            if re.match(r"^everything(?:['’]s| is) interconnected\b", normalized, flags=re.IGNORECASE):
+            if re.match(
+                r"^it['’]s not just about asking the right questions; it['’]s about orchestrating .+$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("The operating model is the strategy.")
                 continue
-            if re.match(r"^(?:it|that)(?:['’]s| is) making (?:a|an) (?:real|tangible|meaningful) impact\b", normalized, flags=re.IGNORECASE):
+            if re.match(r"^everything(?:['’]s| is) interconnected\b", base_sentence, flags=re.IGNORECASE):
+                continue
+            if re.match(r"^(?:it|that)(?:['’]s| is) making (?:a|an) (?:real|tangible|meaningful) impact\b", base_sentence, flags=re.IGNORECASE):
                 continue
             rewritten.append(_ensure_sentence(normalized))
         if rewritten:

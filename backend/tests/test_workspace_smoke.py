@@ -4047,6 +4047,30 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertNotIn("This approach ensures", finalized[0])
         self.assertFalse(finalized[0].rstrip().endswith("Agent orchestration."))
 
+    def test_finalize_planned_options_rewrites_soft_operator_body_lines(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone -> Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not the strategy.\n\nJohnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.\n\nOur system now integrates Brain, Ops, daily briefs, planner, and long-form routing into a unified approach.\n\nThis means we rely on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.\n\nIt's not just about asking the right questions; it's about orchestrating the entire process for superior AI outcomes."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertIn("Now Brain, Ops, daily briefs, planner, and long-form routing run on the same system.", finalized[0])
+        self.assertIn("Now it runs on explicit handoffs, shared workspace state, and proof-aware prompts.", finalized[0])
+        self.assertRegex(finalized[0].rstrip(), r"(Not isolated prompts\.|The operating model is the strategy\.)$")
+        self.assertNotIn("unified approach", finalized[0].lower())
+        self.assertNotIn("it's not just about", finalized[0].lower())
+
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(
             "### OPTION 1\nPrompting alone is not an AI strategy.\n---OPTION---\n### OPTION 2\nIf there is no artifact, stay at the level of principle."
