@@ -1658,9 +1658,9 @@ def _normalized_terms(text: str) -> set[str]:
 
 def _proof_packet_evidence_text(packet: str) -> str:
     parts = (packet or "").split("->", 1)
-    if len(parts) == 2:
-        return parts[1].strip()
-    return (packet or "").strip()
+    text = parts[1].strip() if len(parts) == 2 else (packet or "").strip()
+    text = text.split(" Use when:", 1)[0]
+    return text.strip()
 
 
 def _proof_packet_label(packet: str) -> str:

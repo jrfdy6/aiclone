@@ -532,6 +532,52 @@ def _split_sentences(text: str) -> list[str]:
     return [segment.strip(" -") for segment in re.split(r"(?<=[.!?])\s+", normalized) if segment.strip()]
 
 
+def _looks_like_heading_sentence(sentence: str) -> bool:
+    tokens = re.findall(r"[a-z0-9]+", (sentence or "").lower())
+    if not tokens or len(tokens) > 6:
+        return False
+    verbs = {
+        "am",
+        "are",
+        "be",
+        "become",
+        "becomes",
+        "build",
+        "builds",
+        "can",
+        "did",
+        "do",
+        "does",
+        "fail",
+        "fails",
+        "had",
+        "has",
+        "have",
+        "is",
+        "keep",
+        "keeps",
+        "made",
+        "make",
+        "makes",
+        "move",
+        "moves",
+        "read",
+        "reads",
+        "should",
+        "treats",
+        "turn",
+        "turns",
+        "use",
+        "uses",
+        "value",
+        "values",
+        "was",
+        "were",
+        "will",
+    }
+    return not any(token in verbs for token in tokens)
+
+
 def _extract_label_from_chunk(chunk: str) -> str:
     primary_text, _ = _split_use_when_text(chunk)
     cleaned = primary_text.replace("Public-facing proof:", " ").replace("Proof:", " ").replace("Evidence:", " ")
@@ -555,6 +601,8 @@ def _extract_claim_text_from_chunk(chunk: str) -> str:
         return ""
     if sentences[0].strip(" .").lower() in GENERIC_PROOF_LABELS:
         return sentences[1].strip(" .") + "." if len(sentences) >= 2 else ""
+    if len(sentences) >= 2 and _looks_like_heading_sentence(sentences[0]):
+        return sentences[1].strip(" .") + "."
     if len(sentences) >= 2 and len(sentences[0].split()) <= 8:
         return f"{sentences[0].strip(' .')}. {sentences[1].strip(' .')}."
     return sentences[0].strip(" .") + "."
@@ -590,6 +638,7 @@ def _claim_candidate_score(
 ) -> int:
     metadata = _item_metadata(item)
     memory_role = str(metadata.get("memory_role") or "ambient")
+    claim_type = str(metadata.get("claim_type") or "").lower()
     score = source_priority
     if memory_role == "core":
         score += 8
@@ -597,6 +646,10 @@ def _claim_candidate_score(
         score += 6
     elif memory_role == "story":
         score += 2
+    if claim_type:
+        score += 5
+        if claim_type in {"contrarian", "operational", "philosophical", "positioning"}:
+            score += 2
     if not _is_metric_led_claim(text):
         score += 7
     else:
@@ -669,9 +722,9 @@ def _extract_primary_claims(
 
 def _proof_packet_evidence_text(packet: str) -> str:
     parts = (packet or "").split("->", 1)
-    if len(parts) == 2:
-        return parts[1].strip()
-    return (packet or "").strip()
+    text = parts[1].strip() if len(parts) == 2 else (packet or "").strip()
+    text, _ = _split_use_when_text(text)
+    return text.strip()
 
 
 def _build_persona_context_summary(
@@ -701,7 +754,8 @@ def _extract_proof_packets(proof_anchor_chunks: list[dict[str, Any]]) -> list[st
             if marker.lower() in chunk.lower():
                 split_parts = re.split(marker, chunk, maxsplit=1, flags=re.IGNORECASE)
                 if len(split_parts) == 2:
-                    proof_segments.extend(_split_sentences(split_parts[1]))
+                    proof_text, _ = _split_use_when_text(split_parts[1])
+                    proof_segments.extend(_split_sentences(proof_text))
         if not proof_segments:
             proof_segments = [
                 sentence
@@ -726,6 +780,21 @@ def _extract_story_beats(story_anchor_chunks: list[dict[str, Any]]) -> list[str]
         if sentences:
             beats.append(sentences[0].strip(" .") + ".")
     return _dedupe_texts(beats, limit=3)
+
+
+def _merge_unique_chunks(*groups: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            key = _normalized_chunk_key(item)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+            if len(merged) >= limit:
+                return merged
+    return merged
 
 
 def _build_disallowed_moves(*, audience: str, grounding_mode: str) -> list[str]:
@@ -950,6 +1019,11 @@ def build_content_generation_context(
 
     persona_query = f"persona voice style {topic} {category} content writing"
     persona_embedding = embed_text(persona_query)
+    canonical_bundle_chunks = filter_persona_chunks_for_domain(
+        [_hydrate_bundle_chunk(item) for item in load_bundle_persona_chunks()],
+        topic=topic,
+        audience=audience,
+    )
 
     bundle_persona_chunks = retrieve_bundle_persona_chunks(
         query_text=persona_query,
@@ -1010,6 +1084,24 @@ def build_content_generation_context(
         audience=audience,
         limit=4,
     )
+    canonical_core_topic_chunks = select_topic_anchor_chunks(
+        [item for item in canonical_bundle_chunks if str(_item_metadata(item).get("memory_role") or "") == "core"],
+        topic=topic,
+        audience=audience,
+        limit=3,
+    )
+    core_topic_chunks = _merge_unique_chunks(canonical_core_topic_chunks, core_topic_chunks, limit=4)
+    canonical_proof_anchor_chunks = select_proof_anchor_chunks(
+        [
+            item
+            for item in canonical_bundle_chunks
+            if str(_item_metadata(item).get("memory_role") or "") in {"core", "proof"}
+        ],
+        topic=topic,
+        audience=audience,
+        limit=4,
+    )
+    proof_anchor_chunks = _merge_unique_chunks(canonical_proof_anchor_chunks, proof_anchor_chunks, limit=4)
     print(
         "[content_context] "
         f"bundle={len(bundle_persona_chunks)} "

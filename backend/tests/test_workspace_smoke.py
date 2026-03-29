@@ -2672,7 +2672,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
         self.assertEqual(
             claims,
-            ["AI Clone / Brain System. Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance."],
+            ["Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance."],
         )
 
     def test_content_generation_context_drops_generic_proof_point_prefixes(self) -> None:
@@ -2704,6 +2704,27 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
         self.assertEqual(claims, ["CEO prompting plus agent usage makes AI success 5.2x more likely."])
         self.assertEqual(packets, ["CEO prompting plus agent usage makes AI success 5.2x more likely."])
+
+    def test_content_generation_context_strips_use_when_from_proof_packets(self) -> None:
+        packets = content_context_service_module._extract_proof_packets(
+            [
+                {
+                    "chunk": (
+                        "Grounded Content Generation System. Purpose: Make the content engine read persona canon through typed "
+                        "core, proof, story, and example lanes. Public-facing proof: The content route now uses typed retrieval, "
+                        "domain gates, grounding modes, structured proof briefs, and proof-packet enforcement before final drafts. "
+                        "Use when: AI writing systems and context engineering."
+                    )
+                }
+            ]
+        )
+
+        self.assertEqual(
+            packets,
+            [
+                "Grounded Content Generation System -> The content route now uses typed retrieval, domain gates, grounding modes, structured proof briefs, and proof-packet enforcement before final drafts.",
+            ],
+        )
 
     def test_content_generation_context_strips_generic_claim_prefixes(self) -> None:
         claims = content_context_service_module._extract_primary_claims(
@@ -2964,6 +2985,25 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 "usage_modes": ["style_reference"],
             },
         }
+        canonical_claim = {
+            "chunk": (
+                "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone. "
+                "Evidence: Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared "
+                "workspace state, and proof-aware prompts instead of isolated prompting."
+            ),
+            "persona_tag": "CLAIMS",
+            "metadata": {
+                "source": "canonical persona bundle",
+                "source_kind": "canonical_bundle",
+                "bundle_path": "identity/claims.md",
+                "file_name": "identity/claims.md",
+                "memory_role": "core",
+                "claim_type": "positioning",
+                "domain_tags": ["ai_systems", "operator_workflows"],
+                "proof_strength": "medium",
+                "artifact_backed": True,
+            },
+        }
 
         def _fake_retrieve_similar(**kwargs):
             if kwargs.get("tag_filter") == ["LINKEDIN_EXAMPLES"]:
@@ -2981,7 +3021,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         ), patch.object(
             content_context_service_module,
             "load_bundle_persona_chunks",
-            return_value=[bundle_example],
+            return_value=[bundle_example, canonical_claim],
         ), patch.object(
             content_context_service_module,
             "retrieve_similar",
@@ -3006,7 +3046,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertGreaterEqual(len(context_pack.primary_claims), 1)
         self.assertEqual(
             context_pack.primary_claims[0],
-            "Builds and translates AI execution patterns into clear operator guidance.",
+            "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
         )
         self.assertGreaterEqual(len(context_pack.proof_packets), 1)
         self.assertEqual(len(context_pack.example_chunks), 2)
@@ -3066,6 +3106,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
             content_context_service_module,
             "retrieve_bundle_persona_chunks",
             return_value=bundle_chunks,
+        ), patch.object(
+            content_context_service_module,
+            "load_bundle_persona_chunks",
+            return_value=[],
         ), patch.object(
             content_context_service_module,
             "retrieve_weighted",
