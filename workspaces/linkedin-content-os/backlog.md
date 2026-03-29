@@ -90,6 +90,13 @@
   - `plans/reaction_queue.md`
   - `docs/social_feed_architecture_plan.md`
 
+### LNK-015B - Add eval-driven tuning for staged content generation
+- Outcome: score planner/writer/critic outputs against thesis sharpness, proof fidelity, and voice resemblance instead of tuning prompts by feel.
+- Source files:
+  - `../../SOPs/content_generation_staged_pipeline_map.md`
+  - `../../backend/app/routes/content_generation.py`
+  - `../../backend/tests/test_workspace_smoke.py`
+
 ### LNK-016 - Unify manual and harvested sources into one normalized signal contract
 - Outcome: make manual URL/text previews and harvested feed items converge into the same `NormalizedSignal` shape before lane interpretation and copy generation.
 - Status: first pass implemented in the live preview path, saved-feed builder, and manual web-signal ingest script. Weekly plan / reaction queue generators still need to adopt the same contract later.

@@ -8,6 +8,7 @@ Generates content using:
 4. PACER/Chris Do frameworks
 """
 
+from dataclasses import dataclass
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -220,6 +221,15 @@ class ContentGenerationResponse(BaseModel):
     persona_context: Optional[str] = None
     examples_used: List[str] = []
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+@dataclass
+class ContentOptionBrief:
+    option_number: int
+    framing_mode: str
+    primary_claim: str
+    proof_packet: str
+    story_beat: str
 
 
 def _normalized_chunk_key(item: Dict[str, Any]) -> str:
@@ -1573,6 +1583,70 @@ def parse_content_options(raw_content: str) -> List[str]:
     return [_clean_option(raw_content)] if raw_content.strip() else []
 
 
+def _ensure_sentence(text: str) -> str:
+    normalized = " ".join((text or "").split()).strip()
+    if not normalized:
+        return ""
+    if normalized[-1] not in ".!?":
+        normalized += "."
+    return normalized
+
+
+def _split_sentences(text: str) -> List[str]:
+    normalized = " ".join((text or "").split()).strip()
+    if not normalized:
+        return []
+    return [segment.strip(" -") for segment in re.split(r"(?<=[.!?])\s+", normalized) if segment.strip()]
+
+
+def plan_content_option_briefs(
+    *,
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    framing_modes: List[str],
+    option_count: int = 3,
+) -> List[ContentOptionBrief]:
+    option_plan = _build_option_framing_plan(
+        framing_modes=framing_modes,
+        primary_claims=primary_claims,
+        proof_packets=proof_packets,
+        story_beats=story_beats,
+        option_count=option_count,
+    )
+    briefs: List[ContentOptionBrief] = []
+    for item in option_plan:
+        try:
+            option_number = int(str(item.get("option") or "1"))
+        except ValueError:
+            option_number = len(briefs) + 1
+        briefs.append(
+            ContentOptionBrief(
+                option_number=option_number,
+                framing_mode=str(item.get("mode") or "operator_lesson"),
+                primary_claim=_ensure_sentence(str(item.get("claim") or "")),
+                proof_packet=str(item.get("proof") or ""),
+                story_beat=str(item.get("story") or ""),
+            )
+        )
+    return briefs
+
+
+def _render_content_option_briefs(briefs: List[ContentOptionBrief]) -> str:
+    lines: List[str] = []
+    for brief in briefs:
+        lines.extend(
+            [
+                f"### OPTION {brief.option_number}",
+                f"- Framing mode: `{brief.framing_mode}`",
+                f"- Strategic claim: {brief.primary_claim or 'Stay inside the topic anchors.'}",
+                f"- Supporting proof: {brief.proof_packet or 'No approved proof packet.'}",
+                f"- Optional story beat: {brief.story_beat or 'No approved story beat.'}",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def _normalized_terms(text: str) -> set[str]:
     return {
         token
@@ -1638,6 +1712,234 @@ def _extract_approved_reference_terms(
     return approved[:12]
 
 
+def build_planned_writer_prompt(
+    *,
+    topic: str,
+    context: str,
+    audience: str,
+    grounding_mode: str,
+    grounding_reason: str,
+    topic_anchor_chunks: List[Dict[str, Any]],
+    proof_anchor_chunks: List[Dict[str, Any]],
+    story_anchor_chunks: List[Dict[str, Any]],
+    briefs: List[ContentOptionBrief],
+    good_examples: List[str],
+    voice_directives: List[str],
+    approved_references: List[str],
+    disallowed_moves: List[str],
+) -> str:
+    topic_anchor_text = "\n".join(f"- {_render_anchor_chunk(item)}" for item in topic_anchor_chunks[:4]) or "- No topic anchors available."
+    proof_anchor_text = "\n".join(f"- {_render_anchor_chunk(item)}" for item in proof_anchor_chunks[:3]) or "- No strong proof anchor found."
+    story_anchor_text = (
+        "\n".join(f"- {_render_anchor_chunk(item, include_use_when=True)}" for item in story_anchor_chunks[:2])
+        if story_anchor_chunks
+        else "- No approved story beat."
+    )
+    good_examples_text = "\n".join(f"- {example}" for example in good_examples[:2]) or "- No extra style references."
+    voice_text = "\n".join(f"- {directive}" for directive in voice_directives[:8]) or "\n".join(
+        f"- {directive}" for directive in DEFAULT_VOICE_DIRECTIVES[:6]
+    )
+    approved_reference_text = "\n".join(f"- {reference}" for reference in approved_references) or "- No approved named references."
+    disallowed_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
+    briefs_text = _render_content_option_briefs(briefs)
+    return f"""You are the writer stage in a planner -> writer -> critic content system.
+
+Write exactly 3 LinkedIn post options, separated by ---OPTION---.
+Write one option for each planned brief below.
+
+Topic: {topic}
+Context: {context or "General"}
+Audience: {audience}
+
+GROUNDING MODE:
+- `{grounding_mode}`
+- {grounding_reason}
+
+TOPIC ANCHORS:
+{topic_anchor_text}
+
+PROOF ANCHORS:
+{proof_anchor_text}
+
+APPROVED STORY ANCHORS:
+{story_anchor_text}
+
+GOOD STYLE REFERENCES:
+{good_examples_text}
+
+VOICE DIRECTIVES:
+{voice_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+DISALLOWED MOVES:
+{disallowed_text}
+
+PLANNED OPTION BRIEFS:
+{briefs_text}
+
+WRITER RULES:
+- Use the planned strategic claim as the center of each option.
+- Let proof support the claim. Do not let the proof packet become the whole headline unless the claim is already proof-shaped.
+- Use casual, direct, spoken rhythm.
+- Keep short paragraphs and line breaks.
+- Stay specific and operator-grounded.
+- Do not use generic openings like "X is essential", "X is critical", "In today's world", or "Here's the takeaway".
+- Do not invent stories, names, employers, or metrics.
+- If no story is approved, do not force one.
+- Borrow rhythm and shape from GOOD STYLE REFERENCES, not their facts.
+
+Output only the 3 options, separated by ---OPTION---.
+"""
+
+
+def write_planned_options(
+    *,
+    client: Any,
+    topic: str,
+    context: str,
+    audience: str,
+    grounding_mode: str,
+    grounding_reason: str,
+    topic_anchor_chunks: List[Dict[str, Any]],
+    proof_anchor_chunks: List[Dict[str, Any]],
+    story_anchor_chunks: List[Dict[str, Any]],
+    briefs: List[ContentOptionBrief],
+    good_examples: List[str],
+    voice_directives: List[str],
+    approved_references: List[str],
+    disallowed_moves: List[str],
+) -> List[str]:
+    if not briefs:
+        return []
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a ghostwriter. Follow the planned briefs exactly and keep the writing human, sharp, and grounded.",
+            },
+            {
+                "role": "user",
+                "content": build_planned_writer_prompt(
+                    topic=topic,
+                    context=context,
+                    audience=audience,
+                    grounding_mode=grounding_mode,
+                    grounding_reason=grounding_reason,
+                    topic_anchor_chunks=topic_anchor_chunks,
+                    proof_anchor_chunks=proof_anchor_chunks,
+                    story_anchor_chunks=story_anchor_chunks,
+                    briefs=briefs,
+                    good_examples=good_examples,
+                    voice_directives=voice_directives,
+                    approved_references=approved_references,
+                    disallowed_moves=disallowed_moves,
+                ),
+            },
+        ],
+        temperature=0.55 if audience == "tech_ai" else 0.72,
+        max_tokens=1800,
+    )
+    return parse_content_options(response.choices[0].message.content or "")[: len(briefs)]
+
+
+def build_planned_critic_prompt(
+    *,
+    topic: str,
+    audience: str,
+    grounding_mode: str,
+    briefs: List[ContentOptionBrief],
+    rough_options: List[str],
+    avoid_examples: List[str],
+    voice_directives: List[str],
+    approved_references: List[str],
+) -> str:
+    options_text = "\n---OPTION---\n".join(rough_options)
+    avoid_text = "\n".join(f"- {example}" for example in avoid_examples[:3]) or "- No extra avoid-pattern examples."
+    voice_text = "\n".join(f"- {directive}" for directive in voice_directives[:8]) or "\n".join(
+        f"- {directive}" for directive in DEFAULT_VOICE_DIRECTIVES[:6]
+    )
+    approved_reference_text = "\n".join(f"- {reference}" for reference in approved_references) or "- No approved named references."
+    briefs_text = _render_content_option_briefs(briefs)
+    return f"""You are the critic stage in a planner -> writer -> critic content system.
+
+Topic: {topic}
+Audience: {audience}
+Grounding mode: {grounding_mode}
+
+PLANNED OPTION BRIEFS:
+{briefs_text}
+
+AVOID PATTERN REFERENCES:
+{avoid_text}
+
+VOICE DIRECTIVES:
+{voice_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+DRAFTS TO CRITIQUE:
+{options_text}
+
+CRITIC RULES:
+- Keep 3 options separated by ---OPTION---.
+- Preserve the approved facts, claim meaning, and proof meaning.
+- Remove generic consultant phrasing.
+- If an option opens with a flat generic statement, rewrite the opening around the planned strategic claim.
+- Keep the writing casual, direct, and spoken.
+- Do not add new names, metrics, or stories.
+- Keep each option aligned with its planned framing mode.
+- Do not imitate the AVOID PATTERN REFERENCES.
+
+Output only the rewritten options, separated by ---OPTION---.
+"""
+
+
+def critique_planned_options(
+    *,
+    client: Any,
+    topic: str,
+    audience: str,
+    grounding_mode: str,
+    briefs: List[ContentOptionBrief],
+    rough_options: List[str],
+    avoid_examples: List[str],
+    voice_directives: List[str],
+    approved_references: List[str],
+) -> List[str]:
+    if not rough_options:
+        return rough_options
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a strict editorial critic. Keep the facts, but rewrite generic or weak phrasing.",
+            },
+            {
+                "role": "user",
+                "content": build_planned_critic_prompt(
+                    topic=topic,
+                    audience=audience,
+                    grounding_mode=grounding_mode,
+                    briefs=briefs,
+                    rough_options=rough_options,
+                    avoid_examples=avoid_examples,
+                    voice_directives=voice_directives,
+                    approved_references=approved_references,
+                ),
+            },
+        ],
+        temperature=0.25,
+        max_tokens=1800,
+    )
+    rewritten = parse_content_options(response.choices[0].message.content or "")
+    return rewritten[: len(briefs)] if rewritten else rough_options
+
+
 def _extract_named_reference_candidates(text: str) -> set[str]:
     candidates: set[str] = set()
     cleaned = re.sub(r"[*_`#]", " ", text or "")
@@ -1684,6 +1986,56 @@ def option_mentions_approved_proof(option: str, proof_packets: List[str]) -> boo
         if len(option_terms.intersection(packet_terms)) >= 2:
             return True
     return False
+
+
+def _replace_flat_opening_with_claim(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    claim = _ensure_sentence(brief.primary_claim)
+    if not cleaned or not claim:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return cleaned
+    first_paragraph = paragraphs[0]
+    if not any(pattern.search(first_paragraph) for pattern in FLAT_GENERIC_PATTERNS):
+        return cleaned
+    first_sentences = _split_sentences(first_paragraph)
+    if len(first_sentences) > 1:
+        replacement = " ".join(first_sentences[1:]).strip()
+        paragraphs[0] = replacement if replacement else claim
+    else:
+        paragraphs[0] = claim
+    if claim.lower() not in " ".join(paragraphs).lower():
+        paragraphs.insert(0, claim)
+    return "\n\n".join(segment for segment in paragraphs if segment)
+
+
+def _force_brief_proof_support(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned or not brief.proof_packet:
+        return cleaned
+    if option_mentions_approved_proof(cleaned, [brief.proof_packet]):
+        return cleaned
+    evidence = _ensure_sentence(_proof_packet_evidence_text(brief.proof_packet))
+    if not evidence:
+        return cleaned
+    return f"{cleaned}\n\n{evidence}".strip()
+
+
+def finalize_planned_options(
+    *,
+    options: List[str],
+    briefs: List[ContentOptionBrief],
+    grounding_mode: str,
+) -> List[str]:
+    finalized: List[str] = []
+    for index, option in enumerate(options):
+        brief = briefs[index] if index < len(briefs) else briefs[-1]
+        revised = _replace_flat_opening_with_claim(option, brief)
+        if grounding_mode == "proof_ready":
+            revised = _force_brief_proof_support(revised, brief)
+        finalized.append(revised)
+    return finalized[: len(briefs)]
 
 
 def build_proof_enforcement_prompt(
@@ -2140,6 +2492,180 @@ def enforce_grounding_on_options(
     repaired = parse_content_options(response.choices[0].message.content or "")
     return repaired[:3] if repaired else rough_options
 
+
+def _generate_legacy_options(
+    *,
+    client: Any,
+    req: ContentGenerationRequest,
+    content_context: ContentGenerationContext,
+    persona_chunks: List[Dict[str, Any]],
+    example_chunks: List[Dict[str, Any]],
+) -> List[str]:
+    prompt = build_content_prompt(
+        topic=req.topic,
+        context=req.context or "",
+        content_type=req.content_type,
+        category=req.category,
+        pacer_elements=req.pacer_elements,
+        tone=req.tone,
+        persona_chunks=persona_chunks,
+        example_chunks=example_chunks,
+        audience=req.audience,
+        topic_anchor_chunks=content_context.topic_anchor_chunks,
+        eligible_story_chunks=content_context.story_anchor_chunks,
+        proof_anchor_chunks=content_context.proof_anchor_chunks,
+        grounding_mode=content_context.grounding_mode,
+        grounding_reason=content_context.grounding_reason,
+        framing_modes=content_context.framing_modes,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        disallowed_moves=content_context.disallowed_moves,
+    )
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": """You are a ghostwriter who perfectly mimics a specific person's voice.
+
+CRITICAL RULES:
+1. Use the EXACT voice patterns from the persona data (casual phrases, rhythm, signature expressions)
+2. ONLY use stories, anecdotes, and facts EXPLICITLY mentioned in the persona data below
+3. NEVER invent or fabricate stories - if no relevant story exists, speak generally about the topic
+4. DO NOT make up family stories, childhood memories, or personal details not in the persona
+5. Preserve casual markers like "Yall", "Tell you what tho", "Say it with me"
+6. Keep punchy rhythm - short sentences, stacked phrases
+7. DO NOT over-polish or make it sound generic/corporate
+8. Stay focused on the user's TOPIC and CONTEXT - don't drift to unrelated subjects
+9. Treat TOPIC ANCHORS as higher priority than generic biography
+10. Only use a personal anecdote if it appears in ELIGIBLE STORY / PROOF ANCHORS
+""",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.68 if req.audience == "tech_ai" else 0.85,
+        max_tokens=2000,
+    )
+    raw_content = response.choices[0].message.content or ""
+    options = parse_content_options(raw_content)
+    options = refine_generated_options(
+        client=client,
+        topic=req.topic,
+        audience=req.audience,
+        content_type=req.content_type,
+        persona_chunks=persona_chunks,
+        rough_options=options,
+        topic_anchor_chunks=content_context.topic_anchor_chunks,
+        eligible_story_chunks=content_context.story_anchor_chunks,
+        proof_anchor_chunks=content_context.proof_anchor_chunks,
+        grounding_mode=content_context.grounding_mode,
+        grounding_reason=content_context.grounding_reason,
+        framing_modes=content_context.framing_modes,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        disallowed_moves=content_context.disallowed_moves,
+    )
+    options = enforce_grounding_on_options(
+        client=client,
+        topic=req.topic,
+        audience=req.audience,
+        content_type=req.content_type,
+        grounding_mode=content_context.grounding_mode,
+        rough_options=options,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        framing_modes=content_context.framing_modes,
+    )
+    options = sharpen_editorial_options(
+        client=client,
+        topic=req.topic,
+        audience=req.audience,
+        content_type=req.content_type,
+        grounding_mode=content_context.grounding_mode,
+        persona_chunks=persona_chunks,
+        rough_options=options,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        framing_modes=content_context.framing_modes,
+    )
+    return options[:3]
+
+
+def _generate_staged_options(
+    *,
+    client: Any,
+    req: ContentGenerationRequest,
+    content_context: ContentGenerationContext,
+    persona_chunks: List[Dict[str, Any]],
+    example_chunks: List[Dict[str, Any]],
+) -> tuple[List[str], List[ContentOptionBrief], str]:
+    good_examples, avoid_examples = _split_example_references(example_chunks, limit=3)
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    approved_references = _extract_approved_reference_terms(
+        content_context.primary_claims,
+        content_context.proof_packets,
+        content_context.story_beats,
+    )
+    briefs = plan_content_option_briefs(
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        framing_modes=content_context.framing_modes,
+        option_count=3,
+    )
+    rough_options = write_planned_options(
+        client=client,
+        topic=req.topic,
+        context=req.context or "",
+        audience=req.audience,
+        grounding_mode=content_context.grounding_mode,
+        grounding_reason=content_context.grounding_reason,
+        topic_anchor_chunks=content_context.topic_anchor_chunks,
+        proof_anchor_chunks=content_context.proof_anchor_chunks,
+        story_anchor_chunks=content_context.story_anchor_chunks,
+        briefs=briefs,
+        good_examples=good_examples,
+        voice_directives=voice_directives,
+        approved_references=approved_references,
+        disallowed_moves=content_context.disallowed_moves,
+    )
+    if not rough_options:
+        return [], briefs, "planner_writer_critic"
+    critiqued = critique_planned_options(
+        client=client,
+        topic=req.topic,
+        audience=req.audience,
+        grounding_mode=content_context.grounding_mode,
+        briefs=briefs,
+        rough_options=rough_options,
+        avoid_examples=avoid_examples,
+        voice_directives=voice_directives,
+        approved_references=approved_references,
+    )
+    finalized = finalize_planned_options(
+        options=critiqued or rough_options,
+        briefs=briefs,
+        grounding_mode=content_context.grounding_mode,
+    )
+    if content_context.grounding_mode == "proof_ready" and content_context.proof_packets:
+        finalized = enforce_grounding_on_options(
+            client=client,
+            topic=req.topic,
+            audience=req.audience,
+            content_type=req.content_type,
+            grounding_mode=content_context.grounding_mode,
+            rough_options=finalized,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            framing_modes=content_context.framing_modes,
+        )
+    return finalized[:3], briefs, "planner_writer_critic"
+
 @router.post("/generate", response_model=ContentGenerationResponse)
 async def generate_content(req: ContentGenerationRequest):
     """
@@ -2165,113 +2691,30 @@ async def generate_content(req: ContentGenerationRequest):
                 tag_summary[tag] = tag_summary.get(tag, 0) + 1
             print(f"[content_gen] Retrieved persona chunks by tag: {tag_summary}", flush=True)
         example_chunks = content_context.example_chunks
-        
-        # Step 3: Build prompt with all context
-        prompt = build_content_prompt(
-            topic=req.topic,
-            context=req.context or "",
-            content_type=req.content_type,
-            category=req.category,
-            pacer_elements=req.pacer_elements,
-            tone=req.tone,
+        client = get_openai_client()
+        options, option_briefs, generation_strategy = _generate_staged_options(
+            client=client,
+            req=req,
+            content_context=content_context,
             persona_chunks=persona_chunks,
             example_chunks=example_chunks,
-            audience=req.audience,
-            topic_anchor_chunks=content_context.topic_anchor_chunks,
-            eligible_story_chunks=content_context.story_anchor_chunks,
-            proof_anchor_chunks=content_context.proof_anchor_chunks,
-            grounding_mode=content_context.grounding_mode,
-            grounding_reason=content_context.grounding_reason,
-            framing_modes=content_context.framing_modes,
-            primary_claims=content_context.primary_claims,
-            proof_packets=content_context.proof_packets,
-            story_beats=content_context.story_beats,
-            disallowed_moves=content_context.disallowed_moves,
         )
-        
-        # Step 4: Generate content with OpenAI
-        client = get_openai_client()
-        
-        system_message = """You are a ghostwriter who perfectly mimics a specific person's voice.
-
-CRITICAL RULES:
-1. Use the EXACT voice patterns from the persona data (casual phrases, rhythm, signature expressions)
-2. ONLY use stories, anecdotes, and facts EXPLICITLY mentioned in the persona data below
-3. NEVER invent or fabricate stories - if no relevant story exists, speak generally about the topic
-4. DO NOT make up family stories, childhood memories, or personal details not in the persona
-5. Preserve casual markers like "Yall", "Tell you what tho", "Say it with me"
-6. Keep punchy rhythm - short sentences, stacked phrases
-7. DO NOT over-polish or make it sound generic/corporate
-8. Stay focused on the user's TOPIC and CONTEXT - don't drift to unrelated subjects
-9. Treat TOPIC ANCHORS as higher priority than generic biography
-10. Only use a personal anecdote if it appears in ELIGIBLE STORY / PROOF ANCHORS
-
-ANTI-HALLUCINATION: If you cannot find a relevant real story in the persona data, write value-driven content about the topic WITHOUT inventing personal anecdotes. Generic insights are better than fake stories.
-
-CONTEXTUAL RELEVANCE: Only include personal details when they're relevant to the topic:
-- "Son of a mechanic" - ONLY use if topic relates to family, work ethic, blue collar values, or personal background
-- "Can't be put in a box" - ONLY use if topic relates to identity, career pivots, or being multifaceted
-- Don't shoehorn personal details into unrelated topics (e.g., don't mention mechanic dad in a post about supply chains)
-- Each option should feel fresh and directly address the user's topic/context
-
-If the persona uses casual language, USE IT. Do not "clean it up" into formal English."""
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.68 if req.audience == "tech_ai" else 0.85,
-            max_tokens=2000,
-        )
-        
-        # Step 5: Parse and refine options.
-        raw_content = response.choices[0].message.content or ""
-        options = parse_content_options(raw_content)
-        options = refine_generated_options(
-            client=client,
-            topic=req.topic,
-            audience=req.audience,
-            content_type=req.content_type,
-            persona_chunks=persona_chunks,
-            rough_options=options,
-            topic_anchor_chunks=content_context.topic_anchor_chunks,
-            eligible_story_chunks=content_context.story_anchor_chunks,
-            proof_anchor_chunks=content_context.proof_anchor_chunks,
-            grounding_mode=content_context.grounding_mode,
-            grounding_reason=content_context.grounding_reason,
-            framing_modes=content_context.framing_modes,
-            primary_claims=content_context.primary_claims,
-            proof_packets=content_context.proof_packets,
-            story_beats=content_context.story_beats,
-            disallowed_moves=content_context.disallowed_moves,
-        )
-        options = enforce_grounding_on_options(
-            client=client,
-            topic=req.topic,
-            audience=req.audience,
-            content_type=req.content_type,
-            grounding_mode=content_context.grounding_mode,
-            rough_options=options,
-            primary_claims=content_context.primary_claims,
-            proof_packets=content_context.proof_packets,
-            story_beats=content_context.story_beats,
-            framing_modes=content_context.framing_modes,
-        )
-        options = sharpen_editorial_options(
-            client=client,
-            topic=req.topic,
-            audience=req.audience,
-            content_type=req.content_type,
-            grounding_mode=content_context.grounding_mode,
-            persona_chunks=persona_chunks,
-            rough_options=options,
-            primary_claims=content_context.primary_claims,
-            proof_packets=content_context.proof_packets,
-            story_beats=content_context.story_beats,
-            framing_modes=content_context.framing_modes,
-        )
+        if not options:
+            options = _generate_legacy_options(
+                client=client,
+                req=req,
+                content_context=content_context,
+                persona_chunks=persona_chunks,
+                example_chunks=example_chunks,
+            )
+            option_briefs = plan_content_option_briefs(
+                primary_claims=content_context.primary_claims,
+                proof_packets=content_context.proof_packets,
+                story_beats=content_context.story_beats,
+                framing_modes=content_context.framing_modes,
+                option_count=max(len(options), 3),
+            )
+            generation_strategy = "legacy_fallback"
         approved_references = _extract_approved_reference_terms(
             content_context.primary_claims,
             content_context.proof_packets,
@@ -2305,11 +2748,22 @@ If the persona uses casual language, USE IT. Do not "clean it up" into formal En
             examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]],
             diagnostics={
                 "grounding_mode": content_context.grounding_mode,
+                "generation_strategy": generation_strategy,
                 "primary_claims": content_context.primary_claims,
                 "proof_packets": content_context.proof_packets,
                 "approved_references": approved_references,
                 "voice_directives": voice_directives,
                 "option_framing_plan": option_framing_plan,
+                "planned_option_briefs": [
+                    {
+                        "option_number": brief.option_number,
+                        "framing_mode": brief.framing_mode,
+                        "primary_claim": brief.primary_claim,
+                        "proof_packet": brief.proof_packet,
+                        "story_beat": brief.story_beat,
+                    }
+                    for brief in option_briefs
+                ],
                 "topic_anchor_preview": topic_anchor_preview,
                 "core_chunk_preview": core_chunk_preview,
                 "proof_anchor_preview": proof_anchor_preview,

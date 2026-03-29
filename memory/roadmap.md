@@ -133,6 +133,7 @@
 
 ## Persona-Grounded Content Generation
 - Treat persona-to-content quality as a retrieval-and-grounding architecture problem, not a prompt-only problem.
+- Refactor the live content route into a staged planner/writer/critic pipeline so strategy, prose, and genericity control stop competing inside one mega-prompt.
 - Keep a small always-on `core identity` lane for content generation:
   - `identity/claims.md`
   - `identity/philosophy.md`

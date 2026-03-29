@@ -3763,6 +3763,75 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("Agent orchestration is critical for driving results", prompt)
         self.assertIn("Do not borrow facts or named stories", prompt)
 
+    def test_plan_content_option_briefs_preserves_claim_and_proof_pairs(self) -> None:
+        briefs = content_generation_module.plan_content_option_briefs(
+            primary_claims=[
+                "Prompting alone is not an AI strategy.",
+                "If there is no artifact, keep the writing at the level of principle or hypothesis.",
+            ],
+            proof_packets=[
+                "AI Clone / Brain System -> Brain, Ops, planner, and briefs now share the same routed workspace state.",
+            ],
+            story_beats=[],
+            framing_modes=["contrarian_reframe", "operator_lesson", "agree_and_extend"],
+            option_count=3,
+        )
+
+        self.assertEqual(len(briefs), 3)
+        self.assertEqual(briefs[0].primary_claim, "Prompting alone is not an AI strategy.")
+        self.assertEqual(briefs[0].proof_packet, "AI Clone / Brain System -> Brain, Ops, planner, and briefs now share the same routed workspace state.")
+        self.assertEqual(briefs[1].framing_mode, "operator_lesson")
+
+    def test_build_planned_writer_prompt_uses_good_examples_without_avoid_patterns(self) -> None:
+        prompt = content_generation_module.build_planned_writer_prompt(
+            topic="agent orchestration",
+            context="",
+            audience="tech_ai",
+            grounding_mode="proof_ready",
+            grounding_reason="Artifact-backed proof is available.",
+            topic_anchor_chunks=[],
+            proof_anchor_chunks=[],
+            story_anchor_chunks=[],
+            briefs=[
+                content_generation_module.ContentOptionBrief(
+                    option_number=1,
+                    framing_mode="contrarian_reframe",
+                    primary_claim="Prompting alone is not an AI strategy.",
+                    proof_packet="AI Clone / Brain System -> Brain, Ops, planner, and briefs now share the same routed workspace state.",
+                    story_beat="",
+                )
+            ],
+            good_examples=[
+                "Good Examples: Prompting alone is not an AI strategy. Why it works: strategic claim first.",
+            ],
+            voice_directives=["Lead with clarity, not hype."],
+            approved_references=["AI Clone / Brain System"],
+            disallowed_moves=["Do not invent metrics."],
+        )
+
+        self.assertIn("GOOD STYLE REFERENCES", prompt)
+        self.assertIn("Prompting alone is not an AI strategy", prompt)
+        self.assertNotIn("AVOID PATTERN REFERENCES", prompt)
+
+    def test_finalize_planned_options_replaces_flat_opening_with_claim(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, planner, and briefs now share the same routed workspace state.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=["Agent orchestration is critical for driving results.\n\nTeams need more clarity."],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertIn("Prompting alone is not an AI strategy.", finalized[0])
+        self.assertIn("Brain, Ops, planner, and briefs now share the same routed workspace state.", finalized[0])
+
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
         with patch.object(
