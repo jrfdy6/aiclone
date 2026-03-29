@@ -2592,6 +2592,31 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertGreaterEqual(len(proof_chunks), 1)
         self.assertIn("Evidence:", proof_chunks[0].get("chunk", ""))
 
+    def test_select_proof_anchor_chunks_skips_low_focus_numeric_wins_for_operator_topics(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "AI Clone / Brain System. Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance. Value: Proves Johnnie can turn messy AI/operator work into durable operating surfaces that support memory, planning, review, and content generation. Proof: Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views.",
+                "persona_tag": "VENTURES",
+                "metadata": {"prompt_section": "SUPPORTING CANON"},
+            },
+            {
+                "chunk": "Best Practices work improved front row utilization 300% and MC Follow-up 30% while also increasing team participation. Use when: AI systems, workflow clarity, operating cadence, restart-safe execution.",
+                "persona_tag": "EXPERIENCES",
+                "metadata": {"prompt_section": "SUPPORTING CANON"},
+            },
+        ]
+
+        proof_chunks = content_generation_module.select_proof_anchor_chunks(
+            persona_chunks,
+            topic="workflow clarity",
+            audience="tech_ai",
+            limit=4,
+        )
+
+        combined_text = " ".join(chunk.get("chunk", "") for chunk in proof_chunks)
+        self.assertIn("AI Clone / Brain System", combined_text)
+        self.assertNotIn("front row utilization 300%", combined_text)
+
     def test_build_content_prompt_includes_proof_anchors_for_operator_topics(self) -> None:
         persona_chunks = [
             {
@@ -2620,6 +2645,31 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
         self.assertIn("## PROOF ANCHORS:", prompt)
         self.assertIn("Each option must include at least one concrete proof anchor", prompt)
+        self.assertIn("Do not translate one metric into another", prompt)
+
+    def test_build_content_prompt_strips_use_when_from_persona_and_proof_sections(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Unified Brain, Ops, daily briefs, and planner around one shared snapshot contract so operator context travels across the system instead of living in isolated tools. Use when: AI systems, workflow clarity, operating cadence, restart-safe execution.",
+                "persona_tag": "BIO_FACTS",
+                "metadata": {"prompt_section": "CORE CANON"},
+            }
+        ]
+
+        prompt = content_generation_module.build_content_prompt(
+            topic="workflow clarity",
+            context="",
+            content_type="linkedin_post",
+            category="value",
+            pacer_elements=[],
+            tone="expert_direct",
+            persona_chunks=persona_chunks,
+            example_chunks=[],
+            audience="tech_ai",
+        )
+
+        self.assertIn("Unified Brain, Ops, daily briefs, and planner around one shared snapshot contract", prompt)
+        self.assertNotIn("Use when: AI systems, workflow clarity, operating cadence, restart-safe execution.", prompt)
 
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()

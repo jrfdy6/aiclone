@@ -293,6 +293,22 @@ def _chunk_focus_score(chunk: str, focus_terms: set[str], topic: str) -> int:
     return score
 
 
+def _split_use_when_text(chunk: str) -> tuple[str, str]:
+    normalized_chunk = " ".join((chunk or "").split())
+    parts = normalized_chunk.split(" Use when:", 1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return normalized_chunk, ""
+
+
+def _render_anchor_chunk(item: Dict[str, Any], *, include_use_when: bool = False) -> str:
+    chunk = str(item.get("chunk") or "").strip()
+    primary_text, use_when_text = _split_use_when_text(chunk)
+    if include_use_when and use_when_text:
+        return f"{primary_text} Use when: {use_when_text}"
+    return primary_text
+
+
 def select_topic_anchor_chunks(
     persona_chunks: List[Dict[str, Any]],
     *,
@@ -310,7 +326,8 @@ def select_topic_anchor_chunks(
     }
     for item in persona_chunks:
         chunk = str(item.get("chunk") or "")
-        focus_score = _chunk_focus_score(chunk, focus_terms, topic)
+        primary_text, use_when_text = _split_use_when_text(chunk)
+        focus_score = (_chunk_focus_score(primary_text, focus_terms, topic) * 3) + _chunk_focus_score(use_when_text, focus_terms, topic)
         section = str(_item_metadata(item).get("prompt_section") or "RETRIEVAL SUPPORT")
         priority = section_priority.get(section, 0)
         ranked.append((focus_score, priority, item))
@@ -344,8 +361,8 @@ def select_eligible_story_chunks(
             continue
         if tag not in {"EXPERIENCES", "VENTURES"}:
             continue
-        chunk = str(item.get("chunk") or "")
-        score = _chunk_focus_score(chunk, focus_terms, topic)
+        primary_text, use_when_text = _split_use_when_text(str(item.get("chunk") or ""))
+        score = (_chunk_focus_score(primary_text, focus_terms, topic) * 2) + _chunk_focus_score(use_when_text, focus_terms, topic)
         if score <= 0:
             continue
         story_candidates.append((score, item))
@@ -386,18 +403,30 @@ def select_proof_anchor_chunks(
     limit: int = 4,
 ) -> List[Dict[str, Any]]:
     focus_terms = _focus_terms(topic, audience)
-    ranked: List[tuple[int, int, Dict[str, Any]]] = []
+    ranked: List[tuple[int, int, int, Dict[str, Any]]] = []
+    section_priority = {
+        "CORE CANON": 4,
+        "SUPPORTING CANON": 3,
+        "LEGACY SUPPORT": 2,
+        "RETRIEVAL SUPPORT": 1,
+    }
+    minimum_focus = 2 if audience == "tech_ai" else 1
     for item in persona_chunks:
         chunk = str(item.get("chunk") or "")
-        focus_score = _chunk_focus_score(chunk, focus_terms, topic)
-        proof_score = _proof_signal_score(chunk)
+        primary_text, _ = _split_use_when_text(chunk)
+        focus_score = _chunk_focus_score(primary_text, focus_terms, topic)
+        proof_score = _proof_signal_score(primary_text)
         if focus_score <= 0 and proof_score <= 0:
             continue
-        ranked.append((focus_score * 4 + proof_score, proof_score, item))
+        if proof_score > 0 and focus_score < minimum_focus:
+            continue
+        section = str(_item_metadata(item).get("prompt_section") or "RETRIEVAL SUPPORT")
+        priority = section_priority.get(section, 0)
+        ranked.append((focus_score * 4 + proof_score, proof_score, priority, item))
 
     curated: List[Dict[str, Any]] = []
     seen: set[str] = set()
-    for _, _, item in sorted(ranked, key=lambda entry: (entry[0], entry[1]), reverse=True):
+    for _, _, _, item in sorted(ranked, key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True):
         key = _normalized_chunk_key(item)
         if not key or key in seen:
             continue
@@ -448,6 +477,7 @@ def build_proof_guidance(proof_anchor_chunks: List[Dict[str, Any]]) -> str:
                 "- Each option must include at least one concrete proof anchor, named system, metric, or evidence phrase from the PROOF ANCHORS section below.",
                 "- Prefer proof over abstraction: systems, migrations, shipped surfaces, prompting patterns, handoffs, metrics, or role-grounded evidence.",
                 "- Do not make up numbers. If the proof anchor is qualitative, keep it qualitative but concrete.",
+                "- Do not translate one metric into another. Keep the original subject and meaning of every proof anchor intact.",
             ]
         )
     return "\n".join(
@@ -482,14 +512,14 @@ def build_content_prompt(
     topic_anchor_chunks = select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     eligible_story_chunks = select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
     proof_anchor_chunks = select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
-    topic_anchor_text = "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in topic_anchor_chunks) or "- No topic anchors available."
+    topic_anchor_text = "\n".join(f"- {_render_anchor_chunk(item)}" for item in topic_anchor_chunks) or "- No topic anchors available."
     eligible_story_text = (
-        "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in eligible_story_chunks)
+        "\n".join(f"- {_render_anchor_chunk(item, include_use_when=True)}" for item in eligible_story_chunks)
         if eligible_story_chunks
         else "- No directly relevant story anchor found. Do not force one."
     )
     proof_anchor_text = (
-        "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in proof_anchor_chunks)
+        "\n".join(f"- {_render_anchor_chunk(item)}" for item in proof_anchor_chunks)
         if proof_anchor_chunks
         else "- No strong proof anchor found. Stay concrete about process and role."
     )
@@ -505,7 +535,7 @@ def build_content_prompt(
     for c in persona_chunks[:9]:
         tag = str(c.get("persona_tag", "GENERAL")).replace("_", " ").title()
         section = str(_item_metadata(c).get("prompt_section") or "RETRIEVAL SUPPORT")
-        chunk_text = str(c.get("chunk") or "").strip()
+        chunk_text = _render_anchor_chunk(c)
         if not chunk_text:
             continue
         persona_sections.setdefault(section, []).append(f"- [{tag}] {chunk_text}")
@@ -1073,8 +1103,9 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 4. Only use a personal anecdote if it appears in the eligible story/proof anchors above.
 5. If there is no eligible story anchor, stay with proof, principle, and operating insight.
 6. Each option must include at least one concrete proof anchor, named system, or explicit operating signal from the proof anchors above when available.
-7. Be specific and actionable, not generic.
-8. Generate 3 different options with varying hooks/angles.
+7. If you use a metric, keep its original subject intact. Never convert a participation, utilization, or revenue metric into a generic productivity or completion-time claim.
+8. Be specific and actionable, not generic.
+9. Generate 3 different options with varying hooks/angles.
 
 ## ANTI-HALLUCINATION RULES (CRITICAL):
 - ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
@@ -1121,14 +1152,14 @@ def build_refinement_prompt(
     topic_anchor_chunks = select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     eligible_story_chunks = select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
     proof_anchor_chunks = select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
-    topic_anchor_text = "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in topic_anchor_chunks) or "- No topic anchors available."
+    topic_anchor_text = "\n".join(f"- {_render_anchor_chunk(item)}" for item in topic_anchor_chunks) or "- No topic anchors available."
     eligible_story_text = (
-        "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in eligible_story_chunks)
+        "\n".join(f"- {_render_anchor_chunk(item, include_use_when=True)}" for item in eligible_story_chunks)
         if eligible_story_chunks
         else "- No directly relevant story anchor found. Do not force one."
     )
     proof_anchor_text = (
-        "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in proof_anchor_chunks)
+        "\n".join(f"- {_render_anchor_chunk(item)}" for item in proof_anchor_chunks)
         if proof_anchor_chunks
         else "- No strong proof anchor found. Stay concrete about process and role."
     )
@@ -1158,6 +1189,7 @@ REVISION RULES:
 - Every option must be grounded in the topic anchors above.
 - Only use a personal anecdote if it appears in the eligible story / proof anchors above.
 - Each option must include at least one concrete proof anchor, named system, evidence phrase, or metric from the PROOF ANCHORS above when available.
+- Never translate one metric into another. If a proof anchor mentions participation, utilization, or revenue, keep that exact subject or omit the number.
 - If no eligible story anchor exists, do not force a story. Stay with proof, pattern, and operating insight.
 - Replace vague claims with concrete operator language: workflow, handoff, prompt, system, proof, constraint, operating cadence.
 - Cut weak setup lines. Start faster.
