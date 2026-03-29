@@ -281,6 +281,12 @@ type BrainPromotionResponse = {
   committed_target_files?: string[];
 };
 
+type BrainPromotionRerouteResponse = {
+  message?: string;
+  delta: PersonaDeltaEntry;
+  target_file?: string;
+};
+
 type Tab = 'dashboard' | 'briefs' | 'persona' | 'automations' | 'docs';
 
 const API_URL = getApiUrl();
@@ -1076,6 +1082,7 @@ function PersonaPanel({
     message: '',
   });
   const [promotingDeltaId, setPromotingDeltaId] = useState<string | null>(null);
+  const [reroutingDeltaId, setReroutingDeltaId] = useState<string | null>(null);
   const [recentlyQueuedDeltaId, setRecentlyQueuedDeltaId] = useState<string | null>(null);
   const selectedDelta = useMemo(
     () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
@@ -1230,6 +1237,39 @@ function PersonaPanel({
       });
     } finally {
       setPromotingDeltaId(null);
+    }
+  }
+
+  async function reroutePromotion(delta: PersonaDeltaEntry, targetFile: string) {
+    setPromotionState({ tone: 'idle', message: '' });
+    setReroutingDeltaId(delta.id);
+    try {
+      const response = await fetch(`${API_URL}/api/brain/persona-reroute/${delta.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_file: targetFile }),
+      });
+      const payload = (await response.json()) as BrainPromotionRerouteResponse | { detail?: string };
+      if (!response.ok) {
+        throw new Error((payload as { detail?: string }).detail || `Reroute failed with ${response.status}`);
+      }
+      mergeUpdatedDelta((payload as BrainPromotionRerouteResponse).delta);
+      await refreshBrainData();
+      setRecentlyQueuedDeltaId(delta.id);
+      setLifecycleView('pending_promotion');
+      setPromotionState({
+        tone: 'success',
+        message:
+          (payload as BrainPromotionRerouteResponse).message ||
+          `Queued promotion rerouted to ${humanizeTargetFileLabel(targetFile)}. Ready for canon commit.`,
+      });
+    } catch (error) {
+      setPromotionState({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'Unable to reroute this promotion right now.',
+      });
+    } finally {
+      setReroutingDeltaId(null);
     }
   }
 
@@ -1892,7 +1932,7 @@ function PersonaPanel({
               Promotion Queue Updated
             </p>
             <p style={{ color: '#dcfce7', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-              {promotionState.message} It now lives in the <strong>Queued</strong> lane below.
+              {promotionState.message}
             </p>
           </div>
         )}
@@ -2039,22 +2079,42 @@ function PersonaPanel({
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <span style={{ color: '#64748b', fontSize: '11px' }}>{humanizeReviewSource(metadataText(item.metadata, 'review_source'))}</span>
                       {activeLifecycleGroup.key === 'pending_promotion' && (
-                        <button
-                          onClick={() => void commitPromotion(item)}
-                          disabled={promotingDeltaId === item.id || commitDisabled}
-                          style={{
-                            borderRadius: '10px',
-                            border: `1px solid ${commitDisabled ? '#475569' : '#818cf8'}`,
-                            backgroundColor: commitDisabled ? '#0f172a' : promotingDeltaId === item.id ? '#312e81' : '#1e1b4b',
-                            color: commitDisabled ? '#64748b' : 'white',
-                            padding: '8px 10px',
-                            cursor: commitDisabled ? 'not-allowed' : promotingDeltaId === item.id ? 'wait' : 'pointer',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                          }}
-                        >
-                          {commitDisabled ? (gateSummary.decision === 'block' ? 'Blocked' : 'Held') : promotingDeltaId === item.id ? 'Committing…' : 'Commit to canon'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          {gateSummary.alternativeTarget && (
+                            <button
+                              onClick={() => void reroutePromotion(item, gateSummary.alternativeTarget!)}
+                              disabled={Boolean(reroutingDeltaId) || Boolean(promotingDeltaId)}
+                              style={{
+                                borderRadius: '10px',
+                                border: '1px solid #334155',
+                                backgroundColor: reroutingDeltaId === item.id ? '#0f172a' : '#082f49',
+                                color: '#cbd5f5',
+                                padding: '8px 10px',
+                                cursor: reroutingDeltaId || promotingDeltaId ? 'wait' : 'pointer',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {reroutingDeltaId === item.id ? 'Rerouting…' : `Reroute to ${humanizeTargetFileLabel(gateSummary.alternativeTarget)}`}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => void commitPromotion(item)}
+                            disabled={Boolean(reroutingDeltaId) || promotingDeltaId === item.id || commitDisabled}
+                            style={{
+                              borderRadius: '10px',
+                              border: `1px solid ${commitDisabled ? '#475569' : '#818cf8'}`,
+                              backgroundColor: commitDisabled ? '#0f172a' : promotingDeltaId === item.id ? '#312e81' : '#1e1b4b',
+                              color: commitDisabled ? '#64748b' : 'white',
+                              padding: '8px 10px',
+                              cursor: reroutingDeltaId || commitDisabled ? 'not-allowed' : promotingDeltaId === item.id ? 'wait' : 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {commitDisabled ? (gateSummary.decision === 'block' ? 'Blocked' : 'Held') : promotingDeltaId === item.id ? 'Committing…' : 'Commit to canon'}
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2781,6 +2841,17 @@ function summarizePromotionItems(items: PromotionItem[], targetFile: string | nu
 
 function resolvePromotionGate(item: PromotionItem, targetFile: string | null) {
   return inferPromotionGate(item, targetFile);
+}
+
+function humanizeTargetFileLabel(targetFile: string | null) {
+  if (!targetFile) return 'canon target';
+  if (targetFile.includes('identity/claims')) return 'Claims';
+  if (targetFile.includes('identity/VOICE_PATTERNS')) return 'Voice Patterns';
+  if (targetFile.includes('history/story_bank')) return 'Story Bank';
+  if (targetFile.includes('history/initiatives')) return 'Initiatives';
+  if (targetFile.includes('identity/decision_principles')) return 'Decision Principles';
+  if (targetFile.includes('prompts/content_pillars')) return 'Content Pillars';
+  return targetFile;
 }
 
 function hasSelectablePromotionMetadata(metadata: Record<string, unknown> | undefined) {

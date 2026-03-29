@@ -57,3 +57,13 @@ class BrainPersonaReviewRequest(BaseModel):
         if self.mode == "approved" and not self.selected_promotion_items:
             raise ValueError("Select at least one promotion item before approving.")
         return self
+
+
+class BrainPersonaRerouteRequest(BaseModel):
+    target_file: str
+
+    @model_validator(mode="after")
+    def ensure_target_file(self) -> "BrainPersonaRerouteRequest":
+        if not (self.target_file or "").strip():
+            raise ValueError("Provide target_file.")
+        return self

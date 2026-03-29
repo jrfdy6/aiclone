@@ -2125,6 +2125,41 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertEqual((payload.get("overlay_counts") or {}).get("items"), 1)
         self.assertEqual(payload.get("bundle_written_files"), ["identity/claims.md"])
 
+    def test_brain_persona_reroute_route_returns_updated_delta(self) -> None:
+        delta = PersonaDelta(
+            id="delta-route-reroute",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Route-level reroute delta",
+            notes="Original note",
+            status="approved",
+            metadata={
+                "pending_promotion": True,
+                "target_file": "identity/claims.md",
+                "selected_promotion_items": [
+                    {
+                        "id": "claim-1",
+                        "kind": "talking_point",
+                        "label": "Claim",
+                        "content": "Operator clarity matters more than hype.",
+                        "targetFile": "identity/claims.md",
+                    }
+                ],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+        with patch.object(brain_route_module, "reroute_delta_promotion", return_value=delta):
+            response = self.client.post(
+                "/api/brain/persona-reroute/delta-route-reroute",
+                json={"target_file": "identity/claims.md"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("target_file"), "identity/claims.md")
+        self.assertEqual((payload.get("delta") or {}).get("id"), "delta-route-reroute")
+
     def test_persona_bundle_writer_persists_claims_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle_root = Path(temp_dir) / "knowledge" / "persona" / "feeze"
@@ -2195,6 +2230,52 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertEqual(len(extracted), 1)
         self.assertEqual(extracted[0]["gate_decision"], "block")
         self.assertEqual(extracted[0]["proof_strength"], "weak")
+
+    def test_reroute_delta_promotion_updates_target_file_and_selected_items(self) -> None:
+        delta = PersonaDelta(
+            id="delta-reroute",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Weak initiative promotion",
+            notes="Reflective note only",
+            status="approved",
+            metadata={
+                "pending_promotion": True,
+                "target_file": "history/initiatives.md",
+                "selected_promotion_items": [
+                    {
+                        "id": "initiative-weak-1",
+                        "kind": "talking_point",
+                        "label": "Talking point",
+                        "content": "This idea feels important to how I think about AI.",
+                        "targetFile": "history/initiatives.md",
+                        "gateDecision": "block",
+                        "gateReason": "Initiatives canon requires an explicit artifact or output anchor.",
+                    }
+                ],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+
+        def fake_update(delta_id: str, payload):
+            merged = dict(delta.metadata)
+            merged.update(payload.metadata or {})
+            return delta.model_copy(update={"status": payload.status or delta.status, "metadata": merged})
+
+        with patch.object(persona_promotion_module.persona_delta_service, "get_delta", return_value=delta), patch.object(
+            persona_promotion_module.persona_delta_service,
+            "update_delta",
+            side_effect=fake_update,
+        ):
+            updated = persona_promotion_module.reroute_delta_promotion("delta-reroute", target_file="identity/claims.md")
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.status, "approved")
+        self.assertEqual((updated.metadata or {}).get("target_file"), "identity/claims.md")
+        self.assertEqual(((updated.metadata or {}).get("selected_promotion_items") or [{}])[0].get("targetFile"), "identity/claims.md")
+        self.assertEqual(((updated.metadata or {}).get("selected_promotion_items") or [{}])[0].get("gateDecision"), "allow")
+        self.assertEqual((updated.metadata or {}).get("rerouted_from_target_file"), "history/initiatives.md")
 
     def test_persona_bundle_context_retrieves_committed_claim_for_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
