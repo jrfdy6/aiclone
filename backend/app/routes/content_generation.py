@@ -1231,6 +1231,9 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 - Current mode: `{grounding_mode}`
 - {grounding_reason}
 - This mode controls what kind of claim is allowed. Do not upgrade weak support into hard proof.
+- `proof_ready`: use named systems, artifacts, and evidence only from TOPIC / PROOF anchors.
+- `story_supported`: use at most one eligible story and keep it tied to the operating lesson.
+- `principle_only`: do not reach for named projects, employers, metrics, or case studies unless they already appear in the TOPIC anchors.
 
 ## APPROVED FRAMING MODES (preserve the legacy rhetorical edge):
 {framing_modes_text}
@@ -1258,8 +1261,8 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 - If you need a personal story, it must come from the ELIGIBLE STORY / PROOF ANCHORS section above
 - NEVER invent stories about family members, objects, or experiences not in the persona
 - If no relevant anecdote exists, use a general reflection instead of fabricating
-- Real ventures to reference: DEFINE Socks, Acorn Global Collective, Easy Outfit App, Coffee & Convo events
-- Real experiences: neurodivergent students, program launches, Salesforce migrations, team coaching
+- Only reference named ventures, employers, systems, programs, or stories if they appear in the TOPIC / ELIGIBLE STORY / PROOF anchors above
+- Do not reach into broad biography memory for extra names just because they are real somewhere else in the persona bundle
 - Do not borrow a weakly related story just to make the post feel more personal
 
 ## VOICE MARKERS TO USE:

@@ -2618,6 +2618,79 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("drama_tension", context_pack.framing_modes)
         self.assertEqual(context_pack.example_chunks, [legacy_example])
 
+    def test_content_generation_context_service_drops_off_domain_tech_ai_support_and_fails_closed(self) -> None:
+        bundle_chunks = [
+            {
+                "chunk": "Builds and translates AI execution patterns into clear operator guidance.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {
+                    "source": "canonical persona bundle",
+                    "source_kind": "canonical_bundle",
+                    "bundle_path": "identity/philosophy.md",
+                    "file_name": "identity/philosophy.md",
+                    "memory_role": "core",
+                    "proof_strength": "none",
+                    "artifact_backed": False,
+                },
+            },
+            {
+                "chunk": "Salesforce migration across three admissions instances reduced confusion for counselors and program launches.",
+                "persona_tag": "VENTURES",
+                "metadata": {
+                    "source": "canonical persona bundle",
+                    "source_kind": "canonical_bundle",
+                    "bundle_path": "history/initiatives.md",
+                    "file_name": "history/initiatives.md",
+                    "memory_role": "proof",
+                    "proof_strength": "strong",
+                    "artifact_backed": True,
+                },
+            },
+            {
+                "chunk": "At Fordham, clear documentation helped the team stop duplicating work across enrollment seasons.",
+                "persona_tag": "EXPERIENCES",
+                "metadata": {
+                    "source": "canonical persona bundle",
+                    "source_kind": "canonical_bundle",
+                    "bundle_path": "history/story_bank.md",
+                    "file_name": "history/story_bank.md",
+                    "memory_role": "story",
+                    "proof_strength": "medium",
+                    "artifact_backed": False,
+                },
+            },
+        ]
+
+        with patch.object(content_context_service_module, "embed_text", return_value=[0.1, 0.2, 0.3]), patch.object(
+            content_context_service_module,
+            "retrieve_bundle_persona_chunks",
+            return_value=bundle_chunks,
+        ), patch.object(
+            content_context_service_module,
+            "retrieve_weighted",
+            return_value=[],
+        ), patch.object(
+            content_context_service_module,
+            "retrieve_similar",
+            return_value=[],
+        ):
+            context_pack = content_context_service_module.build_content_generation_context(
+                user_id="default-user",
+                topic="agent orchestration",
+                context="",
+                content_type="linkedin_post",
+                category="value",
+                tone="expert_direct",
+                audience="tech_ai",
+            )
+
+        combined_text = " ".join(chunk.get("chunk", "") for chunk in context_pack.persona_chunks)
+        self.assertEqual(context_pack.grounding_mode, "principle_only")
+        self.assertFalse(any("Salesforce migration" in chunk.get("chunk", "") for chunk in context_pack.proof_anchor_chunks))
+        self.assertEqual(context_pack.story_anchor_chunks, [])
+        self.assertNotIn("Salesforce migration", combined_text)
+        self.assertNotIn("Fordham", combined_text)
+
     def test_build_content_prompt_includes_grounding_mode_and_framing_modes(self) -> None:
         persona_chunks = [
             {
@@ -2655,6 +2728,37 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("## APPROVED FRAMING MODES", prompt)
         self.assertIn("`contrarian_reframe`", prompt)
         self.assertIn("`drama_tension`", prompt)
+
+    def test_build_content_prompt_principle_only_mode_forbids_named_case_study_reach(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Builds and translates AI execution patterns into clear operator guidance.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"prompt_section": "CORE CANON", "memory_role": "core"},
+            }
+        ]
+
+        prompt = content_generation_module.build_content_prompt(
+            topic="agent orchestration",
+            context="",
+            content_type="linkedin_post",
+            category="value",
+            pacer_elements=[],
+            tone="expert_direct",
+            persona_chunks=persona_chunks,
+            example_chunks=[],
+            audience="tech_ai",
+            topic_anchor_chunks=persona_chunks,
+            eligible_story_chunks=[],
+            proof_anchor_chunks=[],
+            grounding_mode="principle_only",
+            grounding_reason="No AI/operator proof survived the domain gate, so the post should stay principle-led.",
+            framing_modes=["operator_lesson", "warning"],
+        )
+
+        self.assertIn("`principle_only`", prompt)
+        self.assertIn("do not reach for named projects, employers, metrics, or case studies", prompt.lower())
+        self.assertIn("Only reference named ventures, employers, systems, programs, or stories if they appear in the TOPIC / ELIGIBLE STORY / PROOF anchors above", prompt)
 
     def test_curate_persona_prompt_chunks_orders_core_support_legacy_then_retrieval(self) -> None:
         bundle_chunks = [

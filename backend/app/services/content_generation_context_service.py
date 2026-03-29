@@ -81,6 +81,14 @@ PROOF_KEYWORDS = {
     "systems",
     "workflow",
 }
+AUDIENCE_DOMAIN_PRIORITY = {
+    "tech_ai": {"ai_systems", "operator_workflows", "content_strategy", "identity_core"},
+    "leadership": {"leadership", "systems_operations", "operator_workflows", "identity_core"},
+    "education_admissions": {"education_admissions", "neurodivergent_advocacy", "identity_core"},
+    "fashion": {"fashion_identity", "content_strategy", "identity_core"},
+    "neurodivergent": {"neurodivergent_advocacy", "education_admissions", "identity_core"},
+    "entrepreneurs": {"ai_systems", "content_strategy", "operator_workflows", "identity_core"},
+}
 
 
 @dataclass
@@ -240,6 +248,75 @@ def _hydrate_bundle_chunk(item: dict[str, Any]) -> dict[str, Any]:
     metadata.setdefault("source_lane", "canonical_bundle")
     hydrated["metadata"] = metadata
     return hydrated
+
+
+def _domain_compatibility_score(item: dict[str, Any], *, topic: str, audience: str) -> int:
+    metadata = _item_metadata(item)
+    primary_text, use_when_text = _split_use_when_text(str(item.get("chunk") or ""))
+    focus_terms = _focus_terms(topic, audience)
+    focus_score = (_chunk_focus_score(primary_text, focus_terms, topic) * 2) + _chunk_focus_score(use_when_text, focus_terms, topic)
+    domain_tags = {str(tag) for tag in metadata.get("domain_tags", []) if tag}
+    audience_tags = {str(tag) for tag in metadata.get("audience_tags", []) if tag}
+    allowed_domains = AUDIENCE_DOMAIN_PRIORITY.get(audience, set())
+    score = focus_score
+
+    if audience in audience_tags:
+        score += 2
+    if domain_tags & allowed_domains:
+        score += 3
+    if _passes_audience_anchor_gate(primary_text, audience):
+        score += 3
+    if bool(metadata.get("artifact_backed")):
+        score += 1
+    if str(metadata.get("proof_strength") or "").lower() in {"strong", "medium"}:
+        score += 1
+    return score
+
+
+def _support_chunk_allowed(item: dict[str, Any], *, topic: str, audience: str) -> bool:
+    metadata = _item_metadata(item)
+    memory_role = str(metadata.get("memory_role") or "")
+    if memory_role == "core":
+        return True
+
+    primary_text, _ = _split_use_when_text(str(item.get("chunk") or ""))
+    compatibility_score = _domain_compatibility_score(item, topic=topic, audience=audience)
+    domain_tags = {str(tag) for tag in metadata.get("domain_tags", []) if tag}
+    allowed_domains = AUDIENCE_DOMAIN_PRIORITY.get(audience, set())
+    has_allowed_domain = bool(domain_tags & allowed_domains)
+    passes_anchor_gate = _passes_audience_anchor_gate(primary_text, audience)
+    artifact_backed = bool(metadata.get("artifact_backed"))
+    proof_strength = str(metadata.get("proof_strength") or "").lower()
+
+    if audience == "tech_ai":
+        if memory_role == "proof":
+            return compatibility_score >= 6 and (passes_anchor_gate or has_allowed_domain) and (artifact_backed or proof_strength in {"strong", "medium"})
+        if memory_role == "story":
+            return compatibility_score >= 7 and passes_anchor_gate and (has_allowed_domain or compatibility_score >= 9)
+        if memory_role == "ambient":
+            return compatibility_score >= 8 and passes_anchor_gate and has_allowed_domain
+        return compatibility_score >= 6 and (passes_anchor_gate or has_allowed_domain)
+
+    if memory_role == "proof":
+        return compatibility_score >= 4
+    if memory_role == "story":
+        return compatibility_score >= 3
+    if memory_role == "ambient":
+        return compatibility_score >= 3
+    return compatibility_score >= 3
+
+
+def filter_persona_chunks_for_domain(
+    persona_chunks: list[dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for item in persona_chunks:
+        if _support_chunk_allowed(item, topic=topic, audience=audience):
+            filtered.append(item)
+    return filtered
 
 
 def curate_persona_prompt_chunks(
@@ -506,6 +583,7 @@ def score_grounding_confidence(
     *,
     proof_anchor_chunks: list[dict[str, Any]],
     story_anchor_chunks: list[dict[str, Any]],
+    audience: str,
 ) -> tuple[str, str]:
     strong_or_medium_proof = [
         item
@@ -515,8 +593,15 @@ def score_grounding_confidence(
     ]
     if strong_or_medium_proof:
         return ("proof_ready", "Artifact-backed proof is available, so the post can lead with real evidence.")
-    if story_anchor_chunks:
+    story_supported = [
+        item
+        for item in story_anchor_chunks
+        if _proof_signal_score(str(item.get("chunk") or "")) > 0 or audience != "tech_ai"
+    ]
+    if story_supported:
         return ("story_supported", "Relevant lived experience exists, but proof is weaker than the story support.")
+    if audience == "tech_ai":
+        return ("principle_only", "No AI/operator proof survived the domain gate, so the post should stay principle-led.")
     return ("principle_only", "No strong proof or story support was found, so the post should stay principle-led.")
 
 
@@ -602,6 +687,11 @@ def build_content_generation_context(
         retrieved_chunks=retrieved_persona_chunks,
         top_k=9,
     )
+    persona_chunks = filter_persona_chunks_for_domain(
+        persona_chunks,
+        topic=topic,
+        audience=audience,
+    )
 
     topic_anchor_chunks = select_topic_anchor_chunks(
         persona_chunks,
@@ -640,6 +730,7 @@ def build_content_generation_context(
     grounding_mode, grounding_reason = score_grounding_confidence(
         proof_anchor_chunks=proof_anchor_chunks,
         story_anchor_chunks=story_anchor_chunks,
+        audience=audience,
     )
     framing_modes = recommend_framing_modes(
         topic=topic,
