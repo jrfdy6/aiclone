@@ -255,6 +255,14 @@ type PromotionItem = {
   gateReason: string | null;
 };
 
+type PromotionGateSummary = {
+  decision: PromotionItemGateDecision;
+  reason: string | null;
+  proofStrength: PromotionItemProofStrength;
+  alternativeTarget: string | null;
+  selectedCount: number;
+};
+
 type CaptureResponsePayload = {
   capture_id: string;
   chunk_ids: string[];
@@ -1097,6 +1105,10 @@ function PersonaPanel({
     () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
     [selectableItems, selectedPromotionItemIds],
   );
+  const selectedPromotionGate = useMemo(
+    () => summarizePromotionItems(selectedPromotionItems, targetFile),
+    [selectedPromotionItems, targetFile],
+  );
   const pendingCount = primaryActiveReviewDeltas.length;
   const totalPendingCount = scoredActiveReviewDeltas.length;
   const mutedCount = mutedActiveReviewDeltas.length;
@@ -1179,6 +1191,17 @@ function PersonaPanel({
   }, [selectedDelta?.id, selectedDelta?.metadata]);
 
   async function commitPromotion(delta: PersonaDeltaEntry) {
+    const gateSummary = summarizePromotionItems(readPromotionItemsFromMetadata(delta.metadata), metadataText(delta.metadata, 'target_file'));
+    if (gateSummary.decision !== 'allow') {
+      setPromotionState({
+        tone: 'error',
+        message:
+          gateSummary.decision === 'block'
+            ? gateSummary.reason || 'This queued item is blocked from canon until it has a real artifact/output anchor.'
+            : gateSummary.reason || 'This queued item is held until the proof is stronger.',
+      });
+      return;
+    }
     setPromotionState({ tone: 'idle', message: '' });
     setPromotingDeltaId(delta.id);
     try {
@@ -1308,7 +1331,10 @@ function PersonaPanel({
           setLifecycleView('pending_promotion');
           setPromotionState({
             tone: 'success',
-            message: `Queued for promotion: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}".`,
+            message:
+              selectedPromotionGate.decision === 'allow'
+                ? `Queued for promotion: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}". Ready for canon commit.`
+                : `Queued for promotion: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}". ${selectedPromotionGate.reason || 'This still needs stronger artifact-backed proof before it can be committed.'}`,
           });
         } else {
           setPromotionState({ tone: 'idle', message: '' });
@@ -1607,10 +1633,24 @@ function PersonaPanel({
                                   <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, overflowWrap: 'anywhere', wordBreak: 'break-word', margin: 0 }}>
                                     {item.label}
                                   </p>
-                                  <InlineBadge label={humanizePromotionKind(item.kind)} tone="#64748b" />
+                                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                    <InlineBadge label={humanizePromotionKind(item.kind)} tone="#64748b" />
+                                    <InlineBadge label={humanizeGateDecision(resolvePromotionGate(item, targetFile).decision)} tone={gateDecisionTone(resolvePromotionGate(item, targetFile).decision)} />
+                                    <InlineBadge label={`proof ${item.proofStrength}`} tone={proofStrengthTone(item.proofStrength)} />
+                                  </div>
                                 </div>
                                 <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.5, overflowWrap: 'anywhere', wordBreak: 'break-word', margin: 0 }}>{item.content}</p>
+                                {item.artifactSummary && (
+                                  <p style={{ color: '#94a3b8', fontSize: '12px', margin: '6px 0 0', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                                    Artifact: {item.artifactSummary}
+                                  </p>
+                                )}
                                 {item.evidence && <p style={{ color: '#64748b', fontSize: '12px', margin: '6px 0 0', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>Evidence: {item.evidence}</p>}
+                                {resolvePromotionGate(item, targetFile).reason && (
+                                  <p style={{ color: gateDecisionTone(resolvePromotionGate(item, targetFile).decision), fontSize: '12px', margin: '6px 0 0', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                                    {resolvePromotionGate(item, targetFile).reason}
+                                  </p>
+                                )}
                               </div>
                             </div>
                           </label>
@@ -1672,6 +1712,32 @@ function PersonaPanel({
               <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                 {selectableItems.length > 0 ? 'You can also mark canonical fragments from the center panel if any deserve to be promoted later.' : 'This item is review-only for now. Focus on your actual take, not promotion.'}
               </div>
+
+              {selectedPromotionItems.length > 0 && (
+                <div
+                  style={{
+                    borderRadius: '12px',
+                    border: `1px solid ${gateDecisionTone(selectedPromotionGate.decision)}55`,
+                    backgroundColor: `${gateDecisionTone(selectedPromotionGate.decision)}12`,
+                    padding: '12px',
+                    color: '#cbd5f5',
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    <InlineBadge label={humanizeGateDecision(selectedPromotionGate.decision)} tone={gateDecisionTone(selectedPromotionGate.decision)} />
+                    <InlineBadge label={`${selectedPromotionGate.selectedCount} selected`} tone="#818cf8" />
+                    <InlineBadge label={`proof ${selectedPromotionGate.proofStrength}`} tone={proofStrengthTone(selectedPromotionGate.proofStrength)} />
+                  </div>
+                  <p style={{ color: '#dbe7ff', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                    {selectedPromotionGate.reason || 'These selected fragments are ready for canon review.'}
+                  </p>
+                  {selectedPromotionGate.alternativeTarget && (
+                    <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: '8px 0 0' }}>
+                      Better fit if you want to preserve the idea now: {selectedPromotionGate.alternativeTarget}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {savedResponseExcerpt && (
                 <div
@@ -1906,6 +1972,11 @@ function PersonaPanel({
                 <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this state right now.</p>
               ) : (
                 activeLifecycleGroup.items.slice(0, 12).map((item) => (
+                  (() => {
+                    const queuedItems = readPromotionItemsFromMetadata(item.metadata);
+                    const gateSummary = summarizePromotionItems(queuedItems, metadataText(item.metadata, 'target_file'));
+                    const commitDisabled = activeLifecycleGroup.key === 'pending_promotion' && gateSummary.decision !== 'allow';
+                    return (
                   <div
                     key={item.id}
                     style={{
@@ -1923,6 +1994,7 @@ function PersonaPanel({
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
                         <InlineBadge label="just queued" tone="#38bdf8" />
                         <InlineBadge label={`${metadataArray(item.metadata, 'selected_promotion_items').length} selected`} tone="#f59e0b" />
+                        <InlineBadge label={humanizeGateDecision(gateSummary.decision)} tone={gateDecisionTone(gateSummary.decision)} />
                       </div>
                     )}
                     {metadataText(item.metadata, 'owner_response_excerpt') && (
@@ -1940,28 +2012,54 @@ function PersonaPanel({
                         </p>
                       </div>
                     )}
+                    {activeLifecycleGroup.key === 'pending_promotion' && (
+                      <div
+                        style={{
+                          marginBottom: '8px',
+                          padding: '8px 10px',
+                          borderRadius: '10px',
+                          border: `1px solid ${gateDecisionTone(gateSummary.decision)}44`,
+                          backgroundColor: `${gateDecisionTone(gateSummary.decision)}12`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                          <InlineBadge label={humanizeGateDecision(gateSummary.decision)} tone={gateDecisionTone(gateSummary.decision)} />
+                          <InlineBadge label={`proof ${gateSummary.proofStrength}`} tone={proofStrengthTone(gateSummary.proofStrength)} />
+                        </div>
+                        <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                          {gateSummary.reason || 'This queued item is ready to commit to canon.'}
+                        </p>
+                        {gateSummary.alternativeTarget && (
+                          <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: '6px 0 0' }}>
+                            Better fit right now: {gateSummary.alternativeTarget}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <span style={{ color: '#64748b', fontSize: '11px' }}>{humanizeReviewSource(metadataText(item.metadata, 'review_source'))}</span>
                       {activeLifecycleGroup.key === 'pending_promotion' && (
                         <button
                           onClick={() => void commitPromotion(item)}
-                          disabled={promotingDeltaId === item.id}
+                          disabled={promotingDeltaId === item.id || commitDisabled}
                           style={{
                             borderRadius: '10px',
-                            border: '1px solid #818cf8',
-                            backgroundColor: promotingDeltaId === item.id ? '#312e81' : '#1e1b4b',
-                            color: 'white',
+                            border: `1px solid ${commitDisabled ? '#475569' : '#818cf8'}`,
+                            backgroundColor: commitDisabled ? '#0f172a' : promotingDeltaId === item.id ? '#312e81' : '#1e1b4b',
+                            color: commitDisabled ? '#64748b' : 'white',
                             padding: '8px 10px',
-                            cursor: promotingDeltaId === item.id ? 'wait' : 'pointer',
+                            cursor: commitDisabled ? 'not-allowed' : promotingDeltaId === item.id ? 'wait' : 'pointer',
                             fontSize: '12px',
                             fontWeight: 600,
                           }}
                         >
-                          {promotingDeltaId === item.id ? 'Committing…' : 'Commit to canon'}
+                          {commitDisabled ? (gateSummary.decision === 'block' ? 'Blocked' : 'Held') : promotingDeltaId === item.id ? 'Committing…' : 'Commit to canon'}
                         </button>
                       )}
                     </div>
                   </div>
+                    );
+                  })()
                 ))
               )}
             </div>
@@ -2576,6 +2674,113 @@ function humanizePromotionKind(kind: PromotionItemKind) {
     default:
       return kind;
   }
+}
+
+function humanizeGateDecision(decision: PromotionItemGateDecision) {
+  if (decision === 'allow') return 'Allowed';
+  if (decision === 'hold') return 'Held';
+  if (decision === 'block') return 'Blocked';
+  return 'Pending';
+}
+
+function gateDecisionTone(decision: PromotionItemGateDecision) {
+  if (decision === 'allow') return '#22c55e';
+  if (decision === 'hold') return '#f59e0b';
+  if (decision === 'block') return '#f87171';
+  return '#64748b';
+}
+
+function proofStrengthTone(strength: PromotionItemProofStrength) {
+  if (strength === 'strong') return '#22c55e';
+  if (strength === 'weak') return '#f59e0b';
+  return '#64748b';
+}
+
+function inferPromotionGate(item: PromotionItem, targetFile: string | null): { decision: PromotionItemGateDecision; reason: string | null } {
+  const effectiveTarget = item.targetFile ?? targetFile;
+  const explicitDecision = item.gateDecision;
+  if (effectiveTarget?.includes('history/initiatives')) {
+    const hasArtifactAnchor = Boolean(item.artifactSummary || item.artifactRef || item.artifactKind);
+    if (explicitDecision === 'allow' && hasArtifactAnchor && item.proofStrength === 'strong') {
+      return { decision: 'allow', reason: item.gateReason || 'Artifact-backed proof is present.' };
+    }
+    if (explicitDecision === 'hold' && hasArtifactAnchor) {
+      return { decision: 'hold', reason: item.gateReason || 'Artifact anchor exists, but the proof is not strong enough yet.' };
+    }
+    if (explicitDecision === 'block' && !hasArtifactAnchor) {
+      return { decision: 'block', reason: item.gateReason || 'Initiatives canon requires a visible artifact, output, or metric.' };
+    }
+    if (hasArtifactAnchor && item.proofStrength === 'strong') {
+      return { decision: 'allow', reason: item.gateReason || 'Artifact-backed proof is present.' };
+    }
+    if (hasArtifactAnchor) {
+      return { decision: 'hold', reason: item.gateReason || 'Artifact anchor exists, but the proof is still weak.' };
+    }
+    return { decision: 'block', reason: item.gateReason || 'Initiatives canon requires a visible artifact, output, or metric.' };
+  }
+  return {
+    decision: explicitDecision === 'hold' || explicitDecision === 'block' || explicitDecision === 'allow' ? explicitDecision : 'allow',
+    reason: item.gateReason,
+  };
+}
+
+function suggestAlternativeTarget(item: PromotionItem, targetFile: string | null) {
+  const effectiveTarget = item.targetFile ?? targetFile;
+  if (!effectiveTarget?.includes('history/initiatives')) {
+    return null;
+  }
+  if (item.kind === 'anecdote') return 'history/story_bank.md';
+  if (item.kind === 'phrase_candidate') return 'identity/VOICE_PATTERNS.md';
+  return 'identity/claims.md';
+}
+
+function summarizePromotionItems(items: PromotionItem[], targetFile: string | null): PromotionGateSummary {
+  if (items.length === 0) {
+    return {
+      decision: 'pending',
+      reason: 'Select at least one fragment to see whether canon commit is allowed.',
+      proofStrength: 'none',
+      alternativeTarget: null,
+      selectedCount: 0,
+    };
+  }
+  const assessed = items.map((item) => ({ item, gate: inferPromotionGate(item, targetFile) }));
+  const strongestProof = assessed.reduce<PromotionItemProofStrength>((current, entry) => {
+    if (entry.item.proofStrength === 'strong') return 'strong';
+    if (entry.item.proofStrength === 'weak' && current === 'none') return 'weak';
+    return current;
+  }, 'none');
+  const block = assessed.find((entry) => entry.gate.decision === 'block');
+  if (block) {
+    return {
+      decision: 'block',
+      reason: block.gate.reason,
+      proofStrength: strongestProof,
+      alternativeTarget: suggestAlternativeTarget(block.item, targetFile),
+      selectedCount: items.length,
+    };
+  }
+  const hold = assessed.find((entry) => entry.gate.decision === 'hold');
+  if (hold) {
+    return {
+      decision: 'hold',
+      reason: hold.gate.reason,
+      proofStrength: strongestProof,
+      alternativeTarget: suggestAlternativeTarget(hold.item, targetFile),
+      selectedCount: items.length,
+    };
+  }
+  return {
+    decision: 'allow',
+    reason: assessed.find((entry) => entry.gate.reason)?.gate.reason || 'These selected fragments are ready for canon commit.',
+    proofStrength: strongestProof,
+    alternativeTarget: null,
+    selectedCount: items.length,
+  };
+}
+
+function resolvePromotionGate(item: PromotionItem, targetFile: string | null) {
+  return inferPromotionGate(item, targetFile);
 }
 
 function hasSelectablePromotionMetadata(metadata: Record<string, unknown> | undefined) {
