@@ -2555,6 +2555,33 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertEqual(claims, ["CEO prompting plus agent usage makes AI success 5.2x more likely."])
         self.assertEqual(packets, ["CEO prompting plus agent usage makes AI success 5.2x more likely."])
 
+    def test_content_generation_context_prefers_claim_like_topic_anchor_over_metric_proof(self) -> None:
+        claims = content_context_service_module._extract_primary_claims(
+            topic_anchor_chunks=[
+                {
+                    "chunk": "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone. Evidence: Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+                    "metadata": {"memory_role": "core"},
+                }
+            ],
+            proof_anchor_chunks=[
+                {
+                    "chunk": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                    "metadata": {"memory_role": "proof"},
+                }
+            ],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertGreaterEqual(len(claims), 2)
+        self.assertEqual(
+            claims[0],
+            "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+        )
+        self.assertEqual(
+            claims[1],
+            "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+        )
+
     def test_extract_approved_reference_terms_prefers_labels_and_evidence_phrases(self) -> None:
         approved = content_generation_module._extract_approved_reference_terms(
             primary_claims=[

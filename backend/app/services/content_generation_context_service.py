@@ -519,19 +519,93 @@ def _extract_claim_text_from_chunk(chunk: str) -> str:
     return sentences[0].strip(" .") + "."
 
 
+def _is_metric_led_claim(text: str) -> bool:
+    normalized = " ".join((text or "").split()).strip().lower()
+    if not normalized:
+        return False
+    if re.search(r"\b\d", normalized):
+        return True
+    return any(
+        phrase in normalized
+        for phrase in (
+            "% more likely",
+            "x more likely",
+            "trust ai outputs",
+            "trust ai output",
+            "5.2x",
+            "65%",
+        )
+    )
+
+
+def _claim_candidate_score(item: dict[str, Any], text: str, *, source_priority: int) -> int:
+    metadata = _item_metadata(item)
+    memory_role = str(metadata.get("memory_role") or "ambient")
+    score = source_priority
+    if memory_role == "core":
+        score += 8
+    elif memory_role == "proof":
+        score += 6
+    elif memory_role == "story":
+        score += 2
+    if not _is_metric_led_claim(text):
+        score += 7
+    else:
+        score -= 4
+    normalized = text.lower()
+    if any(term in normalized for term in ("agent", "prompt", "workflow", "clarity", "operator", "system", "orchestration")):
+        score += 2
+    if 6 <= len(text.split()) <= 28:
+        score += 1
+    return score
+
+
 def _extract_primary_claims(
     *,
     topic_anchor_chunks: list[dict[str, Any]],
     proof_anchor_chunks: list[dict[str, Any]],
     grounding_mode: str,
 ) -> list[str]:
+    ranked: list[tuple[int, str]] = []
+    ordered_groups = (
+        [(topic_anchor_chunks, 10), (proof_anchor_chunks, 6)]
+        if grounding_mode == "proof_ready"
+        else [(topic_anchor_chunks, 10), (proof_anchor_chunks, 5)]
+    )
+    for source_chunks, source_priority in ordered_groups:
+        for item in source_chunks:
+            text = _extract_claim_text_from_chunk(str(item.get("chunk") or ""))
+            if not text:
+                continue
+            ranked.append((_claim_candidate_score(item, text, source_priority=source_priority), text))
     candidates: list[str] = []
-    source_chunks = proof_anchor_chunks + topic_anchor_chunks if grounding_mode == "proof_ready" else topic_anchor_chunks + proof_anchor_chunks
-    for item in source_chunks:
-        text = _extract_claim_text_from_chunk(str(item.get("chunk") or ""))
-        if text:
-            candidates.append(text)
+    for _, text in sorted(ranked, key=lambda entry: entry[0], reverse=True):
+        candidates.append(text)
     return _dedupe_texts(candidates, limit=3)
+
+
+def _proof_packet_evidence_text(packet: str) -> str:
+    parts = (packet or "").split("->", 1)
+    if len(parts) == 2:
+        return parts[1].strip()
+    return (packet or "").strip()
+
+
+def _build_persona_context_summary(
+    *,
+    primary_claims: list[str],
+    proof_packets: list[str],
+    persona_chunks: list[dict[str, Any]],
+    topic: str,
+) -> str | None:
+    if primary_claims:
+        summary = primary_claims[0]
+        if proof_packets:
+            proof_text = _proof_packet_evidence_text(proof_packets[0]).strip()
+            if proof_text and proof_text.lower() != summary.strip().lower():
+                summary = f"{summary} Proof: {proof_text}"
+        return summary[:220]
+    return summarize_persona_context(persona_chunks, topic)
 
 
 def _extract_proof_packets(proof_anchor_chunks: list[dict[str, Any]]) -> list[str]:
@@ -906,5 +980,10 @@ def build_content_generation_context(
         proof_packets=proof_packets,
         story_beats=story_beats,
         disallowed_moves=disallowed_moves,
-        persona_context_summary=summarize_persona_context(persona_chunks, topic),
+        persona_context_summary=_build_persona_context_summary(
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            persona_chunks=persona_chunks,
+            topic=topic,
+        ),
     )
