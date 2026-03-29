@@ -22,12 +22,33 @@ class BrainLongFormIngestRequest(BaseModel):
         return self
 
 
+class PromotionItemPayload(BaseModel):
+    id: str
+    kind: Literal["talking_point", "framework", "anecdote", "phrase_candidate", "stat"]
+    label: str
+    content: str
+    evidence: str | None = None
+    targetFile: str | None = None
+    artifactSummary: str | None = None
+    artifactKind: str | None = None
+    artifactRef: str | None = None
+    deltaSummary: str | None = None
+    reviewInterpretation: str | None = None
+    capabilitySignal: str | None = None
+    positioningSignal: str | None = None
+    leverageSignal: str | None = None
+    proofSignal: str | None = None
+    proofStrength: Literal["none", "weak", "strong"] = "none"
+    gateDecision: Literal["pending", "allow", "hold", "block"] = "pending"
+    gateReason: str | None = None
+
+
 class BrainPersonaReviewRequest(BaseModel):
     mode: Literal["reviewed", "approved"] = "reviewed"
     response_kind: Literal["agree", "disagree", "nuance", "story", "language"] = "nuance"
     reflection_excerpt: str
     resolution_capture_id: str | None = None
-    selected_promotion_items: list[dict] = []
+    selected_promotion_items: list[PromotionItemPayload] = []
 
     @model_validator(mode="after")
     def ensure_reflection_and_selection(self) -> "BrainPersonaReviewRequest":

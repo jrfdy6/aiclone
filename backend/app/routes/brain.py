@@ -60,7 +60,7 @@ async def submit_brain_persona_review(delta_id: str, payload: BrainPersonaReview
             response_kind=payload.response_kind,
             reflection_excerpt=payload.reflection_excerpt,
             resolution_capture_id=payload.resolution_capture_id,
-            selected_promotion_items=payload.selected_promotion_items,
+            selected_promotion_items=[item.model_dump(exclude_none=True) for item in payload.selected_promotion_items],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

@@ -33,6 +33,20 @@ def normalize_promotion_item(item: dict[str, Any], delta: PersonaDelta) -> dict[
         return None
 
     evidence = str(item.get("evidence") or metadata_text(metadata, "owner_response_excerpt") or delta.notes or "").strip()
+    artifact_summary = str(item.get("artifactSummary") or "").strip() or None
+    artifact_kind = str(item.get("artifactKind") or "").strip() or None
+    artifact_ref = str(item.get("artifactRef") or "").strip() or None
+    delta_summary = str(item.get("deltaSummary") or delta.trait or "").strip() or None
+    review_interpretation = str(
+        item.get("reviewInterpretation") or metadata_text(metadata, "owner_response_excerpt") or delta.notes or ""
+    ).strip() or None
+    capability_signal = str(item.get("capabilitySignal") or "").strip() or None
+    positioning_signal = str(item.get("positioningSignal") or "").strip() or None
+    leverage_signal = str(item.get("leverageSignal") or "").strip() or None
+    proof_signal = str(item.get("proofSignal") or evidence or "").strip() or None
+    proof_strength = str(item.get("proofStrength") or ("strong" if str(item.get("kind") or "") == "stat" else "weak" if evidence else "none")).strip() or "none"
+    gate_decision = str(item.get("gateDecision") or "pending").strip() or "pending"
+    gate_reason = str(item.get("gateReason") or "").strip() or None
     return {
         "id": str(item.get("id") or f"{delta.id}:{target_file}:{content[:32]}").strip(),
         "kind": str(item.get("kind") or "talking_point").strip() or "talking_point",
@@ -40,6 +54,18 @@ def normalize_promotion_item(item: dict[str, Any], delta: PersonaDelta) -> dict[
         "content": content,
         "evidence": evidence or None,
         "target_file": target_file,
+        "artifact_summary": artifact_summary,
+        "artifact_kind": artifact_kind,
+        "artifact_ref": artifact_ref,
+        "delta_summary": delta_summary,
+        "review_interpretation": review_interpretation,
+        "capability_signal": capability_signal,
+        "positioning_signal": positioning_signal,
+        "leverage_signal": leverage_signal,
+        "proof_signal": proof_signal,
+        "proof_strength": proof_strength,
+        "gate_decision": gate_decision,
+        "gate_reason": gate_reason,
         "source_delta_id": delta.id,
         "trait": delta.trait,
         "owner_response_kind": metadata_text(metadata, "owner_response_kind"),

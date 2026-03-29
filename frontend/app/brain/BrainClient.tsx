@@ -231,6 +231,8 @@ type BrainLongFormIngestForm = {
 };
 
 type PromotionItemKind = 'talking_point' | 'framework' | 'anecdote' | 'phrase_candidate' | 'stat';
+type PromotionItemProofStrength = 'none' | 'weak' | 'strong';
+type PromotionItemGateDecision = 'pending' | 'allow' | 'hold' | 'block';
 
 type PromotionItem = {
   id: string;
@@ -239,6 +241,18 @@ type PromotionItem = {
   content: string;
   evidence: string | null;
   targetFile: string | null;
+  artifactSummary: string | null;
+  artifactKind: string | null;
+  artifactRef: string | null;
+  deltaSummary: string | null;
+  reviewInterpretation: string | null;
+  capabilitySignal: string | null;
+  positioningSignal: string | null;
+  leverageSignal: string | null;
+  proofSignal: string | null;
+  proofStrength: PromotionItemProofStrength;
+  gateDecision: PromotionItemGateDecision;
+  gateReason: string | null;
 };
 
 type CaptureResponsePayload = {
@@ -2434,16 +2448,35 @@ function buildPromotionItems(delta: PersonaDeltaEntry | null, targetFile: string
     return [];
   }
   const items: PromotionItem[] = [];
+  const deltaSummary = delta.trait?.trim() || null;
+  const reviewInterpretation = metadataText(delta.metadata, 'owner_response_excerpt') ?? delta.notes?.trim() ?? null;
   const pushItem = (kind: PromotionItemKind, label: string, content: string, evidence?: string | null) => {
     const normalizedContent = content.trim();
     if (!normalizedContent) return;
+    const normalizedEvidence = evidence?.trim() || null;
+    const proofStrength: PromotionItemProofStrength = kind === 'stat' ? 'strong' : normalizedEvidence ? 'weak' : 'none';
+    const artifactSummary = kind === 'stat' ? normalizedContent : null;
+    const artifactKind = kind === 'stat' ? 'metric_or_proof_point' : null;
+    const proofSignal = kind === 'stat' ? normalizedContent : normalizedEvidence;
     items.push({
       id: stablePromotionItemId(kind, label, normalizedContent),
       kind,
       label,
       content: normalizedContent,
-      evidence: evidence?.trim() || null,
+      evidence: normalizedEvidence,
       targetFile,
+      artifactSummary,
+      artifactKind,
+      artifactRef: null,
+      deltaSummary,
+      reviewInterpretation,
+      capabilitySignal: null,
+      positioningSignal: null,
+      leverageSignal: null,
+      proofSignal,
+      proofStrength,
+      gateDecision: 'pending',
+      gateReason: null,
     });
   };
 
@@ -2507,6 +2540,21 @@ function readPromotionItemsFromMetadata(metadata: Record<string, unknown> | unde
         content,
         evidence: typeof record.evidence === 'string' ? record.evidence : null,
         targetFile: typeof record.targetFile === 'string' ? record.targetFile : null,
+        artifactSummary: typeof record.artifactSummary === 'string' ? record.artifactSummary : null,
+        artifactKind: typeof record.artifactKind === 'string' ? record.artifactKind : null,
+        artifactRef: typeof record.artifactRef === 'string' ? record.artifactRef : null,
+        deltaSummary: typeof record.deltaSummary === 'string' ? record.deltaSummary : null,
+        reviewInterpretation: typeof record.reviewInterpretation === 'string' ? record.reviewInterpretation : null,
+        capabilitySignal: typeof record.capabilitySignal === 'string' ? record.capabilitySignal : null,
+        positioningSignal: typeof record.positioningSignal === 'string' ? record.positioningSignal : null,
+        leverageSignal: typeof record.leverageSignal === 'string' ? record.leverageSignal : null,
+        proofSignal: typeof record.proofSignal === 'string' ? record.proofSignal : null,
+        proofStrength: record.proofStrength === 'weak' || record.proofStrength === 'strong' ? record.proofStrength : 'none',
+        gateDecision:
+          record.gateDecision === 'allow' || record.gateDecision === 'hold' || record.gateDecision === 'block'
+            ? record.gateDecision
+            : 'pending',
+        gateReason: typeof record.gateReason === 'string' ? record.gateReason : null,
       } satisfies PromotionItem;
     })
     .filter((item): item is PromotionItem => item !== null);

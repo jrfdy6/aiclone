@@ -32,6 +32,7 @@ brain_route_module = importlib.import_module("app.routes.brain")
 content_generation_module = importlib.import_module("app.routes.content_generation")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 persona_promotion_module = importlib.import_module("app.services.persona_promotion_service")
+persona_promotion_utils_module = importlib.import_module("app.services.persona_promotion_utils")
 belief_engine_module = importlib.import_module("app.services.social_belief_engine")
 persona_bundle_writer_module = importlib.import_module("app.services.persona_bundle_writer")
 persona_bundle_context_module = importlib.import_module("app.services.persona_bundle_context_service")
@@ -1912,6 +1913,57 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertEqual((payload.get("metadata") or {}).get("owner_response_kind"), "agree")
         self.assertIn("queue_stage", payload.get("metadata") or {})
 
+    def test_brain_persona_review_route_preserves_semantic_promotion_fields(self) -> None:
+        delta = PersonaDelta(
+            id="delta-route-review-semantic",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Semantic review delta",
+            notes="Original note",
+            status="in_review",
+            metadata={},
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+        with patch.object(brain_route_module.persona_delta_service, "apply_brain_review", return_value=delta) as apply_review:
+            response = self.client.post(
+                "/api/brain/persona-review/delta-route-review-semantic",
+                json={
+                    "mode": "approved",
+                    "response_kind": "nuance",
+                    "reflection_excerpt": "This reflects a real shipped capability.",
+                    "resolution_capture_id": "capture-789",
+                    "selected_promotion_items": [
+                        {
+                            "id": "initiative-1",
+                            "kind": "stat",
+                            "label": "Proof point",
+                            "content": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                            "evidence": "Artifact-backed proof from the review source.",
+                            "targetFile": "history/initiatives.md",
+                            "artifactSummary": "Shipped AI operating pattern with quantified success signal.",
+                            "artifactKind": "metric_or_proof_point",
+                            "artifactRef": "youtube:P5Yznr8Duj4",
+                            "deltaSummary": "Promotion candidate for initiatives canon.",
+                            "reviewInterpretation": "This proves a durable operator capability.",
+                            "capabilitySignal": "Can translate AI execution into operator language.",
+                            "positioningSignal": "AI systems operator with real implementation judgment.",
+                            "leverageSignal": "Supports future content and positioning around workflow clarity.",
+                            "proofSignal": "5.2x success signal tied to visible prompting/agent usage.",
+                            "proofStrength": "strong",
+                            "gateDecision": "allow",
+                            "gateReason": "Artifact-backed proof is present.",
+                        }
+                    ],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        sent_items = apply_review.call_args.kwargs["selected_promotion_items"]
+        self.assertEqual(sent_items[0]["artifactSummary"], "Shipped AI operating pattern with quantified success signal.")
+        self.assertEqual(sent_items[0]["proofStrength"], "strong")
+        self.assertEqual(sent_items[0]["gateDecision"], "allow")
+
     def test_promote_delta_to_canon_marks_delta_committed(self) -> None:
         delta = PersonaDelta(
             id="delta-promote",
@@ -1959,6 +2011,52 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertEqual((updated.metadata or {}).get("committed_item_count"), 1)
         self.assertEqual((updated.metadata or {}).get("bundle_written_files"), ["identity/claims.md"])
         self.assertEqual(((updated.metadata or {}).get("local_bundle_sync") or {}).get("state"), "pending")
+
+    def test_normalize_selected_promotion_items_preserves_semantic_slots(self) -> None:
+        delta = PersonaDelta(
+            id="delta-semantic-normalize",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Semantic normalization delta",
+            notes="Original note",
+            status="approved",
+            metadata={
+                "owner_response_kind": "nuance",
+                "owner_response_excerpt": "This should be treated as interpretive context only.",
+                "selected_promotion_items": [
+                    {
+                        "id": "initiative-1",
+                        "kind": "stat",
+                        "label": "Proof point",
+                        "content": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                        "evidence": "Artifact-backed proof from the review source.",
+                        "targetFile": "history/initiatives.md",
+                        "artifactSummary": "Shipped AI operating pattern with quantified success signal.",
+                        "artifactKind": "metric_or_proof_point",
+                        "artifactRef": "youtube:P5Yznr8Duj4",
+                        "deltaSummary": "Promotion candidate for initiatives canon.",
+                        "reviewInterpretation": "This proves a durable operator capability.",
+                        "capabilitySignal": "Can translate AI execution into operator language.",
+                        "positioningSignal": "AI systems operator with real implementation judgment.",
+                        "leverageSignal": "Supports future content and positioning around workflow clarity.",
+                        "proofSignal": "5.2x success signal tied to visible prompting/agent usage.",
+                        "proofStrength": "strong",
+                        "gateDecision": "allow",
+                        "gateReason": "Artifact-backed proof is present.",
+                    }
+                ],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+
+        normalized = persona_promotion_utils_module.normalize_selected_promotion_items(delta)
+
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0]["artifact_summary"], "Shipped AI operating pattern with quantified success signal.")
+        self.assertEqual(normalized[0]["capability_signal"], "Can translate AI execution into operator language.")
+        self.assertEqual(normalized[0]["proof_strength"], "strong")
+        self.assertEqual(normalized[0]["gate_decision"], "allow")
 
     def test_brain_persona_promote_route_returns_committed_delta(self) -> None:
         delta = PersonaDelta(
