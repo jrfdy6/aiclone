@@ -87,6 +87,30 @@ TOPIC_FOCUS_BOOSTS = {
     "workflow clarity": {"workflow", "clarity", "process", "processes", "handoff", "handoffs", "alignment", "operator", "system", "systems"},
     "agent orchestration": {"agent", "agents", "orchestration", "workflow", "workflows", "automation", "prompting", "handoff", "handoffs", "operator", "system", "systems"},
 }
+PROOF_KEYWORDS = {
+    "built",
+    "clarity",
+    "evidence",
+    "handoff",
+    "handoffs",
+    "improved",
+    "launched",
+    "metric",
+    "metrics",
+    "migration",
+    "operator",
+    "ops",
+    "prompt",
+    "prompting",
+    "proof",
+    "revenue",
+    "salesforce",
+    "shipped",
+    "signal",
+    "system",
+    "systems",
+    "workflow",
+}
 
 
 class ContentGenerationRequest(BaseModel):
@@ -339,6 +363,51 @@ def select_eligible_story_chunks(
     return curated
 
 
+def _proof_signal_score(chunk: str) -> int:
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    if not normalized_chunk:
+        return 0
+    score = 0
+    if "evidence:" in normalized_chunk:
+        score += 4
+    if "proof:" in normalized_chunk or "public-facing proof:" in normalized_chunk:
+        score += 4
+    if re.search(r"\b\d[\d.,x%$m]*\b", normalized_chunk):
+        score += 3
+    score += sum(1 for term in PROOF_KEYWORDS if term in normalized_chunk)
+    return score
+
+
+def select_proof_anchor_chunks(
+    persona_chunks: List[Dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    ranked: List[tuple[int, int, Dict[str, Any]]] = []
+    for item in persona_chunks:
+        chunk = str(item.get("chunk") or "")
+        focus_score = _chunk_focus_score(chunk, focus_terms, topic)
+        proof_score = _proof_signal_score(chunk)
+        if focus_score <= 0 and proof_score <= 0:
+            continue
+        ranked.append((focus_score * 4 + proof_score, proof_score, item))
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, _, item in sorted(ranked, key=lambda entry: (entry[0], entry[1]), reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
+
+
 def build_topic_focus_guidance(
     *,
     topic: str,
@@ -372,6 +441,23 @@ def build_topic_focus_guidance(
     return "\n".join(f"- {line}" for line in lines)
 
 
+def build_proof_guidance(proof_anchor_chunks: List[Dict[str, Any]]) -> str:
+    if proof_anchor_chunks:
+        return "\n".join(
+            [
+                "- Each option must include at least one concrete proof anchor, named system, metric, or evidence phrase from the PROOF ANCHORS section below.",
+                "- Prefer proof over abstraction: systems, migrations, shipped surfaces, prompting patterns, handoffs, metrics, or role-grounded evidence.",
+                "- Do not make up numbers. If the proof anchor is qualitative, keep it qualitative but concrete.",
+            ]
+        )
+    return "\n".join(
+        [
+            "- No strong proof anchor was found. Stay concrete about process, role, and workflow mechanics.",
+            "- Do not invent metrics or accomplishments.",
+        ]
+    )
+
+
 def get_openai_client():
     """Get OpenAI client for content generation."""
     import openai
@@ -395,17 +481,24 @@ def build_content_prompt(
     """Build the prompt for content generation."""
     topic_anchor_chunks = select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     eligible_story_chunks = select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
+    proof_anchor_chunks = select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     topic_anchor_text = "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in topic_anchor_chunks) or "- No topic anchors available."
     eligible_story_text = (
         "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in eligible_story_chunks)
         if eligible_story_chunks
         else "- No directly relevant story anchor found. Do not force one."
     )
+    proof_anchor_text = (
+        "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in proof_anchor_chunks)
+        if proof_anchor_chunks
+        else "- No strong proof anchor found. Stay concrete about process and role."
+    )
     topic_focus_guidance = build_topic_focus_guidance(
         topic=topic,
         audience=audience,
         eligible_story_chunks=eligible_story_chunks,
     )
+    proof_guidance = build_proof_guidance(proof_anchor_chunks)
     
     # Group chunks by prompt layer so canon stays ahead of legacy support.
     persona_sections: Dict[str, List[str]] = {}
@@ -942,6 +1035,9 @@ Voice audit:
 ## ELIGIBLE STORY / PROOF ANCHORS:
 {eligible_story_text}
 
+## PROOF ANCHORS:
+{proof_anchor_text}
+
 ## EXAMPLES FROM THEIR KNOWLEDGE BASE:
 {examples_text if examples_text else "No additional examples available."}
 
@@ -962,6 +1058,9 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 ## TOPIC DISCIPLINE:
 {topic_focus_guidance}
 
+## PROOF DISCIPLINE:
+{proof_guidance}
+
 ## NARRATIVE ARC (follow this structure):
 1. **HOOK/CONTEXT** - Start with something relatable, surprising, or attention-grabbing. Use voice markers.
 2. **OPERATING LESSON** - Build the post around a real lesson, framework, proof point, or experience from the topic anchors.
@@ -973,8 +1072,9 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 3. Ground every option in the topic anchors first. Biography is support, not the main point.
 4. Only use a personal anecdote if it appears in the eligible story/proof anchors above.
 5. If there is no eligible story anchor, stay with proof, principle, and operating insight.
-6. Be specific and actionable, not generic.
-7. Generate 3 different options with varying hooks/angles.
+6. Each option must include at least one concrete proof anchor, named system, or explicit operating signal from the proof anchors above when available.
+7. Be specific and actionable, not generic.
+8. Generate 3 different options with varying hooks/angles.
 
 ## ANTI-HALLUCINATION RULES (CRITICAL):
 - ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
@@ -1020,11 +1120,17 @@ def build_refinement_prompt(
 ) -> str:
     topic_anchor_chunks = select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     eligible_story_chunks = select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
+    proof_anchor_chunks = select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
     topic_anchor_text = "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in topic_anchor_chunks) or "- No topic anchors available."
     eligible_story_text = (
         "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in eligible_story_chunks)
         if eligible_story_chunks
         else "- No directly relevant story anchor found. Do not force one."
+    )
+    proof_anchor_text = (
+        "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in proof_anchor_chunks)
+        if proof_anchor_chunks
+        else "- No strong proof anchor found. Stay concrete about process and role."
     )
     rough_text = "\n---OPTION---\n".join(rough_options)
     return f"""You are revising drafted posts so they sound sharper, more specific, and more faithful to this person's canon.
@@ -1038,6 +1144,9 @@ TOPIC ANCHORS:
 ELIGIBLE STORY / PROOF ANCHORS:
 {eligible_story_text}
 
+PROOF ANCHORS:
+{proof_anchor_text}
+
 ROUGH OPTIONS TO REWRITE:
 {rough_text}
 
@@ -1048,6 +1157,7 @@ REVISION RULES:
 - Ban phrases like "magic happens", "synergy", "game changer", "nice-to-have", "backbone", and "thrive in AI".
 - Every option must be grounded in the topic anchors above.
 - Only use a personal anecdote if it appears in the eligible story / proof anchors above.
+- Each option must include at least one concrete proof anchor, named system, evidence phrase, or metric from the PROOF ANCHORS above when available.
 - If no eligible story anchor exists, do not force a story. Stay with proof, pattern, and operating insight.
 - Replace vague claims with concrete operator language: workflow, handoff, prompt, system, proof, constraint, operating cadence.
 - Cut weak setup lines. Start faster.

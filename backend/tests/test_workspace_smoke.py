@@ -2563,6 +2563,64 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("No directly relevant story anchor found. Do not force one.", prompt)
         self.assertIn("Stay in the operator / AI systems lane", prompt)
 
+    def test_select_proof_anchor_chunks_prefers_evidence_bearing_operator_chunks(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Teams fail when they chase tools before workflow clarity.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"prompt_section": "CORE CANON"},
+            },
+            {
+                "chunk": "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone. Evidence: Active AI Clone / Brain system build work and public operator framing.",
+                "persona_tag": "BIO_FACTS",
+                "metadata": {"prompt_section": "CORE CANON"},
+            },
+            {
+                "chunk": "Created more structured, durable operating surfaces across Brain and Workspace.",
+                "persona_tag": "EXPERIENCES",
+                "metadata": {"prompt_section": "SUPPORTING CANON"},
+            },
+        ]
+
+        proof_chunks = content_generation_module.select_proof_anchor_chunks(
+            persona_chunks,
+            topic="agent orchestration",
+            audience="tech_ai",
+            limit=2,
+        )
+
+        self.assertGreaterEqual(len(proof_chunks), 1)
+        self.assertIn("Evidence:", proof_chunks[0].get("chunk", ""))
+
+    def test_build_content_prompt_includes_proof_anchors_for_operator_topics(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone. Evidence: Active AI Clone / Brain system build work and public operator framing.",
+                "persona_tag": "BIO_FACTS",
+                "metadata": {"prompt_section": "CORE CANON"},
+            },
+            {
+                "chunk": "Builds and translates AI execution patterns into clear operator guidance.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"prompt_section": "CORE CANON"},
+            },
+        ]
+
+        prompt = content_generation_module.build_content_prompt(
+            topic="agent orchestration",
+            context="",
+            content_type="linkedin_post",
+            category="value",
+            pacer_elements=[],
+            tone="expert_direct",
+            persona_chunks=persona_chunks,
+            example_chunks=[],
+            audience="tech_ai",
+        )
+
+        self.assertIn("## PROOF ANCHORS:", prompt)
+        self.assertIn("Each option must include at least one concrete proof anchor", prompt)
+
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
         with patch.object(
