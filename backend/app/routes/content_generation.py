@@ -1319,10 +1319,12 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 3. Ground every option in the topic anchors first. Biography is support, not the main point.
 4. Only use a personal anecdote if it appears in the eligible story/proof anchors above.
 5. If there is no eligible story anchor, stay with proof, principle, and operating insight.
-6. Each option must include at least one concrete proof anchor, named system, or explicit operating signal from the proof anchors above when available.
-7. If you use a metric, keep its original subject intact. Never convert a participation, utilization, or revenue metric into a generic productivity or completion-time claim.
-8. Be specific and actionable, not generic.
-9. Generate 3 different options with varying hooks/angles.
+6. Start from one PRIMARY CLAIM as the strategic thesis of the post. Do not let a proof packet become the whole headline unless the primary claim itself is already phrased that way.
+7. Each option must include at least one concrete proof anchor, named system, or explicit operating signal from the proof anchors above when available.
+8. If you use a metric, keep its original subject intact. Never convert a participation, utilization, or revenue metric into a generic productivity or completion-time claim.
+9. Use proof packets to support the thesis, not to replace the thesis.
+10. Be specific and actionable, not generic.
+11. Generate 3 different options with varying hooks/angles.
 10. Keep the writing vivid. Use tension, agreement, contrast, or drama only when it stays grounded in the approved framing modes above.
 11. Use a different approved framing mode for each option so the three drafts do not collapse into one flat shape.
 12. Pick one PRIMARY CLAIM per option and stay inside it. Do not merge multiple weak ideas together.
@@ -1633,6 +1635,8 @@ REVISION RULES:
 - Keep 3 options.
 - Preserve the person's casual voice and punchy rhythm.
 - Remove generic filler, motivational fluff, and any language that could apply to anyone.
+- Make sure each option clearly leads with one approved PRIMARY CLAIM.
+- Use APPROVED PROOF PACKETS as supporting evidence, not as the whole thesis unless the approved claim is already proof-shaped.
 - Preserve the dramatic, contrarian, agreement, or tension-based framing when it is grounded in the approved framing modes above.
 - Ban phrases like "magic happens", "synergy", "game changer", "nice-to-have", "backbone", and "thrive in AI".
 - Every option must be grounded in the topic anchors above.

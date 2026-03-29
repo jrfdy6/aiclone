@@ -2560,6 +2560,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
     def test_content_generation_context_extracts_primary_claim_from_initiative_purpose(self) -> None:
         claims = content_context_service_module._extract_primary_claims(
+            core_topic_chunks=[],
             topic_anchor_chunks=[],
             proof_anchor_chunks=[
                 {
@@ -2580,6 +2581,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
     def test_content_generation_context_drops_generic_proof_point_prefixes(self) -> None:
         claims = content_context_service_module._extract_primary_claims(
+            core_topic_chunks=[],
             topic_anchor_chunks=[],
             proof_anchor_chunks=[
                 {
@@ -2609,10 +2611,16 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
     def test_content_generation_context_prefers_claim_like_topic_anchor_over_metric_proof(self) -> None:
         claims = content_context_service_module._extract_primary_claims(
-            topic_anchor_chunks=[
+            core_topic_chunks=[
                 {
                     "chunk": "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone. Evidence: Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
                     "metadata": {"memory_role": "core"},
+                }
+            ],
+            topic_anchor_chunks=[
+                {
+                    "chunk": "Build a restart-safe AI operating system for memory, persona review, source routing, planning, and content execution. Proof: Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views.",
+                    "metadata": {"memory_role": "proof"},
                 }
             ],
             proof_anchor_chunks=[
@@ -2629,9 +2637,12 @@ generated_at: "2026-03-28T00:00:00+00:00"
             claims[0],
             "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
         )
-        self.assertEqual(
+        self.assertIn(
             claims[1],
-            "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+            {
+                "Build a restart-safe AI operating system for memory, persona review, source routing, planning, and content execution.",
+                "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+            },
         )
 
     def test_extract_approved_reference_terms_prefers_labels_and_evidence_phrases(self) -> None:
@@ -2829,6 +2840,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("contrarian_reframe", context_pack.framing_modes)
         self.assertIn("drama_tension", context_pack.framing_modes)
         self.assertGreaterEqual(len(context_pack.primary_claims), 1)
+        self.assertEqual(
+            context_pack.primary_claims[0],
+            "Builds and translates AI execution patterns into clear operator guidance.",
+        )
         self.assertGreaterEqual(len(context_pack.proof_packets), 1)
         self.assertEqual(context_pack.example_chunks, [legacy_example])
 

@@ -562,16 +562,17 @@ def _claim_candidate_score(item: dict[str, Any], text: str, *, source_priority: 
 
 def _extract_primary_claims(
     *,
+    core_topic_chunks: list[dict[str, Any]],
     topic_anchor_chunks: list[dict[str, Any]],
     proof_anchor_chunks: list[dict[str, Any]],
     grounding_mode: str,
 ) -> list[str]:
     ranked: list[tuple[int, str]] = []
-    ordered_groups = (
-        [(topic_anchor_chunks, 10), (proof_anchor_chunks, 6)]
-        if grounding_mode == "proof_ready"
-        else [(topic_anchor_chunks, 10), (proof_anchor_chunks, 5)]
-    )
+    ordered_groups = [(core_topic_chunks, 16), (topic_anchor_chunks, 10)]
+    if grounding_mode == "proof_ready":
+        ordered_groups.append((proof_anchor_chunks, 6))
+    else:
+        ordered_groups.append((proof_anchor_chunks, 5))
     for source_chunks, source_priority in ordered_groups:
         for item in source_chunks:
             text = _extract_claim_text_from_chunk(str(item.get("chunk") or ""))
@@ -898,12 +899,22 @@ def build_content_generation_context(
         topic=topic,
         audience=audience,
     )
+    core_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "core"]
+    proof_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "proof"]
+    story_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "story"]
+    ambient_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "ambient"]
 
     topic_anchor_chunks = select_topic_anchor_chunks(
         persona_chunks,
         topic=topic,
         audience=audience,
         limit=4,
+    )
+    core_topic_chunks = select_topic_anchor_chunks(
+        core_chunks,
+        topic=topic,
+        audience=audience,
+        limit=3,
     )
     story_anchor_chunks = select_eligible_story_chunks(
         persona_chunks,
@@ -947,6 +958,7 @@ def build_content_generation_context(
         story_anchor_chunks=story_anchor_chunks,
     )
     primary_claims = _extract_primary_claims(
+        core_topic_chunks=core_topic_chunks,
         topic_anchor_chunks=topic_anchor_chunks,
         proof_anchor_chunks=proof_anchor_chunks,
         grounding_mode=grounding_mode,
@@ -957,11 +969,6 @@ def build_content_generation_context(
         audience=audience,
         grounding_mode=grounding_mode,
     )
-
-    core_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "core"]
-    proof_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "proof"]
-    story_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "story"]
-    ambient_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "ambient"]
 
     return ContentGenerationContext(
         persona_chunks=persona_chunks,
