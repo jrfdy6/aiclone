@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import os
 import json
+import re
 
 from app.services.embedders import embed_text
 from app.services.persona_bundle_context_service import retrieve_bundle_persona_chunks
@@ -50,6 +51,42 @@ PROMPT_SECTION_ORDER = [
     "LEGACY SUPPORT",
     "RETRIEVAL SUPPORT",
 ]
+STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "what",
+    "with",
+}
+AUDIENCE_FOCUS_TERMS = {
+    "tech_ai": {"ai", "agent", "agents", "automation", "operator", "operators", "workflow", "workflows", "prompt", "prompting", "system", "systems", "shipping", "builder", "builders"},
+    "leadership": {"leadership", "leaders", "manager", "managers", "team", "teams", "coaching", "culture", "clarity", "decision", "decisions"},
+    "education_admissions": {"education", "admissions", "enrollment", "families", "students", "referral", "school", "schools", "trust"},
+    "fashion": {"fashion", "style", "closet", "wardrobe", "outfit", "confidence"},
+    "neurodivergent": {"neurodivergent", "learning", "students", "families", "support", "fit"},
+    "entrepreneurs": {"build", "building", "founder", "founders", "product", "shipping", "market", "customers"},
+}
+TOPIC_FOCUS_BOOSTS = {
+    "workflow clarity": {"workflow", "clarity", "process", "processes", "handoff", "handoffs", "alignment", "operator", "system", "systems"},
+    "agent orchestration": {"agent", "agents", "orchestration", "workflow", "workflows", "automation", "prompting", "handoff", "handoffs", "operator", "system", "systems"},
+}
 
 
 class ContentGenerationRequest(BaseModel):
@@ -207,6 +244,134 @@ def summarize_persona_context(persona_chunks: List[Dict[str, Any]], topic: str) 
     return None
 
 
+def _focus_terms(topic: str, audience: str) -> set[str]:
+    normalized_topic = " ".join((topic or "").lower().split())
+    tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", normalized_topic)
+        if len(token) > 2 and token not in STOPWORDS
+    }
+    for phrase, boosts in TOPIC_FOCUS_BOOSTS.items():
+        if phrase in normalized_topic:
+            tokens.update(boosts)
+    tokens.update(AUDIENCE_FOCUS_TERMS.get(audience, set()))
+    return tokens
+
+
+def _chunk_focus_score(chunk: str, focus_terms: set[str], topic: str) -> int:
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    normalized_topic = " ".join((topic or "").lower().split())
+    if not normalized_chunk:
+        return 0
+    score = sum(1 for term in focus_terms if term and term in normalized_chunk)
+    if normalized_topic and normalized_topic in normalized_chunk:
+        score += 4
+    return score
+
+
+def select_topic_anchor_chunks(
+    persona_chunks: List[Dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    ranked: List[tuple[int, int, Dict[str, Any]]] = []
+    section_priority = {
+        "CORE CANON": 4,
+        "SUPPORTING CANON": 3,
+        "LEGACY SUPPORT": 2,
+        "RETRIEVAL SUPPORT": 1,
+    }
+    for item in persona_chunks:
+        chunk = str(item.get("chunk") or "")
+        focus_score = _chunk_focus_score(chunk, focus_terms, topic)
+        section = str(_item_metadata(item).get("prompt_section") or "RETRIEVAL SUPPORT")
+        priority = section_priority.get(section, 0)
+        ranked.append((focus_score, priority, item))
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, _, item in sorted(ranked, key=lambda entry: (entry[0], entry[1]), reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
+
+
+def select_eligible_story_chunks(
+    persona_chunks: List[Dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 3,
+) -> List[Dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    story_candidates: List[tuple[int, Dict[str, Any]]] = []
+    for item in persona_chunks:
+        tag = str(item.get("persona_tag") or "")
+        section = str(_item_metadata(item).get("prompt_section") or "")
+        if section == "CORE CANON":
+            continue
+        if tag not in {"EXPERIENCES", "VENTURES"}:
+            continue
+        chunk = str(item.get("chunk") or "")
+        score = _chunk_focus_score(chunk, focus_terms, topic)
+        if score <= 0:
+            continue
+        story_candidates.append((score, item))
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, item in sorted(story_candidates, key=lambda entry: entry[0], reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
+
+
+def build_topic_focus_guidance(
+    *,
+    topic: str,
+    audience: str,
+    eligible_story_chunks: List[Dict[str, Any]],
+) -> str:
+    lines = [
+        f'TOPIC DISCIPLINE: Stay tightly on "{topic}".',
+        "Lead with the core claim or operating lesson, not a broad personal recap.",
+    ]
+
+    if audience == "tech_ai":
+        lines.extend(
+            [
+                "Stay in the operator / AI systems lane: workflow clarity, prompting, automation, handoffs, and shipped execution.",
+                "Do not reach for family, fashion, school, or community stories unless one appears in the eligible story anchors below.",
+            ]
+        )
+    elif audience == "leadership":
+        lines.extend(
+            [
+                "Stay in the leadership lane: clarity, coaching, team temperature, stakeholder influence, and operating cadence.",
+                "Do not default to product-building or fashion stories unless the eligible story anchors make that link explicit.",
+            ]
+        )
+
+    if eligible_story_chunks:
+        lines.append("A personal story is optional. If you use one, it must come from the eligible story anchors below and connect to the topic in one sentence.")
+    else:
+        lines.append("No directly relevant story anchor was found. Do not force an anecdote. Use principle + proof instead.")
+    return "\n".join(f"- {line}" for line in lines)
+
+
 def get_openai_client():
     """Get OpenAI client for content generation."""
     import openai
@@ -228,6 +393,19 @@ def build_content_prompt(
     audience: str = "general"
 ) -> str:
     """Build the prompt for content generation."""
+    topic_anchor_chunks = select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    eligible_story_chunks = select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
+    topic_anchor_text = "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in topic_anchor_chunks) or "- No topic anchors available."
+    eligible_story_text = (
+        "\n".join(f"- {str(item.get('chunk') or '').strip()}" for item in eligible_story_chunks)
+        if eligible_story_chunks
+        else "- No directly relevant story anchor found. Do not force one."
+    )
+    topic_focus_guidance = build_topic_focus_guidance(
+        topic=topic,
+        audience=audience,
+        eligible_story_chunks=eligible_story_chunks,
+    )
     
     # Group chunks by prompt layer so canon stays ahead of legacy support.
     persona_sections: Dict[str, List[str]] = {}
@@ -471,11 +649,9 @@ EXAMPLE HOOKS FOR THIS AUDIENCE:
 ✅ "Most AI tools promise 10x productivity. Reality: 2x on good days, if you know what to automate."
 
 SPECIFIC STORIES TO DRAW FROM:
-- Building Easy Outfit app
-- Georgetown Data Science certificate
-- USC Master's in Tech/Business/Design
-- Years of Salesforce, Tableau, automation work
-- Using Cursor, Perplexity, ChatGPT to actually build""",
+- Only use a story if it appears in the eligible story anchors below
+- Prefer operator proof: workflow clarity, prompting, automation, handoffs, shipped systems
+- Use Georgetown, Salesforce, Fusion, or Easy Outfit only when the topic anchors make them directly relevant""",
 
         "fashion": """TARGET AUDIENCE: Fashion & Style enthusiasts
 - Use visual, sensory language
@@ -760,6 +936,12 @@ Voice audit:
 ## PERSONA STACK (core canon first, then support, then legacy):
 {persona_text if persona_text else "No persona data available - use a professional, authentic voice."}
 
+## TOPIC ANCHORS (highest priority):
+{topic_anchor_text}
+
+## ELIGIBLE STORY / PROOF ANCHORS:
+{eligible_story_text}
+
 ## EXAMPLES FROM THEIR KNOWLEDGE BASE:
 {examples_text if examples_text else "No additional examples available."}
 
@@ -777,25 +959,31 @@ IMPORTANT: If Context is provided above (not "General"), you MUST incorporate th
 
 {pacer_guidance}
 
+## TOPIC DISCIPLINE:
+{topic_focus_guidance}
+
 ## NARRATIVE ARC (follow this structure):
 1. **HOOK/CONTEXT** - Start with something relatable, surprising, or attention-grabbing. Use voice markers.
-2. **CHALLENGE/JOURNEY** - Share a real struggle, lesson, or experience from the persona chunks. This is the meat.
+2. **OPERATING LESSON** - Build the post around a real lesson, framework, proof point, or experience from the topic anchors.
 3. **REFLECTION/CTA** - Tie it back to the audience with insight or a question. End strong.
 
 ## INSTRUCTIONS:
 1. Write AS this person using their actual experiences and perspectives.
-2. Follow the 3-part narrative arc above - each post should feel like a story, not a list of facts.
-3. Apply the topic/context to their background - don't just repeat bio facts.
-4. Be specific and actionable, not generic.
-5. Generate 3 different options with varying hooks/angles.
+2. Follow the 3-part structure above, but do NOT force a personal story when the topic anchors are principle-led.
+3. Ground every option in the topic anchors first. Biography is support, not the main point.
+4. Only use a personal anecdote if it appears in the eligible story/proof anchors above.
+5. If there is no eligible story anchor, stay with proof, principle, and operating insight.
+6. Be specific and actionable, not generic.
+7. Generate 3 different options with varying hooks/angles.
 
 ## ANTI-HALLUCINATION RULES (CRITICAL):
 - ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
-- If you need a personal story, pick one from: DEFINE Socks, Coffee & Convo, Fusion Academy, 2U, InspireSTL, Georgetown data science, USC projects
+- If you need a personal story, it must come from the ELIGIBLE STORY / PROOF ANCHORS section above
 - NEVER invent stories about family members, objects, or experiences not in the persona
 - If no relevant anecdote exists, use a general reflection instead of fabricating
 - Real ventures to reference: DEFINE Socks, Acorn Global Collective, Easy Outfit App, Coffee & Convo events
 - Real experiences: neurodivergent students, program launches, Salesforce migrations, team coaching
+- Do not borrow a weakly related story just to make the post feel more personal
 
 ## VOICE MARKERS TO USE:
 - "Yall" / "Y'all" as casual opener
@@ -897,6 +1085,8 @@ CRITICAL RULES:
 6. Keep punchy rhythm - short sentences, stacked phrases
 7. DO NOT over-polish or make it sound generic/corporate
 8. Stay focused on the user's TOPIC and CONTEXT - don't drift to unrelated subjects
+9. Treat TOPIC ANCHORS as higher priority than generic biography
+10. Only use a personal anecdote if it appears in ELIGIBLE STORY / PROOF ANCHORS
 
 ANTI-HALLUCINATION: If you cannot find a relevant real story in the persona data, write value-driven content about the topic WITHOUT inventing personal anecdotes. Generic insights are better than fake stories.
 

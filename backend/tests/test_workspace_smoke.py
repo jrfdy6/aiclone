@@ -2505,6 +2505,64 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertEqual(calls[0].get("source_filter"), "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md")
         self.assertEqual(calls[0].get("tag_filter"), ["LINKEDIN_EXAMPLES"])
 
+    def test_select_eligible_story_chunks_requires_topic_overlap(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Operator clarity matters more than hype for AI systems.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"prompt_section": "CORE CANON"},
+            },
+            {
+                "chunk": "Fashion journey story about closet organization and style misses.",
+                "persona_tag": "VENTURES",
+                "metadata": {"prompt_section": "LEGACY SUPPORT"},
+            },
+            {
+                "chunk": "Built workflow automation around prompting and agent handoffs.",
+                "persona_tag": "VENTURES",
+                "metadata": {"prompt_section": "SUPPORTING CANON"},
+            },
+        ]
+
+        stories = content_generation_module.select_eligible_story_chunks(
+            persona_chunks,
+            topic="agent orchestration",
+            audience="tech_ai",
+            limit=3,
+        )
+
+        self.assertEqual(len(stories), 1)
+        self.assertIn("agent handoffs", stories[0].get("chunk", ""))
+
+    def test_build_content_prompt_warns_when_no_relevant_story_anchor_exists(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Teams fail when they chase tools before workflow clarity.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"prompt_section": "CORE CANON"},
+            },
+            {
+                "chunk": "Fashion journey story about closet organization and style misses.",
+                "persona_tag": "VENTURES",
+                "metadata": {"prompt_section": "LEGACY SUPPORT"},
+            },
+        ]
+
+        prompt = content_generation_module.build_content_prompt(
+            topic="agent orchestration",
+            context="",
+            content_type="linkedin_post",
+            category="value",
+            pacer_elements=[],
+            tone="expert_direct",
+            persona_chunks=persona_chunks,
+            example_chunks=[],
+            audience="tech_ai",
+        )
+
+        self.assertIn("No directly relevant story anchor found. Do not force one.", prompt)
+        self.assertIn("Stay in the operator / AI systems lane", prompt)
+
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
         with patch.object(
