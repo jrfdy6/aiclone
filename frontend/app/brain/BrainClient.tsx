@@ -1084,7 +1084,7 @@ function PersonaPanel({
   const [promotingDeltaId, setPromotingDeltaId] = useState<string | null>(null);
   const [reroutingDeltaId, setReroutingDeltaId] = useState<string | null>(null);
   const [recentlyQueuedDeltaId, setRecentlyQueuedDeltaId] = useState<string | null>(null);
-  const [promotionTargetOverride, setPromotionTargetOverride] = useState<string | null>(null);
+  const [promotionItemTargetOverrides, setPromotionItemTargetOverrides] = useState<Record<string, string>>({});
   const selectedDelta = useMemo(
     () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
     [reviewQueue, selectedDeltaId],
@@ -1094,12 +1094,26 @@ function PersonaPanel({
     [scoredActiveReviewDeltas, selectedDelta],
   );
   const targetFile = selectedDelta ? metadataText(selectedDelta.metadata, 'target_file') : null;
-  const effectivePromotionTargetFile = promotionTargetOverride ?? targetFile;
-  const linkedPack = useMemo(() => findPackBySection(packs, effectivePromotionTargetFile) ?? packs[0] ?? null, [packs, effectivePromotionTargetFile]);
-  const targetSection = useMemo(() => findPackSection(packs, effectivePromotionTargetFile), [packs, effectivePromotionTargetFile]);
+  const [selectedPromotionItemIds, setSelectedPromotionItemIds] = useState<string[]>([]);
+  const [selectedResponseKind, setSelectedResponseKind] = useState<'agree' | 'disagree' | 'nuance' | 'story' | 'language'>('nuance');
+  const baseSelectableItems = useMemo(() => buildPromotionItems(selectedDelta, targetFile), [selectedDelta, targetFile]);
+  const selectableItems = useMemo(
+    () => applyPromotionTargetOverrides(baseSelectableItems, promotionItemTargetOverrides),
+    [baseSelectableItems, promotionItemTargetOverrides],
+  );
+  const selectedPromotionItems = useMemo(
+    () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
+    [selectableItems, selectedPromotionItemIds],
+  );
+  const selectedPromotionTargetFiles = useMemo(
+    () => Array.from(new Set(selectedPromotionItems.map((item) => item.targetFile).filter((value): value is string => Boolean(value)))),
+    [selectedPromotionItems],
+  );
+  const contextTargetFile = selectedPromotionTargetFiles[0] ?? selectableItems[0]?.targetFile ?? targetFile;
+  const linkedPack = useMemo(() => findPackBySection(packs, contextTargetFile) ?? packs[0] ?? null, [packs, contextTargetFile]);
+  const targetSection = useMemo(() => findPackSection(packs, contextTargetFile), [packs, contextTargetFile]);
   const activeContext = targetSection?.content ?? linkedPack?.sections[0]?.content ?? null;
   const activeContextPath = targetSection?.path ?? linkedPack?.sections[0]?.path ?? null;
-  const selectableItems = useMemo(() => buildPromotionItems(selectedDelta, effectivePromotionTargetFile), [selectedDelta, effectivePromotionTargetFile]);
   const reviewHeadline = selectedDelta ? buildReviewHeadline(selectedDelta, targetFile) : 'No persona review items queued.';
   const reviewReason = selectedDelta ? buildReviewReason(selectedDelta, targetFile, activeContextPath) : 'There is no pending persona item to review right now.';
   const reviewAsk = selectedDelta ? buildReviewAsk(selectedDelta, targetFile) : 'You can still save a general thought to memory if you want to capture something new.';
@@ -1108,23 +1122,17 @@ function PersonaPanel({
   const statusLabel = selectedDelta?.status ?? 'pending';
   const savedResponseKind = metadataText(selectedDelta?.metadata, 'owner_response_kind');
   const savedResponseExcerpt = metadataText(selectedDelta?.metadata, 'owner_response_excerpt');
-  const [selectedPromotionItemIds, setSelectedPromotionItemIds] = useState<string[]>([]);
-  const [selectedResponseKind, setSelectedResponseKind] = useState<'agree' | 'disagree' | 'nuance' | 'story' | 'language'>('nuance');
-  const selectedPromotionItems = useMemo(
-    () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
-    [selectableItems, selectedPromotionItemIds],
-  );
   const promotionTargetChoices = useMemo(
     () => candidateTargetsForItems(selectedPromotionItems.length > 0 ? selectedPromotionItems : selectableItems, targetFile),
     [selectedPromotionItems, selectableItems, targetFile],
   );
   const availablePromotionGate = useMemo(
-    () => summarizePromotionItems(selectableItems, effectivePromotionTargetFile),
-    [selectableItems, effectivePromotionTargetFile],
+    () => summarizePromotionItems(selectableItems, targetFile),
+    [selectableItems, targetFile],
   );
   const selectedPromotionGate = useMemo(
-    () => summarizePromotionItems(selectedPromotionItems, effectivePromotionTargetFile),
-    [selectedPromotionItems, effectivePromotionTargetFile],
+    () => summarizePromotionItems(selectedPromotionItems, targetFile),
+    [selectedPromotionItems, targetFile],
   );
   const activePromotionAlternativeTarget =
     (selectedPromotionItems.length > 0 ? selectedPromotionGate.alternativeTarget : null) || availablePromotionGate.alternativeTarget;
@@ -1210,7 +1218,7 @@ function PersonaPanel({
   }, [selectedDelta?.id, selectedDelta?.metadata]);
 
   useEffect(() => {
-    setPromotionTargetOverride(null);
+    setPromotionItemTargetOverrides({});
   }, [selectedDelta?.id]);
 
   async function commitPromotion(delta: PersonaDeltaEntry) {
@@ -1289,6 +1297,38 @@ function PersonaPanel({
     }
   }
 
+  function setPromotionItemTarget(itemId: string, nextTarget: string) {
+    setPromotionItemTargetOverrides((current) => {
+      const updated = { ...current };
+      updated[itemId] = nextTarget;
+      return updated;
+    });
+  }
+
+  function applyBulkPromotionTarget(nextTarget: string) {
+    const targetIds = selectedPromotionItems.length > 0 ? selectedPromotionItems.map((item) => item.id) : selectableItems.map((item) => item.id);
+    if (targetIds.length === 0) return;
+    setPromotionItemTargetOverrides((current) => {
+      const updated = { ...current };
+      for (const itemId of targetIds) {
+        updated[itemId] = nextTarget;
+      }
+      return updated;
+    });
+  }
+
+  function resetBulkPromotionTargets() {
+    const targetIds = selectedPromotionItems.length > 0 ? selectedPromotionItems.map((item) => item.id) : selectableItems.map((item) => item.id);
+    if (targetIds.length === 0) return;
+    setPromotionItemTargetOverrides((current) => {
+      const updated = { ...current };
+      for (const itemId of targetIds) {
+        delete updated[itemId];
+      }
+      return updated;
+    });
+  }
+
   function queueTemplate(kind: 'agree' | 'disagree' | 'nuance' | 'story' | 'language') {
     if (!selectedDelta) {
       return;
@@ -1331,12 +1371,12 @@ function PersonaPanel({
         text: buildReflectionCaptureText({
           delta: selectedDelta,
           reflectionText: trimmedReflection,
-          targetFile: effectivePromotionTargetFile,
+          targetFile: selectedPromotionTargetFiles[0] ?? targetFile,
           sectionContent: targetSection?.content ?? null,
           selectedItems: selectedPromotionItems,
         }),
         source: 'persona_reflection',
-        topics: buildReflectionTopics(selectedDelta, effectivePromotionTargetFile),
+        topics: buildReflectionTopics(selectedDelta, selectedPromotionTargetFiles[0] ?? targetFile, selectedPromotionItems),
         importance: 3,
         metadata: {
           capture_kind: 'persona_reflection',
@@ -1345,7 +1385,7 @@ function PersonaPanel({
           linked_delta_id: selectedDelta?.id ?? null,
           linked_capture_id: selectedDelta?.capture_id ?? null,
           persona_target: selectedDelta?.persona_target ?? null,
-          target_file: effectivePromotionTargetFile,
+          target_file: selectedPromotionTargetFiles.length === 1 ? selectedPromotionTargetFiles[0] : targetFile,
           trait: selectedDelta?.trait ?? null,
           reference_pack: linkedPack?.key ?? null,
           input_mode: 'text',
@@ -1389,8 +1429,8 @@ function PersonaPanel({
             tone: 'success',
             message:
               selectedPromotionGate.decision === 'allow'
-                ? `Queued for promotion to ${humanizeTargetFileLabel(effectivePromotionTargetFile)}: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}". Ready for canon commit.`
-                : `Queued for promotion to ${humanizeTargetFileLabel(effectivePromotionTargetFile)}: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}". ${selectedPromotionGate.reason || 'This still needs stronger artifact-backed proof before it can be committed.'}`,
+                ? `Queued for promotion to ${describePromotionTargets(selectedPromotionItems, targetFile)}: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}". Ready for canon commit.`
+                : `Queued for promotion to ${describePromotionTargets(selectedPromotionItems, targetFile)}: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}". ${selectedPromotionGate.reason || 'This still needs stronger artifact-backed proof before it can be committed.'}`,
           });
         } else {
           setPromotionState({ tone: 'idle', message: '' });
@@ -1606,10 +1646,10 @@ function PersonaPanel({
 
               <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                 <span>Review target: {targetFile ?? 'Target file not assigned'}</span>
-                {effectivePromotionTargetFile && effectivePromotionTargetFile !== targetFile && (
+                {selectedPromotionTargetFiles.length > 0 && (
                   <>
                     <span style={{ margin: '0 8px' }}>·</span>
-                    <span>Promotion target: {effectivePromotionTargetFile}</span>
+                    <span>Selected targets: {describePromotionTargets(selectedPromotionItems, targetFile)}</span>
                   </>
                 )}
                 <span style={{ margin: '0 8px' }}>·</span>
@@ -1700,7 +1740,7 @@ function PersonaPanel({
                                     <InlineBadge label={humanizePromotionKind(item.kind)} tone="#64748b" />
                                     <InlineBadge
                                       label={`Best fit: ${humanizeTargetFileLabel(suggestedTarget)}`}
-                                      tone={suggestedTarget === effectivePromotionTargetFile ? '#38bdf8' : '#818cf8'}
+                                      tone={suggestedTarget === item.targetFile ? '#38bdf8' : '#818cf8'}
                                     />
                                     <InlineBadge label={humanizeGateDecision(resolvePromotionGate(item, targetFile).decision)} tone={gateDecisionTone(resolvePromotionGate(item, targetFile).decision)} />
                                     <InlineBadge label={`proof ${item.proofStrength}`} tone={proofStrengthTone(item.proofStrength)} />
@@ -1718,6 +1758,34 @@ function PersonaPanel({
                                     {resolvePromotionGate(item, targetFile).reason}
                                   </p>
                                 )}
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
+                                  {candidateTargetsForPromotionItem(item, targetFile).map((choice) => {
+                                    const active = choice === item.targetFile;
+                                    return (
+                                      <button
+                                        key={choice}
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          setPromotionItemTarget(item.id, choice);
+                                        }}
+                                        style={{
+                                          borderRadius: '999px',
+                                          border: active ? '1px solid #38bdf8' : '1px solid #334155',
+                                          backgroundColor: active ? '#082f49' : '#020617',
+                                          color: active ? '#f8fafc' : '#cbd5f5',
+                                          padding: '6px 10px',
+                                          fontSize: '11px',
+                                          fontWeight: 600,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        {humanizeTargetFileLabel(choice)}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
                           </label>
@@ -1793,19 +1861,29 @@ function PersonaPanel({
                 >
                   <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Promotion target</p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <InlineBadge label={humanizeTargetFileLabel(effectivePromotionTargetFile)} tone="#818cf8" />
-                    {targetFile && effectivePromotionTargetFile !== targetFile && <InlineBadge label={`Originally ${humanizeTargetFileLabel(targetFile)}`} tone="#64748b" />}
+                    <InlineBadge
+                      label={
+                        selectedPromotionTargetFiles.length > 0
+                          ? `Selected: ${describePromotionTargets(selectedPromotionItems, targetFile)}`
+                          : `Default: ${humanizeTargetFileLabel(targetFile)}`
+                      }
+                      tone="#818cf8"
+                    />
+                    {selectedPromotionTargetFiles.length > 1 && <InlineBadge label="Mixed-target mode" tone="#22c55e" />}
                   </div>
                   <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
-                    Choose where these fragments should land before you queue promotion. The suggested options change with the fragment types you selected.
+                    Choose where these fragments should land before you queue promotion. Use the fragment-level chips for mixed targets, or bulk-apply one target to the whole selected set.
                   </p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     {promotionTargetChoices.map((choice, index) => {
-                      const active = choice === effectivePromotionTargetFile;
+                      const active =
+                        selectedPromotionItems.length > 0
+                          ? selectedPromotionItems.every((item) => item.targetFile === choice)
+                          : selectableItems.every((item) => item.targetFile === choice);
                       return (
                         <button
                           key={choice}
-                          onClick={() => setPromotionTargetOverride(choice === targetFile ? null : choice)}
+                          onClick={() => applyBulkPromotionTarget(choice)}
                           style={{
                             borderRadius: '999px',
                             border: active ? '1px solid #38bdf8' : '1px solid #334155',
@@ -1823,10 +1901,9 @@ function PersonaPanel({
                       );
                     })}
                     {activePromotionAlternativeTarget &&
-                      !promotionTargetChoices.includes(activePromotionAlternativeTarget) &&
-                      activePromotionAlternativeTarget !== effectivePromotionTargetFile && (
+                      !promotionTargetChoices.includes(activePromotionAlternativeTarget) && (
                         <button
-                          onClick={() => setPromotionTargetOverride(activePromotionAlternativeTarget)}
+                          onClick={() => applyBulkPromotionTarget(activePromotionAlternativeTarget)}
                           style={{
                             borderRadius: '999px',
                             border: '1px solid #334155',
@@ -1841,9 +1918,9 @@ function PersonaPanel({
                           Use {humanizeTargetFileLabel(activePromotionAlternativeTarget)}
                         </button>
                       )}
-                    {targetFile && effectivePromotionTargetFile !== targetFile && (
+                    {Object.keys(promotionItemTargetOverrides).length > 0 && (
                       <button
-                        onClick={() => setPromotionTargetOverride(null)}
+                        onClick={() => resetBulkPromotionTargets()}
                         style={{
                           borderRadius: '999px',
                           border: '1px solid #334155',
@@ -1855,7 +1932,7 @@ function PersonaPanel({
                           cursor: 'pointer',
                         }}
                       >
-                        Reset to {humanizeTargetFileLabel(targetFile)}
+                        Reset selected targets
                       </button>
                     )}
                   </div>
@@ -3036,6 +3113,27 @@ function candidateTargetsForItems(items: PromotionItem[], fallbackTarget: string
   return ordered.slice(0, 4);
 }
 
+function applyPromotionTargetOverrides(items: PromotionItem[], overrides: Record<string, string>) {
+  if (items.length === 0) {
+    return items;
+  }
+  return items.map((item) => {
+    const override = overrides[item.id];
+    if (!override || override === item.targetFile) {
+      return item;
+    }
+    return { ...item, targetFile: override };
+  });
+}
+
+function describePromotionTargets(items: PromotionItem[], fallbackTarget: string | null) {
+  const targets = Array.from(new Set(items.map((item) => item.targetFile ?? fallbackTarget).filter((value): value is string => Boolean(value))));
+  if (targets.length === 0) {
+    return humanizeTargetFileLabel(fallbackTarget);
+  }
+  return targets.map((target) => humanizeTargetFileLabel(target)).join(', ');
+}
+
 function hasSelectablePromotionMetadata(metadata: Record<string, unknown> | undefined) {
   return (
     metadataArray(metadata, 'talking_points').length > 0 ||
@@ -3282,10 +3380,15 @@ function humanizeTargetPath(path: string) {
     .replace(/[_-]+/g, ' ');
 }
 
-function buildReflectionTopics(delta: PersonaDeltaEntry | null, targetFile: string | null) {
+function buildReflectionTopics(delta: PersonaDeltaEntry | null, targetFile: string | null, selectedItems: PromotionItem[] = []) {
   const topics = ['persona', 'reflection'];
   if (delta?.persona_target) topics.push(delta.persona_target);
   if (targetFile) topics.push(targetFile);
+  for (const item of selectedItems) {
+    if (item.targetFile) {
+      topics.push(item.targetFile);
+    }
+  }
   return Array.from(new Set(topics));
 }
 
@@ -3316,9 +3419,11 @@ function buildReflectionCaptureText({
   ];
 
   if (selectedItems.length > 0) {
+    const targetSummary = describePromotionTargets(selectedItems, targetFile);
     lines.push('## Selected For Promotion');
+    lines.push(`Target files: ${targetSummary}`);
     for (const item of selectedItems) {
-      lines.push(`- [${humanizePromotionKind(item.kind)}] ${item.label}: ${item.content}`);
+      lines.push(`- [${humanizePromotionKind(item.kind)} | ${humanizeTargetFileLabel(item.targetFile ?? targetFile)}] ${item.label}: ${item.content}`);
       if (item.evidence) {
         lines.push(`  Evidence: ${item.evidence}`);
       }
