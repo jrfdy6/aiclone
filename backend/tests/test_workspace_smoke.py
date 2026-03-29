@@ -2796,6 +2796,12 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 proof_packets,
             )
         )
+        self.assertFalse(
+            content_generation_module.option_mentions_approved_proof(
+                "Builds and translates AI execution patterns into clear operator guidance.",
+                proof_packets,
+            )
+        )
 
     def test_option_uses_unapproved_reference_flags_stray_named_entities_and_placeholders(self) -> None:
         approved_reference_terms = [

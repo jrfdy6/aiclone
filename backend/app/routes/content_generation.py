@@ -1372,6 +1372,13 @@ def _normalized_terms(text: str) -> set[str]:
     }
 
 
+def _proof_packet_evidence_text(packet: str) -> str:
+    parts = (packet or "").split("->", 1)
+    if len(parts) == 2:
+        return parts[1].strip()
+    return (packet or "").strip()
+
+
 def _extract_approved_reference_terms(
     primary_claims: List[str],
     proof_packets: List[str],
@@ -1451,7 +1458,7 @@ def option_mentions_approved_proof(option: str, proof_packets: List[str]) -> boo
     if not option_terms or not proof_packets:
         return False
     for packet in proof_packets:
-        packet_terms = _normalized_terms(packet)
+        packet_terms = _normalized_terms(_proof_packet_evidence_text(packet))
         if len(option_terms.intersection(packet_terms)) >= 2:
             return True
     return False
@@ -1506,6 +1513,7 @@ REWRITE RULES:
 - Each option must explicitly mention at least one named system, artifact, or evidence phrase from an APPROVED PROOF PACKET.
 - Only use named references that appear in the APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES list above.
 - Remove unsupported references like videos, schools, employers, or projects that are not explicitly approved above.
+- When an APPROVED PROOF PACKET contains `label -> evidence`, use the evidence side, not just the label side.
 - Keep the original proof meaning intact. Do not generalize it into vague productivity language.
 - Do not use phrases like seamless, unlock potential, drive results, or everything flows.
 - Preserve the person's casual rhythm and punchy style.
@@ -1619,6 +1627,7 @@ REVISION RULES:
 - Never translate one metric into another. If a proof anchor mentions participation, utilization, or revenue, keep that exact subject or omit the number.
 - If no eligible story anchor exists, do not force a story. Stay with proof, pattern, and operating insight.
 - Replace vague claims with concrete operator language: workflow, handoff, prompt, system, proof, constraint, operating cadence.
+- Do not rely on the label side of a proof packet when the evidence side contains the real operator proof.
 - Cut weak setup lines. Start faster.
 - Use one PRIMARY CLAIM per option and make it legible in the first lines.
 - If `proof_ready`, tie each option to one APPROVED PROOF PACKET and preserve its exact meaning.
