@@ -5,7 +5,10 @@ import re
 from typing import Any
 
 from app.services.embedders import embed_text
-from app.services.persona_bundle_context_service import retrieve_bundle_persona_chunks
+from app.services.persona_bundle_context_service import (
+    load_bundle_persona_chunks,
+    retrieve_bundle_persona_chunks,
+)
 from app.services.retrieval import retrieve_similar, retrieve_weighted
 
 
@@ -13,6 +16,7 @@ LEGACY_PERSONA_SOURCES = (
     "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
     "JOHNNIE_FIELDS_PERSONA.md",
 )
+CANONICAL_EXAMPLE_BUNDLE_PATH = "prompts/content_examples.md"
 LEGACY_EXAMPLE_TAGS = ["LINKEDIN_EXAMPLES"]
 PROMPT_SECTION_CORE = "CORE CANON"
 PROMPT_SECTION_SUPPORT = "SUPPORTING CANON"
@@ -423,6 +427,42 @@ def retrieve_curated_example_chunks(
         query_embedding=query_embedding,
         top_k=top_k,
     )
+
+
+def retrieve_bundle_example_chunks(
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    for item in load_bundle_persona_chunks():
+        metadata = _item_metadata(item)
+        if str(metadata.get("bundle_path") or "") != CANONICAL_EXAMPLE_BUNDLE_PATH:
+            continue
+        primary_text, use_when_text = _split_use_when_text(str(item.get("chunk") or ""))
+        score = (_chunk_focus_score(primary_text, focus_terms, topic) * 2) + _chunk_focus_score(use_when_text, focus_terms, topic)
+        if score <= 0:
+            continue
+        normalized = primary_text.lower()
+        if normalized.startswith("good examples:"):
+            score += 3
+        elif normalized.startswith("avoid patterns:"):
+            score += 1
+        ranked.append((score, _hydrate_bundle_chunk(item)))
+
+    curated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, item in sorted(ranked, key=lambda entry: entry[0], reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
 
 
 def filter_example_chunks_by_topic(
@@ -987,6 +1027,11 @@ def build_content_generation_context(
 
     examples_query = f"high performing content example {content_type} {category} {topic}"
     examples_embedding = embed_text(examples_query)
+    bundle_example_chunks = retrieve_bundle_example_chunks(
+        topic=topic,
+        audience=audience,
+        limit=2,
+    )
     example_chunks = retrieve_curated_example_chunks(
         user_id=user_id,
         query_embedding=examples_embedding,
@@ -999,6 +1044,18 @@ def build_content_generation_context(
         audience=audience,
         limit=3,
     )
+    if bundle_example_chunks:
+        merged_examples: list[dict[str, Any]] = []
+        seen_example_keys: set[str] = set()
+        for item in bundle_example_chunks + example_chunks:
+            key = _normalized_chunk_key(item)
+            if not key or key in seen_example_keys:
+                continue
+            seen_example_keys.add(key)
+            merged_examples.append(item)
+            if len(merged_examples) >= 3:
+                break
+        example_chunks = merged_examples
 
     grounding_mode, grounding_reason = score_grounding_confidence(
         proof_anchor_chunks=proof_anchor_chunks,

@@ -2417,9 +2417,11 @@ generated_at: "2026-03-28T00:00:00+00:00"
             claims_path = bundle_root / "identity" / "claims.md"
             initiatives_path = bundle_root / "history" / "initiatives.md"
             stories_path = bundle_root / "history" / "story_bank.md"
+            examples_path = bundle_root / "prompts" / "content_examples.md"
             claims_path.parent.mkdir(parents=True, exist_ok=True)
             initiatives_path.parent.mkdir(parents=True, exist_ok=True)
             stories_path.parent.mkdir(parents=True, exist_ok=True)
+            examples_path.parent.mkdir(parents=True, exist_ok=True)
 
             claims_path.write_text(
                 """| Claim | Type | Evidence | Usage rule |
@@ -2442,6 +2444,12 @@ generated_at: "2026-03-28T00:00:00+00:00"
 - Story type: leadership
 - Use when: leadership, coaching, trust-building
 - Core point: Taking a struggling AC to lunch as a peer changed the relationship and improved adoption.
+""",
+                encoding="utf-8",
+            )
+            examples_path.write_text(
+                """## Good Examples
+- Operator reframe with strategy first. Prompting alone is not an AI strategy. Use when: workflow clarity, agent orchestration, AI adoption.
 """,
                 encoding="utf-8",
             )
@@ -2472,6 +2480,12 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertEqual(story_meta.get("story_kind"), "leadership")
         self.assertEqual(story_meta.get("proof_strength"), "medium")
         self.assertIn("story_anchor", story_meta.get("usage_modes", []))
+
+        example_meta = by_path["prompts/content_examples.md"]["metadata"]
+        self.assertEqual(example_meta.get("memory_role"), "example")
+        self.assertEqual(example_meta.get("proof_kind"), "style_example")
+        self.assertEqual(example_meta.get("persona_tag"), "LINKEDIN_EXAMPLES")
+        self.assertIn("style_reference", example_meta.get("usage_modes", []))
 
     def test_persona_bundle_context_reads_committed_overlay_for_immediate_content_use(self) -> None:
         with patch.object(
@@ -2934,6 +2948,18 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 "file_name": "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
             },
         }
+        bundle_example = {
+            "chunk": "Good Examples: Prompting alone is not an AI strategy. Why it works: strategic claim first. Use when: workflow clarity, agent orchestration, AI adoption.",
+            "persona_tag": "LINKEDIN_EXAMPLES",
+            "metadata": {
+                "source": "canonical persona bundle",
+                "source_kind": "canonical_bundle",
+                "bundle_path": "prompts/content_examples.md",
+                "file_name": "prompts/content_examples.md",
+                "memory_role": "example",
+                "usage_modes": ["style_reference"],
+            },
+        }
 
         def _fake_retrieve_similar(**kwargs):
             if kwargs.get("tag_filter") == ["LINKEDIN_EXAMPLES"]:
@@ -2948,6 +2974,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
             content_context_service_module,
             "retrieve_weighted",
             return_value=[],
+        ), patch.object(
+            content_context_service_module,
+            "load_bundle_persona_chunks",
+            return_value=[bundle_example],
         ), patch.object(
             content_context_service_module,
             "retrieve_similar",
@@ -2975,7 +3005,15 @@ generated_at: "2026-03-28T00:00:00+00:00"
             "Builds and translates AI execution patterns into clear operator guidance.",
         )
         self.assertGreaterEqual(len(context_pack.proof_packets), 1)
-        self.assertEqual(context_pack.example_chunks, [legacy_example])
+        self.assertEqual(len(context_pack.example_chunks), 2)
+        self.assertEqual(
+            context_pack.example_chunks[0].get("metadata", {}).get("bundle_path"),
+            "prompts/content_examples.md",
+        )
+        self.assertEqual(
+            context_pack.example_chunks[1].get("metadata", {}).get("source"),
+            "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
+        )
 
     def test_content_generation_context_service_drops_off_domain_tech_ai_support_and_fails_closed(self) -> None:
         bundle_chunks = [

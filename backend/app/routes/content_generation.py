@@ -1430,6 +1430,8 @@ Voice audit:
 
 ## EXAMPLES FROM THEIR KNOWLEDGE BASE:
 {examples_text if examples_text else "No additional examples available."}
+- Treat GOOD examples as tone, structure, and rhythm references.
+- Treat AVOID pattern examples as anti-patterns to stay away from.
 
 ## CONTENT REQUEST:
 - **Topic:** {topic}
