@@ -1114,6 +1114,10 @@ function PersonaPanel({
     () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
     [selectableItems, selectedPromotionItemIds],
   );
+  const promotionTargetChoices = useMemo(
+    () => candidateTargetsForItems(selectedPromotionItems.length > 0 ? selectedPromotionItems : selectableItems, targetFile),
+    [selectedPromotionItems, selectableItems, targetFile],
+  );
   const availablePromotionGate = useMemo(
     () => summarizePromotionItems(selectableItems, effectivePromotionTargetFile),
     [selectableItems, effectivePromotionTargetFile],
@@ -1123,8 +1127,7 @@ function PersonaPanel({
     [selectedPromotionItems, effectivePromotionTargetFile],
   );
   const activePromotionAlternativeTarget =
-    (selectedPromotionItems.length > 0 ? selectedPromotionGate.alternativeTarget : null) ||
-    availablePromotionGate.alternativeTarget;
+    (selectedPromotionItems.length > 0 ? selectedPromotionGate.alternativeTarget : null) || availablePromotionGate.alternativeTarget;
   const pendingCount = primaryActiveReviewDeltas.length;
   const totalPendingCount = scoredActiveReviewDeltas.length;
   const mutedCount = mutedActiveReviewDeltas.length;
@@ -1653,6 +1656,7 @@ function PersonaPanel({
                     >
                       {selectableItems.map((item) => {
                         const checked = selectedPromotionItemIds.includes(item.id);
+                        const suggestedTarget = bestTargetForPromotionItem(item, targetFile);
                         return (
                           <label
                             key={item.id}
@@ -1694,6 +1698,10 @@ function PersonaPanel({
                                   </p>
                                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                                     <InlineBadge label={humanizePromotionKind(item.kind)} tone="#64748b" />
+                                    <InlineBadge
+                                      label={`Best fit: ${humanizeTargetFileLabel(suggestedTarget)}`}
+                                      tone={suggestedTarget === effectivePromotionTargetFile ? '#38bdf8' : '#818cf8'}
+                                    />
                                     <InlineBadge label={humanizeGateDecision(resolvePromotionGate(item, targetFile).decision)} tone={gateDecisionTone(resolvePromotionGate(item, targetFile).decision)} />
                                     <InlineBadge label={`proof ${item.proofStrength}`} tone={proofStrengthTone(item.proofStrength)} />
                                   </div>
@@ -1789,26 +1797,50 @@ function PersonaPanel({
                     {targetFile && effectivePromotionTargetFile !== targetFile && <InlineBadge label={`Originally ${humanizeTargetFileLabel(targetFile)}`} tone="#64748b" />}
                   </div>
                   <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
-                    Change the canon target here before you queue promotion if the current lane is wrong for this fragment.
+                    Choose where these fragments should land before you queue promotion. The suggested options change with the fragment types you selected.
                   </p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    {activePromotionAlternativeTarget && activePromotionAlternativeTarget !== effectivePromotionTargetFile && (
-                      <button
-                        onClick={() => setPromotionTargetOverride(activePromotionAlternativeTarget)}
-                        style={{
-                          borderRadius: '999px',
-                          border: '1px solid #334155',
-                          backgroundColor: '#082f49',
-                          color: '#cbd5f5',
-                          padding: '8px 12px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Use {humanizeTargetFileLabel(activePromotionAlternativeTarget)} now
-                      </button>
-                    )}
+                    {promotionTargetChoices.map((choice, index) => {
+                      const active = choice === effectivePromotionTargetFile;
+                      return (
+                        <button
+                          key={choice}
+                          onClick={() => setPromotionTargetOverride(choice === targetFile ? null : choice)}
+                          style={{
+                            borderRadius: '999px',
+                            border: active ? '1px solid #38bdf8' : '1px solid #334155',
+                            backgroundColor: active ? '#082f49' : '#020617',
+                            color: active ? '#f8fafc' : '#cbd5f5',
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {humanizeTargetFileLabel(choice)}
+                          {index === 0 ? ' Suggested' : ''}
+                        </button>
+                      );
+                    })}
+                    {activePromotionAlternativeTarget &&
+                      !promotionTargetChoices.includes(activePromotionAlternativeTarget) &&
+                      activePromotionAlternativeTarget !== effectivePromotionTargetFile && (
+                        <button
+                          onClick={() => setPromotionTargetOverride(activePromotionAlternativeTarget)}
+                          style={{
+                            borderRadius: '999px',
+                            border: '1px solid #334155',
+                            backgroundColor: '#082f49',
+                            color: '#cbd5f5',
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Use {humanizeTargetFileLabel(activePromotionAlternativeTarget)}
+                        </button>
+                      )}
                     {targetFile && effectivePromotionTargetFile !== targetFile && (
                       <button
                         onClick={() => setPromotionTargetOverride(null)}
@@ -2929,6 +2961,79 @@ function humanizeTargetFileLabel(targetFile: string | null) {
   if (targetFile.includes('identity/decision_principles')) return 'Decision Principles';
   if (targetFile.includes('prompts/content_pillars')) return 'Content Pillars';
   return targetFile;
+}
+
+function candidateTargetsForPromotionItem(item: PromotionItem, fallbackTarget: string | null) {
+  const targets: string[] = [];
+  const push = (target: string | null | undefined) => {
+    const normalized = typeof target === 'string' ? target.trim() : '';
+    if (!normalized || targets.includes(normalized)) return;
+    targets.push(normalized);
+  };
+  const current = item.targetFile ?? fallbackTarget;
+  const likelyInitiative = Boolean(item.artifactSummary || item.artifactRef || item.proofStrength === 'strong');
+
+  switch (item.kind) {
+    case 'anecdote':
+      push('history/story_bank.md');
+      push('identity/claims.md');
+      push(current);
+      break;
+    case 'phrase_candidate':
+      push('identity/VOICE_PATTERNS.md');
+      push('identity/claims.md');
+      push(current);
+      break;
+    case 'framework':
+      if (current?.includes('prompts/content_pillars')) {
+        push('prompts/content_pillars.md');
+      }
+      if (current?.includes('identity/decision_principles')) {
+        push('identity/decision_principles.md');
+      }
+      push('identity/decision_principles.md');
+      push('prompts/content_pillars.md');
+      push('identity/claims.md');
+      push(current);
+      break;
+    case 'stat':
+      if (likelyInitiative) {
+        push('history/initiatives.md');
+      }
+      push('identity/claims.md');
+      push(current);
+      break;
+    case 'talking_point':
+    default:
+      push(current);
+      push('identity/claims.md');
+      push('identity/decision_principles.md');
+      if (likelyInitiative) {
+        push('history/initiatives.md');
+      }
+      break;
+  }
+
+  return targets.slice(0, 4);
+}
+
+function bestTargetForPromotionItem(item: PromotionItem, fallbackTarget: string | null) {
+  return candidateTargetsForPromotionItem(item, fallbackTarget)[0] ?? item.targetFile ?? fallbackTarget;
+}
+
+function candidateTargetsForItems(items: PromotionItem[], fallbackTarget: string | null) {
+  const ordered: string[] = [];
+  for (const item of items) {
+    for (const target of candidateTargetsForPromotionItem(item, fallbackTarget)) {
+      if (!ordered.includes(target)) {
+        ordered.push(target);
+      }
+    }
+  }
+  if (ordered.length === 0 && fallbackTarget) {
+    ordered.push(fallbackTarget);
+  }
+  return ordered.slice(0, 4);
 }
 
 function hasSelectablePromotionMetadata(metadata: Record<string, unknown> | undefined) {
