@@ -253,6 +253,9 @@ type PromotionItem = {
   proofStrength: PromotionItemProofStrength;
   gateDecision: PromotionItemGateDecision;
   gateReason: string | null;
+  canonPurpose: string | null;
+  canonValue: string | null;
+  canonProof: string | null;
 };
 
 type PromotionGateSummary = {
@@ -261,6 +264,21 @@ type PromotionGateSummary = {
   proofStrength: PromotionItemProofStrength;
   alternativeTarget: string | null;
   selectedCount: number;
+};
+
+type BundleFileResult = {
+  added?: number;
+  skipped?: number;
+};
+
+type LocalBundleSyncState = {
+  state?: string | null;
+  host?: string | null;
+  updated_at?: string | null;
+  synced_at?: string | null;
+  written_files?: string[];
+  file_results?: Record<string, BundleFileResult>;
+  error?: string | null;
 };
 
 type CaptureResponsePayload = {
@@ -279,6 +297,7 @@ type BrainPromotionResponse = {
     target_files?: number;
   };
   committed_target_files?: string[];
+  bundle_written_files?: string[];
 };
 
 type BrainPromotionRerouteResponse = {
@@ -1084,6 +1103,7 @@ function PersonaPanel({
   const [promotingDeltaId, setPromotingDeltaId] = useState<string | null>(null);
   const [reroutingDeltaId, setReroutingDeltaId] = useState<string | null>(null);
   const [recentlyQueuedDeltaId, setRecentlyQueuedDeltaId] = useState<string | null>(null);
+  const [recentlyCommittedDeltaId, setRecentlyCommittedDeltaId] = useState<string | null>(null);
   const [promotionItemTargetOverrides, setPromotionItemTargetOverrides] = useState<Record<string, string>>({});
   const selectedDelta = useMemo(
     () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
@@ -1247,9 +1267,12 @@ function PersonaPanel({
       }
       mergeUpdatedDelta((payload as BrainPromotionResponse).delta);
       await refreshBrainData();
+      setRecentlyQueuedDeltaId(null);
+      setRecentlyCommittedDeltaId(delta.id);
+      setLifecycleView('committed');
       setPromotionState({
         tone: 'success',
-        message: `${(payload as BrainPromotionResponse).message || 'Promotion committed.'} Target files: ${(((payload as BrainPromotionResponse).committed_target_files || []) as string[]).join(', ') || 'n/a'}.`,
+        message: `${(payload as BrainPromotionResponse).message || 'Promotion committed.'} Target files: ${(((payload as BrainPromotionResponse).committed_target_files || []) as string[]).join(', ') || 'n/a'}. Bundle write: ${(((payload as BrainPromotionResponse).bundle_written_files || []) as string[]).join(', ') || 'pending local sync'}.`,
       });
       if (selectedDeltaId === delta.id) {
         setSelectedDeltaId(reviewQueue[0]?.id ?? '');
@@ -1280,6 +1303,7 @@ function PersonaPanel({
       mergeUpdatedDelta((payload as BrainPromotionRerouteResponse).delta);
       await refreshBrainData();
       setRecentlyQueuedDeltaId(delta.id);
+      setRecentlyCommittedDeltaId(null);
       setLifecycleView('pending_promotion');
       setPromotionState({
         tone: 'success',
@@ -1424,6 +1448,7 @@ function PersonaPanel({
         mergeUpdatedDelta(updatedDelta);
         if (mode === 'approved') {
           setRecentlyQueuedDeltaId(updatedDelta.id);
+          setRecentlyCommittedDeltaId(null);
           setLifecycleView('pending_promotion');
           setPromotionState({
             tone: 'success',
@@ -1435,6 +1460,7 @@ function PersonaPanel({
         } else {
           setPromotionState({ tone: 'idle', message: '' });
           setRecentlyQueuedDeltaId(null);
+          setRecentlyCommittedDeltaId(null);
         }
       }
       const nextQueue = selectedDelta ? reviewQueue.filter((delta) => delta.id !== selectedDelta.id) : reviewQueue;
@@ -2200,27 +2226,63 @@ function PersonaPanel({
                 activeLifecycleGroup.items.slice(0, 12).map((item) => (
                   (() => {
                     const queuedItems = readPromotionItemsFromMetadata(item.metadata);
+                    const committedItems = readPromotionItemsFromMetadata(item.metadata, 'committed_promotion_items');
+                    const lifecycleItems = activeLifecycleGroup.key === 'committed' && committedItems.length > 0 ? committedItems : queuedItems;
                     const gateSummary = summarizePromotionItems(queuedItems, metadataText(item.metadata, 'target_file'));
+                    const lifecycleTargetFiles =
+                      activeLifecycleGroup.key === 'committed'
+                        ? metadataStringArray(item.metadata, 'committed_target_files')
+                        : Array.from(new Set(lifecycleItems.map((promotionItem) => promotionItem.targetFile).filter((value): value is string => Boolean(value))));
+                    const bundleWrittenFiles = metadataStringArray(item.metadata, 'bundle_written_files');
+                    const bundleFileResults = metadataObject<Record<string, BundleFileResult>>(item.metadata, 'bundle_file_results');
+                    const bundleSync = metadataObject<LocalBundleSyncState>(item.metadata, 'local_bundle_sync');
+                    const bundleResultSummary = summarizeBundleFileResults(bundleFileResults);
+                    const committedAt = metadataText(item.metadata, 'promotion_committed_at') ?? item.committed_at ?? null;
+                    const isRecentlyQueued = recentlyQueuedDeltaId === item.id;
+                    const isRecentlyCommitted = recentlyCommittedDeltaId === item.id;
                     const commitDisabled = activeLifecycleGroup.key === 'pending_promotion' && gateSummary.decision !== 'allow';
                     return (
                   <div
                     key={item.id}
                     style={{
-                      borderRadius: '12px',
-                      border: `1px solid ${recentlyQueuedDeltaId === item.id ? '#38bdf8' : '#1f2937'}`,
+                      borderRadius: '14px',
+                      border: `1px solid ${isRecentlyCommitted ? '#22c55e' : isRecentlyQueued ? '#38bdf8' : '#1f2937'}`,
                       padding: '10px',
-                      backgroundColor: recentlyQueuedDeltaId === item.id ? '#082f49' : '#0b1220',
+                      backgroundColor: isRecentlyCommitted ? '#052e1b' : isRecentlyQueued ? '#082f49' : '#0b1220',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '6px' }}>
                       <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{truncateText(item.trait, 140)}</p>
                       <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
                     </div>
-                    {recentlyQueuedDeltaId === item.id && (
+                    {(isRecentlyQueued || isRecentlyCommitted || lifecycleItems.length > 0) && (
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                        <InlineBadge label="just queued" tone="#38bdf8" />
-                        <InlineBadge label={`${metadataArray(item.metadata, 'selected_promotion_items').length} selected`} tone="#f59e0b" />
-                        <InlineBadge label={humanizeGateDecision(gateSummary.decision)} tone={gateDecisionTone(gateSummary.decision)} />
+                        {isRecentlyQueued && <InlineBadge label="just queued" tone="#38bdf8" />}
+                        {isRecentlyCommitted && <InlineBadge label="just committed" tone="#22c55e" />}
+                        {lifecycleItems.length > 0 && <InlineBadge label={`${lifecycleItems.length} fragment${lifecycleItems.length === 1 ? '' : 's'}`} tone="#818cf8" />}
+                        {activeLifecycleGroup.key === 'pending_promotion' && (
+                          <InlineBadge label={humanizeGateDecision(gateSummary.decision)} tone={gateDecisionTone(gateSummary.decision)} />
+                        )}
+                        {activeLifecycleGroup.key === 'committed' && committedAt && (
+                          <InlineBadge label={`Committed ${formatTimestamp(new Date(committedAt))}`} tone="#22c55e" />
+                        )}
+                        {activeLifecycleGroup.key === 'committed' && (
+                          <InlineBadge label={humanizeLocalBundleSyncState(bundleSync?.state)} tone={localBundleSyncTone(bundleSync?.state)} />
+                        )}
+                      </div>
+                    )}
+                    {(lifecycleTargetFiles.length > 0 || bundleWrittenFiles.length > 0) && (
+                      <div style={{ display: 'grid', gap: '4px', marginBottom: '8px' }}>
+                        {lifecycleTargetFiles.length > 0 && (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                            Targets: {lifecycleTargetFiles.map((path) => humanizeTargetFileLabel(path)).join(', ')}
+                          </p>
+                        )}
+                        {activeLifecycleGroup.key === 'committed' && bundleWrittenFiles.length > 0 && (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                            Written files: {bundleWrittenFiles.map((path) => humanizeTargetFileLabel(path)).join(', ')}
+                          </p>
+                        )}
                       </div>
                     )}
                     {metadataText(item.metadata, 'owner_response_excerpt') && (
@@ -2236,6 +2298,76 @@ function PersonaPanel({
                         <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
                           {truncateText(metadataText(item.metadata, 'owner_response_excerpt') ?? '', 180)}
                         </p>
+                      </div>
+                    )}
+                    {lifecycleItems.length > 0 && (
+                      <div
+                        style={{
+                          marginBottom: '8px',
+                          padding: '10px',
+                          borderRadius: '12px',
+                          border: '1px solid #1f2937',
+                          backgroundColor: '#020617',
+                          display: 'grid',
+                          gap: '8px',
+                        }}
+                      >
+                        <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>
+                          {activeLifecycleGroup.key === 'committed' ? 'Committed fragments' : 'Queued fragments'}
+                        </p>
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                          {lifecycleItems.map((promotionItem) => (
+                            <div
+                              key={promotionItem.id}
+                              style={{
+                                borderRadius: '10px',
+                                border: '1px solid #1f2937',
+                                backgroundColor: '#0b1220',
+                                padding: '9px 10px',
+                                display: 'grid',
+                                gap: '6px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                <InlineBadge label={humanizePromotionKind(promotionItem.kind)} tone="#64748b" />
+                                <InlineBadge label={humanizeTargetFileLabel(promotionItem.targetFile)} tone="#818cf8" />
+                                {activeLifecycleGroup.key !== 'committed' && (
+                                  <InlineBadge
+                                    label={humanizeGateDecision(resolvePromotionGate(promotionItem, metadataText(item.metadata, 'target_file')).decision)}
+                                    tone={gateDecisionTone(resolvePromotionGate(promotionItem, metadataText(item.metadata, 'target_file')).decision)}
+                                  />
+                                )}
+                              </div>
+                              <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                                {truncateText(promotionItem.content, 220)}
+                              </p>
+                              {promotionItem.artifactSummary && (
+                                <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                                  Artifact: {promotionItem.artifactSummary}
+                                </p>
+                              )}
+                              {activeLifecycleGroup.key === 'committed' && (promotionItem.canonPurpose || promotionItem.canonValue || promotionItem.canonProof) && (
+                                <div style={{ display: 'grid', gap: '4px' }}>
+                                  {promotionItem.canonPurpose && (
+                                    <p style={{ color: '#dbe7ff', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                                      Purpose: {truncateText(promotionItem.canonPurpose, 180)}
+                                    </p>
+                                  )}
+                                  {promotionItem.canonValue && (
+                                    <p style={{ color: '#cbd5f5', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                                      Value: {truncateText(promotionItem.canonValue, 180)}
+                                    </p>
+                                  )}
+                                  {promotionItem.canonProof && (
+                                    <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                                      Proof: {truncateText(promotionItem.canonProof, 180)}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                     {activeLifecycleGroup.key === 'pending_promotion' && (
@@ -2258,6 +2390,39 @@ function PersonaPanel({
                         {gateSummary.alternativeTarget && (
                           <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: '6px 0 0' }}>
                             Better fit right now: {gateSummary.alternativeTarget}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {activeLifecycleGroup.key === 'committed' && (
+                      <div
+                        style={{
+                          marginBottom: '8px',
+                          padding: '8px 10px',
+                          borderRadius: '10px',
+                          border: `1px solid ${localBundleSyncTone(bundleSync?.state)}44`,
+                          backgroundColor: `${localBundleSyncTone(bundleSync?.state)}12`,
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                          <InlineBadge label={humanizeLocalBundleSyncState(bundleSync?.state)} tone={localBundleSyncTone(bundleSync?.state)} />
+                          {bundleWrittenFiles.length > 0 && (
+                            <InlineBadge label={`${bundleWrittenFiles.length} bundle file${bundleWrittenFiles.length === 1 ? '' : 's'}`} tone="#818cf8" />
+                          )}
+                        </div>
+                        {bundleResultSummary && (
+                          <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                            Write results: {bundleResultSummary}
+                          </p>
+                        )}
+                        {bundleSync?.synced_at && (
+                          <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: bundleResultSummary ? '6px 0 0' : 0 }}>
+                            Synced locally at {formatTimestamp(new Date(bundleSync.synced_at))}
+                          </p>
+                        )}
+                        {bundleSync?.error && (
+                          <p style={{ color: '#fca5a5', fontSize: '11px', lineHeight: 1.5, margin: '6px 0 0' }}>
+                            Last sync error: {truncateText(bundleSync.error, 180)}
                           </p>
                         )}
                       </div>
@@ -2774,6 +2939,10 @@ function metadataArray(metadata: Record<string, unknown> | undefined, key: strin
   return Array.isArray(value) ? value : [];
 }
 
+function metadataStringArray(metadata: Record<string, unknown> | undefined, key: string) {
+  return metadataArray(metadata, key).filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+}
+
 function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string) {
   return metadata?.[key] === true;
 }
@@ -2821,6 +2990,9 @@ function buildPromotionItems(delta: PersonaDeltaEntry | null, targetFile: string
       proofStrength,
       gateDecision: 'pending',
       gateReason: null,
+      canonPurpose: null,
+      canonValue: null,
+      canonProof: null,
     });
   };
 
@@ -2864,8 +3036,11 @@ function buildPromotionItems(delta: PersonaDeltaEntry | null, targetFile: string
   return items;
 }
 
-function readPromotionItemsFromMetadata(metadata: Record<string, unknown> | undefined): PromotionItem[] {
-  const items = metadataArray(metadata, 'selected_promotion_items');
+function readPromotionItemsFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: 'selected_promotion_items' | 'committed_promotion_items' = 'selected_promotion_items',
+): PromotionItem[] {
+  const items = metadataArray(metadata, key);
   const parsed = items
     .map((entry) => {
       if (!entry || typeof entry !== 'object') return null;
@@ -2883,22 +3058,90 @@ function readPromotionItemsFromMetadata(metadata: Record<string, unknown> | unde
         label,
         content,
         evidence: typeof record.evidence === 'string' ? record.evidence : null,
-        targetFile: typeof record.targetFile === 'string' ? record.targetFile : null,
-        artifactSummary: typeof record.artifactSummary === 'string' ? record.artifactSummary : null,
-        artifactKind: typeof record.artifactKind === 'string' ? record.artifactKind : null,
-        artifactRef: typeof record.artifactRef === 'string' ? record.artifactRef : null,
-        deltaSummary: typeof record.deltaSummary === 'string' ? record.deltaSummary : null,
-        reviewInterpretation: typeof record.reviewInterpretation === 'string' ? record.reviewInterpretation : null,
-        capabilitySignal: typeof record.capabilitySignal === 'string' ? record.capabilitySignal : null,
-        positioningSignal: typeof record.positioningSignal === 'string' ? record.positioningSignal : null,
-        leverageSignal: typeof record.leverageSignal === 'string' ? record.leverageSignal : null,
-        proofSignal: typeof record.proofSignal === 'string' ? record.proofSignal : null,
-        proofStrength: record.proofStrength === 'weak' || record.proofStrength === 'strong' ? record.proofStrength : 'none',
+        targetFile:
+          typeof record.targetFile === 'string' ? record.targetFile : typeof record.target_file === 'string' ? record.target_file : null,
+        artifactSummary:
+          typeof record.artifactSummary === 'string'
+            ? record.artifactSummary
+            : typeof record.artifact_summary === 'string'
+            ? record.artifact_summary
+            : null,
+        artifactKind:
+          typeof record.artifactKind === 'string'
+            ? record.artifactKind
+            : typeof record.artifact_kind === 'string'
+            ? record.artifact_kind
+            : null,
+        artifactRef:
+          typeof record.artifactRef === 'string' ? record.artifactRef : typeof record.artifact_ref === 'string' ? record.artifact_ref : null,
+        deltaSummary:
+          typeof record.deltaSummary === 'string'
+            ? record.deltaSummary
+            : typeof record.delta_summary === 'string'
+            ? record.delta_summary
+            : null,
+        reviewInterpretation:
+          typeof record.reviewInterpretation === 'string'
+            ? record.reviewInterpretation
+            : typeof record.review_interpretation === 'string'
+            ? record.review_interpretation
+            : null,
+        capabilitySignal:
+          typeof record.capabilitySignal === 'string'
+            ? record.capabilitySignal
+            : typeof record.capability_signal === 'string'
+            ? record.capability_signal
+            : null,
+        positioningSignal:
+          typeof record.positioningSignal === 'string'
+            ? record.positioningSignal
+            : typeof record.positioning_signal === 'string'
+            ? record.positioning_signal
+            : null,
+        leverageSignal:
+          typeof record.leverageSignal === 'string'
+            ? record.leverageSignal
+            : typeof record.leverage_signal === 'string'
+            ? record.leverage_signal
+            : null,
+        proofSignal:
+          typeof record.proofSignal === 'string'
+            ? record.proofSignal
+            : typeof record.proof_signal === 'string'
+            ? record.proof_signal
+            : null,
+        proofStrength:
+          record.proofStrength === 'weak' || record.proofStrength === 'strong'
+            ? record.proofStrength
+            : record.proof_strength === 'weak' || record.proof_strength === 'strong'
+            ? record.proof_strength
+            : 'none',
         gateDecision:
           record.gateDecision === 'allow' || record.gateDecision === 'hold' || record.gateDecision === 'block'
             ? record.gateDecision
+            : record.gate_decision === 'allow' || record.gate_decision === 'hold' || record.gate_decision === 'block'
+            ? record.gate_decision
             : 'pending',
-        gateReason: typeof record.gateReason === 'string' ? record.gateReason : null,
+        gateReason:
+          typeof record.gateReason === 'string' ? record.gateReason : typeof record.gate_reason === 'string' ? record.gate_reason : null,
+        canonPurpose:
+          typeof record.canonPurpose === 'string'
+            ? record.canonPurpose
+            : typeof record.canon_purpose === 'string'
+            ? record.canon_purpose
+            : null,
+        canonValue:
+          typeof record.canonValue === 'string'
+            ? record.canonValue
+            : typeof record.canon_value === 'string'
+            ? record.canon_value
+            : null,
+        canonProof:
+          typeof record.canonProof === 'string'
+            ? record.canonProof
+            : typeof record.canon_proof === 'string'
+            ? record.canon_proof
+            : null,
       } satisfies PromotionItem;
     })
     .filter((item): item is PromotionItem => item !== null);
@@ -3038,6 +3281,36 @@ function humanizeTargetFileLabel(targetFile: string | null) {
   if (targetFile.includes('identity/decision_principles')) return 'Decision Principles';
   if (targetFile.includes('prompts/content_pillars')) return 'Content Pillars';
   return targetFile;
+}
+
+function humanizeLocalBundleSyncState(state: string | null | undefined) {
+  const normalized = (state || '').trim().toLowerCase();
+  if (normalized === 'synced') return 'Local bundle synced';
+  if (normalized === 'failed') return 'Local sync failed';
+  if (normalized === 'pending') return 'Local sync pending';
+  return 'Local sync pending';
+}
+
+function localBundleSyncTone(state: string | null | undefined) {
+  const normalized = (state || '').trim().toLowerCase();
+  if (normalized === 'synced') return '#22c55e';
+  if (normalized === 'failed') return '#f87171';
+  if (normalized === 'pending') return '#f59e0b';
+  return '#64748b';
+}
+
+function summarizeBundleFileResults(fileResults: Record<string, BundleFileResult> | null) {
+  if (!fileResults) return null;
+  const parts = Object.entries(fileResults)
+    .filter(([, result]) => result && typeof result === 'object')
+    .map(([path, result]) => {
+      const label = humanizeTargetFileLabel(path);
+      const additions = typeof result.added === 'number' ? `+${result.added}` : null;
+      const skipped = typeof result.skipped === 'number' && result.skipped > 0 ? `${result.skipped} skipped` : null;
+      return [label, additions, skipped].filter(Boolean).join(' · ');
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(' | ') : null;
 }
 
 function candidateTargetsForPromotionItem(item: PromotionItem, fallbackTarget: string | null) {
