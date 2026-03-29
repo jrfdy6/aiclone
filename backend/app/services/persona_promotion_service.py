@@ -6,6 +6,7 @@ from typing import Any
 from app.models import PersonaDelta, PersonaDeltaUpdate
 from app.services import persona_delta_service
 from app.services.persona_bundle_writer import write_promotion_items_to_bundle
+from app.services.persona_promotion_extractor import TARGET_INITIATIVES, extract_canonical_promotion_items
 from app.services.persona_promotion_utils import (
     metadata_array,
     metadata_text,
@@ -17,9 +18,6 @@ TARGET_VOICE = "identity/VOICE_PATTERNS.md"
 TARGET_DECISION_PRINCIPLES = "identity/decision_principles.md"
 TARGET_CONTENT_PILLARS = "prompts/content_pillars.md"
 TARGET_STORIES = "history/story_bank.md"
-TARGET_INITIATIVES = "history/initiatives.md"
-
-
 def build_committed_persona_overlay(limit: int = 500) -> dict[str, Any]:
     try:
         deltas = persona_delta_service.list_deltas(limit=limit, status="committed")
@@ -34,8 +32,8 @@ def build_committed_persona_overlay(limit: int = 500) -> dict[str, Any]:
         if not selected_items:
             continue
         counts["deltas"] += 1
-        normalized_items = normalize_selected_promotion_items(delta)
-        for item in normalized_items:
+        extracted_items = extract_canonical_promotion_items(normalize_selected_promotion_items(delta))
+        for item in extracted_items:
             if not isinstance(item, dict):
                 continue
             target_file = item["target_file"]
@@ -80,17 +78,27 @@ def promote_delta_to_canon(delta_id: str) -> PersonaDelta | None:
     normalized_items = normalize_selected_promotion_items(delta)
     if not normalized_items:
         raise ValueError("Selected promotion items are missing canonical target information.")
+    extracted_items = extract_canonical_promotion_items(normalized_items)
+    blocked_initiatives = [
+        item
+        for item in extracted_items
+        if item.get("target_file") == TARGET_INITIATIVES and item.get("gate_decision") != "allow"
+    ]
+    if blocked_initiatives:
+        reasons = sorted({str(item.get("gate_reason") or "Initiatives canon requires artifact-backed proof.") for item in blocked_initiatives})
+        raise ValueError("Cannot commit to initiatives canon: " + " ".join(reasons))
 
-    bundle_write = write_promotion_items_to_bundle(normalized_items)
+    bundle_write = write_promotion_items_to_bundle(extracted_items)
     committed_at = datetime.now(timezone.utc).isoformat()
     update_metadata = {
         "pending_promotion": False,
         "promotion_state": "committed",
         "promotion_committed_at": committed_at,
-        "committed_target_files": sorted({item["target_file"] for item in normalized_items}),
-        "committed_item_count": len(normalized_items),
+        "committed_target_files": sorted({item["target_file"] for item in extracted_items}),
+        "committed_item_count": len(extracted_items),
         "selected_promotion_items": selected_items,
-        "selected_promotion_item_ids": [item["id"] for item in normalized_items if item.get("id")],
+        "selected_promotion_item_ids": [item["id"] for item in extracted_items if item.get("id")],
+        "committed_promotion_items": extracted_items,
         "bundle_root": bundle_write.get("bundle_root"),
         "bundle_written_files": bundle_write.get("written_files") or [],
         "bundle_file_results": bundle_write.get("file_results") or {},

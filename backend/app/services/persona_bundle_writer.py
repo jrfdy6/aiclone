@@ -527,9 +527,19 @@ def _write_initiatives(path: Path, items: list[dict[str, Any]]) -> tuple[int, in
             {
                 "title": initiative_title,
                 "status": "active",
-                "purpose": _ensure_period(str(item.get("content") or "")),
-                "value": _ensure_period(str(item.get("owner_response_excerpt") or "Promoted from Brain review.")),
-                "proof": _ensure_period(str(item.get("evidence") or item.get("trait") or "")),
+                "purpose": _ensure_period(str(item.get("canon_purpose") or item.get("artifact_summary") or item.get("content") or "")),
+                "value": _ensure_period(
+                    str(
+                        item.get("canon_value")
+                        or item.get("leverage_signal")
+                        or item.get("capability_signal")
+                        or item.get("positioning_signal")
+                        or "Promoted from Brain review."
+                    )
+                ),
+                "proof": _ensure_period(
+                    str(item.get("canon_proof") or item.get("proof_signal") or item.get("artifact_summary") or item.get("evidence") or "")
+                ),
             }
         )
         seen.add(key)

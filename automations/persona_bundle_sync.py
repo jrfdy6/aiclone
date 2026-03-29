@@ -18,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.models import PersonaDelta
 from app.services.persona_bundle_writer import write_promotion_items_to_bundle
+from app.services.persona_promotion_extractor import extract_canonical_promotion_items
 from app.services.persona_promotion_utils import normalize_selected_promotion_items
 
 
@@ -96,8 +97,8 @@ def needs_local_sync(delta: PersonaDelta) -> bool:
 
 
 def sync_delta(delta: PersonaDelta, *, api_url: str, dry_run: bool = False) -> dict[str, Any]:
-    normalized_items = normalize_selected_promotion_items(delta)
-    if not normalized_items:
+    extracted_items = extract_canonical_promotion_items(normalize_selected_promotion_items(delta))
+    if not extracted_items:
         return {
             "delta_id": delta.id,
             "trait": delta.trait,
@@ -110,18 +111,18 @@ def sync_delta(delta: PersonaDelta, *, api_url: str, dry_run: bool = False) -> d
             "delta_id": delta.id,
             "trait": delta.trait,
             "state": "pending",
-            "item_count": len(normalized_items),
-            "target_files": sorted({item["target_file"] for item in normalized_items}),
+            "item_count": len(extracted_items),
+            "target_files": sorted({item["target_file"] for item in extracted_items}),
         }
 
     try:
-        bundle_write = write_promotion_items_to_bundle(normalized_items)
+        bundle_write = write_promotion_items_to_bundle(extracted_items)
         update_local_sync_state(api_url, delta.id, state="synced", bundle_write=bundle_write)
         return {
             "delta_id": delta.id,
             "trait": delta.trait,
             "state": "synced",
-            "item_count": len(normalized_items),
+            "item_count": len(extracted_items),
             "written_files": bundle_write.get("written_files") or [],
             "file_results": bundle_write.get("file_results") or {},
         }

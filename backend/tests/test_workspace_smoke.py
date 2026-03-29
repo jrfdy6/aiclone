@@ -33,6 +33,7 @@ content_generation_module = importlib.import_module("app.routes.content_generati
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 persona_promotion_module = importlib.import_module("app.services.persona_promotion_service")
 persona_promotion_utils_module = importlib.import_module("app.services.persona_promotion_utils")
+persona_promotion_extractor_module = importlib.import_module("app.services.persona_promotion_extractor")
 belief_engine_module = importlib.import_module("app.services.social_belief_engine")
 persona_bundle_writer_module = importlib.import_module("app.services.persona_bundle_writer")
 persona_bundle_context_module = importlib.import_module("app.services.persona_bundle_context_service")
@@ -2012,6 +2013,35 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertEqual((updated.metadata or {}).get("bundle_written_files"), ["identity/claims.md"])
         self.assertEqual(((updated.metadata or {}).get("local_bundle_sync") or {}).get("state"), "pending")
 
+    def test_promote_delta_to_canon_blocks_initiative_without_artifact_anchor(self) -> None:
+        delta = PersonaDelta(
+            id="delta-promote-initiative-blocked",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Weak initiative promotion",
+            notes="Reflective note only",
+            status="approved",
+            metadata={
+                "pending_promotion": True,
+                "target_file": "history/initiatives.md",
+                "selected_promotion_items": [
+                    {
+                        "id": "initiative-weak-1",
+                        "kind": "talking_point",
+                        "label": "Talking point",
+                        "content": "This idea feels important to how I think about AI.",
+                        "targetFile": "history/initiatives.md",
+                    }
+                ],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=None,
+        )
+
+        with patch.object(persona_promotion_module.persona_delta_service, "get_delta", return_value=delta):
+            with self.assertRaisesRegex(ValueError, "Cannot commit to initiatives canon"):
+                persona_promotion_module.promote_delta_to_canon("delta-promote-initiative-blocked")
+
     def test_normalize_selected_promotion_items_preserves_semantic_slots(self) -> None:
         delta = PersonaDelta(
             id="delta-semantic-normalize",
@@ -2118,6 +2148,54 @@ summary: Leadership behavior drives AI implementation outcomes.
             self.assertIn("Operator clarity matters more than hype.", claims_path.read_text(encoding="utf-8"))
             self.assertEqual(result.get("written_files"), ["identity/claims.md"])
 
+    def test_persona_bundle_writer_uses_semantic_initiative_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_root = Path(temp_dir) / "knowledge" / "persona" / "feeze"
+            with patch.object(persona_bundle_writer_module, "resolve_persona_bundle_root", return_value=bundle_root):
+                result = persona_bundle_writer_module.write_promotion_items_to_bundle(
+                    [
+                        {
+                            "id": "initiative-1",
+                            "kind": "stat",
+                            "label": "Proof point",
+                            "content": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                            "evidence": "Review note that should not become proof.",
+                            "target_file": "history/initiatives.md",
+                            "trait": "Pilot to payoff",
+                            "canon_purpose": "Use quantified AI execution proof to ground initiative-level canon.",
+                            "canon_value": "Strengthens Johnnie's positioning as an AI systems operator grounded in real execution.",
+                            "canon_proof": "5.2x success signal tied to visible prompting and agent usage.",
+                        }
+                    ]
+                )
+
+            initiatives_path = bundle_root / "history" / "initiatives.md"
+            content = initiatives_path.read_text(encoding="utf-8")
+            self.assertTrue(initiatives_path.exists())
+            self.assertIn("Use quantified AI execution proof to ground initiative-level canon.", content)
+            self.assertIn("Strengthens Johnnie's positioning as an AI systems operator grounded in real execution.", content)
+            self.assertIn("5.2x success signal tied to visible prompting and agent usage.", content)
+            self.assertNotIn("Review note that should not become proof.", content)
+            self.assertEqual(result.get("written_files"), ["history/initiatives.md"])
+
+    def test_extract_canonical_promotion_items_marks_initiatives_without_artifacts_blocked(self) -> None:
+        extracted = persona_promotion_extractor_module.extract_canonical_promotion_items(
+            [
+                {
+                    "id": "initiative-weak-1",
+                    "kind": "talking_point",
+                    "label": "Talking point",
+                    "content": "This idea feels important to how I think about AI.",
+                    "target_file": "history/initiatives.md",
+                    "owner_response_excerpt": "I really like this line.",
+                }
+            ]
+        )
+
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(extracted[0]["gate_decision"], "block")
+        self.assertEqual(extracted[0]["proof_strength"], "weak")
+
     def test_persona_bundle_context_retrieves_committed_claim_for_content(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             bundle_root = Path(temp_dir) / "knowledge" / "persona" / "feeze"
@@ -2175,6 +2253,35 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertGreaterEqual(len(chunks), 1)
         self.assertIn("5.2x more likely", (chunks[0].get("chunk") or ""))
         self.assertEqual(chunks[0].get("metadata", {}).get("source_kind"), "committed_overlay")
+
+    def test_persona_bundle_context_prefers_semantic_initiative_overlay_fields(self) -> None:
+        with patch.object(
+            persona_bundle_context_module,
+            "build_committed_persona_overlay",
+            return_value={
+                "by_target_file": {
+                    "history/initiatives.md": [
+                        {
+                            "content": "Raw review-shaped content that should not lead.",
+                            "evidence": "Reflective note that should not lead.",
+                            "canon_value": "Strengthens Johnnie's positioning as an AI systems operator grounded in real execution.",
+                            "canon_proof": "5.2x success signal tied to visible prompting and agent usage.",
+                        }
+                    ]
+                }
+            },
+        ), patch.object(persona_bundle_context_module, "resolve_persona_bundle_root", return_value=Path("/tmp/does-not-exist")):
+            chunks = persona_bundle_context_module.retrieve_bundle_persona_chunks(
+                query_text="AI systems operator",
+                category="value",
+                channel="linkedin_post",
+                top_k=3,
+            )
+
+        self.assertGreaterEqual(len(chunks), 1)
+        self.assertIn("AI systems operator grounded in real execution", (chunks[0].get("chunk") or ""))
+        self.assertIn("5.2x success signal tied to visible prompting and agent usage", (chunks[0].get("chunk") or ""))
+        self.assertNotIn("Raw review-shaped content", (chunks[0].get("chunk") or ""))
 
     def test_content_generation_prefers_bundle_persona_chunks(self) -> None:
         class _FakeResponse:

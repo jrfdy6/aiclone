@@ -332,10 +332,25 @@ def load_committed_overlay_chunks() -> list[dict[str, Any]]:
         for idx, item in enumerate(items):
             if not isinstance(item, dict):
                 continue
-            content = _normalize_inline(str(item.get("content") or ""))
+            if rel_path == TARGET_INITIATIVES:
+                content = _normalize_inline(
+                    str(
+                        item.get("canon_value")
+                        or item.get("leverage_signal")
+                        or item.get("capability_signal")
+                        or item.get("positioning_signal")
+                        or item.get("content")
+                        or ""
+                    )
+                )
+                evidence = _normalize_inline(
+                    str(item.get("canon_proof") or item.get("proof_signal") or item.get("artifact_summary") or item.get("evidence") or "")
+                )
+            else:
+                content = _normalize_inline(str(item.get("content") or ""))
+                evidence = _normalize_inline(str(item.get("evidence") or ""))
             if not content:
                 continue
-            evidence = _normalize_inline(str(item.get("evidence") or ""))
             chunk = content if not evidence else f"{content} Evidence: {evidence}"
             chunks.append(
                 {
