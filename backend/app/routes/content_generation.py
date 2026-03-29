@@ -807,6 +807,21 @@ def get_openai_client():
     return openai.OpenAI(api_key=api_key)
 
 
+def _split_example_references(example_chunks: List[Dict[str, Any]], *, limit: int = 3) -> tuple[List[str], List[str]]:
+    good_examples: List[str] = []
+    avoid_examples: List[str] = []
+    for item in example_chunks[:limit]:
+        chunk = " ".join(str(item.get("chunk") or "").split()).strip()
+        if not chunk:
+            continue
+        normalized = chunk.lower()
+        if normalized.startswith("avoid patterns:"):
+            avoid_examples.append(chunk[:500])
+        else:
+            good_examples.append(chunk[:500])
+    return good_examples, avoid_examples
+
+
 def build_content_prompt(
     topic: str,
     context: str,
@@ -907,8 +922,9 @@ def build_content_prompt(
             persona_parts.append(f"### {section}\n" + "\n".join(chunks))
     persona_text = "\n\n".join(persona_parts)
     
-    # Extract example content
-    examples_text = "\n---\n".join([c.get("chunk", "")[:500] for c in example_chunks[:3]])
+    good_examples, avoid_examples = _split_example_references(example_chunks, limit=3)
+    good_examples_text = "\n---\n".join(good_examples) if good_examples else "No additional positive examples available."
+    avoid_examples_text = "\n---\n".join(avoid_examples) if avoid_examples else "No additional avoid-pattern examples available."
     
     # Anti-AI writing filter
     anti_ai_rules = """
@@ -1428,10 +1444,15 @@ Voice audit:
 ## PROOF ANCHORS:
 {proof_anchor_text}
 
-## EXAMPLES FROM THEIR KNOWLEDGE BASE:
-{examples_text if examples_text else "No additional examples available."}
-- Treat GOOD examples as tone, structure, and rhythm references.
-- Treat AVOID pattern examples as anti-patterns to stay away from.
+## GOOD STYLE REFERENCES:
+{good_examples_text}
+- Borrow shape, rhythm, conviction, and pacing from these.
+- Do not borrow facts or named stories unless they also appear in the PERSONA STACK / ANCHORS above.
+
+## AVOID PATTERN REFERENCES:
+{avoid_examples_text}
+- Treat these as anti-patterns.
+- Do not reproduce their sentence shapes, generic framing, or consultant language.
 
 ## CONTENT REQUEST:
 - **Topic:** {topic}

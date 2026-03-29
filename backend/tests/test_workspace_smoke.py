@@ -3724,6 +3724,45 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertEqual(len(filtered), 1)
         self.assertIn("agent orchestration", filtered[0].get("chunk", "").lower())
 
+    def test_build_content_prompt_separates_good_and_avoid_example_references(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"prompt_section": "CORE CANON"},
+            }
+        ]
+        example_chunks = [
+            {
+                "chunk": "Good Examples: Prompting alone is not an AI strategy. Why it works: strategic claim first. Use when: workflow clarity, agent orchestration, AI adoption.",
+                "persona_tag": "LINKEDIN_EXAMPLES",
+                "metadata": {"source": "canonical persona bundle"},
+            },
+            {
+                "chunk": "Avoid Patterns: Agent orchestration is critical for driving results. Why it fails: vague, corporate, generic.",
+                "persona_tag": "LINKEDIN_EXAMPLES",
+                "metadata": {"source": "canonical persona bundle"},
+            },
+        ]
+
+        prompt = content_generation_module.build_content_prompt(
+            topic="agent orchestration",
+            context="",
+            content_type="linkedin_post",
+            category="value",
+            pacer_elements=[],
+            tone="expert_direct",
+            persona_chunks=persona_chunks,
+            example_chunks=example_chunks,
+            audience="tech_ai",
+        )
+
+        self.assertIn("## GOOD STYLE REFERENCES:", prompt)
+        self.assertIn("Prompting alone is not an AI strategy", prompt)
+        self.assertIn("## AVOID PATTERN REFERENCES:", prompt)
+        self.assertIn("Agent orchestration is critical for driving results", prompt)
+        self.assertIn("Do not borrow facts or named stories", prompt)
+
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
         with patch.object(
