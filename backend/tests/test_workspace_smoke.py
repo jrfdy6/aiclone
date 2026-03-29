@@ -2876,9 +2876,13 @@ generated_at: "2026-03-28T00:00:00+00:00"
         payload = response.json()
         self.assertTrue(payload.get("success"))
         self.assertIn("workflow clarity", (payload.get("persona_context") or "").lower())
-        self.assertEqual(payload.get("options"), ["Bundle-first option"])
+        self.assertEqual(
+            payload.get("options"),
+            ["Teams fail when they chase tools before workflow clarity.\n\nBundle-first option"],
+        )
         diagnostics = payload.get("diagnostics") or {}
         self.assertEqual(diagnostics.get("grounding_mode"), "proof_ready")
+        self.assertEqual(diagnostics.get("generation_strategy"), "planner_writer_critic")
         self.assertEqual(
             diagnostics.get("primary_claims"),
             ["Teams fail when they chase tools before workflow clarity."],
@@ -3831,6 +3835,19 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(finalized)
         self.assertIn("Prompting alone is not an AI strategy.", finalized[0])
         self.assertIn("Brain, Ops, planner, and briefs now share the same routed workspace state.", finalized[0])
+
+    def test_parse_content_options_strips_markdown_option_headings(self) -> None:
+        options = content_generation_module.parse_content_options(
+            "### OPTION 1\nPrompting alone is not an AI strategy.\n---OPTION---\n### OPTION 2\nIf there is no artifact, stay at the level of principle."
+        )
+
+        self.assertEqual(
+            options,
+            [
+                "Prompting alone is not an AI strategy.",
+                "If there is no artifact, stay at the level of principle.",
+            ],
+        )
 
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()

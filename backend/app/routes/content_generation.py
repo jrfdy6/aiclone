@@ -1571,6 +1571,7 @@ Generate 3 content options, separated by "---OPTION---":
 def parse_content_options(raw_content: str) -> List[str]:
     def _clean_option(text: str) -> str:
         cleaned = (text or "").strip()
+        cleaned = re.sub(r"^#+\s*OPTION\s+\d+\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"^\*\*Option\s+\d+:\s*`[^`]+`\*\*\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"^Option\s+\d+:\s*`?[^`\n]+`?\s*", "", cleaned, flags=re.IGNORECASE)
         return cleaned.strip()
@@ -2010,6 +2011,39 @@ def _replace_flat_opening_with_claim(option: str, brief: ContentOptionBrief) -> 
     return "\n\n".join(segment for segment in paragraphs if segment)
 
 
+def _claim_near_opening(option: str, claim: str) -> bool:
+    opening = " ".join((option or "").split())[:220].lower()
+    normalized_claim = " ".join((claim or "").split()).lower()
+    if not opening or not normalized_claim:
+        return False
+    if normalized_claim in opening:
+        return True
+    claim_terms = {
+        token
+        for token in re.findall(r"[a-z0-9]+", normalized_claim)
+        if len(token) > 3 and token not in STOPWORDS
+    }
+    opening_terms = {
+        token
+        for token in re.findall(r"[a-z0-9]+", opening)
+        if len(token) > 3 and token not in STOPWORDS
+    }
+    return len(claim_terms.intersection(opening_terms)) >= 3
+
+
+def _force_claim_lead(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    claim = _ensure_sentence(brief.primary_claim)
+    if not cleaned or not claim:
+        return cleaned
+    if _claim_near_opening(cleaned, claim):
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return claim
+    return "\n\n".join([claim] + paragraphs)
+
+
 def _force_brief_proof_support(option: str, brief: ContentOptionBrief) -> str:
     cleaned = (option or "").strip()
     if not cleaned or not brief.proof_packet:
@@ -2032,6 +2066,7 @@ def finalize_planned_options(
     for index, option in enumerate(options):
         brief = briefs[index] if index < len(briefs) else briefs[-1]
         revised = _replace_flat_opening_with_claim(option, brief)
+        revised = _force_claim_lead(revised, brief)
         if grounding_mode == "proof_ready":
             revised = _force_brief_proof_support(revised, brief)
         finalized.append(revised)
