@@ -11,6 +11,17 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 BUNDLE_ROOT = WORKSPACE_ROOT / "knowledge" / "persona" / "feeze"
 INITIATIVES_PATH = BUNDLE_ROOT / "history" / "initiatives.md"
 
+REQUIRED_SECTION_ITEMS: dict[str, tuple[str, int]] = {
+    "identity/philosophy.md": ("Core Beliefs", 1),
+    "identity/decision_principles.md": ("Core Principles", 1),
+    "history/wins.md": ("Wins", 1),
+    "history/timeline.md": ("Milestones", 1),
+}
+REQUIRED_TABLE_ROWS: dict[str, int] = {
+    "identity/claims.md": 1,
+}
+REQUIRED_STORY_COUNT = 1
+
 REVIEW_VOICE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("first_person_reaction", re.compile(r"\b(i love|i agree|i disagree|i think)\b", re.IGNORECASE)),
     ("filler_language", re.compile(r"\b(um|uh|kind of|sort of)\b", re.IGNORECASE)),
@@ -57,6 +68,39 @@ def _parse_initiatives(path: Path) -> list[dict[str, str]]:
     if current:
         rows.append(current)
     return rows
+
+
+def _parse_sectioned_lists(path: Path) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
+    current_section: str | None = None
+    for raw_line in _strip_frontmatter(path.read_text(encoding="utf-8")).splitlines():
+        line = raw_line.rstrip()
+        if line.startswith("## "):
+            current_section = line.replace("## ", "", 1).strip()
+            sections[current_section] = []
+            continue
+        if current_section and line.startswith("- "):
+            item = line.replace("- ", "", 1).strip()
+            if item and item != "-":
+                sections[current_section].append(item)
+    return sections
+
+
+def _parse_claim_rows(path: Path) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for raw_line in _strip_frontmatter(path.read_text(encoding="utf-8")).splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|") or line.startswith("| ---"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != 4 or cells[0].lower() == "claim":
+            continue
+        rows.append(cells)
+    return rows
+
+
+def _parse_story_count(path: Path) -> int:
+    return sum(1 for raw_line in _strip_frontmatter(path.read_text(encoding="utf-8")).splitlines() if raw_line.startswith("## "))
 
 
 def _line_issues(path: Path) -> list[dict[str, str]]:
@@ -119,6 +163,81 @@ def _initiative_issues(path: Path) -> list[dict[str, str]]:
     return issues
 
 
+def _coverage_issues(bundle_root: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
+    issues: list[dict[str, str]] = []
+    coverage = {
+        "claims": 0,
+        "stories": 0,
+        "wins": 0,
+        "timeline": 0,
+        "philosophy_beliefs": 0,
+        "decision_principles": 0,
+        "initiatives": 0,
+    }
+
+    for rel_path, (section_name, minimum) in REQUIRED_SECTION_ITEMS.items():
+        path = bundle_root / rel_path
+        if not path.exists():
+            issues.append({"path": rel_path, "type": "missing_file", "message": "required legacy canon file is missing"})
+            continue
+        section_items = _parse_sectioned_lists(path).get(section_name, [])
+        count = len(section_items)
+        if rel_path.endswith("philosophy.md"):
+            coverage["philosophy_beliefs"] = count
+        elif rel_path.endswith("decision_principles.md"):
+            coverage["decision_principles"] = count
+        elif rel_path.endswith("wins.md"):
+            coverage["wins"] = count
+        elif rel_path.endswith("timeline.md"):
+            coverage["timeline"] = count
+        if count < minimum:
+            issues.append(
+                {
+                    "path": rel_path,
+                    "type": "missing_section_content",
+                    "message": f"section '{section_name}' must contain at least {minimum} real item(s)",
+                }
+            )
+
+    for rel_path, minimum in REQUIRED_TABLE_ROWS.items():
+        path = bundle_root / rel_path
+        if not path.exists():
+            issues.append({"path": rel_path, "type": "missing_file", "message": "required legacy canon file is missing"})
+            continue
+        count = len(_parse_claim_rows(path))
+        coverage["claims"] = count
+        if count < minimum:
+            issues.append(
+                {
+                    "path": rel_path,
+                    "type": "missing_claims",
+                    "message": f"claims table must contain at least {minimum} row(s)",
+                }
+            )
+
+    story_path = bundle_root / "history/story_bank.md"
+    if not story_path.exists():
+        issues.append({"path": "history/story_bank.md", "type": "missing_file", "message": "required legacy canon file is missing"})
+    else:
+        story_count = _parse_story_count(story_path)
+        coverage["stories"] = story_count
+        if story_count < REQUIRED_STORY_COUNT:
+            issues.append(
+                {
+                    "path": "history/story_bank.md",
+                    "type": "missing_stories",
+                    "message": f"story bank must contain at least {REQUIRED_STORY_COUNT} story entry",
+                }
+            )
+
+    if INITIATIVES_PATH.exists():
+        coverage["initiatives"] = len(_parse_initiatives(INITIATIVES_PATH))
+    else:
+        issues.append({"path": "history/initiatives.md", "type": "missing_file", "message": "required legacy canon file is missing"})
+
+    return issues, coverage
+
+
 def main() -> int:
     if not BUNDLE_ROOT.exists():
         print(json.dumps({"ok": False, "error": f"Bundle root not found: {BUNDLE_ROOT}"}))
@@ -129,11 +248,14 @@ def main() -> int:
         issues.extend(_line_issues(path))
     if INITIATIVES_PATH.exists():
         issues.extend(_initiative_issues(INITIATIVES_PATH))
+    coverage_issues, coverage = _coverage_issues(BUNDLE_ROOT)
+    issues.extend(coverage_issues)
 
     summary = {
         "ok": len(issues) == 0,
         "bundle_root": str(BUNDLE_ROOT),
         "files_scanned": sum(1 for _ in BUNDLE_ROOT.rglob("*.md")),
+        "coverage": coverage,
         "issue_count": len(issues),
         "issues": issues,
     }

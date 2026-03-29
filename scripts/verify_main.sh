@@ -53,19 +53,22 @@ PY
   fi
 }
 
-echo "[1/3] Backend workspace smoke tests"
+echo "[1/4] Backend workspace smoke tests"
 require_python_module fastapi
 require_python_module requests
 PYTHONPATH="$ROOT/backend" "$PYTHON_BIN" -m unittest backend.tests.test_workspace_smoke
 
-echo "[2/3] Frontend production build"
+echo "[2/4] Persona bundle health"
+"$PYTHON_BIN" "$ROOT/scripts/persona/bundle_health_check.py"
+
+echo "[3/4] Frontend production build"
 if [ ! -d "$ROOT/frontend/node_modules" ]; then
   echo "frontend/node_modules missing. Run: npm --prefix frontend ci" >&2
   exit 1
 fi
 npm --prefix "$ROOT/frontend" run build
 
-echo "[3/3] Working tree sanity"
+echo "[4/4] Working tree sanity"
 git -C "$ROOT" status --short
 
 echo
