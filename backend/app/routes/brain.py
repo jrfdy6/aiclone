@@ -88,7 +88,7 @@ async def promote_brain_persona_delta(delta_id: str):
         raise HTTPException(status_code=404, detail="Persona delta not found")
 
     return {
-        "message": "Persona promotion committed to canonical bundle and runtime overlay",
+        "message": "Persona promotion committed to runtime canon. Local bundle sync pending.",
         "delta": annotate_for_brain_queue(updated),
         "overlay_counts": overlay.get("counts") if isinstance(overlay, dict) else {},
         "committed_target_files": (updated.metadata or {}).get("committed_target_files") or [],

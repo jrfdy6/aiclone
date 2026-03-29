@@ -49,3 +49,27 @@ Example output:
 ```
 
 > NOTE: The logging step is optional; if `--api-url` is omitted the script simply prints the payload.
+
+## `persona_bundle_sync.py`
+
+Pulls committed `persona_deltas` from the backend, writes the selected promotion items into the
+local canonical bundle under `knowledge/persona/feeze/`, and patches the delta metadata back to
+`local_bundle_sync.state = synced`.
+
+### Usage
+
+```bash
+python3 automations/persona_bundle_sync.py \
+  --api-url https://aiclone-production-32dc.up.railway.app
+```
+
+Helpful options:
+
+- `--delta-id`: sync one specific committed delta
+- `--limit`: cap how many committed deltas are scanned
+- `--dry-run`: preview which deltas would be written without touching disk or remote metadata
+
+Recommended operating model:
+
+- Brain `Commit to canon` updates runtime canon immediately.
+- `persona_bundle_sync.py` is the local durability step that makes the same promotion survive deploys and feed bundle-first content generation.

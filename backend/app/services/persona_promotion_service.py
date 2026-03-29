@@ -6,6 +6,11 @@ from typing import Any
 from app.models import PersonaDelta, PersonaDeltaUpdate
 from app.services import persona_delta_service
 from app.services.persona_bundle_writer import write_promotion_items_to_bundle
+from app.services.persona_promotion_utils import (
+    metadata_array,
+    metadata_text,
+    normalize_selected_promotion_items,
+)
 
 TARGET_CLAIMS = "identity/claims.md"
 TARGET_VOICE = "identity/VOICE_PATTERNS.md"
@@ -13,50 +18,6 @@ TARGET_DECISION_PRINCIPLES = "identity/decision_principles.md"
 TARGET_CONTENT_PILLARS = "prompts/content_pillars.md"
 TARGET_STORIES = "history/story_bank.md"
 TARGET_INITIATIVES = "history/initiatives.md"
-
-
-def _metadata_text(metadata: dict[str, Any] | None, key: str) -> str | None:
-    if not isinstance(metadata, dict):
-        return None
-    value = metadata.get(key)
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _metadata_array(metadata: dict[str, Any] | None, key: str) -> list[Any]:
-    if not isinstance(metadata, dict):
-        return []
-    value = metadata.get(key)
-    return value if isinstance(value, list) else []
-
-
-def _normalize_promotion_item(item: dict[str, Any], delta: PersonaDelta) -> dict[str, Any] | None:
-    content = str(item.get("content") or "").strip()
-    if not content:
-        return None
-
-    metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
-    target_file = str(item.get("targetFile") or _metadata_text(metadata, "target_file") or "").strip()
-    if not target_file:
-        return None
-
-    evidence = str(item.get("evidence") or _metadata_text(metadata, "owner_response_excerpt") or delta.notes or "").strip()
-    return {
-        "id": str(item.get("id") or f"{delta.id}:{target_file}:{content[:32]}").strip(),
-        "kind": str(item.get("kind") or "talking_point").strip() or "talking_point",
-        "label": str(item.get("label") or "Promoted item").strip() or "Promoted item",
-        "content": content,
-        "evidence": evidence or None,
-        "target_file": target_file,
-        "source_delta_id": delta.id,
-        "trait": delta.trait,
-        "owner_response_kind": _metadata_text(metadata, "owner_response_kind"),
-        "owner_response_excerpt": _metadata_text(metadata, "owner_response_excerpt"),
-        "committed_at": delta.committed_at.isoformat() if delta.committed_at else None,
-        "created_at": delta.created_at.isoformat() if delta.created_at else None,
-    }
 
 
 def build_committed_persona_overlay(limit: int = 500) -> dict[str, Any]:
@@ -69,25 +30,23 @@ def build_committed_persona_overlay(limit: int = 500) -> dict[str, Any]:
 
     for delta in deltas:
         metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
-        selected_items = _metadata_array(metadata, "selected_promotion_items")
+        selected_items = metadata_array(metadata, "selected_promotion_items")
         if not selected_items:
             continue
         counts["deltas"] += 1
-        for entry in selected_items:
-            if not isinstance(entry, dict):
+        normalized_items = normalize_selected_promotion_items(delta)
+        for item in normalized_items:
+            if not isinstance(item, dict):
                 continue
-            normalized = _normalize_promotion_item(entry, delta)
-            if not normalized:
-                continue
-            target_file = normalized["target_file"]
+            target_file = item["target_file"]
             bucket = by_target_file.setdefault(target_file, [])
             duplicate = any(
-                existing.get("content") == normalized["content"] and existing.get("label") == normalized["label"]
+                existing.get("content") == item["content"] and existing.get("label") == item["label"]
                 for existing in bucket
             )
             if duplicate:
                 continue
-            bucket.append(normalized)
+            bucket.append(item)
             counts["items"] += 1
 
     for items in by_target_file.values():
@@ -114,11 +73,11 @@ def promote_delta_to_canon(delta_id: str) -> PersonaDelta | None:
         return None
 
     metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
-    selected_items = [entry for entry in _metadata_array(metadata, "selected_promotion_items") if isinstance(entry, dict)]
+    selected_items = [entry for entry in metadata_array(metadata, "selected_promotion_items") if isinstance(entry, dict)]
     if not selected_items:
         raise ValueError("This review item has no selected promotion items.")
 
-    normalized_items = [item for item in (_normalize_promotion_item(entry, delta) for entry in selected_items) if item]
+    normalized_items = normalize_selected_promotion_items(delta)
     if not normalized_items:
         raise ValueError("Selected promotion items are missing canonical target information.")
 
@@ -135,6 +94,10 @@ def promote_delta_to_canon(delta_id: str) -> PersonaDelta | None:
         "bundle_root": bundle_write.get("bundle_root"),
         "bundle_written_files": bundle_write.get("written_files") or [],
         "bundle_file_results": bundle_write.get("file_results") or {},
+        "local_bundle_sync": {
+            "state": "pending",
+            "updated_at": committed_at,
+        },
     }
     update = PersonaDeltaUpdate(status="committed", metadata=update_metadata)
     return persona_delta_service.update_delta(delta_id, update)

@@ -1958,6 +1958,7 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertFalse((updated.metadata or {}).get("pending_promotion"))
         self.assertEqual((updated.metadata or {}).get("committed_item_count"), 1)
         self.assertEqual((updated.metadata or {}).get("bundle_written_files"), ["identity/claims.md"])
+        self.assertEqual(((updated.metadata or {}).get("local_bundle_sync") or {}).get("state"), "pending")
 
     def test_brain_persona_promote_route_returns_committed_delta(self) -> None:
         delta = PersonaDelta(
