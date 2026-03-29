@@ -3444,6 +3444,23 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("taste_negative", generic.get("warnings", []))
         self.assertIn("human_paragraph_cadence", grounded.get("strengths", []))
 
+    def test_score_option_taste_flags_weak_operator_closer_and_soft_pronoun(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        scored = content_generation_module.score_option_taste(
+            "Prompting plus agent orchestration? That's the winning combo.\n\nNow, we rely on explicit handoffs, shared workspace state, and proof-aware prompts.\n\nEverything's interconnected, and it's making a tangible impact.",
+            brief=brief,
+        )
+
+        self.assertIn("weak_closer", scored.get("warnings", []))
+        self.assertIn("soft_operator_pronoun", scored.get("warnings", []))
+
     def test_sharpen_editorial_options_rewrites_flat_openers_without_losing_proof(self) -> None:
         class _FakeResponse:
             def __init__(self, content: str) -> None:
@@ -3957,6 +3974,33 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(finalized)
         self.assertIn("not isolated prompting", finalized[0].lower())
         self.assertGreaterEqual(finalized[0].count("\n\n"), 2)
+
+    def test_finalize_planned_options_rewrites_soft_operator_closer(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone -> Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting plus agent orchestration? That's the winning combo.\n\nJohnnie treats this approach as a stronger AI operating pattern than just prompting alone.\n\nNow, we rely on explicit handoffs, shared workspace state, and proof-aware prompts across Brain, Ops, daily briefs, planner, and long-form routing.\n\nIsolated prompting is a thing of the past. Everything's interconnected, and it's making a tangible impact."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertIn("now it runs on explicit handoffs", finalized[0].lower())
+        self.assertNotIn("tangible impact", finalized[0].lower())
+        self.assertNotIn("everything's interconnected", finalized[0].lower())
+        self.assertNotIn("\n\nNow, we rely on", finalized[0])
+        self.assertRegex(
+            finalized[0].rstrip(),
+            r"(That is the operating model\.|Isolated prompting is a thing of the past\.)$",
+        )
 
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(

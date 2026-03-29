@@ -219,6 +219,14 @@ GENERIC_CLOSER_PATTERNS = (
     re.compile(r"\bkeep pushing\b", re.IGNORECASE),
     re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
 )
+WEAK_ENDING_PATTERNS = (
+    re.compile(r"\btangible impact\b", re.IGNORECASE),
+    re.compile(r"\bmeaningful impact\b", re.IGNORECASE),
+    re.compile(r"\beverything(?:['’]s| is) interconnected\b", re.IGNORECASE),
+    re.compile(r"\btransforming how we work\b", re.IGNORECASE),
+    re.compile(r"\bmaking (?:a|an) (?:real|tangible|meaningful) impact\b", re.IGNORECASE),
+    re.compile(r"\bthis changes everything\b", re.IGNORECASE),
+)
 TASTE_NEGATIVE_PATTERNS = (
     re.compile(r"\bcohesive system\b", re.IGNORECASE),
     re.compile(r"\bdependable architecture\b", re.IGNORECASE),
@@ -935,9 +943,26 @@ def score_option_taste(
     else:
         warnings.append("paragraph_cadence_flat")
 
+    last_sentence = ""
+    for sentence in reversed(_split_sentences(cleaned)):
+        normalized_sentence = " ".join(sentence.split()).strip()
+        if normalized_sentence:
+            last_sentence = normalized_sentence
+            break
+    if last_sentence and _closer_needs_sharpening(last_sentence, active_brief):
+        score -= 6
+        warnings.append("weak_closer")
+    elif last_sentence:
+        score += 4
+        strengths.append("sharp_closer")
+
     if first_line.lower().startswith(("we ", "we’ve ", "we've ", "this ", "it ", "our ")):
         score -= 4
         warnings.append("soft_opening_subject")
+    if _brief_prefers_operator_voice(active_brief):
+        if re.search(r"(?mi)^(?:now,\s*)?we\b", cleaned):
+            score -= 4
+            warnings.append("soft_operator_pronoun")
 
     overall = max(0, min(100, score))
     return {
@@ -2303,6 +2328,65 @@ def _punch_line_from_brief(brief: ContentOptionBrief) -> str:
     return ""
 
 
+def _brief_prefers_operator_voice(brief: ContentOptionBrief) -> bool:
+    text = f"{brief.primary_claim} {_proof_packet_evidence_text(brief.proof_packet)} {brief.story_beat}"
+    return bool(_significant_terms(text).intersection(STRICT_AUDIENCE_ANCHOR_TERMS.get("tech_ai", set())))
+
+
+def _strong_closer_from_brief(brief: ContentOptionBrief) -> str:
+    claim = brief.primary_claim or ""
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    combined = f"{claim} {evidence}".lower()
+    if re.search(r"\bworkflow clarity\b|\badoption\b|\buseful\b", combined, flags=re.IGNORECASE):
+        return "Otherwise it's just another tab."
+    if re.search(r"\bprompting alone\b", combined, flags=re.IGNORECASE):
+        if brief.framing_mode == "warning":
+            return "Prompting alone will not hold."
+        if brief.framing_mode == "contrarian_reframe":
+            return "Prompting alone is not the strategy."
+        return "That is the operating model."
+    if _brief_prefers_operator_voice(brief):
+        if brief.framing_mode == "warning":
+            return "Without that, the system breaks."
+        if brief.framing_mode == "agree_and_extend":
+            return "Agreement is easy. Operating it is harder."
+        return "That is the operating model."
+    if re.search(r"\bartifact\b", combined, flags=re.IGNORECASE):
+        return "Show me the artifact."
+    if brief.framing_mode == "warning":
+        return "That is where it breaks."
+    if brief.framing_mode == "recognition":
+        return "That kind of work matters."
+    return _punch_line_from_brief(brief)
+
+
+def _closer_needs_sharpening(sentence: str, brief: ContentOptionBrief) -> bool:
+    normalized = " ".join((sentence or "").split()).strip()
+    if not normalized:
+        return True
+    if any(pattern.search(normalized) for pattern in WEAK_ENDING_PATTERNS):
+        return True
+    if any(pattern.search(normalized) for pattern in GENERIC_CLOSER_PATTERNS):
+        return True
+    if _brief_prefers_operator_voice(brief) and re.match(r"^(?:now,\s*)?we\b", normalized, flags=re.IGNORECASE):
+        return True
+    lowered = normalized.lower()
+    if lowered in {
+        "that is the operating model.",
+        "show me the artifact.",
+        "prompting alone is not the strategy.",
+        "prompting alone will not hold.",
+        "without that, the system breaks.",
+        "otherwise it's just another tab.",
+        "agreement is easy. operating it is harder.",
+        "that kind of work matters.",
+    }:
+        return False
+    if len(normalized.split()) > 11 and not any(pattern.search(normalized) for pattern in TASTE_CONTRAST_PATTERNS):
+        return True
+    return False
+
+
 def _ensure_contrast_shape(option: str, brief: ContentOptionBrief) -> str:
     cleaned = (option or "").strip()
     if not cleaned:
@@ -2372,6 +2456,72 @@ def _clean_generic_sentences(option: str, brief: ContentOptionBrief) -> str:
     return "\n\n".join(revised_paragraphs) if revised_paragraphs else cleaned
 
 
+def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned or not _brief_prefers_operator_voice(brief):
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    revised_paragraphs: List[str] = []
+    for paragraph in paragraphs:
+        sentences = _split_sentences(paragraph)
+        if not sentences:
+            continue
+        rewritten: List[str] = []
+        for sentence in sentences:
+            normalized = " ".join(sentence.split()).strip()
+            if not normalized:
+                continue
+            rely_match = re.match(r"^(?:now,\s*)?we rely on (.+)$", normalized, flags=re.IGNORECASE)
+            if rely_match:
+                payload = rely_match.group(1).rstrip(".")
+                rewritten.append(_ensure_sentence(f"Now it runs on {payload}"))
+                continue
+            if re.match(r"^everything(?:['’]s| is) interconnected\b", normalized, flags=re.IGNORECASE):
+                continue
+            if re.match(r"^(?:it|that)(?:['’]s| is) making (?:a|an) (?:real|tangible|meaningful) impact\b", normalized, flags=re.IGNORECASE):
+                continue
+            rewritten.append(_ensure_sentence(normalized))
+        if rewritten:
+            revised_paragraphs.append(" ".join(rewritten).strip())
+    return "\n\n".join(revised_paragraphs) if revised_paragraphs else cleaned
+
+
+def _ensure_sharp_landing(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return cleaned
+    closer = _strong_closer_from_brief(brief)
+    if not closer:
+        return cleaned
+    last_paragraph = paragraphs[-1]
+    sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(last_paragraph) if sentence.strip()]
+    kept_sentences: List[str] = []
+    for sentence in sentences:
+        if _closer_needs_sharpening(sentence, brief) and not _sentence_is_signal_bearing(sentence, brief):
+            continue
+        kept_sentences.append(sentence)
+    if kept_sentences:
+        paragraphs[-1] = " ".join(kept_sentences).strip()
+    else:
+        paragraphs.pop()
+    if not paragraphs:
+        paragraphs.append(closer)
+        return "\n\n".join(paragraphs)
+    trailing_sentences = _split_sentences(paragraphs[-1])
+    trailing = trailing_sentences[-1] if trailing_sentences else ""
+    if _closer_needs_sharpening(trailing, brief):
+        if len(paragraphs[-1].split()) <= 8:
+            paragraphs[-1] = closer
+        elif closer.lower() not in " ".join(paragraphs).lower():
+            paragraphs.append(closer)
+    elif len(paragraphs) < 2 and closer.lower() not in paragraphs[-1].lower():
+        paragraphs.append(closer)
+    return "\n\n".join(paragraph for paragraph in paragraphs if paragraph)
+
+
 def finalize_planned_options(
     *,
     options: List[str],
@@ -2387,7 +2537,9 @@ def finalize_planned_options(
             revised = _force_brief_proof_support(revised, brief)
         revised = _ensure_contrast_shape(revised, brief)
         revised = _clean_generic_sentences(revised, brief)
+        revised = _rewrite_soft_operator_sentences(revised, brief)
         revised = _ensure_paragraph_cadence(revised, brief)
+        revised = _ensure_sharp_landing(revised, brief)
         finalized.append(revised)
     return finalized[: len(briefs)]
 
