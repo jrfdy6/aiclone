@@ -509,6 +509,7 @@ def _extract_label_from_chunk(chunk: str) -> str:
 def _extract_claim_text_from_chunk(chunk: str) -> str:
     primary_text, _ = _split_use_when_text(chunk)
     cleaned = re.split(r"\b(?:Value|Proof|Evidence|Public-facing proof):", primary_text, maxsplit=1, flags=re.IGNORECASE)[0]
+    cleaned = re.sub(r"^(?:Guardrails|Wins?|Core Tone|Sentence Rhythm|Strategic Framing Preferences|Recognition And Heat|Signature Openers|Signature Pivots|Anti-Patterns):\s*", "", cleaned, flags=re.IGNORECASE)
     sentences = _split_sentences(cleaned)
     if not sentences:
         return ""

@@ -2691,6 +2691,26 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertEqual(claims, ["CEO prompting plus agent usage makes AI success 5.2x more likely."])
         self.assertEqual(packets, ["CEO prompting plus agent usage makes AI success 5.2x more likely."])
 
+    def test_content_generation_context_strips_generic_claim_prefixes(self) -> None:
+        claims = content_context_service_module._extract_primary_claims(
+            core_topic_chunks=[
+                {
+                    "chunk": "Guardrails: Keep writing specific, credible, and grounded in lived experience.",
+                    "metadata": {"memory_role": "core"},
+                },
+                {
+                    "chunk": "Wins: Content generation now reads persona through typed core, proof, story, and example lanes.",
+                    "metadata": {"memory_role": "core"},
+                },
+            ],
+            topic_anchor_chunks=[],
+            proof_anchor_chunks=[],
+            grounding_mode="principle_only",
+        )
+
+        self.assertIn("Keep writing specific, credible, and grounded in lived experience.", claims)
+        self.assertIn("Content generation now reads persona through typed core, proof, story, and example lanes.", claims)
+
     def test_content_generation_context_prefers_claim_like_topic_anchor_over_metric_proof(self) -> None:
         claims = content_context_service_module._extract_primary_claims(
             core_topic_chunks=[
@@ -3147,6 +3167,21 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 "Builds and translates AI execution patterns into clear operator guidance.",
                 proof_packets,
             )
+        )
+
+    def test_parse_content_options_strips_option_labels_from_final_copy(self) -> None:
+        options = content_generation_module.parse_content_options(
+            "**Option 1: `operator_lesson`**  \nAgent orchestration starts with explicit handoffs."
+            "\n---OPTION---\n"
+            "**Option 2: `contrarian_reframe`**  \nPrompting alone is not the strategy."
+        )
+
+        self.assertEqual(
+            options,
+            [
+                "Agent orchestration starts with explicit handoffs.",
+                "Prompting alone is not the strategy.",
+            ],
         )
 
     def test_option_uses_unapproved_reference_flags_stray_named_entities_and_placeholders(self) -> None:

@@ -1536,12 +1536,18 @@ Generate 3 content options, separated by "---OPTION---":
 
 
 def parse_content_options(raw_content: str) -> List[str]:
+    def _clean_option(text: str) -> str:
+        cleaned = (text or "").strip()
+        cleaned = re.sub(r"^\*\*Option\s+\d+:\s*`[^`]+`\*\*\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^Option\s+\d+:\s*`?[^`\n]+`?\s*", "", cleaned, flags=re.IGNORECASE)
+        return cleaned.strip()
+
     if "---OPTION 1---" in raw_content:
         options = re.split(r"---OPTION \d+---", raw_content)
-        return [opt.strip() for opt in options if opt.strip()]
+        return [_clean_option(opt) for opt in options if opt.strip()]
     if "---OPTION---" in raw_content:
-        return [opt.strip() for opt in raw_content.split("---OPTION---") if opt.strip()]
-    return [raw_content.strip()] if raw_content.strip() else []
+        return [_clean_option(opt) for opt in raw_content.split("---OPTION---") if opt.strip()]
+    return [_clean_option(raw_content)] if raw_content.strip() else []
 
 
 def _normalized_terms(text: str) -> set[str]:
