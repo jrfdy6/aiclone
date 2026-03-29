@@ -518,6 +518,10 @@ def _iter_section_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
 def load_bundle_persona_chunks() -> list[dict[str, Any]]:
     bundle_root = resolve_persona_bundle_root()
     if not bundle_root.exists():
+        print(
+            f"[bundle_context] root_missing path={bundle_root}",
+            flush=True,
+        )
         return []
 
     rel_paths = [
@@ -550,6 +554,13 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
             chunks.extend(_iter_initiative_chunks(text, rel_path))
         else:
             chunks.extend(_iter_section_chunks(text, rel_path))
+    if not chunks:
+        manifest_exists = (bundle_root / "manifest.json").exists()
+        file_count = sum(1 for _ in bundle_root.rglob("*") if _.is_file())
+        print(
+            f"[bundle_context] root={bundle_root} manifest={manifest_exists} file_count={file_count} parsed_chunks=0",
+            flush=True,
+        )
     return chunks
 
 
