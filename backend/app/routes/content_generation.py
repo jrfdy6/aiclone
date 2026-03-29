@@ -87,6 +87,9 @@ TOPIC_FOCUS_BOOSTS = {
     "workflow clarity": {"workflow", "clarity", "process", "processes", "handoff", "handoffs", "alignment", "operator", "system", "systems", "brain", "ops", "planner", "briefs", "snapshot", "routing"},
     "agent orchestration": {"agent", "agents", "orchestration", "workflow", "workflows", "automation", "prompting", "handoff", "handoffs", "operator", "system", "systems", "brain", "ops", "planner", "briefs", "snapshot", "routing"},
 }
+STRICT_AUDIENCE_ANCHOR_TERMS = {
+    "tech_ai": {"ai", "agent", "agents", "automation", "brain", "briefs", "handoff", "handoffs", "operator", "ops", "orchestration", "planner", "prompt", "prompting", "routing", "system", "systems", "workflow", "workflows"},
+}
 PROOF_KEYWORDS = {
     "built",
     "clarity",
@@ -214,6 +217,7 @@ def _collect_prompt_visible_chunks(
             item
             for item in persona_chunks
             if str(_item_metadata(item).get("prompt_section") or "") == "SUPPORTING CANON"
+            and _passes_audience_anchor_gate(_split_use_when_text(str(item.get("chunk") or ""))[0], audience)
             and _chunk_focus_score(_split_use_when_text(str(item.get("chunk") or ""))[0], focus_terms, topic) > 0
         ]
         add(supporting_chunks, limit=6)
@@ -313,6 +317,8 @@ def filter_example_chunks_by_topic(
         score = _chunk_focus_score(primary_text, focus_terms, topic)
         if score <= 0:
             continue
+        if not _passes_audience_anchor_gate(primary_text, audience):
+            continue
         ranked.append((score, item))
 
     curated: List[Dict[str, Any]] = []
@@ -383,6 +389,14 @@ def _render_anchor_chunk(item: Dict[str, Any], *, include_use_when: bool = False
     return primary_text
 
 
+def _passes_audience_anchor_gate(chunk: str, audience: str) -> bool:
+    required_terms = STRICT_AUDIENCE_ANCHOR_TERMS.get(audience)
+    if not required_terms:
+        return True
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    return any(term in normalized_chunk for term in required_terms)
+
+
 def select_topic_anchor_chunks(
     persona_chunks: List[Dict[str, Any]],
     *,
@@ -403,6 +417,8 @@ def select_topic_anchor_chunks(
         primary_text, use_when_text = _split_use_when_text(chunk)
         focus_score = (_chunk_focus_score(primary_text, focus_terms, topic) * 3) + _chunk_focus_score(use_when_text, focus_terms, topic)
         if focus_score <= 0:
+            continue
+        if not _passes_audience_anchor_gate(primary_text, audience):
             continue
         section = str(_item_metadata(item).get("prompt_section") or "RETRIEVAL SUPPORT")
         priority = section_priority.get(section, 0)
@@ -440,6 +456,8 @@ def select_eligible_story_chunks(
         primary_text, use_when_text = _split_use_when_text(str(item.get("chunk") or ""))
         score = (_chunk_focus_score(primary_text, focus_terms, topic) * 2) + _chunk_focus_score(use_when_text, focus_terms, topic)
         if score <= 0:
+            continue
+        if not _passes_audience_anchor_gate(primary_text, audience):
             continue
         story_candidates.append((score, item))
 
@@ -493,6 +511,8 @@ def select_proof_anchor_chunks(
         focus_score = _chunk_focus_score(primary_text, focus_terms, topic)
         proof_score = _proof_signal_score(primary_text)
         if focus_score <= 0 and proof_score <= 0:
+            continue
+        if not _passes_audience_anchor_gate(primary_text, audience):
             continue
         if proof_score > 0 and focus_score < minimum_focus:
             continue
