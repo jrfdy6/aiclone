@@ -2134,6 +2134,62 @@ summary: Leadership behavior drives AI implementation outcomes.
             (extracted[0]["canon_proof"] or "").lower(),
         )
 
+    def test_normalize_selected_promotion_items_prefers_committed_semantic_items(self) -> None:
+        delta = PersonaDelta(
+            id="delta-semantic-committed",
+            capture_id=None,
+            persona_target="feeze.core",
+            trait="Committed semantic delta",
+            notes="Original note",
+            status="committed",
+            metadata={
+                "selected_promotion_items": [
+                    {
+                        "id": "stat-1",
+                        "kind": "stat",
+                        "label": "Proof point",
+                        "content": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                        "targetFile": "history/initiatives.md",
+                    }
+                ],
+                "committed_promotion_items": [
+                    {
+                        "id": "initiative-1",
+                        "kind": "talking_point",
+                        "label": "AI Clone / Brain System",
+                        "content": "Build a restart-safe AI operating system for memory, persona review, source routing, planning, and content execution.",
+                        "target_file": "history/initiatives.md",
+                        "artifact_summary": "Build a restart-safe AI operating system for memory, persona review, source routing, planning, and content execution.",
+                        "artifact_kind": "artifact_signal",
+                        "artifact_ref": "workspace:brain",
+                        "capability_signal": "Builds and translates AI execution patterns into clear operator guidance.",
+                        "positioning_signal": "Strengthens Johnnie's positioning as an AI systems operator grounded in real execution.",
+                        "leverage_signal": "Creates reusable proof for future writing, planning, and persona claims about AI execution and workflow clarity.",
+                        "proof_signal": "Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot.",
+                        "proof_strength": "strong",
+                        "gate_decision": "allow",
+                        "gate_reason": "Artifact-backed proof is present.",
+                        "canon_purpose": "Build a restart-safe AI operating system for memory, persona review, source routing, planning, and content execution.",
+                        "canon_value": "Builds and translates AI execution patterns into clear operator guidance.",
+                        "canon_proof": "Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot.",
+                    }
+                ],
+            },
+            created_at=datetime.now(timezone.utc),
+            committed_at=datetime.now(timezone.utc),
+        )
+
+        normalized = persona_promotion_utils_module.normalize_selected_promotion_items(delta)
+
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0]["label"], "AI Clone / Brain System")
+        self.assertEqual(normalized[0]["artifact_kind"], "artifact_signal")
+        self.assertEqual(normalized[0]["canon_purpose"], "Build a restart-safe AI operating system for memory, persona review, source routing, planning, and content execution.")
+        self.assertEqual(
+            normalized[0]["proof_signal"],
+            "Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot.",
+        )
+
     def test_brain_persona_promote_route_returns_committed_delta(self) -> None:
         delta = PersonaDelta(
             id="delta-route-promote",
@@ -2557,6 +2613,32 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("Use quantified AI execution proof to ground initiative-level canon", (chunks[0].get("chunk") or ""))
         self.assertIn("5.2x success signal tied to visible prompting and agent usage", (chunks[0].get("chunk") or ""))
         self.assertNotIn("Raw review-shaped content", (chunks[0].get("chunk") or ""))
+
+    def test_persona_bundle_context_skips_metric_only_legacy_initiative_overlay(self) -> None:
+        with patch.object(
+            persona_bundle_context_module,
+            "build_committed_persona_overlay",
+            return_value={
+                "by_target_file": {
+                    "history/initiatives.md": [
+                        {
+                            "label": "Proof point",
+                            "content": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                            "target_file": "history/initiatives.md",
+                            "artifact_kind": "metric_or_proof_point",
+                            "proof_strength": "strong",
+                            "gate_decision": "allow",
+                            "canon_purpose": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                            "canon_value": "Builds and translates AI execution patterns into clear operator guidance.",
+                            "canon_proof": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                        }
+                    ]
+                }
+            },
+        ), patch.object(persona_bundle_context_module, "resolve_persona_bundle_root", return_value=Path("/tmp/does-not-exist")):
+            chunks = persona_bundle_context_module.load_committed_overlay_chunks()
+
+        self.assertEqual(chunks, [])
 
     def test_content_generation_context_extracts_primary_claim_from_initiative_purpose(self) -> None:
         claims = content_context_service_module._extract_primary_claims(

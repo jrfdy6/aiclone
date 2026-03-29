@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 import numpy as np
@@ -10,6 +11,8 @@ from app.services.embedders import embed_text, embed_texts
 from app.services.persona_bundle_writer import resolve_persona_bundle_root
 from app.services.persona_promotion_service import build_committed_persona_overlay
 from app.services.retrieval import get_combined_weights
+
+_METRIC_TEXT_RE = re.compile(r"\b\d+(?:\.\d+)?(?:x|%|k|m|b)?\b", re.IGNORECASE)
 
 
 TARGET_VOICE = "identity/VOICE_PATTERNS.md"
@@ -128,6 +131,53 @@ def _meaningful_title(value: str | None) -> str:
     if normalized.lower() in GENERIC_PROMOTION_LABELS:
         return ""
     return normalized
+
+
+def _is_metric_led_text(text: str | None) -> bool:
+    normalized = _normalize_inline(text).lower()
+    if not normalized:
+        return False
+    if _METRIC_TEXT_RE.search(normalized):
+        return True
+    return any(
+        phrase in normalized
+        for phrase in (
+            "% more likely",
+            "x more likely",
+            "trust ai outputs",
+            "trust ai output",
+            "5.2x",
+            "65%",
+        )
+    )
+
+
+def _include_overlay_item(rel_path: str, item: dict[str, Any]) -> bool:
+    if rel_path != TARGET_INITIATIVES:
+        return True
+    purpose = _normalize_inline(str(item.get("canon_purpose") or item.get("artifact_summary") or ""))
+    value = _normalize_inline(
+        str(
+            item.get("canon_value")
+            or item.get("leverage_signal")
+            or item.get("capability_signal")
+            or item.get("positioning_signal")
+            or ""
+        )
+    )
+    proof = _normalize_inline(str(item.get("canon_proof") or item.get("proof_signal") or item.get("evidence") or ""))
+    artifact_kind = _normalize_inline(str(item.get("artifact_kind") or ""))
+    artifact_ref = _normalize_inline(str(item.get("artifact_ref") or ""))
+    gate_decision = _normalize_inline(str(item.get("gate_decision") or ""))
+    if gate_decision and gate_decision != "allow":
+        return False
+    if not purpose or not value or not proof:
+        return False
+    if artifact_kind == "metric_or_proof_point" and not artifact_ref:
+        return False
+    if purpose.lower() == proof.lower() and _is_metric_led_text(purpose):
+        return False
+    return True
 
 
 def _read_text(path: Path) -> str:
@@ -521,6 +571,8 @@ def load_committed_overlay_chunks() -> list[dict[str, Any]]:
         tag = TAG_BY_TARGET.get(rel_path, "PHILOSOPHY")
         for idx, item in enumerate(items):
             if not isinstance(item, dict):
+                continue
+            if not _include_overlay_item(rel_path, item):
                 continue
             if rel_path == TARGET_INITIATIVES:
                 title = _meaningful_title(str(item.get("label") or "")) or _meaningful_title(str(item.get("artifact_summary") or ""))
