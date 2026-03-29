@@ -19,6 +19,20 @@ generated_at: "2026-03-29T15:00:00+00:00"
 - Public-facing proof: The content route now uses typed retrieval, domain gates, grounding modes, structured proof briefs, and proof-packet enforcement before final drafts.
 - Use when: Use for posts about AI writing systems, context engineering, retrieval quality, evaluation, and operator-grade content tooling.
 
+## Fusion Academy Dashboard Transformation
+- Status: completed
+- Purpose: Replace scattered reporting with one centralized operating surface that tells the team what to do next.
+- Value to persona: Proves Johnnie can change behavior through visibility, not just build a prettier report, and can increase influence by making systems more actionable.
+- Public-facing proof: Daily, weekly, monthly, quarterly, and yearly metrics were unified in one Salesforce dashboard; gray-area prospects and outreach priorities became clearer; conversions improved; leadership attention increased.
+- Use when: Use for posts about dashboards, visibility, adoption, change management, reporting systems, and behavior-shaping operations work.
+
+## ClosetAI Metadata And Validation Layer
+- Status: active
+- Purpose: Move wardrobe intelligence from loose naming logic to metadata-driven decisions with explicit validation.
+- Value to persona: Shows that Johnnie thinks in constraints, not vibes, and prefers systems that can explain and defend their outputs.
+- Public-facing proof: Metadata and validation rules now cover style, layering, occasion, temperature, and output consistency instead of relying on name-based guesses.
+- Use when: Use for posts about metadata, validation, product logic, scalable AI systems, and coherent decision-making.
+
 ## Fusion Academy Market Development
 - Status: active
 - Purpose: Strengthen referral relationships, enrollment outcomes, and family trust.
