@@ -56,9 +56,11 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   )
   mkdir -p "$STAGE_DIR/knowledge/persona" "$STAGE_DIR/knowledge/aiclone" "$STAGE_DIR/knowledge/ingestions" "$STAGE_DIR/workspaces" "$STAGE_DIR/scripts"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/knowledge/persona" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions" "$STAGE_DIR/$CHILD_DIR/workspaces" "$STAGE_DIR/$CHILD_DIR/scripts"
+  mkdir -p "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/SOPs" "$STAGE_DIR/$CHILD_DIR/deliverables" "$STAGE_DIR/$CHILD_DIR/docs"
   rsync -a "$WORKSPACE_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/knowledge/persona/feeze/"
   rsync -a "$WORKSPACE_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/knowledge/persona/feeze/"
+  rsync -a "$WORKSPACE_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona/feeze/"
   rsync -a "$WORKSPACE_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/knowledge/aiclone/transcripts/"
   rsync -a "$WORKSPACE_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone/transcripts/"
   rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$WORKSPACE_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"

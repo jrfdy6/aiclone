@@ -108,12 +108,13 @@ def resolve_workspace_root() -> Path:
     candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/")]
     seen: set[Path] = set()
     for parent in candidates:
-        if parent in seen:
-            continue
-        seen.add(parent)
-        if (parent / "knowledge" / "persona" / "feeze" / "manifest.json").exists():
-            return parent
-    return current.parents[3]
+        for root in (parent, parent / "app", parent / "backend"):
+            if root in seen:
+                continue
+            seen.add(root)
+            if (root / "knowledge" / "persona" / "feeze" / "manifest.json").exists():
+                return root
+    return current.parents[2] if len(current.parents) > 2 else current.parent
 
 
 def resolve_persona_bundle_root() -> Path:
