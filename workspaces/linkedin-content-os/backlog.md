@@ -308,6 +308,20 @@
   - `backend/app/services/persona_bundle_context_service.py`
   - `backend/app/routes/content_generation.py`
 
+### LNK-039 - Rebuild persona-to-content grounding around typed retrieval
+- Outcome: make content generation read persona canon through explicit `core`, `proof`, `story`, and `example` lanes instead of a blended prompt stack that still allows weakly related history to leak into AI/operator posts.
+- Benchmark gate:
+  - `tech_ai` prompts use AI/operator-grounded proof or fall back to principle-only drafts
+  - examples influence rhythm without changing factual grounding
+  - `0` unsupported metrics appear in live production spot checks
+  - `workflow clarity` and `agent orchestration` no longer borrow generic admissions / leadership / school-process material unless it is explicitly AI-tagged
+- Source files:
+  - `../../SOPs/persona_grounded_content_generation_sop.md`
+  - `backend/app/routes/content_generation.py`
+  - `backend/app/services/persona_bundle_context_service.py`
+  - `backend/app/services/retrieval.py`
+  - planned `backend/app/services/content_generation_context_service.py`
+
 ### LNK-022 - Expand feedback logging and evaluation endpoints
 - Outcome: extend the existing `/api/workspace/feedback` path to log copy actions, approvals, dislikes, and future posting outcomes into a structured feedback layer instead of using only UI state and implied behavior.
 - Status: first pass implemented. Feedback now writes structured JSONL alongside the markdown log, rebuilds a summary artifact, and `/ops` sends active lane/stance/technique/evaluation context for like, dislike, and copy interactions. Expression-quality fields now flow through the same path so the feedback layer can see source/output expression quality and the delta introduced by the transformation step.

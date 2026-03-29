@@ -131,6 +131,48 @@
      - current build priority remains bundle-first persona context plus stronger content-generation usage of that canon
   10. implementation source of truth for that future tab now lives in `SOPs/persona_identity_state_sop.md`
 
+## Persona-Grounded Content Generation
+- Treat persona-to-content quality as a retrieval-and-grounding architecture problem, not a prompt-only problem.
+- Keep a small always-on `core identity` lane for content generation:
+  - `identity/claims.md`
+  - `identity/philosophy.md`
+  - `identity/decision_principles.md`
+  - `identity/VOICE_PATTERNS.md`
+- Split support memory into typed lanes instead of one mixed retrieval pool:
+  - `proof`
+  - `story`
+  - `example`
+  - optional `ambient`
+- Add typed metadata to bundle chunks in `backend/app/services/persona_bundle_context_service.py` so the route can reason about:
+  - memory role
+  - domain tags
+  - audience tags
+  - proof kind / strength
+  - artifact grounding
+- Move prompt assembly and retrieval composition out of `backend/app/routes/content_generation.py` into a dedicated context service so the route stops hand-managing all retrieval concerns inline.
+- Add a grounding evaluator before drafting:
+  - `proof_ready`
+  - `principle_only`
+  - `story_supported`
+  - `insufficient_grounding`
+- Make `tech_ai` and similar domains fail closed:
+  - if no AI/operator proof is present, write a principle-led post
+  - do not borrow generic leadership, admissions, or school-process stories as AI proof
+  - do not transform real metrics into new unsupported claims
+- Convert the example lane into a typed example bank selected by:
+  - domain
+  - audience
+  - post archetype
+  - tone
+  instead of broad similarity alone
+- Add fixed eval prompts and production checks for:
+  - `workflow clarity`
+  - `agent orchestration`
+  - `AI systems`
+  - `leadership clarity`
+  - `relationship-first market development`
+- Canonical implementation source of truth: `SOPs/persona_grounded_content_generation_sop.md`
+
 ## Parking lot (post-stabilization)
 - Memory optimizer skill (nightly tier‑1 audit + progressive disclosure guardrails).
 - Rhetorical analyzer skill (Opus-powered fact-checking pipeline for ingesting outside reporting without dragging propaganda into memory).
