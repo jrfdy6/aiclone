@@ -16,6 +16,7 @@ from app.routes import (
     briefs,
     calendar,
     capture,
+    content_generation,
     ingest_drive,
     knowledge,
     notifications,
@@ -141,6 +142,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(knowledge.router, prefix="/api/knowledge")
 app.include_router(capture.router, prefix="/api/capture")
+app.include_router(content_generation.router, prefix="/api/content-generation")
 app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(automations.router, prefix="/api/automations")
 app.include_router(briefs.router)

@@ -15,6 +15,7 @@ import os
 import json
 
 from app.services.embedders import embed_text
+from app.services.persona_bundle_context_service import retrieve_bundle_persona_chunks
 from app.services.retrieval import retrieve_similar, retrieve_weighted
 
 router = APIRouter()
@@ -684,6 +685,28 @@ Generate 3 content options, separated by "---OPTION---":
     return prompt
 
 
+def merge_persona_chunks(
+    bundle_chunks: List[Dict[str, Any]],
+    retrieved_chunks: List[Dict[str, Any]],
+    top_k: int = 7,
+) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for bucket in (bundle_chunks, retrieved_chunks):
+        for item in bucket:
+            chunk = " ".join(str(item.get("chunk") or "").split()).strip()
+            if not chunk:
+                continue
+            key = chunk.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+            if len(merged) >= top_k:
+                return merged
+    return merged
+
+
 @router.post("/generate", response_model=ContentGenerationResponse)
 async def generate_content(req: ContentGenerationRequest):
     """
@@ -695,14 +718,24 @@ async def generate_content(req: ContentGenerationRequest):
         persona_query = f"persona voice style {req.topic} {req.category} content writing"
         persona_embedding = embed_text(persona_query)
         
-        persona_chunks = retrieve_weighted(
+        bundle_persona_chunks = retrieve_bundle_persona_chunks(
+            query_text=persona_query,
+            query_embedding=persona_embedding,
+            category=req.category,
+            channel=req.content_type,
+            top_k=7,
+        )
+
+        retrieved_persona_chunks = retrieve_weighted(
             user_id=req.user_id,
             query_embedding=persona_embedding,
             category=req.category,  # value, sales, or personal
             channel=req.content_type,  # linkedin_post, linkedin_dm, cold_email, instagram_post
             top_k=7,  # Get more chunks since they're now properly weighted
         )
-        
+
+        persona_chunks = merge_persona_chunks(bundle_persona_chunks, retrieved_persona_chunks, top_k=7)
+
         # Log what tags were retrieved for debugging
         if persona_chunks:
             tag_summary = {}
@@ -810,4 +843,3 @@ async def quick_generate(
         category=category,
     )
     return await generate_content(req)
-

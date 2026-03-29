@@ -29,10 +29,12 @@ social_persona_review_module = importlib.import_module("app.services.social_pers
 daily_brief_module = importlib.import_module("app.services.daily_brief_service")
 persona_route_module = importlib.import_module("app.routes.persona")
 brain_route_module = importlib.import_module("app.routes.brain")
+content_generation_module = importlib.import_module("app.routes.content_generation")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
 persona_promotion_module = importlib.import_module("app.services.persona_promotion_service")
 belief_engine_module = importlib.import_module("app.services.social_belief_engine")
 persona_bundle_writer_module = importlib.import_module("app.services.persona_bundle_writer")
+persona_bundle_context_module = importlib.import_module("app.services.persona_bundle_context_service")
 
 
 SAMPLE_FEED = {
@@ -2016,6 +2018,100 @@ summary: Leadership behavior drives AI implementation outcomes.
             self.assertTrue(claims_path.exists())
             self.assertIn("Operator clarity matters more than hype.", claims_path.read_text(encoding="utf-8"))
             self.assertEqual(result.get("written_files"), ["identity/claims.md"])
+
+    def test_persona_bundle_context_retrieves_committed_claim_for_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_root = Path(temp_dir) / "knowledge" / "persona" / "feeze"
+            claims_path = bundle_root / "identity" / "claims.md"
+            claims_path.parent.mkdir(parents=True, exist_ok=True)
+            claims_path.write_text(
+                """---
+title: "Claims"
+persona_id: "johnnie_fields"
+target_file: "identity/claims.md"
+generated_at: "2026-03-28T00:00:00+00:00"
+---
+
+| Claim | Type | Evidence | Usage rule |
+| --- | --- | --- | --- |
+| Teams fail when they chase tools before workflow clarity. | philosophical | Promoted from Brain review. | Safe for AI strategy and operator writing. |
+""",
+                encoding="utf-8",
+            )
+
+            with patch.object(persona_bundle_context_module, "resolve_persona_bundle_root", return_value=bundle_root):
+                chunks = persona_bundle_context_module.retrieve_bundle_persona_chunks(
+                    query_text="workflow clarity for AI teams",
+                    category="value",
+                    channel="linkedin_post",
+                    top_k=3,
+                )
+
+            self.assertGreaterEqual(len(chunks), 1)
+            self.assertIn("workflow clarity", (chunks[0].get("chunk") or "").lower())
+            self.assertEqual(chunks[0].get("metadata", {}).get("source_kind"), "canonical_bundle")
+
+    def test_content_generation_prefers_bundle_persona_chunks(self) -> None:
+        class _FakeResponse:
+            def __init__(self, content: str) -> None:
+                self.choices = [type("Choice", (), {"message": type("Message", (), {"content": content})()})()]
+
+        class _FakeCompletions:
+            def create(self, **kwargs):
+                return _FakeResponse("Bundle-first option")
+
+        class _FakeChat:
+            def __init__(self) -> None:
+                self.completions = _FakeCompletions()
+
+        class _FakeClient:
+            def __init__(self) -> None:
+                self.chat = _FakeChat()
+
+        bundle_chunk = {
+            "chunk": "Teams fail when they chase tools before workflow clarity.",
+            "persona_tag": "PHILOSOPHY",
+            "metadata": {"source": "canonical persona bundle", "source_kind": "canonical_bundle"},
+        }
+        retrieved_chunk = {
+            "chunk": "Older retrieval memory that should come after the canonical bundle.",
+            "persona_tag": "VOICE_PATTERNS",
+            "metadata": {"source": "retrieval memory"},
+        }
+
+        with patch.object(content_generation_module, "embed_text", return_value=[0.1, 0.2, 0.3]), patch.object(
+            content_generation_module,
+            "retrieve_bundle_persona_chunks",
+            return_value=[bundle_chunk],
+        ), patch.object(
+            content_generation_module,
+            "retrieve_weighted",
+            return_value=[retrieved_chunk],
+        ), patch.object(
+            content_generation_module,
+            "retrieve_similar",
+            return_value=[],
+        ), patch.object(
+            content_generation_module,
+            "get_openai_client",
+            return_value=_FakeClient(),
+        ):
+            response = self.client.post(
+                "/api/content-generation/generate",
+                json={
+                    "user_id": "default-user",
+                    "topic": "workflow clarity",
+                    "content_type": "linkedin_post",
+                    "category": "value",
+                    "audience": "tech_ai",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload.get("success"))
+        self.assertIn("workflow clarity", (payload.get("persona_context") or "").lower())
+        self.assertEqual(payload.get("options"), ["Bundle-first option"])
 
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
