@@ -16,9 +16,3 @@ generated_at: "2026-03-29T10:24:11.485316+00:00"
 - Purpose: Strengthen referral relationships, enrollment outcomes, and family trust.
 - Value to persona: Keeps role-grounded leadership and trust-building central to the persona.
 - Public-facing proof: Admissions, outreach, and community-facing work reinforce this through lived experience.
-
-## From Pilot To Payoff 7 Pattern Matched Traits Of Ai Systems That Actually Work P5Yznr8Duj4
-- Status: active
-- Purpose: CEO prompting plus agent usage makes AI success 5.2x more likely.
-- Value to persona: This is an incredible video. I love what she was talking about. Um, she had a really good like handle on AI and the stories that she told a great for her company and we might need to figure out a way to kind of transition those stories into my company.
-- Public-facing proof: This is an incredible video. I love what she was talking about. Um, she had a really good like handle on AI and the stories that she told a great for her company and we might need to figure out a way to kind of transition those stories into my company.
