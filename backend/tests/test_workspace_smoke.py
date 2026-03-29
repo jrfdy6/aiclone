@@ -2727,6 +2727,34 @@ generated_at: "2026-03-28T00:00:00+00:00"
             },
         )
 
+    def test_content_generation_context_prefers_tech_ai_specific_claim_over_generic_leadership_claim(self) -> None:
+        claims = content_context_service_module._extract_primary_claims(
+            core_topic_chunks=[
+                {
+                    "chunk": "Johnnie values people, process, and culture as the main levers of leadership. Evidence: Recurring philosophy across persona docs and operating decisions.",
+                    "metadata": {"memory_role": "core"},
+                },
+                {
+                    "chunk": "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone. Evidence: Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+                    "metadata": {
+                        "memory_role": "core",
+                        "domain_tags": ["ai_systems", "operator_workflows"],
+                    },
+                },
+            ],
+            topic_anchor_chunks=[],
+            proof_anchor_chunks=[],
+            grounding_mode="principle_only",
+            topic="agent orchestration",
+            audience="tech_ai",
+        )
+
+        self.assertGreaterEqual(len(claims), 2)
+        self.assertEqual(
+            claims[0],
+            "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+        )
+
     def test_extract_approved_reference_terms_prefers_labels_and_evidence_phrases(self) -> None:
         approved = content_generation_module._extract_approved_reference_terms(
             primary_claims=[

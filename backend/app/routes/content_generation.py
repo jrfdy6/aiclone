@@ -674,7 +674,7 @@ def build_proof_guidance(proof_anchor_chunks: List[Dict[str, Any]]) -> str:
 
 def _clean_voice_directive(text: str) -> str:
     directive = " ".join((text or "").strip().strip("-*").split())
-    directive = re.sub(r"^[A-Z ]+:\s*", "", directive)
+    directive = re.sub(r"^[A-Za-z][A-Za-z /&'()-]+:\s*", "", directive)
     return directive.strip()
 
 

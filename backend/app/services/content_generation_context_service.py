@@ -538,7 +538,15 @@ def _is_metric_led_claim(text: str) -> bool:
     )
 
 
-def _claim_candidate_score(item: dict[str, Any], text: str, *, source_priority: int) -> int:
+def _claim_candidate_score(
+    item: dict[str, Any],
+    text: str,
+    *,
+    source_priority: int,
+    focus_terms: set[str],
+    topic: str,
+    audience: str,
+) -> int:
     metadata = _item_metadata(item)
     memory_role = str(metadata.get("memory_role") or "ambient")
     score = source_priority
@@ -553,7 +561,25 @@ def _claim_candidate_score(item: dict[str, Any], text: str, *, source_priority: 
     else:
         score -= 4
     normalized = text.lower()
-    if any(term in normalized for term in ("agent", "prompt", "workflow", "clarity", "operator", "system", "orchestration")):
+    focus_score = _chunk_focus_score(text, focus_terms, topic)
+    score += focus_score * 3
+    audience_domains = AUDIENCE_DOMAIN_PRIORITY.get(audience, set())
+    domain_tags = {str(tag) for tag in metadata.get("domain_tags", []) if tag}
+    if domain_tags & audience_domains:
+        score += 4
+    operator_terms = ("agent", "prompt", "workflow", "clarity", "operator", "system", "orchestration", "brain", "ops", "planner", "routing")
+    if any(term in normalized for term in operator_terms):
+        score += 3
+    if audience == "tech_ai":
+        if any(term in normalized for term in operator_terms):
+            score += 4
+        else:
+            score -= 8
+        if "leadership" in normalized and not any(term in normalized for term in operator_terms):
+            score -= 4
+        if "people, process, and culture" in normalized and not any(term in normalized for term in operator_terms):
+            score -= 5
+    if bool(metadata.get("artifact_backed")) and str(metadata.get("proof_strength") or "").lower() in {"strong", "medium"}:
         score += 2
     if 6 <= len(text.split()) <= 28:
         score += 1
@@ -566,8 +592,11 @@ def _extract_primary_claims(
     topic_anchor_chunks: list[dict[str, Any]],
     proof_anchor_chunks: list[dict[str, Any]],
     grounding_mode: str,
+    topic: str = "",
+    audience: str = "general",
 ) -> list[str]:
     ranked: list[tuple[int, str]] = []
+    focus_terms = _focus_terms(topic, audience)
     ordered_groups = [(core_topic_chunks, 16), (topic_anchor_chunks, 10)]
     if grounding_mode == "proof_ready":
         ordered_groups.append((proof_anchor_chunks, 6))
@@ -578,7 +607,19 @@ def _extract_primary_claims(
             text = _extract_claim_text_from_chunk(str(item.get("chunk") or ""))
             if not text:
                 continue
-            ranked.append((_claim_candidate_score(item, text, source_priority=source_priority), text))
+            ranked.append(
+                (
+                    _claim_candidate_score(
+                        item,
+                        text,
+                        source_priority=source_priority,
+                        focus_terms=focus_terms,
+                        topic=topic,
+                        audience=audience,
+                    ),
+                    text,
+                )
+            )
     candidates: list[str] = []
     for _, text in sorted(ranked, key=lambda entry: entry[0], reverse=True):
         candidates.append(text)
@@ -976,6 +1017,8 @@ def build_content_generation_context(
         topic_anchor_chunks=topic_anchor_chunks,
         proof_anchor_chunks=proof_anchor_chunks,
         grounding_mode=grounding_mode,
+        topic=topic,
+        audience=audience,
     )
     proof_packets = _extract_proof_packets(proof_anchor_chunks)
     story_beats = _extract_story_beats(story_anchor_chunks)
