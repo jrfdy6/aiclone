@@ -280,6 +280,20 @@
   - `frontend/app/brain/BrainClient.tsx`
   - telemetry providers under `backend/app/services/`
 
+### LNK-037 - Enforce semantic canon promotion for persona bundle writes
+- Outcome: stop thin promotion items from writing review-language directly into canonical persona files by adding semantic extraction and target-specific gating before bundle writes.
+- Benchmark gate:
+  - `history/initiatives.md` promotions require explicit artifact/output grounding
+  - `0` review-note-only initiative commits reach canon
+  - blocked initiative promotions stay in Brain review or reroute cleanly instead of silently writing weak canon
+- Source files:
+  - `../../SOPs/persona_canon_promotion_sop.md`
+  - `backend/app/services/persona_promotion_utils.py`
+  - `backend/app/services/persona_promotion_service.py`
+  - `backend/app/services/persona_bundle_writer.py`
+  - `automations/persona_bundle_sync.py`
+  - `backend/app/services/persona_bundle_context_service.py`
+
 ### LNK-022 - Expand feedback logging and evaluation endpoints
 - Outcome: extend the existing `/api/workspace/feedback` path to log copy actions, approvals, dislikes, and future posting outcomes into a structured feedback layer instead of using only UI state and implied behavior.
 - Status: first pass implemented. Feedback now writes structured JSONL alongside the markdown log, rebuilds a summary artifact, and `/ops` sends active lane/stance/technique/evaluation context for like, dislike, and copy interactions. Expression-quality fields now flow through the same path so the feedback layer can see source/output expression quality and the delta introduced by the transformation step.

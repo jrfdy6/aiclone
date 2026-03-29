@@ -114,6 +114,13 @@
   3. surface knowledge docs in the Brain Docs tab instead of leaving docs fragmented or invisible
   4. move global source-intelligence interpretation and long-form source registration toward Brain-first ownership, while keeping Workspace project-local
   5. keep Workspace approval as a fast approval path into the shared `persona_deltas` lifecycle without forcing duplicate Brain approval
+  6. enforce the canonical persona promotion contract:
+     - add semantic extraction before canon writes
+     - require artifact/output grounding for `history/initiatives.md`
+     - block or reroute initiative promotions when no artifact anchor exists
+     - stop writing review-note language directly into canonical initiative fields
+     - keep local bundle sync as the durability lane and bundle-first content generation as the immediate-read lane
+  7. implementation source of truth for that work now lives in `SOPs/persona_canon_promotion_sop.md`
 
 ## Parking lot (post-stabilization)
 - Memory optimizer skill (nightly tier‑1 audit + progressive disclosure guardrails).
