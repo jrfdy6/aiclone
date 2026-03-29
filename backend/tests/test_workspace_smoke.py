@@ -4002,6 +4002,29 @@ generated_at: "2026-03-28T00:00:00+00:00"
             r"(That is the operating model\.|Isolated prompting is a thing of the past\.)$",
         )
 
+    def test_finalize_planned_options_compresses_abstract_operator_middle_and_drops_label_tail(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone -> Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.\n\nNow, Brain, Ops, daily briefs, planner, long-form routing, and content generation depend on explicit handoffs, shared workspace state, and proof-aware prompts.\n\nThis approach ensures context travels across the system instead of getting lost in isolated prompts.\n\nAgent orchestration is where AI truly excels.\n\nAgent orchestration."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertIn("Context travels.", finalized[0])
+        self.assertIn("Not isolated prompts.", finalized[0])
+        self.assertNotIn("This approach ensures", finalized[0])
+        self.assertFalse(finalized[0].rstrip().endswith("Agent orchestration."))
+
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(
             "### OPTION 1\nPrompting alone is not an AI strategy.\n---OPTION---\n### OPTION 2\nIf there is no artifact, stay at the level of principle."

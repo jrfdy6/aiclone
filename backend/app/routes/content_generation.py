@@ -1898,6 +1898,19 @@ def _collect_curated_reference_phrases(text: str) -> list[str]:
     return phrases
 
 
+def _phrase_is_flat_label(phrase: str) -> bool:
+    normalized = " ".join((phrase or "").split()).strip(" .").lower()
+    if not normalized:
+        return True
+    return normalized in {
+        "agent orchestration",
+        "workflow clarity",
+        "operator guidance",
+        "ai execution patterns",
+        "ai systems operator",
+    }
+
+
 def _extract_approved_reference_terms(
     primary_claims: List[str],
     proof_packets: List[str],
@@ -2316,6 +2329,8 @@ def _punch_line_from_brief(brief: ContentOptionBrief) -> str:
     )
     for phrase in phrases:
         normalized = " ".join((phrase or "").split()).strip(" .")
+        if _phrase_is_flat_label(normalized):
+            continue
         if any(ch.isdigit() for ch in normalized):
             continue
         words = normalized.split()
@@ -2456,6 +2471,36 @@ def _clean_generic_sentences(option: str, brief: ContentOptionBrief) -> str:
     return "\n\n".join(revised_paragraphs) if revised_paragraphs else cleaned
 
 
+def _compress_operator_fragment(text: str) -> str:
+    fragment = " ".join((text or "").split()).strip(" .")
+    if not fragment:
+        return ""
+    replacements = (
+        (r"^context travels across the system\b", "Context travels."),
+        (r"^context travels\b", "Context travels."),
+        (r"^explicit handoffs\b", "Explicit handoffs."),
+        (r"^shared workspace state\b", "Shared state."),
+        (r"^proof-aware prompts\b", "Proof-aware prompts."),
+    )
+    for pattern, replacement in replacements:
+        if re.search(pattern, fragment, flags=re.IGNORECASE):
+            return replacement
+    return _ensure_sentence(fragment[:1].upper() + fragment[1:])
+
+
+def _compress_operator_contrast_fragment(text: str) -> str:
+    fragment = " ".join((text or "").split()).strip(" .")
+    if not fragment:
+        return ""
+    fragment = re.sub(r"^getting lost in\s+", "", fragment, flags=re.IGNORECASE)
+    fragment = re.sub(r"^(?:the|a|an)\s+", "", fragment, flags=re.IGNORECASE)
+    if re.search(r"\bisolated prompt", fragment, flags=re.IGNORECASE):
+        return "Not isolated prompts."
+    if len(fragment.split()) <= 4:
+        return _ensure_sentence(f"Not {fragment}")
+    return ""
+
+
 def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> str:
     cleaned = (option or "").strip()
     if not cleaned or not _brief_prefers_operator_voice(brief):
@@ -2476,6 +2521,19 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
                 payload = rely_match.group(1).rstrip(".")
                 rewritten.append(_ensure_sentence(f"Now it runs on {payload}"))
                 continue
+            abstract_match = re.match(
+                r"^(?:this|that) (?:approach|system|setup) (?:ensures|means|keeps) (.+?) instead of (.+)$",
+                normalized,
+                flags=re.IGNORECASE,
+            )
+            if abstract_match:
+                leading = _compress_operator_fragment(abstract_match.group(1))
+                contrast = _compress_operator_contrast_fragment(abstract_match.group(2))
+                if leading:
+                    rewritten.append(leading)
+                if contrast:
+                    rewritten.append(contrast)
+                continue
             if re.match(r"^everything(?:['’]s| is) interconnected\b", normalized, flags=re.IGNORECASE):
                 continue
             if re.match(r"^(?:it|that)(?:['’]s| is) making (?:a|an) (?:real|tangible|meaningful) impact\b", normalized, flags=re.IGNORECASE):
@@ -2484,6 +2542,26 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
         if rewritten:
             revised_paragraphs.append(" ".join(rewritten).strip())
     return "\n\n".join(revised_paragraphs) if revised_paragraphs else cleaned
+
+
+def _drop_redundant_label_tail(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if len(paragraphs) < 2:
+        return cleaned
+    last_paragraph = paragraphs[-1]
+    if len(last_paragraph.split()) > 4:
+        return cleaned
+    prior_text = " ".join(paragraphs[:-1]).lower()
+    if last_paragraph.lower() in prior_text:
+        return "\n\n".join(paragraphs[:-1])
+    last_terms = _significant_terms(last_paragraph)
+    prior_terms = _significant_terms(" ".join(paragraphs[:-1]))
+    if last_terms and last_terms.issubset(prior_terms):
+        return "\n\n".join(paragraphs[:-1])
+    return cleaned
 
 
 def _ensure_sharp_landing(option: str, brief: ContentOptionBrief) -> str:
@@ -2540,6 +2618,7 @@ def finalize_planned_options(
         revised = _rewrite_soft_operator_sentences(revised, brief)
         revised = _ensure_paragraph_cadence(revised, brief)
         revised = _ensure_sharp_landing(revised, brief)
+        revised = _drop_redundant_label_tail(revised)
         finalized.append(revised)
     return finalized[: len(briefs)]
 
