@@ -2671,6 +2671,40 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("Unified Brain, Ops, daily briefs, and planner around one shared snapshot contract", prompt)
         self.assertNotIn("Use when: AI systems, workflow clarity, operating cadence, restart-safe execution.", prompt)
 
+    def test_build_content_prompt_hides_off_topic_support_chunks_for_operator_topics(self) -> None:
+        persona_chunks = [
+            {
+                "chunk": "Builds and translates AI execution patterns into clear operator guidance.",
+                "persona_tag": "PHILOSOPHY",
+                "metadata": {"prompt_section": "CORE CANON"},
+            },
+            {
+                "chunk": "AI Clone / Brain System. Build a durable system for restart-safe memory, evidence capture, persona development, and content assistance. Value: Proves Johnnie can turn messy AI/operator work into durable operating surfaces that support memory, planning, review, and content generation. Proof: Brain, Ops, daily briefs, planner, and long-form routing now read from the same routed workspace state instead of isolated views.",
+                "persona_tag": "VENTURES",
+                "metadata": {"prompt_section": "SUPPORTING CANON"},
+            },
+            {
+                "chunk": "When I launched the wiki for Fordham MSW documentation, version control was a nightmare until I gathered input and created a quality-assurance process.",
+                "persona_tag": "EXPERIENCES",
+                "metadata": {"prompt_section": "SUPPORTING CANON"},
+            },
+        ]
+
+        prompt = content_generation_module.build_content_prompt(
+            topic="agent orchestration",
+            context="",
+            content_type="linkedin_post",
+            category="value",
+            pacer_elements=[],
+            tone="expert_direct",
+            persona_chunks=persona_chunks,
+            example_chunks=[],
+            audience="tech_ai",
+        )
+
+        self.assertIn("AI Clone / Brain System", prompt)
+        self.assertNotIn("Fordham MSW documentation", prompt)
+
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()
         with patch.object(

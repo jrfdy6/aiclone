@@ -176,6 +176,51 @@ def _append_unique(
             return
 
 
+def _collect_prompt_visible_chunks(
+    *,
+    persona_chunks: List[Dict[str, Any]],
+    topic_anchor_chunks: List[Dict[str, Any]],
+    eligible_story_chunks: List[Dict[str, Any]],
+    proof_anchor_chunks: List[Dict[str, Any]],
+    topic: str,
+    audience: str,
+) -> List[Dict[str, Any]]:
+    visible: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(items: List[Dict[str, Any]], *, limit: int | None = None) -> None:
+        for item in items:
+            key = _normalized_chunk_key(item)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            visible.append(item)
+            if limit is not None and len(visible) >= limit:
+                return
+
+    core_chunks = [
+        item
+        for item in persona_chunks
+        if str(_item_metadata(item).get("prompt_section") or "") == "CORE CANON"
+    ]
+    add(core_chunks, limit=4)
+    add(topic_anchor_chunks)
+    add(proof_anchor_chunks)
+    add(eligible_story_chunks)
+
+    if len(visible) < 5:
+        focus_terms = _focus_terms(topic, audience)
+        supporting_chunks = [
+            item
+            for item in persona_chunks
+            if str(_item_metadata(item).get("prompt_section") or "") == "SUPPORTING CANON"
+            and _chunk_focus_score(_split_use_when_text(str(item.get("chunk") or ""))[0], focus_terms, topic) > 0
+        ]
+        add(supporting_chunks, limit=6)
+
+    return visible
+
+
 def curate_persona_prompt_chunks(
     *,
     bundle_chunks: List[Dict[str, Any]],
@@ -328,6 +373,8 @@ def select_topic_anchor_chunks(
         chunk = str(item.get("chunk") or "")
         primary_text, use_when_text = _split_use_when_text(chunk)
         focus_score = (_chunk_focus_score(primary_text, focus_terms, topic) * 3) + _chunk_focus_score(use_when_text, focus_terms, topic)
+        if focus_score <= 0:
+            continue
         section = str(_item_metadata(item).get("prompt_section") or "RETRIEVAL SUPPORT")
         priority = section_priority.get(section, 0)
         ranked.append((focus_score, priority, item))
@@ -530,9 +577,18 @@ def build_content_prompt(
     )
     proof_guidance = build_proof_guidance(proof_anchor_chunks)
     
-    # Group chunks by prompt layer so canon stays ahead of legacy support.
+    visible_persona_chunks = _collect_prompt_visible_chunks(
+        persona_chunks=persona_chunks,
+        topic_anchor_chunks=topic_anchor_chunks,
+        eligible_story_chunks=eligible_story_chunks,
+        proof_anchor_chunks=proof_anchor_chunks,
+        topic=topic,
+        audience=audience,
+    )
+
+    # Group visible chunks by prompt layer so canon stays ahead of support, without flooding the prompt with off-topic history.
     persona_sections: Dict[str, List[str]] = {}
-    for c in persona_chunks[:9]:
+    for c in visible_persona_chunks:
         tag = str(c.get("persona_tag", "GENERAL")).replace("_", " ").title()
         section = str(_item_metadata(c).get("prompt_section") or "RETRIEVAL SUPPORT")
         chunk_text = _render_anchor_chunk(c)
