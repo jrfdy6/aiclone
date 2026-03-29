@@ -982,7 +982,11 @@ def recommend_framing_modes(
     normalized_topic = " ".join((topic or "").lower().split())
 
     if audience == "tech_ai":
-        modes.extend(["operator_lesson", "contrarian_reframe", "agree_and_extend"])
+        modes.extend(["contrarian_reframe", "operator_lesson"])
+        if grounding_mode == "proof_ready" or proof_anchor_chunks:
+            modes.append("warning")
+        else:
+            modes.append("agree_and_extend")
     elif audience == "leadership":
         modes.extend(["warning", "agree_and_extend", "reframe"])
     else:

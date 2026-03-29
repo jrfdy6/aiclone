@@ -3043,6 +3043,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(any(chunk.get("metadata", {}).get("memory_role") == "core" for chunk in context_pack.core_chunks))
         self.assertTrue(any(chunk.get("metadata", {}).get("memory_role") == "proof" for chunk in context_pack.proof_chunks))
         self.assertTrue(any(chunk.get("metadata", {}).get("memory_role") == "story" for chunk in context_pack.story_chunks))
+        self.assertEqual(context_pack.framing_modes[0], "contrarian_reframe")
         self.assertIn("contrarian_reframe", context_pack.framing_modes)
         self.assertIn("drama_tension", context_pack.framing_modes)
         self.assertGreaterEqual(len(context_pack.primary_claims), 1)
@@ -3953,6 +3954,27 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("shared workspace state", finalized[0].lower())
         self.assertNotIn("breaking down silos", finalized[0].lower())
         self.assertNotIn("let's keep pushing", finalized[0].lower())
+
+    def test_finalize_planned_options_shapes_contrarian_opening(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone -> Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.\n\nBrain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertTrue(finalized[0].startswith("Prompting alone is not the strategy."))
+        self.assertIn("shared workspace state", finalized[0].lower())
 
     def test_finalize_planned_options_inserts_contrast_and_punch_line_when_missing(self) -> None:
         brief = content_generation_module.ContentOptionBrief(

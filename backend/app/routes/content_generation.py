@@ -2259,6 +2259,58 @@ def _force_claim_lead(option: str, brief: ContentOptionBrief) -> str:
     return "\n\n".join([claim] + paragraphs)
 
 
+def _opening_line_from_brief(brief: ContentOptionBrief) -> str:
+    claim = brief.primary_claim or ""
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    combined = f"{claim} {evidence}".lower()
+    if brief.framing_mode == "contrarian_reframe":
+        if re.search(r"\bprompting alone\b", combined, flags=re.IGNORECASE):
+            return "Prompting alone is not the strategy."
+        if re.search(r"\bartifact\b", combined, flags=re.IGNORECASE):
+            return "No artifact? Keep it at the level of principle."
+        return "The default read is wrong."
+    if brief.framing_mode == "warning":
+        if re.search(r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE) and re.search(
+            r"\bshared workspace state\b", evidence, flags=re.IGNORECASE
+        ):
+            return "Without explicit handoffs and shared state, it breaks."
+        if _brief_prefers_operator_voice(brief):
+            return "Without that, it breaks."
+    if brief.framing_mode == "operator_lesson":
+        if re.search(r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE) and re.search(
+            r"\bshared workspace state\b", evidence, flags=re.IGNORECASE
+        ):
+            return "Agent orchestration starts with explicit handoffs and shared state."
+    return ""
+
+
+def _shape_opening_by_mode(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    opening = _opening_line_from_brief(brief)
+    if not opening:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return opening
+    first_paragraph = paragraphs[0]
+    first_sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(first_paragraph) if sentence.strip()]
+    if not first_sentences:
+        paragraphs[0] = opening
+        return "\n\n".join(paragraphs)
+    current_opening = first_sentences[0]
+    if current_opening.lower() == opening.lower():
+        return cleaned
+    if brief.framing_mode not in {"contrarian_reframe", "warning", "operator_lesson"}:
+        return cleaned
+    if brief.framing_mode == "operator_lesson" and not _claim_near_opening(cleaned, brief.primary_claim):
+        return cleaned
+    remainder = " ".join(first_sentences[1:]).strip()
+    paragraphs[0] = " ".join(part for part in [opening, remainder] if part).strip()
+    return "\n\n".join(paragraphs)
+
+
 def _force_brief_proof_support(option: str, brief: ContentOptionBrief) -> str:
     cleaned = (option or "").strip()
     if not cleaned or not brief.proof_packet:
@@ -2611,6 +2663,7 @@ def finalize_planned_options(
         brief = briefs[index] if index < len(briefs) else briefs[-1]
         revised = _replace_flat_opening_with_claim(option, brief)
         revised = _force_claim_lead(revised, brief)
+        revised = _shape_opening_by_mode(revised, brief)
         if grounding_mode == "proof_ready":
             revised = _force_brief_proof_support(revised, brief)
         revised = _ensure_contrast_shape(revised, brief)
