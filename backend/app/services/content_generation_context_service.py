@@ -928,6 +928,20 @@ def build_content_generation_context(
         audience=audience,
         limit=4,
     )
+    print(
+        "[content_context] "
+        f"bundle={len(bundle_persona_chunks)} "
+        f"legacy={len(legacy_support_chunks)} "
+        f"retrieved={len(retrieved_persona_chunks)} "
+        f"curated={len(persona_chunks)} "
+        f"core={len(core_chunks)} "
+        f"proof={len(proof_chunks)} "
+        f"story={len(story_chunks)} "
+        f"topic={len(topic_anchor_chunks)} "
+        f"proof_anchors={len(proof_anchor_chunks)} "
+        f"story_anchors={len(story_anchor_chunks)}",
+        flush=True,
+    )
 
     examples_query = f"high performing content example {content_type} {category} {topic}"
     examples_embedding = embed_text(examples_query)

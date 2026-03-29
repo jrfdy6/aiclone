@@ -630,7 +630,13 @@ def retrieve_bundle_persona_chunks(
     channel: str = "linkedin_post",
     top_k: int = 7,
 ) -> list[dict[str, Any]]:
-    items = load_committed_overlay_chunks() + load_bundle_persona_chunks()
+    overlay_chunks = load_committed_overlay_chunks()
+    bundle_chunks = load_bundle_persona_chunks()
+    items = overlay_chunks + bundle_chunks
+    print(
+        f"[bundle_context] overlay={len(overlay_chunks)} bundle={len(bundle_chunks)} total={len(items)}",
+        flush=True,
+    )
     if not items:
         return []
 
@@ -714,4 +720,8 @@ def retrieve_bundle_persona_chunks(
             return results[:top_k]
 
     add(hydrated_ranked)
+    print(
+        f"[bundle_context] returned={len(results)} top_k={top_k}",
+        flush=True,
+    )
     return results
