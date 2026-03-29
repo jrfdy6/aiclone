@@ -2475,6 +2475,58 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(metadata.get("artifact_backed"))
         self.assertIn("proof_anchor", metadata.get("usage_modes", []))
 
+    def test_persona_bundle_context_balances_core_and_proof_retrieval(self) -> None:
+        items = [
+            {
+                "chunk": "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+                "metadata": {"memory_role": "core"},
+                "persona_tag": "BIO_FACTS",
+            },
+            {
+                "chunk": "CEO prompting plus agent usage makes AI success 5.2x more likely.",
+                "metadata": {"memory_role": "proof"},
+                "persona_tag": "VENTURES",
+            },
+            {
+                "chunk": "65% of executives trust AI outputs, versus far fewer frontline employees.",
+                "metadata": {"memory_role": "proof"},
+                "persona_tag": "VENTURES",
+            },
+            {
+                "chunk": "A story about operator clarity in practice.",
+                "metadata": {"memory_role": "story"},
+                "persona_tag": "EXPERIENCES",
+            },
+        ]
+
+        with patch.object(persona_bundle_context_module, "load_committed_overlay_chunks", return_value=[]), patch.object(
+            persona_bundle_context_module,
+            "load_bundle_persona_chunks",
+            return_value=items,
+        ), patch.object(
+            persona_bundle_context_module,
+            "embed_texts",
+            return_value=[[0.1], [0.2], [0.3], [0.4]],
+        ), patch.object(
+            persona_bundle_context_module,
+            "cosine_similarity",
+            return_value=[[0.4, 0.95, 0.9, 0.7]],
+        ), patch.object(
+            persona_bundle_context_module,
+            "get_combined_weights",
+            return_value={item["persona_tag"]: 1.0 for item in items},
+        ):
+            chunks = persona_bundle_context_module.retrieve_bundle_persona_chunks(
+                query_text="agent orchestration",
+                query_embedding=[0.1],
+                top_k=3,
+            )
+
+        combined = " ".join(chunk.get("chunk", "") for chunk in chunks)
+        self.assertEqual(len(chunks), 3)
+        self.assertIn("prompting plus agent orchestration", combined)
+        self.assertIn("5.2x more likely", combined)
+
     def test_persona_bundle_context_prefers_semantic_initiative_overlay_fields(self) -> None:
         with patch.object(
             persona_bundle_context_module,

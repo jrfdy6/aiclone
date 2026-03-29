@@ -136,6 +136,15 @@ def _read_text(path: Path) -> str:
     return _strip_frontmatter(path.read_text(encoding="utf-8"))
 
 
+def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = item.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _normalized_chunk_key(item: dict[str, Any]) -> str:
+    return " ".join(str(item.get("chunk") or "").split()).strip().lower()
+
+
 def _infer_memory_role(rel_path: str) -> str:
     if rel_path in CORE_TARGETS:
         return "core"
@@ -606,10 +615,51 @@ def retrieve_bundle_persona_chunks(
         reverse=True,
     )
 
-    results: list[dict[str, Any]] = []
-    for item, weighted_score, raw_score in ranked[:top_k]:
+    hydrated_ranked: list[dict[str, Any]] = []
+    for item, weighted_score, raw_score in ranked:
         hydrated = dict(item)
         hydrated["similarity_score"] = float(raw_score)
         hydrated["weighted_score"] = float(weighted_score)
-        results.append(hydrated)
+        hydrated_ranked.append(hydrated)
+
+    grouped: dict[str, list[dict[str, Any]]] = {
+        "core": [],
+        "proof": [],
+        "story": [],
+        "ambient": [],
+    }
+    for item in hydrated_ranked:
+        memory_role = str(_item_metadata(item).get("memory_role") or "ambient")
+        grouped.setdefault(memory_role, []).append(item)
+
+    role_targets = {
+        "core": min(len(grouped.get("core", [])), max(2, min(4, top_k // 2))),
+        "proof": min(len(grouped.get("proof", [])), max(2, min(4, top_k // 2))),
+        "story": min(len(grouped.get("story", [])), 1 if top_k < 6 else 2),
+        "ambient": min(len(grouped.get("ambient", [])), 1),
+    }
+
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(items: list[dict[str, Any]], *, limit: int | None = None) -> None:
+        for entry in items:
+            key = _normalized_chunk_key(entry)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            results.append(entry)
+            if len(results) >= top_k:
+                return
+            if limit is not None and sum(1 for item in results if item in items) >= limit:
+                return
+
+    for role in ("core", "proof", "story", "ambient"):
+        target = role_targets.get(role, 0)
+        if target > 0:
+            add(grouped.get(role, []), limit=target)
+        if len(results) >= top_k:
+            return results[:top_k]
+
+    add(hydrated_ranked)
     return results
