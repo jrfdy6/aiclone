@@ -208,6 +208,8 @@ SOFT_GENERIC_PATTERNS = (
     re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
     re.compile(r"\bthis isn['’]?t just\b", re.IGNORECASE),
     re.compile(r"\bit['’]s not just about\b", re.IGNORECASE),
+    re.compile(r"\bit['’]s all about\b", re.IGNORECASE),
+    re.compile(r"\bconnecting the dots\b", re.IGNORECASE),
     re.compile(r"\bfor effective ai\b", re.IGNORECASE),
     re.compile(r"\bcomponents of the operation must be interconnected\b", re.IGNORECASE),
     re.compile(r"\bthis integration is crucial\b", re.IGNORECASE),
@@ -226,6 +228,7 @@ GENERIC_CLOSER_PATTERNS = (
 WEAK_ENDING_PATTERNS = (
     re.compile(r"\btangible impact\b", re.IGNORECASE),
     re.compile(r"\bmeaningful impact\b", re.IGNORECASE),
+    re.compile(r"\bbetter outcomes\b", re.IGNORECASE),
     re.compile(r"\beverything(?:['’]s| is) interconnected\b", re.IGNORECASE),
     re.compile(r"\btransforming how we work\b", re.IGNORECASE),
     re.compile(r"\bmaking (?:a|an) (?:real|tangible|meaningful) impact\b", re.IGNORECASE),
@@ -2564,6 +2567,51 @@ def _clean_generic_sentences(option: str, brief: ContentOptionBrief) -> str:
     return "\n\n".join(revised_paragraphs) if revised_paragraphs else cleaned
 
 
+def _sentence_is_opening_restatement(sentence: str, opening: str, brief: ContentOptionBrief) -> bool:
+    normalized_sentence = " ".join((sentence or "").split()).strip()
+    normalized_opening = " ".join((opening or "").split()).strip()
+    if not normalized_sentence or not normalized_opening:
+        return False
+    if _sentence_is_signal_bearing(normalized_sentence, brief):
+        return False
+    if normalized_sentence.lower() == normalized_opening.lower():
+        return True
+    if re.match(
+        r"^(?:that|this|it)(?:['’]s| is) not (?:a |an )?(?:viable |real )?(?:ai )?(?:strategy|plan|approach)\.?$",
+        normalized_sentence,
+        flags=re.IGNORECASE,
+    ):
+        return bool(re.search(r"\bnot\b.*\b(?:strategy|plan|approach)\b", normalized_opening, flags=re.IGNORECASE))
+    opening_terms = _significant_terms(normalized_opening)
+    sentence_terms = _significant_terms(normalized_sentence)
+    if not opening_terms or not sentence_terms:
+        return False
+    overlap = opening_terms.intersection(sentence_terms)
+    if len(overlap) >= min(3, len(sentence_terms)):
+        return True
+    return False
+
+
+def _drop_opening_restatement(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if len(paragraphs) < 2:
+        return cleaned
+    opening = paragraphs[0]
+    follow_up_sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(paragraphs[1]) if sentence.strip()]
+    if not follow_up_sentences:
+        return cleaned
+    if _sentence_is_opening_restatement(follow_up_sentences[0], opening, brief):
+        remaining = follow_up_sentences[1:]
+        if remaining:
+            paragraphs[1] = " ".join(remaining).strip()
+        else:
+            paragraphs.pop(1)
+    return "\n\n".join(paragraphs)
+
+
 def _compress_operator_fragment(text: str) -> str:
     fragment = " ".join((text or "").split()).strip(" .")
     if not fragment:
@@ -2766,6 +2814,7 @@ def finalize_planned_options(
         revised = _ensure_contrast_shape(revised, brief)
         revised = _clean_generic_sentences(revised, brief)
         revised = _rewrite_soft_operator_sentences(revised, brief)
+        revised = _drop_opening_restatement(revised, brief)
         revised = _ensure_paragraph_cadence(revised, brief)
         revised = _ensure_sharp_landing(revised, brief)
         revised = _drop_redundant_label_tail(revised)

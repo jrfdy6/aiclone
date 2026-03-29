@@ -4182,6 +4182,30 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("Output handling is stricter now.", finalized[0])
         self.assertIn("Reliability is better, but not done.", finalized[0])
 
+    def test_finalize_planned_options_drops_opening_echo_and_generic_outcomes_closer(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone -> Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not the strategy.\n\nThat's not a viable AI strategy. Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone. Our Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts. Isolated prompting is a thing of the past. It's all about connecting the dots for better outcomes."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized)
+        self.assertNotIn("That's not a viable AI strategy.", finalized[0])
+        self.assertNotIn("It's all about", finalized[0])
+        self.assertNotIn("better outcomes", finalized[0].lower())
+        self.assertIn("Johnnie treats prompting plus agent orchestration", finalized[0])
+        self.assertRegex(finalized[0].rstrip(), r"Isolated prompting is a thing of the past\.$")
+
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
         options = content_generation_module.parse_content_options(
             "### OPTION 1\nPrompting alone is not an AI strategy.\n---OPTION---\n### OPTION 2\nIf there is no artifact, stay at the level of principle."
