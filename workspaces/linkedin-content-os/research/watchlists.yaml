@@ -23,6 +23,20 @@ priority_people:
     reason: Market-development, outreach, and trust-building language
     lenses: [admissions, entrepreneurship]
     priority_weight: 0.85
+  - name: Nate B Jones
+    platform: youtube
+    relationship: followed
+    profile_url: https://www.youtube.com/@NateBJones
+    reason: Leadership, AI, and operator framing with practical management language
+    lenses: [program-leadership, ai, ops-pm]
+    priority_weight: 0.82
+  - name: Champion Leadership
+    platform: youtube
+    relationship: followed
+    profile_url: https://www.youtube.com/@championleadership
+    reason: Leadership, team standards, and execution discipline signals
+    lenses: [program-leadership, current-role, ops-pm]
+    priority_weight: 0.8
 
 rss_sources:
   - url: https://www.oneusefulthing.org/feed
@@ -35,6 +49,21 @@ rss_sources:
     platform: rss
     purpose: Higher-ed operations, enrollment shifts, and student-journey execution signals
     priority_lane: admissions
+  - url: https://podcasts.apple.com/us/podcast/feed/id1528594034
+    label: Hard Fork
+    platform: rss
+    purpose: AI product, tech strategy, and operator-judgment signals from a high-signal weekly tech show
+    priority_lane: ai
+  - url: https://podcasts.apple.com/us/podcast/feed/id1502871393
+    label: All-In Podcast
+    platform: rss
+    purpose: Market, AI, operator, and entrepreneurship signals with strong conversational framing
+    priority_lane: entrepreneurship
+  - url: https://podcasts.apple.com/us/podcast/feed/id1528535502
+    label: Market Mondays
+    platform: rss
+    purpose: Business, AI, and market signals from the EYL ecosystem without needing the full Apple channel wrapper
+    priority_lane: entrepreneurship
 
 reddit_sources:
   - subreddit: Using_AI_in_Education
@@ -43,6 +72,31 @@ reddit_sources:
   - subreddit: edtech
     purpose: Product launches, funding news, and operator lessons
     priority_lane: current-role
+  - subreddit: ArtificialInteligence
+    purpose: Broader AI chatter, practitioner reaction, and high-volume signal scanning for useful claim-shaped items
+    priority_lane: ai
+
+youtube_channels:
+  - name: Nate B Jones
+    url: https://www.youtube.com/@NateBJones
+    purpose: Leadership, AI, and operator framing
+    priority_lane: program-leadership
+    ingest_mode: pending_youtube_adapter
+  - name: Champion Leadership
+    url: https://www.youtube.com/@championleadership
+    purpose: Leadership, standards, and execution discipline
+    priority_lane: program-leadership
+    ingest_mode: pending_youtube_adapter
+  - name: All-In Podcast
+    url: https://www.youtube.com/@allin
+    purpose: Market, tech, and AI discussion
+    priority_lane: entrepreneurship
+    ingest_mode: use_podcast_feed_now
+  - name: Selected AI YouTube Channel
+    url: https://www.youtube.com/channel/UCuQIul0FqNDH5Qb7KLvRjxg
+    purpose: User-selected high-signal AI source pending direct channel intake
+    priority_lane: ai
+    ingest_mode: pending_youtube_adapter
 
 topics:
   - ai implementation in education
@@ -52,6 +106,8 @@ topics:
   - intrapreneurship
   - edtech product launches
   - workflow automation
+  - podcast-to-post signal mining
+  - operator lessons from creator-led media
 
 filters:
   prioritize:
