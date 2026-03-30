@@ -176,6 +176,13 @@ def normalize_voice(text: str) -> str:
     return ensure_period(normalized) if normalized else ""
 
 
+ABSTRACT_BRIDGE_PHRASES = [
+    "abstract commentary",
+    "community-facing execution",
+    "live operating role",
+]
+
+
 def normalize_lane(value: str | None) -> str:
     if not value:
         return "current-role"
@@ -713,7 +720,15 @@ def repost_open(ctx: dict[str, Any], fallback: str) -> str:
 
 
 def bridge_line(ctx: dict[str, Any]) -> str:
-    return ctx.get("bridge_line", "")
+    raw = normalize_inline_text(ctx.get("bridge_line"))
+    if not raw:
+        return ""
+    lowered = raw.lower()
+    if any(phrase in lowered for phrase in ABSTRACT_BRIDGE_PHRASES):
+        return ""
+    if re.match(r"^(keeps|builds|strengthens|creates|turns|solves)\b", lowered):
+        return ensure_period(f"That {lowered}")
+    return ensure_period(raw)
 
 
 def contains_any(text: str, needles: list[str]) -> bool:
@@ -760,16 +775,16 @@ def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                     comment_open(ctx, "That part matters."),
                     source_takeaway(ctx),
                     bridge_line(ctx),
-                    "That is usually where the real market signal shows up before the website, campaign, or pitch deck catches up.",
-                    "When teams feed that back into messaging and follow-up, trust and enrollment both get stronger.",
+                    "Those repeated questions usually tell you what the market is trying to say before the website or campaign catches up.",
+                    "When teams feed that back into messaging and follow-up, trust and enrollment get stronger.",
                 ]
             ),
             "The frontline questions are usually the strategy.",
             join_parts(
                 [
                     repost_open(ctx, repost_seed(ctx)),
-                    "Admissions teams usually hear the market before the rest of the institution does.",
-                    "The repeated questions are often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
+                    "Admissions teams usually hear the market first because they hear the same questions before everyone else does.",
+                    "That repetition is often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
                 ]
             ),
         )

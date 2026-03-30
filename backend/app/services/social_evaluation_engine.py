@@ -12,6 +12,12 @@ GENERIC_PHRASES = [
     "more than ever",
 ]
 
+ABSTRACT_META_PHRASES = [
+    "abstract commentary",
+    "community-facing execution",
+    "live operating role",
+]
+
 LANE_MARKERS = {
     "admissions": ["admissions", "family", "prospect", "student journey", "follow-up"],
     "entrepreneurship": ["builder", "system", "distribution", "execution", "compound"],
@@ -99,6 +105,10 @@ class SocialEvaluationEngine:
         if contains_any(combined, GENERIC_PHRASES):
             voice_match -= 1.2
             warnings.append("copy still contains generic language")
+        if contains_any(combined, ABSTRACT_META_PHRASES):
+            voice_match -= 1.1
+            genericity_penalty += 1.1
+            warnings.append("copy still contains abstract meta phrasing")
 
         role_safety_value = normalize_inline_text(belief.get("role_safety")) or "safe"
         role_safety_score = {"safe": 9.2, "review": 6.4, "risky": 3.8}.get(role_safety_value, 6.0)
