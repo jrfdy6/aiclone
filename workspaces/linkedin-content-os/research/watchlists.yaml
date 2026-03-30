@@ -64,3 +64,63 @@ filters:
     - obvious exit-signaling language
     - generic hustle content
     - trend chasing without operational value
+
+curation:
+  min_total_score: 110
+  target_feed_size: 12
+  platform_limits:
+    linkedin: 4
+    substack: 3
+    rss: 3
+    reddit: 2
+    youtube: 2
+  platform_boosts:
+    linkedin: 18
+    substack: 14
+    rss: 10
+    reddit: 4
+    youtube: 8
+  lane_boosts:
+    ai: 18
+    program-leadership: 16
+    admissions: 14
+    current-role: 12
+    enrollment-management: 12
+    ops-pm: 12
+    referral: 8
+    personal-story: 6
+  keyword_boosts:
+    - phrase: agent orchestration
+      weight: 12
+    - phrase: workflow clarity
+      weight: 10
+    - phrase: ai literacy
+      weight: 10
+    - phrase: operator judgment
+      weight: 9
+    - phrase: change management
+      weight: 8
+    - phrase: enrollment
+      weight: 7
+    - phrase: referral
+      weight: 7
+    - phrase: family trust
+      weight: 7
+    - phrase: student journey
+      weight: 6
+    - phrase: education access
+      weight: 6
+  demoted_phrases:
+    - phrase: funding round
+      weight: 10
+    - phrase: product launch
+      weight: 8
+    - phrase: viral thread
+      weight: 8
+    - phrase: growth hack
+      weight: 12
+  blocked_phrases:
+    - quit your job
+    - i made 10k
+    - 10x founder
+    - no-context ai hot take
