@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -145,7 +146,18 @@ def list_strings(value: Any, limit: int = 8) -> list[str]:
 
 
 def join_parts(parts: list[str]) -> str:
-    return " ".join(part.strip() for part in parts if part and part.strip())
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        normalized = normalize_inline_text(part)
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        cleaned.append(normalized)
+    return " ".join(cleaned)
 
 
 def ensure_period(text: str) -> str:
@@ -182,6 +194,156 @@ ABSTRACT_BRIDGE_PHRASES = [
     "live operating role",
 ]
 
+STANCE_OPEN_OPTIONS = {
+    "reinforce": {
+        "comment": [
+            "That part matters.",
+            "This tracks for me.",
+            "That lands.",
+        ],
+        "repost": [
+            "This is directionally right.",
+            "This points at the right issue.",
+            "This is closer to the real issue than most takes.",
+        ],
+    },
+    "nuance": {
+        "comment": [
+            "I agree with the direction, but the real issue usually shows up in practice.",
+            "Yes, but the gap usually shows up one layer lower in the work.",
+            "I agree with the direction, but the operational problem usually shows up later.",
+        ],
+        "repost": [
+            "I agree with the core point, but I would push the framing a little further.",
+            "Directionally yes, but the practical issue usually shows up one layer lower.",
+            "I agree with the signal, but the framing still needs one more turn.",
+        ],
+    },
+    "counter": {
+        "comment": [
+            "I would push this a little further because the real issue usually sits underneath the headline.",
+            "I think the real problem is one layer deeper than this framing.",
+            "I would frame this a little differently because the operational issue usually shows up later.",
+        ],
+        "repost": [
+            "I would frame this a little differently.",
+            "The headline is directionally right, but the real issue sits one layer lower.",
+            "I think the deeper problem shows up after the part most people focus on.",
+        ],
+    },
+    "translate": {
+        "comment": [
+            "I keep translating this into the real work on the ground.",
+            "This gets more useful once you bring it down into the day-to-day work.",
+            "I read this through what actually happens on the ground.",
+        ],
+        "repost": [
+            "This changes once it touches the real work.",
+            "This reads differently once it hits the day-to-day work.",
+            "This gets clearer once it reaches the real operating environment.",
+        ],
+    },
+    "personal-anchor": {
+        "comment": [
+            "I have seen some version of this up close.",
+            "This feels familiar for a reason.",
+            "I know this pattern a little too well.",
+        ],
+        "repost": [
+            "This feels familiar for a reason.",
+            "I have seen this pattern up close before.",
+            "This one sounds different when you have lived some version of it.",
+        ],
+    },
+    "systemize": {
+        "comment": [
+            "The useful move is turning this from an idea into a system.",
+            "The pattern only matters once it becomes a system.",
+            "The signal is only useful once it turns into process.",
+        ],
+        "repost": [
+            "The idea is only useful once it becomes process.",
+            "The pattern only counts once the system changes around it.",
+            "The signal matters once it turns into something repeatable.",
+        ],
+    },
+}
+
+STANCE_CONTRAST_OPTIONS = {
+    "reinforce": {
+        "comment": [
+            "The part worth repeating is what this changes in practice.",
+            "The useful part is what this changes once it leaves the headline.",
+            "The real value shows up in what this changes downstream.",
+        ],
+        "repost": [
+            "The part worth keeping is what this changes in practice.",
+            "The useful version is what survives contact with the work.",
+            "The downstream change is the part that actually matters.",
+        ],
+    },
+    "nuance": {
+        "comment": [
+            "The headline is directionally right. The real issue usually shows up one layer lower.",
+            "I do not think the headline is wrong. I think it stops a little early.",
+            "The surface point is fine. The practical problem usually shows up underneath it.",
+        ],
+        "repost": [
+            "Directionally yes, but the practical issue usually sits one layer lower.",
+            "The headline is fine. The operational problem is usually underneath it.",
+            "I agree with the signal, but the real friction usually shows up later.",
+        ],
+    },
+    "counter": {
+        "comment": [
+            "I would push this harder because the real issue is not the headline.",
+            "The visible issue is one thing. The actual constraint usually sits underneath it.",
+            "The post is not wrong. It just stops too early.",
+        ],
+        "repost": [
+            "The visible issue is not really the whole issue here.",
+            "The headline is not wrong. The real constraint usually sits underneath it.",
+            "I would push the frame a little harder because the deeper problem shows up later.",
+        ],
+    },
+    "translate": {
+        "comment": [
+            "The useful version is what survives contact with the actual work.",
+            "This only gets sharper once it meets the day-to-day work.",
+            "The real test is what this sounds like on the ground.",
+        ],
+        "repost": [
+            "This only gets useful once it reaches the real work.",
+            "The practical version is what survives contact with the work.",
+            "The real test is what this changes on the ground.",
+        ],
+    },
+    "personal-anchor": {
+        "comment": [
+            "This sounds cleaner on paper than it does when you are the one carrying it.",
+            "It reads one way from a distance and another way from inside the work.",
+            "This lands differently once you have had to carry the follow-through.",
+        ],
+        "repost": [
+            "This reads differently once you have had to carry it.",
+            "It sounds one way from a distance and another way from inside the work.",
+            "This lands differently once the follow-through is yours.",
+        ],
+    },
+    "systemize": {
+        "comment": [
+            "The idea is not the finish line. The repeatable system is.",
+            "Noticing the pattern is one thing. Making it repeatable is the real move.",
+            "The pattern is interesting. The system built around it is what matters.",
+        ],
+        "repost": [
+            "The idea is not enough. The repeatable system is the real story.",
+            "The pattern only matters once it becomes repeatable.",
+            "Seeing the signal is one thing. Turning it into process is the real move.",
+        ],
+    },
+}
+
 
 def normalize_lane(value: str | None) -> str:
     if not value:
@@ -189,6 +351,44 @@ def normalize_lane(value: str | None) -> str:
     lowered = normalize_inline_text(value).lower()
     normalized = LANE_ALIASES.get(lowered, lowered.replace("_", "-").replace(" ", "-"))
     return normalized if normalized in LENS_IDS else "current-role"
+
+
+def _variation_seed(ctx: dict[str, Any], slot: str) -> int:
+    payload = "|".join(
+        [
+            normalize_inline_text(ctx.get("title")),
+            normalize_inline_text(ctx.get("priority_lane")),
+            normalize_inline_text(ctx.get("stance")),
+            normalize_inline_text(ctx.get("source_takeaway_origin")),
+            slot,
+        ]
+    )
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16)
+
+
+def pick_option(ctx: dict[str, Any], slot: str, options: list[str], fallback: str = "") -> str:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for option in options:
+        normalized = normalize_inline_text(option)
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        cleaned.append(normalized)
+    if not cleaned:
+        return normalize_inline_text(fallback)
+    index = _variation_seed(ctx, slot) % len(cleaned)
+    return cleaned[index]
+
+
+def pick_template(ctx: dict[str, Any], slot: str, templates: list[list[str]]) -> list[str]:
+    if not templates:
+        return []
+    return templates[_variation_seed(ctx, slot) % len(templates)]
 
 
 def normalize_source_class(value: str | None) -> str:
@@ -705,18 +905,20 @@ def comment_open(ctx: dict[str, Any], fallback: str) -> str:
     stance = ctx.get("stance", "")
     stance_open = normalize_inline_text(ctx.get("stance_comment_open"))
     lane_open = normalize_inline_text(fallback)
+    bank = (STANCE_OPEN_OPTIONS.get(stance, {}) or {}).get("comment", [])
     if stance in {"counter", "personal-anchor"}:
-        return stance_open or lane_open
-    return lane_open or stance_open
+        return pick_option(ctx, "comment-open", [stance_open, lane_open, *bank], stance_open or lane_open)
+    return pick_option(ctx, "comment-open", [lane_open, stance_open, *bank], lane_open or stance_open)
 
 
 def repost_open(ctx: dict[str, Any], fallback: str) -> str:
     stance = ctx.get("stance", "")
     stance_open = normalize_inline_text(ctx.get("stance_repost_open"))
     lane_open = normalize_inline_text(fallback)
+    bank = (STANCE_OPEN_OPTIONS.get(stance, {}) or {}).get("repost", [])
     if stance in {"counter", "personal-anchor"}:
-        return stance_open or lane_open
-    return lane_open or stance_open
+        return pick_option(ctx, "repost-open", [stance_open, lane_open, *bank], stance_open or lane_open)
+    return pick_option(ctx, "repost-open", [lane_open, stance_open, *bank], lane_open or stance_open)
 
 
 def bridge_line(ctx: dict[str, Any]) -> str:
@@ -729,6 +931,81 @@ def bridge_line(ctx: dict[str, Any]) -> str:
     if re.match(r"^(keeps|builds|strengthens|creates|turns|solves)\b", lowered):
         return ensure_period(f"That {lowered}")
     return ensure_period(raw)
+
+
+def stance_contrast_line(ctx: dict[str, Any], kind: str) -> str:
+    stance = normalize_inline_text(ctx.get("stance")).lower()
+    bank = (STANCE_CONTRAST_OPTIONS.get(stance, {}) or {}).get(kind, [])
+    return pick_option(ctx, f"{kind}-contrast", bank, "")
+
+
+def response_templates(kind: str, stance: str) -> list[list[str]]:
+    normalized_kind = normalize_inline_text(kind).lower()
+    normalized_stance = normalize_inline_text(stance).lower()
+
+    if normalized_kind == "comment":
+        if normalized_stance in {"counter", "nuance"}:
+            return [
+                ["open", "contrast", "takeaway", "main", "close"],
+                ["open", "takeaway", "contrast", "main", "close"],
+                ["open", "contrast", "main", "close"],
+                ["open", "main", "contrast", "close"],
+            ]
+        if normalized_stance == "systemize":
+            return [
+                ["open", "contrast", "main", "close"],
+                ["open", "takeaway", "contrast", "main", "close"],
+                ["open", "main", "takeaway", "close"],
+            ]
+        if normalized_stance == "personal-anchor":
+            return [
+                ["open", "contrast", "main", "close"],
+                ["open", "takeaway", "main", "close"],
+                ["open", "main", "takeaway", "close"],
+            ]
+        return [
+            ["open", "takeaway", "bridge", "main", "close"],
+            ["open", "takeaway", "main", "close"],
+            ["open", "contrast", "main", "close"],
+            ["open", "main", "takeaway", "close"],
+        ]
+
+    if normalized_stance in {"counter", "nuance", "systemize"}:
+        return [
+            ["open", "contrast", "main", "close"],
+            ["open", "main", "contrast", "close"],
+            ["open", "main", "close"],
+        ]
+    if normalized_stance == "personal-anchor":
+        return [
+            ["open", "contrast", "main", "close"],
+            ["open", "main", "close"],
+            ["open", "takeaway", "main", "close"],
+        ]
+    return [
+        ["open", "main", "close"],
+        ["open", "contrast", "main", "close"],
+        ["open", "takeaway", "main", "close"],
+    ]
+
+
+def compose_response(ctx: dict[str, Any], slot: str, kind: str, **parts: str) -> str:
+    normalized_parts: dict[str, str] = {}
+    for key, value in parts.items():
+        normalized = normalize_inline_text(value)
+        if normalized:
+            normalized_parts[key] = normalized
+    if not normalized_parts:
+        return ""
+
+    ordered_keys: list[str] = []
+    for key in pick_template(ctx, slot, response_templates(kind, ctx.get("stance", ""))):
+        if key in normalized_parts and key not in ordered_keys:
+            ordered_keys.append(key)
+    for key in normalized_parts:
+        if key not in ordered_keys:
+            ordered_keys.append(key)
+    return join_parts([normalized_parts[key] for key in ordered_keys])
 
 
 def contains_any(text: str, needles: list[str]) -> bool:
@@ -769,131 +1046,403 @@ def infer_signal_profile(ctx: dict[str, str]) -> dict[str, bool]:
 def build_admissions_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     profile = infer_signal_profile(ctx)
     if profile["is_admissions"]:
+        comment_signal = pick_option(
+            ctx,
+            "admissions-comment-signal",
+            [
+                "Those repeated questions usually tell you what the market is trying to say before the website or campaign catches up.",
+                "You usually hear the real signal in the same questions long before it shows up in the official story.",
+                "The repeated questions usually show where the message is still cleaner than the reality people are actually dealing with.",
+            ],
+        )
+        comment_close = pick_option(
+            ctx,
+            "admissions-comment-close",
+            [
+                "When teams feed that back into messaging and follow-up, trust and enrollment get stronger.",
+                "When teams work from that signal, follow-up gets tighter and trust gets easier to build.",
+                "That is usually where better messaging, stronger follow-through, and a cleaner student journey start.",
+            ],
+        )
+        repost_signal = pick_option(
+            ctx,
+            "admissions-repost-signal",
+            [
+                "Admissions teams usually hear the market first because they hear the same questions before everyone else does.",
+                "Admissions usually hears the friction early because the same questions keep showing up before leadership names the pattern.",
+                "Admissions teams often spot the gap first because they hear the confusion, objections, and hesitation in real time.",
+            ],
+        )
+        repost_close = pick_option(
+            ctx,
+            "admissions-repost-close",
+            [
+                "That repetition is often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
+                "The repeated questions usually tell you where the message, follow-up, or journey is still leaking trust.",
+                "That pattern usually points to where the message is unclear or the student journey is carrying avoidable friction.",
+            ],
+        )
         return (
-            join_parts(
-                [
-                    comment_open(ctx, "That part matters."),
-                    source_takeaway(ctx),
-                    bridge_line(ctx),
-                    "Those repeated questions usually tell you what the market is trying to say before the website or campaign catches up.",
-                    "When teams feed that back into messaging and follow-up, trust and enrollment get stronger.",
-                ]
+            compose_response(
+                ctx,
+                "admissions-comment-shape",
+                "comment",
+                open=comment_open(ctx, "That part matters."),
+                takeaway=source_takeaway(ctx),
+                bridge=bridge_line(ctx),
+                contrast=stance_contrast_line(ctx, "comment"),
+                main=comment_signal,
+                close=comment_close,
             ),
-            "The frontline questions are usually the strategy.",
-            join_parts(
+            pick_option(
+                ctx,
+                "admissions-short",
                 [
-                    repost_open(ctx, repost_seed(ctx)),
-                    "Admissions teams usually hear the market first because they hear the same questions before everyone else does.",
-                    "That repetition is often the clearest signal about where message clarity, follow-up, or the student journey still needs work.",
-                ]
+                    "The frontline questions are usually the strategy.",
+                    "The repeated questions usually tell you where the work is.",
+                    "The real signal usually sounds like the same question showing up again.",
+                ],
+            ),
+            compose_response(
+                ctx,
+                "admissions-repost-shape",
+                "repost",
+                open=repost_open(ctx, repost_seed(ctx)),
+                contrast=stance_contrast_line(ctx, "repost"),
+                main=repost_signal,
+                close=repost_close,
             ),
         )
 
+    fallback_comment_signal = pick_option(
+        ctx,
+        "admissions-fallback-comment-signal",
+        [
+            "In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff.",
+            "In admissions, this usually shows up when context breaks between the first conversation, the next follow-up, and the real need.",
+            "This same issue usually appears in admissions when teams lose the thread between inquiry, follow-up, and what the student or family actually needs.",
+        ],
+    )
+    fallback_comment_close = pick_option(
+        ctx,
+        "admissions-fallback-comment-close",
+        [
+            "When that context is tighter, the experience feels more human and the pipeline gets stronger.",
+            "When that context holds together, the experience gets clearer and the pipeline usually gets stronger too.",
+            "When teams keep the context intact, the experience feels better and the downstream handoff gets cleaner.",
+        ],
+    )
+    fallback_repost_signal = pick_option(
+        ctx,
+        "admissions-fallback-repost-signal",
+        [
+            "This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
+            "You can usually see this same problem when the follow-up loses the context from the original conversation.",
+            "This same pattern shows up when the handoff gets cleaner on paper but weaker in the actual student or family experience.",
+        ],
+    )
+    fallback_repost_close = pick_option(
+        ctx,
+        "admissions-fallback-repost-close",
+        [
+            "That is usually where experience, trust, and conversion all start moving in the wrong direction.",
+            "That is where trust usually starts weakening before the numbers make it obvious.",
+            "That is usually where the student journey starts picking up avoidable friction.",
+        ],
+    )
     return (
-        join_parts(
-            [
-                comment_open(ctx, "This is what teams miss."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "In admissions work, this same issue usually shows up when teams lose context between inquiry, follow-up, and handoff.",
-                "When that context is tighter, the experience feels more human and the pipeline gets stronger.",
-            ]
+        compose_response(
+            ctx,
+            "admissions-fallback-comment-shape",
+            "comment",
+            open=comment_open(ctx, "This is what teams miss."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=fallback_comment_signal,
+            close=fallback_comment_close,
         ),
-        "Context gaps show up fast in admissions.",
-        join_parts(
+        pick_option(
+            ctx,
+            "admissions-fallback-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "This same issue shows up when context breaks between the first conversation, the next follow-up, and what the student or family actually needs.",
-                "That is usually where experience, trust, and conversion all start moving in the wrong direction.",
-            ]
+                "Context gaps show up fast in admissions.",
+                "Weak context usually becomes admissions friction.",
+                "Admissions feels the context gap fast.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "admissions-fallback-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=fallback_repost_signal,
+            close=fallback_repost_close,
         ),
     )
 
 
 def build_entrepreneurship_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     return (
-        join_parts(
-            [
-                comment_open(ctx, "There is a real builder lesson in this."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "The edge is usually not the headline idea by itself. It is what you do with that signal operationally.",
-                "The builders who turn repeated insight into process usually compound faster.",
-            ]
+        compose_response(
+            ctx,
+            "entrepreneurship-comment-shape",
+            "comment",
+            open=comment_open(ctx, "There is a real builder lesson in this."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "entrepreneurship-comment-main",
+                [
+                    "The edge is usually not the headline idea by itself. It is what you do with that signal operationally.",
+                    "Most builder advantages come from what gets turned into process, not what gets noticed first.",
+                    "The insight matters less than what the operator does with it after they see it.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "entrepreneurship-comment-close",
+                [
+                    "The builders who turn repeated insight into process usually compound faster.",
+                    "The teams that operationalize the signal early are usually the ones that pull away.",
+                    "That is usually where compounding starts: not in the idea itself, but in the system built around it.",
+                ],
+            ),
         ),
-        "The edge is usually in the system.",
-        join_parts(
+        pick_option(
+            ctx,
+            "entrepreneurship-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "This feels more like an execution lesson than a content lesson.",
-                "The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
-            ]
+                "The edge is usually in the system.",
+                "The compounding shows up in the process.",
+                "The signal only matters once it gets operationalized.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "entrepreneurship-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "entrepreneurship-repost-main",
+                [
+                    "This feels more like an execution lesson than a content lesson.",
+                    "The builder lesson here is operational, not aesthetic.",
+                    "This reads like an execution signal more than a headline insight.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "entrepreneurship-repost-close",
+                [
+                    "The people closest to the work usually see the friction, demand, and language patterns first, which is where better systems tend to come from.",
+                    "Operators usually see the real friction first. The question is whether they turn it into process before the signal goes stale.",
+                    "The people closest to the work usually hear the pattern first. The win is turning that into a repeatable system.",
+                ],
+            ),
         ),
     )
 
 
 def build_current_role_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     return (
-        join_parts(
-            [
-                comment_open(ctx, "This lands for me in the day-to-day work."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "In the current role, the real test is whether students, families, staff, or the next owner of the work actually feel the difference.",
-                "If it does not change follow-through, clarity, or support this week, it is still just a smart observation.",
-            ]
+        compose_response(
+            ctx,
+            "current-role-comment-shape",
+            "comment",
+            open=comment_open(ctx, "This lands for me in the day-to-day work."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "current-role-comment-main",
+                [
+                    "In the current role, the real test is whether students, families, staff, or the next owner of the work actually feel the difference.",
+                    "The day-to-day test is simple: does this change clarity, follow-through, or support for the people living inside the work?",
+                    "In role-based work, the signal only matters if the next person in the chain actually feels the difference.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "current-role-comment-close",
+                [
+                    "If it does not change follow-through, clarity, or support this week, it is still just a smart observation.",
+                    "If it does not improve the next step, it is still theory.",
+                    "If the people doing the work do not feel a difference, it is still just a good take.",
+                ],
+            ),
         ),
-        "If it does not change the next step, it is still theory.",
-        join_parts(
+        pick_option(
+            ctx,
+            "current-role-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "I keep reading this through the current-job lens.",
-                "The real question is what changes for students, families, staff, or execution this week because of it.",
-            ]
+                "If it does not change the next step, it is still theory.",
+                "The work only counts if the next step gets better.",
+                "If nobody feels the difference, it is still just a smart observation.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "current-role-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "current-role-repost-main",
+                [
+                    "I keep reading this through the current-job lens.",
+                    "The current-job lens makes this more practical fast.",
+                    "This gets more useful once you read it through the actual day-to-day job.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "current-role-repost-close",
+                [
+                    "The real question is what changes for students, families, staff, or execution this week because of it.",
+                    "The real test is what changes in the lived experience of the work this week.",
+                    "What matters is what shifts for the people actually carrying the work.",
+                ],
+            ),
         ),
     )
 
 
 def build_personal_story_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     return (
-        join_parts(
-            [
-                comment_open(ctx, "This hits a nerve for me."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance.",
-                "That is usually where the insight stops being abstract and starts changing how you work.",
-            ]
+        compose_response(
+            ctx,
+            "personal-comment-shape",
+            "comment",
+            open=comment_open(ctx, "This hits a nerve for me."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "personal-comment-main",
+                [
+                    "A lot of these lessons only become obvious once you are the one carrying the follow-through instead of talking about it from a distance.",
+                    "Some of these lessons only make sense once you are the one holding the weight on the other side of them.",
+                    "A lot of this gets clearer once you are the one responsible for the follow-through instead of just the idea.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "personal-comment-close",
+                [
+                    "That is usually where the insight stops being abstract and starts changing how you work.",
+                    "That is where the idea stops sounding smart and starts becoming personal.",
+                    "That is usually where the lesson stops being theory and starts changing your behavior.",
+                ],
+            ),
         ),
-        "This one feels lived-in.",
-        join_parts(
+        pick_option(
+            ctx,
+            "personal-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "I have learned some version of this the hard way.",
-                "The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
-            ]
+                "This one feels lived-in.",
+                "Some lessons only make sense once you live them.",
+                "This one sounds different once you have carried it.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "personal-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "personal-repost-main",
+                [
+                    "I have learned some version of this the hard way.",
+                    "I know this pattern from the lived side, not just the ideas side.",
+                    "This one feels familiar because I have seen some version of it up close.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "personal-repost-close",
+                [
+                    "The part that sticks is usually not the idea itself. It is what becomes clear once you are the person holding the responsibility on the other side of it.",
+                    "The lesson usually changes once you are the one carrying the responsibility instead of commenting from a distance.",
+                    "What stays with you is usually what becomes clear once you are the one holding the follow-through.",
+                ],
+            ),
         ),
     )
 
 
 def build_program_leadership_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     return (
-        join_parts(
-            [
-                comment_open(ctx, "This is where leadership either compounds the signal or wastes it."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "The teams closest to the work usually hear the signal first, but leadership shows up in whether that becomes shared standards, coaching, and decision-making.",
-                "If it never gets translated into something the broader team can repeat, it stays as an anecdote instead of becoming execution.",
-            ]
+        compose_response(
+            ctx,
+            "program-leadership-comment-shape",
+            "comment",
+            open=comment_open(ctx, "This is where leadership either compounds the signal or wastes it."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "program-leadership-comment-main",
+                [
+                    "The teams closest to the work usually hear the signal first, but leadership shows up in whether that becomes shared standards, coaching, and decision-making.",
+                    "Leadership shows up after the pattern is spotted. The real question is whether it becomes shared standards, coaching, and clearer decisions.",
+                    "The signal usually appears at the edge of the work first. Leadership matters in whether that gets translated into standards and follow-through.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "program-leadership-comment-close",
+                [
+                    "If it never gets translated into something the broader team can repeat, it stays as an anecdote instead of becoming execution.",
+                    "If it never becomes repeatable for the rest of the team, it stays as an anecdote.",
+                    "If leaders do not turn it into something repeatable, the pattern dies as interesting chatter.",
+                ],
+            ),
         ),
-        "Leaders have to turn the pattern into something repeatable.",
-        join_parts(
+        pick_option(
+            ctx,
+            "program-leadership-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "This is a leadership signal as much as a content or systems signal.",
-                "The job is not just spotting the pattern early. It is building the shared process and coaching around it before the drift gets expensive.",
-            ]
+                "Leaders have to turn the pattern into something repeatable.",
+                "Leadership starts when the pattern becomes repeatable.",
+                "The pattern only counts once a team can repeat it.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "program-leadership-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "program-leadership-repost-main",
+                [
+                    "This is a leadership signal as much as a content or systems signal.",
+                    "This is a leadership problem before it is a content win.",
+                    "The leadership layer matters as much as the original signal.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "program-leadership-repost-close",
+                [
+                    "The job is not just spotting the pattern early. It is building the shared process and coaching around it before the drift gets expensive.",
+                    "Spotting the pattern is the easy part. Building the shared process around it is the real leadership move.",
+                    "The real job is translating the signal into standards and coaching before the drift gets expensive.",
+                ],
+            ),
         ),
     )
 
@@ -902,42 +1451,130 @@ def build_therapy_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     profile = infer_signal_profile(ctx)
     if profile["is_therapy"] or profile["is_trust"]:
         return (
-            join_parts(
-                [
-                    comment_open(ctx, "This lands for me as an attunement and regulation issue, not just a systems issue."),
-                    source_takeaway(ctx),
-                    bridge_line(ctx),
-                    "People can usually feel the difference between support that is merely efficient and support that is actually containing, clear, and attuned.",
-                    "That is where the therapeutic layer shows up for me because the quality of the container changes what people can do inside it.",
-                ]
+            compose_response(
+                ctx,
+                "therapy-comment-shape",
+                "comment",
+                open=comment_open(ctx, "This lands for me as an attunement and regulation issue, not just a systems issue."),
+                takeaway=source_takeaway(ctx),
+                bridge=bridge_line(ctx),
+                contrast=stance_contrast_line(ctx, "comment"),
+                main=pick_option(
+                    ctx,
+                    "therapy-comment-main",
+                    [
+                        "People can usually feel the difference between support that is merely efficient and support that is actually containing, clear, and attuned.",
+                        "People usually know the difference between a system that is merely efficient and one that actually feels containing and clear.",
+                        "The emotional read of a system changes fast when support feels clean but not actually attuned.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "therapy-comment-close",
+                    [
+                        "That is where the therapeutic layer shows up for me because the quality of the container changes what people can do inside it.",
+                        "That is where the therapeutic layer shows up for me because the container changes what becomes possible inside it.",
+                        "That is usually where attunement stops being abstract and starts changing the experience people are having.",
+                    ],
+                ),
             ),
-            "People feel the quality of the container fast.",
-            join_parts(
+            pick_option(
+                ctx,
+                "therapy-short",
                 [
-                    repost_open(ctx, repost_seed(ctx)),
-                    "The part I keep coming back to is the emotional experience underneath the process.",
-                    "Even a strong workflow can miss the mark if people do not feel accurately held, regulated, and understood inside it.",
-                ]
+                    "People feel the quality of the container fast.",
+                    "People know when the container stops feeling attuned.",
+                    "The emotional container shows up fast.",
+                ],
+            ),
+            compose_response(
+                ctx,
+                "therapy-repost-shape",
+                "repost",
+                open=repost_open(ctx, repost_seed(ctx)),
+                contrast=stance_contrast_line(ctx, "repost"),
+                main=pick_option(
+                    ctx,
+                    "therapy-repost-main",
+                    [
+                        "The part I keep coming back to is the emotional experience underneath the process.",
+                        "The human experience underneath the process is the part I keep hearing.",
+                        "What stands out to me is the emotional experience sitting underneath the system design.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "therapy-repost-close",
+                    [
+                        "Even a strong workflow can miss the mark if people do not feel accurately held, regulated, and understood inside it.",
+                        "A clean workflow can still miss if people do not feel held, regulated, and understood inside it.",
+                        "Process quality still falls short if the person inside it does not feel accurately held and understood.",
+                    ],
+                ),
             ),
         )
 
     return (
-        join_parts(
-            [
-                comment_open(ctx, "Even when a post sounds practical, I still hear the attunement question underneath it."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "A lot of people can tolerate friction if they still feel seen, but they usually disengage once the experience feels cold, dysregulating, or misattuned.",
-                "That is what makes this feel like a therapy lens to me rather than only an ops lens.",
-            ]
+        compose_response(
+            ctx,
+            "therapy-fallback-comment-shape",
+            "comment",
+            open=comment_open(ctx, "Even when a post sounds practical, I still hear the attunement question underneath it."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "therapy-fallback-comment-main",
+                [
+                    "A lot of people can tolerate friction if they still feel seen, but they usually disengage once the experience feels cold, dysregulating, or misattuned.",
+                    "People can often tolerate imperfect process if they still feel seen, but they usually disengage once the experience feels cold or misattuned.",
+                    "The human layer usually starts breaking once the experience feels efficient but emotionally thin.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "therapy-fallback-comment-close",
+                [
+                    "That is what makes this feel like a therapy lens to me rather than only an ops lens.",
+                    "That is what makes this feel like a therapy question to me, not only an operations question.",
+                    "That is why I still hear an attunement question underneath the process language.",
+                ],
+            ),
         ),
-        "People know when the support stops feeling attuned.",
-        join_parts(
+        pick_option(
+            ctx,
+            "therapy-fallback-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "I keep hearing the human side of the experience in this.",
-                "A lot of process questions are also emotional-safety questions once a real person is living inside the system.",
-            ]
+                "People know when the support stops feeling attuned.",
+                "People feel misattunement fast.",
+                "Attunement breaks are usually obvious to the person living inside them.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "therapy-fallback-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "therapy-fallback-repost-main",
+                [
+                    "I keep hearing the human side of the experience in this.",
+                    "I keep hearing the emotional layer underneath the process question.",
+                    "This still sounds like a human-experience question to me.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "therapy-fallback-repost-close",
+                [
+                    "A lot of process questions are also emotional-safety questions once a real person is living inside the system.",
+                    "A lot of process questions become emotional-safety questions once a real person is living inside the system.",
+                    "Once a real person is living inside the system, a lot of process language becomes emotional-safety language.",
+                ],
+            ),
         ),
     )
 
@@ -946,42 +1583,130 @@ def build_referral_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     profile = infer_signal_profile(ctx)
     if profile["is_referral"] or profile["is_trust"] or profile["is_admissions"]:
         return (
-            join_parts(
-                [
-                    comment_open(ctx, "This feels like a referral-confidence issue to me."),
-                    source_takeaway(ctx),
-                    bridge_line(ctx),
-                    "Strong referral ecosystems usually grow when partners trust what happens after the handoff, not just the pitch before it.",
-                    "That confidence gets built through clarity, responsiveness, and a receiving experience someone would feel good putting their name behind again.",
-                ]
+            compose_response(
+                ctx,
+                "referral-comment-shape",
+                "comment",
+                open=comment_open(ctx, "This feels like a referral-confidence issue to me."),
+                takeaway=source_takeaway(ctx),
+                bridge=bridge_line(ctx),
+                contrast=stance_contrast_line(ctx, "comment"),
+                main=pick_option(
+                    ctx,
+                    "referral-comment-main",
+                    [
+                        "Strong referral ecosystems usually grow when partners trust what happens after the handoff, not just the pitch before it.",
+                        "Referral systems usually get stronger when people trust the receiving experience, not just the original promise.",
+                        "Referral confidence usually grows on the far side of the handoff, not in the pitch that comes before it.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "referral-comment-close",
+                    [
+                        "That confidence gets built through clarity, responsiveness, and a receiving experience someone would feel good putting their name behind again.",
+                        "That confidence usually gets built through clarity, responsiveness, and a receiving experience someone would feel good putting their name behind again.",
+                        "That is what makes people comfortable sending the next person with their own reputation attached.",
+                    ],
+                ),
             ),
-            "Referral trust usually lives after the handoff.",
-            join_parts(
-            [
-                repost_open(ctx, repost_seed(ctx)),
-                "I read this through the referral lens.",
-                "The real question is whether a partner, parent, or trusted source would feel confident sending the next person into this experience again.",
-            ]
+            pick_option(
+                ctx,
+                "referral-short",
+                [
+                    "Referral trust usually lives after the handoff.",
+                    "Referral confidence gets decided after the handoff.",
+                    "Partners repeat what they can trust after the handoff.",
+                ],
+            ),
+        compose_response(
+            ctx,
+            "referral-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "referral-repost-main",
+                [
+                    "I read this through the referral lens.",
+                    "This reads like a referral-confidence question to me.",
+                    "The referral lens changes how I hear this fast.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "referral-repost-close",
+                [
+                    "The real question is whether a partner, parent, or trusted source would feel confident sending the next person into this experience again.",
+                    "The real test is whether a partner, parent, or trusted source would confidently send the next person in again.",
+                    "What matters is whether someone would feel good putting their own name behind the next handoff.",
+                ],
+            ),
         ),
     )
 
     return (
-        join_parts(
-            [
-                comment_open(ctx, "This still sounds like a referral-system question to me."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "Partnerships usually get stronger when expectations are clear and the receiving experience is easy to trust.",
-                "That is what makes people send the next person with confidence instead of hesitation because their own reputation is on the line too.",
-            ]
+        compose_response(
+            ctx,
+            "referral-fallback-comment-shape",
+            "comment",
+            open=comment_open(ctx, "This still sounds like a referral-system question to me."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "referral-fallback-comment-main",
+                [
+                    "Partnerships usually get stronger when expectations are clear and the receiving experience is easy to trust.",
+                    "Partnerships usually get stronger when the receiving experience is clear enough to trust without extra explanation.",
+                    "Partnership strength usually shows up when the handoff feels clear and dependable on the other side.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "referral-fallback-comment-close",
+                [
+                    "That is what makes people send the next person with confidence instead of hesitation because their own reputation is on the line too.",
+                    "That is what makes people send the next person with confidence instead of hesitation because their own reputation is riding on it too.",
+                    "That is usually what decides whether the next referral happens with confidence or hesitation.",
+                ],
+            ),
         ),
-        "Partners repeat what they can trust.",
-        join_parts(
+        pick_option(
+            ctx,
+            "referral-fallback-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "The referral lens here is about confidence in the receiving system.",
-                "If the experience is not clear and dependable after the handoff, the partnership eventually weakens no matter how good the relationship sounded up front.",
-            ]
+                "Partners repeat what they can trust.",
+                "Referral systems repeat what feels dependable.",
+                "Trust decides whether the next referral happens.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "referral-fallback-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "referral-fallback-repost-main",
+                [
+                    "The referral lens here is about confidence in the receiving system.",
+                    "The referral lens here is really a confidence-in-the-receiving-system question.",
+                    "The real referral question here is confidence in what happens after the handoff.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "referral-fallback-repost-close",
+                [
+                    "If the experience is not clear and dependable after the handoff, the partnership eventually weakens no matter how good the relationship sounded up front.",
+                    "If the experience is not clear and dependable after the handoff, the partnership weakens even if the relationship sounded strong up front.",
+                    "If the receiving experience is weak, the partnership eventually softens no matter how warm the relationship felt up front.",
+                ],
+            ),
         ),
     )
 
@@ -990,42 +1715,130 @@ def build_enrollment_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     profile = infer_signal_profile(ctx)
     if profile["is_admissions"] or profile["is_education"]:
         return (
-            join_parts(
-                [
-                    comment_open(ctx, "This is an enrollment signal to me."),
-                    source_takeaway(ctx),
-                    bridge_line(ctx),
-                    "Repeated confusion is usually a journey problem before it becomes a conversion problem.",
-                    "The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
-                ]
+            compose_response(
+                ctx,
+                "enrollment-comment-shape",
+                "comment",
+                open=comment_open(ctx, "This is an enrollment signal to me."),
+                takeaway=source_takeaway(ctx),
+                bridge=bridge_line(ctx),
+                contrast=stance_contrast_line(ctx, "comment"),
+                main=pick_option(
+                    ctx,
+                    "enrollment-comment-main",
+                    [
+                        "Repeated confusion is usually a journey problem before it becomes a conversion problem.",
+                        "Most conversion problems show up earlier as repeated confusion in the journey.",
+                        "The journey usually starts leaking before the conversion metric tells you it has a problem.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "enrollment-comment-close",
+                    [
+                        "The more clearly teams can hear and resolve that friction, the better the downstream fit and follow-through tend to be.",
+                        "The better teams can hear and resolve that friction, the stronger the downstream fit and follow-through usually get.",
+                        "When teams resolve that friction earlier, the downstream fit and follow-through usually improve too.",
+                    ],
+                ),
             ),
-            "Repeated confusion is usually a journey problem.",
-            join_parts(
-            [
-                repost_open(ctx, repost_seed(ctx)),
-                "I read this as an enrollment operations signal.",
-                "Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
-            ]
-        ),
+            pick_option(
+                ctx,
+                "enrollment-short",
+                [
+                    "Repeated confusion is usually a journey problem.",
+                    "The journey usually leaks before the conversion drops.",
+                    "Confusion usually shows up before the conversion problem does.",
+                ],
+            ),
+            compose_response(
+                ctx,
+                "enrollment-repost-shape",
+                "repost",
+                open=repost_open(ctx, repost_seed(ctx)),
+                contrast=stance_contrast_line(ctx, "repost"),
+                main=pick_option(
+                    ctx,
+                    "enrollment-repost-main",
+                    [
+                        "I read this as an enrollment operations signal.",
+                        "This reads like an enrollment-operations signal to me.",
+                        "The enrollment lens here is operational fast.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "enrollment-repost-close",
+                    [
+                        "Small clarity gaps tend to show up later as weaker follow-up, lower conversion, or avoidable friction in the student journey.",
+                        "Small clarity gaps usually show up later as weaker follow-up, lower conversion, or avoidable journey friction.",
+                        "Small confusion points tend to show up later as weaker follow-up and avoidable student-journey friction.",
+                    ],
+                ),
+            ),
         )
 
     return (
-        join_parts(
-            [
-                comment_open(ctx, "I still read this as an enrollment operations issue."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "This is what happens when teams do not have enough context to guide the next step well.",
-                "That usually shows up later as weaker follow-through and more avoidable friction.",
-            ]
+        compose_response(
+            ctx,
+            "enrollment-fallback-comment-shape",
+            "comment",
+            open=comment_open(ctx, "I still read this as an enrollment operations issue."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "enrollment-fallback-comment-main",
+                [
+                    "This is what happens when teams do not have enough context to guide the next step well.",
+                    "This is what happens when the team loses too much context to guide the next step cleanly.",
+                    "This usually starts where the next step is being guided with weak or partial context.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "enrollment-fallback-comment-close",
+                [
+                    "That usually shows up later as weaker follow-through and more avoidable friction.",
+                    "That usually shows up later as weaker follow-through and friction that did not need to be there.",
+                    "That usually shows up later as more drop-off, slower follow-through, and avoidable friction.",
+                ],
+            ),
         ),
-        "Bad context usually becomes enrollment friction.",
-        join_parts(
+        pick_option(
+            ctx,
+            "enrollment-fallback-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "This still reads like an enrollment operations issue to me.",
-                "When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
-            ]
+                "Bad context usually becomes enrollment friction.",
+                "Weak context usually becomes journey friction.",
+                "Context gaps usually show up later as enrollment friction.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "enrollment-fallback-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "enrollment-fallback-repost-main",
+                [
+                    "This still reads like an enrollment operations issue to me.",
+                    "This still sounds like an enrollment-operations problem to me.",
+                    "I still hear an enrollment-operations issue inside this.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "enrollment-fallback-repost-close",
+                [
+                    "When context is weak, the next step gets weaker too, and that tends to show up later as drop-off, confusion, or slow follow-through.",
+                    "When context is weak, the next step weakens too, and that usually shows up later as drop-off, confusion, or slow follow-through.",
+                    "When context breaks, the next step usually gets weaker too, and that shows up later as confusion or slow follow-through.",
+                ],
+            ),
         ),
     )
 
@@ -1034,42 +1847,130 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     profile = infer_signal_profile(ctx)
     if profile["is_ai"]:
         return (
-            join_parts(
-                [
-                    comment_open(ctx, "The AI point here is stronger than people think."),
-                    source_takeaway(ctx),
-                    bridge_line(ctx),
-                    "AI literacy is not just tool familiarity. It is knowing how to ask better questions, pressure-test outputs, and keep human judgment in the loop.",
-                    "That is usually the real divide once the technology is already in the room because access alone does not teach discernment.",
-                ]
+            compose_response(
+                ctx,
+                "ai-comment-shape",
+                "comment",
+                open=comment_open(ctx, "The AI point here is stronger than people think."),
+                takeaway=source_takeaway(ctx),
+                bridge=bridge_line(ctx),
+                contrast=stance_contrast_line(ctx, "comment"),
+                main=pick_option(
+                    ctx,
+                    "ai-comment-main",
+                    [
+                        "AI literacy is not just tool familiarity. It is knowing how to ask better questions, pressure-test outputs, and keep human judgment in the loop.",
+                        "The real divide is usually not access. It is whether people know how to question the output, direct the system well, and keep judgment in the loop.",
+                        "AI literacy shows up in judgment: better questions, stronger pressure-testing, and a visible human layer.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "ai-comment-close",
+                    [
+                        "That is usually the real divide once the technology is already in the room because access alone does not teach discernment.",
+                        "Once the tool is in the room, the gap is usually discernment, not access.",
+                        "Access does not teach discernment. Judgment does.",
+                    ],
+                ),
             ),
-            "AI literacy is judgment, not just access.",
-            join_parts(
-            [
-                repost_open(ctx, repost_seed(ctx)),
-                "I read this first through an AI lens.",
-                "The practical gap is rarely raw access anymore. It is whether people know how to direct the system well and challenge weak outputs when they show up.",
-            ]
-        ),
+            pick_option(
+                ctx,
+                "ai-short",
+                [
+                    "AI literacy is judgment, not just access.",
+                    "Access is not the same thing as discernment.",
+                    "The AI gap is usually a judgment gap.",
+                ],
+            ),
+            compose_response(
+                ctx,
+                "ai-repost-shape",
+                "repost",
+                open=repost_open(ctx, repost_seed(ctx)),
+                contrast=stance_contrast_line(ctx, "repost"),
+                main=pick_option(
+                    ctx,
+                    "ai-repost-main",
+                    [
+                        "I read this first through an AI lens.",
+                        "The AI lens changes this quickly for me.",
+                        "I still hear the AI question underneath this first.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "ai-repost-close",
+                    [
+                        "The practical gap is rarely raw access anymore. It is whether people know how to direct the system well and challenge weak outputs when they show up.",
+                        "The practical gap is rarely access anymore. It is whether people know how to direct the system well and challenge weak outputs when they show up.",
+                        "The gap is usually not whether the tool exists. It is whether people know how to direct it well and challenge weak output when it shows up.",
+                    ],
+                ),
+            ),
         )
 
     return (
-        join_parts(
-            [
-                comment_open(ctx, "Even when a post is not explicitly about AI, it still points to an AI-judgment question."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "The difference usually comes down to whether people can evaluate, translate, and apply the output with discernment.",
-                "That is what makes the AI lens different from a general operations lens because the judgment layer has to stay visible.",
-            ]
+        compose_response(
+            ctx,
+            "ai-fallback-comment-shape",
+            "comment",
+            open=comment_open(ctx, "Even when a post is not explicitly about AI, it still points to an AI-judgment question."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "ai-fallback-comment-main",
+                [
+                    "The difference usually comes down to whether people can evaluate, translate, and apply the output with discernment.",
+                    "The difference usually comes down to whether people can evaluate, translate, and apply the output with real judgment.",
+                    "The judgment layer is usually the difference between weak AI use and useful AI use.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "ai-fallback-comment-close",
+                [
+                    "That is what makes the AI lens different from a general operations lens because the judgment layer has to stay visible.",
+                    "That is what makes the AI lens different from a general operations lens: the judgment layer has to stay visible.",
+                    "That is why I still separate the AI question from the general ops question. The judgment layer has to stay visible.",
+                ],
+            ),
         ),
-        "The AI layer is usually a judgment layer.",
-        join_parts(
+        pick_option(
+            ctx,
+            "ai-fallback-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "I still see an AI question sitting underneath this.",
-                "Once teams know how to direct, evaluate, and challenge the system well, the downstream quality changes a lot.",
-            ]
+                "The AI layer is usually a judgment layer.",
+                "The AI question is usually a judgment question.",
+                "The real AI difference usually shows up in judgment.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "ai-fallback-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "ai-fallback-repost-main",
+                [
+                    "I still see an AI question sitting underneath this.",
+                    "I still hear an AI-use question underneath this.",
+                    "There is still an AI-judgment question sitting under this for me.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "ai-fallback-repost-close",
+                [
+                    "Once teams know how to direct, evaluate, and challenge the system well, the downstream quality changes a lot.",
+                    "Once teams know how to direct, evaluate, and challenge the system well, the downstream quality usually changes quickly.",
+                    "Once the judgment layer gets stronger, the downstream output usually changes a lot too.",
+                ],
+            ),
         ),
     )
 
@@ -1078,42 +1979,130 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
     profile = infer_signal_profile(ctx)
     if profile["is_ops"] or profile["is_ai"]:
         return (
-            join_parts(
-                [
-                    comment_open(ctx, "This reads like a delivery design problem before anything else."),
-                    source_takeaway(ctx),
-                    bridge_line(ctx),
-                    "Most teams do not break at the strategy layer. They break at the handoff, ownership, cadence, and follow-through layer.",
-                    "That is why this feels more like workflow design and project control than thought leadership to me.",
-                ]
+            compose_response(
+                ctx,
+                "ops-comment-shape",
+                "comment",
+                open=comment_open(ctx, "This reads like a delivery design problem before anything else."),
+                takeaway=source_takeaway(ctx),
+                bridge=bridge_line(ctx),
+                contrast=stance_contrast_line(ctx, "comment"),
+                main=pick_option(
+                    ctx,
+                    "ops-comment-main",
+                    [
+                        "Most teams do not break at the strategy layer. They break at the handoff, ownership, cadence, and follow-through layer.",
+                        "The idea usually survives the strategy meeting. It breaks at the handoff, ownership, and follow-through layer.",
+                        "The real leak is usually not strategy. It is ownership, handoffs, cadence, and the follow-through layer.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "ops-comment-close",
+                    [
+                        "That is why this feels more like workflow design and project control than thought leadership to me.",
+                        "That is why this feels more like workflow design than commentary to me.",
+                        "That is why I read this as workflow design and project control more than thought leadership.",
+                    ],
+                ),
             ),
-            "Weak ownership usually kills the good idea.",
-            join_parts(
+            pick_option(
+                ctx,
+                "ops-short",
                 [
-                repost_open(ctx, repost_seed(ctx)),
-                    "I read this through an ops and PM lens.",
-                    "The real question is who owns the next step, how the work moves, and where the process is currently leaking before the delay becomes normal.",
-                ]
+                    "Weak ownership usually kills the good idea.",
+                    "The leak is usually in the ownership model.",
+                    "The good idea usually dies in the handoff.",
+                ],
+            ),
+            compose_response(
+                ctx,
+                "ops-repost-shape",
+                "repost",
+                open=repost_open(ctx, repost_seed(ctx)),
+                contrast=stance_contrast_line(ctx, "repost"),
+                main=pick_option(
+                    ctx,
+                    "ops-repost-main",
+                    [
+                        "I read this through an ops and PM lens.",
+                        "The ops and PM lens changes this fast for me.",
+                        "This reads like an ownership-and-workflow question to me.",
+                    ],
+                ),
+                close=pick_option(
+                    ctx,
+                    "ops-repost-close",
+                    [
+                        "The real question is who owns the next step, how the work moves, and where the process is currently leaking before the delay becomes normal.",
+                        "The real question is who owns the next step, how the work moves, and where the current process is leaking before the delay becomes normal.",
+                        "What matters is who owns the next step, how the work moves, and where the process is already leaking before the delay gets normalized.",
+                    ],
+                ),
             ),
         )
 
     return (
-        join_parts(
-            [
-                comment_open(ctx, "Even if the post sounds strategic, I still hear a delivery problem inside it."),
-                source_takeaway(ctx),
-                bridge_line(ctx),
-                "Operations and project management usually show up in how work gets translated into repeatable action.",
-                "That is where clarity, cadence, accountability, and clean handoffs start mattering more than the original idea.",
-            ]
+        compose_response(
+            ctx,
+            "ops-fallback-comment-shape",
+            "comment",
+            open=comment_open(ctx, "Even if the post sounds strategic, I still hear a delivery problem inside it."),
+            takeaway=source_takeaway(ctx),
+            bridge=bridge_line(ctx),
+            contrast=stance_contrast_line(ctx, "comment"),
+            main=pick_option(
+                ctx,
+                "ops-fallback-comment-main",
+                [
+                    "Operations and project management usually show up in how work gets translated into repeatable action.",
+                    "Operations and project management usually show up in how the work gets translated into something repeatable.",
+                    "The ops and PM layer usually shows up in how the work becomes repeatable action instead of a smart idea.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "ops-fallback-comment-close",
+                [
+                    "That is where clarity, cadence, accountability, and clean handoffs start mattering more than the original idea.",
+                    "That is where clarity, cadence, accountability, and handoffs start mattering more than the original idea.",
+                    "That is where clean handoffs and accountability start mattering more than the original framing.",
+                ],
+            ),
         ),
-        "The delivery layer usually decides the outcome.",
-        join_parts(
+        pick_option(
+            ctx,
+            "ops-fallback-short",
             [
-                repost_open(ctx, repost_seed(ctx)),
-                "This sounds like an ops and PM question to me.",
-                "If the ownership model and workflow are weak, the idea usually stalls no matter how strong it sounded up front.",
-            ]
+                "The delivery layer usually decides the outcome.",
+                "The workflow usually decides whether the idea survives.",
+                "The work usually breaks in the delivery layer first.",
+            ],
+        ),
+        compose_response(
+            ctx,
+            "ops-fallback-repost-shape",
+            "repost",
+            open=repost_open(ctx, repost_seed(ctx)),
+            contrast=stance_contrast_line(ctx, "repost"),
+            main=pick_option(
+                ctx,
+                "ops-fallback-repost-main",
+                [
+                    "This sounds like an ops and PM question to me.",
+                    "This still sounds like an ownership-and-workflow problem to me.",
+                    "The ops and PM question here is hard to miss.",
+                ],
+            ),
+            close=pick_option(
+                ctx,
+                "ops-fallback-repost-close",
+                [
+                    "If the ownership model and workflow are weak, the idea usually stalls no matter how strong it sounded up front.",
+                    "If the ownership model and workflow are weak, the idea usually stalls no matter how strong it sounded up front.",
+                    "If the ownership model and workflow are weak, the idea usually slows down before anyone admits it has a process problem.",
+                ],
+            ),
         ),
     )
 

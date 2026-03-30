@@ -18,6 +18,19 @@ ABSTRACT_META_PHRASES = [
     "live operating role",
 ]
 
+CONTRAST_MARKERS = [
+    "but",
+    "instead",
+    "one layer lower",
+    "the real issue",
+    "the real test",
+    "the useful move",
+    "the bigger challenge",
+    "the deeper problem",
+    "not the finish line",
+    "stops too early",
+]
+
 LANE_MARKERS = {
     "admissions": ["admissions", "family", "prospect", "student journey", "follow-up"],
     "entrepreneurship": ["builder", "system", "distribution", "execution", "compound"],
@@ -68,6 +81,7 @@ class SocialEvaluationEngine:
     ) -> dict[str, Any]:
         combined = " ".join([comment, repost, short_comment]).lower()
         warnings: list[str] = []
+        genericity_penalty = 0.0
 
         markers = LANE_MARKERS.get(lane_id, [])
         lane_hits = sum(1 for marker in markers if marker in combined)
@@ -109,6 +123,9 @@ class SocialEvaluationEngine:
             voice_match -= 1.1
             genericity_penalty += 1.1
             warnings.append("copy still contains abstract meta phrasing")
+        if belief.get("stance") in {"nuance", "counter", "systemize"} and not contains_any(combined, CONTRAST_MARKERS):
+            genericity_penalty += 0.6
+            warnings.append("stance contrast is light")
 
         role_safety_value = normalize_inline_text(belief.get("role_safety")) or "safe"
         role_safety_score = {"safe": 9.2, "review": 6.4, "risky": 3.8}.get(role_safety_value, 6.0)
@@ -139,7 +156,6 @@ class SocialEvaluationEngine:
             if float(expression.get("overlap_ratio") or 0.0) > 0.92:
                 warnings.append("rewrite remains too close to source")
 
-        genericity_penalty = 0.0
         if contains_any(combined, GENERIC_PHRASES):
             genericity_penalty += 1.5
         if not technique.get("techniques"):
