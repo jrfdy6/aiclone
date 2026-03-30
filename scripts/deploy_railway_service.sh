@@ -31,7 +31,7 @@ case "$1" in
     SOURCE_DIR="$WORKSPACE_ROOT/backend"
     STAGE_DIR="$STAGE_ROOT/backend-railway-deploy.current"
     CHILD_DIR="backend"
-    RSYNC_EXCLUDES=(--exclude .git)
+    RSYNC_EXCLUDES=(--exclude .git --exclude .env --exclude .env.* --exclude __pycache__ --exclude '*.pyc')
     ;;
   *)
     usage

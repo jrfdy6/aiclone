@@ -2253,6 +2253,10 @@ WRITER RULES:
 - Do not invent stories, names, employers, or metrics.
 - If no story is approved, do not force one.
 - Borrow rhythm and shape from GOOD STYLE REFERENCES, not their facts.
+- Return exactly 3 complete options, each separated by ---OPTION---.
+- Do not add standalone filler fragments like "Why?", "This.", "That.", or a one-line restatement of the opener.
+- Use at most one short punch line per option, and only if it adds new meaning.
+- Do not stack multiple short contrast fragments before the proof.
 
 Output only the 3 options, separated by ---OPTION---.
 """
@@ -2306,7 +2310,8 @@ def write_planned_options(
         temperature=0.55 if audience == "tech_ai" else 0.72,
         max_tokens=1800,
     )
-    return parse_content_options(response.choices[0].message.content or "")[: len(briefs)]
+    parsed = parse_content_options(response.choices[0].message.content or "")
+    return parsed[: len(briefs)] if len(parsed) >= len(briefs) else parsed
 
 
 def build_planned_critic_prompt(
@@ -2357,6 +2362,8 @@ CRITIC RULES:
 - Do not add new names, metrics, or stories.
 - Keep each option aligned with its planned framing mode.
 - Do not imitate the AVOID PATTERN REFERENCES.
+- Delete filler beats like "Why?" or short standalone restatements that repeat the opener.
+- If a short punch line does not add new meaning, remove it.
 
 Output only the rewritten options, separated by ---OPTION---.
 """
@@ -2401,7 +2408,7 @@ def critique_planned_options(
         max_tokens=1800,
     )
     rewritten = parse_content_options(response.choices[0].message.content or "")
-    return rewritten[: len(briefs)] if rewritten else rough_options
+    return rewritten[: len(briefs)] if len(rewritten) >= len(briefs) else rough_options
 
 
 def _extract_named_reference_candidates(text: str) -> set[str]:
@@ -2554,7 +2561,12 @@ def _shape_opening_by_mode(option: str, brief: ContentOptionBrief) -> str:
         return cleaned
     if brief.framing_mode == "operator_lesson" and not _claim_near_opening(cleaned, brief.primary_claim):
         return cleaned
-    remainder = " ".join(first_sentences[1:]).strip()
+    remainder_sentences = [
+        sentence
+        for sentence in first_sentences[1:]
+        if not _sentence_is_opening_restatement(sentence, opening, brief)
+    ]
+    remainder = " ".join(remainder_sentences).strip()
     paragraphs[0] = " ".join(part for part in [opening, remainder] if part).strip()
     return "\n\n".join(paragraphs)
 
@@ -2596,6 +2608,8 @@ def _contrast_line_from_brief(brief: ContentOptionBrief) -> str:
     if instead_match:
         phrase = re.sub(r"^(?:the|a|an)\s+", "", instead_match.group(1).strip(" ."), flags=re.IGNORECASE)
         if phrase:
+            if re.search(r"\bisolated prompting\b", phrase, flags=re.IGNORECASE):
+                return "Not prompting in isolation."
             return _ensure_sentence(f"Not {phrase}")
     if re.search(r"\bshared workspace state\b", evidence, flags=re.IGNORECASE):
         return "Shared state."
@@ -2617,7 +2631,16 @@ def _option_mentions_specific_contrast(option: str, brief: ContentOptionBrief) -
         if phrase:
             phrase_terms = _significant_terms(phrase)
             option_terms = _significant_terms(cleaned)
-            if phrase_terms and phrase_terms.issubset(option_terms):
+            if phrase_terms and (
+                phrase_terms.issubset(option_terms)
+                or len(phrase_terms.intersection(option_terms)) >= max(1, len(phrase_terms) - 1)
+            ):
+                return True
+            if re.search(r"\bisolated prompting\b", phrase, flags=re.IGNORECASE) and re.search(
+                r"\bprompting in isolation\b|\bisolated prompting\b|\bprompting alone\b",
+                cleaned,
+                flags=re.IGNORECASE,
+            ):
                 return True
         return False
     return any(pattern.search(cleaned) for pattern in TASTE_CONTRAST_PATTERNS)
@@ -2786,6 +2809,8 @@ def _clean_generic_sentences(option: str, brief: ContentOptionBrief) -> str:
             normalized_sentence = sentence.strip()
             if not normalized_sentence:
                 continue
+            if re.fullmatch(r"(?:this|that|it)\.?", normalized_sentence, flags=re.IGNORECASE):
+                continue
             if any(pattern.search(normalized_sentence) for pattern in GENERIC_CLOSER_PATTERNS) and not _sentence_is_signal_bearing(normalized_sentence, brief):
                 continue
             if any(pattern.search(normalized_sentence) for pattern in SOFT_GENERIC_PATTERNS) and not _sentence_is_signal_bearing(normalized_sentence, brief):
@@ -2812,6 +2837,8 @@ def _sentence_is_opening_restatement(sentence: str, opening: str, brief: Content
         normalized_sentence,
         flags=re.IGNORECASE,
     ):
+        return bool(re.search(r"\bnot\b.*\b(?:strategy|plan|approach)\b", normalized_opening, flags=re.IGNORECASE))
+    if re.match(r"^(?:that|this|it)(?: just)? (?:isn't|is not)\.?$", normalized_sentence, flags=re.IGNORECASE):
         return bool(re.search(r"\bnot\b.*\b(?:strategy|plan|approach)\b", normalized_opening, flags=re.IGNORECASE))
     opening_terms = _significant_terms(normalized_opening)
     sentence_terms = _significant_terms(normalized_sentence)
@@ -2841,6 +2868,76 @@ def _drop_opening_restatement(option: str, brief: ContentOptionBrief) -> str:
         else:
             paragraphs.pop(1)
     return "\n\n".join(paragraphs)
+
+
+def _paragraph_is_filler_fragment(paragraph: str, opening: str, brief: ContentOptionBrief) -> bool:
+    normalized = " ".join((paragraph or "").split()).strip()
+    if not normalized:
+        return True
+    if re.fullmatch(r"(?:and\s+)?why\??", normalized, flags=re.IGNORECASE):
+        return True
+    if re.fullmatch(r"(?:this|that|it)\.?", normalized, flags=re.IGNORECASE):
+        return True
+    if _sentence_is_signal_bearing(normalized, brief):
+        return False
+    if _sentence_is_opening_restatement(normalized, opening, brief):
+        return True
+    if len(normalized.split()) <= 5:
+        opening_terms = _significant_terms(opening)
+        fragment_terms = _significant_terms(normalized)
+        if fragment_terms and fragment_terms.issubset(opening_terms):
+            return True
+        if re.search(r"\b(?:isolated|isolation|alone)\b", normalized, flags=re.IGNORECASE) and re.search(
+            r"\bprompt", normalized, flags=re.IGNORECASE
+        ):
+            if re.search(r"\bprompting alone\b|\bnot\b.+\bstrategy\b", opening, flags=re.IGNORECASE):
+                return True
+    return False
+
+
+def _drop_filler_fragment_paragraphs(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if len(paragraphs) < 2:
+        return cleaned
+    opening = paragraphs[0]
+    revised: List[str] = [opening]
+    for paragraph in paragraphs[1:]:
+        if _paragraph_is_filler_fragment(paragraph, opening, brief):
+            continue
+        revised.append(paragraph)
+    return "\n\n".join(revised)
+
+
+def _synthesize_planned_option(brief: ContentOptionBrief) -> str:
+    opening = _opening_line_from_brief(brief) or _ensure_sentence(brief.primary_claim)
+    evidence = _ensure_sentence(_proof_packet_evidence_text(brief.proof_packet))
+    story = _ensure_sentence(brief.story_beat)
+    closer = _strong_closer_from_brief(brief)
+
+    paragraphs: List[str] = []
+    if opening:
+        paragraphs.append(opening)
+    if evidence and not _sentence_is_opening_restatement(evidence, opening, brief):
+        paragraphs.append(evidence)
+    elif story and not _sentence_is_opening_restatement(story, opening, brief):
+        paragraphs.append(story)
+    if closer and closer.lower() not in " ".join(paragraphs).lower():
+        paragraphs.append(closer)
+    synthesized = "\n\n".join(paragraph for paragraph in paragraphs if paragraph).strip()
+    return synthesized or _ensure_sentence(brief.primary_claim)
+
+
+def _recover_missing_planned_options(options: List[str], briefs: List[ContentOptionBrief]) -> List[str]:
+    if not briefs:
+        return []
+    recovered: List[str] = []
+    for index, brief in enumerate(briefs):
+        existing = options[index].strip() if index < len(options) and options[index] else ""
+        recovered.append(existing or _synthesize_planned_option(brief))
+    return recovered
 
 
 def _compress_operator_fragment(text: str) -> str:
@@ -3046,6 +3143,7 @@ def finalize_planned_options(
         revised = _clean_generic_sentences(revised, brief)
         revised = _rewrite_soft_operator_sentences(revised, brief)
         revised = _drop_opening_restatement(revised, brief)
+        revised = _drop_filler_fragment_paragraphs(revised, brief)
         revised = _ensure_paragraph_cadence(revised, brief)
         revised = _ensure_sharp_landing(revised, brief)
         revised = _drop_redundant_label_tail(revised)
@@ -3125,6 +3223,8 @@ REWRITE RULES:
 - Preserve the person's casual rhythm and punchy style.
 - Use different framing modes across the options.
 - Use the assigned OPTION FRAMING PLAN so the three options do not flatten into the same shape.
+- Delete filler beats like "Why?" and remove standalone restatements of the opener.
+- Do not stack multiple short fragments before the proof line.
 
 Output only the rewritten options, separated by ---OPTION---.
 """
@@ -3261,6 +3361,8 @@ REVISION RULES:
 - If `proof_ready`, tie each option to one APPROVED PROOF PACKET and preserve its exact meaning.
 - If `principle_only`, remove stray named examples that are not explicitly present in PRIMARY CLAIMS.
 - If a named reference is not in the APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES list, remove it.
+- Delete filler beats like "Why?" and remove short standalone restatements that only repeat the opener.
+- Keep each option as one clear opener, one proof-bearing middle, and one sharp landing.
 
 Output only the rewritten options, separated by ---OPTION---.
 """
@@ -3334,6 +3436,8 @@ SHARPENING RULES:
 - Do not collapse the options into the same rhythm or hook.
 - Keep line breaks and cadence human.
 - If a line sounds like generic LinkedIn advice, replace it with sharper operator language.
+- Delete filler beats like "Why?" and cut repeated opener lines.
+- Keep one strong punch line, not a stack of fragments.
 
 Output only the rewritten options, separated by ---OPTION---.
 """
@@ -3392,7 +3496,7 @@ def refine_generated_options(
         max_tokens=1800,
     )
     refined = parse_content_options(response.choices[0].message.content or "")
-    return refined[:3] if refined else rough_options
+    return refined[:3] if len(refined) >= len(rough_options) else rough_options
 
 
 def sharpen_editorial_options(
@@ -3446,7 +3550,7 @@ def sharpen_editorial_options(
             max_tokens=1800,
         )
     sharpened = parse_content_options(response.choices[0].message.content or "")
-    sharpened = sharpened[:3] if sharpened else rough_options
+    sharpened = sharpened[:3] if len(sharpened) >= len(rough_options) else rough_options
     if grounding_mode == "proof_ready" and proof_packets:
         approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
         if not all(
@@ -3534,7 +3638,7 @@ def enforce_grounding_on_options(
         max_tokens=1800,
     )
     repaired = parse_content_options(response.choices[0].message.content or "")
-    return repaired[:3] if repaired else rough_options
+    return repaired[:3] if len(repaired) >= len(rough_options) else rough_options
 
 
 def _generate_legacy_options(
@@ -3679,6 +3783,8 @@ def _generate_staged_options(
     )
     if not rough_options:
         return [], briefs, "planner_writer_critic"
+    if len(rough_options) < len(briefs):
+        rough_options = _recover_missing_planned_options(rough_options, briefs)
     critiqued = critique_planned_options(
         client=client,
         topic=req.topic,

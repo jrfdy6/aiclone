@@ -3462,6 +3462,135 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertIn("weak_closer", scored.get("warnings", []))
         self.assertIn("soft_operator_pronoun", scored.get("warnings", []))
 
+    def test_finalize_planned_options_drops_filler_fragments_from_opening_sequence(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting in isolation isn't enough.\n\nWhy?\n\nNot prompting in isolation.\n\nBrain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertEqual(len(finalized), 1)
+        self.assertIn("Prompting alone is not the strategy.", finalized[0])
+        self.assertNotIn("Why?", finalized[0])
+        self.assertNotIn("Not prompting in isolation.", finalized[0])
+
+    def test_critique_planned_options_falls_back_when_model_returns_too_few_options(self) -> None:
+        class _FakeResponse:
+            def __init__(self, content: str) -> None:
+                self.choices = [type("Choice", (), {"message": type("Message", (), {"content": content})()})()]
+
+        class _FakeCompletions:
+            def create(self, **kwargs):
+                return _FakeResponse("Only one option came back.")
+
+        class _FakeChat:
+            def __init__(self) -> None:
+                self.completions = _FakeCompletions()
+
+        class _FakeClient:
+            def __init__(self) -> None:
+                self.chat = _FakeChat()
+
+        rough_options = [
+            "Prompting alone is not an AI strategy.\n\nBrain and Ops now depend on explicit handoffs.",
+            "Agent orchestration starts with shared state.\n\nThat is the operating model.",
+            "Context has to travel.\n\nNot isolated prompts.",
+        ]
+        briefs = [
+            content_generation_module.ContentOptionBrief(
+                option_number=index + 1,
+                framing_mode="operator_lesson",
+                primary_claim="Prompting alone is not an AI strategy.",
+                proof_packet="AI Clone / Brain System -> Brain and Ops now depend on explicit handoffs.",
+                story_beat="",
+            )
+            for index in range(3)
+        ]
+
+        critiqued = content_generation_module.critique_planned_options(
+            client=_FakeClient(),
+            topic="agent orchestration",
+            audience="tech_ai",
+            grounding_mode="proof_ready",
+            briefs=briefs,
+            rough_options=rough_options,
+            avoid_examples=[],
+            voice_directives=["Lead with the thesis."],
+            approved_references=["explicit handoffs"],
+        )
+
+        self.assertEqual(critiqued, rough_options)
+
+    def test_recover_missing_planned_options_synthesizes_missing_slots(self) -> None:
+        briefs = [
+            content_generation_module.ContentOptionBrief(
+                option_number=1,
+                framing_mode="contrarian_reframe",
+                primary_claim="Prompting alone is not an AI strategy.",
+                proof_packet="AI Clone / Brain System -> Brain and Ops now depend on explicit handoffs and shared workspace state instead of isolated prompting.",
+                story_beat="",
+            ),
+            content_generation_module.ContentOptionBrief(
+                option_number=2,
+                framing_mode="operator_lesson",
+                primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+                proof_packet="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone -> Brain, Ops, daily briefs, planner, and long-form routing now depend on explicit handoffs and proof-aware prompts.",
+                story_beat="",
+            ),
+            content_generation_module.ContentOptionBrief(
+                option_number=3,
+                framing_mode="warning",
+                primary_claim="Without explicit handoffs and shared state, it breaks.",
+                proof_packet="Wins: Unified Brain, Ops, daily briefs, planner, persona review, and long-form routing around one routed workspace snapshot so operator context travels across the system instead of living in isolated tools.",
+                story_beat="",
+            ),
+        ]
+
+        recovered = content_generation_module._recover_missing_planned_options(
+            [
+                "Prompting alone is not an AI strategy.",
+                "",
+            ],
+            briefs,
+        )
+
+        self.assertEqual(len(recovered), 3)
+        self.assertTrue(recovered[0].startswith("Prompting alone is not an AI strategy."))
+        self.assertIn("explicit handoffs", recovered[1].lower())
+        self.assertIn("without that, it breaks", recovered[2].lower())
+        self.assertIn("routed workspace snapshot", recovered[2].lower())
+
+    def test_finalize_planned_options_drops_it_just_isnt_restatement(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain and Ops now depend on explicit handoffs and shared workspace state instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nIt just isn't.\n\nBrain and Ops now depend on explicit handoffs and shared workspace state instead of isolated prompting."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertEqual(len(finalized), 1)
+        self.assertNotIn("It just isn't.", finalized[0])
+        self.assertIn("explicit handoffs", finalized[0].lower())
+
     def test_default_content_provider_order_prefers_ollama_locally_and_gemini_in_production(self) -> None:
         with patch.dict(content_generation_module.os.environ, {}, clear=True):
             self.assertEqual(
