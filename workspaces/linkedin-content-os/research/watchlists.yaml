@@ -49,17 +49,17 @@ rss_sources:
     platform: rss
     purpose: Higher-ed operations, enrollment shifts, and student-journey execution signals
     priority_lane: admissions
-  - url: https://podcasts.apple.com/us/podcast/feed/id1528594034
+  - url: https://feeds.simplecast.com/l2i9YnTd
     label: Hard Fork
     platform: rss
     purpose: AI product, tech strategy, and operator-judgment signals from a high-signal weekly tech show
     priority_lane: ai
-  - url: https://podcasts.apple.com/us/podcast/feed/id1502871393
+  - url: https://allinchamathjason.libsyn.com/rss
     label: All-In Podcast
     platform: rss
     purpose: Market, AI, operator, and entrepreneurship signals with strong conversational framing
     priority_lane: entrepreneurship
-  - url: https://podcasts.apple.com/us/podcast/feed/id1528535502
+  - url: https://feeds.redcircle.com/34df7015-ce8e-4451-bfa2-dd4ffe91e8b7
     label: Market Mondays
     platform: rss
     purpose: Business, AI, and market signals from the EYL ecosystem without needing the full Apple channel wrapper
