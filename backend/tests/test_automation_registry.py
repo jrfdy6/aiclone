@@ -18,8 +18,10 @@ class AutomationRegistryTests(unittest.TestCase):
         youtube_automation = next((item for item in automations if item.id == "youtube_watchlist_auto_ingest"), None)
         self.assertIsNotNone(youtube_automation)
         assert youtube_automation is not None
-        self.assertEqual(youtube_automation.schedule, "Every 30 minutes")
+        self.assertEqual(youtube_automation.schedule, "Every 2 hours")
+        self.assertEqual(youtube_automation.cron, "0 */2 * * *")
         self.assertEqual(youtube_automation.channel, "brain/youtube-watchlist")
+        self.assertIn("openclaw", youtube_automation.metrics.get("framework", ""))
         self.assertIn("ollama -> gemini flash -> openai", youtube_automation.metrics.get("cheap_task_defaults", ""))
 
 

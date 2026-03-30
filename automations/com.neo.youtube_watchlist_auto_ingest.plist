@@ -24,7 +24,7 @@
     <true/>
 
     <key>StartInterval</key>
-    <integer>1800</integer>
+    <integer>7200</integer>
 
     <key>StandardOutPath</key>
     <string>/Users/neo/.openclaw/logs/youtube_watchlist_auto_ingest.log</string>
