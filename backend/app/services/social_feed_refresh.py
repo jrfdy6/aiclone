@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import threading
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ def resolve_workspace_root() -> Path:
 
 ROOT = resolve_workspace_root()
 SCRIPT_PATH = ROOT / "scripts" / "personal-brand" / "refresh_social_feed.py"
+REFRESH_TIMEOUT_SECONDS = max(30, int(os.getenv("SOCIAL_FEED_REFRESH_TIMEOUT_SECONDS", "180")))
 
 _state_lock = threading.Lock()
 _state: dict[str, None | bool | datetime | str] = {
@@ -45,7 +47,7 @@ def _run_command(skip_fetch: bool, sources: Literal["safe", "all"]) -> None:
         cmd.append("--skip-fetch")
     if sources != "safe":
         cmd.extend(["--sources", sources])
-    subprocess.run(cmd, cwd=ROOT, check=True)
+    subprocess.run(cmd, cwd=ROOT, check=True, timeout=REFRESH_TIMEOUT_SECONDS)
 
 
 def _persist_workspace_snapshots() -> None:
