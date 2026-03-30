@@ -81,22 +81,31 @@ youtube_channels:
     url: https://www.youtube.com/@NateBJones
     purpose: Leadership, AI, and operator framing
     priority_lane: program-leadership
-    ingest_mode: pending_youtube_adapter
+    ingest_mode: auto_ingest
+    auto_ingest: true
   - name: Champion Leadership
     url: https://www.youtube.com/@championleadership
     purpose: Leadership, standards, and execution discipline
     priority_lane: program-leadership
-    ingest_mode: pending_youtube_adapter
+    ingest_mode: auto_ingest
+    auto_ingest: true
   - name: All-In Podcast
     url: https://www.youtube.com/@allin
     purpose: Market, tech, and AI discussion
     priority_lane: entrepreneurship
-    ingest_mode: use_podcast_feed_now
+    ingest_mode: rss_primary
+    auto_ingest: false
   - name: Selected AI YouTube Channel
     url: https://www.youtube.com/channel/UCuQIul0FqNDH5Qb7KLvRjxg
     purpose: User-selected high-signal AI source pending direct channel intake
     priority_lane: ai
-    ingest_mode: pending_youtube_adapter
+    ingest_mode: auto_ingest
+    auto_ingest: true
+
+youtube_auto_ingest:
+  enabled: true
+  max_videos_per_run: 3
+  per_channel_limit: 1
 
 topics:
   - ai implementation in education

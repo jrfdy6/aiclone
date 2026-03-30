@@ -22,6 +22,22 @@ class BrainLongFormIngestRequest(BaseModel):
         return self
 
 
+class BrainYouTubeWatchlistIngestRequest(BaseModel):
+    url: str
+    title: str | None = None
+    summary: str | None = None
+    author: str | None = None
+    channel_name: str | None = None
+    priority_lane: str | None = None
+    run_refresh: bool = True
+
+    @model_validator(mode="after")
+    def ensure_url(self) -> "BrainYouTubeWatchlistIngestRequest":
+        if not (self.url or "").strip():
+            raise ValueError("Provide url.")
+        return self
+
+
 class PromotionItemPayload(BaseModel):
     id: str
     kind: Literal["talking_point", "framework", "anecdote", "phrase_candidate", "stat"]

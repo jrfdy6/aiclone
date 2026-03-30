@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
 
-from app.models import BrainLongFormIngestRequest, BrainPersonaReviewRequest, BrainPersonaRerouteRequest, PersonaDelta
+from app.models import (
+    BrainLongFormIngestRequest,
+    BrainPersonaReviewRequest,
+    BrainPersonaRerouteRequest,
+    BrainYouTubeWatchlistIngestRequest,
+    PersonaDelta,
+)
 from app.services import persona_delta_service
 from app.services.brain_long_form_ingest_service import brain_long_form_ingest_service
 from app.services.brain_control_plane_service import build_brain_control_plane
@@ -10,6 +16,7 @@ from app.services.persona_promotion_service import build_committed_persona_overl
 from app.services.persona_review_queue_service import annotate_for_brain_queue
 from app.services.social_belief_engine import load_persona_truth
 from app.services.workspace_snapshot_service import workspace_snapshot_service
+from app.services.youtube_watchlist_service import build_youtube_watchlist_payload, list_ingest_jobs, queue_youtube_ingest, run_ingest_job
 
 router = APIRouter(tags=["Brain"], prefix="/api/brain")
 
@@ -48,6 +55,43 @@ async def ingest_long_form(payload: BrainLongFormIngestRequest):
         "source_assets": snapshot.get("source_assets"),
         "long_form_routes": snapshot.get("long_form_routes"),
         "persona_review_summary": snapshot.get("persona_review_summary"),
+    }
+
+
+@router.get("/youtube-watchlist")
+async def get_youtube_watchlist():
+    try:
+        return build_youtube_watchlist_payload()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/youtube-watchlist/jobs")
+async def get_youtube_watchlist_jobs():
+    return {"jobs": list_ingest_jobs()}
+
+
+@router.post("/youtube-watchlist/ingest")
+async def queue_youtube_watchlist_ingest(payload: BrainYouTubeWatchlistIngestRequest, background_tasks: BackgroundTasks):
+    try:
+        job = queue_youtube_ingest(
+            url=payload.url,
+            title=payload.title,
+            summary=payload.summary,
+            author=payload.author,
+            channel_name=payload.channel_name,
+            priority_lane=payload.priority_lane,
+            run_refresh=payload.run_refresh,
+        )
+        background_tasks.add_task(run_ingest_job, job["job_id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "message": "YouTube watchlist ingest queued",
+        "job": job,
     }
 
 

@@ -13,7 +13,8 @@ from .core import (
     ProspectContact,
 )
 from .analytics import ModelDistributionBucket, SessionMetrics, SessionRow, SessionTotals
-from .brain import BrainLongFormIngestRequest, BrainPersonaReviewRequest, BrainPersonaRerouteRequest
+from .brain import BrainLongFormIngestRequest, BrainPersonaReviewRequest, BrainPersonaRerouteRequest, BrainYouTubeWatchlistIngestRequest
+from .brief_reactions import BriefReaction, BriefReactionCreate, BriefReactionCreateResponse, BriefReactionPersonaContext
 from .build_reviews import BuildReview, BuildReviewUpdate, BuildReviewUpsert
 from .daily_briefs import DailyBrief
 from .open_brain import OpenBrainHealth, OpenBrainSearchHit, OpenBrainSearchRequest, OpenBrainSearchResponse
@@ -42,8 +43,13 @@ __all__ = [
     "SessionRow",
     "SessionTotals",
     "BrainLongFormIngestRequest",
+    "BrainYouTubeWatchlistIngestRequest",
     "BrainPersonaReviewRequest",
     "BrainPersonaRerouteRequest",
+    "BriefReaction",
+    "BriefReactionCreate",
+    "BriefReactionCreateResponse",
+    "BriefReactionPersonaContext",
     "BuildReview",
     "BuildReviewUpdate",
     "BuildReviewUpsert",

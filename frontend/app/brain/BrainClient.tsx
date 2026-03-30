@@ -301,6 +301,63 @@ type WorkspaceSocialFeed = {
   items?: WorkspaceFeedItem[];
 };
 
+type YouTubeWatchlistVideo = {
+  title?: string;
+  url?: string;
+  author?: string;
+  summary?: string;
+  published_at?: string | null;
+  priority_lane?: string;
+  channel_name?: string;
+  channel_url?: string;
+  already_ingested?: boolean;
+};
+
+type YouTubeWatchlistChannel = {
+  name?: string;
+  url?: string;
+  purpose?: string;
+  priority_lane?: string;
+  error?: string;
+  videos?: YouTubeWatchlistVideo[];
+};
+
+type YouTubeWatchlistPayload = {
+  generated_at?: string;
+  workspace?: string;
+  runtime?: {
+    yt_dlp?: boolean;
+    ffmpeg?: boolean;
+    whisper?: boolean;
+    can_transcribe?: boolean;
+    whisper_model?: string;
+  };
+  auto_ingest?: {
+    enabled?: boolean;
+    max_videos_per_run?: number;
+    per_channel_limit?: number;
+  };
+  channels?: YouTubeWatchlistChannel[];
+  counts?: {
+    channels?: number;
+    videos?: number;
+    already_ingested?: number;
+  };
+};
+
+type YouTubeIngestJob = {
+  job_id: string;
+  status: string;
+  url?: string;
+  title?: string;
+  channel_name?: string;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+  ingestion_mode?: string;
+  error?: string | null;
+};
+
 type WorkspaceFeedbackSummary = {
   total_events?: number;
   average_evaluation_overall?: number | null;
@@ -494,6 +551,9 @@ export default function BrainClient({
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<BrainWorkspaceSnapshot | null>(initialState?.controlPlane?.workspace_snapshot ?? null);
   const [workspaceSnapshotError, setWorkspaceSnapshotError] = useState<string | null>(null);
+  const [youtubeWatchlist, setYoutubeWatchlist] = useState<YouTubeWatchlistPayload | null>(null);
+  const [youtubeWatchlistError, setYoutubeWatchlistError] = useState<string | null>(null);
+  const [youtubeIngestJobs, setYoutubeIngestJobs] = useState<YouTubeIngestJob[]>([]);
   const [longFormIngest, setLongFormIngest] = useState<BrainLongFormIngestForm>({
     url: '',
     title: '',
@@ -527,10 +587,12 @@ export default function BrainClient({
   }
 
   async function loadData(cancelled = false) {
-      const [briefsRes, personaRes, controlPlaneRes] = await Promise.allSettled([
+      const [briefsRes, personaRes, controlPlaneRes, youtubeWatchlistRes, youtubeJobsRes] = await Promise.allSettled([
         fetchFreshJson<DailyBriefEntry[]>('/api/briefs/?limit=50'),
         fetchFreshJson<PersonaDeltaEntry[]>('/api/persona/deltas?limit=100&view=brain_queue'),
         fetchFreshJson<BrainControlPlanePayload>('/api/brain/control-plane'),
+        fetchFreshJson<YouTubeWatchlistPayload>('/api/brain/youtube-watchlist'),
+        fetchFreshJson<{ jobs?: YouTubeIngestJob[] }>('/api/brain/youtube-watchlist/jobs'),
       ]);
 
       if (cancelled) {
@@ -569,6 +631,20 @@ export default function BrainClient({
         setAutomationsError('Unable to load automations right now.');
         setWorkspaceSnapshotError('Unable to load shared source intelligence right now.');
         setTelemetryError('Unable to load full Open Brain telemetry.');
+      }
+
+      if (youtubeWatchlistRes.status === 'fulfilled') {
+        setYoutubeWatchlist(youtubeWatchlistRes.value ?? null);
+        setYoutubeWatchlistError(null);
+      } else {
+        console.error('Failed to load YouTube watchlist', youtubeWatchlistRes.reason);
+        setYoutubeWatchlistError('Unable to load tracked YouTube channels right now.');
+      }
+
+      if (youtubeJobsRes.status === 'fulfilled') {
+        setYoutubeIngestJobs(Array.isArray(youtubeJobsRes.value?.jobs) ? youtubeJobsRes.value.jobs : []);
+      } else {
+        console.error('Failed to load YouTube ingest jobs', youtubeJobsRes.reason);
       }
   }
 
@@ -635,12 +711,16 @@ export default function BrainClient({
           telemetryError={telemetryError}
           workspaceSnapshot={workspaceSnapshot}
           workspaceSnapshotError={workspaceSnapshotError}
+          youtubeWatchlist={youtubeWatchlist}
+          youtubeWatchlistError={youtubeWatchlistError}
+          youtubeIngestJobs={youtubeIngestJobs}
           longFormIngest={longFormIngest}
           setLongFormIngest={setLongFormIngest}
           longFormIngestStatus={longFormIngestStatus}
           longFormIngestError={longFormIngestError}
           longFormSubmitting={longFormSubmitting}
           onSubmitLongFormIngest={submitLongFormIngest}
+          refreshBrainData={() => loadData()}
         />
       )}
       {activeTab === 'briefs' && (
@@ -675,12 +755,16 @@ function DashboardPanel({
   telemetryError,
   workspaceSnapshot,
   workspaceSnapshotError,
+  youtubeWatchlist,
+  youtubeWatchlistError,
+  youtubeIngestJobs,
   longFormIngest,
   setLongFormIngest,
   longFormIngestStatus,
   longFormIngestError,
   longFormSubmitting,
   onSubmitLongFormIngest,
+  refreshBrainData,
 }: {
   briefCount: number;
   docCount: number;
@@ -690,12 +774,16 @@ function DashboardPanel({
   telemetryError: string | null;
   workspaceSnapshot: BrainWorkspaceSnapshot | null;
   workspaceSnapshotError: string | null;
+  youtubeWatchlist: YouTubeWatchlistPayload | null;
+  youtubeWatchlistError: string | null;
+  youtubeIngestJobs: YouTubeIngestJob[];
   longFormIngest: BrainLongFormIngestForm;
   setLongFormIngest: (value: BrainLongFormIngestForm) => void;
   longFormIngestStatus: string | null;
   longFormIngestError: string | null;
   longFormSubmitting: boolean;
   onSubmitLongFormIngest: () => Promise<void>;
+  refreshBrainData: () => Promise<void>;
 }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -717,6 +805,10 @@ function DashboardPanel({
         submitting={longFormSubmitting}
         onSubmit={onSubmitLongFormIngest}
         workspaceSnapshot={workspaceSnapshot}
+        youtubeWatchlist={youtubeWatchlist}
+        youtubeWatchlistError={youtubeWatchlistError}
+        youtubeIngestJobs={youtubeIngestJobs}
+        refreshBrainData={refreshBrainData}
       />
       <CaptureTelemetryPanel metrics={telemetry} health={telemetryHealth} error={telemetryError} />
     </section>
@@ -833,6 +925,10 @@ function BrainLongFormIngestPanel({
   submitting,
   onSubmit,
   workspaceSnapshot,
+  youtubeWatchlist,
+  youtubeWatchlistError,
+  youtubeIngestJobs,
+  refreshBrainData,
 }: {
   value: BrainLongFormIngestForm;
   onChange: (value: BrainLongFormIngestForm) => void;
@@ -841,11 +937,55 @@ function BrainLongFormIngestPanel({
   submitting: boolean;
   onSubmit: () => Promise<void>;
   workspaceSnapshot: BrainWorkspaceSnapshot | null;
+  youtubeWatchlist: YouTubeWatchlistPayload | null;
+  youtubeWatchlistError: string | null;
+  youtubeIngestJobs: YouTubeIngestJob[];
+  refreshBrainData: () => Promise<void>;
 }) {
   const recentAssets = (workspaceSnapshot?.source_assets?.items ?? []).slice(0, 4);
+  const [queueingUrl, setQueueingUrl] = useState<string | null>(null);
+  const [queueStatus, setQueueStatus] = useState<string | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
+  const watchlistChannels = youtubeWatchlist?.channels ?? [];
+  const recentJobs = youtubeIngestJobs.slice(0, 6);
 
-  function updateField<K extends keyof BrainLongFormIngestForm>(key: K, next: BrainLongFormIngestForm[K]) {
+  function updateField(key: keyof BrainLongFormIngestForm, next: string) {
     onChange({ ...value, [key]: next });
+  }
+
+  async function queueWatchlistVideo(video: YouTubeWatchlistVideo) {
+    if (!video.url) {
+      setQueueError('This video is missing a URL and cannot be queued.');
+      return;
+    }
+    setQueueStatus(null);
+    setQueueError(null);
+    setQueueingUrl(video.url);
+    try {
+      const response = await fetch(`${API_URL}/api/brain/youtube-watchlist/ingest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: video.url,
+          title: video.title || null,
+          summary: video.summary || null,
+          author: video.author || null,
+          channel_name: video.channel_name || null,
+          priority_lane: video.priority_lane || null,
+          run_refresh: true,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || payload?.message || 'Unable to queue YouTube ingest.');
+      }
+      setQueueStatus(`Queued ${video.title || 'YouTube source'} for Brain ingest.`);
+      await refreshBrainData();
+    } catch (ingestError) {
+      setQueueError(ingestError instanceof Error ? ingestError.message : 'Unable to queue YouTube ingest.');
+    } finally {
+      setQueueingUrl(null);
+    }
   }
 
   return (
@@ -863,94 +1003,230 @@ function BrainLongFormIngestPanel({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '16px' }}>
-        <div style={{ display: 'grid', gap: '10px' }}>
-          <label style={{ display: 'grid', gap: '6px' }}>
-            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Source URL</span>
-            <input
-              value={value.url}
-              onChange={(event) => updateField('url', event.target.value)}
-              placeholder="https://www.youtube.com/watch?v=..."
-              style={brainInputStyle}
+      <div style={{ display: 'grid', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '16px' }}>
+          <div style={{ display: 'grid', gap: '10px' }}>
+            <label style={{ display: 'grid', gap: '6px' }}>
+              <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Source URL</span>
+              <input
+                value={value.url}
+                onChange={(event) => updateField('url', event.target.value)}
+                placeholder="https://www.youtube.com/watch?v=..."
+                style={brainInputStyle}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '6px' }}>
+              <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Title</span>
+              <input
+                value={value.title}
+                onChange={(event) => updateField('title', event.target.value)}
+                placeholder="Optional title override"
+                style={brainInputStyle}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '6px' }}>
+              <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Summary</span>
+              <textarea
+                value={value.summary}
+                onChange={(event) => updateField('summary', event.target.value)}
+                placeholder="One or two lines about why this source matters"
+                rows={3}
+                style={brainTextareaStyle}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '6px' }}>
+              <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Notes</span>
+              <textarea
+                value={value.notes}
+                onChange={(event) => updateField('notes', event.target.value)}
+                placeholder="Optional notes, implications, or what to look for"
+                rows={4}
+                style={brainTextareaStyle}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '6px' }}>
+              <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Transcript Text</span>
+              <textarea
+                value={value.transcriptText}
+                onChange={(event) => updateField('transcriptText', event.target.value)}
+                placeholder="Optional full or partial transcript if you already have it"
+                rows={8}
+                style={brainTextareaStyle}
+              />
+            </label>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => void onSubmit()}
+                disabled={submitting}
+                style={{
+                  border: '1px solid rgba(56,189,248,0.45)',
+                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  background: submitting ? '#0f172a' : 'rgba(8,47,73,0.8)',
+                  color: 'white',
+                  cursor: submitting ? 'progress' : 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {submitting ? 'Registering…' : 'Register Long-Form Source'}
+              </button>
+              {status && <span style={{ color: '#22c55e', fontSize: '12px' }}>{status}</span>}
+              {error && <span style={{ color: '#f87171', fontSize: '12px' }}>{error}</span>}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <BriefOverlayBlock
+              title="What This Does"
+              items={[
+                'Writes a normalized long-form source into knowledge/ingestions/**.',
+                'Refreshes the shared snapshot used by Brain, briefs, planner, and /ops.',
+                'Keeps the source upstream until segmentation produces claim-sized units.',
+              ]}
+              emptyLabel=""
             />
-          </label>
-          <label style={{ display: 'grid', gap: '6px' }}>
-            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Title</span>
-            <input
-              value={value.title}
-              onChange={(event) => updateField('title', event.target.value)}
-              placeholder="Optional title override"
-              style={brainInputStyle}
+            <BriefOverlayBlock
+              title="Recent Source Assets"
+              items={recentAssets.map((item) => `${item.title || 'Untitled'} · ${humanizeSnakeCase(item.source_channel || 'manual')}`)}
+              emptyLabel="No long-form assets are visible yet."
             />
-          </label>
-          <label style={{ display: 'grid', gap: '6px' }}>
-            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Summary</span>
-            <textarea
-              value={value.summary}
-              onChange={(event) => updateField('summary', event.target.value)}
-              placeholder="One or two lines about why this source matters"
-              rows={3}
-              style={brainTextareaStyle}
-            />
-          </label>
-          <label style={{ display: 'grid', gap: '6px' }}>
-            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Notes</span>
-            <textarea
-              value={value.notes}
-              onChange={(event) => updateField('notes', event.target.value)}
-              placeholder="Optional notes, implications, or what to look for"
-              rows={4}
-              style={brainTextareaStyle}
-            />
-          </label>
-          <label style={{ display: 'grid', gap: '6px' }}>
-            <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Transcript Text</span>
-            <textarea
-              value={value.transcriptText}
-              onChange={(event) => updateField('transcriptText', event.target.value)}
-              placeholder="Optional full or partial transcript if you already have it"
-              rows={8}
-              style={brainTextareaStyle}
-            />
-          </label>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => void onSubmit()}
-              disabled={submitting}
-              style={{
-                border: '1px solid rgba(56,189,248,0.45)',
-                borderRadius: '10px',
-                padding: '10px 14px',
-                background: submitting ? '#0f172a' : 'rgba(8,47,73,0.8)',
-                color: 'white',
-                cursor: submitting ? 'progress' : 'pointer',
-                fontWeight: 600,
-              }}
-            >
-              {submitting ? 'Registering…' : 'Register Long-Form Source'}
-            </button>
-            {status && <span style={{ color: '#22c55e', fontSize: '12px' }}>{status}</span>}
-            {error && <span style={{ color: '#f87171', fontSize: '12px' }}>{error}</span>}
           </div>
         </div>
 
-        <div style={{ display: 'grid', gap: '12px' }}>
+        <section style={{ borderRadius: '14px', border: '1px solid #1e293b', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div>
+              <p style={{ color: '#fbbf24', letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase' }}>YouTube Watchlist</p>
+              <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, maxWidth: '820px' }}>
+                These tracked channels route into the same Brain ingest path. If the local media runtime is available, Brain can pull audio and transcript automatically.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <InlineBadge
+                label={
+                  youtubeWatchlist?.runtime?.can_transcribe
+                    ? `Transcript runtime ready (${youtubeWatchlist?.runtime?.whisper_model || 'whisper'})`
+                    : 'Transcript runtime unavailable'
+                }
+                tone={youtubeWatchlist?.runtime?.can_transcribe ? '#22c55e' : '#f97316'}
+              />
+              <InlineBadge
+                label={`Channels ${numberMeta(youtubeWatchlist?.counts?.channels)}`}
+                tone="#38bdf8"
+              />
+              <InlineBadge
+                label={`Videos ${numberMeta(youtubeWatchlist?.counts?.videos)}`}
+                tone="#818cf8"
+              />
+              {youtubeWatchlist?.auto_ingest?.enabled && (
+                <InlineBadge
+                  label={`Auto ingest ${numberMeta(youtubeWatchlist?.auto_ingest?.max_videos_per_run)}/run`}
+                  tone="#fbbf24"
+                />
+              )}
+            </div>
+          </div>
+
+          {youtubeWatchlistError && <p style={{ color: '#f87171', fontSize: '12px' }}>{youtubeWatchlistError}</p>}
+          {queueStatus && <p style={{ color: '#22c55e', fontSize: '12px' }}>{queueStatus}</p>}
+          {queueError && <p style={{ color: '#f87171', fontSize: '12px' }}>{queueError}</p>}
+
+          <div style={{ display: 'grid', gap: '12px' }}>
+            {watchlistChannels.length > 0 ? (
+              watchlistChannels.map((channel, channelIndex) => (
+                <div
+                  key={`${channel.name || 'channel'}-${channelIndex}`}
+                  style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#030712', padding: '14px', display: 'grid', gap: '12px' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <p style={{ color: 'white', fontSize: '15px', fontWeight: 600 }}>{channel.name || 'YouTube channel'}</p>
+                        {channel.priority_lane && <InlineBadge label={humanizeSnakeCase(channel.priority_lane)} tone="#38bdf8" />}
+                        {channel.error && <InlineBadge label="Feed lookup failed" tone="#f97316" />}
+                      </div>
+                      {channel.purpose && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.5 }}>{channel.purpose}</p>}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {channel.url && (
+                        <a href={channel.url} target="_blank" rel="noreferrer" style={brainLinkButtonStyle}>
+                          Open channel
+                        </a>
+                      )}
+                      {channel.videos && channel.videos.length > 0 && (
+                        <InlineBadge label={`${channel.videos.length} recent`} tone="#64748b" />
+                      )}
+                    </div>
+                  </div>
+
+                  {channel.error ? (
+                    <p style={{ color: '#fca5a5', fontSize: '12px' }}>{channel.error}</p>
+                  ) : channel.videos && channel.videos.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      {channel.videos.map((video, videoIndex) => (
+                        <div
+                          key={`${video.url || video.title || 'video'}-${videoIndex}`}
+                          style={{ borderRadius: '12px', border: '1px solid #162033', backgroundColor: '#020617', padding: '12px', display: 'grid', gap: '10px' }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                            <div style={{ display: 'grid', gap: '6px', minWidth: 0 }}>
+                              <p style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 600 }}>{video.title || 'Untitled video'}</p>
+                              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                {video.author && <InlineBadge label={video.author} tone="#64748b" />}
+                                {video.published_at && <InlineBadge label={formatTimestampValue(video.published_at)} tone="#64748b" />}
+                                {video.already_ingested && <InlineBadge label="Already in Brain" tone="#22c55e" />}
+                              </div>
+                              {video.summary && <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55 }}>{video.summary}</p>}
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              {video.url && (
+                                <a href={video.url} target="_blank" rel="noreferrer" style={brainLinkButtonStyle}>
+                                  Open video
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => void queueWatchlistVideo(video)}
+                                disabled={!video.url || queueingUrl === video.url}
+                                style={{
+                                  border: '1px solid rgba(56,189,248,0.45)',
+                                  borderRadius: '10px',
+                                  padding: '8px 12px',
+                                  backgroundColor: queueingUrl === video.url ? '#0f172a' : 'rgba(8,47,73,0.8)',
+                                  color: 'white',
+                                  cursor: !video.url ? 'not-allowed' : queueingUrl === video.url ? 'progress' : 'pointer',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {queueingUrl === video.url ? 'Queueing…' : video.already_ingested ? 'Re-ingest now' : 'Ingest now'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ color: '#94a3b8', fontSize: '12px' }}>No recent videos were discovered for this channel yet.</p>
+                  )}
+                </div>
+              ))
+            ) : (
+              <p style={{ color: '#94a3b8', fontSize: '12px' }}>No YouTube channels are configured in the workspace watchlist yet.</p>
+            )}
+          </div>
+
           <BriefOverlayBlock
-            title="What This Does"
-            items={[
-              'Writes a normalized long-form source into knowledge/ingestions/**.',
-              'Refreshes the shared snapshot used by Brain, briefs, planner, and /ops.',
-              'Keeps the source upstream until segmentation produces claim-sized units.',
-            ]}
-            emptyLabel=""
+            title="Recent Ingest Jobs"
+            items={recentJobs.map((job) => {
+              const label = job.title || job.url || 'YouTube ingest';
+              const mode = job.ingestion_mode ? ` · ${humanizeSnakeCase(job.ingestion_mode)}` : '';
+              return `${label} · ${humanizeSnakeCase(job.status)}${mode}`;
+            })}
+            emptyLabel="No watchlist ingest jobs have been queued yet."
           />
-          <BriefOverlayBlock
-            title="Recent Source Assets"
-            items={recentAssets.map((item) => `${item.title || 'Untitled'} · ${humanizeSnakeCase(item.source_channel || 'manual')}`)}
-            emptyLabel="No long-form assets are visible yet."
-          />
-        </div>
+        </section>
       </div>
     </section>
   );
@@ -4430,6 +4706,14 @@ function buildReflectionCaptureText({
 
 function formatTimestamp(value: Date) {
   return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+}
+
+function formatTimestampValue(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return formatTimestamp(parsed);
 }
 
 function humanizeReviewSource(source: string | null) {
