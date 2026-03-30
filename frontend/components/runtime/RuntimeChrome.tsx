@@ -30,7 +30,7 @@ const modules: { id: RuntimeModule; label: string; href: string; icon: typeof Ra
 const workspaceLink = {
   id: 'workspace',
   label: 'Workspace',
-  href: '/ops#workspace',
+  href: '/workspace',
   icon: FolderKanban,
   tone: '#fb923c',
 };
@@ -179,7 +179,7 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
         })}
         <Link
           href={workspaceLink.href}
-          style={dockButtonStyle((pathname === '/ops' && hash === '#workspace') || pathname === '/workspace' || pathname === '/linkedin', workspaceLink.tone)}
+          style={dockButtonStyle((pathname === '/ops' && hash === '#workspace') || pathname.startsWith('/workspace') || pathname === '/linkedin', workspaceLink.tone)}
         >
           <WorkspaceIcon size={18} />
           <span style={{ fontSize: '11px', fontWeight: 700 }}>{workspaceLink.label}</span>

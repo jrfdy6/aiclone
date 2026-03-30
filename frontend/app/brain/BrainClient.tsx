@@ -1,7 +1,8 @@
 'use client';
 
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
 
@@ -51,11 +52,20 @@ export type DailyBriefEntry = {
 };
 
 type BriefSourceIntelligenceCandidate = {
+  item_key?: string | null;
   title?: string | null;
   priority_lane?: string | null;
   source_kind?: string | null;
   route_reason?: string | null;
   target_file?: string | null;
+  source_url?: string | null;
+  source_path?: string | null;
+  summary?: string | null;
+  hook?: string | null;
+  section?: string | null;
+  response_modes?: string[];
+  existing_reactions?: BriefReactionEntry[];
+  related_persona_context?: BriefReactionPersonaContextEntry[];
 };
 
 type BriefSourceIntelligenceReviewItem = {
@@ -63,6 +73,33 @@ type BriefSourceIntelligenceReviewItem = {
   belief_relation?: string | null;
   review_source?: string | null;
   target_file?: string | null;
+};
+
+type BriefReactionEntry = {
+  id: string;
+  brief_id: string;
+  item_key: string;
+  item_title: string;
+  reaction_kind: 'agree' | 'disagree' | 'nuance' | 'story';
+  text: string;
+  source_kind?: string | null;
+  source_url?: string | null;
+  source_path?: string | null;
+  linked_delta_id?: string | null;
+  linked_capture_id?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+type BriefReactionPersonaContextEntry = {
+  delta_id: string;
+  trait: string;
+  response_kind?: string | null;
+  excerpt?: string | null;
+  target_file?: string | null;
+  review_source?: string | null;
+  created_at?: string | null;
 };
 
 type BriefSourceIntelligence = {
@@ -77,6 +114,7 @@ type BriefSourceIntelligence = {
   belief_evidence_candidate_count?: number;
   top_media_post_seeds?: BriefSourceIntelligenceCandidate[];
   top_belief_evidence?: BriefSourceIntelligenceCandidate[];
+  brief_stream?: BriefSourceIntelligenceCandidate[];
   top_review_items?: BriefSourceIntelligenceReviewItem[];
 };
 
@@ -184,6 +222,93 @@ type LongFormRoutes = {
   primary_route_counts?: Record<string, number>;
 };
 
+type WorkspacePlanCandidate = {
+  title: string;
+  summary?: string;
+  hook?: string;
+  rationale?: string;
+  source_path?: string;
+  source_url?: string;
+  priority_lane?: string;
+  publish_posture?: string;
+  score?: number;
+};
+
+type WorkspaceWeeklyPlan = {
+  generated_at?: string;
+  workspace?: string;
+  positioning_model?: string[];
+  priority_lanes?: string[];
+  recommendations?: WorkspacePlanCandidate[];
+  hold_items?: WorkspacePlanCandidate[];
+  source_counts?: {
+    drafts?: number;
+    media?: number;
+    research?: number;
+    belief_evidence?: number;
+  };
+};
+
+type WorkspaceReactionItem = {
+  title: string;
+  author?: string;
+  source_platform?: string;
+  source_url?: string;
+  source_path?: string;
+  priority_lane?: string;
+  hook?: string;
+  summary?: string;
+  why_it_matters?: string;
+  suggested_comment?: string;
+  post_angle?: string;
+  score?: number;
+};
+
+type WorkspaceReactionQueue = {
+  generated_at?: string;
+  workspace?: string;
+  comment_opportunities?: WorkspaceReactionItem[];
+  post_seeds?: WorkspaceReactionItem[];
+  counts?: {
+    comment_opportunities?: number;
+    post_seeds?: number;
+    background_only?: number;
+  };
+};
+
+type WorkspaceFeedItem = {
+  id: string;
+  platform?: string;
+  title: string;
+  author?: string;
+  source_url?: string;
+  why_it_matters?: string;
+  summary?: string;
+  standout_lines?: string[];
+  evaluation?: {
+    overall?: number;
+    genericity_penalty?: number;
+  };
+  ranking?: {
+    total?: number;
+  };
+};
+
+type WorkspaceSocialFeed = {
+  generated_at?: string;
+  workspace?: string;
+  strategy_mode?: string;
+  items?: WorkspaceFeedItem[];
+};
+
+type WorkspaceFeedbackSummary = {
+  total_events?: number;
+  average_evaluation_overall?: number | null;
+  average_output_expression_quality?: number | null;
+  average_expression_delta?: number | null;
+  decision_counts?: Record<string, number>;
+};
+
 type PersonaReviewSummary = {
   counts?: {
     total?: number;
@@ -199,6 +324,10 @@ type PersonaReviewSummary = {
 export type BrainWorkspaceSnapshot = {
   doc_entries?: WorkspaceSnapshotDocEntry[];
   workspace_files?: WorkspaceFile[];
+  weekly_plan?: WorkspaceWeeklyPlan | null;
+  reaction_queue?: WorkspaceReactionQueue | null;
+  social_feed?: WorkspaceSocialFeed | null;
+  feedback_summary?: WorkspaceFeedbackSummary | null;
   source_assets?: SourceAssetInventory | null;
   long_form_routes?: LongFormRoutes | null;
   persona_review_summary?: PersonaReviewSummary | null;
@@ -324,6 +453,16 @@ const brainTextareaStyle: CSSProperties = {
   resize: 'vertical',
   minHeight: '96px',
   lineHeight: 1.5,
+};
+const brainLinkButtonStyle: CSSProperties = {
+  borderRadius: '10px',
+  border: '1px solid #334155',
+  padding: '8px 12px',
+  backgroundColor: '#020617',
+  color: '#cbd5f5',
+  textDecoration: 'none',
+  fontSize: '12px',
+  fontWeight: 600,
 };
 
 type BrainClientInitialState = {
@@ -505,7 +644,7 @@ export default function BrainClient({
         />
       )}
       {activeTab === 'briefs' && (
-        <DailyBriefsPanel briefs={briefs} selected={selectedBrief} onSelect={setSelectedBrief} error={briefsError} />
+        <DailyBriefsPanel briefs={briefs} selected={selectedBrief} onSelect={setSelectedBrief} error={briefsError} onRefresh={() => loadData()} />
       )}
       {activeTab === 'persona' && (
         <PersonaPanel
@@ -569,6 +708,7 @@ function DashboardPanel({
         workspaceSnapshot={workspaceSnapshot}
         workspaceSnapshotError={workspaceSnapshotError}
       />
+      <WorkspaceMirrorsPanel workspaceSnapshot={workspaceSnapshot} />
       <BrainLongFormIngestPanel
         value={longFormIngest}
         onChange={setLongFormIngest}
@@ -816,18 +956,254 @@ function BrainLongFormIngestPanel({
   );
 }
 
+function WorkspaceMirrorsPanel({ workspaceSnapshot }: { workspaceSnapshot: BrainWorkspaceSnapshot | null }) {
+  const weeklyPlan = workspaceSnapshot?.weekly_plan ?? null;
+  const reactionQueue = workspaceSnapshot?.reaction_queue ?? null;
+  const socialFeed = workspaceSnapshot?.social_feed ?? null;
+  const feedbackSummary = workspaceSnapshot?.feedback_summary ?? null;
+
+  if (!weeklyPlan && !reactionQueue && !socialFeed) {
+    return null;
+  }
+
+  const positioningModel = (weeklyPlan?.positioning_model ?? []).slice(0, 3);
+  const recommendations = (weeklyPlan?.recommendations ?? []).slice(0, 3);
+  const commentOpportunities = (reactionQueue?.comment_opportunities ?? []).slice(0, 3);
+  const postSeeds = (reactionQueue?.post_seeds ?? []).slice(0, 3);
+  const feedItems = (socialFeed?.items ?? []).slice(0, 3);
+
+  return (
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '14px' }}>
+        <div>
+          <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace Mirrors</p>
+          <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, maxWidth: '820px' }}>
+            These are collapsed Brain-side mirrors of the highest-value Workspace modules. They stay available here as fallback context without replacing the full Workspace surface.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <Link href="/workspace" style={brainLinkButtonStyle}>
+            Open Workspace
+          </Link>
+          <Link href="/workspace/posting" style={brainLinkButtonStyle}>
+            Open Posting
+          </Link>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: '12px' }}>
+        <WorkspaceMirrorCard
+          title="Weekly Plan"
+          meta={[
+            weeklyPlan?.generated_at ? `Updated ${formatTimestamp(new Date(weeklyPlan.generated_at))}` : 'No plan timestamp',
+            `Recommendations ${numberMeta(weeklyPlan?.recommendations?.length)}`,
+            `Media ${numberMeta(weeklyPlan?.source_counts?.media)}`,
+          ]}
+        >
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {(weeklyPlan?.priority_lanes ?? []).slice(0, 6).map((lane) => (
+                <InlineBadge key={lane} label={humanizeSnakeCase(lane)} tone="#38bdf8" />
+              ))}
+              {(weeklyPlan?.priority_lanes ?? []).length === 0 && <InlineBadge label="No priority lanes yet" tone="#64748b" />}
+            </div>
+            {positioningModel.length > 0 && (
+              <BriefOverlayBlock title="Positioning Model" items={positioningModel} emptyLabel="No positioning model yet." />
+            )}
+            <div style={{ display: 'grid', gap: '10px' }}>
+              {recommendations.length > 0 ? (
+                recommendations.map((item, index) => (
+                  <MirrorItemCard
+                    key={`${item.title}-${index}`}
+                    title={item.title}
+                    body={item.hook || item.summary || item.rationale || 'No recommendation summary available.'}
+                    meta={[
+                      item.priority_lane ? humanizeSnakeCase(item.priority_lane) : null,
+                      item.publish_posture ? humanizeSnakeCase(item.publish_posture) : null,
+                      typeof item.score === 'number' ? `score ${item.score}` : null,
+                    ]}
+                    href={item.source_url || null}
+                    hrefLabel="Open source"
+                  />
+                ))
+              ) : (
+                <MirrorEmptyState message="No top recommendations are visible in the workspace snapshot yet." />
+              )}
+            </div>
+          </div>
+        </WorkspaceMirrorCard>
+
+        <WorkspaceMirrorCard
+          title="Reaction Queue"
+          meta={[
+            reactionQueue?.generated_at ? `Updated ${formatTimestamp(new Date(reactionQueue.generated_at))}` : 'No queue timestamp',
+            `Comments ${numberMeta(reactionQueue?.counts?.comment_opportunities)}`,
+            `Post seeds ${numberMeta(reactionQueue?.counts?.post_seeds)}`,
+          ]}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+            <BriefOverlayBlock
+              title="Immediate Comment Opportunities"
+              items={commentOpportunities.map((item) => `${item.title} · ${item.author || humanizeSnakeCase(item.priority_lane || 'unknown lane')}`)}
+              emptyLabel="No comment-ready items in the queue right now."
+            />
+            <BriefOverlayBlock
+              title="Post Seeds"
+              items={postSeeds.map((item) => `${item.title} · ${item.post_angle || item.summary || 'No angle yet.'}`)}
+              emptyLabel="No post seeds in the queue right now."
+            />
+          </div>
+        </WorkspaceMirrorCard>
+
+        <WorkspaceMirrorCard
+          title="Social Feed + Tuning"
+          meta={[
+            socialFeed?.generated_at ? `Updated ${formatTimestamp(new Date(socialFeed.generated_at))}` : 'No feed timestamp',
+            `Items ${numberMeta(socialFeed?.items?.length)}`,
+            `Feedback ${numberMeta(feedbackSummary?.total_events)}`,
+          ]}
+        >
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+              <TelemetryStat label="Feedback Events" value={feedbackSummary?.total_events ?? 0} tone="#fbbf24" detail="copy / like / dislike / approve" />
+              <TelemetryStat
+                label="Avg Eval"
+                value={typeof feedbackSummary?.average_evaluation_overall === 'number' ? feedbackSummary.average_evaluation_overall : 0}
+                tone="#38bdf8"
+                detail="recent recorded output quality"
+              />
+              <TelemetryStat
+                label="Expression"
+                value={typeof feedbackSummary?.average_output_expression_quality === 'number' ? feedbackSummary.average_output_expression_quality : 0}
+                tone="#22c55e"
+                detail="recent expression quality"
+              />
+            </div>
+            <div style={{ display: 'grid', gap: '10px' }}>
+              {feedItems.length > 0 ? (
+                feedItems.map((item) => (
+                  <MirrorItemCard
+                    key={item.id}
+                    title={item.title}
+                    body={item.why_it_matters || item.summary || item.standout_lines?.[0] || 'No summary available.'}
+                    meta={[
+                      item.author || null,
+                      item.platform ? humanizeSnakeCase(item.platform) : null,
+                      typeof item.evaluation?.overall === 'number' ? `eval ${item.evaluation.overall.toFixed(1)}` : null,
+                      typeof item.ranking?.total === 'number' ? `rank ${item.ranking.total.toFixed(1)}` : null,
+                    ]}
+                    href={item.source_url || null}
+                    hrefLabel="Open post"
+                  />
+                ))
+              ) : (
+                <MirrorEmptyState message="No feed items are visible in the current workspace snapshot." />
+              )}
+            </div>
+          </div>
+        </WorkspaceMirrorCard>
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceMirrorCard({
+  title,
+  meta,
+  children,
+}: {
+  title: string;
+  meta: string[];
+  children: ReactNode;
+}) {
+  return (
+    <details
+      style={{
+        borderRadius: '14px',
+        border: '1px solid #1f2937',
+        backgroundColor: '#020617',
+        overflow: 'hidden',
+      }}
+    >
+      <summary
+        style={{
+          cursor: 'pointer',
+          listStyle: 'none',
+          padding: '14px 16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: '12px',
+          alignItems: 'center',
+          color: 'white',
+        }}
+      >
+        <div>
+          <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>{title}</p>
+          <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>{meta.filter(Boolean).join(' · ')}</p>
+        </div>
+        <span style={{ color: '#38bdf8', fontSize: '12px', whiteSpace: 'nowrap' }}>Expand</span>
+      </summary>
+      <div style={{ padding: '0 16px 16px', display: 'grid', gap: '12px' }}>{children}</div>
+    </details>
+  );
+}
+
+function MirrorItemCard({
+  title,
+  body,
+  meta,
+  href,
+  hrefLabel,
+}: {
+  title: string;
+  body: string;
+  meta: (string | null)[];
+  href?: string | null;
+  hrefLabel?: string;
+}) {
+  return (
+    <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#030712', padding: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', marginBottom: '6px', flexWrap: 'wrap' }}>
+        <p style={{ color: 'white', fontSize: '14px', fontWeight: 600, margin: 0 }}>{title}</p>
+        {href && (
+          <a href={href} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+            {hrefLabel || 'Open'}
+          </a>
+        )}
+      </div>
+      <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: '0 0 8px' }}>{body}</p>
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        {meta.filter(Boolean).map((item, index) => (
+          <InlineBadge key={`${title}-meta-${index}`} label={String(item)} tone="#64748b" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MirrorEmptyState({ message }: { message: string }) {
+  return (
+    <div style={{ borderRadius: '12px', border: '1px dashed #334155', backgroundColor: '#030712', padding: '14px', color: '#64748b', fontSize: '13px' }}>
+      {message}
+    </div>
+  );
+}
+
 function DailyBriefsPanel({
   briefs,
   selected,
   onSelect,
   error,
+  onRefresh,
 }: {
   briefs: DailyBriefEntry[];
   selected: DailyBriefEntry | null;
   onSelect: (entry: DailyBriefEntry) => void;
   error: string | null;
+  onRefresh: () => Promise<void>;
 }) {
   const selectedSourceIntelligence = selected ? briefSourceIntelligence(selected) : null;
+  const streamItems = selected ? briefStreamItems(selected) : [];
   return (
     <section style={{ display: 'flex', gap: '18px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '520px' }}>
       <div style={{ width: '280px', borderRight: '1px solid #0f172a', paddingRight: '14px', maxHeight: '480px', overflowY: 'auto' }}>
@@ -863,6 +1239,7 @@ function DailyBriefsPanel({
               {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>}
             </div>
             {selectedSourceIntelligence && <BriefSourceIntelligencePanel overlay={selectedSourceIntelligence} />}
+            {streamItems.length > 0 && <BriefStreamPanel brief={selected} items={streamItems} onRefresh={onRefresh} />}
             <div
               style={{
                 borderRadius: '14px',
@@ -985,6 +1362,285 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+function BriefStreamPanel({
+  brief,
+  items,
+  onRefresh,
+}: {
+  brief: DailyBriefEntry;
+  items: BriefSourceIntelligenceCandidate[];
+  onRefresh: () => Promise<void>;
+}) {
+  const [activeItemKey, setActiveItemKey] = useState<string>(items[0]?.item_key?.trim() || '');
+  const [reactionKind, setReactionKind] = useState<'agree' | 'disagree' | 'nuance' | 'story'>('nuance');
+  const [reactionText, setReactionText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const firstKey = items[0]?.item_key?.trim() || '';
+    setActiveItemKey((current) => (current && items.some((item) => item.item_key === current) ? current : firstKey));
+    setReactionText('');
+    setMessage(null);
+    setError(null);
+  }, [brief.id, items]);
+
+  const activeItem = items.find((item) => item.item_key === activeItemKey) ?? items[0] ?? null;
+
+  function startReaction(item: BriefSourceIntelligenceCandidate, kind: 'agree' | 'disagree' | 'nuance' | 'story') {
+    setActiveItemKey(item.item_key?.trim() || '');
+    setReactionKind(kind);
+    const title = item.title?.trim() || 'this';
+    const prefix =
+      kind === 'agree'
+        ? `What I agree with about "${title}":\n- `
+        : kind === 'disagree'
+        ? `What I disagree with about "${title}":\n- `
+        : kind === 'story'
+        ? `Story or example this brings up for "${title}":\n- `
+        : `Nuance I want to preserve for "${title}":\n- `;
+    setReactionText((current) => (current.trim().length > 0 && activeItemKey === item.item_key ? current : prefix));
+    setMessage(null);
+    setError(null);
+  }
+
+  async function submitReaction() {
+    if (!activeItem) return;
+    const trimmed = reactionText.trim();
+    if (!trimmed) {
+      setError('Add a thought before saving it to Persona.');
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/api/briefs/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brief_id: brief.id,
+          item_key: activeItem.item_key,
+          item_title: activeItem.title,
+          item_summary: activeItem.summary,
+          item_hook: activeItem.hook,
+          source_kind: activeItem.source_kind,
+          source_url: activeItem.source_url,
+          source_path: activeItem.source_path,
+          priority_lane: activeItem.priority_lane,
+          route_reason: activeItem.route_reason,
+          target_file: activeItem.target_file,
+          reaction_kind: reactionKind,
+          text: trimmed,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || `Save failed with ${response.status}`);
+      }
+      setReactionText('');
+      setMessage(`Saved to Persona as ${humanizeResponseKind(reactionKind)}. It is now in the Brain review flow.`);
+      await onRefresh();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Unable to save this brief reaction right now.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section
+      style={{
+        borderRadius: '14px',
+        border: '1px solid #1f2937',
+        backgroundColor: '#020617',
+        padding: '16px',
+        display: 'grid',
+        gap: '14px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Brief Stream</p>
+          <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+            Read the source cards, react here, and let those reactions feed Persona. This keeps Briefs as the reading surface and Persona as the canon surface.
+          </p>
+        </div>
+        <InlineBadge label={`${items.length} source card${items.length === 1 ? '' : 's'}`} tone="#38bdf8" />
+      </div>
+
+      <div style={{ display: 'grid', gap: '12px' }}>
+        {items.map((item) => {
+          const isActive = item.item_key === activeItem?.item_key;
+          const relatedContext = item.related_persona_context ?? [];
+          const existingReactions = item.existing_reactions ?? [];
+          return (
+            <article
+              key={item.item_key || item.title}
+              style={{
+                borderRadius: '14px',
+                border: `1px solid ${isActive ? '#38bdf8' : '#1f2937'}`,
+                backgroundColor: isActive ? '#081325' : '#010617',
+                padding: '14px',
+                display: 'grid',
+                gap: '10px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ color: 'white', fontSize: '16px', margin: '0 0 6px', lineHeight: 1.45 }}>{item.title || 'Untitled source'}</h3>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {item.section && <InlineBadge label={humanizeSnakeCase(item.section)} tone="#818cf8" />}
+                    {item.priority_lane && <InlineBadge label={humanizeSnakeCase(item.priority_lane)} tone="#22c55e" />}
+                    {item.source_kind && <InlineBadge label={humanizeSnakeCase(item.source_kind)} tone="#64748b" />}
+                    {item.target_file && <InlineBadge label={humanizeTargetFileLabel(item.target_file)} tone="#64748b" />}
+                  </div>
+                </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <Link
+                  href={buildPostingWorkspaceHref(item, 'post')}
+                  style={{
+                    borderRadius: '999px',
+                    border: '1px solid rgba(56,189,248,0.55)',
+                    backgroundColor: '#082f49',
+                    color: 'white',
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                  }}
+                >
+                  Write post
+                </Link>
+                <Link
+                  href={buildPostingWorkspaceHref(item, 'comment')}
+                  style={{
+                    borderRadius: '999px',
+                    border: '1px solid rgba(34,197,94,0.55)',
+                    backgroundColor: '#052e1a',
+                    color: 'white',
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                  }}
+                >
+                  Comment on this
+                </Link>
+                {item.source_url && (
+                  <a
+                    href={item.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        borderRadius: '999px',
+                        border: '1px solid #334155',
+                        backgroundColor: '#020617',
+                        color: '#cbd5f5',
+                        padding: '8px 12px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Open source
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {item.summary && <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.summary}</p>}
+              {item.hook && <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>Hook: {item.hook}</p>}
+              {item.route_reason && <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>Why it matters: {item.route_reason}</p>}
+              {item.source_path && !item.source_url && <p style={{ color: '#475569', fontSize: '11px', margin: 0 }}>{item.source_path}</p>}
+
+              {relatedContext.length > 0 && (
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Related Persona Context</p>
+                  {relatedContext.map((context) => (
+                    <div key={context.delta_id} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020b16', padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                        <InlineBadge label={humanizeSavedResponseKind(context.response_kind || 'nuance')} tone="#818cf8" />
+                        {context.target_file && <InlineBadge label={humanizeTargetFileLabel(context.target_file)} tone="#64748b" />}
+                        {context.review_source && <InlineBadge label={humanizeReviewSource(context.review_source)} tone="#64748b" />}
+                      </div>
+                      <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, margin: '0 0 4px' }}>{context.trait}</p>
+                      {context.excerpt && <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{context.excerpt}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {existingReactions.length > 0 && (
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Recent Brief Reactions</p>
+                  {existingReactions.map((reaction) => (
+                    <div key={reaction.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020b16', padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                        <InlineBadge label={humanizeSavedResponseKind(reaction.reaction_kind)} tone="#38bdf8" />
+                        {reaction.linked_delta_id && <InlineBadge label="Linked to Persona" tone="#22c55e" />}
+                      </div>
+                      <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{truncateText(reaction.text, 220)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <QuickFillButton label="Agree" onClick={() => startReaction(item, 'agree')} />
+                <QuickFillButton label="Disagree" onClick={() => startReaction(item, 'disagree')} />
+                <QuickFillButton label="Nuance" onClick={() => startReaction(item, 'nuance')} />
+                <QuickFillButton label="Story" onClick={() => startReaction(item, 'story')} />
+              </div>
+
+              {isActive && (
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <InlineBadge label={`Saving as ${humanizeResponseKind(reactionKind)}`} tone="#38bdf8" />
+                    {item.target_file && <InlineBadge label={`Persona target ${humanizeTargetFileLabel(item.target_file)}`} tone="#64748b" />}
+                  </div>
+                  <textarea
+                    value={reactionText}
+                    onChange={(event) => {
+                      setReactionText(event.target.value);
+                      if (message) setMessage(null);
+                      if (error) setError(null);
+                    }}
+                    placeholder="Capture your actual take here. This will save to Open Brain and create a linked Persona delta."
+                    style={brainTextareaStyle}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      {message && <span style={{ color: '#22c55e', fontSize: '12px' }}>{message}</span>}
+                      {error && <span style={{ color: '#f87171', fontSize: '12px' }}>{error}</span>}
+                    </div>
+                    <button
+                      onClick={() => submitReaction()}
+                      disabled={saving}
+                      style={{
+                        border: '1px solid #38bdf8',
+                        backgroundColor: saving ? '#0c4a6e' : '#0f172a',
+                        color: 'white',
+                        borderRadius: '12px',
+                        padding: '10px 14px',
+                        cursor: saving ? 'wait' : 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {saving ? 'Saving…' : 'Save to Persona'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -3625,6 +4281,29 @@ function briefSourceIntelligence(entry: DailyBriefEntry | null) {
   return entry ? metadataObject<BriefSourceIntelligence>(entry.metadata, 'source_intelligence') : null;
 }
 
+function briefStreamItems(entry: DailyBriefEntry | null) {
+  const overlay = briefSourceIntelligence(entry);
+  return Array.isArray(overlay?.brief_stream) ? overlay.brief_stream.filter((item): item is BriefSourceIntelligenceCandidate => Boolean(item)) : [];
+}
+
+function buildPostingWorkspaceHref(item: BriefSourceIntelligenceCandidate, mode: 'post' | 'comment') {
+  const params = new URLSearchParams();
+  params.set('mode', mode);
+  params.set('autoplay', '1');
+  if (item.item_key?.trim()) params.set('itemKey', item.item_key.trim());
+  if (item.title?.trim()) params.set('title', item.title.trim());
+  if (item.summary?.trim()) params.set('summary', item.summary.trim());
+  if (item.hook?.trim()) params.set('hook', item.hook.trim());
+  if (item.priority_lane?.trim()) params.set('priorityLane', item.priority_lane.trim());
+  if (item.source_kind?.trim()) params.set('sourceKind', item.source_kind.trim());
+  if (item.route_reason?.trim()) params.set('routeReason', item.route_reason.trim());
+  if (item.target_file?.trim()) params.set('targetFile', item.target_file.trim());
+  if (item.section?.trim()) params.set('section', item.section.trim());
+  if (item.source_url?.trim()) params.set('sourceUrl', item.source_url.trim());
+  if (item.source_path?.trim()) params.set('sourcePath', item.source_path.trim());
+  return `/workspace/posting?${params.toString()}`;
+}
+
 function numberMeta(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? String(value) : '0';
 }
@@ -3757,6 +4436,7 @@ function humanizeReviewSource(source: string | null) {
   if (!source) return 'No source';
   if (source === 'long_form_media.segment') return 'Long-form segment';
   if (source === 'linkedin_workspace.feed_quote') return 'Workspace approval';
+  if (source === 'brain.daily_brief.stream') return 'Brief stream reaction';
   if (source === 'brain.persona.ui') return 'Brain review';
   return source.replace(/[_./-]+/g, ' ');
 }

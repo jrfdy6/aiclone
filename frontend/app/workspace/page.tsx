@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import WorkspaceClient from './WorkspaceClient';
 
 export default function WorkspacePage() {
-  redirect('/ops#workspace');
+  return <WorkspaceClient />;
 }

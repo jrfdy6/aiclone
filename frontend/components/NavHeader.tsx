@@ -20,7 +20,7 @@ export default function NavHeader() {
 
   const navLinks = [
     { href: '/ops', label: 'Ops', active: pathname === '/ops' && hash !== '#workspace' },
-    { href: '/ops#workspace', label: 'Workspaces', active: (pathname === '/ops' && hash === '#workspace') || pathname === '/workspace' || pathname === '/linkedin' },
+    { href: '/workspace', label: 'Workspaces', active: (pathname === '/ops' && hash === '#workspace') || pathname.startsWith('/workspace') || pathname === '/linkedin' },
     { href: '/brain', label: 'Brain', active: pathname === '/brain' },
     { href: '/lab', label: 'Lab', active: pathname === '/lab' },
     { href: '/prospect-discovery', label: 'Prospects', active: pathname === '/prospect-discovery' },
