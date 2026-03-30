@@ -29,8 +29,8 @@ const modules: { id: RuntimeModule; label: string; href: string; icon: typeof Ra
 
 const workspaceLink = {
   id: 'workspace',
-  label: 'Workspace',
-  href: '/workspace',
+  label: 'Workspaces',
+  href: '/ops#workspace',
   icon: FolderKanban,
   tone: '#fb923c',
 };

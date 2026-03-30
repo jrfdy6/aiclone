@@ -427,7 +427,7 @@ function sectionLabel(key: string) {
   return humanizeSnakeCase(key);
 }
 
-function WorkspaceHomeInner() {
+export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: boolean }) {
   const searchParams = useSearchParams();
   const tabs = useMemo(() => workspaceTabs(), []);
   const querySeed = useMemo<QuerySeed>(
@@ -808,9 +808,8 @@ function WorkspaceHomeInner() {
 
   const topRecommendations = (snapshot?.weekly_plan?.recommendations ?? []).slice(0, 3);
 
-  return (
-    <RuntimePage module="ops" tabs={tabs} maxWidth="1520px">
-      <section style={{ display: 'grid', gap: '20px' }}>
+  const content = (
+    <section style={{ display: 'grid', gap: '20px' }}>
         <section style={workspaceHeaderStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '18px' }}>
             <div>
@@ -1296,6 +1295,15 @@ function WorkspaceHomeInner() {
           )}
         </section>
       </section>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <RuntimePage module="ops" tabs={tabs} maxWidth="1520px">
+      {content}
     </RuntimePage>
   );
 }
@@ -1311,7 +1319,7 @@ function WorkspaceHomeFallback() {
 export default function WorkspaceClient() {
   return (
     <Suspense fallback={<WorkspaceHomeFallback />}>
-      <WorkspaceHomeInner />
+      <LinkedinWorkspaceSurface />
     </Suspense>
   );
 }

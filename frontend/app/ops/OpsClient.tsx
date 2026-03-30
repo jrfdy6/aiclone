@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
 
@@ -803,6 +805,92 @@ const FEED_LENS_VARIANT_KEYS: Record<FeedLensId, string[]> = {
   'personal-story': ['personal-story'],
 };
 
+type WorkspaceHubKey = 'linkedin-os' | 'fusion-os' | 'easyoutfitapp' | 'ai-swag-store' | 'agc';
+
+const WORKSPACE_HUBS: Array<{
+  id: WorkspaceHubKey;
+  label: string;
+  shortLabel: string;
+  status: 'live' | 'planned';
+  accent: string;
+  description: string;
+  agent: string;
+  operatingPrinciples: string[];
+  route?: string;
+}> = [
+  {
+    id: 'linkedin-os',
+    label: 'LinkedIn OS',
+    shortLabel: 'LinkedIn',
+    status: 'live',
+    accent: '#38bdf8',
+    description: 'Posting execution system for signal intake, reaction loops, content generation, and persona-grounded visibility.',
+    agent: 'LinkedIn Operator',
+    operatingPrinciples: [
+      'Persona truth first, posting second',
+      'Use live source signals before generic ideation',
+      'Turn reactions into reusable visibility assets',
+    ],
+    route: '/workspace',
+  },
+  {
+    id: 'fusion-os',
+    label: 'Fusion OS',
+    shortLabel: 'Fusion',
+    status: 'planned',
+    accent: '#22c55e',
+    description: 'Admissions, enrollment, school operations, referral systems, and leadership execution for Fusion-adjacent work.',
+    agent: 'Fusion Systems Operator',
+    operatingPrinciples: [
+      'Protect trust with families and partners',
+      'Let frontline signals drive process changes',
+      'Make execution clearer before scaling it',
+    ],
+  },
+  {
+    id: 'easyoutfitapp',
+    label: 'EasyOutfitApp',
+    shortLabel: 'Easy Outfit',
+    status: 'planned',
+    accent: '#f472b6',
+    description: 'Product, outfit logic, metadata quality, user feedback, and style-system refinement for the Easy Outfit app.',
+    agent: 'Easy Outfit Product Agent',
+    operatingPrinciples: [
+      'Metadata before vibes',
+      'Validate every outfit against context',
+      'Make recommendation quality obvious to the user',
+    ],
+  },
+  {
+    id: 'ai-swag-store',
+    label: 'AI Swag Store',
+    shortLabel: 'Swag Store',
+    status: 'planned',
+    accent: '#f59e0b',
+    description: 'Commerce, merchandising, product drops, and demand testing for AI-branded physical goods.',
+    agent: 'Commerce Growth Agent',
+    operatingPrinciples: [
+      'Test demand before expanding catalog',
+      'Use signal-backed creative, not generic merch',
+      'Keep ops simple enough to repeat',
+    ],
+  },
+  {
+    id: 'agc',
+    label: 'AGC',
+    shortLabel: 'AGC',
+    status: 'planned',
+    accent: '#a78bfa',
+    description: 'Dedicated operating system slot for AGC work with its own agent, memory, and execution rules.',
+    agent: 'AGC Strategy Agent',
+    operatingPrinciples: [
+      'Separate the mission from the noise',
+      'Use a distinct operating model per initiative',
+      'Keep decisions traceable back to goals',
+    ],
+  },
+];
+
 export default function OpsClient({
   workspaceFiles,
   docEntries,
@@ -1070,7 +1158,7 @@ export default function OpsClient({
     { key: 'team', label: 'Team', active: activePanel === 'team', onSelect: () => selectPanel('team') },
     { key: 'pm', label: 'PM Board', active: activePanel === 'pm', onSelect: () => selectPanel('pm') },
     { key: 'standups', label: 'Standups', active: activePanel === 'standups', onSelect: () => selectPanel('standups') },
-    { key: 'workspace', label: 'Workspace', active: activePanel === 'workspace', onSelect: () => selectPanel('workspace') },
+    { key: 'workspace', label: 'Workspaces', active: activePanel === 'workspace', onSelect: () => selectPanel('workspace') },
     { key: 'docs', label: 'Docs', active: activePanel === 'docs', onSelect: () => selectPanel('docs') },
   ];
 
@@ -1129,7 +1217,7 @@ export default function OpsClient({
       {activePanel === 'pm' && <PMBoardPanel cards={pmCards} error={sectionErrors.pmCards} />}
       {activePanel === 'standups' && <StandupsPanel entries={standups} error={sectionErrors.standups} />}
       {activePanel === 'workspace' && (
-        <WorkspacePanel
+        <WorkspaceHubPanel
           files={effectiveWorkspaceFiles}
           selected={selectedWorkspace}
           onSelect={setSelectedWorkspacePath}
@@ -1400,6 +1488,253 @@ function StandupsPanel({ entries, error }: { entries: StandupEntry[]; error: str
           </article>
         ))}
       </div>
+    </section>
+  );
+}
+
+function WorkspaceHubPanel({
+  files,
+  selected,
+  onSelect,
+  plan,
+  reactionQueue,
+  socialFeed,
+  sourceAssets,
+  personaReviewSummary,
+  longFormRoutes,
+  workspaceSnapshotState,
+  workspaceSnapshotError,
+  workspaceRefreshStatus,
+  feedbackSummary,
+  onReloadLiveSnapshot,
+}: {
+  files: WorkspaceFile[];
+  selected: WorkspaceFile | null;
+  onSelect: (path: string) => void;
+  plan: WeeklyPlan | null;
+  reactionQueue: ReactionQueue | null;
+  socialFeed: SocialFeed | null;
+  sourceAssets: SourceAssetInventory | null;
+  personaReviewSummary: PersonaReviewSummary | null;
+  longFormRoutes: LongFormRouteSummary | null;
+  workspaceSnapshotState: 'loading' | 'live' | 'error';
+  workspaceSnapshotError: string | null;
+  workspaceRefreshStatus: FeedRefreshStatus | null;
+  feedbackSummary: FeedbackSummary | null;
+  onReloadLiveSnapshot: () => Promise<void>;
+}) {
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<WorkspaceHubKey>('linkedin-os');
+  const [selectorOpen, setSelectorOpen] = useState(true);
+  const activeWorkspace = WORKSPACE_HUBS.find((item) => item.id === selectedWorkspaceId) ?? WORKSPACE_HUBS[0];
+
+  const linkedinSummary = useMemo(
+    () => [
+      {
+        label: 'Snapshot',
+        value: workspaceSnapshotState === 'live' ? 'Live' : workspaceSnapshotState === 'loading' ? 'Loading' : 'Error',
+        detail: workspaceSnapshotState === 'error' ? workspaceSnapshotError ?? 'Snapshot unavailable' : 'shared feed + pipeline state',
+      },
+      {
+        label: 'Feed Items',
+        value: String(socialFeed?.items?.length ?? 0),
+        detail: socialFeed?.generated_at ? `updated ${formatTimestamp(new Date(socialFeed.generated_at))}` : 'shared source stream',
+      },
+      {
+        label: 'Post Seeds',
+        value: String(reactionQueue?.counts?.post_seeds ?? 0),
+        detail: 'save-for-post angles',
+      },
+      {
+        label: 'Feedback',
+        value: String(feedbackSummary?.total_events ?? 0),
+        detail: 'workspace training events',
+      },
+    ],
+    [feedbackSummary?.total_events, reactionQueue?.counts?.post_seeds, socialFeed?.generated_at, socialFeed?.items?.length, workspaceSnapshotError, workspaceSnapshotState],
+  );
+
+  void files;
+  void selected;
+  void onSelect;
+  void sourceAssets;
+  void personaReviewSummary;
+  void longFormRoutes;
+  void workspaceRefreshStatus;
+  void onReloadLiveSnapshot;
+
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div>
+        <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspaces</p>
+        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Workspace Hub</h2>
+        <p style={{ color: '#94a3b8', maxWidth: '820px' }}>
+          Each workspace gets its own operating system, agent, and principles. LinkedIn OS is live now. The others are scaffold slots so you can expand without collapsing everything into one project surface.
+        </p>
+      </div>
+
+      <section
+        style={{
+          borderRadius: '22px',
+          padding: '24px',
+          background: 'linear-gradient(135deg, rgba(17,24,39,0.94), rgba(8,12,24,0.98))',
+          border: '1px solid rgba(56,189,248,0.16)',
+          boxShadow: '0 26px 72px rgba(0,0,0,0.35)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '18px' }}>
+          <div>
+            <p style={{ color: activeWorkspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Selected Workspace</p>
+            <h3 style={{ fontSize: '30px', color: 'white', margin: '4px 0' }}>{activeWorkspace.label}</h3>
+            <p style={{ color: '#cbd5f5', maxWidth: '760px', fontSize: '14px', lineHeight: 1.6 }}>{activeWorkspace.description}</p>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <button
+              onClick={() => setSelectorOpen((current) => !current)}
+              style={{
+                borderRadius: '12px',
+                border: `1px solid ${activeWorkspace.accent}`,
+                backgroundColor: `${activeWorkspace.accent}18`,
+                color: 'white',
+                padding: '10px 14px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {selectorOpen ? 'Hide selector' : 'Choose workspace'}
+            </button>
+            {activeWorkspace.route && (
+              <Link
+                href={activeWorkspace.route}
+                style={{
+                  borderRadius: '12px',
+                  border: '1px solid rgba(251,146,60,0.55)',
+                  backgroundColor: 'rgba(251,146,60,0.12)',
+                  color: '#fed7aa',
+                  padding: '10px 14px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  textDecoration: 'none',
+                }}
+              >
+                Open full workspace
+              </Link>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+          <MiniMeta label="Workspace" value={activeWorkspace.shortLabel} detail={activeWorkspace.agent} />
+          <MiniMeta label="Status" value={activeWorkspace.status === 'live' ? 'Live' : 'Planned'} detail="selector-driven workspace slot" />
+          <MiniMeta label="Operating Rules" value={`${activeWorkspace.operatingPrinciples.length}`} detail="separate principles per workspace" />
+          {selectedWorkspaceId === 'linkedin-os' && (
+            <>
+              <MiniMeta label="Recommendations" value={`${plan?.recommendations?.length ?? 0}`} detail="live weekly plan candidates" />
+              <MiniMeta label="Comments" value={`${reactionQueue?.counts?.comment_opportunities ?? 0}`} detail="reaction queue opportunities" />
+              <MiniMeta label="Signals" value={`${socialFeed?.items?.length ?? 0}`} detail="shared feed cards" />
+            </>
+          )}
+        </div>
+
+        {selectorOpen && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            {WORKSPACE_HUBS.map((workspace) => {
+              const active = workspace.id === selectedWorkspaceId;
+              return (
+                <button
+                  key={workspace.id}
+                  onClick={() => setSelectedWorkspaceId(workspace.id)}
+                  style={{
+                    textAlign: 'left',
+                    borderRadius: '16px',
+                    border: active ? `1px solid ${workspace.accent}` : '1px solid #1f2937',
+                    backgroundColor: active ? `${workspace.accent}12` : '#020617',
+                    padding: '16px',
+                    cursor: 'pointer',
+                    display: 'grid',
+                    gap: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start' }}>
+                    <div>
+                      <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: 0 }}>{workspace.label}</p>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', margin: '4px 0 0' }}>{workspace.agent}</p>
+                    </div>
+                    <span
+                      style={{
+                        borderRadius: '999px',
+                        border: `1px solid ${workspace.accent}66`,
+                        backgroundColor: `${workspace.accent}18`,
+                        color: workspace.accent,
+                        padding: '4px 8px',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {workspace.status}
+                    </span>
+                  </div>
+                  <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{workspace.description}</p>
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {workspace.operatingPrinciples.map((principle) => (
+                      <p key={principle} style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                        • {principle}
+                      </p>
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {selectedWorkspaceId === 'linkedin-os' ? (
+        <section style={{ display: 'grid', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px' }}>
+            {linkedinSummary.map((item) => (
+              <MiniMeta key={item.label} label={item.label} value={item.value} detail={item.detail} />
+            ))}
+          </div>
+          <Suspense fallback={<section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', color: '#94a3b8' }}>Loading LinkedIn OS workspace…</section>}>
+            <LinkedinWorkspaceSurface embedded />
+          </Suspense>
+        </section>
+      ) : (
+        <section
+          style={{
+            borderRadius: '18px',
+            border: '1px solid #1f2937',
+            backgroundColor: '#050b19',
+            padding: '24px',
+            display: 'grid',
+            gap: '18px',
+          }}
+        >
+          <div>
+            <p style={{ color: activeWorkspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace Scaffold</p>
+            <h3 style={{ fontSize: '26px', color: 'white', margin: '4px 0' }}>{activeWorkspace.label}</h3>
+            <p style={{ color: '#94a3b8', maxWidth: '760px', lineHeight: 1.6 }}>
+              This workspace slot is reserved and modeled, but the dedicated UI and execution flow are not built yet. The agent and operating principles are now explicit so it can be developed as a separate system instead of being squeezed into LinkedIn OS.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            <MiniMeta label="Agent" value={activeWorkspace.agent} detail="separate workspace agent" />
+            <MiniMeta label="Status" value={activeWorkspace.status === 'live' ? 'Live' : 'Planned'} detail="ready for dedicated build-out" />
+            <MiniMeta label="Principles" value={`${activeWorkspace.operatingPrinciples.length}`} detail="distinct operating rules" />
+          </div>
+          <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '10px' }}>
+            <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Operating Principles</p>
+            {activeWorkspace.operatingPrinciples.map((principle) => (
+              <p key={principle} style={{ color: '#e2e8f0', fontSize: '14px', margin: 0 }}>
+                • {principle}
+              </p>
+            ))}
+          </div>
+        </section>
+      )}
     </section>
   );
 }
