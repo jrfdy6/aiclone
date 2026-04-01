@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, model_validator
 
@@ -83,3 +83,35 @@ class BrainPersonaRerouteRequest(BaseModel):
         if not (self.target_file or "").strip():
             raise ValueError("Provide target_file.")
         return self
+
+
+class BrainSystemRouteRequest(BaseModel):
+    reflection_excerpt: str | None = None
+    selected_promotion_items: list[PromotionItemPayload] = []
+    workspace_key: str | None = "shared_ops"
+    workspace_keys: list[str] = []
+    canonical_memory_targets: list[Literal["persistent_state", "learnings", "chronicle"]] = []
+    route_to_standup: bool = False
+    standup_kind: Literal["auto", "executive_ops", "operations", "weekly_review", "saturday_vision", "workspace_sync"] = "auto"
+    route_to_pm: bool = False
+    pm_title: str | None = None
+
+    @model_validator(mode="after")
+    def ensure_route_target(self) -> "BrainSystemRouteRequest":
+        if not self.canonical_memory_targets and not self.route_to_standup and not self.route_to_pm:
+            raise ValueError("Select at least one route target.")
+        normalized_workspace_keys = [value.strip() for value in self.workspace_keys if (value or "").strip()]
+        if not normalized_workspace_keys and not (self.workspace_key or "").strip():
+            raise ValueError("Provide at least one workspace target.")
+        self.workspace_keys = normalized_workspace_keys
+        return self
+
+
+class BrainCanonicalMemorySyncStatusRequest(BaseModel):
+    generated_at: str | None = None
+    source: str = "brain_canonical_memory_sync"
+    sync_live: bool = True
+    queued_route_count: int = 0
+    processed_count: int = 0
+    artifact_paths: list[str] = []
+    processed_items: list[dict[str, Any]] = []
