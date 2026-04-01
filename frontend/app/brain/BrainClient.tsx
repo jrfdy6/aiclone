@@ -1,7 +1,7 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
@@ -395,6 +395,21 @@ export type BrainControlPlanePayload = {
   automations?: Automation[];
   telemetry?: CaptureTelemetry | null;
   telemetry_health?: OpenBrainHealth | null;
+  brain_memory_sync?: {
+    generated_at?: string;
+    source?: string;
+    sync_live?: boolean;
+    queued_route_count?: number;
+    processed_count?: number;
+    artifact_paths?: string[];
+    processed_items?: Array<{
+      delta_id?: string;
+      trait?: string;
+      workspace_key?: string;
+      targets?: string[];
+      summary?: string;
+    }>;
+  } | null;
   workspace_snapshot?: BrainWorkspaceSnapshot | null;
   summary?: {
     automation_count?: number;
@@ -405,6 +420,7 @@ export type BrainControlPlanePayload = {
     pending_review_count?: number;
     workspace_saved_count?: number;
     source_asset_count?: number;
+    brain_memory_sync_queue_count?: number;
   };
 };
 
@@ -419,6 +435,7 @@ type BrainLongFormIngestForm = {
 type PromotionItemKind = 'talking_point' | 'framework' | 'anecdote' | 'phrase_candidate' | 'stat';
 type PromotionItemProofStrength = 'none' | 'weak' | 'strong';
 type PromotionItemGateDecision = 'pending' | 'allow' | 'hold' | 'block';
+type PromotionFragmentView = 'recommended' | 'needs_work' | 'all';
 
 type PromotionItem = {
   id: string;
@@ -492,10 +509,60 @@ type BrainPromotionRerouteResponse = {
   target_file?: string;
 };
 
+type BrainSystemRouteResponse = {
+  message?: string;
+  delta: PersonaDeltaEntry;
+  canonical_memory_targets_queued?: string[];
+  routes?: Array<{
+    workspace_key?: string;
+    canonical_memory_targets?: string[];
+    standup_kind?: string | null;
+    standup?: {
+      id: string;
+      workspace_key?: string;
+      status?: string | null;
+    } | null;
+    pm_card?: {
+      id: string;
+      title?: string;
+      status?: string;
+    } | null;
+  }>;
+  standup?: {
+    id: string;
+    workspace_key?: string;
+    status?: string | null;
+  } | null;
+  pm_card?: {
+    id: string;
+    title?: string;
+    status?: string;
+  } | null;
+};
+
+type BrainRouteHistoryEntry = {
+  routed_at?: string;
+  workspace_key?: string;
+  canonical_memory_targets?: string[];
+  standup_kind?: string | null;
+  standup_id?: string | null;
+  pm_card_id?: string | null;
+  pm_title?: string | null;
+  summary?: string | null;
+};
+
+type PendingCanonicalMemoryRouteEntry = {
+  queued_at?: string;
+  workspace_key?: string;
+  targets?: string[];
+  summary?: string | null;
+  state?: string | null;
+};
+
 type Tab = 'dashboard' | 'briefs' | 'persona' | 'automations' | 'docs';
 
 const API_URL = getApiUrl();
-const brainInputStyle: CSSProperties = {
+const brainInputStyle = {
   width: '100%',
   boxSizing: 'border-box',
   borderRadius: '10px',
@@ -504,14 +571,14 @@ const brainInputStyle: CSSProperties = {
   color: 'white',
   padding: '10px 12px',
   fontSize: '13px',
-};
-const brainTextareaStyle: CSSProperties = {
+} as const;
+const brainTextareaStyle = {
   ...brainInputStyle,
   resize: 'vertical',
   minHeight: '96px',
   lineHeight: 1.5,
-};
-const brainLinkButtonStyle: CSSProperties = {
+} as const;
+const brainLinkButtonStyle = {
   borderRadius: '10px',
   border: '1px solid #334155',
   padding: '8px 12px',
@@ -520,7 +587,24 @@ const brainLinkButtonStyle: CSSProperties = {
   textDecoration: 'none',
   fontSize: '12px',
   fontWeight: 600,
-};
+} as const;
+const canonicalMemoryRouteOptions = ['persistent_state', 'learnings', 'chronicle'] as const;
+const brainStandupKindOptions = ['auto', 'executive_ops', 'operations', 'weekly_review', 'saturday_vision', 'workspace_sync'] as const;
+const brainWorkspaceOptions = [
+  { key: 'shared_ops', label: 'Executive' },
+  { key: 'linkedin-os', label: 'FEEZIE OS' },
+  { key: 'fusion-os', label: 'Fusion OS' },
+  { key: 'easyoutfitapp', label: 'EasyOutfitApp' },
+  { key: 'ai-swag-store', label: 'AI Swag Store' },
+  { key: 'agc', label: 'AGC' },
+] as const;
+
+const brainTriagePresetOptions = [
+  { key: 'canon_only', label: 'Canon + Memory' },
+  { key: 'executive_review', label: 'Executive Review' },
+  { key: 'workspace_followup', label: 'Workspace Follow-Up' },
+  { key: 'pm_only', label: 'PM Only' },
+] as const;
 
 type BrainClientInitialState = {
   briefs?: DailyBriefEntry[];
@@ -565,28 +649,36 @@ export default function BrainClient({
   const [longFormIngestError, setLongFormIngestError] = useState<string | null>(null);
   const [longFormSubmitting, setLongFormSubmitting] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(1600);
+  const [viewportHeight, setViewportHeight] = useState(1200);
   const mergedDocs = useMemo(() => mergeBrainDocs(docs, workspaceSnapshot), [docs, workspaceSnapshot]);
+  const navigateToSection = useCallback((tab: Tab) => {
+    setActiveTab(tab);
+    if (typeof document === 'undefined') {
+      return;
+    }
+    document.getElementById(`brain-section-${tab}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
   const tabs = useMemo(
     () => [
-      { key: 'dashboard', label: 'Dashboard', active: activeTab === 'dashboard', onSelect: () => setActiveTab('dashboard') },
-      { key: 'briefs', label: 'Daily Briefs', active: activeTab === 'briefs', onSelect: () => setActiveTab('briefs') },
-      { key: 'persona', label: 'Persona', active: activeTab === 'persona', onSelect: () => setActiveTab('persona') },
-      { key: 'automations', label: 'Automations', active: activeTab === 'automations', onSelect: () => setActiveTab('automations') },
-      { key: 'docs', label: 'Docs', active: activeTab === 'docs', onSelect: () => setActiveTab('docs') },
+      { key: 'dashboard', label: 'Dashboard', active: activeTab === 'dashboard', onSelect: () => navigateToSection('dashboard') },
+      { key: 'briefs', label: 'Daily Briefs', active: activeTab === 'briefs', onSelect: () => navigateToSection('briefs') },
+      { key: 'persona', label: 'Persona', active: activeTab === 'persona', onSelect: () => navigateToSection('persona') },
+      { key: 'automations', label: 'Automations', active: activeTab === 'automations', onSelect: () => navigateToSection('automations') },
+      { key: 'docs', label: 'Docs', active: activeTab === 'docs', onSelect: () => navigateToSection('docs') },
     ],
-    [activeTab],
+    [activeTab, navigateToSection],
   );
 
-  async function fetchFreshJson<T>(path: string): Promise<T> {
+  const fetchFreshJson = useCallback(async function fetchFreshJson<T>(path: string): Promise<T> {
     const separator = path.includes('?') ? '&' : '?';
     const response = await fetch(`${API_URL}${path}${separator}brain_ts=${Date.now()}`, {
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-store' },
     });
     return response.json() as Promise<T>;
-  }
+  }, []);
 
-  async function loadData(cancelled = false) {
+  const loadData = useCallback(async function loadData(cancelled = false) {
       const [briefsRes, personaRes, controlPlaneRes, youtubeWatchlistRes, youtubeJobsRes] = await Promise.allSettled([
         fetchFreshJson<DailyBriefEntry[]>('/api/briefs/?limit=50'),
         fetchFreshJson<PersonaDeltaEntry[]>('/api/persona/deltas?limit=100&view=brain_queue'),
@@ -646,16 +738,19 @@ export default function BrainClient({
       } else {
         console.error('Failed to load YouTube ingest jobs', youtubeJobsRes.reason);
       }
-  }
+  }, [fetchFreshJson]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
-    const syncWidth = () => setViewportWidth(window.innerWidth);
-    syncWidth();
-    window.addEventListener('resize', syncWidth);
-    return () => window.removeEventListener('resize', syncWidth);
+    const syncViewport = () => {
+      setViewportWidth(window.innerWidth);
+      setViewportHeight(window.innerHeight);
+    };
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
   }, []);
 
   useEffect(() => {
@@ -666,7 +761,7 @@ export default function BrainClient({
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [loadData]);
 
   async function submitLongFormIngest() {
     setLongFormIngestStatus(null);
@@ -700,48 +795,54 @@ export default function BrainClient({
   }
 
   return (
-    <RuntimePage module="brain" tabs={tabs} maxWidth="1560px">
-      {activeTab === 'dashboard' && (
-        <DashboardPanel
-          briefCount={briefs.length}
-          docCount={mergedDocs.length}
-          automationCount={automations.length}
-          telemetry={telemetry}
-          telemetryHealth={telemetryHealth}
-          telemetryError={telemetryError}
-          workspaceSnapshot={workspaceSnapshot}
-          workspaceSnapshotError={workspaceSnapshotError}
-          youtubeWatchlist={youtubeWatchlist}
-          youtubeWatchlistError={youtubeWatchlistError}
-          youtubeIngestJobs={youtubeIngestJobs}
-          longFormIngest={longFormIngest}
-          setLongFormIngest={setLongFormIngest}
-          longFormIngestStatus={longFormIngestStatus}
-          longFormIngestError={longFormIngestError}
-          longFormSubmitting={longFormSubmitting}
-          onSubmitLongFormIngest={submitLongFormIngest}
-          refreshBrainData={() => loadData()}
-        />
-      )}
-      {activeTab === 'briefs' && (
-        <DailyBriefsPanel briefs={briefs} selected={selectedBrief} onSelect={setSelectedBrief} error={briefsError} onRefresh={() => loadData()} />
-      )}
-      {activeTab === 'persona' && (
-        <PersonaPanel
-          packs={personaWorkspace.packs}
-          deltas={personaDeltas}
-          error={personaDeltasError}
-          viewportWidth={viewportWidth}
-          refreshBrainData={() => loadData()}
-          mergeUpdatedDelta={(updatedDelta) =>
-            setPersonaDeltas((current) => current.map((delta) => (delta.id === updatedDelta.id ? updatedDelta : delta)))
-          }
-        />
-      )}
-      {activeTab === 'automations' && (
-        <AutomationsPanel automations={automations} error={automationsError} controlPlane={controlPlane} />
-      )}
-      {activeTab === 'docs' && <DocsPanel docs={mergedDocs} />}
+    <RuntimePage module="brain" tabs={tabs} maxWidth="min(1920px, calc(100vw - 24px))">
+      <div style={{ display: 'grid', gap: '28px' }}>
+        <section id="brain-section-dashboard" style={{ scrollMarginTop: '96px' }}>
+          <DashboardPanel
+            briefCount={briefs.length}
+            docCount={mergedDocs.length}
+            automationCount={automations.length}
+            controlPlane={controlPlane}
+            telemetry={telemetry}
+            telemetryHealth={telemetryHealth}
+            telemetryError={telemetryError}
+            workspaceSnapshot={workspaceSnapshot}
+            workspaceSnapshotError={workspaceSnapshotError}
+            youtubeWatchlist={youtubeWatchlist}
+            youtubeWatchlistError={youtubeWatchlistError}
+            youtubeIngestJobs={youtubeIngestJobs}
+            longFormIngest={longFormIngest}
+            setLongFormIngest={setLongFormIngest}
+            longFormIngestStatus={longFormIngestStatus}
+            longFormIngestError={longFormIngestError}
+            longFormSubmitting={longFormSubmitting}
+            onSubmitLongFormIngest={submitLongFormIngest}
+            refreshBrainData={() => loadData()}
+          />
+        </section>
+        <section id="brain-section-briefs" style={{ scrollMarginTop: '96px' }}>
+          <DailyBriefsPanel briefs={briefs} selected={selectedBrief} onSelect={setSelectedBrief} error={briefsError} onRefresh={() => loadData()} />
+        </section>
+        <section id="brain-section-persona" style={{ scrollMarginTop: '96px' }}>
+          <PersonaPanel
+            packs={personaWorkspace.packs}
+            deltas={personaDeltas}
+            error={personaDeltasError}
+            viewportWidth={viewportWidth}
+            viewportHeight={viewportHeight}
+            refreshBrainData={() => loadData()}
+            mergeUpdatedDelta={(updatedDelta) =>
+              setPersonaDeltas((current) => current.map((delta) => (delta.id === updatedDelta.id ? updatedDelta : delta)))
+            }
+          />
+        </section>
+        <section id="brain-section-automations" style={{ scrollMarginTop: '96px' }}>
+          <AutomationsPanel automations={automations} error={automationsError} controlPlane={controlPlane} />
+        </section>
+        <section id="brain-section-docs" style={{ scrollMarginTop: '96px' }}>
+          <DocsPanel docs={mergedDocs} />
+        </section>
+      </div>
     </RuntimePage>
   );
 }
@@ -750,6 +851,7 @@ function DashboardPanel({
   briefCount,
   docCount,
   automationCount,
+  controlPlane,
   telemetry,
   telemetryHealth,
   telemetryError,
@@ -769,6 +871,7 @@ function DashboardPanel({
   briefCount: number;
   docCount: number;
   automationCount: number;
+  controlPlane: BrainControlPlanePayload | null;
   telemetry: CaptureTelemetry | null;
   telemetryHealth: OpenBrainHealth | null;
   telemetryError: string | null;
@@ -787,11 +890,11 @@ function DashboardPanel({
 }) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <HeroBlock briefCount={briefCount} docCount={docCount} automationCount={automationCount} />
       <BrainControlPlanePanel
         briefCount={briefCount}
         docCount={docCount}
         automationCount={automationCount}
+        controlPlane={controlPlane}
         telemetry={telemetry}
         workspaceSnapshot={workspaceSnapshot}
         workspaceSnapshotError={workspaceSnapshotError}
@@ -815,47 +918,11 @@ function DashboardPanel({
   );
 }
 
-function HeroBlock({ briefCount, docCount, automationCount }: { briefCount: number; docCount: number; automationCount: number }) {
-  return (
-    <section
-      style={{
-        borderRadius: '20px',
-        padding: '24px',
-        background: 'linear-gradient(135deg, rgba(12,25,55,0.95), rgba(4,8,20,0.95))',
-        border: '1px solid rgba(148,163,184,0.15)',
-        boxShadow: '0 25px 70px rgba(3,5,15,0.55)',
-        marginBottom: '24px',
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
-        <div>
-          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Brain Dashboard</p>
-          <h1 style={{ color: 'white', fontSize: '32px', margin: '4px 0' }}>Knowledge + automations</h1>
-          <p style={{ color: '#94a3b8', fontSize: '14px' }}>Daily briefs, Open Brain telemetry, and docs in the same shell used across the reference control UI.</p>
-        </div>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <HeroStat label="Briefs" value={briefCount.toString()} tone="#38bdf8" />
-          <HeroStat label="Automations" value={automationCount.toString()} tone="#fbbf24" />
-          <HeroStat label="Docs" value={docCount.toString()} tone="#34d399" />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function HeroStat({ label, value, tone }: { label: string; value: string; tone: string }) {
-  return (
-    <div style={{ minWidth: '120px', borderRadius: '14px', border: '1px solid #1f2937', padding: '12px 16px', backgroundColor: '#020617' }}>
-      <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</p>
-      <p style={{ color: tone, fontSize: '22px', fontWeight: 600 }}>{value}</p>
-    </div>
-  );
-}
-
 function BrainControlPlanePanel({
   briefCount,
   docCount,
   automationCount,
+  controlPlane,
   telemetry,
   workspaceSnapshot,
   workspaceSnapshotError,
@@ -863,6 +930,7 @@ function BrainControlPlanePanel({
   briefCount: number;
   docCount: number;
   automationCount: number;
+  controlPlane: BrainControlPlanePayload | null;
   telemetry: CaptureTelemetry | null;
   workspaceSnapshot: BrainWorkspaceSnapshot | null;
   workspaceSnapshotError: string | null;
@@ -871,18 +939,60 @@ function BrainControlPlanePanel({
   const routeCounts = workspaceSnapshot?.long_form_routes?.primary_route_counts ?? workspaceSnapshot?.long_form_routes?.route_counts ?? {};
   const personaCounts = workspaceSnapshot?.persona_review_summary?.counts;
   const relationCounts = workspaceSnapshot?.persona_review_summary?.belief_relation_counts ?? {};
+  const brainMemorySync = controlPlane?.brain_memory_sync ?? null;
+  const memorySyncItems = (brainMemorySync?.processed_items ?? []).slice(0, 4);
+  const truthLanes = [
+    {
+      title: 'Persona Canon',
+      tone: '#38bdf8',
+      description: 'Identity, voice, stories, and principles you explicitly want the system to remember about you.',
+    },
+    {
+      title: 'Canonical Memory',
+      tone: '#22c55e',
+      description: 'Operating memory used by pruning, briefs, Chronicle, standups, and the broader maintenance loop.',
+    },
+    {
+      title: 'PM Truth',
+      tone: '#f59e0b',
+      description: 'Executable work. Only concrete decisions and commitments should land here as PM cards.',
+    },
+  ];
 
   return (
-    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
-      <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+    <section
+      style={{
+        borderRadius: '20px',
+        padding: '24px',
+        background: 'linear-gradient(135deg, rgba(12,25,55,0.95), rgba(4,8,20,0.95))',
+        border: '1px solid rgba(148,163,184,0.15)',
+        boxShadow: '0 25px 70px rgba(3,5,15,0.45)',
+      }}
+    >
+      <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
-          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Brain Control Plane</p>
-          <p style={{ color: '#64748b', fontSize: '13px' }}>
-            Global briefs, docs, persona state, automations, and shared source intelligence should be understandable here without bouncing back to Workspace.
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Brain Overview</p>
+          <h1 style={{ color: 'white', fontSize: '32px', margin: '4px 0 10px' }}>One surface for the AI clone brain</h1>
+          <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.65, maxWidth: '860px', margin: 0 }}>
+            This page should let you read the operating memory, review persona deltas, inspect automations, and route important signal without bouncing between separate brain pages.
           </p>
         </div>
-        {workspaceSnapshotError && <p style={{ color: '#f87171', fontSize: '12px' }}>{workspaceSnapshotError}</p>}
+        <div style={{ display: 'grid', gap: '8px', justifyItems: 'end' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <a href="#brain-section-briefs" style={brainLinkButtonStyle}>
+              Daily briefs
+            </a>
+            <a href="#brain-section-persona" style={brainLinkButtonStyle}>
+              Persona queue
+            </a>
+            <a href="#brain-section-docs" style={brainLinkButtonStyle}>
+              Docs + memory
+            </a>
+          </div>
+          {workspaceSnapshotError && <p style={{ color: '#fca5a5', fontSize: '12px', margin: 0 }}>{workspaceSnapshotError}</p>}
+        </div>
       </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
         <TelemetryStat label="Briefs" value={briefCount} tone="#38bdf8" detail="Saved daily briefs" />
         <TelemetryStat label="Automations" value={automationCount} tone="#fbbf24" detail="Configured jobs" />
@@ -890,7 +1000,74 @@ function BrainControlPlanePanel({
         <TelemetryStat label="Captures" value={telemetry?.captures.total ?? 0} tone="#818cf8" detail="Open Brain all time" />
         <TelemetryStat label="Pending Review" value={personaCounts?.brain_pending_review ?? 0} tone="#f97316" detail="Brain queue" />
         <TelemetryStat label="Workspace Saved" value={personaCounts?.workspace_saved ?? 0} tone="#22c55e" detail="Already approved" />
+        <TelemetryStat
+          label="Memory Queue"
+          value={brainMemorySync?.queued_route_count ?? 0}
+          tone={(brainMemorySync?.queued_route_count ?? 0) > 0 ? '#fbbf24' : '#22c55e'}
+          detail="Queued for local canonical-memory sync"
+        />
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+        {truthLanes.map((lane) => (
+          <div
+            key={lane.title}
+            style={{
+              borderRadius: '12px',
+              border: `1px solid ${lane.tone}33`,
+              backgroundColor: `${lane.tone}10`,
+              padding: '12px',
+            }}
+          >
+            <p style={{ color: lane.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>{lane.title}</p>
+            <p style={{ color: '#dbe7ff', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{lane.description}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.9fr) minmax(0, 1.1fr)', gap: '12px', marginBottom: '14px' }}>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px', display: 'grid', gap: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <p style={{ color: '#22c55e', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Canonical Memory Sync</p>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: '8px 0 0' }}>
+                Local brain worker that drains reviewed signal into persistent memory files for briefs, standups, Chronicle, and the maintenance loop.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <InlineBadge label={brainMemorySync?.sync_live ? 'Sync live' : 'Sync idle'} tone={brainMemorySync?.sync_live ? '#22c55e' : '#64748b'} />
+              <InlineBadge label={`Queue ${numberMeta(brainMemorySync?.queued_route_count)}`} tone={(brainMemorySync?.queued_route_count ?? 0) > 0 ? '#fbbf24' : '#38bdf8'} />
+              <InlineBadge label={`Processed ${numberMeta(brainMemorySync?.processed_count)}`} tone="#818cf8" />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+            <TelemetryMeta
+              label="Last Sync"
+              value={brainMemorySync?.generated_at ? formatTimestamp(new Date(brainMemorySync.generated_at)) : '—'}
+              detail="Latest status published into the control plane"
+            />
+            <TelemetryMeta
+              label="Artifacts"
+              value={String(brainMemorySync?.artifact_paths?.length ?? 0)}
+              detail="Files touched or reported by the local worker"
+            />
+            <TelemetryMeta
+              label="Queue Depth"
+              value={String(brainMemorySync?.queued_route_count ?? 0)}
+              detail="Pending canonical-memory route entries"
+            />
+          </div>
+        </div>
+        <BriefOverlayBlock
+          title="Latest Memory Promotions"
+          items={memorySyncItems.map(
+            (item) =>
+              `${item.workspace_key || 'shared_ops'} · ${(item.targets ?? []).join(', ') || 'memory'} · ${truncateText(item.summary || 'No summary saved.', 120)}`,
+          )}
+          emptyLabel="No recent canonical-memory promotions processed yet."
+        />
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <BriefOverlayBlock
           title="Shared Source System"
@@ -1966,6 +2143,7 @@ function PersonaPanel({
   deltas,
   error,
   viewportWidth,
+  viewportHeight,
   refreshBrainData,
   mergeUpdatedDelta,
 }: {
@@ -1973,12 +2151,14 @@ function PersonaPanel({
   deltas: PersonaDeltaEntry[];
   error: string | null;
   viewportWidth: number;
+  viewportHeight: number;
   refreshBrainData: () => Promise<void>;
   mergeUpdatedDelta: (updatedDelta: PersonaDeltaEntry) => void;
 }) {
   const [completedDeltaIds, setCompletedDeltaIds] = useState<string[]>([]);
   const [showMutedActive, setShowMutedActive] = useState(false);
   const [lifecycleView, setLifecycleView] = useState<'pending_promotion' | 'workspace_saved' | 'committed' | 'resolved'>('pending_promotion');
+  const [showLifecycleAudit, setShowLifecycleAudit] = useState(false);
   const visibleDeltas = useMemo(() => deltas.filter((delta) => !completedDeltaIds.includes(delta.id)), [completedDeltaIds, deltas]);
   const activeReviewDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'brain_pending_review'), [visibleDeltas]);
   const workspaceSavedDeltas = useMemo(() => visibleDeltas.filter((delta) => personaDeltaStage(delta) === 'workspace_saved'), [visibleDeltas]);
@@ -2006,10 +2186,7 @@ function PersonaPanel({
             score: personaDeltaPriorityScore(delta, promotionCandidateCount, muted),
           };
         })
-        .sort((left, right) => {
-          if (right.score !== left.score) return right.score - left.score;
-          return new Date(right.delta.created_at).getTime() - new Date(left.delta.created_at).getTime();
-        }),
+        .sort((left, right) => new Date(right.delta.created_at).getTime() - new Date(left.delta.created_at).getTime()),
     [activeReviewDeltas],
   );
   const primaryActiveReviewDeltas = useMemo(() => scoredActiveReviewDeltas.filter((item) => !item.muted), [scoredActiveReviewDeltas]);
@@ -2018,7 +2195,8 @@ function PersonaPanel({
     if (primaryActiveReviewDeltas.length === 0) {
       return mutedActiveReviewDeltas;
     }
-    return showMutedActive ? [...primaryActiveReviewDeltas, ...mutedActiveReviewDeltas] : primaryActiveReviewDeltas;
+    const combined = showMutedActive ? [...primaryActiveReviewDeltas, ...mutedActiveReviewDeltas] : primaryActiveReviewDeltas;
+    return [...combined].sort((left, right) => new Date(right.delta.created_at).getTime() - new Date(left.delta.created_at).getTime());
   }, [mutedActiveReviewDeltas, primaryActiveReviewDeltas, showMutedActive]);
   const reviewQueue = useMemo(() => visibleActiveReviewDeltas.map((item) => item.delta), [visibleActiveReviewDeltas]);
   const [selectedDeltaId, setSelectedDeltaId] = useState<string>(reviewQueue[0]?.id ?? '');
@@ -2037,6 +2215,16 @@ function PersonaPanel({
   const [recentlyQueuedDeltaId, setRecentlyQueuedDeltaId] = useState<string | null>(null);
   const [recentlyCommittedDeltaId, setRecentlyCommittedDeltaId] = useState<string | null>(null);
   const [promotionItemTargetOverrides, setPromotionItemTargetOverrides] = useState<Record<string, string>>({});
+  const [routeToMemory, setRouteToMemory] = useState(false);
+  const [routeToStandup, setRouteToStandup] = useState(false);
+  const [routeToPM, setRouteToPM] = useState(false);
+  const [triageMemoryTargets, setTriageMemoryTargets] = useState<string[]>(['persistent_state']);
+  const [triageWorkspaceKeys, setTriageWorkspaceKeys] = useState<string[]>(['shared_ops']);
+  const [triageStandupKind, setTriageStandupKind] = useState<'auto' | 'executive_ops' | 'operations' | 'weekly_review' | 'saturday_vision' | 'workspace_sync'>('auto');
+  const [triagePMTitle, setTriagePMTitle] = useState('');
+  const [showTriageControls, setShowTriageControls] = useState(true);
+  const [triageState, setTriageState] = useState<{ tone: 'idle' | 'success' | 'error'; message: string }>({ tone: 'idle', message: '' });
+  const [isRoutingSignal, setIsRoutingSignal] = useState(false);
   const selectedDelta = useMemo(
     () => reviewQueue.find((delta) => delta.id === selectedDeltaId) ?? reviewQueue[0] ?? null,
     [reviewQueue, selectedDeltaId],
@@ -2047,12 +2235,47 @@ function PersonaPanel({
   );
   const targetFile = selectedDelta ? metadataText(selectedDelta.metadata, 'target_file') : null;
   const [selectedPromotionItemIds, setSelectedPromotionItemIds] = useState<string[]>([]);
+  const [promotionFragmentView, setPromotionFragmentView] = useState<PromotionFragmentView>('recommended');
   const [selectedResponseKind, setSelectedResponseKind] = useState<'agree' | 'disagree' | 'nuance' | 'story' | 'language'>('nuance');
   const baseSelectableItems = useMemo(() => buildPromotionItems(selectedDelta, targetFile), [selectedDelta, targetFile]);
   const selectableItems = useMemo(
     () => applyPromotionTargetOverrides(baseSelectableItems, promotionItemTargetOverrides),
     [baseSelectableItems, promotionItemTargetOverrides],
   );
+  const rankedSelectableItems = useMemo(() => rankPromotionItems(selectableItems, targetFile), [selectableItems, targetFile]);
+  const recommendedSelectableItems = useMemo(
+    () => rankedSelectableItems.filter((item) => resolvePromotionGate(item, targetFile).decision === 'allow'),
+    [rankedSelectableItems, targetFile],
+  );
+  const needsWorkSelectableItems = useMemo(
+    () => rankedSelectableItems.filter((item) => resolvePromotionGate(item, targetFile).decision !== 'allow'),
+    [rankedSelectableItems, targetFile],
+  );
+  const displaySelectableItems = useMemo(() => {
+    const selected = new Set(selectedPromotionItemIds);
+    const base =
+      promotionFragmentView === 'recommended'
+        ? recommendedSelectableItems
+        : promotionFragmentView === 'needs_work'
+        ? needsWorkSelectableItems
+        : rankedSelectableItems;
+    if (selected.size === 0) {
+      return base;
+    }
+    const merged = [...base];
+    for (const item of rankedSelectableItems) {
+      if (selected.has(item.id) && !merged.some((entry) => entry.id === item.id)) {
+        merged.push(item);
+      }
+    }
+    return merged;
+  }, [
+    needsWorkSelectableItems,
+    promotionFragmentView,
+    rankedSelectableItems,
+    recommendedSelectableItems,
+    selectedPromotionItemIds,
+  ]);
   const selectedPromotionItems = useMemo(
     () => selectableItems.filter((item) => selectedPromotionItemIds.includes(item.id)),
     [selectableItems, selectedPromotionItemIds],
@@ -2061,14 +2284,18 @@ function PersonaPanel({
     () => Array.from(new Set(selectedPromotionItems.map((item) => item.targetFile).filter((value): value is string => Boolean(value)))),
     [selectedPromotionItems],
   );
-  const contextTargetFile = selectedPromotionTargetFiles[0] ?? selectableItems[0]?.targetFile ?? targetFile;
+  const suggestedTargetFile = metadataText(selectedDelta?.metadata, 'suggested_target_file') ?? targetFile;
+  const reviewSource = metadataText(selectedDelta?.metadata, 'review_source');
+  const primaryRoute = metadataText(selectedDelta?.metadata, 'primary_route');
+  const weakSourceFragment = metadataBoolean(selectedDelta?.metadata, 'weak_source_fragment');
+  const contextTargetFile = selectedPromotionTargetFiles[0] ?? selectableItems[0]?.targetFile ?? suggestedTargetFile;
   const linkedPack = useMemo(() => findPackBySection(packs, contextTargetFile) ?? packs[0] ?? null, [packs, contextTargetFile]);
   const targetSection = useMemo(() => findPackSection(packs, contextTargetFile), [packs, contextTargetFile]);
   const activeContext = targetSection?.content ?? linkedPack?.sections[0]?.content ?? null;
   const activeContextPath = targetSection?.path ?? linkedPack?.sections[0]?.path ?? null;
-  const reviewHeadline = selectedDelta ? buildReviewHeadline(selectedDelta, targetFile) : 'No persona review items queued.';
-  const reviewReason = selectedDelta ? buildReviewReason(selectedDelta, targetFile, activeContextPath) : 'There is no pending persona item to review right now.';
-  const reviewAsk = selectedDelta ? buildReviewAsk(selectedDelta, targetFile) : 'You can still save a general thought to memory if you want to capture something new.';
+  const reviewHeadline = selectedDelta ? buildReviewHeadline(selectedDelta, suggestedTargetFile) : 'No persona review items queued.';
+  const reviewReason = selectedDelta ? buildReviewReason(selectedDelta, suggestedTargetFile, activeContextPath) : 'There is no pending persona item to review right now.';
+  const reviewAsk = selectedDelta ? buildReviewAsk(selectedDelta, suggestedTargetFile) : 'You can still save a general thought to memory if you want to capture something new.';
   const evidenceLabel =
     metadataText(selectedDelta?.metadata, 'evidence_source') ?? (selectedDelta?.capture_id ? `capture ${selectedDelta.capture_id}` : 'Not linked yet');
   const statusLabel = selectedDelta?.status ?? 'pending';
@@ -2088,6 +2315,104 @@ function PersonaPanel({
   );
   const activePromotionAlternativeTarget =
     (selectedPromotionItems.length > 0 ? selectedPromotionGate.alternativeTarget : null) || availablePromotionGate.alternativeTarget;
+  const canonActionItems = useMemo(
+    () => (selectedPromotionItems.length > 0 ? selectedPromotionItems : recommendedSelectableItems),
+    [recommendedSelectableItems, selectedPromotionItems],
+  );
+  const canonActionGate = useMemo(
+    () => summarizePromotionItems(canonActionItems, targetFile),
+    [canonActionItems, targetFile],
+  );
+  const canMakeCanonNow = canonActionItems.length > 0 && canonActionGate.decision === 'allow';
+  const canonActionLabel =
+    canonActionItems.length === 0 ? 'Select canon fragments' : canMakeCanonNow ? 'Make canon' : 'Save canon selection';
+  const canonActionHint =
+    canonActionItems.length === 0
+      ? 'Pick at least one optional canon fragment first.'
+      : canMakeCanonNow
+      ? 'This writes the selected fragments into runtime canon now.'
+      : canonActionGate.reason || 'This saves your canon choice and holds it until the proof is stronger.';
+  const hasRouteTargets = routeToMemory || routeToStandup || routeToPM;
+  const isFinalizePending = isSavingReflection || isRoutingSignal;
+  const finalizeActionDisabled = !hasRouteTargets && canonActionItems.length === 0;
+  const finalizeActionLabel = hasRouteTargets
+    ? canonActionItems.length > 0
+      ? canMakeCanonNow
+        ? 'Finalize canon + route'
+        : 'Finalize review + route'
+      : 'Save + route'
+    : canonActionLabel;
+  const finalizeActionBusyLabel = hasRouteTargets
+    ? canMakeCanonNow
+      ? 'Finalizing…'
+      : 'Saving + routing…'
+    : canMakeCanonNow
+    ? 'Making canon…'
+    : 'Saving canon…';
+  const finalizeActionHint = hasRouteTargets
+    ? `${canonActionHint} Routing will run in the same action.`
+    : canonActionHint;
+  const routeHistory = useMemo(
+    () =>
+      metadataArray(selectedDelta?.metadata, 'brain_route_history').filter(
+        (entry): entry is BrainRouteHistoryEntry => Boolean(entry && typeof entry === 'object'),
+      ),
+    [selectedDelta],
+  );
+  const pendingCanonicalMemoryRoutes = useMemo(
+    () =>
+      metadataArray(selectedDelta?.metadata, 'pending_canonical_memory_routes').filter(
+        (entry): entry is PendingCanonicalMemoryRouteEntry => Boolean(entry && typeof entry === 'object'),
+      ),
+    [selectedDelta],
+  );
+  const triageWorkspaceSelection = useMemo(() => (triageWorkspaceKeys.length > 0 ? triageWorkspaceKeys : ['shared_ops']), [triageWorkspaceKeys]);
+  const triageExecutionPreviews = useMemo(
+    () =>
+      triageWorkspaceSelection.map((workspaceKey) => {
+        const effectiveKind = triageStandupKind === 'auto' ? suggestStandupKindForWorkspace(workspaceKey) : triageStandupKind;
+        return {
+          workspaceKey,
+          standupKind: effectiveKind,
+          participants: participantsForBrainRoute(workspaceKey, effectiveKind),
+          executionModel: executionModelForBrainWorkspace(workspaceKey),
+        };
+      }),
+    [triageStandupKind, triageWorkspaceSelection],
+  );
+  const sourceTitle = metadataText(selectedDelta?.metadata, 'evidence_source') ?? metadataText(selectedDelta?.metadata, 'source_asset_id') ?? selectedDelta?.trait ?? 'Untitled source';
+  const sourceChannel = metadataText(selectedDelta?.metadata, 'source_channel') ?? metadataText(selectedDelta?.metadata, 'source_type');
+  const sourceUrl = metadataText(selectedDelta?.metadata, 'source_url');
+  const sourceExcerpt =
+    metadataText(selectedDelta?.metadata, 'source_excerpt_clean') ??
+    metadataText(selectedDelta?.metadata, 'segment_excerpt') ??
+    metadataStringArray(selectedDelta?.metadata, 'talking_points')[0] ??
+    selectedDelta?.notes?.trim() ??
+    null;
+  const sourceContextExcerpt = metadataText(selectedDelta?.metadata, 'source_context_excerpt');
+  const sourceContextBefore = metadataStringArray(selectedDelta?.metadata, 'source_context_before');
+  const sourceContextAfter = metadataStringArray(selectedDelta?.metadata, 'source_context_after');
+  const talkingPoints = useMemo(
+    () =>
+      metadataStringArray(selectedDelta?.metadata, 'talking_points')
+        .filter((point) => point && point !== sourceExcerpt)
+        .slice(0, 3),
+    [selectedDelta, sourceExcerpt],
+  );
+  const routeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          metadataStringArray(selectedDelta?.metadata, 'response_modes').filter((value) => value && value !== primaryRoute),
+        ),
+      ),
+    [selectedDelta, primaryRoute],
+  );
+  const beliefSummary = metadataText(selectedDelta?.metadata, 'system_hypothesis') ?? metadataText(selectedDelta?.metadata, 'belief_summary');
+  const experienceAnchor = metadataText(selectedDelta?.metadata, 'experience_anchor');
+  const experienceSummary =
+    metadataText(selectedDelta?.metadata, 'system_experience_hypothesis') ?? metadataText(selectedDelta?.metadata, 'experience_summary');
+  const routeReason = metadataText(selectedDelta?.metadata, 'route_reason');
   const pendingCount = primaryActiveReviewDeltas.length;
   const totalPendingCount = scoredActiveReviewDeltas.length;
   const mutedCount = mutedActiveReviewDeltas.length;
@@ -2135,8 +2460,25 @@ function PersonaPanel({
   );
   const stackPersonaShell = viewportWidth < 1220;
   const stackPersonaDetail = viewportWidth < 1480;
-  const usePinnedPersonaViewport = viewportWidth >= 1220;
-  const personaViewportHeight = usePinnedPersonaViewport ? 'calc(100vh - 185px)' : 'auto';
+  const usePinnedPersonaViewport = viewportWidth >= 1180 && viewportHeight >= 760;
+  const compactPersonaChrome = usePinnedPersonaViewport;
+  const personaViewportHeight = usePinnedPersonaViewport ? 'calc(100vh - 162px)' : 'auto';
+  const personaSectionRows = usePinnedPersonaViewport
+    ? showLifecycleAudit
+      ? selectedDelta
+        ? 'minmax(0, 1.42fr) minmax(300px, 0.64fr)'
+        : 'minmax(0, 1.1fr) minmax(300px, 0.9fr)'
+      : 'minmax(0, 1fr) auto'
+    : 'none';
+  const activeReviewRows = usePinnedPersonaViewport ? 'auto auto auto minmax(0, 1fr) auto' : 'none';
+  const reflectionToneColor = reflectionState.tone === 'success' ? '#22c55e' : reflectionState.tone === 'error' ? '#f87171' : '#64748b';
+  const triageToneColor = triageState.tone === 'success' ? '#22c55e' : triageState.tone === 'error' ? '#f87171' : '#64748b';
+
+  useEffect(() => {
+    if (!usePinnedPersonaViewport) {
+      setShowLifecycleAudit(true);
+    }
+  }, [usePinnedPersonaViewport]);
 
   useEffect(() => {
     if (!selectedDelta && reviewQueue[0]) {
@@ -2171,7 +2513,33 @@ function PersonaPanel({
 
   useEffect(() => {
     setPromotionItemTargetOverrides({});
-  }, [selectedDelta?.id]);
+  }, [selectedDelta]);
+
+  useEffect(() => {
+    const suggestedWorkspaceKey = suggestBrainWorkspaceKey(selectedDelta);
+    setRouteToMemory(false);
+    setRouteToStandup(false);
+    setRouteToPM(false);
+    setShowTriageControls(true);
+    setTriageMemoryTargets(['persistent_state']);
+    setTriageWorkspaceKeys([suggestedWorkspaceKey]);
+    setTriageStandupKind('auto');
+    setTriagePMTitle(selectedDelta ? defaultBrainPMTitle(selectedDelta) : '');
+    setTriageState({ tone: 'idle', message: '' });
+  }, [selectedDelta]);
+
+  async function postPromotionCommit(deltaId: string) {
+    const response = await fetch(`${API_URL}/api/brain/persona-promote/${deltaId}`, {
+      method: 'POST',
+      headers: { 'Cache-Control': 'no-store' },
+      cache: 'no-store',
+    });
+    const payload = (await response.json()) as BrainPromotionResponse | { detail?: string };
+    if (!response.ok) {
+      throw new Error((payload as { detail?: string }).detail || `Promotion failed with ${response.status}`);
+    }
+    return payload as BrainPromotionResponse;
+  }
 
   async function commitPromotion(delta: PersonaDeltaEntry) {
     const gateSummary = summarizePromotionItems(readPromotionItemsFromMetadata(delta.metadata), metadataText(delta.metadata, 'target_file'));
@@ -2188,23 +2556,15 @@ function PersonaPanel({
     setPromotionState({ tone: 'idle', message: '' });
     setPromotingDeltaId(delta.id);
     try {
-      const response = await fetch(`${API_URL}/api/brain/persona-promote/${delta.id}`, {
-        method: 'POST',
-        headers: { 'Cache-Control': 'no-store' },
-        cache: 'no-store',
-      });
-      const payload = (await response.json()) as BrainPromotionResponse | { detail?: string };
-      if (!response.ok) {
-        throw new Error((payload as { detail?: string }).detail || `Promotion failed with ${response.status}`);
-      }
-      mergeUpdatedDelta((payload as BrainPromotionResponse).delta);
+      const payload = await postPromotionCommit(delta.id);
+      mergeUpdatedDelta(payload.delta);
       await refreshBrainData();
       setRecentlyQueuedDeltaId(null);
       setRecentlyCommittedDeltaId(delta.id);
       setLifecycleView('committed');
       setPromotionState({
         tone: 'success',
-        message: `${(payload as BrainPromotionResponse).message || 'Promotion committed.'} Target files: ${(((payload as BrainPromotionResponse).committed_target_files || []) as string[]).join(', ') || 'n/a'}. Bundle write: ${(((payload as BrainPromotionResponse).bundle_written_files || []) as string[]).join(', ') || 'pending local sync'}.`,
+        message: `${payload.message || 'Canon updated.'} Target files: ${(payload.committed_target_files || []).join(', ') || 'n/a'}. Bundle write: ${(payload.bundle_written_files || []).join(', ') || 'pending local sync'}.`,
       });
       if (selectedDeltaId === delta.id) {
         setSelectedDeltaId(reviewQueue[0]?.id ?? '');
@@ -2304,35 +2664,82 @@ function PersonaPanel({
     setReflectionState({ tone: 'idle', message: '' });
   }
 
-  async function saveReflection(mode: 'reviewed' | 'approved' = 'reviewed') {
-    const trimmedReflection = reflectionText.trim();
-    const keepSelectableSourceOpen = mode === 'reviewed' && selectableItems.length > 0;
-    if (mode === 'approved' && selectedPromotionItems.length === 0) {
-      setReflectionState({ tone: 'error', message: 'Select at least one extracted item before queuing promotion.' });
+  function seedSourceDecision(kind: 'not_useful' | 'source_only' | 'post_seed' | 'canon_candidate') {
+    if (!selectedDelta) {
       return;
     }
-    if (!trimmedReflection && mode === 'reviewed') {
+    const subject = sourceTitle || selectedDelta.trait;
+    const template =
+      kind === 'not_useful'
+        ? `Source judgment for "${subject}":\n- This depends on too much missing context to be useful for memory or canon right now.\n- Keep it out of canon.`
+        : kind === 'source_only'
+        ? `Source judgment for "${subject}":\n- There may be signal here, but it should stay source intelligence for now.\n- I do not want this treated as canon yet.`
+        : kind === 'post_seed'
+        ? `Source judgment for "${subject}":\n- This is more useful as a post seed or writing angle than a canon claim.\n- The idea I would keep is: `
+        : `Source judgment for "${subject}":\n- This feels meaningful enough to keep beyond source intelligence.\n- What I would preserve is: `;
+    setSelectedResponseKind(kind === 'not_useful' ? 'disagree' : 'nuance');
+    setReflectionText((current) => (current.trim().length > 0 ? current : template));
+    setReflectionState({ tone: 'idle', message: '' });
+  }
+
+  async function saveReflection(mode: 'reviewed' | 'approved' = 'reviewed', options: { routeAfterSave?: boolean } = {}) {
+    const routeAfterSave = options.routeAfterSave ?? false;
+    const trimmedReflection = reflectionText.trim();
+    const effectivePromotionItems =
+      mode === 'approved' && selectedPromotionItems.length === 0 && recommendedSelectableItems.length > 0
+        ? recommendedSelectableItems
+        : selectedPromotionItems;
+    const effectiveReflection =
+      trimmedReflection ||
+      savedResponseExcerpt ||
+      (mode === 'approved' && effectivePromotionItems.length > 0
+        ? `Approved canon fragments from "${sourceTitle || selectedDelta?.trait || 'this source'}".`
+        : '');
+    const keepSelectableSourceOpen = mode === 'reviewed' && selectableItems.length > 0 && !routeAfterSave;
+    const effectivePromotionTargetFiles = Array.from(
+      new Set(effectivePromotionItems.map((item) => item.targetFile).filter((value): value is string => Boolean(value))),
+    );
+    const effectivePromotionGate = summarizePromotionItems(effectivePromotionItems, targetFile);
+    if (mode === 'approved' && effectivePromotionItems.length === 0) {
+      setReflectionState({ tone: 'error', message: 'No promotion-ready fragments are selected yet.' });
+      return;
+    }
+    if (!trimmedReflection && mode === 'reviewed' && !routeAfterSave) {
       setReflectionState({ tone: 'error', message: 'Add a thought before saving it to memory.' });
       return;
     }
-    if (!trimmedReflection && mode === 'approved') {
-      setReflectionState({ tone: 'error', message: 'Add a short note so the selected items have your reasoning attached.' });
+    if (!effectiveReflection && mode === 'approved') {
+      setReflectionState({ tone: 'error', message: 'Add a short note or pick canon fragments before finalizing this review.' });
       return;
+    }
+    if (routeAfterSave) {
+      const routeError = validateRoutingSelection(effectiveReflection, effectivePromotionItems);
+      if (routeError) {
+        setReflectionState({ tone: 'error', message: routeError });
+        setTriageState({ tone: 'error', message: routeError });
+        return;
+      }
     }
 
     setIsSavingReflection(true);
+    if (routeAfterSave) {
+      setIsRoutingSignal(true);
+    }
     setReflectionState({ tone: 'idle', message: '' });
     try {
+      let canonOutcome: 'none' | 'queued' | 'committed' = 'none';
+      let routeOutcomeMessage = '';
+      let routeFailureMessage = '';
       const payload = {
         text: buildReflectionCaptureText({
           delta: selectedDelta,
-          reflectionText: trimmedReflection,
-          targetFile: selectedPromotionTargetFiles[0] ?? targetFile,
+          reflectionText: effectiveReflection,
+          targetFile: effectivePromotionTargetFiles[0] ?? targetFile,
           sectionContent: targetSection?.content ?? null,
-          selectedItems: selectedPromotionItems,
+          selectedItems: effectivePromotionItems,
         }),
         source: 'persona_reflection',
-        topics: buildReflectionTopics(selectedDelta, selectedPromotionTargetFiles[0] ?? targetFile, selectedPromotionItems),
+        topics: buildReflectionTopics(selectedDelta, effectivePromotionTargetFiles[0] ?? targetFile, effectivePromotionItems),
         importance: 3,
         metadata: {
           capture_kind: 'persona_reflection',
@@ -2341,11 +2748,11 @@ function PersonaPanel({
           linked_delta_id: selectedDelta?.id ?? null,
           linked_capture_id: selectedDelta?.capture_id ?? null,
           persona_target: selectedDelta?.persona_target ?? null,
-          target_file: selectedPromotionTargetFiles.length === 1 ? selectedPromotionTargetFiles[0] : targetFile,
+          target_file: effectivePromotionTargetFiles.length === 1 ? effectivePromotionTargetFiles[0] : targetFile,
           trait: selectedDelta?.trait ?? null,
           reference_pack: linkedPack?.key ?? null,
           input_mode: 'text',
-          selected_promotion_items: selectedPromotionItems,
+          selected_promotion_items: effectivePromotionItems,
         },
       };
 
@@ -2364,8 +2771,8 @@ function PersonaPanel({
           mode,
           response_kind: selectedResponseKind,
           resolution_capture_id: result.capture_id,
-          reflection_excerpt: trimmedReflection.slice(0, 4000),
-          selected_promotion_items: selectedPromotionItems,
+          reflection_excerpt: effectiveReflection.slice(0, 4000),
+          selected_promotion_items: effectivePromotionItems,
         };
         const reviewResponse = await fetch(`${API_URL}/api/brain/persona-review/${selectedDelta.id}`, {
           method: 'POST',
@@ -2379,20 +2786,61 @@ function PersonaPanel({
         const updatedDelta = (await reviewResponse.json()) as PersonaDeltaEntry;
         mergeUpdatedDelta(updatedDelta);
         if (mode === 'approved') {
-          setRecentlyQueuedDeltaId(updatedDelta.id);
-          setRecentlyCommittedDeltaId(null);
-          setLifecycleView('pending_promotion');
-          setPromotionState({
-            tone: 'success',
-            message:
-              selectedPromotionGate.decision === 'allow'
-                ? `Queued for promotion to ${describePromotionTargets(selectedPromotionItems, targetFile)}: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}". Ready for canon commit.`
-                : `Queued for promotion to ${describePromotionTargets(selectedPromotionItems, targetFile)}: ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} from "${truncateText(updatedDelta.trait, 72)}". ${selectedPromotionGate.reason || 'This still needs stronger artifact-backed proof before it can be committed.'}`,
-          });
+          setSelectedPromotionItemIds(effectivePromotionItems.map((item) => item.id));
+          if (effectivePromotionGate.decision === 'allow') {
+            try {
+              const committed = await postPromotionCommit(updatedDelta.id);
+              mergeUpdatedDelta(committed.delta);
+              setRecentlyQueuedDeltaId(null);
+              setRecentlyCommittedDeltaId(committed.delta.id);
+              setLifecycleView('committed');
+              setPromotionState({
+                tone: 'success',
+                message: `${committed.message || 'Canon updated.'} Target files: ${(committed.committed_target_files || []).join(', ') || 'n/a'}. Bundle write: ${(committed.bundle_written_files || []).join(', ') || 'pending local sync'}.`,
+              });
+              canonOutcome = 'committed';
+            } catch (promoteError) {
+              setRecentlyQueuedDeltaId(updatedDelta.id);
+              setRecentlyCommittedDeltaId(null);
+              setLifecycleView('pending_promotion');
+              setPromotionState({
+                tone: 'error',
+                message:
+                  promoteError instanceof Error
+                    ? `Your canon selection was saved, but committing to canon failed: ${promoteError.message}`
+                    : 'Your canon selection was saved, but committing to canon failed.',
+              });
+              canonOutcome = 'queued';
+            }
+          } else {
+            setRecentlyQueuedDeltaId(updatedDelta.id);
+            setRecentlyCommittedDeltaId(null);
+            setLifecycleView('pending_promotion');
+            setPromotionState({
+              tone: 'success',
+              message: `Saved canon selection for ${describePromotionTargets(effectivePromotionItems, targetFile)}. ${effectivePromotionGate.reason || 'Held until the proof is strong enough to commit.'}`,
+            });
+            canonOutcome = 'queued';
+          }
         } else {
           setPromotionState({ tone: 'idle', message: '' });
           setRecentlyQueuedDeltaId(null);
           setRecentlyCommittedDeltaId(null);
+        }
+        if (routeAfterSave) {
+          try {
+            const { result: routeResult, message } = await submitRouteForDelta(updatedDelta.id, effectiveReflection, effectivePromotionItems);
+            mergeUpdatedDelta(routeResult.delta);
+            routeOutcomeMessage = message;
+            setTriageState({ tone: 'success', message });
+          } catch (routeError) {
+            routeFailureMessage =
+              routeError instanceof Error ? routeError.message : 'Unable to route this reviewed signal right now.';
+            setTriageState({
+              tone: 'error',
+              message: routeFailureMessage,
+            });
+          }
         }
       }
       const nextQueue = selectedDelta ? reviewQueue.filter((delta) => delta.id !== selectedDelta.id) : reviewQueue;
@@ -2402,17 +2850,24 @@ function PersonaPanel({
       }
       setSelectedDeltaId(keepSelectableSourceOpen ? selectedDelta?.id ?? '' : nextQueue[0]?.id ?? '');
       setReflectionText('');
+      const baseMessage = keepSelectableSourceOpen
+        ? `Saved to Open Brain as capture ${result.capture_id}. This source stays open so you can select canonical items when ready.`
+        : nextQueue[0]
+        ? mode === 'approved'
+          ? canonOutcome === 'committed'
+            ? `Saved to Open Brain as capture ${result.capture_id} and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. Moving to the next review item.`
+            : `Saved to Open Brain as capture ${result.capture_id} and saved ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} as a canon selection. Moving to the next review item.`
+          : `Saved to Open Brain as capture ${result.capture_id}. Moving to the next review item.`
+        : mode === 'approved'
+        ? canonOutcome === 'committed'
+          ? `Saved to Open Brain as capture ${result.capture_id} and wrote ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} into canon. You are done for now.`
+          : `Saved to Open Brain as capture ${result.capture_id} and saved ${effectivePromotionItems.length} selected item${effectivePromotionItems.length === 1 ? '' : 's'} as a canon selection. You are done for now.`
+        : `Saved to Open Brain as capture ${result.capture_id}. You are done for now.`;
       setReflectionState({
-        tone: 'success',
-        message: keepSelectableSourceOpen
-          ? `Saved to Open Brain as capture ${result.capture_id}. This source stays open so you can select canonical items when ready.`
-          : nextQueue[0]
-          ? mode === 'approved'
-            ? `Saved to Open Brain as capture ${result.capture_id} and queued ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} for promotion. Moving to the next review item.`
-            : `Saved to Open Brain as capture ${result.capture_id}. Moving to the next review item.`
-          : mode === 'approved'
-          ? `Saved to Open Brain as capture ${result.capture_id} and queued ${selectedPromotionItems.length} selected item${selectedPromotionItems.length === 1 ? '' : 's'} for promotion. You are done for now.`
-          : `Saved to Open Brain as capture ${result.capture_id}. You are done for now.`,
+        tone: routeFailureMessage ? 'error' : 'success',
+        message: routeAfterSave
+          ? `${baseMessage} ${routeFailureMessage ? `Review saved, but routing failed: ${routeFailureMessage}` : routeOutcomeMessage || 'Routing completed in the same action.'}`
+          : baseMessage,
       });
     } catch (saveError) {
       setReflectionState({
@@ -2421,7 +2876,192 @@ function PersonaPanel({
       });
     } finally {
       setIsSavingReflection(false);
+      if (routeAfterSave) {
+        setIsRoutingSignal(false);
+      }
     }
+  }
+
+  function toggleMemoryTarget(target: string) {
+    setTriageMemoryTargets((current) => (current.includes(target) ? current.filter((entry) => entry !== target) : [...current, target]));
+    setTriageState({ tone: 'success', message: `Canonical memory target updated: ${humanizeCanonicalMemoryTarget(target)}.` });
+  }
+
+  function toggleTriageWorkspace(target: string) {
+    setTriageWorkspaceKeys((current) => {
+      if (current.includes(target)) {
+        return current.length === 1 ? current : current.filter((entry) => entry !== target);
+      }
+      return [...current, target];
+    });
+    setTriageState({ tone: 'success', message: `Workspace routing updated: ${labelForBrainWorkspace(target)}.` });
+  }
+
+  function toggleRouteTarget(route: 'memory' | 'standup' | 'pm') {
+    setShowTriageControls(true);
+    if (route === 'memory') {
+      const next = !routeToMemory;
+      setRouteToMemory(next);
+      setTriageState({ tone: 'success', message: `Canonical memory route ${next ? 'enabled' : 'disabled'}.` });
+      return;
+    }
+    if (route === 'standup') {
+      const next = !routeToStandup;
+      setRouteToStandup(next);
+      setTriageState({ tone: 'success', message: `Standup queue route ${next ? 'enabled' : 'disabled'}.` });
+      return;
+    }
+    const next = !routeToPM;
+    setRouteToPM(next);
+    setTriageState({ tone: 'success', message: `PM queue route ${next ? 'enabled' : 'disabled'}.` });
+  }
+
+  function applyTriagePreset(preset: (typeof brainTriagePresetOptions)[number]['key']) {
+    setShowTriageControls(true);
+    if (preset === 'canon_only') {
+      setRouteToMemory(true);
+      setRouteToStandup(false);
+      setRouteToPM(false);
+      setTriageMemoryTargets(['persistent_state', 'learnings']);
+      setTriageState({ tone: 'success', message: 'Preset applied: Canon + Memory.' });
+      return;
+    }
+    if (preset === 'executive_review') {
+      setRouteToMemory(true);
+      setRouteToStandup(true);
+      setRouteToPM(false);
+      setTriageWorkspaceKeys(['shared_ops']);
+      setTriageStandupKind('executive_ops');
+      setTriageMemoryTargets(['persistent_state', 'chronicle']);
+      setTriageState({ tone: 'success', message: 'Preset applied: Executive Review.' });
+      return;
+    }
+    if (preset === 'workspace_followup') {
+      const workspaceKey = triageWorkspaceSelection[0] === 'shared_ops' ? suggestBrainWorkspaceKey(selectedDelta) : triageWorkspaceSelection[0];
+      setRouteToMemory(true);
+      setRouteToStandup(true);
+      setRouteToPM(true);
+      setTriageWorkspaceKeys([workspaceKey]);
+      setTriageStandupKind('auto');
+      setTriageMemoryTargets(['chronicle', 'learnings']);
+      if (selectedDelta) {
+        setTriagePMTitle(defaultBrainPMTitle(selectedDelta));
+      }
+      setTriageState({ tone: 'success', message: `Preset applied: Workspace Follow-Up (${labelForBrainWorkspace(workspaceKey)}).` });
+      return;
+    }
+    setRouteToMemory(false);
+    setRouteToStandup(false);
+    setRouteToPM(true);
+    if (selectedDelta) {
+      setTriagePMTitle(defaultBrainPMTitle(selectedDelta));
+    }
+    setTriageState({ tone: 'success', message: 'Preset applied: PM Only.' });
+  }
+
+  function validateRoutingSelection(effectiveReflection: string, promotionItems: PromotionItem[] = selectedPromotionItems) {
+    if (!effectiveReflection && promotionItems.length === 0) {
+      return 'Add a short reflection or select canonical fragments before routing this signal.';
+    }
+    if (!routeToMemory && !routeToStandup && !routeToPM) {
+      return 'Select at least one route target.';
+    }
+    if (routeToMemory && triageMemoryTargets.length === 0) {
+      return 'Choose at least one canonical memory target.';
+    }
+    return null;
+  }
+
+  function buildRouteResultMessage(result: BrainSystemRouteResponse) {
+    const routeBits: string[] = [];
+    if (result.canonical_memory_targets_queued?.length) {
+      routeBits.push(`queued for ${result.canonical_memory_targets_queued.map(humanizeCanonicalMemoryTarget).join(', ')}`);
+    }
+    if ((result.routes || []).some((entry) => entry.standup?.id) || result.standup?.id) {
+      routeBits.push(`standup queued for ${triageWorkspaceSelection.length} workspace${triageWorkspaceSelection.length === 1 ? '' : 's'}`);
+    }
+    if ((result.routes || []).some((entry) => entry.pm_card?.id) || result.pm_card?.id) {
+      routeBits.push(`PM work created for ${triageWorkspaceSelection.length} workspace${triageWorkspaceSelection.length === 1 ? '' : 's'}`);
+    }
+    return routeBits.length > 0
+      ? `Brain routed this signal to ${triageWorkspaceSelection.map(labelForBrainWorkspace).join(', ')}: ${routeBits.join(' · ')}.`
+      : result.message || 'Brain triage updated.';
+  }
+
+  async function submitRouteForDelta(deltaId: string, effectiveReflection: string, promotionItems: PromotionItem[] = selectedPromotionItems) {
+    const response = await fetch(`${API_URL}/api/brain/system-route/${deltaId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        reflection_excerpt: effectiveReflection || null,
+        selected_promotion_items: promotionItems,
+        workspace_key: triageWorkspaceSelection[0] ?? 'shared_ops',
+        workspace_keys: triageWorkspaceSelection,
+        canonical_memory_targets: routeToMemory ? triageMemoryTargets : [],
+        route_to_standup: routeToStandup,
+        standup_kind: triageStandupKind,
+        route_to_pm: routeToPM,
+        pm_title: routeToPM ? triagePMTitle || defaultBrainPMTitle(selectedDelta) : null,
+      }),
+    });
+    const payload = (await response.json()) as BrainSystemRouteResponse | { detail?: string };
+    if (!response.ok) {
+      throw new Error((payload as { detail?: string }).detail || 'Unable to route this reviewed signal.');
+    }
+    const result = payload as BrainSystemRouteResponse;
+    return {
+      result,
+      message: buildRouteResultMessage(result),
+    };
+  }
+
+  async function routeSelectedSignal() {
+    if (!selectedDelta) {
+      setTriageState({ tone: 'error', message: 'Choose a review item before routing it.' });
+      return;
+    }
+    const effectiveReflection = reflectionText.trim() || savedResponseExcerpt || '';
+    const routeError = validateRoutingSelection(effectiveReflection);
+    if (routeError) {
+      setTriageState({ tone: 'error', message: routeError });
+      return;
+    }
+
+    setIsRoutingSignal(true);
+    setTriageState({ tone: 'idle', message: '' });
+    try {
+      const { result, message } = await submitRouteForDelta(selectedDelta.id, effectiveReflection, selectedPromotionItems);
+      mergeUpdatedDelta(result.delta);
+      await refreshBrainData();
+      setTriageState({
+        tone: 'success',
+        message,
+      });
+    } catch (routeError) {
+      setTriageState({
+        tone: 'error',
+        message: routeError instanceof Error ? routeError.message : 'Unable to route this reviewed signal right now.',
+      });
+    } finally {
+      setIsRoutingSignal(false);
+    }
+  }
+
+  async function finalizeReviewedSignal() {
+    if (!selectedDelta) {
+      setReflectionState({ tone: 'error', message: 'Choose a review item before finalizing it.' });
+      return;
+    }
+    if (!hasRouteTargets && canonActionItems.length === 0) {
+      setReflectionState({
+        tone: 'error',
+        message: 'Choose canon fragments or a route target before finalizing. Use Save note if you only want to store your judgment.',
+      });
+      return;
+    }
+    await saveReflection(canonActionItems.length > 0 ? 'approved' : 'reviewed', {
+      routeAfterSave: hasRouteTargets,
+    });
   }
 
   return (
@@ -2431,7 +3071,7 @@ function PersonaPanel({
         gap: '16px',
         height: personaViewportHeight,
         minHeight: 0,
-        gridTemplateRows: usePinnedPersonaViewport ? 'minmax(0, 1.2fr) minmax(0, 0.92fr)' : 'none',
+        gridTemplateRows: personaSectionRows,
       }}
     >
       <section
@@ -2443,9 +3083,10 @@ function PersonaPanel({
           display: 'grid',
           gap: '12px',
           alignItems: 'start',
-          minHeight: 0,
-          overflow: 'hidden',
-          gridTemplateRows: usePinnedPersonaViewport ? 'auto auto auto minmax(0, 1fr) auto' : 'none',
+          minHeight: usePinnedPersonaViewport ? 'calc(100vh - 190px)' : 0,
+          overflowX: 'hidden',
+          overflowY: usePinnedPersonaViewport ? 'auto' : 'visible',
+          gridTemplateRows: activeReviewRows,
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -2459,15 +3100,23 @@ function PersonaPanel({
             </p>
           </div>
           <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
-            Workspace approvals already count as saved. Brain is the place to review unresolved items, add nuance, and queue canonical promotion without auto-rewriting the bundle.
+            Workspace approvals already count as saved. Brain is where you resolve unresolved items, add nuance, and decide what should become canon without auto-rewriting the bundle.
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
-          <StepCallout step="1" title="Choose item" description="Pick one review item from the left rail." />
-          <StepCallout step="2" title="Review candidate" description="Read the proposed source material and decide what you actually think." />
-          <StepCallout step="3" title="Save your take" description="Record agreement, disagreement, nuance, story, or wording. Queue promotion only if fragments deserve canon." />
-        </div>
+        {compactPersonaChrome ? (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <InlineBadge label="1 Choose review item" tone="#38bdf8" />
+            <InlineBadge label="2 Review source" tone="#22c55e" />
+            <InlineBadge label="3 Save or route" tone="#818cf8" />
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
+            <StepCallout step="1" title="Choose item" description="Pick one review item from the left rail." />
+            <StepCallout step="2" title="Review source" description="Start with the source itself and its surrounding context before you decide on routing." />
+            <StepCallout step="3" title="Save your take" description="Record agreement, disagreement, nuance, story, or wording. Queue promotion only if fragments deserve canon." />
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <ReviewMetaChip label="Active" value={String(totalPendingCount)} tone="#38bdf8" />
@@ -2482,7 +3131,8 @@ function PersonaPanel({
               display: 'grid',
               gridTemplateColumns: stackPersonaShell ? 'minmax(0, 1fr)' : '340px minmax(0, 1fr)',
               gap: '14px',
-              alignItems: 'start',
+              alignItems: 'stretch',
+              height: '100%',
               minHeight: 0,
               overflow: 'hidden',
             }}
@@ -2496,15 +3146,16 @@ function PersonaPanel({
                 display: 'grid',
                 gap: '12px',
                 alignSelf: 'stretch',
+                height: '100%',
                 minHeight: 0,
                 overflow: 'hidden',
                 gridTemplateRows: 'auto auto minmax(0, 1fr)',
               }}
             >
               <div>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Review now</p>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Step 1 · Choose review item</p>
                 <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-                  Focus on the strongest unresolved items first. Muted long-form fragments stay out of the way unless you choose to inspect them.
+                  Newest items appear first. Muted long-form fragments stay out of the way unless you choose to inspect them.
                 </p>
               </div>
               {primaryActiveReviewDeltas.length > 0 && mutedActiveReviewDeltas.length > 0 && (
@@ -2555,7 +3206,12 @@ function PersonaPanel({
                         cursor: 'pointer',
                       }}
                     >
-                      <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>{truncateText(delta.trait, 110)}</p>
+                      <p style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>
+                        {truncateText(reviewQueueCardTitle(delta), 110)}
+                      </p>
+                      <p style={{ color: '#cbd5f5', fontSize: '12px', marginBottom: '8px', lineHeight: 1.55 }}>
+                        {truncateText(reviewQueueCardSummary(delta), 120)}
+                      </p>
                       <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{metadataText(delta.metadata, 'target_file') ?? 'Target file not assigned'}</p>
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
                         {isActive && <InlineBadge label="selected" tone="#38bdf8" />}
@@ -2577,7 +3233,8 @@ function PersonaPanel({
                 display: 'grid',
                 gridTemplateColumns: stackPersonaDetail ? 'minmax(0, 1fr)' : 'minmax(0, 1.08fr) minmax(420px, 0.92fr)',
                 gap: '14px',
-                alignItems: 'start',
+                alignItems: 'stretch',
+                height: '100%',
                 minHeight: 0,
                 overflow: 'hidden',
               }}
@@ -2593,57 +3250,254 @@ function PersonaPanel({
                 alignSelf: 'stretch',
                 minWidth: 0,
                 minHeight: 0,
-                overflow: 'hidden',
+                overflowX: 'hidden',
+                overflowY: usePinnedPersonaViewport ? 'auto' : 'visible',
                 gridTemplateRows: 'auto auto auto minmax(0, 1fr)',
               }}
             >
               <div>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>What you are reviewing</p>
-                <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.65, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{reviewReason}</p>
+                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Step 2 · Review source first</p>
+                <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600, lineHeight: 1.45, margin: '0 0 8px' }}>{sourceTitle}</p>
+                <p style={{ color: '#94a3b8', fontSize: compactPersonaChrome ? '13px' : '14px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word', margin: 0 }}>
+                  {compactPersonaChrome ? truncateText(reviewReason, 260) : reviewReason}
+                </p>
               </div>
 
               <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                <span>Review target: {targetFile ?? 'Target file not assigned'}</span>
+                {sourceChannel && (
+                  <>
+                    <span>Source channel: {sourceChannel}</span>
+                    <span style={{ margin: '0 8px' }}>·</span>
+                  </>
+                )}
+                {primaryRoute && (
+                  <>
+                    <span>Best first move: {humanizePrimaryRoute(primaryRoute)}</span>
+                    <span style={{ margin: '0 8px' }}>·</span>
+                  </>
+                )}
+                <span>{evidenceLabel}</span>
                 {selectedPromotionTargetFiles.length > 0 && (
                   <>
                     <span style={{ margin: '0 8px' }}>·</span>
-                    <span>Selected targets: {describePromotionTargets(selectedPromotionItems, targetFile)}</span>
+                    <span>Selected targets: {describePromotionTargets(selectedPromotionItems, suggestedTargetFile)}</span>
                   </>
                 )}
-                <span style={{ margin: '0 8px' }}>·</span>
-                <span>{evidenceLabel}</span>
                 <span style={{ margin: '0 8px' }}>·</span>
                 <span>{statusLabel}</span>
               </div>
 
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {sourceChannel && <InlineBadge label={sourceChannel} tone="#64748b" />}
+                {reviewSource === 'long_form_media.segment' && <InlineBadge label="Source-first review" tone="#38bdf8" />}
+                {primaryRoute && <InlineBadge label={humanizePrimaryRoute(primaryRoute)} tone="#22c55e" />}
                 <InlineBadge
                   label={selectedScoredDelta?.promotionReady ? 'Promotion-ready path open' : 'Needs review before promotion'}
                   tone={selectedScoredDelta?.promotionReady ? '#f59e0b' : '#38bdf8'}
                 />
-                <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
                 <InlineBadge
-                  label={`${selectableItems.length} canonical candidate${selectableItems.length === 1 ? '' : 's'}`}
-                  tone={selectableItems.length > 0 ? '#818cf8' : '#64748b'}
+                  label={
+                    weakSourceFragment
+                      ? 'No canon fragments yet'
+                      : `${selectableItems.length} optional fragment${selectableItems.length === 1 ? '' : 's'}`
+                  }
+                  tone={!weakSourceFragment && selectableItems.length > 0 ? '#818cf8' : '#64748b'}
                 />
                 {selectedScoredDelta?.muted && <InlineBadge label="Muted long-form item" tone="#64748b" />}
                 {selectedScoredDelta && <InlineBadge label={`Priority ${selectedScoredDelta.score}`} tone="#22c55e" />}
               </div>
 
               <div style={{ minHeight: 0, overflowY: 'auto', paddingRight: '4px' }}>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Proposed source material</p>
-                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: '16px' }}>
-                  {selectedDelta.notes || 'No candidate notes were attached to this review item.'}
-                </p>
+                <div
+                  style={{
+                    borderRadius: '12px',
+                    border: '1px solid #1f2937',
+                    backgroundColor: '#010617',
+                    padding: '12px',
+                    marginBottom: '14px',
+                    display: 'grid',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Source excerpt</p>
+                      <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>
+                        {sourceExcerpt ? truncateText(sourceExcerpt, compactPersonaChrome ? 340 : 520) : 'No clean excerpt is attached to this review item yet.'}
+                      </p>
+                    </div>
+                    {sourceUrl && (
+                      <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ ...brainLinkButtonStyle, justifySelf: 'start', whiteSpace: 'nowrap' }}>
+                        Open source
+                      </a>
+                    )}
+                  </div>
+                  <div style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '10px 12px' }}>
+                    <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 6px' }}>Decision prompt</p>
+                    <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{reviewAsk}</p>
+                  </div>
+                  {selectedDelta.trait && selectedDelta.trait !== sourceExcerpt && (
+                    <div style={{ borderRadius: '12px', border: '1px solid #312e81', backgroundColor: '#1e1b4b22', padding: '10px 12px' }}>
+                      <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>System claim candidate</p>
+                      <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{selectedDelta.trait}</p>
+                    </div>
+                  )}
+                  {((beliefSummary || experienceAnchor || experienceSummary || routeReason || primaryRoute || routeOptions.length > 0 || suggestedTargetFile) ||
+                    (sourceContextExcerpt && sourceContextExcerpt !== sourceExcerpt) ||
+                    talkingPoints.length > 0) && (
+                    <details>
+                      <summary style={{ color: '#38bdf8', fontSize: '12px', cursor: 'pointer', margin: 0 }}>System context and routing hints</summary>
+                      <div style={{ marginTop: '12px', display: 'grid', gap: '10px' }}>
+                        {(beliefSummary || primaryRoute || routeOptions.length > 0 || suggestedTargetFile || experienceAnchor || routeReason) && (
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: viewportWidth >= 1500 ? 'repeat(3, minmax(0, 1fr))' : viewportWidth >= 1180 ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)',
+                              gap: '8px',
+                            }}
+                          >
+                            {(primaryRoute || routeOptions.length > 0) && (
+                              <div style={{ borderRadius: '10px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '10px' }}>
+                                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 4px' }}>
+                                  Possible next moves
+                                </p>
+                                <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                                  {[primaryRoute ? humanizePrimaryRoute(primaryRoute) : null, ...routeOptions.map((value) => humanizePrimaryRoute(value))]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </p>
+                              </div>
+                            )}
+                            {suggestedTargetFile && (
+                              <div style={{ borderRadius: '10px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '10px' }}>
+                                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 4px' }}>
+                                  Possible canon destination
+                                </p>
+                                <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                                  {humanizeTargetFileLabel(suggestedTargetFile)}
+                                </p>
+                              </div>
+                            )}
+                            {beliefSummary && (
+                              <div style={{ borderRadius: '10px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '10px' }}>
+                                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 4px' }}>System hypothesis</p>
+                                <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{beliefSummary}</p>
+                              </div>
+                            )}
+                            {(experienceAnchor || experienceSummary) && (
+                              <div style={{ borderRadius: '10px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '10px' }}>
+                                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 4px' }}>
+                                  Experience anchor
+                                </p>
+                                <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                                  {experienceAnchor || experienceSummary}
+                                </p>
+                              </div>
+                            )}
+                            {routeReason && (
+                              <div style={{ borderRadius: '10px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '10px' }}>
+                                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 4px' }}>
+                                  Why it was flagged
+                                </p>
+                                <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{routeReason}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {sourceContextExcerpt && sourceContextExcerpt !== sourceExcerpt && (
+                          <div>
+                            <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
+                              Surrounding source context
+                            </p>
+                            <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>
+                              {truncateText(sourceContextExcerpt, 760)}
+                            </p>
+                            {(sourceContextBefore.length > 0 || sourceContextAfter.length > 0) && (
+                              <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.55, margin: '8px 0 0' }}>
+                                {sourceContextBefore.length > 0 && `Earlier lines: ${sourceContextBefore.length}. `}
+                                {sourceContextAfter.length > 0 && `Later lines: ${sourceContextAfter.length}.`}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {talkingPoints.length > 0 && (
+                          <div>
+                            <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
+                              Additional source fragments
+                            </p>
+                            <div style={{ display: 'grid', gap: '6px' }}>
+                              {talkingPoints.map((point) => (
+                                <p key={point} style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                                  - {truncateText(point, 220)}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </div>
+                <details style={{ marginBottom: '16px' }}>
+                  <summary style={{ color: '#38bdf8', fontSize: '12px', cursor: 'pointer', marginBottom: '8px' }}>Raw review packet</summary>
+                  <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: '12px 0 0' }}>
+                    {selectedDelta.notes || 'No candidate notes were attached to this review item.'}
+                  </p>
+                </details>
                 {selectableItems.length > 0 && (
-                  <div style={{ marginBottom: '16px' }}>
+                  <div
+                    style={{
+                      marginBottom: '16px',
+                      maxHeight: usePinnedPersonaViewport ? '260px' : '330px',
+                      overflowY: 'auto',
+                      paddingRight: '4px',
+                    }}
+                  >
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'baseline', marginBottom: '10px', flexWrap: 'wrap' }}>
                       <p style={{ color: '#818cf8', fontSize: '13px', fontWeight: 700, margin: 0 }}>
-                        Canonical fragments
+                        Optional canon fragments
                       </p>
-                      <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
-                        {selectedPromotionItems.length} selected
-                      </p>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <InlineBadge label={`${selectedPromotionItems.length} selected`} tone="#818cf8" />
+                        <InlineBadge label={`${displaySelectableItems.length} shown`} tone="#64748b" />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setPromotionFragmentView('recommended')}
+                        style={triageChoiceButtonStyle(promotionFragmentView === 'recommended')}
+                      >
+                        Recommended ({recommendedSelectableItems.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPromotionFragmentView('needs_work')}
+                        style={triageChoiceButtonStyle(promotionFragmentView === 'needs_work')}
+                      >
+                        Needs work ({needsWorkSelectableItems.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPromotionFragmentView('all')}
+                        style={triageChoiceButtonStyle(promotionFragmentView === 'all')}
+                      >
+                        All ({rankedSelectableItems.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPromotionItemIds(recommendedSelectableItems.map((item) => item.id))}
+                        style={triageChoiceButtonStyle(false)}
+                      >
+                        Select recommended
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPromotionItemIds([])}
+                        style={triageChoiceButtonStyle(false)}
+                      >
+                        Clear selection
+                      </button>
                     </div>
                     <div
                       style={{
@@ -2652,7 +3506,7 @@ function PersonaPanel({
                         gap: '10px',
                       }}
                     >
-                      {selectableItems.map((item) => {
+                      {displaySelectableItems.map((item) => {
                         const checked = selectedPromotionItemIds.includes(item.id);
                         const suggestedTarget = bestTargetForPromotionItem(item, targetFile);
                         return (
@@ -2750,11 +3604,16 @@ function PersonaPanel({
                         );
                       })}
                     </div>
+                    {displaySelectableItems.length === 0 && (
+                      <p style={{ color: '#64748b', fontSize: '12px', margin: '10px 0 0' }}>
+                        No fragments match this filter yet. Switch to `All` to inspect everything.
+                      </p>
+                    )}
                   </div>
                 )}
                 <details>
                   <summary style={{ color: '#818cf8', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginBottom: '12px' }}>
-                    Current canonical context
+                    Compare against current canon (optional)
                   </summary>
                   <div style={{ marginTop: '12px' }}>
                     {activeContext ? (
@@ -2785,8 +3644,9 @@ function PersonaPanel({
                 alignSelf: 'stretch',
                 minWidth: 0,
                 minHeight: 0,
-                overflow: 'hidden',
-                gridTemplateRows: 'auto auto auto auto minmax(160px, 1fr) auto',
+                overflowX: 'hidden',
+                overflowY: usePinnedPersonaViewport ? 'auto' : 'visible',
+                gridTemplateRows: 'auto auto auto auto minmax(140px, 1fr) auto',
               }}
             >
               <div
@@ -2794,16 +3654,279 @@ function PersonaPanel({
                   borderRadius: '12px',
                   border: '1px solid #1f2937',
                   backgroundColor: '#010617',
-                  padding: '12px',
+                  padding: compactPersonaChrome ? '12px' : '14px',
+                  display: 'grid',
+                  gap: compactPersonaChrome ? '9px' : '10px',
                 }}
               >
-                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Next step</p>
+                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Step 3 · Decide and save</p>
                 <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
-                  Decide what you think about this item, then save that judgment. Only use promotion when a fragment should become part of your canon.
+                  Decide whether this source is worth keeping at all before you worry about promotion. Only use canon when the source is actually strong enough.
                 </p>
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>First decision</p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <QuickFillButton label="Not useful" onClick={() => seedSourceDecision('not_useful')} />
+                    <QuickFillButton label="Useful source" onClick={() => seedSourceDecision('source_only')} />
+                    <QuickFillButton label="Post idea" onClick={() => seedSourceDecision('post_seed')} />
+                    <QuickFillButton label="Memory / canon" onClick={() => seedSourceDecision('canon_candidate')} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>How are you responding?</p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <QuickFillButton label="Agree" onClick={() => queueTemplate('agree')} />
+                    <QuickFillButton label="Disagree" onClick={() => queueTemplate('disagree')} />
+                    <QuickFillButton label="Nuance" onClick={() => queueTemplate('nuance')} />
+                    <QuickFillButton label="Personal Story" onClick={() => queueTemplate('story')} />
+                    <QuickFillButton label="Wording" onClick={() => queueTemplate('language')} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: '8px', padding: '10px', borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#010617' }}>
+                  <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
+                    Quick routing (one place for destination decisions)
+                  </p>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {brainTriagePresetOptions.map((preset) => (
+                      <button
+                        key={preset.key}
+                        onClick={() => applyTriagePreset(preset.key)}
+                        style={triageChoiceButtonStyle(false)}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>
+                      Workspaces
+                    </p>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {brainWorkspaceOptions.map((workspace) => (
+                        <button
+                          key={workspace.key}
+                          type="button"
+                          onClick={() => toggleTriageWorkspace(workspace.key)}
+                          style={triageToggleButtonStyle(triageWorkspaceSelection.includes(workspace.key))}
+                        >
+                          {workspace.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                      Select one or many. Brain can fan this out across multiple workspaces from one review.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button onClick={() => toggleRouteTarget('memory')} style={triageToggleButtonStyle(routeToMemory)}>
+                      Canonical Memory
+                    </button>
+                    <button onClick={() => toggleRouteTarget('standup')} style={triageToggleButtonStyle(routeToStandup)}>
+                      Standup Queue
+                    </button>
+                    <button onClick={() => toggleRouteTarget('pm')} style={triageToggleButtonStyle(routeToPM)}>
+                      PM Queue
+                    </button>
+                  </div>
+                  {routeToMemory && (
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>
+                        Memory targets
+                      </p>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {canonicalMemoryRouteOptions.map((target) => (
+                          <button
+                            key={target}
+                            type="button"
+                            onClick={() => toggleMemoryTarget(target)}
+                            style={triageToggleButtonStyle(triageMemoryTargets.includes(target))}
+                          >
+                            {humanizeCanonicalMemoryTarget(target)}
+                          </button>
+                        ))}
+                      </div>
+                      {triageMemoryTargets.length === 0 && <span style={{ color: '#f59e0b', fontSize: '11px' }}>No canonical memory target selected yet.</span>}
+                    </div>
+                  )}
+                  {routeToStandup && (
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>
+                        Standup type
+                      </p>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {brainStandupKindOptions.map((kind) => (
+                          <button
+                            key={kind}
+                            type="button"
+                            onClick={() => setTriageStandupKind(kind)}
+                            style={triageChoiceButtonStyle(triageStandupKind === kind)}
+                          >
+                            {compactStandupKind(kind)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {routeToPM && (
+                    <label style={{ margin: 0, display: 'grid', gap: '6px' }}>
+                      <span style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>PM title</span>
+                      <input
+                        value={triagePMTitle}
+                        onChange={(event) => setTriagePMTitle(event.target.value)}
+                        placeholder={selectedDelta ? defaultBrainPMTitle(selectedDelta) : 'Operationalize reviewed signal'}
+                        style={{ ...brainInputStyle, padding: '8px 10px' }}
+                      />
+                    </label>
+                  )}
+                  {(routeToStandup || routeToPM) && triageExecutionPreviews.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: viewportWidth >= 1460 ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', gap: '8px' }}>
+                      {triageExecutionPreviews.map((preview) => (
+                        <div
+                          key={`${preview.workspaceKey}-${preview.standupKind}`}
+                          style={{
+                            borderRadius: '12px',
+                            border: '1px solid #1f2937',
+                            backgroundColor: '#020617',
+                            padding: '10px 12px',
+                            display: 'grid',
+                            gap: '4px',
+                          }}
+                        >
+                          <p style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 700, margin: 0 }}>{labelForBrainWorkspace(preview.workspaceKey)}</p>
+                          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                            {preview.executionModel.mode === 'delegated'
+                              ? `${preview.executionModel.manager} manages. ${preview.executionModel.executor} executes.`
+                              : `${preview.executionModel.executor} executes directly.`}
+                          </p>
+                          <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                            {preview.participants.join(' · ')} · {compactStandupKind(preview.standupKind)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {triageWorkspaceSelection.map((workspaceKey) => (
+                      <InlineBadge key={`workspace-${workspaceKey}`} label={`Workspace: ${labelForBrainWorkspace(workspaceKey)}`} tone="#38bdf8" />
+                    ))}
+                    {routeToMemory && triageMemoryTargets.map((target) => (
+                      <InlineBadge key={`quick-memory-${target}`} label={`Memory: ${humanizeCanonicalMemoryTarget(target)}`} tone="#22c55e" />
+                    ))}
+                    {routeToStandup && <InlineBadge label={`Standup: ${compactStandupKind(triageStandupKind)}`} tone="#38bdf8" />}
+                    {routeToPM && <InlineBadge label="PM routing enabled" tone="#f59e0b" />}
+                    {!routeToMemory && !routeToStandup && !routeToPM && <InlineBadge label="No route selected" tone="#64748b" />}
+                  </div>
+                  {triageState.message && (
+                    <p style={{ color: triageToneColor, fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                      {triageState.message}
+                    </p>
+                  )}
+                </div>
               </div>
-              <div style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.6, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                {selectableItems.length > 0 ? 'You can also mark canonical fragments from the center panel if any deserve to be promoted later.' : 'This item is review-only for now. Focus on your actual take, not promotion.'}
+
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '12px',
+                  minHeight: 0,
+                  gridTemplateRows: usePinnedPersonaViewport ? 'minmax(220px, 1fr) auto' : 'auto auto',
+                }}
+              >
+                <textarea
+                  value={reflectionText}
+                  onChange={(event) => {
+                    setReflectionText(event.target.value);
+                    if (reflectionState.tone !== 'idle') {
+                      setReflectionState({ tone: 'idle', message: '' });
+                    }
+                  }}
+                  placeholder={`Example: Yes, this is true. I am building an AI project that supports these initiatives, but I want it framed as a system that strengthens AI Clone, BrandEasy, Outfit A Congo, Collective Fusion, market development, and public leadership rather than a flat list.`}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    minHeight: usePinnedPersonaViewport ? '220px' : '220px',
+                    height: usePinnedPersonaViewport ? '100%' : undefined,
+                    resize: 'vertical',
+                    borderRadius: '14px',
+                    border: '1px solid #1f2937',
+                    backgroundColor: '#010617',
+                    color: '#e2e8f0',
+                    padding: '14px',
+                    fontSize: '14px',
+                    lineHeight: 1.6,
+                    outline: 'none',
+                    overflowY: 'auto',
+                  }}
+                />
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: '10px',
+                    borderRadius: '14px',
+                    border: '1px solid #1f2937',
+                    backgroundColor: '#020617',
+                    padding: '12px',
+                    position: usePinnedPersonaViewport ? 'sticky' : 'static',
+                    bottom: usePinnedPersonaViewport ? 0 : undefined,
+                    zIndex: 1,
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <InlineBadge label="Save note = memory only" tone="#38bdf8" />
+                    <InlineBadge label={canMakeCanonNow ? 'Make canon = write now' : 'Canon selection = hold if proof is weak'} tone="#818cf8" />
+                    <InlineBadge label="Finalize = canon + routing in one step" tone="#f59e0b" />
+                  </div>
+                  {(error || reflectionState.message) && (
+                    <p style={{ color: error ? '#f87171' : reflectionToneColor, fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                      {error || reflectionState.message}
+                    </p>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <InlineBadge label={`Response: ${humanizeResponseKind(selectedResponseKind)}`} tone="#38bdf8" />
+                    <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
+                    {selectableItems.length > 0 && <InlineBadge label="Canon fragments available" tone="#818cf8" />}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => saveReflection('reviewed')}
+                        disabled={isFinalizePending}
+                        style={{
+                          border: '1px solid #38bdf8',
+                          backgroundColor: isFinalizePending ? '#0c4a6e' : '#0f172a',
+                          color: 'white',
+                          borderRadius: '12px',
+                          padding: '10px 14px',
+                          cursor: isFinalizePending ? 'wait' : 'pointer',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {isFinalizePending ? 'Saving…' : 'Save note'}
+                      </button>
+                      <button
+                        onClick={() => finalizeReviewedSignal()}
+                        disabled={isFinalizePending || finalizeActionDisabled}
+                        style={{
+                          border: '1px solid #334155',
+                          backgroundColor: '#020617',
+                          color: isFinalizePending || finalizeActionDisabled ? '#64748b' : '#cbd5f5',
+                          borderRadius: '12px',
+                          padding: '10px 14px',
+                          cursor: isFinalizePending ? 'wait' : finalizeActionDisabled ? 'not-allowed' : 'pointer',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {isFinalizePending ? finalizeActionBusyLabel : finalizeActionLabel}
+                      </button>
+                    </div>
+                    <p style={{ color: '#94a3b8', fontSize: '11px', maxWidth: '520px', textAlign: 'left', margin: 0 }}>
+                      Save note stores judgment only. Finalize saves the review and, when selected, makes canon and routes to the system in the same action. {finalizeActionHint}
+                    </p>
+                  </div>
+                </div>
+                </div>
               </div>
 
               {selectableItems.length > 0 && (
@@ -2815,85 +3938,94 @@ function PersonaPanel({
                     padding: '12px',
                     display: 'grid',
                     gap: '8px',
+                    maxHeight: usePinnedPersonaViewport ? '260px' : '330px',
+                    overflowY: 'auto',
+                    paddingRight: '4px',
                   }}
                 >
-                  <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Promotion target</p>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <InlineBadge
-                      label={
-                        selectedPromotionTargetFiles.length > 0
-                          ? `Selected: ${describePromotionTargets(selectedPromotionItems, targetFile)}`
-                          : `Default: ${humanizeTargetFileLabel(targetFile)}`
-                      }
-                      tone="#818cf8"
-                    />
-                    {selectedPromotionTargetFiles.length > 1 && <InlineBadge label="Mixed-target mode" tone="#22c55e" />}
-                  </div>
-                  <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
-                    Choose where these fragments should land before you queue promotion. Use the fragment-level chips for mixed targets, or bulk-apply one target to the whole selected set.
-                  </p>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    {promotionTargetChoices.map((choice, index) => {
-                      const active =
-                        selectedPromotionItems.length > 0
-                          ? selectedPromotionItems.every((item) => item.targetFile === choice)
-                          : selectableItems.every((item) => item.targetFile === choice);
-                      return (
-                        <button
-                          key={choice}
-                          onClick={() => applyBulkPromotionTarget(choice)}
-                          style={{
-                            borderRadius: '999px',
-                            border: active ? '1px solid #38bdf8' : '1px solid #334155',
-                            backgroundColor: active ? '#082f49' : '#020617',
-                            color: active ? '#f8fafc' : '#cbd5f5',
-                            padding: '8px 12px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {humanizeTargetFileLabel(choice)}
-                          {index === 0 ? ' Suggested' : ''}
-                        </button>
-                      );
-                    })}
-                    {activePromotionAlternativeTarget &&
-                      !promotionTargetChoices.includes(activePromotionAlternativeTarget) && (
-                        <button
-                          onClick={() => applyBulkPromotionTarget(activePromotionAlternativeTarget)}
-                          style={{
-                            borderRadius: '999px',
-                            border: '1px solid #334155',
-                            backgroundColor: '#082f49',
-                            color: '#cbd5f5',
-                            padding: '8px 12px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Use {humanizeTargetFileLabel(activePromotionAlternativeTarget)}
-                        </button>
-                      )}
-                    {Object.keys(promotionItemTargetOverrides).length > 0 && (
-                      <button
-                        onClick={() => resetBulkPromotionTargets()}
-                        style={{
-                          borderRadius: '999px',
-                          border: '1px solid #334155',
-                          backgroundColor: '#020617',
-                          color: '#cbd5f5',
-                          padding: '8px 12px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Reset selected targets
-                      </button>
-                    )}
-                  </div>
+                  <details>
+                    <summary style={{ color: '#818cf8', cursor: 'pointer', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>
+                      Promotion target
+                    </summary>
+                    <div style={{ marginTop: '10px', display: 'grid', gap: '8px' }}>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <InlineBadge
+                          label={
+                            selectedPromotionTargetFiles.length > 0
+                              ? `Selected: ${describePromotionTargets(selectedPromotionItems, targetFile)}`
+                              : `Default: ${humanizeTargetFileLabel(targetFile)}`
+                          }
+                          tone="#818cf8"
+                        />
+                        {selectedPromotionTargetFiles.length > 1 && <InlineBadge label="Mixed-target mode" tone="#22c55e" />}
+                      </div>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                        Choose where these fragments should land before you queue promotion.
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {promotionTargetChoices.map((choice, index) => {
+                          const active =
+                            selectedPromotionItems.length > 0
+                              ? selectedPromotionItems.every((item) => item.targetFile === choice)
+                              : selectableItems.every((item) => item.targetFile === choice);
+                          return (
+                            <button
+                              key={choice}
+                              onClick={() => applyBulkPromotionTarget(choice)}
+                              style={{
+                                borderRadius: '999px',
+                                border: active ? '1px solid #38bdf8' : '1px solid #334155',
+                                backgroundColor: active ? '#082f49' : '#020617',
+                                color: active ? '#f8fafc' : '#cbd5f5',
+                                padding: '8px 12px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {humanizeTargetFileLabel(choice)}
+                              {index === 0 ? ' Suggested' : ''}
+                            </button>
+                          );
+                        })}
+                        {activePromotionAlternativeTarget &&
+                          !promotionTargetChoices.includes(activePromotionAlternativeTarget) && (
+                            <button
+                              onClick={() => applyBulkPromotionTarget(activePromotionAlternativeTarget)}
+                              style={{
+                                borderRadius: '999px',
+                                border: '1px solid #334155',
+                                backgroundColor: '#082f49',
+                                color: '#cbd5f5',
+                                padding: '8px 12px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Use {humanizeTargetFileLabel(activePromotionAlternativeTarget)}
+                            </button>
+                          )}
+                        {Object.keys(promotionItemTargetOverrides).length > 0 && (
+                          <button
+                            onClick={() => resetBulkPromotionTargets()}
+                            style={{
+                              borderRadius: '999px',
+                              border: '1px solid #334155',
+                              backgroundColor: '#020617',
+                              color: '#cbd5f5',
+                              padding: '8px 12px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Reset selected targets
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </details>
                 </div>
               )}
 
@@ -2947,89 +4079,6 @@ function PersonaPanel({
                   </p>
                 </div>
               )}
-
-              <div style={{ display: 'grid', gap: '8px' }}>
-                <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>How are you responding?</p>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <QuickFillButton label="Agree" onClick={() => queueTemplate('agree')} />
-                  <QuickFillButton label="Disagree" onClick={() => queueTemplate('disagree')} />
-                  <QuickFillButton label="Nuance" onClick={() => queueTemplate('nuance')} />
-                  <QuickFillButton label="Personal Story" onClick={() => queueTemplate('story')} />
-                  <QuickFillButton label="Wording" onClick={() => queueTemplate('language')} />
-                </div>
-              </div>
-
-              <textarea
-                value={reflectionText}
-                onChange={(event) => {
-                  setReflectionText(event.target.value);
-                  if (reflectionState.tone !== 'idle') {
-                    setReflectionState({ tone: 'idle', message: '' });
-                  }
-                }}
-                placeholder={`Example: Yes, this is true. I am building an AI project that supports these initiatives, but I want it framed as a system that strengthens AI Clone, BrandEasy, Outfit A Congo, Collective Fusion, market development, and public leadership rather than a flat list.`}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  minHeight: usePinnedPersonaViewport ? '0' : '220px',
-                  height: usePinnedPersonaViewport ? '100%' : undefined,
-                  resize: usePinnedPersonaViewport ? 'none' : 'vertical',
-                  borderRadius: '14px',
-                  border: '1px solid #1f2937',
-                  backgroundColor: '#010617',
-                  color: '#e2e8f0',
-                  padding: '14px',
-                  fontSize: '14px',
-                  lineHeight: 1.6,
-                  outline: 'none',
-                  overflowY: 'auto',
-                }}
-              />
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  <InlineBadge label={`Response: ${humanizeResponseKind(selectedResponseKind)}`} tone="#38bdf8" />
-                  <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                  {error && <p style={{ color: '#f87171', fontSize: '12px' }}>{error}</p>}
-                  {reflectionState.message && (
-                    <p style={{ color: reflectionState.tone === 'success' ? '#22c55e' : '#f87171', fontSize: '12px', maxWidth: '420px', textAlign: 'right' }}>{reflectionState.message}</p>
-                  )}
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <button
-                      onClick={() => saveReflection('reviewed')}
-                      disabled={isSavingReflection}
-                      style={{
-                        border: '1px solid #38bdf8',
-                        backgroundColor: isSavingReflection ? '#0c4a6e' : '#0f172a',
-                        color: 'white',
-                        borderRadius: '12px',
-                        padding: '10px 14px',
-                        cursor: isSavingReflection ? 'wait' : 'pointer',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {isSavingReflection ? 'Saving…' : 'Save thought'}
-                    </button>
-                    <button
-                      onClick={() => saveReflection('approved')}
-                      disabled={isSavingReflection}
-                      style={{
-                        border: '1px solid #334155',
-                        backgroundColor: '#020617',
-                        color: '#cbd5f5',
-                        borderRadius: '12px',
-                        padding: '10px 14px',
-                        cursor: isSavingReflection ? 'wait' : 'pointer',
-                        fontWeight: 500,
-                      }}
-                    >
-                      Queue for promotion
-                    </button>
-                  </div>
-                </div>
-              </div>
             </section>
             </div>
           </div>
@@ -3073,7 +4122,7 @@ function PersonaPanel({
             }}
           >
             <p style={{ color: '#86efac', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
-              Promotion Queue Updated
+              Canon Status Updated
             </p>
             <p style={{ color: '#dcfce7', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
               {promotionState.message}
@@ -3087,69 +4136,81 @@ function PersonaPanel({
           borderRadius: '18px',
           border: '1px solid #334155',
           background: 'linear-gradient(180deg, #071224 0%, #050b19 100%)',
-          padding: '18px',
+          padding: showLifecycleAudit ? '18px' : '10px 12px',
           display: 'grid',
-          gap: '16px',
+          gap: showLifecycleAudit ? '16px' : '8px',
           minHeight: 0,
           overflow: 'hidden',
-          gridTemplateRows: usePinnedPersonaViewport ? 'auto auto minmax(0, 1fr)' : 'none',
-          boxShadow: '0 18px 40px rgba(2, 6, 23, 0.35)',
+          gridTemplateRows: showLifecycleAudit && usePinnedPersonaViewport ? 'auto auto minmax(0, 1fr)' : 'auto',
+          boxShadow: showLifecycleAudit ? '0 18px 40px rgba(2, 6, 23, 0.35)' : 'none',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Promotion Lifecycle</p>
-            <h3 style={{ color: 'white', fontSize: '24px', margin: '0 0 8px' }}>What has been saved, queued, committed, or resolved</h3>
-            <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 }}>
-              Active review stays above. Everything below is already saved, queued, committed, or resolved so you can audit state without confusing it with the work that still needs judgment.
+            <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Canon Audit</p>
+            <h3 style={{ color: 'white', fontSize: showLifecycleAudit ? '24px' : '18px', margin: '0 0 8px' }}>
+              {showLifecycleAudit ? 'Saved, held, committed, and resolved canon activity' : 'Audit trail hidden'}
+            </h3>
+            <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6 }}>
+              {showLifecycleAudit
+                ? 'Use this only when you want to inspect what happened after review. The active review workspace stays above.'
+                : 'Hidden by default so Active Review keeps the screen. Open it only when you need to inspect held, committed, or resolved canon items.'}
             </p>
           </div>
-          <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
-            This section is the audit trail. It should show what happened to your canon candidates after review, not just repeat the review screen.
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => setShowLifecycleAudit((current) => !current)}
+              style={triageChoiceButtonStyle(showLifecycleAudit)}
+            >
+              {showLifecycleAudit ? 'Hide audit trail' : 'Open audit trail'}
+            </button>
           </div>
         </div>
         {promotionState.message && promotionState.tone !== 'success' && (
           <p style={{ color: '#f87171', fontSize: '12px' }}>{promotionState.message}</p>
         )}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: viewportWidth >= 1160 ? 'repeat(4, minmax(0, 1fr))' : viewportWidth >= 760 ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)',
-            gap: '10px',
-          }}
-        >
-          {lifecycleGroups.map((group) => {
-            const active = lifecycleView === group.key;
-            return (
-              <button
-                key={group.key}
-                onClick={() => setLifecycleView(group.key as 'pending_promotion' | 'workspace_saved' | 'committed' | 'resolved')}
-                style={{
-                  borderRadius: '14px',
-                  border: `1px solid ${active ? `${group.tone}88` : '#1f2937'}`,
-                  backgroundColor: active ? `${group.tone}18` : '#020617',
-                  color: active ? '#f8fafc' : '#94a3b8',
-                  padding: '12px 14px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  display: 'grid',
-                  gap: '6px',
-                }}
-              >
-                <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', color: active ? group.tone : '#64748b' }}>
-                  {compactLifecycleLabel(group.key)}
-                </span>
-                <span style={{ fontSize: '22px', lineHeight: 1, color: '#f8fafc' }}>{group.count}</span>
-                <span style={{ color: active ? '#dbe7ff' : '#94a3b8', fontSize: '11px', lineHeight: 1.5 }}>
-                  {group.description}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {activeLifecycleGroup && (
+        {showLifecycleAudit && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: viewportWidth >= 1160 ? 'repeat(4, minmax(0, 1fr))' : viewportWidth >= 760 ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)',
+              gap: '10px',
+            }}
+          >
+            {lifecycleGroups.map((group) => {
+              const active = lifecycleView === group.key;
+              return (
+                <button
+                  key={group.key}
+                  onClick={() => setLifecycleView(group.key as 'pending_promotion' | 'workspace_saved' | 'committed' | 'resolved')}
+                  style={{
+                    borderRadius: '14px',
+                    border: `1px solid ${active ? `${group.tone}88` : '#1f2937'}`,
+                    backgroundColor: active ? `${group.tone}18` : '#020617',
+                    color: active ? '#f8fafc' : '#94a3b8',
+                    padding: '12px 14px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    display: 'grid',
+                    gap: '6px',
+                  }}
+                  >
+                    <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', color: active ? group.tone : '#64748b' }}>
+                      {compactLifecycleLabel(group.key)}
+                    </span>
+                    <span style={{ fontSize: '22px', lineHeight: 1, color: '#f8fafc' }}>{group.count}</span>
+                    <span style={{ color: active ? '#dbe7ff' : '#94a3b8', fontSize: '11px', lineHeight: 1.5 }}>
+                      {group.description}
+                    </span>
+                  </button>
+              );
+            })}
+          </div>
+        )}
+        {showLifecycleAudit && activeLifecycleGroup && (
           <div
             style={{
               borderRadius: '14px',
@@ -3203,6 +4264,7 @@ function PersonaPanel({
                     const committedAt = metadataText(item.metadata, 'promotion_committed_at') ?? item.committed_at ?? null;
                     const isRecentlyQueued = recentlyQueuedDeltaId === item.id;
                     const isRecentlyCommitted = recentlyCommittedDeltaId === item.id;
+                    const routeHistoryCount = metadataArray(item.metadata, 'brain_route_history').length;
                     const commitDisabled = activeLifecycleGroup.key === 'pending_promotion' && gateSummary.decision !== 'allow';
                     return (
                   <div
@@ -3235,6 +4297,7 @@ function PersonaPanel({
                         {activeLifecycleGroup.key === 'committed' && committedAt && (
                           <InlineBadge label={`Committed ${formatTimestamp(new Date(committedAt))}`} tone="#22c55e" />
                         )}
+                        {routeHistoryCount > 0 && <InlineBadge label={`${routeHistoryCount} routed`} tone="#38bdf8" />}
                         {activeLifecycleGroup.key === 'committed' && (
                           <InlineBadge label={humanizeLocalBundleSyncState(bundleSync?.state)} tone={localBundleSyncTone(bundleSync?.state)} />
                         )}
@@ -3731,7 +4794,7 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
         <div style={{ marginBottom: '12px' }}>
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Knowledge Docs</p>
           <p style={{ color: '#64748b', fontSize: '13px' }}>
-            Brain is the canonical reading surface for operating docs, knowledge docs, persona files, and reference material.
+            Brain is the canonical reading surface for operating docs, system contracts, persona files, canonical memory, and reference material.
           </p>
         </div>
         <div style={{ display: 'grid', gap: '10px', marginBottom: '14px' }}>
@@ -3873,13 +4936,39 @@ function statusBadge(status?: string) {
   );
 }
 
-function docsFilterButtonStyle(active: boolean): CSSProperties {
+function docsFilterButtonStyle(active: boolean) {
   return {
     borderRadius: '999px',
     border: active ? '1px solid #38bdf8' : '1px solid #1f2937',
     backgroundColor: active ? '#082f49' : '#020617',
     color: active ? '#f8fafc' : '#94a3b8',
     padding: '7px 11px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
+}
+
+function triageToggleButtonStyle(active: boolean) {
+  return {
+    borderRadius: '999px',
+    border: active ? '1px solid #38bdf8' : '1px solid #334155',
+    backgroundColor: active ? '#082f49' : '#020617',
+    color: active ? '#f8fafc' : '#cbd5f5',
+    padding: '8px 12px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
+}
+
+function triageChoiceButtonStyle(active: boolean) {
+  return {
+    borderRadius: '999px',
+    border: active ? '1px solid #818cf8' : '1px solid #334155',
+    backgroundColor: active ? '#1e1b4b' : '#020617',
+    color: active ? '#f8fafc' : '#cbd5f5',
+    padding: '8px 12px',
     fontSize: '12px',
     fontWeight: 600,
     cursor: 'pointer',
@@ -3925,22 +5014,68 @@ function stablePromotionItemId(kind: PromotionItemKind, title: string, content: 
   return `${kind}:${hash.toString(16)}`;
 }
 
+function normalizePromotionContentKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/<\d{2}:\d{2}:\d{2}\.\d{3}>/g, ' ')
+    .replace(/<\/?c(?:\.[^>]*)?>/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function promotionItemPriority(kind: PromotionItemKind) {
+  if (kind === 'stat') return 5;
+  if (kind === 'anecdote') return 4;
+  if (kind === 'framework') return 3;
+  if (kind === 'talking_point') return 2;
+  return 1;
+}
+
+function meetsPromotionItemLengthFloor(kind: PromotionItemKind, content: string) {
+  const words = content.split(/\s+/).filter(Boolean).length;
+  if (kind === 'phrase_candidate') {
+    return words >= 3 && words <= 16;
+  }
+  if (kind === 'stat') {
+    return words >= 5;
+  }
+  return words >= 6;
+}
+
 function buildPromotionItems(delta: PersonaDeltaEntry | null, targetFile: string | null): PromotionItem[] {
   if (!delta) {
     return [];
   }
+  if (metadataBoolean(delta.metadata, 'weak_source_fragment')) {
+    return [];
+  }
   const items: PromotionItem[] = [];
+  const itemIndexByContent = new Map<string, number>();
+  const sourceExcerptBaseline = normalizePromotionContentKey(
+    metadataText(delta.metadata, 'source_excerpt_clean') ??
+      metadataText(delta.metadata, 'segment_excerpt') ??
+      metadataStringArray(delta.metadata, 'talking_points')[0] ??
+      '',
+  );
   const deltaSummary = delta.trait?.trim() || null;
   const reviewInterpretation = metadataText(delta.metadata, 'owner_response_excerpt') ?? delta.notes?.trim() ?? null;
   const pushItem = (kind: PromotionItemKind, label: string, content: string, evidence?: string | null) => {
     const normalizedContent = content.trim();
     if (!normalizedContent) return;
+    if (!meetsPromotionItemLengthFloor(kind, normalizedContent)) return;
+    const dedupeKey = normalizePromotionContentKey(normalizedContent);
+    if (!dedupeKey) return;
+    if (kind === 'talking_point' && sourceExcerptBaseline && dedupeKey === sourceExcerptBaseline) {
+      return;
+    }
     const normalizedEvidence = evidence?.trim() || null;
     const proofStrength: PromotionItemProofStrength = kind === 'stat' ? 'strong' : normalizedEvidence ? 'weak' : 'none';
     const artifactSummary = kind === 'stat' ? normalizedContent : null;
     const artifactKind = kind === 'stat' ? 'metric_or_proof_point' : null;
     const proofSignal = kind === 'stat' ? normalizedContent : normalizedEvidence;
-    items.push({
+    const nextItem: PromotionItem = {
       id: stablePromotionItemId(kind, label, normalizedContent),
       kind,
       label,
@@ -3962,7 +5097,19 @@ function buildPromotionItems(delta: PersonaDeltaEntry | null, targetFile: string
       canonPurpose: null,
       canonValue: null,
       canonProof: null,
-    });
+    };
+    const existingIndex = itemIndexByContent.get(dedupeKey);
+    if (existingIndex !== undefined) {
+      const existing = items[existingIndex];
+      const existingScore = promotionItemPriority(existing.kind) + (existing.evidence ? 1 : 0);
+      const nextScore = promotionItemPriority(nextItem.kind) + (nextItem.evidence ? 1 : 0);
+      if (nextScore > existingScore) {
+        items[existingIndex] = nextItem;
+      }
+      return;
+    }
+    itemIndexByContent.set(dedupeKey, items.length);
+    items.push(nextItem);
   };
 
   for (const entry of metadataArray(delta.metadata, 'talking_points')) {
@@ -4239,6 +5386,29 @@ function summarizePromotionItems(items: PromotionItem[], targetFile: string | nu
 
 function resolvePromotionGate(item: PromotionItem, targetFile: string | null) {
   return inferPromotionGate(item, targetFile);
+}
+
+function promotionItemSortScore(item: PromotionItem, targetFile: string | null) {
+  const gate = resolvePromotionGate(item, targetFile);
+  const gateScore = gate.decision === 'allow' ? 6 : gate.decision === 'hold' ? 2 : gate.decision === 'block' ? -2 : 0;
+  const proofScore = item.proofStrength === 'strong' ? 4 : item.proofStrength === 'weak' ? 2 : 0;
+  const kindScore = promotionItemPriority(item.kind);
+  const targetScore = targetPriority(item.targetFile ?? targetFile);
+  return gateScore + proofScore + kindScore + targetScore;
+}
+
+function rankPromotionItems(items: PromotionItem[], targetFile: string | null) {
+  return [...items].sort((left, right) => {
+    const scoreDiff = promotionItemSortScore(right, targetFile) - promotionItemSortScore(left, targetFile);
+    if (scoreDiff !== 0) {
+      return scoreDiff;
+    }
+    const proofDiff = (right.proofStrength === 'strong' ? 2 : right.proofStrength === 'weak' ? 1 : 0) - (left.proofStrength === 'strong' ? 2 : left.proofStrength === 'weak' ? 1 : 0);
+    if (proofDiff !== 0) {
+      return proofDiff;
+    }
+    return left.content.localeCompare(right.content);
+  });
 }
 
 function humanizeTargetFileLabel(targetFile: string | null) {
@@ -4611,6 +5781,17 @@ function truncateText(text: string, limit: number) {
 }
 
 function buildReviewHeadline(delta: PersonaDeltaEntry, targetFile: string | null) {
+  const sourceTitle = metadataText(delta.metadata, 'evidence_source');
+  const reviewSource = metadataText(delta.metadata, 'review_source');
+  if (reviewSource === 'long_form_media.segment' && sourceTitle) {
+    return sourceTitle;
+  }
+  if (sourceTitle && targetFile) {
+    return `${sourceTitle} → ${humanizeTargetPath(targetFile)}`;
+  }
+  if (sourceTitle) {
+    return sourceTitle;
+  }
   if (!targetFile) {
     return delta.trait;
   }
@@ -4622,6 +5803,11 @@ function buildReviewReason(delta: PersonaDeltaEntry, targetFile: string | null, 
   if (explicitReason) {
     return explicitReason;
   }
+  const reviewSource = metadataText(delta.metadata, 'review_source');
+  if (reviewSource === 'long_form_media.segment') {
+    const contextLabel = contextPath ? ` The closest live canon context is ${contextPath}.` : '';
+    return `Start with the source itself. Decide what the segment is actually saying before you worry about canon routing, workspace routing, or file placement.${contextLabel}`;
+  }
   const targetLabel = targetFile ? humanizeTargetPath(targetFile) : 'the persona bundle';
   const contextLabel = contextPath ? ` The closest live context is pulled from ${contextPath}.` : '';
   return `This is still pending, so I need your judgment before it becomes part of ${targetLabel}.${contextLabel} I am showing it now because it looks durable enough to affect how your initiatives, voice, or narrative get represented.`;
@@ -4631,6 +5817,12 @@ function buildReviewAsk(delta: PersonaDeltaEntry, targetFile: string | null) {
   const explicitPrompt = metadataText(delta.metadata, 'review_prompt');
   if (explicitPrompt) {
     return explicitPrompt;
+  }
+  if (metadataBoolean(delta.metadata, 'weak_source_fragment')) {
+    return 'First decide whether this source is meaningful enough to keep at all. If it depends on too much missing context, leave it as source intelligence or ignore it.';
+  }
+  if (metadataText(delta.metadata, 'review_source') === 'long_form_media.segment') {
+    return 'What is the real point of the source, what do you agree or disagree with, and should it stay source intelligence, become memory, turn into a post seed, or affect canon?';
   }
   const targetLabel = targetFile ? humanizeTargetPath(targetFile) : 'the persona bundle';
   return `Tell me if this belongs in ${targetLabel}, what is accurate about it, what nuance is missing, and how you would phrase it in your own voice.`;
@@ -4736,6 +5928,15 @@ function humanizeBeliefRelation(value: string | null) {
   return value.replace(/[_-]+/g, ' ');
 }
 
+function humanizePrimaryRoute(value: string | null) {
+  if (!value) return 'Unknown route';
+  if (value === 'belief_evidence') return 'Possible canon candidate';
+  if (value === 'post_seed') return 'Post seed';
+  if (value === 'comment') return 'Direct reaction';
+  if (value === 'repost') return 'Repost';
+  return value.replace(/[_-]+/g, ' ');
+}
+
 function humanizeResponseKind(value: 'agree' | 'disagree' | 'nuance' | 'story' | 'language') {
   if (value === 'agree') return 'Agreement';
   if (value === 'disagree') return 'Disagreement';
@@ -4751,12 +5952,102 @@ function humanizeSavedResponseKind(value: string) {
   return value.replace(/[_-]+/g, ' ');
 }
 
+function humanizeCanonicalMemoryTarget(value: string) {
+  if (value === 'persistent_state') return 'Persistent State';
+  if (value === 'learnings') return 'Learnings';
+  if (value === 'chronicle') return 'Codex Chronicle';
+  return value.replace(/[_-]+/g, ' ');
+}
+
+function compactStandupKind(value: string) {
+  if (value === 'auto') return 'Auto';
+  if (value === 'executive_ops') return 'Executive';
+  if (value === 'operations') return 'Operations';
+  if (value === 'weekly_review') return 'Weekly Review';
+  if (value === 'saturday_vision') return 'Saturday Vision';
+  if (value === 'workspace_sync') return 'Workspace';
+  return value.replace(/[_-]+/g, ' ');
+}
+
+function suggestBrainWorkspaceKey(delta: PersonaDeltaEntry | null) {
+  const metadataWorkspace = metadataText(delta?.metadata, 'workspace_key');
+  if (metadataWorkspace && brainWorkspaceOptions.some((option) => option.key === metadataWorkspace)) {
+    return metadataWorkspace;
+  }
+  const personaTarget = (delta?.persona_target || '').toLowerCase();
+  const trait = (delta?.trait || '').toLowerCase();
+  if (personaTarget.includes('feeze') || personaTarget.includes('linkedin') || trait.includes('feezie') || trait.includes('linkedin')) {
+    return 'linkedin-os';
+  }
+  return 'shared_ops';
+}
+
+function labelForBrainWorkspace(workspaceKey: string) {
+  return brainWorkspaceOptions.find((option) => option.key === workspaceKey)?.label ?? humanizeSnakeCase(workspaceKey);
+}
+
+function suggestStandupKindForWorkspace(workspaceKey: string) {
+  return workspaceKey === 'shared_ops' ? 'executive_ops' : 'workspace_sync';
+}
+
+function executionModelForBrainWorkspace(workspaceKey: string) {
+  if (workspaceKey === 'shared_ops' || workspaceKey === 'linkedin-os') {
+    return {
+      manager: 'Jean-Claude',
+      executor: 'Jean-Claude',
+      mode: 'direct' as const,
+    };
+  }
+  const workspaceAgents: Record<string, string> = {
+    'fusion-os': 'Fusion Systems Operator',
+    easyoutfitapp: 'Easy Outfit Product Agent',
+    'ai-swag-store': 'Commerce Growth Agent',
+    agc: 'AGC Strategy Agent',
+  };
+  return {
+    manager: 'Jean-Claude',
+    executor: workspaceAgents[workspaceKey] || 'Workspace Agent',
+    mode: 'delegated' as const,
+  };
+}
+
+function participantsForBrainRoute(workspaceKey: string, standupKind: string) {
+  if (standupKind === 'auto') {
+    return participantsForBrainRoute(workspaceKey, suggestStandupKindForWorkspace(workspaceKey));
+  }
+  if (standupKind === 'executive_ops' || standupKind === 'operations' || standupKind === 'weekly_review' || standupKind === 'saturday_vision') {
+    return ['Jean-Claude', 'Neo', 'Yoda'];
+  }
+  const executionModel = executionModelForBrainWorkspace(workspaceKey);
+  return executionModel.mode === 'delegated' ? ['Jean-Claude', executionModel.executor] : ['Jean-Claude'];
+}
+
+function reviewQueueCardTitle(delta: PersonaDeltaEntry) {
+  return metadataText(delta.metadata, 'evidence_source') ?? truncateText(delta.trait, 96);
+}
+
+function reviewQueueCardSummary(delta: PersonaDeltaEntry) {
+  return (
+    metadataText(delta.metadata, 'source_excerpt_clean') ??
+    metadataText(delta.metadata, 'segment_excerpt') ??
+    metadataText(delta.metadata, 'system_hypothesis') ??
+    truncateText(delta.trait, 140)
+  );
+}
+
+function defaultBrainPMTitle(delta: PersonaDeltaEntry) {
+  return `Operationalize reviewed signal: ${truncateText(delta.trait, 96).replace(/\n/g, ' ')}`;
+}
+
 function inferDocGroup(path: string) {
-  if (path.startsWith('SOPs/')) return 'Operating Docs';
-  if (path.startsWith('docs/')) return 'System Docs';
-  if (path.startsWith('knowledge/persona/')) return 'Persona Bundle';
-  if (path.startsWith('knowledge/aiclone/')) return 'Knowledge Docs';
-  if (path.startsWith('workspaces/')) return 'Workspace Reference';
+  const normalizedPath = path.replace(/^(\.\.\/)+/, '');
+  if (normalizedPath.startsWith('memory/')) return 'Canonical Memory';
+  if (normalizedPath.startsWith('SOPs/')) return 'Operating Docs';
+  if (normalizedPath.startsWith('docs/')) return 'System Docs';
+  if (normalizedPath.startsWith('knowledge/source-intelligence/')) return 'Source Intelligence';
+  if (normalizedPath.startsWith('knowledge/persona/')) return 'Persona Bundle';
+  if (normalizedPath.startsWith('knowledge/aiclone/')) return 'Knowledge Docs';
+  if (normalizedPath.startsWith('workspaces/')) return 'Workspace Reference';
   return 'Reference Docs';
 }
 
