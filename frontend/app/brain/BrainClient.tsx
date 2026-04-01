@@ -3079,29 +3079,31 @@ function PersonaPanel({
           borderRadius: '18px',
           border: '1px solid #1f2937',
           backgroundColor: '#050b19',
-          padding: '18px',
+          padding: compactPersonaChrome ? '14px' : '18px',
           display: 'grid',
-          gap: '12px',
+          gap: compactPersonaChrome ? '10px' : '12px',
           alignItems: 'start',
-          minHeight: usePinnedPersonaViewport ? 'calc(100vh - 190px)' : 0,
+          minHeight: usePinnedPersonaViewport ? 'calc(100vh - 162px)' : 0,
           overflowX: 'hidden',
           overflowY: usePinnedPersonaViewport ? 'auto' : 'visible',
           gridTemplateRows: activeReviewRows,
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div style={{ maxWidth: '760px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: compactPersonaChrome ? '10px' : '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ maxWidth: compactPersonaChrome ? '900px' : '760px' }}>
             <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Active Review</p>
-            <h2 style={{ color: 'white', fontSize: '28px', margin: '4px 0 8px' }}>{reviewHeadline}</h2>
-            <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6 }}>
+            <h2 style={{ color: 'white', fontSize: compactPersonaChrome ? '24px' : '28px', margin: '4px 0 6px' }}>{reviewHeadline}</h2>
+            <p style={{ color: '#94a3b8', fontSize: compactPersonaChrome ? '13px' : '14px', lineHeight: 1.6, margin: 0 }}>
               {selectedDelta
                 ? `${pendingCount} primary review item${pendingCount === 1 ? '' : 's'} remaining${mutedCount > 0 ? `, plus ${mutedCount} muted long-form item${mutedCount === 1 ? '' : 's'}` : ''}.`
                 : 'No pending reviews right now.'}
             </p>
           </div>
-          <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
-            Workspace approvals already count as saved. Brain is where you resolve unresolved items, add nuance, and decide what should become canon without auto-rewriting the bundle.
-          </div>
+          {!compactPersonaChrome && (
+            <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right', maxWidth: '360px' }}>
+              Workspace approvals already count as saved. Brain is where you resolve unresolved items, add nuance, and decide what should become canon without auto-rewriting the bundle.
+            </div>
+          )}
         </div>
 
         {compactPersonaChrome ? (
@@ -3244,7 +3246,7 @@ function PersonaPanel({
                 borderRadius: '14px',
                 border: '1px solid #1f2937',
                 backgroundColor: '#020617',
-                padding: '16px',
+                padding: compactPersonaChrome ? '14px' : '16px',
                 display: 'grid',
                 gap: '12px',
                 alignSelf: 'stretch',
@@ -3638,7 +3640,7 @@ function PersonaPanel({
                 borderRadius: '14px',
                 border: '1px solid #1f2937',
                 backgroundColor: '#020617',
-                padding: '16px',
+                padding: compactPersonaChrome ? '14px' : '16px',
                 display: 'grid',
                 gap: '12px',
                 alignSelf: 'stretch',
@@ -3646,7 +3648,7 @@ function PersonaPanel({
                 minHeight: 0,
                 overflowX: 'hidden',
                 overflowY: usePinnedPersonaViewport ? 'auto' : 'visible',
-                gridTemplateRows: 'auto auto auto auto minmax(140px, 1fr) auto',
+                gridTemplateRows: compactPersonaChrome ? 'auto auto auto minmax(180px, 1fr) auto' : 'auto auto auto auto minmax(140px, 1fr) auto',
               }}
             >
               <div
@@ -3660,9 +3662,11 @@ function PersonaPanel({
                 }}
               >
                 <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Step 3 · Decide and save</p>
-                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
-                  Decide whether this source is worth keeping at all before you worry about promotion. Only use canon when the source is actually strong enough.
-                </p>
+                {!compactPersonaChrome && (
+                  <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
+                    Decide whether this source is worth keeping at all before you worry about promotion. Only use canon when the source is actually strong enough.
+                  </p>
+                )}
                 <div style={{ display: 'grid', gap: '8px' }}>
                   <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>First decision</p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -3877,6 +3881,27 @@ function PersonaPanel({
                     <InlineBadge label={canMakeCanonNow ? 'Make canon = write now' : 'Canon selection = hold if proof is weak'} tone="#818cf8" />
                     <InlineBadge label="Finalize = canon + routing in one step" tone="#f59e0b" />
                   </div>
+                  {selectedPromotionItems.length > 0 && compactPersonaChrome && (
+                    <div
+                      style={{
+                        borderRadius: '10px',
+                        border: `1px solid ${gateDecisionTone(selectedPromotionGate.decision)}55`,
+                        backgroundColor: `${gateDecisionTone(selectedPromotionGate.decision)}12`,
+                        padding: '8px 10px',
+                        display: 'grid',
+                        gap: '6px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <InlineBadge label={humanizeGateDecision(selectedPromotionGate.decision)} tone={gateDecisionTone(selectedPromotionGate.decision)} />
+                        <InlineBadge label={`${selectedPromotionGate.selectedCount} selected`} tone="#818cf8" />
+                        <InlineBadge label={`proof ${selectedPromotionGate.proofStrength}`} tone={proofStrengthTone(selectedPromotionGate.proofStrength)} />
+                      </div>
+                      <p style={{ color: '#dbe7ff', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                        {selectedPromotionGate.reason || 'These selected fragments are ready for canon review.'}
+                      </p>
+                    </div>
+                  )}
                   {(error || reflectionState.message) && (
                     <p style={{ color: error ? '#f87171' : reflectionToneColor, fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
                       {error || reflectionState.message}
@@ -3926,6 +3951,30 @@ function PersonaPanel({
                     </p>
                   </div>
                 </div>
+                  {savedResponseExcerpt && compactPersonaChrome && (
+                    <details
+                      style={{
+                        borderRadius: '10px',
+                        border: '1px solid #1f2937',
+                        backgroundColor: '#0b1220',
+                        padding: '8px 10px',
+                        color: '#cbd5f5',
+                      }}
+                    >
+                      <summary style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer' }}>
+                        Current saved take
+                      </summary>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '8px 0 6px' }}>
+                        {savedResponseKind && <InlineBadge label={humanizeSavedResponseKind(savedResponseKind)} tone="#818cf8" />}
+                        {metadataText(selectedDelta.metadata, 'resolution_capture_id') && (
+                          <InlineBadge label={`capture ${metadataText(selectedDelta.metadata, 'resolution_capture_id')}`} tone="#64748b" />
+                        )}
+                      </div>
+                      <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, whiteSpace: 'pre-wrap', margin: 0 }}>
+                        {truncateText(savedResponseExcerpt, 520)}
+                      </p>
+                    </details>
+                  )}
                 </div>
               </div>
 
@@ -4029,7 +4078,7 @@ function PersonaPanel({
                 </div>
               )}
 
-              {selectedPromotionItems.length > 0 && (
+              {selectedPromotionItems.length > 0 && !compactPersonaChrome && (
                 <div
                   style={{
                     borderRadius: '12px',
@@ -4055,20 +4104,20 @@ function PersonaPanel({
                 </div>
               )}
 
-              {savedResponseExcerpt && (
-                <div
+              {savedResponseExcerpt && !compactPersonaChrome && (
+                <details
                   style={{
                     borderRadius: '12px',
                     border: '1px solid #1f2937',
                     backgroundColor: '#0b1220',
-                    padding: '12px',
+                    padding: '10px 12px',
                     color: '#cbd5f5',
                   }}
                 >
-                  <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>
+                  <summary style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer' }}>
                     Your current take
-                  </p>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  </summary>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '10px 0 8px' }}>
                     {savedResponseKind && <InlineBadge label={humanizeSavedResponseKind(savedResponseKind)} tone="#818cf8" />}
                     {metadataText(selectedDelta.metadata, 'resolution_capture_id') && (
                       <InlineBadge label={`capture ${metadataText(selectedDelta.metadata, 'resolution_capture_id')}`} tone="#64748b" />
@@ -4077,7 +4126,7 @@ function PersonaPanel({
                   <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: 0 }}>
                     {truncateText(savedResponseExcerpt, 900)}
                   </p>
-                </div>
+                </details>
               )}
             </section>
             </div>
@@ -4136,39 +4185,50 @@ function PersonaPanel({
           borderRadius: '18px',
           border: '1px solid #334155',
           background: 'linear-gradient(180deg, #071224 0%, #050b19 100%)',
-          padding: showLifecycleAudit ? '18px' : '10px 12px',
+          padding: showLifecycleAudit ? '18px' : '6px 10px',
           display: 'grid',
-          gap: showLifecycleAudit ? '16px' : '8px',
+          gap: showLifecycleAudit ? '16px' : '0',
           minHeight: 0,
           overflow: 'hidden',
           gridTemplateRows: showLifecycleAudit && usePinnedPersonaViewport ? 'auto auto minmax(0, 1fr)' : 'auto',
           boxShadow: showLifecycleAudit ? '0 18px 40px rgba(2, 6, 23, 0.35)' : 'none',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div>
-            <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Canon Audit</p>
-            <h3 style={{ color: 'white', fontSize: showLifecycleAudit ? '24px' : '18px', margin: '0 0 8px' }}>
-              {showLifecycleAudit ? 'Saved, held, committed, and resolved canon activity' : 'Audit trail hidden'}
-            </h3>
-            <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6 }}>
-              {showLifecycleAudit
-                ? 'Use this only when you want to inspect what happened after review. The active review workspace stays above.'
-                : 'Hidden by default so Active Review keeps the screen. Open it only when you need to inspect held, committed, or resolved canon items.'}
-            </p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        {showLifecycleAudit ? (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <p style={{ color: '#818cf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Canon Audit</p>
+                <h3 style={{ color: 'white', fontSize: '24px', margin: '0 0 8px' }}>Saved, held, committed, and resolved canon activity</h3>
+                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6 }}>
+                  Use this only when you want to inspect what happened after review. The active review workspace stays above.
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowLifecycleAudit((current) => !current)}
+                  style={triageChoiceButtonStyle(showLifecycleAudit)}
+                >
+                  Hide audit trail
+                </button>
+              </div>
+            </div>
+            {promotionState.message && promotionState.tone !== 'success' && (
+              <p style={{ color: '#f87171', fontSize: '12px' }}>{promotionState.message}</p>
+            )}
+          </>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <p style={{ color: '#818cf8', letterSpacing: '0.18em', fontSize: '10px', textTransform: 'uppercase', margin: 0 }}>Canon Audit</p>
             <button
               type="button"
-              onClick={() => setShowLifecycleAudit((current) => !current)}
-              style={triageChoiceButtonStyle(showLifecycleAudit)}
+              onClick={() => setShowLifecycleAudit(true)}
+              style={triageChoiceButtonStyle(false)}
             >
-              {showLifecycleAudit ? 'Hide audit trail' : 'Open audit trail'}
+              Open audit trail
             </button>
           </div>
-        </div>
-        {promotionState.message && promotionState.tone !== 'success' && (
-          <p style={{ color: '#f87171', fontSize: '12px' }}>{promotionState.message}</p>
         )}
         {showLifecycleAudit && (
           <div
