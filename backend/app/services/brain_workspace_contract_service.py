@@ -45,6 +45,14 @@ WORKSPACE_CONFIG: dict[str, dict[str, str]] = {
         "root": "agc",
     },
 }
+FALLBACK_CONTRACT_TEXT: dict[str, str] = {
+    "shared_ops": "Executive review interprets strong signals across Neo, Yoda, and Jean-Claude before broad downstream changes are made.",
+    "linkedin-os": "FEEZIE OS is the public-facing operating system for visibility, personal brand, career signal, and thought leadership rooted in real work.",
+    "fusion-os": "Fusion OS covers admissions, enrollment, school operations, referral systems, families, students, and leadership execution with trust and clarity.",
+    "easyoutfitapp": "EasyOutfitApp focuses on fashion, outfit logic, closet organization, metadata quality, personal style, and recommendation quality grounded in context.",
+    "ai-swag-store": "AI Swag Store owns merchandising, product drops, accessories, commerce validation, catalog decisions, and demand-testing for AI-branded physical goods.",
+    "agc": "AGC is a protected operating lane for AGC initiatives with separate mission clarity, traceable goals, local memory, and distinct execution rules.",
+}
 AI_PORTFOLIO_HINTS = (
     "ai",
     "artificial intelligence",
@@ -291,7 +299,9 @@ def _workspace_contract_excerpt(workspace_key: str) -> str:
             if excerpt:
                 return excerpt
     inferred = _inferred_workspace_brief_excerpt(config["brief_heading"])
-    return inferred or ""
+    if inferred:
+        return inferred
+    return _first_meaningful_line(FALLBACK_CONTRACT_TEXT.get(workspace_key, ""))
 
 
 @lru_cache(maxsize=32)
@@ -308,6 +318,10 @@ def _workspace_contract_blob(workspace_key: str) -> str:
     inferred = _inferred_workspace_brief_excerpt(config["brief_heading"])
     if inferred:
         parts.append(inferred)
+    if not parts:
+        fallback = FALLBACK_CONTRACT_TEXT.get(workspace_key, "")
+        if fallback:
+            parts.append(fallback)
     return _normalize_blob(parts)
 
 
