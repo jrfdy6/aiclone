@@ -2690,7 +2690,7 @@ function PersonaPanel({
       setLifecycleView('committed');
       setPromotionState({
         tone: 'success',
-        message: `${payload.message || 'Canon updated.'} Target files: ${(payload.committed_target_files || []).join(', ') || 'n/a'}. Bundle write: ${(payload.bundle_written_files || []).join(', ') || 'pending local sync'}.`,
+        message: formatPromotionSuccessMessage(payload.message, payload.committed_target_files, payload.bundle_written_files),
       });
       if (selectedDeltaId === delta.id) {
         setSelectedDeltaId(reviewQueue[0]?.id ?? '');
@@ -2922,7 +2922,7 @@ function PersonaPanel({
               setLifecycleView('committed');
               setPromotionState({
                 tone: 'success',
-                message: `${committed.message || 'Canon updated.'} Target files: ${(committed.committed_target_files || []).join(', ') || 'n/a'}. Bundle write: ${(committed.bundle_written_files || []).join(', ') || 'pending local sync'}.`,
+                message: formatPromotionSuccessMessage(committed.message, committed.committed_target_files, committed.bundle_written_files),
               });
               canonOutcome = 'committed';
             } catch (promoteError) {
@@ -4052,7 +4052,6 @@ function PersonaPanel({
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      <InlineBadge label={humanizeResponseKind(selectedResponseKind)} tone="#38bdf8" />
                       {selectedPromotionItems.length > 0 && <InlineBadge label={`${selectedPromotionItems.length} canon selected`} tone="#818cf8" />}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', maxWidth: '560px' }}>
@@ -4315,6 +4314,8 @@ function PersonaPanel({
               alignItems: 'center',
               gap: '10px',
               flexWrap: 'wrap',
+              width: 'fit-content',
+              maxWidth: '100%',
             }}
           >
             <InlineBadge label="Canon updated" tone="#22c55e" />
@@ -5625,6 +5626,31 @@ function humanizeTargetFileLabel(targetFile: string | null) {
   if (targetFile.includes('identity/decision_principles')) return 'Decision Principles';
   if (targetFile.includes('prompts/content_pillars')) return 'Content Pillars';
   return targetFile;
+}
+
+function summarizeCommittedTargetFiles(targetFiles: string[] | null | undefined) {
+  const labels = Array.from(new Set((targetFiles || []).map((targetFile) => humanizeTargetFileLabel(targetFile)).filter(Boolean)));
+  if (labels.length === 0) return 'canon';
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, 2).join(', ')}, and ${labels.length - 2} more`;
+}
+
+function formatPromotionSuccessMessage(
+  baseMessage: string | null | undefined,
+  targetFiles: string[] | null | undefined,
+  bundleWrittenFiles: string[] | null | undefined,
+) {
+  const normalized = (baseMessage || '').trim();
+  const targetSummary = summarizeCommittedTargetFiles(targetFiles);
+  const syncSummary = humanizeLocalBundleSyncState((bundleWrittenFiles || []).length > 0 ? 'synced' : 'pending');
+  if (normalized) {
+    return `${normalized} ${targetSummary !== 'canon' ? `${targetSummary}. ` : ''}${syncSummary}.`.trim();
+  }
+  if (targetSummary === 'canon') {
+    return `Canon updated. ${syncSummary}.`;
+  }
+  return `Canon updated in ${targetSummary}. ${syncSummary}.`;
 }
 
 function humanizeLocalBundleSyncState(state: string | null | undefined) {
