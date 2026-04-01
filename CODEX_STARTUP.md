@@ -17,6 +17,33 @@ Read this file early. Its purpose is to stop the 30-45 minute relearning loop an
 
 Then load only the additional docs needed for the task at hand. Keep `SOPs/_index.md` handy so you can jump to the canonical capability map instead of hunting through doc folders.
 
+When the task touches local scheduling, media-heavy automations, or machine-side runtime behavior, also load:
+- `SOPs/openclaw_local_automation_sop.md`
+
+When the task touches article understanding, social response quality, persona-aware drafting, comment/repost synthesis, or Lab content observability, also load:
+- `SOPs/social_persona_synthesis_roadmap_sop.md`
+
+When the task specifically touches Phase 1 article/world understanding, article stance modeling, world-model comparison, or Lab article-side observability, also load:
+- `workspaces/linkedin-content-os/docs/article_world_understanding_phase1_implementation_plan.md`
+
+When the task specifically touches Phase 2 persona retrieval, approved-delta reuse, belief/experience selection quality, or Lab retrieval observability, also load:
+- `workspaces/linkedin-content-os/docs/persona_retrieval_phase2_implementation_plan.md`
+
+When the task specifically touches Phase 3 Johnnie perspective modeling, agreement/pushback logic, lived-addition logic, or Lab perspective observability, also load:
+- `workspaces/linkedin-content-os/docs/johnnie_perspective_phase3_implementation_plan.md`
+
+When the task specifically touches Phase 4 reaction-brief synthesis, article-view/Johnnie-view packaging, or Lab pre-draft synthesis observability, also load:
+- `workspaces/linkedin-content-os/docs/reaction_brief_phase4_implementation_plan.md`
+
+When the task specifically touches Phase 5 template composition, family tracing, repetition control, or Lab draft-assembly observability, also load:
+- `workspaces/linkedin-content-os/docs/template_composition_phase5_implementation_plan.md`
+
+When the task specifically touches Phase 6 evaluation hardening, benchmark weighting, shipping gates, or Lab scoring observability, also load:
+- `workspaces/linkedin-content-os/docs/evaluation_hardening_phase6_implementation_plan.md`
+
+When the task specifically touches Phase 7 type-matrix expansion, agree/contrarian/personal-story/humor behavior, response-type selection, or Lab type-matrix observability, also load:
+- `workspaces/linkedin-content-os/docs/type_matrix_expansion_phase7_implementation_plan.md`
+
 ## Repo identity
 - Workspace root: `/Users/neo/.openclaw/workspace`
 - Git remote: `origin https://github.com/jrfdy6/aiclone.git`
@@ -51,6 +78,7 @@ Then load only the additional docs needed for the task at hand. Keep `SOPs/_inde
 - Checker for local overrides: `python3 scripts/check_local_runtime_overrides.py`
 - If OpenClaw is upgraded or reinstalled, the local media-ack patch may need reapplication via `python3 scripts/reapply_openclaw_media_ack_patch.py`.
 - QMD/session telemetry lives under `~/.openclaw/agents/main/sessions`.
+- Heavy local automations should run as `launchd`-scheduled OpenClaw workspace jobs, not as gateway-native cron. Use `SOPs/openclaw_local_automation_sop.md` as the canonical boundary for `launchd` vs `OpenClaw` vs `Railway` vs `Brain`.
 
 ## OpenClaw persistent memory model
 - The primary restart lane is local QMD plus `memory/persistent_state.md`.
@@ -173,6 +201,15 @@ Use those commands when the task is "seed production data" rather than "ship new
 - `SOPs/_index.md` (master list of SOPs/capabilities)
 - `SOPs/source_system_contract_sop.md`
 - `SOPs/brain_workspace_boundary_sop.md`
+- `SOPs/openclaw_local_automation_sop.md`
+- `SOPs/social_persona_synthesis_roadmap_sop.md`
+- `workspaces/linkedin-content-os/docs/article_world_understanding_phase1_implementation_plan.md`
+- `workspaces/linkedin-content-os/docs/persona_retrieval_phase2_implementation_plan.md`
+- `workspaces/linkedin-content-os/docs/johnnie_perspective_phase3_implementation_plan.md`
+- `workspaces/linkedin-content-os/docs/reaction_brief_phase4_implementation_plan.md`
+- `workspaces/linkedin-content-os/docs/template_composition_phase5_implementation_plan.md`
+- `workspaces/linkedin-content-os/docs/evaluation_hardening_phase6_implementation_plan.md`
+- `workspaces/linkedin-content-os/docs/type_matrix_expansion_phase7_implementation_plan.md`
 - `SOURCE_OF_TRUTH.md`
 - `memory/persistent_state.md`
 - `docs/persistent_memory_blueprint.md`

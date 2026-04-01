@@ -28,6 +28,7 @@ DEFAULT_BUNDLE_FILES = [
     "history/initiatives.md",
     "history/wins.md",
     "history/story_bank.md",
+    "references/external_reference_packets.md",
     "inbox/pending_deltas.md",
 ]
 

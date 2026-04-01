@@ -13,7 +13,9 @@ except ImportError:  # pragma: no cover - local fallback when DB deps are absent
     dict_row = None
 
 from app.models import DailyBrief
+from app.services import brief_reaction_service
 from app.services.daily_brief_parser import ParsedBrief, parse_briefs_markdown
+from app.services.workspace_snapshot_store import list_snapshot_payloads
 
 _WORKSPACE_CANDIDATES = (
     Path(os.getenv("OPENCLAW_WORKSPACE", "")),
@@ -25,8 +27,8 @@ _WORKSPACE_CANDIDATES = (
 def list_daily_briefs(limit: int = 50) -> List[DailyBrief]:
     rows = _load_from_db(limit)
     if rows:
-        return _attach_source_intelligence_overlay(rows)
-    return _attach_source_intelligence_overlay(_load_from_local_files(limit))
+        return _attach_brief_stream(_attach_source_intelligence_overlay(rows))
+    return _attach_brief_stream(_attach_source_intelligence_overlay(_load_from_local_files(limit)))
 
 
 def _load_from_db(limit: int) -> List[DailyBrief]:
@@ -90,30 +92,36 @@ def _parsed_to_models(parsed_entries: List[ParsedBrief], *, source: str) -> List
 def _normalize_candidate_items(items: Any, *, limit: int = 3) -> list[dict[str, str]]:
     if not isinstance(items, list):
         return []
-    normalized: list[dict[str, str]] = []
+    normalized: list[dict[str, Any]] = []
     for item in items[:limit]:
         if not isinstance(item, dict):
             continue
+        candidate = {
+            "title": str(item.get("title") or ""),
+            "priority_lane": str(item.get("priority_lane") or ""),
+            "source_kind": str(item.get("source_kind") or ""),
+            "route_reason": str(item.get("route_reason") or ""),
+            "target_file": str(item.get("target_file") or ""),
+            "source_url": str(item.get("source_url") or ""),
+            "source_path": str(item.get("source_path") or ""),
+            "summary": str(item.get("rationale") or item.get("summary") or ""),
+            "hook": str(item.get("hook") or ""),
+            "response_modes": [
+                str(value).strip()
+                for value in (item.get("response_modes") or [])
+                if str(value).strip()
+            ],
+        }
+        candidate["item_key"] = brief_reaction_service.build_brief_item_key(candidate)
         normalized.append(
-            {
-                "title": str(item.get("title") or ""),
-                "priority_lane": str(item.get("priority_lane") or ""),
-                "source_kind": str(item.get("source_kind") or ""),
-                "route_reason": str(item.get("route_reason") or ""),
-                "target_file": str(item.get("target_file") or ""),
-            }
+            candidate
         )
     return normalized
 
 
 def _snapshot_payloads() -> dict[str, dict[str, Any]]:
     try:
-        from app.services.workspace_snapshot_service import workspace_snapshot_service
-    except Exception:
-        return {}
-
-    try:
-        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+        snapshot = list_snapshot_payloads("linkedin-content-os")
     except Exception:
         return {}
 
@@ -214,6 +222,72 @@ def _attach_source_intelligence_overlay(entries: List[DailyBrief]) -> List[Daily
             metadata["source_intelligence"] = overlay
             metadata["source_intelligence_live"] = True
         enriched.append(entry.model_copy(update={"metadata": metadata}))
+    return enriched
+
+
+def _attach_brief_stream(entries: List[DailyBrief]) -> List[DailyBrief]:
+    if not entries:
+        return entries
+
+    enriched: List[DailyBrief] = []
+    for entry in entries:
+        metadata = dict(entry.metadata or {})
+        overlay = metadata.get("source_intelligence")
+        if not isinstance(overlay, dict):
+            enriched.append(entry)
+            continue
+
+        brief_stream = _build_brief_stream(entry, overlay)
+        if brief_stream:
+            overlay = dict(overlay)
+            overlay["brief_stream"] = brief_stream
+            metadata["source_intelligence"] = overlay
+        enriched.append(entry.model_copy(update={"metadata": metadata}))
+    return enriched
+
+
+def _build_brief_stream(entry: DailyBrief, overlay: dict[str, Any]) -> list[dict[str, Any]]:
+    stream_items: list[dict[str, Any]] = []
+    for section, candidates in (
+        ("post_seed", overlay.get("top_media_post_seeds")),
+        ("belief_evidence", overlay.get("top_belief_evidence")),
+    ):
+        if not isinstance(candidates, list):
+            continue
+        for raw in candidates:
+            if not isinstance(raw, dict):
+                continue
+            item = dict(raw)
+            item["section"] = section
+            item["item_key"] = str(item.get("item_key") or brief_reaction_service.build_brief_item_key(item, brief_id=entry.id))
+            stream_items.append(item)
+
+    if not stream_items:
+        return []
+
+    try:
+        reactions_by_key = brief_reaction_service.list_reactions_by_item_key(
+            brief_id=entry.id,
+            item_keys=[str(item.get("item_key") or "") for item in stream_items],
+            limit=120,
+        )
+    except Exception:
+        reactions_by_key = {}
+    try:
+        related_context = brief_reaction_service.related_persona_context_for_items(stream_items)
+    except Exception:
+        related_context = {}
+
+    enriched: list[dict[str, Any]] = []
+    for item in stream_items:
+        item_key = str(item.get("item_key") or "")
+        enriched.append(
+            {
+                **item,
+                "existing_reactions": [reaction.model_dump(mode="json") for reaction in reactions_by_key.get(item_key, [])[:3]],
+                "related_persona_context": [context.model_dump(mode="json") for context in related_context.get(item_key, [])[:2]],
+            }
+        )
     return enriched
 
 

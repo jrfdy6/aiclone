@@ -16,6 +16,39 @@ import app.services.social_signal_utils as social_signal_utils_module
 
 
 class SocialSignalVariantTests(unittest.TestCase):
+    def test_counter_open_bank_surfaces_voice_patterns(self) -> None:
+        ctx = {
+            "title": "Distribution Is Becoming the Moat for Small AI Products",
+            "priority_lane": "entrepreneurship",
+            "stance": "counter",
+            "source_takeaway_origin": "What compounds is distribution, user trust, and the operational system that keeps insight close to the product.",
+        }
+
+        open_line = social_signal_utils_module.comment_open(ctx, "Look, here's where I can't rock with it.")
+        contrast_line = social_signal_utils_module.stance_contrast_line(ctx, "comment")
+
+        self.assertTrue(
+            any(
+                marker in open_line.lower()
+                for marker in [
+                    "i can't rock with it",
+                    "that dog will not hunt",
+                    "look,",
+                    "interesting perspective",
+                ]
+            )
+        )
+        self.assertTrue(
+            any(
+                marker in contrast_line.lower()
+                for marker in [
+                    "show me the artifact",
+                    "not how it works in real life",
+                    "not really a system",
+                ]
+            )
+        )
+
     def test_admissions_variant_drops_abstract_bridge_fragment(self) -> None:
         signal = normalize_saved_signal(
             {
@@ -61,7 +94,16 @@ class SocialSignalVariantTests(unittest.TestCase):
         repost = admissions["repost"]
 
         self.assertIn("The frontline signal usually shows up first in the questions people keep asking.", comment)
-        self.assertIn("Those repeated questions usually tell you what the market is trying to say", comment)
+        self.assertTrue(
+            any(
+                marker in comment
+                for marker in [
+                    "Those repeated questions usually tell you what the market is trying to say",
+                    "You usually hear the real signal in the same questions long before it shows up in the official story.",
+                    "The repeated questions usually show where the message is still cleaner than the reality people are actually dealing with.",
+                ]
+            )
+        )
         self.assertNotIn("Keeps leadership", comment)
         self.assertNotIn("abstract commentary", comment.lower())
         self.assertNotIn("community-facing execution", comment.lower())
@@ -150,6 +192,9 @@ class SocialSignalVariantTests(unittest.TestCase):
                     "stops too early",
                     "the real issue is not the headline",
                     "one layer deeper than this framing",
+                    "sounds cleaner on paper",
+                    "one way from a distance and another way from inside the work",
+                    "sounds different when you have lived some version of it",
                 ]
             )
         )
@@ -174,6 +219,44 @@ class SocialSignalVariantTests(unittest.TestCase):
 
         self.assertGreater(evaluation["genericity_penalty"], 0.0)
         self.assertIn("copy still contains abstract meta phrasing", evaluation["warnings"])
+
+    def test_evaluator_rewards_warm_then_sharp_voice_patterns(self) -> None:
+        strong = social_evaluation_engine.evaluate_variant(
+            lane_id="entrepreneurship",
+            signal={"standout_lines": ["signal"]},
+            belief={
+                "belief_summary": "Systems become useful by being coherent, not by being endlessly flexible.",
+                "stance": "counter",
+                "agreement_level": "low",
+                "experience_summary": "AI Clone / Brain System.",
+                "role_safety": "safe",
+            },
+            technique={"techniques": ["specificity-injection"]},
+            expression=None,
+            comment="Look, I understand where they're coming from, but here's where I can't rock with it. Show me the artifact. If it can't survive the workflow, it's just another tab.",
+            repost="Real talk: the headline sounds clean. Real life is messier than that.",
+            short_comment="Show me the artifact.",
+        )
+        weak = social_evaluation_engine.evaluate_variant(
+            lane_id="entrepreneurship",
+            signal={"standout_lines": ["signal"]},
+            belief={
+                "belief_summary": "Systems become useful by being coherent, not by being endlessly flexible.",
+                "stance": "counter",
+                "agreement_level": "low",
+                "experience_summary": "AI Clone / Brain System.",
+                "role_safety": "safe",
+            },
+            technique={"techniques": ["specificity-injection"]},
+            expression=None,
+            comment="The headline is directionally relevant for builders.",
+            repost="This points at an execution issue.",
+            short_comment="Execution matters.",
+        )
+
+        self.assertGreater(strong["voice_match"], weak["voice_match"])
+        self.assertGreaterEqual(strong["voice_match"], 7.5)
+        self.assertNotIn("stance contrast is light", strong["warnings"])
 
 
 if __name__ == "__main__":

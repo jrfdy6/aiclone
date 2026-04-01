@@ -1,11 +1,8 @@
-Backup Job: GitHub Backup
-Date: 2026-03-17 06:00 UTC
-Status: Complete
-Description: Successfully created a snapshot of neo-core and pushed to backups.
-Backup Job: GitHub Backup
-Date: 2026-03-17 22:57 UTC
-Status: Complete
-Archive: backups/neo-core-backup-20260317-225501.tar.gz
-Checksum: 8d4a1122263462fc8b8e114ae8178ce6fb249c5b01fd7cc4a22b03f5fc092b3f
-Size: 1.54 GB
-Notes: Generated via scripts/run_github_backup.sh validation run.
+Backup created on 2026-03-30 at 10:00 UTC.
+
+- Archive: `neo-core-backup-20260330-100014.tar.gz`
+- Checksum: `3c12e3715bcc0983c331697d659e1b6f37e171372710f11591beb2f06267cf0d`
+- Size: 2,352,707,534 bytes
+- Status: Clean (committed changes in repository)
+
+---

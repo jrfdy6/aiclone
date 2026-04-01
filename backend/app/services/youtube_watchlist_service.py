@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 import logging
@@ -35,6 +36,7 @@ WATCHLIST_LIMIT_PER_CHANNEL = max(1, int(os.getenv("YOUTUBE_WATCHLIST_LIMIT_PER_
 WHISPER_MODEL_NAME = os.getenv("YOUTUBE_INGEST_WHISPER_MODEL", "base")
 AUTO_INGEST_MAX_VIDEOS_PER_RUN = max(1, int(os.getenv("YOUTUBE_AUTO_INGEST_MAX_VIDEOS_PER_RUN", "3")))
 AUTO_INGEST_PER_CHANNEL_LIMIT = max(1, int(os.getenv("YOUTUBE_AUTO_INGEST_PER_CHANNEL_LIMIT", "1")))
+AUTO_PENDING_TRANSCRIPT_BACKFILL_PER_RUN = max(0, int(os.getenv("YOUTUBE_PENDING_TRANSCRIPT_BACKFILL_PER_RUN", "2")))
 
 _jobs_lock = threading.Lock()
 _jobs: dict[str, dict[str, Any]] = {}
@@ -66,6 +68,10 @@ def _find_dir(*relative_patterns: str) -> Path | None:
 def _watchlist_path(workspace_root: Path | None = None) -> Path:
     resolved_root = workspace_root or discover_linkedin_workspace_root()
     return resolved_root / "research" / "watchlists.yaml"
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
 
 
 def _ingestions_root() -> Path:
@@ -168,7 +174,7 @@ def _parse_published(value: str | None) -> str | None:
 
 
 def _extract_existing_source_urls() -> set[str]:
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = _repo_root()
     try:
         payload = build_source_asset_inventory(
             transcripts_root=_transcripts_root(),
@@ -270,11 +276,24 @@ def _fetch_channel_entries(channel: dict[str, Any], *, limit: int, existing_urls
 
 
 def _transcription_runtime() -> dict[str, Any]:
+    whisper_spec = importlib.util.find_spec("whisper")
+    whisper_available = False
+    if whisper_spec is not None:
+        try:
+            whisper_module = importlib.import_module("whisper")
+            whisper_available = callable(getattr(whisper_module, "load_model", None))
+        except Exception:  # pragma: no cover - runtime dependent
+            whisper_available = False
     return {
         "yt_dlp": bool(shutil.which("yt-dlp")),
         "ffmpeg": bool(shutil.which("ffmpeg")),
-        "whisper": importlib.util.find_spec("whisper") is not None,
+        "whisper": whisper_available,
     }
+
+
+def _can_attempt_youtube_transcript() -> bool:
+    runtime = _transcription_runtime()
+    return runtime["yt_dlp"]
 
 
 def _can_transcribe() -> bool:
@@ -291,6 +310,223 @@ def _first_line(value: str | None) -> str:
         if cleaned:
             return cleaned
     return text
+
+
+def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
+    if not raw.startswith("---"):
+        return {}, raw
+    parts = raw.split("---", 2)
+    if len(parts) < 3:
+        return {}, raw
+    return yaml.safe_load(parts[1]) or {}, parts[2].strip()
+
+
+def _pending_transcript_summary(summary: str) -> bool:
+    lowered = _clean_text(summary).lower()
+    if not lowered:
+        return True
+    return lowered.startswith("selected from youtube watchlist") or lowered.startswith("pending transcript")
+
+
+def _asset_needs_transcript_backfill(asset: dict[str, Any], *, repo_root: Path) -> bool:
+    if _clean_text(asset.get("source_channel")).lower() != "youtube":
+        return False
+    if _clean_text(asset.get("source_type")).lower() != "youtube_transcript":
+        return False
+    if not _clean_text(asset.get("source_url")):
+        return False
+    word_count = asset.get("word_count")
+    if isinstance(word_count, (int, float)) and word_count > 0:
+        return False
+
+    source_path = _clean_text(asset.get("source_path"))
+    if not source_path:
+        return False
+    normalized_path = repo_root / source_path
+    if not normalized_path.exists():
+        return False
+    raw = normalized_path.read_text(encoding="utf-8")
+    meta, body = _parse_frontmatter(raw)
+    meta_word_count = meta.get("word_count")
+    if isinstance(meta_word_count, (int, float)) and meta_word_count > 0:
+        return False
+    body_text = _clean_text(body).lower()
+    if body_text.startswith("# source notes") or "transcript capture still pending" in body_text:
+        return True
+    return _pending_transcript_summary(_clean_text(meta.get("summary")) or _clean_text(asset.get("summary")))
+
+
+def _pending_youtube_transcript_assets(*, repo_root: Path) -> list[dict[str, Any]]:
+    inventory = build_source_asset_inventory(
+        transcripts_root=_transcripts_root(),
+        ingestions_root=_ingestions_root(),
+        repo_root=repo_root,
+    )
+    return [
+        asset
+        for asset in (inventory.get("items") or [])
+        if isinstance(asset, dict) and _asset_needs_transcript_backfill(asset, repo_root=repo_root)
+    ]
+
+
+def _write_backfilled_transcript(asset: dict[str, Any], transcript_text: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    repo_root = _repo_root()
+    source_path = _clean_text(asset.get("source_path"))
+    if not source_path:
+        raise RuntimeError("Pending YouTube asset is missing source_path.")
+    normalized_path = repo_root / source_path
+    if not normalized_path.exists():
+        raise RuntimeError(f"Pending YouTube asset not found: {source_path}")
+
+    raw = normalized_path.read_text(encoding="utf-8")
+    frontmatter, _body = _parse_frontmatter(raw)
+    asset_dir = normalized_path.parent
+    raw_dir = asset_dir / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    transcript_rel = "raw/transcript.txt"
+    transcript_path = asset_dir / transcript_rel
+    transcript_path.write_text(transcript_text.strip() + "\n", encoding="utf-8")
+
+    raw_files = []
+    for item in list(frontmatter.get("raw_files") or []):
+        text = _clean_text(item)
+        if text and text not in raw_files:
+            raw_files.append(text)
+    if transcript_rel not in raw_files:
+        raw_files.append(transcript_rel)
+
+    tags = []
+    for item in list(frontmatter.get("tags") or []):
+        text = _clean_text(item)
+        if text and text not in tags:
+            tags.append(text)
+    if "auto_transcribed" not in tags:
+        tags.append("auto_transcribed")
+
+    summary = _first_line(transcript_text) or _first_line(_clean_text(metadata.get("description"))) or _clean_text(frontmatter.get("summary"))
+    if _clean_text(metadata.get("title")) and _clean_text(frontmatter.get("title")).lower() == "youtube source":
+        frontmatter["title"] = _clean_text(metadata.get("title"))
+    if _clean_text(metadata.get("channel")) and _clean_text(frontmatter.get("author")).lower() in {"", "unknown"}:
+        frontmatter["author"] = _clean_text(metadata.get("channel"))
+    frontmatter["raw_files"] = raw_files
+    frontmatter["word_count"] = len(transcript_text.split())
+    frontmatter["summary"] = _truncate(summary, 280) if summary else _clean_text(frontmatter.get("summary"))
+    frontmatter["tags"] = tags
+
+    normalized_path.write_text(
+        f"---\n{yaml.safe_dump(frontmatter, sort_keys=False).strip()}\n---\n\n# Clean Transcript / Document\n{transcript_text.strip()}\n",
+        encoding="utf-8",
+    )
+
+    routing_status_path = asset_dir / "routing_status.json"
+    routing_status_path.write_text(
+        json.dumps(
+            {
+                "asset_id": _clean_text(frontmatter.get("id")) or _clean_text(asset.get("asset_id")),
+                "status": "pending_segmentation",
+                "source_channel": "youtube",
+                "source_type": "youtube_transcript",
+                "has_transcript": True,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    return {
+        "asset_id": _clean_text(frontmatter.get("id")) or _clean_text(asset.get("asset_id")),
+        "title": _clean_text(frontmatter.get("title")) or _clean_text(asset.get("title")),
+        "source_url": _clean_text(frontmatter.get("source_url")) or _clean_text(asset.get("source_url")),
+        "source_path": source_path,
+        "word_count": int(frontmatter.get("word_count") or 0),
+    }
+
+
+def backfill_pending_youtube_transcripts(*, limit: int | None = None, run_refresh: bool = False) -> dict[str, Any]:
+    repo_root = _repo_root()
+    pending_assets = _pending_youtube_transcript_assets(repo_root=repo_root)
+    selected_limit = AUTO_PENDING_TRANSCRIPT_BACKFILL_PER_RUN if limit is None else max(0, int(limit))
+    selected = pending_assets[:selected_limit] if selected_limit > 0 else []
+
+    backfilled: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    if not _can_attempt_youtube_transcript():
+        for asset in selected:
+            skipped.append(
+                {
+                    "asset_id": _clean_text(asset.get("asset_id")),
+                    "title": _clean_text(asset.get("title")),
+                    "reason": "transcription_runtime_unavailable",
+                }
+            )
+        return {
+            "runtime": _transcription_runtime(),
+            "pending_total": len(pending_assets),
+            "selected_count": len(selected),
+            "backfilled": backfilled,
+            "skipped": skipped,
+            "errors": errors,
+            "counts": {
+                "pending_total": len(pending_assets),
+                "selected": len(selected),
+                "backfilled": 0,
+                "skipped": len(skipped),
+                "errors": 0,
+            },
+        }
+
+    for asset in selected:
+        url = _clean_text(asset.get("source_url"))
+        try:
+            transcript_text, metadata = _transcribe_youtube_url(url)
+            if not transcript_text:
+                skipped.append(
+                    {
+                        "asset_id": _clean_text(asset.get("asset_id")),
+                        "title": _clean_text(asset.get("title")),
+                        "reason": "empty_transcript",
+                    }
+                )
+                continue
+            updated = _write_backfilled_transcript(asset, transcript_text, metadata)
+            updated["transcript_word_count"] = len(transcript_text.split())
+            backfilled.append(updated)
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            LOGGER.exception("Pending YouTube transcript backfill failed for %s", url)
+            errors.append(
+                {
+                    "asset_id": _clean_text(asset.get("asset_id")),
+                    "title": _clean_text(asset.get("title")),
+                    "url": url,
+                    "reason": str(exc),
+                }
+            )
+
+    if run_refresh and backfilled:
+        from app.services.workspace_snapshot_service import workspace_snapshot_service
+
+        workspace_snapshot_service.refresh_persisted_linkedin_os_state()
+
+    return {
+        "runtime": _transcription_runtime(),
+        "pending_total": len(pending_assets),
+        "selected_count": len(selected),
+        "backfilled": backfilled,
+        "skipped": skipped,
+        "errors": errors,
+        "counts": {
+            "pending_total": len(pending_assets),
+            "selected": len(selected),
+            "backfilled": len(backfilled),
+            "skipped": len(skipped),
+            "errors": len(errors),
+        },
+    }
 
 
 def _yt_dlp_json(url: str) -> dict[str, Any]:
@@ -318,12 +554,65 @@ def _download_audio(url: str, temp_dir: str) -> Path:
     return audio_files[0]
 
 
+def _subtitle_text_from_vtt(path: Path) -> str:
+    lines: list[str] = []
+    last_line = ""
+    for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = _clean_text(raw_line)
+        if not line:
+            continue
+        if line == "WEBVTT" or line.startswith("Kind:") or line.startswith("Language:"):
+            continue
+        if "-->" in line or re.fullmatch(r"\d+", line):
+            continue
+        if line.startswith("NOTE"):
+            continue
+        if line == last_line:
+            continue
+        lines.append(line)
+        last_line = line
+    return " ".join(lines).strip()
+
+
+def _download_subtitle_transcript(url: str, temp_dir: str) -> str:
+    output_template = str(Path(temp_dir) / "%(id)s.%(ext)s")
+    subprocess.run(
+        [
+            "yt-dlp",
+            "--no-playlist",
+            "--skip-download",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs",
+            "en.*,en-US,en",
+            "--sub-format",
+            "vtt/best",
+            "--convert-subs",
+            "vtt",
+            "-o",
+            output_template,
+            url,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subtitle_candidates = sorted(Path(temp_dir).glob("*.vtt"), key=lambda item: item.stat().st_size, reverse=True)
+    for candidate in subtitle_candidates:
+        transcript = _subtitle_text_from_vtt(candidate)
+        if transcript:
+            return transcript
+    return ""
+
+
 def _whisper_model(model_name: str):
     cached = _whisper_model_cache.get(model_name)
     if cached is not None:
         return cached
     import whisper  # type: ignore
 
+    if not callable(getattr(whisper, "load_model", None)):
+        raise RuntimeError("Installed 'whisper' module does not expose load_model; install openai-whisper in the local runtime.")
     model = whisper.load_model(model_name)
     _whisper_model_cache[model_name] = model
     return model
@@ -332,6 +621,14 @@ def _whisper_model(model_name: str):
 def _transcribe_youtube_url(url: str) -> tuple[str, dict[str, Any]]:
     metadata = _yt_dlp_json(url)
     with tempfile.TemporaryDirectory(prefix="youtube-watchlist-") as temp_dir:
+        try:
+            subtitle_transcript = _download_subtitle_transcript(url, temp_dir)
+        except Exception:  # pragma: no cover - runtime dependent
+            subtitle_transcript = ""
+        if subtitle_transcript:
+            return subtitle_transcript, metadata
+        if not _can_transcribe():
+            return "", metadata
         audio_path = _download_audio(url, temp_dir)
         model = _whisper_model(WHISPER_MODEL_NAME)
         result = model.transcribe(str(audio_path), verbose=False)
@@ -352,7 +649,7 @@ def _ingest_watchlist_video(
     metadata: dict[str, Any] = {}
     transcript_text = ""
     ingestion_mode = "url_only"
-    if _can_transcribe():
+    if _can_attempt_youtube_transcript():
         transcript_text, metadata = _transcribe_youtube_url(url)
         ingestion_mode = "transcribed" if transcript_text else "url_only"
     else:
@@ -401,6 +698,7 @@ def build_youtube_watchlist_payload(workspace_root: Path | None = None) -> dict[
         for video in channel.get("videos") or []
         if isinstance(video, dict) and bool(video.get("already_ingested"))
     )
+    pending_transcript_assets = _pending_youtube_transcript_assets(repo_root=_repo_root())
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "workspace": "linkedin-content-os",
@@ -415,7 +713,17 @@ def build_youtube_watchlist_payload(workspace_root: Path | None = None) -> dict[
             "channels": len(channel_payloads),
             "videos": total_videos,
             "already_ingested": already_ingested,
+            "pending_transcript_backfill": len(pending_transcript_assets),
         },
+        "pending_transcript_backfill": [
+            {
+                "asset_id": _clean_text(item.get("asset_id")),
+                "title": _clean_text(item.get("title")),
+                "source_url": _clean_text(item.get("source_url")),
+                "source_path": _clean_text(item.get("source_path")),
+            }
+            for item in pending_transcript_assets[:12]
+        ],
     }
 
 
@@ -502,6 +810,7 @@ def sync_watchlist_auto_ingest(
     skipped: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     ingested: list[dict[str, Any]] = []
+    backfill_result = backfill_pending_youtube_transcripts(run_refresh=False)
 
     for channel in channels:
         if not isinstance(channel, dict):
@@ -565,7 +874,7 @@ def sync_watchlist_auto_ingest(
         if url in existing_urls:
             skipped.append({"url": url, "title": item.get("title"), "channel_name": item.get("channel_name"), "reason": "already_ingested"})
 
-    if run_refresh and ingested:
+    if run_refresh and (ingested or (backfill_result.get("backfilled") or [])):
         from app.services.workspace_snapshot_service import workspace_snapshot_service
 
         workspace_snapshot_service.refresh_persisted_linkedin_os_state()
@@ -573,12 +882,14 @@ def sync_watchlist_auto_ingest(
     return {
         "enabled": True,
         "auto_ingest": config,
+        "backfill": backfill_result,
         "ingested": ingested,
         "skipped": skipped,
         "errors": errors,
         "counts": {
             "discovered": len(discovered),
             "ingested": len(ingested),
+            "backfilled": len(backfill_result.get("backfilled") or []),
             "skipped": len(skipped),
             "errors": len(errors),
         },

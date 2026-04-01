@@ -1,6 +1,5 @@
 'use client';
 
-import type { CSSProperties } from 'react';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -22,6 +21,7 @@ type FeedLensId =
 type PostingAudience = 'general' | 'education_admissions' | 'tech_ai' | 'leadership' | 'entrepreneurs';
 type ContentCategory = 'value' | 'sales' | 'personal';
 type ContentType = 'cold_email' | 'linkedin_post' | 'linkedin_dm' | 'instagram_post';
+type ContentSourceMode = 'persona_only' | 'selected_source' | 'recent_signals';
 
 type VariantEvaluation = {
   lane_distinctiveness?: number;
@@ -204,6 +204,12 @@ const CONTENT_TYPES: { value: ContentType; label: string; icon: string }[] = [
   { value: 'linkedin_post', label: 'LinkedIn Post', icon: '📝' },
   { value: 'linkedin_dm', label: 'LinkedIn DM', icon: '💬' },
   { value: 'instagram_post', label: 'Instagram Post', icon: '📸' },
+];
+
+const CONTENT_SOURCE_OPTIONS: { value: ContentSourceMode; label: string; hint: string }[] = [
+  { value: 'persona_only', label: 'Persona only', hint: 'Generate from Johnnie canon and your prompt, not from a live article.' },
+  { value: 'selected_source', label: 'Selected source', hint: 'Use the selected feed item as the source anchor for the draft.' },
+  { value: 'recent_signals', label: 'Recent signals', hint: 'Blend recent relevant source material into the draft.' },
 ];
 
 const POST_MODE_OPTIONS: { id: FeedLensId; label: string }[] = [
@@ -429,18 +435,19 @@ function sectionLabel(key: string) {
 
 export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: boolean }) {
   const searchParams = useSearchParams();
+  const safeSearchParams = searchParams ?? new URLSearchParams();
   const tabs = useMemo(() => workspaceTabs(), []);
   const querySeed = useMemo<QuerySeed>(
     () => ({
-      title: searchParams.get('title') ?? '',
-      summary: searchParams.get('summary') ?? '',
-      hook: searchParams.get('hook') ?? '',
-      sourceUrl: searchParams.get('sourceUrl') ?? '',
-      sourcePath: searchParams.get('sourcePath') ?? '',
-      priorityLane: searchParams.get('priorityLane') ?? '',
-      routeReason: searchParams.get('routeReason') ?? '',
+      title: safeSearchParams.get('title') ?? '',
+      summary: safeSearchParams.get('summary') ?? '',
+      hook: safeSearchParams.get('hook') ?? '',
+      sourceUrl: safeSearchParams.get('sourceUrl') ?? '',
+      sourcePath: safeSearchParams.get('sourcePath') ?? '',
+      priorityLane: safeSearchParams.get('priorityLane') ?? '',
+      routeReason: safeSearchParams.get('routeReason') ?? '',
     }),
-    [searchParams],
+    [safeSearchParams],
   );
 
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
@@ -470,6 +477,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const [topic, setTopic] = useState(querySeed.title || '');
   const [context, setContext] = useState(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]));
   const [audience, setAudience] = useState<PostingAudience>(mapAudienceFromLane(querySeed.priorityLane));
+  const [sourceMode, setSourceMode] = useState<ContentSourceMode>('persona_only');
   const [generating, setGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string[]>([]);
   const [generatorError, setGeneratorError] = useState<string | null>(null);
@@ -674,16 +682,23 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     setGenerating(true);
     setGeneratorError(null);
     try {
+      const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
+      const topicToSend = sourceAttached
+        ? topic || selectedSignal?.title || 'operator insight'
+        : topic || 'operator insight';
+      const contextToSend = sourceAttached
+        ? context ||
+          (selectedSignal ? buildPipelineContext(selectedSignal, resolveFeedLens(selectedSignal)) : buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]))
+        : context || '';
       const response = await apiPost<GeneratedContentResponse>('/api/content-generation/generate', {
         user_id: 'johnnie_fields',
-        topic: topic || selectedSignal?.title || 'operator insight',
-        context:
-          context ||
-          (selectedSignal ? buildPipelineContext(selectedSignal, resolveFeedLens(selectedSignal)) : buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason])),
+        topic: topicToSend,
+        context: contextToSend,
         content_type: generatorType,
         category: activeCategory,
         tone: 'expert_direct',
         audience,
+        source_mode: sourceMode,
       });
       const options = Array.isArray(response.options) ? response.options.filter((option) => typeof option === 'string' && option.trim()) : [];
       setGeneratedContent(options);
@@ -699,7 +714,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     } finally {
       setGenerating(false);
     }
-  }, [activeCategory, audience, context, generatorType, querySeed.hook, querySeed.routeReason, querySeed.summary, resolveFeedLens, selectedSignal, topic]);
+  }, [activeCategory, audience, context, generatorType, querySeed.hook, querySeed.routeReason, querySeed.summary, resolveFeedLens, selectedSignal, sourceMode, topic]);
 
   const saveGeneratedContent = useCallback(
     (content: string, index: number) => {
@@ -968,6 +983,21 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                     ))}
                   </select>
                 </label>
+              </div>
+              <div style={{ display: 'grid', gap: '6px', marginBottom: '16px' }}>
+                <label style={fieldWrapStyle}>
+                  <span style={fieldLabelStyle}>Source basis</span>
+                  <select value={sourceMode} onChange={(event) => setSourceMode(event.target.value as ContentSourceMode)} style={fieldStyle}>
+                    {CONTENT_SOURCE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                  {CONTENT_SOURCE_OPTIONS.find((option) => option.value === sourceMode)?.hint}
+                </p>
               </div>
 
               <button onClick={() => void generateContent()} disabled={generating} style={primaryActionStyle('#38bdf8')}>
@@ -1391,17 +1421,17 @@ function summarizeContent(content?: string) {
   return cleaned.length > 220 ? `${cleaned.slice(0, 220)}...` : cleaned;
 }
 
-function sectionLabelStyle(tone: string): CSSProperties {
+function sectionLabelStyle(tone: string) {
   return {
     color: tone,
     fontSize: '11px',
     textTransform: 'uppercase',
     letterSpacing: '0.12em',
     margin: 0,
-  };
+  } as const;
 }
 
-function primaryActionStyle(tone: string): CSSProperties {
+function primaryActionStyle(tone: string) {
   return {
     borderRadius: '10px',
     border: `1px solid ${tone}`,
@@ -1411,10 +1441,10 @@ function primaryActionStyle(tone: string): CSSProperties {
     fontSize: '13px',
     fontWeight: 700,
     cursor: 'pointer',
-  };
+  } as const;
 }
 
-function secondaryActionStyle(tone: string): CSSProperties {
+function secondaryActionStyle(tone: string) {
   return {
     borderRadius: '8px',
     border: `1px solid ${tone}`,
@@ -1423,10 +1453,10 @@ function secondaryActionStyle(tone: string): CSSProperties {
     padding: '6px 12px',
     fontSize: '12px',
     cursor: 'pointer',
-  };
+  } as const;
 }
 
-function secondaryLinkStyle(tone: string): CSSProperties {
+function secondaryLinkStyle(tone: string) {
   return {
     borderRadius: '8px',
     border: `1px solid ${tone}`,
@@ -1436,10 +1466,10 @@ function secondaryLinkStyle(tone: string): CSSProperties {
     fontSize: '12px',
     fontWeight: 700,
     textDecoration: 'none',
-  };
+  } as const;
 }
 
-function feedbackButtonStyle(tone: string): CSSProperties {
+function feedbackButtonStyle(tone: string) {
   return {
     borderRadius: '12px',
     border: `1px solid ${tone}`,
@@ -1448,10 +1478,10 @@ function feedbackButtonStyle(tone: string): CSSProperties {
     padding: '6px 12px',
     fontSize: '12px',
     cursor: 'pointer',
-  };
+  } as const;
 }
 
-function headerLinkStyle(tone: string): CSSProperties {
+function headerLinkStyle(tone: string) {
   return {
     borderRadius: '12px',
     border: `1px solid ${tone}`,
@@ -1461,10 +1491,10 @@ function headerLinkStyle(tone: string): CSSProperties {
     textDecoration: 'none',
     fontSize: '13px',
     fontWeight: 600,
-  };
+  } as const;
 }
 
-function statusBannerStyle(active: boolean): CSSProperties {
+function statusBannerStyle(active: boolean) {
   return {
     padding: '10px 14px',
     borderRadius: '10px',
@@ -1472,86 +1502,86 @@ function statusBannerStyle(active: boolean): CSSProperties {
     border: `1px solid ${active ? 'rgba(37,99,235,0.6)' : 'rgba(34,197,94,0.6)'}`,
     color: '#e0f2fe',
     fontSize: '13px',
-  };
+  } as const;
 }
 
-const workspaceHeaderStyle: CSSProperties = {
+const workspaceHeaderStyle = {
   borderRadius: '22px',
   padding: '24px',
   background: 'linear-gradient(135deg, rgba(11,19,36,0.96), rgba(4,9,18,0.98))',
   border: '1px solid rgba(56,189,248,0.18)',
   boxShadow: '0 26px 72px rgba(0,0,0,0.35)',
-};
+} as const;
 
-const workspaceHeaderLabelStyle: CSSProperties = {
+const workspaceHeaderLabelStyle = {
   color: '#38bdf8',
   letterSpacing: '0.2em',
   fontSize: '11px',
   textTransform: 'uppercase',
   margin: 0,
-};
+} as const;
 
-const panelStyle: CSSProperties = {
+const panelStyle = {
   borderRadius: '18px',
   border: '1px solid #1f2937',
   backgroundColor: '#050b19',
   padding: '20px',
   display: 'grid',
   gap: '16px',
-};
+} as const;
 
-const miniStatStyle: CSSProperties = {
+const miniStatStyle = {
   padding: '12px 14px',
   borderRadius: '14px',
   border: '1px solid rgba(148,163,184,0.14)',
   backgroundColor: 'rgba(2,6,23,0.65)',
-};
+} as const;
 
-const miniStatLabelStyle: CSSProperties = {
+const miniStatLabelStyle = {
   color: '#94a3b8',
   fontSize: '11px',
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
   margin: 0,
-};
+} as const;
 
-const miniStatValueStyle: CSSProperties = {
+const miniStatValueStyle = {
   color: 'white',
   fontSize: '22px',
   fontWeight: 700,
   margin: '4px 0',
-};
+} as const;
 
-const miniStatDetailStyle: CSSProperties = {
+const miniStatDetailStyle = {
   color: '#64748b',
   fontSize: '12px',
   lineHeight: 1.45,
   margin: 0,
-};
+} as const;
 
-const personaBannerStyle: CSSProperties = {
+const personaBannerStyle = {
   background: 'linear-gradient(to right, #1e293b, #334155)',
   borderRadius: '12px',
   padding: '16px',
   border: '1px solid #475569',
-};
+} as const;
 
-const personaActiveStyle: CSSProperties = {
+const personaActiveStyle = {
   fontSize: '12px',
   padding: '2px 8px',
   backgroundColor: 'rgba(59, 130, 246, 0.3)',
   borderRadius: '4px',
   color: '#93c5fd',
-};
+} as const;
 
-const categoryCardStyle: CSSProperties = {
+const categoryCardStyle = {
   padding: '20px',
   borderRadius: '12px',
   textAlign: 'left',
   cursor: 'pointer',
-};
+} as const;
 
-const generatorToggleStyle: CSSProperties = {
+const generatorToggleStyle = {
   width: '100%',
   padding: '16px',
   borderRadius: '12px',
@@ -1560,27 +1590,27 @@ const generatorToggleStyle: CSSProperties = {
   color: '#9ca3af',
   fontSize: '16px',
   cursor: 'pointer',
-};
+} as const;
 
-const generatorPanelStyle: CSSProperties = {
+const generatorPanelStyle = {
   backgroundColor: '#1e293b',
   borderRadius: '12px',
   padding: '24px',
   border: '1px solid #475569',
-};
+} as const;
 
-const fieldWrapStyle: CSSProperties = {
+const fieldWrapStyle = {
   display: 'grid',
   gap: '6px',
-};
+} as const;
 
-const fieldLabelStyle: CSSProperties = {
+const fieldLabelStyle = {
   display: 'block',
   fontSize: '14px',
   color: '#9ca3af',
-};
+} as const;
 
-const fieldStyle: CSSProperties = {
+const fieldStyle = {
   width: '100%',
   padding: '12px',
   borderRadius: '8px',
@@ -1589,24 +1619,24 @@ const fieldStyle: CSSProperties = {
   color: 'white',
   fontSize: '14px',
   boxSizing: 'border-box',
-};
+} as const;
 
-const textareaStyle: CSSProperties = {
+const textareaStyle = {
   ...fieldStyle,
   resize: 'vertical',
   minHeight: '120px',
-};
+} as const;
 
-const generatedOptionStyle: CSSProperties = {
+const generatedOptionStyle = {
   padding: '16px',
   borderRadius: '8px',
   backgroundColor: '#0f172a',
   border: '1px solid #475569',
   display: 'grid',
   gap: '12px',
-};
+} as const;
 
-const generatedOptionTextStyle: CSSProperties = {
+const generatedOptionTextStyle = {
   whiteSpace: 'pre-wrap',
   fontSize: '14px',
   color: '#e2e8f0',
@@ -1614,89 +1644,89 @@ const generatedOptionTextStyle: CSSProperties = {
   fontFamily: 'inherit',
   maxHeight: '220px',
   overflow: 'auto',
-};
+} as const;
 
-const pipelineListStyle: CSSProperties = {
+const pipelineListStyle = {
   backgroundColor: '#1e293b',
   borderRadius: '12px',
   border: '1px solid #475569',
   overflow: 'hidden',
-};
+} as const;
 
-const pipelineHeaderStyle: CSSProperties = {
+const pipelineHeaderStyle = {
   padding: '16px 20px',
   borderBottom: '1px solid #475569',
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-};
+} as const;
 
-const emptyPipelineStyle: CSSProperties = {
+const emptyPipelineStyle = {
   padding: '48px',
   textAlign: 'center',
   color: '#6b7280',
-};
+} as const;
 
-const pipelineItemRowStyle: CSSProperties = {
+const pipelineItemRowStyle = {
   padding: '16px 20px',
   borderBottom: '1px solid #374151',
-};
+} as const;
 
-const expandedContentStyle: CSSProperties = {
+const expandedContentStyle = {
   marginTop: '12px',
   padding: '12px',
   backgroundColor: '#0f172a',
   borderRadius: '8px',
-};
+} as const;
 
-const expandedContentTextStyle: CSSProperties = {
+const expandedContentTextStyle = {
   whiteSpace: 'pre-wrap',
   fontSize: '14px',
   color: '#e2e8f0',
   fontFamily: 'inherit',
   margin: 0,
-};
+} as const;
 
-const ingestPanelStyle: CSSProperties = {
+const ingestPanelStyle = {
   border: '1px solid #334155',
   borderRadius: '12px',
   padding: '12px 14px',
   backgroundColor: '#030712',
   display: 'grid',
   gap: '8px',
-};
+} as const;
 
-const recommendationCardStyle: CSSProperties = {
+const recommendationCardStyle = {
   borderRadius: '12px',
   border: '1px solid #1f2937',
   backgroundColor: '#020617',
   padding: '12px',
-};
+} as const;
 
-const feedCardStyle: CSSProperties = {
+const feedCardStyle = {
   borderRadius: '16px',
   backgroundColor: '#020617',
   padding: '16px',
   display: 'flex',
   flexDirection: 'column',
   gap: '10px',
-};
+} as const;
 
-const platformBadgeStyle: CSSProperties = {
+const platformBadgeStyle = {
   color: '#38bdf8',
   fontSize: '12px',
   border: '1px solid rgba(56,189,248,0.4)',
   borderRadius: '999px',
   padding: '2px 10px',
-};
+} as const;
 
-const scoreBadgeStyle: CSSProperties = {
+const scoreBadgeStyle = {
   color: '#fcd34d',
   fontWeight: 600,
   fontSize: '12px',
-};
+} as const;
 
-const systemReadoutStyle: CSSProperties = {
+const systemReadoutStyle = {
   borderRadius: '12px',
   border: '1px solid #273449',
   backgroundColor: '#06101f',
@@ -1704,14 +1734,14 @@ const systemReadoutStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: '8px',
-};
+} as const;
 
-const evalCellStyle: CSSProperties = {
+const evalCellStyle = {
   color: '#94a3b8',
   fontSize: '11px',
-};
+} as const;
 
-const approveLineRowStyle: CSSProperties = {
+const approveLineRowStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
@@ -1720,9 +1750,9 @@ const approveLineRowStyle: CSSProperties = {
   border: '1px solid rgba(148,163,184,0.4)',
   padding: '8px',
   backgroundColor: '#030712',
-};
+} as const;
 
-const draftTextStyle: CSSProperties = {
+const draftTextStyle = {
   background: '#030712',
   padding: '8px 10px',
   borderRadius: '10px',
@@ -1733,16 +1763,16 @@ const draftTextStyle: CSSProperties = {
   lineHeight: 1.55,
   whiteSpace: 'pre-wrap',
   flex: 1,
-};
+} as const;
 
-const agentSectionStyle: CSSProperties = {
+const agentSectionStyle = {
   borderRadius: '14px',
   border: '1px solid #1f2937',
   backgroundColor: '#020617',
   overflow: 'hidden',
-};
+} as const;
 
-const agentSectionSummaryStyle: CSSProperties = {
+const agentSectionSummaryStyle = {
   cursor: 'pointer',
   listStyle: 'none',
   padding: '14px 16px',
@@ -1751,16 +1781,16 @@ const agentSectionSummaryStyle: CSSProperties = {
   gap: '12px',
   alignItems: 'center',
   color: 'white',
-};
+} as const;
 
-const workspaceFileCardStyle: CSSProperties = {
+const workspaceFileCardStyle = {
   borderRadius: '12px',
   border: '1px solid #1f2937',
   backgroundColor: '#030712',
   padding: '12px',
-};
+} as const;
 
-const emptyMessageStyle: CSSProperties = {
+const emptyMessageStyle = {
   borderRadius: '14px',
   border: '1px dashed #334155',
   backgroundColor: '#020617',
@@ -1768,9 +1798,9 @@ const emptyMessageStyle: CSSProperties = {
   color: '#64748b',
   fontSize: '13px',
   lineHeight: 1.6,
-};
+} as const;
 
-const pillStyle: CSSProperties = {
+const pillStyle = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: '6px',
@@ -1780,4 +1810,4 @@ const pillStyle: CSSProperties = {
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
   padding: '5px 10px',
-};
+} as const;

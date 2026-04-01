@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.neo.feezie_content_pipeline</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/neo/.openclaw/workspace/.venv-main-safe/bin/python</string>
+        <string>/Users/neo/.openclaw/workspace/scripts/personal-brand/refresh_social_feed.py</string>
+        <string>--sources</string>
+        <string>safe</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/neo/.openclaw/workspace</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>7200</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.openclaw/logs/feezie_content_pipeline.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.openclaw/logs/feezie_content_pipeline.log</string>
+</dict>
+</plist>

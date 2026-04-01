@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -14,6 +16,23 @@ from app.services import youtube_watchlist_service
 
 
 class YouTubeWatchlistServiceTest(unittest.TestCase):
+    def test_transcription_runtime_requires_real_whisper_api(self) -> None:
+        with patch.object(youtube_watchlist_service.shutil, "which", side_effect=lambda name: "/usr/bin/fake" if name in {"yt-dlp", "ffmpeg"} else None), patch.object(
+            youtube_watchlist_service.importlib.util,
+            "find_spec",
+            side_effect=lambda name: object() if name == "whisper" else None,
+        ), patch.object(
+            youtube_watchlist_service.importlib,
+            "import_module",
+            return_value=SimpleNamespace(),
+        ):
+            runtime = youtube_watchlist_service._transcription_runtime()
+
+        self.assertTrue(runtime.get("yt_dlp"))
+        self.assertTrue(runtime.get("ffmpeg"))
+        self.assertFalse(runtime.get("whisper"))
+        self.assertFalse(youtube_watchlist_service._can_transcribe())
+
     def test_build_payload_reads_channel_feed_and_marks_existing_urls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace_root = Path(temp_dir) / "linkedin-content-os"
@@ -176,6 +195,10 @@ youtube_auto_ingest:
                 side_effect=fake_fetch,
             ), patch.object(
                 youtube_watchlist_service,
+                "backfill_pending_youtube_transcripts",
+                return_value={"backfilled": [], "skipped": [], "errors": [], "counts": {"pending_total": 0, "selected": 0, "backfilled": 0, "skipped": 0, "errors": 0}},
+            ), patch.object(
+                youtube_watchlist_service,
                 "_ingest_watchlist_video",
                 side_effect=[
                     {"asset_id": "asset-nate", "ingestion_mode": "url_only"},
@@ -190,6 +213,175 @@ youtube_auto_ingest:
         self.assertTrue(any(item.get("reason") == "auto_ingest_disabled" for item in (result.get("skipped") or [])))
         called_urls = [call.kwargs.get("url") for call in ingest_video.call_args_list]
         self.assertEqual(called_urls, ["https://www.youtube.com/watch?v=nate1", "https://www.youtube.com/watch?v=champ1"])
+
+    def test_backfill_pending_youtube_transcripts_rewrites_pending_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            ingestions_root = repo_root / "knowledge" / "ingestions" / "2026" / "03" / "pending_watchlist_video"
+            ingestions_root.mkdir(parents=True, exist_ok=True)
+            normalized_path = ingestions_root / "normalized.md"
+            normalized_path.write_text(
+                """---
+id: pending_watchlist_video
+title: Pending Watchlist Video
+source_type: youtube_transcript
+captured_at: '2026-03-31T00:00:00Z'
+topics:
+- transcript
+- youtube
+- video
+tags:
+- brain_ingest
+- needs_review
+source_url: https://www.youtube.com/watch?v=pendingwatchlist
+author: unknown
+raw_files:
+- raw/source.url
+word_count:
+summary: 'Selected from YouTube watchlist: Selected AI YouTube Channel.'
+---
+
+# Source Notes
+Selected from YouTube watchlist: Selected AI YouTube Channel.
+Priority lane: ai.
+Registered from link. Transcript capture still pending.
+""",
+                encoding="utf-8",
+            )
+
+            with patch.object(youtube_watchlist_service, "_repo_root", return_value=repo_root), patch.object(
+                youtube_watchlist_service,
+                "_ingestions_root",
+                return_value=repo_root / "knowledge" / "ingestions",
+            ), patch.object(
+                youtube_watchlist_service,
+                "_transcripts_root",
+                return_value=repo_root / "knowledge" / "aiclone" / "transcripts",
+            ), patch.object(
+                youtube_watchlist_service,
+                "_can_transcribe",
+                return_value=True,
+            ), patch.object(
+                youtube_watchlist_service,
+                "_transcription_runtime",
+                return_value={"yt_dlp": True, "ffmpeg": True, "whisper": True},
+            ), patch.object(
+                youtube_watchlist_service,
+                "_transcribe_youtube_url",
+                return_value=(
+                    "Agents fail when they lack context from the real workflow. Build the handoff before the prompt.",
+                    {"title": "Pending Watchlist Video", "channel": "Selected AI YouTube Channel"},
+                ),
+            ):
+                result = youtube_watchlist_service.backfill_pending_youtube_transcripts(limit=1, run_refresh=False)
+
+            self.assertEqual(result.get("counts", {}).get("backfilled"), 1)
+            self.assertEqual((result.get("backfilled") or [{}])[0].get("asset_id"), "pending_watchlist_video")
+            updated = normalized_path.read_text(encoding="utf-8")
+            self.assertIn("# Clean Transcript / Document", updated)
+            self.assertIn("Build the handoff before the prompt.", updated)
+            self.assertNotIn("Transcript capture still pending", updated)
+            self.assertTrue((ingestions_root / "raw" / "transcript.txt").exists())
+            routing_status = json.loads((ingestions_root / "routing_status.json").read_text(encoding="utf-8"))
+            self.assertTrue(routing_status.get("has_transcript"))
+
+    def test_backfill_pending_youtube_transcripts_uses_subtitles_without_whisper(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            ingestions_root = repo_root / "knowledge" / "ingestions" / "2026" / "03" / "pending_watchlist_video"
+            ingestions_root.mkdir(parents=True, exist_ok=True)
+            normalized_path = ingestions_root / "normalized.md"
+            normalized_path.write_text(
+                """---
+id: pending_watchlist_video
+title: Pending Watchlist Video
+source_type: youtube_transcript
+captured_at: '2026-03-31T00:00:00Z'
+topics:
+- transcript
+- youtube
+- video
+tags:
+- brain_ingest
+- needs_review
+source_url: https://www.youtube.com/watch?v=pendingwatchlist
+author: unknown
+raw_files:
+- raw/source.url
+word_count:
+summary: 'Selected from YouTube watchlist: Selected AI YouTube Channel.'
+---
+
+# Source Notes
+Selected from YouTube watchlist: Selected AI YouTube Channel.
+Priority lane: ai.
+Registered from link. Transcript capture still pending.
+""",
+                encoding="utf-8",
+            )
+
+            with patch.object(youtube_watchlist_service, "_repo_root", return_value=repo_root), patch.object(
+                youtube_watchlist_service,
+                "_ingestions_root",
+                return_value=repo_root / "knowledge" / "ingestions",
+            ), patch.object(
+                youtube_watchlist_service,
+                "_transcripts_root",
+                return_value=repo_root / "knowledge" / "aiclone" / "transcripts",
+            ), patch.object(
+                youtube_watchlist_service,
+                "_can_attempt_youtube_transcript",
+                return_value=True,
+            ), patch.object(
+                youtube_watchlist_service,
+                "_transcription_runtime",
+                return_value={"yt_dlp": True, "ffmpeg": True, "whisper": False},
+            ), patch.object(
+                youtube_watchlist_service,
+                "_transcribe_youtube_url",
+                return_value=(
+                    "Use the transcript itself as the quote-bearing review source before adding persona interpretation.",
+                    {"title": "Pending Watchlist Video", "channel": "Selected AI YouTube Channel"},
+                ),
+            ):
+                result = youtube_watchlist_service.backfill_pending_youtube_transcripts(limit=1, run_refresh=False)
+
+            self.assertEqual(result.get("counts", {}).get("backfilled"), 1)
+            self.assertEqual((result.get("backfilled") or [{}])[0].get("asset_id"), "pending_watchlist_video")
+            updated = normalized_path.read_text(encoding="utf-8")
+            self.assertIn("quote-bearing review source", updated)
+
+    def test_sync_watchlist_auto_ingest_runs_pending_backfill(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir) / "linkedin-content-os"
+            (workspace_root / "research").mkdir(parents=True, exist_ok=True)
+            (workspace_root / "research" / "watchlists.yaml").write_text(
+                """
+youtube_channels: []
+youtube_auto_ingest:
+  enabled: true
+  max_videos_per_run: 2
+  per_channel_limit: 1
+""".strip(),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                youtube_watchlist_service,
+                "backfill_pending_youtube_transcripts",
+                return_value={
+                    "backfilled": [{"asset_id": "pending_watchlist_video"}],
+                    "skipped": [],
+                    "errors": [],
+                    "counts": {"pending_total": 1, "selected": 1, "backfilled": 1, "skipped": 0, "errors": 0},
+                },
+            ) as backfill:
+                result = youtube_watchlist_service.sync_watchlist_auto_ingest(workspace_root=workspace_root, run_refresh=False)
+
+        self.assertTrue(result.get("enabled"))
+        self.assertEqual(result.get("counts", {}).get("backfilled"), 1)
+        self.assertEqual((result.get("backfill") or {}).get("counts", {}).get("backfilled"), 1)
+        backfill.assert_called_once()
 
 
 if __name__ == "__main__":

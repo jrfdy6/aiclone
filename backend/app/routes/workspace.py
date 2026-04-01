@@ -21,6 +21,14 @@ def _serialize_status(status: dict[str, None | bool | datetime | str]) -> dict[s
     return result
 
 
+def _has_live_workspace_payload(snapshot: dict[str, object]) -> bool:
+    source_assets = snapshot.get("source_assets")
+    social_feed = snapshot.get("social_feed")
+    source_items = source_assets.get("items") if isinstance(source_assets, dict) else None
+    feed_items = social_feed.get("items") if isinstance(social_feed, dict) else None
+    return bool(source_items) or bool(feed_items)
+
+
 @router.get("/refresh-social-feed")
 async def get_social_feed_refresh_status():
     status = social_feed_refresh_service.get_status()
@@ -30,7 +38,9 @@ async def get_social_feed_refresh_status():
 @router.get("/linkedin-os-snapshot")
 async def get_linkedin_os_snapshot():
     try:
-        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(persisted_only=True)
+        if not _has_live_workspace_payload(snapshot):
+            snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     refresh_status = snapshot.get("refresh_status")

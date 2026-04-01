@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 
 export default function NavHeader() {
   const pathname = usePathname();
+  const currentPath = pathname ?? '';
   const [hash, setHash] = useState('');
 
   useEffect(() => {
@@ -19,12 +20,12 @@ export default function NavHeader() {
   }, []);
 
   const navLinks = [
-    { href: '/ops', label: 'Ops', active: pathname === '/ops' && hash !== '#workspace' },
-    { href: '/ops#workspace', label: 'Workspaces', active: (pathname === '/ops' && hash === '#workspace') || pathname.startsWith('/workspace') || pathname === '/linkedin' },
-    { href: '/brain', label: 'Brain', active: pathname === '/brain' },
-    { href: '/lab', label: 'Lab', active: pathname === '/lab' },
-    { href: '/prospect-discovery', label: 'Prospects', active: pathname === '/prospect-discovery' },
-    { href: '/outreach', label: 'Outreach', active: pathname === '/outreach' || pathname.startsWith('/outreach/') },
+    { href: '/ops', label: 'Ops', active: currentPath === '/ops' && hash !== '#workspace' },
+    { href: '/ops#workspace', label: 'Workspaces', active: (currentPath === '/ops' && hash === '#workspace') || currentPath.startsWith('/workspace') || currentPath === '/linkedin' },
+    { href: '/brain', label: 'Brain', active: currentPath === '/brain' },
+    { href: '/lab', label: 'Lab', active: currentPath === '/lab' },
+    { href: '/prospect-discovery', label: 'Prospects', active: currentPath === '/prospect-discovery' },
+    { href: '/outreach', label: 'Outreach', active: currentPath === '/outreach' || currentPath.startsWith('/outreach/') },
   ];
 
   return (

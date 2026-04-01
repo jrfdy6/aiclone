@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { BookOpenText, BrainCircuit, FlaskConical, FolderKanban, RadioTower } from 'lucide-react';
 
 export type RuntimeModule = 'ops' | 'brain' | 'lab';
@@ -134,6 +134,7 @@ function RuntimeTabs({ tabs, accent }: { tabs: RuntimeTab[]; accent: string }) {
 
 function ModuleDock({ active }: { active: RuntimeModule }) {
   const pathname = usePathname();
+  const currentPath = pathname ?? '';
   const [hash, setHash] = useState('');
   const WorkspaceIcon = workspaceLink.icon;
 
@@ -164,7 +165,7 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
       >
         {modules.map((item) => {
           const Icon = item.icon;
-          const isActive = (active === item.id || pathname === item.href) && !(item.id === 'ops' && hash === '#workspace');
+          const isActive = (active === item.id || currentPath === item.href) && !(item.id === 'ops' && hash === '#workspace');
           const tone = accents[item.id];
           return (
             <Link
@@ -179,7 +180,7 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
         })}
         <Link
           href={workspaceLink.href}
-          style={dockButtonStyle((pathname === '/ops' && hash === '#workspace') || pathname.startsWith('/workspace') || pathname === '/linkedin', workspaceLink.tone)}
+          style={dockButtonStyle((currentPath === '/ops' && hash === '#workspace') || currentPath.startsWith('/workspace') || currentPath === '/linkedin', workspaceLink.tone)}
         >
           <WorkspaceIcon size={18} />
           <span style={{ fontSize: '11px', fontWeight: 700 }}>{workspaceLink.label}</span>
@@ -189,7 +190,7 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
   );
 }
 
-function dockButtonStyle(active: boolean, tone: string): CSSProperties {
+function dockButtonStyle(active: boolean, tone: string) {
   return {
     minWidth: '0',
     display: 'flex',
@@ -205,5 +206,5 @@ function dockButtonStyle(active: boolean, tone: string): CSSProperties {
     background: active ? `${tone}1c` : 'transparent',
     boxShadow: active ? `0 0 0 1px ${tone}20 inset` : 'none',
     transition: 'all 160ms ease',
-  };
+  } as const;
 }

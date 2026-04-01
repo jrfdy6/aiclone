@@ -19,8 +19,16 @@ AUTHORITY_MARKERS = [
     "the harder part is",
     "the real challenge is",
     "the real question is",
+    "the real test is",
     "the point is",
     "the issue is",
+    "the useful version is",
+    "the signal matters once",
+    "the pattern only matters once",
+    "the pattern only counts once",
+    "the idea is only useful once",
+    "this gets more useful once",
+    "this gets clearer once",
     "you cannot",
     "it is not",
     "it isn't",
@@ -40,6 +48,37 @@ SOFTENING_PATTERNS = [
     "less ",
     "more ",
 ]
+
+STRUCTURE_SIGNAL_MARKERS = {
+    "trend-compounding": [
+        "what compounds is",
+        "stops being the moat",
+        "the moat",
+    ],
+    "cascade-warning": [
+        "does not stay confined",
+        "harder questions",
+        "eventually shows up",
+    ],
+    "timing-gap": [
+        "timing gap",
+        "long before",
+        "repeatable",
+        "repeat it",
+    ],
+    "contrast-hidden": [
+        "visible",
+        "underlying",
+        "cleaner than",
+        "one layer lower",
+    ],
+    "contrast-causal": [
+        "rarely",
+        "because",
+        "handoff",
+        "decision rules",
+    ],
+}
 
 
 def normalize_inline_text(value: str | None) -> str:
@@ -75,6 +114,26 @@ def detect_expression_structure(text: str | None) -> str:
     lowered = cleaned.lower()
     if not cleaned:
         return "none"
+    if "stops being the moat" in lowered or "what compounds is" in lowered:
+        return "trend-compounding"
+    if "does not stay confined to" in lowered or "doesn't stay confined to" in lowered:
+        return "cascade-warning"
+    if "timing gap" in lowered:
+        return "timing-gap"
+    if "long before" in lowered and ("it is whether" in lowered or "whether the" in lowered or "team can repeat" in lowered):
+        return "timing-gap"
+    if re.search(r"the problem is rarely .+?\. it is whether .+$", cleaned, flags=re.IGNORECASE):
+        return "contrast-causal"
+    if re.search(r"rarely .+? because .+?\. .+? because .+$", cleaned, flags=re.IGNORECASE):
+        return "contrast-causal"
+    if re.search(
+        r"the real (gap|issue|problem|constraint|test|question) (usually )?(shows up|sits|starts) .+$",
+        cleaned,
+        flags=re.IGNORECASE,
+    ):
+        return "contrast-hidden"
+    if "visible" in lowered and "underlying" in lowered:
+        return "contrast-hidden"
     if re.search(r"not because .+? but because .+$", cleaned, flags=re.IGNORECASE):
         return "contrast-causal"
     if re.search(r"(the issue|the challenge) is not that .+?\. it is that .+$", cleaned, flags=re.IGNORECASE):
@@ -97,6 +156,14 @@ def detect_expression_structure(text: str | None) -> str:
         return "directive-start-with"
     if re.search(r"if you want better .+?, you have to start .+$", cleaned, flags=re.IGNORECASE):
         return "directive-start-with"
+    if re.search(r"(this gets (more useful|clearer) once .+)$", cleaned, flags=re.IGNORECASE):
+        return "directive-once"
+    if re.search(r"(the (signal|pattern) (matters|only matters|only counts) once .+)$", cleaned, flags=re.IGNORECASE):
+        return "directive-once"
+    if re.search(r"(the idea is only useful once .+)$", cleaned, flags=re.IGNORECASE):
+        return "directive-once"
+    if re.search(r"(the useful version is .+)$", cleaned, flags=re.IGNORECASE):
+        return "directive-once"
     return "plain"
 
 
@@ -107,6 +174,12 @@ def structure_family(structure: str) -> str:
         return "boundary"
     if structure.startswith("directive"):
         return "directive"
+    if structure.startswith("cascade"):
+        return "warning"
+    if structure.startswith("timing"):
+        return "timing"
+    if structure.startswith("trend"):
+        return "trend"
     return structure
 
 
@@ -152,6 +225,28 @@ def analyze_expression(text: str | None) -> dict[str, Any]:
     elif structure == "directive-start-with":
         contrast_strength += 1.4
         overall += 0.5
+    elif structure == "directive-once":
+        contrast_strength += 1.8
+        overall += 0.8
+    elif structure == "cascade-warning":
+        contrast_strength += 2.1
+        authority += 0.7
+        overall += 0.9
+    elif structure == "timing-gap":
+        contrast_strength += 2.2
+        authority += 0.8
+        overall += 1.0
+    elif structure == "trend-compounding":
+        contrast_strength += 1.9
+        authority += 0.6
+        overall += 0.8
+
+    structure_markers = STRUCTURE_SIGNAL_MARKERS.get(structure, [])
+    structure_hits = sum(1 for marker in structure_markers if marker in lowered)
+    if structure_hits:
+        authority += min(structure_hits, 2) * 0.4
+        specificity += min(structure_hits, 2) * 0.3
+        overall += min(structure_hits, 2) * 0.25
 
     if any(marker in lowered for marker in AUTHORITY_MARKERS):
         authority += 1.8
@@ -168,13 +263,19 @@ def analyze_expression(text: str | None) -> dict[str, Any]:
         overall -= 0.8
         warnings.append("contrast softened into balancing language")
 
-    if 8 <= len(words) <= 26:
+    if 8 <= len(words) <= 30:
         specificity += 1.0
         overall += 0.4
-    elif len(words) > 34:
+    elif len(words) > 48:
         specificity -= 0.6
         overall -= 0.3
         warnings.append("sentence is long")
+    elif len(words) > 30 and structure == "plain":
+        specificity -= 0.3
+        overall -= 0.2
+        warnings.append("sentence is long")
+    elif len(words) > 30 and structure != "plain":
+        specificity += 0.2
 
     if re.search(r"\b(ai|student|students|families|staff|workflow|judgment|trust|ownership|handoff|leadership)\b", lowered):
         specificity += 0.6
@@ -218,6 +319,12 @@ class SocialExpressionEngine:
             warnings.append("rewrite weakened source boundary framing")
         if source_family == "directive" and not structure_preserved:
             warnings.append("rewrite weakened source directive framing")
+        if source_family == "warning" and not structure_preserved:
+            warnings.append("rewrite weakened source warning structure")
+        if source_family == "timing" and not structure_preserved:
+            warnings.append("rewrite lost source timing structure")
+        if source_family == "trend" and not structure_preserved:
+            warnings.append("rewrite flattened source trend structure")
         if expression_delta < -0.5:
             warnings.append("rewrite weakened source expression")
         if overlap > 0.92:
@@ -228,7 +335,7 @@ class SocialExpressionEngine:
             adjusted_output_quality = round_score(clamp(adjusted_output_quality + expression_delta, 1.0, 10.0))
         if overlap > 0.92:
             adjusted_output_quality = round_score(clamp(adjusted_output_quality - 1.5, 1.0, 10.0))
-        if source_family in {"contrast", "boundary", "directive"} and not structure_preserved:
+        if source_family in {"contrast", "boundary", "directive", "warning", "timing", "trend"} and not structure_preserved:
             adjusted_output_quality = round_score(clamp(adjusted_output_quality - 1.2, 1.0, 10.0))
 
         return {
@@ -281,8 +388,8 @@ class SocialExpressionEngine:
 
         assessed.sort(
             key=lambda item: (
+                item["structure_preserved"] and item["source_structure"] not in {"none", "plain"},
                 item["adjusted_output_quality"],
-                item["structure_preserved"],
                 -item["overlap_ratio"],
             ),
             reverse=True,

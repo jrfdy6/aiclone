@@ -1024,10 +1024,20 @@ def build_content_generation_context(
     category: str,
     tone: str,
     audience: str,
+    source_mode: str = "persona_only",
 ) -> ContentGenerationContext:
-    del context, tone
+    del tone
 
-    persona_query = f"persona voice style {topic} {category} content writing"
+    normalized_source_mode = " ".join((source_mode or "persona_only").lower().split())
+    if normalized_source_mode not in {"persona_only", "selected_source", "recent_signals"}:
+        normalized_source_mode = "persona_only"
+    context_text = " ".join((context or "").split()).strip()
+    context_for_query = context_text[:280]
+
+    persona_query_parts = ["persona voice style", topic, category, audience, "content writing"]
+    if context_for_query:
+        persona_query_parts.append(context_for_query)
+    persona_query = " ".join(part for part in persona_query_parts if part).strip()
     persona_embedding = embed_text(persona_query)
     canonical_bundle_chunks = filter_persona_chunks_for_domain(
         [_hydrate_bundle_chunk(item) for item in load_bundle_persona_chunks()],
@@ -1047,13 +1057,15 @@ def build_content_generation_context(
         query_embedding=persona_embedding,
         top_k=6,
     )
-    retrieved_persona_chunks = retrieve_weighted(
-        user_id=user_id,
-        query_embedding=persona_embedding,
-        category=category,
-        channel=content_type,
-        top_k=8,
-    )
+    retrieved_persona_chunks = []
+    if normalized_source_mode in {"selected_source", "recent_signals"}:
+        retrieved_persona_chunks = retrieve_weighted(
+            user_id=user_id,
+            query_embedding=persona_embedding,
+            category=category,
+            channel=content_type,
+            top_k=8,
+        )
     persona_chunks = curate_persona_prompt_chunks(
         bundle_chunks=bundle_persona_chunks,
         legacy_support_chunks=legacy_support_chunks,

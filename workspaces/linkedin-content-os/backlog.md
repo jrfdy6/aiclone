@@ -1,4 +1,10 @@
-# LinkedIn Backlog
+# FEEZIE OS Backlog
+
+## Current 30-Day Focus
+
+- `LNK-001` Define the operating model from intake through approval.
+- `LNK-002` Seed the content backlog from canonical persona and lived work.
+- `LNK-005` Create the first draft queue with explicit owner approval gating.
 
 ## Active
 

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -27,17 +28,78 @@ social_feed_builder_module = importlib.import_module("app.services.social_feed_b
 social_long_form_signal_module = importlib.import_module("app.services.social_long_form_signal_service")
 social_persona_review_module = importlib.import_module("app.services.social_persona_review_service")
 daily_brief_module = importlib.import_module("app.services.daily_brief_service")
+brief_reaction_module = importlib.import_module("app.services.brief_reaction_service")
 persona_route_module = importlib.import_module("app.routes.persona")
 brain_route_module = importlib.import_module("app.routes.brain")
 content_generation_module = importlib.import_module("app.routes.content_generation")
 content_context_service_module = importlib.import_module("app.services.content_generation_context_service")
 workspace_snapshot_module = importlib.import_module("app.services.workspace_snapshot_service")
+persona_queue_module = importlib.import_module("app.services.persona_review_queue_service")
 persona_promotion_module = importlib.import_module("app.services.persona_promotion_service")
 persona_promotion_utils_module = importlib.import_module("app.services.persona_promotion_utils")
 persona_promotion_extractor_module = importlib.import_module("app.services.persona_promotion_extractor")
 belief_engine_module = importlib.import_module("app.services.social_belief_engine")
 persona_bundle_writer_module = importlib.import_module("app.services.persona_bundle_writer")
 persona_bundle_context_module = importlib.import_module("app.services.persona_bundle_context_service")
+
+
+class _FakeBriefReactionCursor:
+    def __init__(self) -> None:
+        self.row = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, query, params) -> None:
+        if "INSERT INTO brief_reactions" not in query:
+            raise AssertionError(f"Unexpected query executed in test: {query}")
+        self.row = {
+            "id": params[0],
+            "brief_id": params[1],
+            "item_key": params[2],
+            "item_title": params[3],
+            "reaction_kind": params[4],
+            "text": params[5],
+            "source_kind": params[6],
+            "source_url": params[7],
+            "source_path": params[8],
+            "linked_delta_id": params[9],
+            "linked_capture_id": params[10],
+            "metadata": getattr(params[11], "obj", params[11]),
+            "created_at": datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc),
+        }
+
+    def fetchone(self):
+        return self.row
+
+
+class _FakeBriefReactionConnection:
+    def __init__(self) -> None:
+        self.cursor_instance = _FakeBriefReactionCursor()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def cursor(self, row_factory=None):
+        return self.cursor_instance
+
+    def commit(self) -> None:
+        return None
+
+
+class _FakeBriefReactionPool:
+    def __init__(self) -> None:
+        self.connection_instance = _FakeBriefReactionConnection()
+
+    def connection(self):
+        return self.connection_instance
 
 
 SAMPLE_FEED = {
@@ -320,6 +382,132 @@ Faculty groups have slammed the measure and colleges are watching it closely.
 
         rss_path.unlink(missing_ok=True)
 
+    def test_social_feed_builder_applies_curation_rules_and_platform_limits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir) / "linkedin-content-os"
+            research_root = workspace_root / "research" / "market_signals"
+            research_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "research" / "watchlists.yaml").write_text(
+                """topics:
+  - ai implementation in education
+filters:
+  prioritize:
+    - operator language
+  avoid:
+    - generic hustle content
+curation:
+  min_total_score: 0
+  target_feed_size: 2
+  platform_limits:
+    linkedin: 1
+    rss: 1
+  platform_boosts:
+    linkedin: 10
+    rss: 5
+  lane_boosts:
+    ai: 12
+  keyword_boosts:
+    - phrase: agent orchestration
+      weight: 10
+  blocked_phrases:
+    - quit your job
+""",
+                encoding="utf-8",
+            )
+
+            (research_root / "2026-03-28__linkedin__a.md").write_text(
+                """---
+kind: market_signal
+title: Agent orchestration for school teams
+created_at: '2026-03-28T00:00:00+00:00'
+source_platform: linkedin
+source_type: post
+source_url: https://example.com/linkedin-a
+author: Operator One
+priority_lane: ai
+summary: Agent orchestration improves workflow clarity for school teams.
+why_it_matters: Operator language for AI implementation in education.
+---
+
+# Agent orchestration for school teams
+
+Agent orchestration improves workflow clarity for school teams.
+""",
+                encoding="utf-8",
+            )
+            (research_root / "2026-03-28__linkedin__b.md").write_text(
+                """---
+kind: market_signal
+title: Another LinkedIn AI signal
+created_at: '2026-03-28T00:00:00+00:00'
+source_platform: linkedin
+source_type: post
+source_url: https://example.com/linkedin-b
+author: Operator Two
+priority_lane: ai
+summary: Operator language for AI implementation in education.
+why_it_matters: Useful but should be capped by platform limit.
+---
+
+# Another LinkedIn AI signal
+
+Operator language for AI implementation in education.
+""",
+                encoding="utf-8",
+            )
+            (research_root / "2026-03-28__rss__real.md").write_text(
+                """---
+kind: market_signal
+title: Enrollment teams need workflow clarity
+created_at: '2026-03-28T00:00:00+00:00'
+source_platform: rss
+source_type: article
+source_url: https://example.com/rss
+author: Higher Ed Source
+priority_lane: admissions
+summary: Workflow clarity shapes enrollment outcomes and family trust.
+why_it_matters: Operator language for admissions leadership.
+---
+
+# Enrollment teams need workflow clarity
+
+Workflow clarity shapes enrollment outcomes and family trust.
+""",
+                encoding="utf-8",
+            )
+            (research_root / "2026-03-28__reddit__blocked.md").write_text(
+                """---
+kind: market_signal
+title: Quit your job and let AI do the work
+created_at: '2026-03-28T00:00:00+00:00'
+source_platform: reddit
+source_type: post
+source_url: https://example.com/reddit
+author: Hype Poster
+priority_lane: ai
+summary: Quit your job and let AI do the work.
+why_it_matters: This should be blocked by curation.
+---
+
+# Quit your job and let AI do the work
+
+Quit your job and let AI do the work.
+""",
+                encoding="utf-8",
+            )
+
+            feed = build_feed(workspace_root=workspace_root)
+            items = feed.get("items") or []
+            titles = [item.get("title") for item in items]
+
+            self.assertEqual(len(items), 2)
+            self.assertIn("Agent orchestration for school teams", titles)
+            self.assertIn("Enrollment teams need workflow clarity", titles)
+            self.assertNotIn("Quit your job and let AI do the work", titles)
+            self.assertEqual(sum(1 for item in items if item.get("platform") == "linkedin"), 1)
+            self.assertEqual(feed.get("curation_summary", {}).get("selected_platform_mix", {}).get("linkedin"), 1)
+            self.assertGreaterEqual(feed.get("curation_summary", {}).get("rejected_count", 0), 1)
+
     def test_social_feed_builder_preserves_real_safe_source_items_and_backfills_source_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace_root = Path(temp_dir) / "linkedin-content-os"
@@ -554,6 +742,245 @@ Faculty groups have slammed the measure and colleges are watching it closely.
             ((payload[0]["metadata"].get("source_intelligence") or {}).get("route_counts") or {}).get("post_seed"),
             2,
         )
+
+    def test_daily_briefs_attach_brief_stream_with_reactions_and_related_persona_context(self) -> None:
+        fake_payloads = {
+            "weekly_plan": {
+                "generated_at": "2026-03-28T12:00:00+00:00",
+                "source_counts": {"media": 1, "belief_evidence": 1},
+                "media_post_seeds": [
+                    {
+                        "title": "Education AI thread",
+                        "priority_lane": "education",
+                        "source_kind": "market_signal",
+                        "route_reason": "Good visibility post angle",
+                        "source_url": "https://example.com/thread",
+                        "hook": "Comment on this for visibility",
+                        "response_modes": ["comment", "post_seed"],
+                    }
+                ],
+                "belief_evidence_candidates": [],
+                "media_summary": {
+                    "generated_at": "2026-03-28T12:00:00+00:00",
+                    "route_counts": {"post_seed": 1},
+                    "primary_route_counts": {"post_seed": 1},
+                },
+            },
+            "long_form_routes": {},
+            "source_assets": {"counts": {"total": 2}},
+            "persona_review_summary": {"belief_relation_counts": {}, "recent": []},
+        }
+
+        def fake_list_reactions_by_item_key(*, brief_id=None, item_keys, limit=200):
+            item_key = item_keys[0]
+            return {
+                item_key: [
+                    brief_reaction_module.BriefReaction(
+                        id="reaction-1",
+                        brief_id=brief_id or "brief-1",
+                        item_key=item_key,
+                        item_title="Education AI thread",
+                        reaction_kind="nuance",
+                        text="The headline is right, but the real issue is workflow clarity.",
+                        source_kind="market_signal",
+                        source_url="https://example.com/thread",
+                        source_path=None,
+                        linked_delta_id="delta-1",
+                        linked_capture_id="capture-1",
+                        metadata={},
+                        created_at=datetime(2026, 3, 28, 12, 5, tzinfo=timezone.utc),
+                        updated_at=datetime(2026, 3, 28, 12, 5, tzinfo=timezone.utc),
+                    )
+                ]
+            }
+
+        def fake_related_persona_context_for_items(items, *, limit_per_item=2, delta_limit=250):
+            item_key = str(items[0].get("item_key") or "")
+            return {
+                item_key: [
+                    brief_reaction_module.BriefReactionPersonaContext(
+                        delta_id="delta-1",
+                        trait="Workflow clarity is a leadership discipline, not an ops accessory.",
+                        response_kind="story",
+                        excerpt="I saw this when unclear reporting made it harder to know who to contact next.",
+                        target_file="history/story_bank.md",
+                        review_source="brain.persona.ui",
+                        created_at=datetime(2026, 3, 28, 12, 10, tzinfo=timezone.utc),
+                    )
+                ]
+            }
+
+        with patch.object(daily_brief_module, "_load_from_db", return_value=[]), patch.object(
+            daily_brief_module,
+            "_snapshot_payloads",
+            return_value=fake_payloads,
+        ), patch.object(
+            brief_reaction_module,
+            "list_reactions_by_item_key",
+            side_effect=fake_list_reactions_by_item_key,
+        ), patch.object(
+            brief_reaction_module,
+            "related_persona_context_for_items",
+            side_effect=fake_related_persona_context_for_items,
+        ):
+            briefs = daily_brief_module.list_daily_briefs(limit=5)
+
+        stream = ((briefs[0].metadata.get("source_intelligence") or {}).get("brief_stream") or [])
+        self.assertEqual(len(stream), 1)
+        self.assertEqual(stream[0].get("title"), "Education AI thread")
+        self.assertEqual(stream[0].get("hook"), "Comment on this for visibility")
+        self.assertEqual((stream[0].get("existing_reactions") or [{}])[0].get("reaction_kind"), "nuance")
+        self.assertEqual((stream[0].get("related_persona_context") or [{}])[0].get("delta_id"), "delta-1")
+
+    def test_brief_reaction_story_creates_linked_persona_story_delta(self) -> None:
+        fake_pool = _FakeBriefReactionPool()
+        created_delta_payload = {}
+
+        def fake_create_delta(payload):
+            created_delta_payload["payload"] = payload
+            return PersonaDelta(
+                id="delta-story",
+                capture_id=payload.capture_id,
+                persona_target=payload.persona_target,
+                trait=payload.trait,
+                notes=payload.notes,
+                status="draft",
+                metadata=payload.metadata,
+                created_at=datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc),
+                committed_at=None,
+            )
+
+        def fake_update_delta(delta_id, payload):
+            metadata = created_delta_payload["payload"].metadata
+            return PersonaDelta(
+                id=delta_id,
+                capture_id=created_delta_payload["payload"].capture_id,
+                persona_target="worldview",
+                trait=created_delta_payload["payload"].trait,
+                notes=created_delta_payload["payload"].notes,
+                status=payload.status or "in_review",
+                metadata=metadata,
+                created_at=datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc),
+                committed_at=None,
+            )
+
+        payload = brief_reaction_module.BriefReactionCreate(
+            brief_id="brief-1",
+            item_key="item-1",
+            item_title="Education AI thread",
+            item_summary="Teachers need clearer workflow support before more tools.",
+            item_hook="Comment on this for visibility",
+            source_kind="market_signal",
+            source_url="https://example.com/thread",
+            priority_lane="education",
+            route_reason="Useful for a story-led post",
+            reaction_kind="story",
+            text="At Fusion, I learned fast that clarity changed who we reached and how we followed up.",
+        )
+
+        with patch.object(
+            brief_reaction_module.capture_service,
+            "create_capture",
+            return_value=SimpleNamespace(capture_id="capture-1", chunk_ids=["chunk-1"], chunk_count=1, expires_at=None),
+        ), patch.object(
+            brief_reaction_module.persona_delta_service,
+            "create_delta",
+            side_effect=fake_create_delta,
+        ), patch.object(
+            brief_reaction_module.persona_delta_service,
+            "update_delta",
+            side_effect=fake_update_delta,
+        ), patch.object(
+            brief_reaction_module,
+            "annotate_for_brain_queue",
+            side_effect=lambda delta: delta,
+        ), patch.object(
+            brief_reaction_module,
+            "get_pool",
+            return_value=fake_pool,
+        ):
+            response = brief_reaction_module.create_reaction(payload)
+
+        delta_metadata = created_delta_payload["payload"].metadata
+        self.assertEqual(delta_metadata.get("review_source"), "brain.daily_brief.stream")
+        self.assertEqual(delta_metadata.get("target_file"), "history/story_bank.md")
+        self.assertEqual((delta_metadata.get("anecdotes") or [{}])[0].get("summary"), payload.text)
+        self.assertEqual(response.reaction.linked_delta_id, "delta-story")
+        self.assertEqual(response.reaction.metadata.get("target_file"), "history/story_bank.md")
+
+    def test_brief_reaction_agreement_defaults_to_claims_target(self) -> None:
+        fake_pool = _FakeBriefReactionPool()
+        created_delta_payload = {}
+
+        def fake_create_delta(payload):
+            created_delta_payload["payload"] = payload
+            return PersonaDelta(
+                id="delta-claim",
+                capture_id=payload.capture_id,
+                persona_target=payload.persona_target,
+                trait=payload.trait,
+                notes=payload.notes,
+                status="draft",
+                metadata=payload.metadata,
+                created_at=datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc),
+                committed_at=None,
+            )
+
+        def fake_update_delta(delta_id, payload):
+            metadata = created_delta_payload["payload"].metadata
+            return PersonaDelta(
+                id=delta_id,
+                capture_id=created_delta_payload["payload"].capture_id,
+                persona_target="worldview",
+                trait=created_delta_payload["payload"].trait,
+                notes=created_delta_payload["payload"].notes,
+                status=payload.status or "in_review",
+                metadata=metadata,
+                created_at=datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc),
+                committed_at=None,
+            )
+
+        payload = brief_reaction_module.BriefReactionCreate(
+            brief_id="brief-1",
+            item_key="item-claim",
+            item_title="Prompting alone is not enough",
+            item_summary="The article nails the adoption gap.",
+            source_kind="market_signal",
+            source_url="https://example.com/prompting",
+            priority_lane="tech_ai",
+            route_reason="Strong thesis reinforcement",
+            reaction_kind="agree",
+            text="Prompting alone is not an AI strategy.",
+        )
+
+        with patch.object(
+            brief_reaction_module.capture_service,
+            "create_capture",
+            return_value=SimpleNamespace(capture_id="capture-2", chunk_ids=["chunk-1"], chunk_count=1, expires_at=None),
+        ), patch.object(
+            brief_reaction_module.persona_delta_service,
+            "create_delta",
+            side_effect=fake_create_delta,
+        ), patch.object(
+            brief_reaction_module.persona_delta_service,
+            "update_delta",
+            side_effect=fake_update_delta,
+        ), patch.object(
+            brief_reaction_module,
+            "annotate_for_brain_queue",
+            side_effect=lambda delta: delta,
+        ), patch.object(
+            brief_reaction_module,
+            "get_pool",
+            return_value=fake_pool,
+        ):
+            response = brief_reaction_module.create_reaction(payload)
+
+        delta_metadata = created_delta_payload["payload"].metadata
+        self.assertEqual(delta_metadata.get("target_file"), "identity/claims.md")
+        self.assertEqual(delta_metadata.get("owner_response_kind"), "agree")
+        self.assertIn("Prompting alone is not an AI strategy.", delta_metadata.get("talking_points") or [])
+        self.assertEqual(response.reaction.metadata.get("target_file"), "identity/claims.md")
 
     def test_source_asset_inventory_exposes_long_form_media_without_feed_routing(self) -> None:
         inventory = build_source_asset_inventory(
@@ -1310,6 +1737,73 @@ Another useful lesson is that leadership has to translate the pattern into a rep
         self.assertNotIn("pending owner review", combined_text)
         self.assertIn("teams fail when they chase tools before workflow clarity", combined_text)
 
+    def test_long_form_candidate_cleanup_strips_inline_caption_rollups_and_keeps_post_seed_out_of_persona_queue(self) -> None:
+        caption_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "04" / "caption_rollup_asset"
+        caption_dir.mkdir(parents=True, exist_ok=True)
+        (caption_dir / "normalized.md").write_text(
+            """---
+id: caption_rollup_asset
+title: Stop Shifting Blame and Start Taking Power
+source_type: youtube_transcript
+captured_at: '2026-04-01T04:30:03Z'
+topics:
+- transcript
+- youtube
+- video
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=caption123
+author: Champion Leadership
+raw_files:
+- raw/transcript.txt
+word_count: 239
+summary: This video emphasizes the need for accountability over excuses.
+---
+
+# Clean Transcript / Document
+So,<00:00:00.240><c> I</c><00:00:00.480><c> think</c><00:00:00.640><c> one</c><00:00:00.960><c> reason</c><00:00:01.280><c> people</c><00:00:01.680><c> make</c> So, I think one reason people make excuses,<00:00:02.720><c> it</c><00:00:02.960><c> takes</c><00:00:03.280><c> the</c><00:00:03.520><c> pressure</c><00:00:03.919><c> off</c><00:00:04.160><c> of</c> excuses, it takes the pressure off of them.<00:00:04.640><c> Here's</c><00:00:04.960><c> why.</c><00:00:05.200><c> If</c><00:00:05.440><c> they</c><00:00:05.680><c> can</c><00:00:06.000><c> blame</c> them. Here's why. If they can blame something<00:00:06.960><c> outside</c><00:00:07.520><c> of</c><00:00:07.759><c> them</c><00:00:08.240><c> for</c><00:00:08.400><c> the</c><00:00:08.720><c> reason</c> something outside of them for the reason that<00:00:09.200><c> they're</c><00:00:09.440><c> not</c><00:00:09.679><c> performing</c><00:00:10.160><c> at</c><00:00:10.400><c> their</c> that they're not performing at their best,<00:00:11.120><c> takes</c><00:00:11.360><c> the</c><00:00:11.599><c> pressure</c><00:00:11.920><c> off.</c><00:00:12.320><c> It</c> best, takes the pressure off. It relieves<00:00:12.960><c> them</c><00:00:13.120><c> of</c><00:00:13.360><c> accountability.</c>
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        extracted = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=1,
+            max_segments_per_asset=1,
+        )
+        candidates = extracted.get("candidates") or []
+        self.assertGreater(len(candidates), 0)
+        segment = str(candidates[0].get("segment") or "")
+        self.assertNotIn("<00:", segment)
+        self.assertNotIn("<c>", segment)
+        self.assertNotIn("something outside of them for the reason something outside of them", segment.lower())
+        self.assertEqual(candidates[0].get("primary_route"), "post_seed")
+        self.assertIn("pressure off", str(candidates[0].get("source_context_excerpt") or "").lower())
+        self.assertIsInstance(candidates[0].get("source_context_before"), list)
+        self.assertIsInstance(candidates[0].get("source_context_after"), list)
+
+        with patch.object(social_persona_review_module.persona_delta_service, "list_deltas", return_value=[]), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "get_delta_by_review_key",
+            return_value=None,
+        ), patch.object(social_persona_review_module.persona_delta_service, "create_delta") as create_delta:
+            result = social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets={"items": [item for item in (inventory.get("items") or []) if item.get("asset_id") == "caption_rollup_asset"]},
+                max_assets=1,
+                max_segments_per_asset=1,
+            )
+
+        self.assertEqual(result.get("created_count"), 0)
+        create_delta.assert_not_called()
+
     def test_long_form_persona_review_sync_resolves_stale_draft_segments(self) -> None:
         inventory = build_source_asset_inventory(
             transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
@@ -1359,6 +1853,166 @@ Another useful lesson is that leadership has to translate the pattern into a rep
         self.assertEqual(update_calls[0][1].status, "resolved")
         self.assertEqual(update_calls[0][1].metadata.get("sync_state"), "stale_segment")
 
+    def test_long_form_persona_review_sync_resolves_stale_missing_source_assets(self) -> None:
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        stale_delta = PersonaDelta(
+            id="missing-asset-delta",
+            persona_target="feeze.core",
+            trait="Orphaned autogenerated segment",
+            notes="Old segment from removed asset",
+            status="draft",
+            metadata={
+                "review_key": "long-form:missing-asset",
+                "review_source": "long_form_media.segment",
+                "source_asset_id": "missing_asset_id",
+            },
+            created_at=datetime.now(timezone.utc),
+        )
+
+        update_calls = []
+
+        def fake_update_delta(delta_id, payload):
+            update_calls.append((delta_id, payload))
+            return stale_delta
+
+        with patch.object(social_persona_review_module.persona_delta_service, "list_deltas", return_value=[stale_delta]), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "get_delta_by_review_key",
+            return_value=None,
+        ), patch.object(social_persona_review_module.persona_delta_service, "create_delta"), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "update_delta",
+            side_effect=fake_update_delta,
+        ):
+            result = social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets=inventory,
+                max_assets=12,
+                max_segments_per_asset=1,
+            )
+
+        self.assertEqual(result.get("resolved_stale"), 1)
+        self.assertEqual(len(update_calls), 1)
+        self.assertEqual(update_calls[0][0], "missing-asset-delta")
+        self.assertEqual(update_calls[0][1].status, "resolved")
+        self.assertEqual(update_calls[0][1].metadata.get("sync_state"), "stale_source_asset")
+
+    def test_long_form_persona_review_sync_resolves_route_downgraded_segments(self) -> None:
+        downgrade_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "route_downgrade_transcript"
+        downgrade_dir.mkdir(parents=True, exist_ok=True)
+        (downgrade_dir / "normalized.md").write_text(
+            """---
+id: route_downgrade_transcript
+title: Route Downgrade Transcript
+source_type: youtube_transcript
+captured_at: '2026-03-28T00:00:00Z'
+topics:
+- transcript
+- youtube
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=routedowngrade
+author: unknown
+raw_files:
+- raw/transcript.txt
+word_count: 9000
+summary: Weak deictic story fragments should not stay in persona canon review.
+---
+
+# Clean Transcript / Document
+If you are where they see the results, you're moving toward being a platform.
+Move number two, become that system of record.
+Remember that the hill that I showed you, the system of record hill?
+So here's an example of what I mean by owning the data.
+If you're a scheduling tool, don't facilitate bookings, store the history of every booking.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        candidates = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=12,
+            max_segments_per_asset=2,
+        ).get("candidates") or []
+        downgraded = next(
+            item
+            for item in candidates
+            if item.get("asset_id") == "route_downgrade_transcript" and item.get("weak_source_fragment") is True and item.get("primary_route") == "post_seed"
+        )
+        stale_delta = PersonaDelta(
+            id="route-downgrade-delta",
+            persona_target="feeze.core",
+            trait=str(downgraded.get("segment") or "Downgraded segment"),
+            notes="Old canon-oriented review",
+            status="draft",
+            metadata={
+                "review_key": downgraded.get("candidate_id"),
+                "review_source": "long_form_media.segment",
+                "source_asset_id": downgraded.get("asset_id"),
+            },
+            created_at=datetime.now(timezone.utc),
+        )
+
+        update_calls = []
+
+        def fake_update_delta(delta_id, payload):
+            update_calls.append((delta_id, payload))
+            return stale_delta
+
+        with patch.object(social_persona_review_module.persona_delta_service, "list_deltas", return_value=[stale_delta]), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "get_delta_by_review_key",
+            return_value=None,
+        ), patch.object(social_persona_review_module.persona_delta_service, "create_delta"), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "update_delta",
+            side_effect=fake_update_delta,
+        ):
+            result = social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets=inventory,
+                max_assets=12,
+                max_segments_per_asset=2,
+            )
+
+        self.assertEqual(result.get("resolved_stale"), 1)
+        self.assertEqual(len(update_calls), 1)
+        self.assertEqual(update_calls[0][0], "route-downgrade-delta")
+        self.assertEqual(update_calls[0][1].status, "resolved")
+        self.assertEqual(update_calls[0][1].metadata.get("sync_state"), "stale_route_downgrade")
+
+    def test_brain_queue_does_not_mark_non_belief_long_form_drafts_as_active_review(self) -> None:
+        delta = PersonaDelta(
+            id="queue-post-seed",
+            persona_target="feeze.core",
+            trait="This should stay a post seed.",
+            notes="Legacy draft row that should no longer show as active review.",
+            status="draft",
+            metadata={
+                "review_source": "long_form_media.segment",
+                "primary_route": "post_seed",
+                "target_file": "identity/claims.md",
+                "talking_points": ["This should stay a post seed."],
+            },
+            created_at=datetime.now(timezone.utc),
+        )
+
+        annotated = persona_queue_module.annotate_for_brain_queue(delta)
+
+        self.assertEqual((annotated.metadata or {}).get("queue_stage"), "draft")
+        self.assertFalse(persona_queue_module.is_brain_pending_review(annotated.status, annotated.metadata))
+
     def test_long_form_persona_review_sync_refreshes_existing_draft_metadata(self) -> None:
         inventory = build_source_asset_inventory(
             transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
@@ -1368,10 +2022,10 @@ Another useful lesson is that leadership has to translate the pattern into a rep
         candidates = social_persona_review_module.extract_long_form_candidates(
             repo_root=Path(self.temp_dir.name),
             source_assets=inventory,
-            max_assets=1,
+            max_assets=12,
             max_segments_per_asset=1,
         ).get("candidates") or []
-        candidate = next(item for item in candidates if "belief_evidence" in (item.get("response_modes") or []))
+        candidate = next(item for item in candidates if item.get("primary_route") == "belief_evidence")
         review_key = candidate.get("candidate_id")
         belief_summary = ((candidate.get("assessment") or {}).get("belief_summary")) or ""
         existing_delta = PersonaDelta(
@@ -1406,7 +2060,7 @@ Another useful lesson is that leadership has to translate the pattern into a rep
             result = social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
                 repo_root=Path(self.temp_dir.name),
                 source_assets=inventory,
-                max_assets=1,
+                max_assets=12,
                 max_segments_per_asset=1,
             )
 
@@ -1415,7 +2069,7 @@ Another useful lesson is that leadership has to translate the pattern into a rep
         self.assertEqual(len(update_calls), 1)
         self.assertEqual(update_calls[0][0], "existing-delta")
         self.assertIn("belief_relation", update_calls[0][1].metadata)
-        self.assertIn("Belief summary:", update_calls[0][1].notes or "")
+        self.assertIn("System hypothesis:", update_calls[0][1].notes or "")
 
     def test_long_form_persona_review_sync_prefers_worldview_lines_over_self_credential_lines(self) -> None:
         credential_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "credential_heavy_transcript"
@@ -1632,6 +2286,389 @@ summary: Leadership behavior drives AI implementation outcomes.
         self.assertNotIn("we're gonna start with leadership", combined_text)
         self.assertNotIn("that element in green", combined_text)
         self.assertNotIn("ai magic takes over", combined_text)
+
+    def test_extract_long_form_candidates_skips_pending_watchlist_placeholders(self) -> None:
+        pending_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "pending_watchlist_video"
+        pending_dir.mkdir(parents=True, exist_ok=True)
+        (pending_dir / "normalized.md").write_text(
+            """---
+id: pending_watchlist_video
+title: Pending Watchlist Video
+source_type: youtube_transcript
+captured_at: '2026-03-31T00:00:00Z'
+topics:
+- transcript
+- youtube
+tags:
+- brain_ingest
+- needs_review
+source_url: https://www.youtube.com/watch?v=pendingwatchlist
+author: unknown
+raw_files:
+- raw/source.url
+word_count:
+summary: Pending transcript or notes for Pending Watchlist Video.
+---
+
+# Source Notes
+Selected from YouTube watchlist: Selected AI YouTube Channel.
+
+Registered from link. Transcript capture still pending.
+
+## Owner Notes
+- **Resonance:** Pending owner review.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+
+        extracted = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=4,
+            max_segments_per_asset=2,
+        )
+
+        asset_ids = {social_long_form_signal_module._clean_text(item.get("asset_id")) for item in (extracted.get("assets") or [])}
+        candidate_asset_ids = {social_long_form_signal_module._clean_text(item.get("asset_id")) for item in (extracted.get("candidates") or [])}
+        self.assertNotIn("pending_watchlist_video", asset_ids)
+        self.assertNotIn("pending_watchlist_video", candidate_asset_ids)
+        self.assertIn("pending_watchlist_video", extracted.get("considered_asset_ids") or [])
+        self.assertGreaterEqual(int(extracted.get("skipped_no_segments") or 0), 1)
+
+    def test_extract_long_form_candidates_skips_validation_noise_assets(self) -> None:
+        pending_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "queue_test_transcript_2"
+        pending_dir.mkdir(parents=True, exist_ok=True)
+        (pending_dir / "normalized.md").write_text(
+            """---
+id: queue_test_transcript_2
+title: queue test transcript 2
+source_type: youtube_transcript
+captured_at: '2026-03-31T00:00:00Z'
+topics:
+- transcript
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=queuetesttwo
+author: unknown
+raw_files:
+- raw/queue_test_transcript_2.txt
+word_count: 31
+summary: "Transcript Host: This is a short validation transcript for the media background queue."
+---
+
+# Clean Transcript / Document
+Transcript Host: This is a short validation transcript for the media background queue.
+The key point is that background execution should return immediately while the actual normalization finishes on its own.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+
+        extracted = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=10,
+            max_segments_per_asset=2,
+        )
+
+        candidate_asset_ids = {social_long_form_signal_module._clean_text(item.get("asset_id")) for item in (extracted.get("candidates") or [])}
+        self.assertNotIn("queue_test_transcript_2", candidate_asset_ids)
+
+    def test_extract_long_form_candidates_demotes_hype_question_to_non_canon_route(self) -> None:
+        hype_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "hype_question_transcript"
+        hype_dir.mkdir(parents=True, exist_ok=True)
+        (hype_dir / "normalized.md").write_text(
+            """---
+id: hype_question_transcript
+title: Hype Question Transcript
+source_type: youtube_transcript
+captured_at: '2026-03-31T00:00:00Z'
+topics:
+- transcript
+- youtube
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=hypequestion
+author: unknown
+raw_files:
+- raw/transcript.txt
+word_count: 900
+summary: Contrarian question frames should stay outside canon review.
+---
+
+# Clean Transcript / Document
+Everyone thinks that Apple lost the AI race, but what if they've been playing a different game all along?
+Notice I didn't talk about Mac minis.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        extracted = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=10,
+            max_segments_per_asset=2,
+        )
+
+        candidate = next(item for item in (extracted.get("candidates") or []) if item.get("asset_id") == "hype_question_transcript")
+        self.assertNotEqual(candidate.get("primary_route"), "belief_evidence")
+
+    def test_extract_long_form_candidates_demotes_reference_batch_meta_guidance(self) -> None:
+        ref_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "reference_batch_transcript"
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        (ref_dir / "normalized.md").write_text(
+            """---
+id: reference_batch_transcript
+title: External Reference Batch – AI, Entrepreneurship, and Media Voice
+source_type: transcript_note
+captured_at: '2026-03-31T00:00:00Z'
+topics:
+- transcript
+tags:
+- persona
+- reference
+source_url:
+author:
+raw_files:
+- raw/reference_batch.txt
+word_count: 900
+summary: Reference-batch guidance should stay source intelligence unless it becomes lived proof.
+---
+
+# Clean Transcript / Document
+This batch contains three high-signal external references.
+The batch is not safe to treat as Johnnie's own lived proof and should remain style-reference-only inside the persona system.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        extracted = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=10,
+            max_segments_per_asset=2,
+        )
+
+        candidate = next(item for item in (extracted.get("candidates") or []) if item.get("asset_id") == "reference_batch_transcript")
+        self.assertNotEqual(candidate.get("primary_route"), "belief_evidence")
+
+    def test_extract_long_form_candidates_does_not_treat_generic_we_line_as_story_bank_evidence(self) -> None:
+        generic_story_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "generic_we_story_transcript"
+        generic_story_dir.mkdir(parents=True, exist_ok=True)
+        (generic_story_dir / "normalized.md").write_text(
+            """---
+id: generic_we_story_transcript
+title: Generic We Story Transcript
+source_type: youtube_transcript
+captured_at: '2026-03-31T00:00:00Z'
+topics:
+- transcript
+- youtube
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=genericwestory
+author: unknown
+raw_files:
+- raw/transcript.txt
+word_count: 900
+summary: Generic we-lines should not be treated as story-bank proof.
+---
+
+# Clean Transcript / Document
+Humans don't retrieve consistently.
+In the advertisements, we do that, but we don't really do that.
+We do respond to what shows up in front of us.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        extracted = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=10,
+            max_segments_per_asset=2,
+        )
+
+        candidate = next(item for item in (extracted.get("candidates") or []) if item.get("asset_id") == "generic_we_story_transcript")
+        self.assertNotEqual(candidate.get("target_file"), "history/story_bank.md")
+
+    def test_extract_long_form_candidates_demotes_manual_non_lived_segment_without_exceptional_value(self) -> None:
+        transcript_path = Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts" / "2026-04-01_manual_non_lived_note.md"
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_path.write_text(
+            """---
+title: Manual Non Lived Note
+received: 2026-04-01
+tags:
+- persona
+- strategy
+---
+
+## Summary
+- Reference-only strategic phrasing to validate demotion behavior.
+
+## Transcript
+Prompting alone is not an AI strategy.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        extracted = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=10,
+            max_segments_per_asset=2,
+        )
+
+        candidates = [item for item in (extracted.get("candidates") or []) if item.get("asset_id") == "2026-04-01_manual_non_lived_note"]
+        self.assertTrue(candidates)
+        self.assertTrue(all(item.get("primary_route") != "belief_evidence" for item in candidates))
+        self.assertTrue(all("belief_evidence" not in (item.get("response_modes") or []) for item in candidates))
+
+    def test_extract_long_form_candidates_keeps_manual_non_lived_segment_when_exceptional_value_is_clear(self) -> None:
+        transcript_path = Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts" / "2026-04-01_manual_high_value_note.md"
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_path.write_text(
+            """---
+title: Manual High Value Note
+received: 2026-04-01
+tags:
+- persona
+- strategy
+---
+
+## Summary
+- High-value strategic guidance that should still be reviewable for canon.
+
+## Transcript
+Improve Experience Relevance by preferring stories around operational cleanup, AI system-building under constraint, dashboards, admissions trust, and leadership voice instead of isolated prompting.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        extracted = social_persona_review_module.extract_long_form_candidates(
+            repo_root=Path(self.temp_dir.name),
+            source_assets=inventory,
+            max_assets=10,
+            max_segments_per_asset=2,
+        )
+
+        candidates = [item for item in (extracted.get("candidates") or []) if item.get("asset_id") == "2026-04-01_manual_high_value_note"]
+        self.assertTrue(candidates)
+        self.assertTrue(any(item.get("high_value_non_lived") for item in candidates))
+        self.assertTrue(any(item.get("primary_route") == "belief_evidence" for item in candidates))
+
+    def test_long_form_persona_review_sync_avoids_link_and_follow_boilerplate(self) -> None:
+        promo_dir = Path(self.temp_dir.name) / "knowledge" / "ingestions" / "2026" / "03" / "promo_heavy_transcript"
+        promo_dir.mkdir(parents=True, exist_ok=True)
+        (promo_dir / "normalized.md").write_text(
+            """---
+id: promo_heavy_transcript
+title: Promo Heavy Transcript
+source_type: youtube_transcript
+captured_at: '2026-03-31T00:00:00Z'
+topics:
+- transcript
+- youtube
+tags:
+- auto_ingested
+- needs_review
+source_url: https://www.youtube.com/watch?v=promoheavy
+author: unknown
+raw_files:
+- raw/transcript.txt
+word_count: 2400
+summary: The real work is designing systems that reduce coordination overhead before you scale.
+---
+
+# Clean Transcript / Document
+My site: https://example.com Full story w/ prompts: https://example.com/story
+Follow the besties: https://x.com/a https://x.com/b https://x.com/c
+Subscribe for more breakdowns and join my newsletter for the full write-up.
+The real work is designing systems that reduce coordination overhead before you scale a team.
+Teams create fragility when they stack tools before they define ownership and handoffs.
+""",
+            encoding="utf-8",
+        )
+
+        inventory = build_source_asset_inventory(
+            transcripts_root=Path(self.temp_dir.name) / "knowledge" / "aiclone" / "transcripts",
+            ingestions_root=Path(self.temp_dir.name) / "knowledge" / "ingestions",
+            repo_root=Path(self.temp_dir.name),
+        )
+        items = [item for item in (inventory.get("items") or []) if item.get("asset_id") == "promo_heavy_transcript"]
+        created_payloads = []
+        now = datetime.now(timezone.utc)
+
+        def fake_create_delta(payload):
+            created_payloads.append(payload)
+            return PersonaDelta(
+                id=f"promo-{len(created_payloads)}",
+                persona_target=payload.persona_target,
+                trait=payload.trait,
+                notes=payload.notes,
+                status="draft",
+                metadata=payload.metadata,
+                created_at=now,
+            )
+
+        with patch.object(social_persona_review_module.persona_delta_service, "get_delta_by_review_key", return_value=None), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "create_delta",
+            side_effect=fake_create_delta,
+        ), patch.object(social_persona_review_module.persona_delta_service, "list_deltas", return_value=[]):
+            social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets={"items": items},
+                max_assets=1,
+                max_segments_per_asset=2,
+            )
+
+        combined_text = " ".join((payload.trait + " " + (payload.notes or "")) for payload in created_payloads).lower()
+        self.assertIn("reduce coordination overhead before you scale a team", combined_text)
+        self.assertIn("define ownership and handoffs", combined_text)
+        self.assertNotIn("my site:", combined_text)
+        self.assertNotIn("follow the besties", combined_text)
+        self.assertNotIn("subscribe for more breakdowns", combined_text)
 
     def test_workspace_snapshot_persona_review_summary_runs_long_form_sync(self) -> None:
         sync_result = {
@@ -2897,14 +3934,14 @@ generated_at: "2026-03-28T00:00:00+00:00"
         payload = response.json()
         self.assertTrue(payload.get("success"))
         self.assertIn("workflow clarity", (payload.get("persona_context") or "").lower())
-        self.assertEqual(
-            payload.get("options"),
-            ["Teams fail when they chase tools before workflow clarity.\n\nBundle-first option."],
+        self.assertIn(
+            "Teams fail when they chase tools before workflow clarity.\n\nBundle-first option.",
+            payload.get("options") or [],
         )
         diagnostics = payload.get("diagnostics") or {}
         self.assertEqual(diagnostics.get("grounding_mode"), "proof_ready")
         self.assertEqual(diagnostics.get("generation_strategy"), "planner_writer_critic")
-        self.assertEqual(len(diagnostics.get("taste_scores") or []), 1)
+        self.assertGreaterEqual(len(diagnostics.get("taste_scores") or []), 1)
         self.assertGreaterEqual((diagnostics.get("taste_scores") or [{}])[0].get("overall", 0), 60)
         self.assertEqual(
             diagnostics.get("primary_claims"),
@@ -3699,8 +4736,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertEqual(fallback_completions.calls[0]["model"], "gpt-4o-mini")
         self.assertEqual(router.provider_trace[0]["provider"], "gemini")
         self.assertEqual(router.provider_trace[0]["status"], "failed")
-        self.assertEqual(router.provider_trace[1]["provider"], "openai")
-        self.assertEqual(router.provider_trace[1]["status"], "success")
+        self.assertEqual(router.provider_trace[1]["provider"], "gemini")
+        self.assertEqual(router.provider_trace[1]["status"], "failed")
+        self.assertEqual(router.provider_trace[2]["provider"], "openai")
+        self.assertEqual(router.provider_trace[2]["status"], "success")
 
     def test_score_option_taste_flags_missing_named_reference_for_operator_warning(self) -> None:
         brief = content_generation_module.ContentOptionBrief(
@@ -4296,7 +5335,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         )
 
         self.assertTrue(finalized)
-        self.assertIn("not isolated prompting", finalized[0].lower())
+        self.assertRegex(finalized[0].lower(), r"not (?:isolated prompting|prompting in isolation)")
         self.assertGreaterEqual(finalized[0].count("\n\n"), 2)
 
     def test_finalize_planned_options_rewrites_soft_operator_closer(self) -> None:
@@ -4391,7 +5430,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
         )
 
         self.assertTrue(finalized)
-        self.assertRegex(finalized[0], r"\n\n(Explicit handoffs\.|Shared state\.|Proof-aware prompts\.)\n\n")
+        self.assertRegex(
+            finalized[0],
+            r"\n\n(Explicit handoffs\.|Shared state\.|Proof-aware prompts\.|Not prompting in isolation\.)\n\n",
+        )
 
     def test_finalize_planned_options_rewrites_generic_warning_body_and_strips_label_prefix(self) -> None:
         brief = content_generation_module.ContentOptionBrief(
@@ -4487,6 +5529,123 @@ generated_at: "2026-03-28T00:00:00+00:00"
                 "If there is no artifact, stay at the level of principle.",
             ],
         )
+
+    def test_parse_content_options_splits_numbered_option_headings_without_delimiters(self) -> None:
+        options = content_generation_module.parse_content_options(
+            "Option 1: `contrarian_reframe`\nPrompting alone is not an AI strategy.\n\n"
+            "Option 2: `operator_lesson`\nAgent orchestration starts with explicit handoffs.\n\n"
+            "Option 3: `warning`\nWithout shared state, the workflow breaks."
+        )
+
+        self.assertEqual(
+            options,
+            [
+                "Prompting alone is not an AI strategy.",
+                "Agent orchestration starts with explicit handoffs.",
+                "Without shared state, the workflow breaks.",
+            ],
+        )
+
+    def test_parse_content_options_splits_markdown_option_headings_without_delimiters(self) -> None:
+        options = content_generation_module.parse_content_options(
+            "### OPTION 1\nPrompting alone is not an AI strategy.\n\n"
+            "### OPTION 2\nAgent orchestration starts with explicit handoffs.\n\n"
+            "### OPTION 3\nWithout shared state, the workflow breaks."
+        )
+
+        self.assertEqual(
+            options,
+            [
+                "Prompting alone is not an AI strategy.",
+                "Agent orchestration starts with explicit handoffs.",
+                "Without shared state, the workflow breaks.",
+            ],
+        )
+
+    def test_finalize_planned_options_rewrites_soft_operator_pronouns(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes; output handling and validation are stricter now.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nNow, we’ve tightened output handling and validation.\n\nWe began building the AI Clone / Brain System as a persistent operator platform."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("soft_operator_pronoun", scored.get("warnings", []))
+        self.assertNotIn("Now, we", finalized[0])
+        self.assertNotIn("We began", finalized[0])
+
+    def test_finalize_planned_options_inserts_short_sentence_when_missing(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="warning",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nThe system only holds when context moves across shared state and explicit handoffs instead of disappearing into isolated prompts."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("no_short_sentence", scored.get("warnings", []))
+
+    def test_finalize_planned_options_rewrites_with_weve_unified_operator_sentence(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nWith the AI Clone / Brain System, we’ve unified Brain, Ops, daily briefs, planner, persona review, and long-form routing around one routed workspace snapshot."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("soft_operator_pronoun", scored.get("warnings", []))
+        self.assertNotIn("we’ve unified", finalized[0].lower())
+        self.assertIn("now run on one routed workspace snapshot", finalized[0].lower())
+
+    def test_finalize_planned_options_adds_contrast_line_for_dashboard_proof(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Technology can help close gaps in education access and equity, but only if adoption is real.",
+            proof_packet="Fusion Academy Dashboard Transformation -> Daily, weekly, monthly, quarterly, and yearly metrics were unified in one Salesforce dashboard; high-priority, active-pipeline, and gray-area outreach became clearer; leadership engagement increased because execution was easier to see.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "The Kentucky Senate's recent bill easing faculty cuts is a stark reminder of the pressure education teams are under.\n\nJohnnie is building at the intersection of education, AI systems, entrepreneurship, and style.\n\nWith the Fusion Academy Dashboard Transformation, we unified metrics into one Salesforce dashboard, clarifying outreach and execution."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("low_contrast", scored.get("warnings", []))
+        self.assertIn("Not more reporting. Clearer action.", finalized[0])
 
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()

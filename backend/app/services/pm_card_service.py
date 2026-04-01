@@ -293,6 +293,8 @@ def dispatch_card(card_id: str, payload: PMCardDispatchRequest) -> Optional[PMCa
 
 
 def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
+    if _is_closed_pm_status(card.status):
+        return None
     payload = dict(card.payload or {})
     execution = _execution_payload(card)
     if not execution and not _is_execution_candidate(card):
@@ -375,8 +377,13 @@ def _workspace_key_from_card(card: PMCard) -> str:
     return "shared_ops"
 
 
+def _is_closed_pm_status(status: Optional[str]) -> bool:
+    normalized = str(status or "").strip().lower()
+    return normalized in {"done", "closed", "cancelled"}
+
+
 def _is_execution_candidate(card: PMCard) -> bool:
-    if (card.status or "").lower() == "done":
+    if _is_closed_pm_status(card.status):
         return False
     payload = card.payload or {}
     return bool(

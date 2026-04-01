@@ -78,13 +78,13 @@ reddit_sources:
 
 youtube_channels:
   - name: Nate B Jones
-    url: https://www.youtube.com/@NateBJones
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UC0C-17n9iuUQPylguM1d-lQ
     purpose: Leadership, AI, and operator framing
     priority_lane: program-leadership
     ingest_mode: auto_ingest
     auto_ingest: true
   - name: Champion Leadership
-    url: https://www.youtube.com/@championleadership
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=UCb6gJaZb94gxmf652FxIjwQ
     purpose: Leadership, standards, and execution discipline
     priority_lane: program-leadership
     ingest_mode: auto_ingest
@@ -97,10 +97,10 @@ youtube_channels:
     auto_ingest: false
   - name: Selected AI YouTube Channel
     url: https://www.youtube.com/channel/UCuQIul0FqNDH5Qb7KLvRjxg
-    purpose: User-selected high-signal AI source pending direct channel intake
+    purpose: Placeholder lane for a future user-selected AI source; keep manual until a single real channel is chosen
     priority_lane: ai
-    ingest_mode: auto_ingest
-    auto_ingest: true
+    ingest_mode: manual_only
+    auto_ingest: false
 
 youtube_auto_ingest:
   enabled: true

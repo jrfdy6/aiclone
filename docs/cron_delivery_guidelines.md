@@ -2,6 +2,8 @@
 
 This doc explains how heartbeat, cron jobs, and Discord delivery should behave so the system pushes forward without flooding you with noisy summaries.
 
+For the local scheduling boundary between `launchd`, `OpenClaw`, `Railway`, and `Brain`, use [OpenClaw Local Automation Scheduling](/Users/neo/.openclaw/workspace/SOPs/openclaw_local_automation_sop.md) as the canonical reference.
+
 ## Intent
 - **Heartbeat:** lightweight watchdog that checks systems/automation health, points to HEARTBEAT.md, and replies `HEARTBEAT_OK` when nothing needs attention.
 - **Crons:** do the heavy lifting (memory flush, rolling docs, dream cycle, daily brief, progress pulse) and log durable insights in `memory/` files.
@@ -19,6 +21,7 @@ This doc explains how heartbeat, cron jobs, and Discord delivery should behave s
 - `morning-daily-brief`: read `memory/persistent_state.md`, `memory/cron-prune.md`, and `memory/daily-briefs.md` so the summary points you to the single next opportunity each day.
 - `dream-cycle`: rewrite `memory/persistent_state.md` nightly so the next session can resume from a compact snapshot; report issues through the `memory/reports/` folder instead of flooding Discord.
 - `memory-health-check`, `rolling-docs-refresh`, `nightly-self-improvement`, `github-backup`: run quietly, log into `memory/reports/` or `memory/backup-log.md`, surface exceptions through Ops UI or selective alerts only.
+- `youtube-watchlist-auto-ingest`: schedule locally with `launchd` every 2 hours, let it run inside the OpenClaw workspace, and treat Brain as the reporting surface rather than the cron engine.
 
 ## When to escalate
 - If a cron fails, highlight the failure first (issue, logs, references) and only then mention follow-ups.

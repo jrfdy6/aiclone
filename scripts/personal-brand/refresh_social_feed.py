@@ -21,7 +21,7 @@ from app.services.youtube_watchlist_service import sync_watchlist_auto_ingest
 
 
 def run_fetcher(fetcher: Literal["reddit", "rss"]) -> None:
-    subprocess.run(["python3", str(SCRIPTS_ROOT / f"fetch_{fetcher}_signals.py")], check=True)
+    subprocess.run([sys.executable, str(SCRIPTS_ROOT / f"fetch_{fetcher}_signals.py")], check=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,7 +37,8 @@ def main() -> None:
         sync_watchlist_auto_ingest(run_refresh=False)
         run_fetcher("reddit")
         run_fetcher("rss")
-    subprocess.run(["python3", str(SCRIPTS_ROOT / "build_social_feed.py")], check=True)
+    subprocess.run([sys.executable, str(SCRIPTS_ROOT / "build_social_feed.py")], check=True)
+    subprocess.run([sys.executable, str(SCRIPTS_ROOT / "refresh_linkedin_strategy.py")], check=True)
 
 
 if __name__ == "__main__":

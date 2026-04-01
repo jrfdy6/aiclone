@@ -7,14 +7,17 @@ description: Review README, LEARNINGS, and HEARTBEAT for drift, apply updates, a
 
 ## Steps
 1. **Audit Files**
-   - Run `./scripts/doc_status_snapshot.py` to capture current size/mtime metadata.
+   - Run `/Users/neo/.openclaw/workspace/scripts/doc_status_snapshot.py` to capture current size/mtime metadata.
    - Review `README.md`, `memory/LEARNINGS.md`, and `HEARTBEAT.md` for outdated statements.
 2. **Update**
-   - Edit files directly to reflect current operations and guardrails (note changes relative to snapshot output).
+   - Prefer low-risk targeted edits only.
+   - Do not rewrite `HEARTBEAT.md` unless there is an objectively wrong path, stale status line, or broken reference that can be corrected with a small edit.
+   - If drift is uncertain, log the recommendation in `memory/doc-updates.md` instead of editing the file.
 3. **Log**
-   - Summarize edits in `memory/doc-updates.md` with timestamp + rationale.
+   - Summarize edits in `memory/doc-updates.md` with timestamp + rationale using `python3 /Users/neo/.openclaw/workspace/scripts/append_markdown_block.py`.
 4. **Report**
-   - Send recap to Discord channel `1482486716584689856` (what changed, pending follow-ups).
+   - Return the recap in the final answer only.
+   - Do not call the message tool; cron delivery is automatic.
 
 ## Template
 ```

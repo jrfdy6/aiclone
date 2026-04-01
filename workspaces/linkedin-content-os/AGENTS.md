@@ -1,12 +1,13 @@
-# AGENTS.md - linkedin-content-os
+# AGENTS.md - FEEZIE OS
 
-This is a thin child workspace under Neo.
+This is the direct executive visibility workspace. The filesystem path remains `linkedin-content-os`, but the working name is now `FEEZIE OS`.
 
 ## Startup
-1. Read local `SOUL.md`, `USER.md`, `MEMORY.md`, and `HEARTBEAT.md`.
+1. Read local `IDENTITY.md`, `SOUL.md`, `USER.md`, and `CHARTER.md`.
 2. Then read the parent context files:
    - `../../SOUL.md`
    - `../../IDENTITY.md`
+   - `../../CHARTER.md`
    - `../../USER.md`
    - `../../MEMORY.md`
 3. Read `backlog.md` before doing new LinkedIn work.
@@ -25,11 +26,15 @@ This is a thin child workspace under Neo.
 - draft creation
 - experiment tracking
 - performance review
+- eventual FEEZIE OS expansion
 
 ## Rules
 - This workspace does not override parent safety rules.
 - No public posting without explicit owner approval.
+- Persona truth first, posting second.
 - Draft from canonical persona truth first, local notes second.
+- Use live source signals before generic ideation.
+- Turn reactions into reusable visibility assets.
 - If a claim is strong enough for LinkedIn, make sure it is backed by a parent canonical file or explicit owner approval.
 - Treat `current-role`, `program-leadership`, `ai`, `ops-pm`, `therapy`, and `referral` as separate generation lanes.
 - Treat manual link/text capture and harvested-feed capture as different ingest paths that converge into one shared interpretation path.

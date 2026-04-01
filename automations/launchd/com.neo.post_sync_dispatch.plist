@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.neo.post_sync_dispatch</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/bin/env</string>
+      <string>python3</string>
+      <string>/Users/neo/.openclaw/workspace/scripts/post_sync_dispatch.py</string>
+      <string>--api-url</string>
+      <string>https://aiclone-production-32dc.up.railway.app</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/neo/.openclaw/workspace</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.openclaw/logs/post_sync_dispatch.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.openclaw/logs/post_sync_dispatch.log</string>
+  </dict>
+</plist>

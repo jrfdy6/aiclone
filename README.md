@@ -2,7 +2,7 @@
 
 AI Clone is an AI-powered **knowledge + prospecting workspace** built with **FastAPI (backend)** + **Next.js 14 (frontend)**.
 
-It’s designed to:
+The AI Clone is designed to: 
 - ingest documents (file upload + Google Drive)
 - store chunked “memory” in Firestore
 - retrieve relevant chunks via deterministic embeddings + cosine similarity

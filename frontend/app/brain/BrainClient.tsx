@@ -2420,7 +2420,7 @@ function PersonaPanel({
   const finalizeActionSummary = hasRouteTargets
     ? canonActionItems.length > 0
       ? canMakeCanonNow
-        ? 'Finalize will write canon now and send this signal downstream.'
+      ? 'Finalize will write canon now and send this signal downstream.'
         : `${canonActionGate.reason || 'Finalize will save this canon selection.'} Routing runs in the same action.`
       : 'Finalize will save this review and send it downstream.'
     : canonActionItems.length > 0

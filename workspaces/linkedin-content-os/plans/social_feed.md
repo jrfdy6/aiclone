@@ -1,0 +1,56 @@
+# LinkedIn Social Feed
+Updated 2026-04-01T21:22:16.689992+00:00
+
+## Curation
+- target size: 12
+- selected count: 12
+- rejected count: 5
+
+- rss · More colleges get delay on submitting new admissions data (Natalie Schwartz)
+  - https://www.highereddive.com/news/delay-acts-survey-aau-aicum/816266/
+  - score: 471.0
+  - curation: +37.0
+- reddit · A man used AI to call 3,000 Irish bartenders to track the cost of Guinness. Now pubs are lowering their prices to compete (fortune)
+  - https://www.reddit.com/r/ArtificialInteligence/comments/1s8prqq/a_man_used_ai_to_call_3000_irish_bartenders_to/
+  - score: 414.5
+  - curation: +22.0
+- reddit · Thousands lose their jobs in deep cuts at tech giant Oracle (talkingatoms)
+  - https://www.reddit.com/r/ArtificialInteligence/comments/1s9i3mr/thousands_lose_their_jobs_in_deep_cuts_at_tech/
+  - score: 294.2
+  - curation: +22.0
+- rss · Portland Community College reaches tentative deal with striking faculty (Laura Spitalniak)
+  - https://www.highereddive.com/news/portland-community-college-reaches-tentative-deal-with-striking-faculty/816268/
+  - score: 226.0
+  - curation: +51.0
+- substack · The Shape of the Thing (Ethan Mollick)
+  - https://www.oneusefulthing.org/p/the-shape-of-the-thing
+  - score: 216.0
+  - curation: +41.0
+- substack · Claude Dispatch and the Power of Interfaces (Ethan Mollick)
+  - https://www.oneusefulthing.org/p/claude-dispatch-and-the-power-of
+  - score: 216.0
+  - curation: +41.0
+- rss · ‘A.I.-Washing’ Layoffs? + Why L.L.M.s Can’t Write Well + Tokenmaxxing (hardfork@nytimes.com (The New York Times))
+  - https://www.nytimes.com/column/hard-fork
+  - score: 213.0
+  - curation: +38.0
+- linkedin · Admissions teams are a content goldmine (Marc Zarefsky)
+  - https://www.linkedin.com/posts/marczarefsky_looking-for-higher-ed-content-ideas-talk-activity-7371180984001765376-nSm0
+  - score: 174.0
+  - curation: +59.0
+- linkedin · AI will not replace higher education, but it can augment it (Esther Harclerode)
+  - https://www.linkedin.com/posts/esther-harclerode-a209792b_do-i-think-ai-will-replace-higher-education-activity-7386912557204185088-pkpo
+  - score: 161.0
+  - curation: +46.0
+- linkedin · AI agents fail from lack of context, not lack of smarts (Manish Garg)
+  - https://www.linkedin.com/posts/manishga_ai-agents-fail-not-from-lack-of-smarts-but-activity-7396961315585634304-A_3y
+  - score: 151.0
+  - curation: +36.0
+- rss · The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy? (hardfork@nytimes.com (The New York Times))
+  - https://www.nytimes.com/column/hard-fork
+  - score: 213.0
+  - curation: +38.0
+- rss · Higher ed groups urge GSA to rescind anti-DEI certification proposal (Natalie Schwartz)
+  - https://www.highereddive.com/news/higher-ed-groups-urge-gsa-rescind-anti-dei-certification-proposal/816280/
+  - score: 212.0
+  - curation: +37.0

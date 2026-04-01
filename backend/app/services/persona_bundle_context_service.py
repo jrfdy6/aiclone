@@ -32,6 +32,7 @@ TARGET_TIMELINE = "history/timeline.md"
 TARGET_INITIATIVES = "history/initiatives.md"
 TARGET_WINS = "history/wins.md"
 TARGET_STORIES = "history/story_bank.md"
+TARGET_EXTERNAL_REFERENCES = "references/external_reference_packets.md"
 GENERIC_PROMOTION_LABELS = {
     "anecdote",
     "claim",
@@ -61,6 +62,7 @@ TAG_BY_TARGET = {
     TARGET_INITIATIVES: "VENTURES",
     TARGET_WINS: "EXPERIENCES",
     TARGET_STORIES: "EXPERIENCES",
+    TARGET_EXTERNAL_REFERENCES: "LINKEDIN_EXAMPLES",
 }
 
 CORE_TARGETS = {
@@ -77,6 +79,7 @@ CORE_TARGETS = {
 EXAMPLE_TARGETS = {
     TARGET_CONTENT_EXAMPLES,
     TARGET_TASTE_EXAMPLES,
+    TARGET_EXTERNAL_REFERENCES,
 }
 PROOF_TARGETS = {
     TARGET_INITIATIVES,
@@ -244,6 +247,8 @@ def _infer_audience_tags(domain_tags: list[str]) -> list[str]:
 def _infer_proof_kind(rel_path: str) -> str:
     if rel_path == TARGET_CONTENT_EXAMPLES:
         return "style_example"
+    if rel_path == TARGET_EXTERNAL_REFERENCES:
+        return "external_reference"
     if rel_path == TARGET_INITIATIVES:
         return "initiative"
     if rel_path == TARGET_WINS:
@@ -496,7 +501,14 @@ def _iter_initiative_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
     return items
 
 
-def _iter_section_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
+def _iter_section_chunks(
+    text: str,
+    rel_path: str,
+    *,
+    source_kind: str = "canonical_bundle",
+    source: str = "canonical persona bundle",
+    extra_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     tag = TAG_BY_TARGET.get(rel_path, "PHILOSOPHY")
     items: list[dict[str, Any]] = []
     section_title = ""
@@ -519,8 +531,9 @@ def _iter_section_chunks(text: str, rel_path: str) -> list[dict[str, Any]]:
                 chunk_index=idx,
                 chunk=chunk,
                 persona_tag=tag,
-                source_kind="canonical_bundle",
-                source="canonical persona bundle",
+                source_kind=source_kind,
+                source=source,
+                extra_metadata=extra_metadata,
             )
         )
         idx += 1
@@ -554,6 +567,7 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
         TARGET_INITIATIVES,
         TARGET_WINS,
         TARGET_STORIES,
+        TARGET_EXTERNAL_REFERENCES,
     ]
     chunks: list[dict[str, Any]] = []
     for rel_path in rel_paths:
@@ -566,6 +580,16 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
             chunks.extend(_iter_story_chunks(text, rel_path))
         elif rel_path == TARGET_INITIATIVES:
             chunks.extend(_iter_initiative_chunks(text, rel_path))
+        elif rel_path == TARGET_EXTERNAL_REFERENCES:
+            chunks.extend(
+                _iter_section_chunks(
+                    text,
+                    rel_path,
+                    source_kind="external_reference",
+                    source="external transcript reference packets",
+                    extra_metadata={"reference_policy": "style_reference_only"},
+                )
+            )
         else:
             chunks.extend(_iter_section_chunks(text, rel_path))
     if not chunks:

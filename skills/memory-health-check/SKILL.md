@@ -1,6 +1,6 @@
 ---
 name: memory-health-check
-description: Daily automated audit of memory hygiene. Use when a cron must inspect memory/QMD status, compaction safety, file sizes, and report findings without embedding workflow instructions in the cron prompt.
+description: Daily automated audit of memory hygiene. Use when a cron must inspect memory and QMD status, compaction safety, file sizes, and report findings without embedding workflow instructions in the cron prompt.
 ---
 
 # Memory Health Check Skill
@@ -17,19 +17,19 @@ This skill defines the end-to-end workflow for monitoring memory integrity, retr
 - `memory/memory_health_check_plan.md` — retention targets + thresholds.
 - `memory/memory_management_check.md` — prior recommendations.
 - `AGENTS.md`, `SOUL.md`, `USER.md`, `MEMORY.md` — ensure sizes <20k chars each.
-- QMD status script `./check_index_status.sh`.
-- Compaction guardrail script `./scripts/compaction_guardrail_check.py`.
+- QMD status script `/Users/neo/.openclaw/workspace/scripts/check_index_status.sh`.
+- Compaction guardrail script `/Users/neo/.openclaw/workspace/scripts/compaction_guardrail_check.py`.
 
 ## Workflow
 1. **Load Config**
    - Read `memory/memory_health_check_plan.md` for thresholds (max hot file size, reserve tokens, alert routing).
    - Note any overrides recorded in `memory/audit_log_day_1.md`.
 2. **QMD & Retrieval Checks**
-   - Run `./scripts/qmd_freshness_check.py` to obtain JSON stats (files, collections, last update age). Treat `stale=true` as WARN/ALERT.
-   - Run `./check_index_status.sh` if Firestore indices or external collectors matter; capture errors.
+   - Run `/Users/neo/.openclaw/workspace/scripts/qmd_freshness_check.py` to obtain JSON stats (files, collections, last update age). Treat `stale=true` as WARN/ALERT.
+   - Run `/Users/neo/.openclaw/workspace/scripts/check_index_status.sh` if Firestore indices or external collectors matter; capture errors.
    - If QMD unreachable, record as `ALERT: QMD offline` and stop further semantic checks.
 3. **Compaction Settings**
-   - Run `./scripts/compaction_guardrail_check.py` to pull authoritative values from `~/.openclaw/openclaw.json`.
+   - Run `/Users/neo/.openclaw/workspace/scripts/compaction_guardrail_check.py` to pull authoritative values from `~/.openclaw/openclaw.json`.
    - Confirm outputs: `reserveTokensFloor >= 40000`, `softThresholdTokens >= 4000`, `flush.enabled=true`.
    - If any value is out of range, mark the report as `WARN` (or `ALERT` if flush disabled) and add a remediation item.
 4. **File Size Audit**
@@ -49,7 +49,7 @@ This skill defines the end-to-end workflow for monitoring memory integrity, retr
      - Compaction settings table
      - File size table
      - Suggested follow-ups
-   - Append a short recap to `memory/audit_log_day_1.md` referencing the report.
+   - Append a short recap to `memory/audit_log_day_1.md` referencing the report using `python3 /Users/neo/.openclaw/workspace/scripts/append_markdown_block.py`.
    - Deliver a notification to the cron’s configured channel.
 
 ## Quality Gates
@@ -69,6 +69,6 @@ Report: memory/reports/memory_health_<YYYY-MM-DD>.md
 ```
 
 ## Troubleshooting
-- **check_index_status.sh not executable**: `chmod +x scripts/check_index_status.sh` and rerun.
+ - **check_index_status.sh not executable**: `chmod +x /Users/neo/.openclaw/workspace/scripts/check_index_status.sh` and rerun.
 - **Permissions error reading files**: ensure workspace owner is `neo`, run `ls -al` to confirm.
 - **Missing directories**: create `memory/reports/` before writing.

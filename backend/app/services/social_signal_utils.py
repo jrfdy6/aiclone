@@ -6,9 +6,16 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
+from app.services.social_article_understanding_service import social_article_understanding_service
 from app.services.social_belief_engine import social_belief_engine
 from app.services.social_evaluation_engine import social_evaluation_engine
 from app.services.social_expression_engine import social_expression_engine
+from app.services.social_johnnie_perspective_service import social_johnnie_perspective_service
+from app.services.social_persona_retrieval_service import social_persona_retrieval_service
+from app.services.social_reaction_brief_service import social_reaction_brief_service
+from app.services.social_response_type_service import social_response_type_service
+from app.services.social_stage_evaluation_service import social_stage_evaluation_service
+from app.services.social_template_composition_service import social_template_composition_service
 from app.services.social_technique_engine import social_technique_engine
 
 LENS_IDS: list[str] = [
@@ -209,37 +216,42 @@ STANCE_OPEN_OPTIONS = {
     },
     "nuance": {
         "comment": [
-            "I agree with the direction, but the real issue usually shows up in practice.",
-            "Yes, but the gap usually shows up one layer lower in the work.",
-            "I agree with the direction, but the operational problem usually shows up later.",
+            "Look, people get this wrong all the time. The signal is real, but the frame is incomplete.",
+            "I understand where they're coming from, but here's where I can't rock with it.",
+            "They're not wrong, but that's incomplete.",
+            "Can I be honest? The direction is fine, but the frame gets too clean for real life.",
+            "That's an interesting perspective. The issue usually shows up one layer lower in the work.",
         ],
         "repost": [
-            "I agree with the core point, but I would push the framing a little further.",
-            "Directionally yes, but the practical issue usually shows up one layer lower.",
-            "I agree with the signal, but the framing still needs one more turn.",
+            "The signal is there, but the conversation usually stops too early.",
+            "I understand the core point, but here's where it loses me.",
+            "Directionally yes, but here's where I can't rock with the framing.",
+            "The signal is there. The story around it gets too clean.",
         ],
     },
     "counter": {
         "comment": [
-            "I would push this a little further because the real issue usually sits underneath the headline.",
-            "I think the real problem is one layer deeper than this framing.",
-            "I would frame this a little differently because the operational issue usually shows up later.",
+            "Look, that's not really the issue.",
+            "Look, here's where I can't rock with it.",
+            "Can I be honest? That dog will not hunt once this hits real life.",
+            "That's an interesting perspective, but the work usually breaks underneath that headline.",
         ],
         "repost": [
-            "I would frame this a little differently.",
-            "The headline is directionally right, but the real issue sits one layer lower.",
-            "I think the deeper problem shows up after the part most people focus on.",
+            "They're not wrong, but that's incomplete.",
+            "Look, I would frame this a little differently.",
+            "Here's where the frame loses me.",
+            "The headline sounds clean. Real life is messier than that.",
         ],
     },
     "translate": {
         "comment": [
+            "Real talk: this gets more useful once you bring it down into the day-to-day work.",
             "I keep translating this into the real work on the ground.",
-            "This gets more useful once you bring it down into the day-to-day work.",
-            "I read this through what actually happens on the ground.",
+            "Read that again. It changes once the work is actually yours to carry.",
         ],
         "repost": [
             "This changes once it touches the real work.",
-            "This reads differently once it hits the day-to-day work.",
+            "Real talk: this reads differently once it hits the day-to-day work.",
             "This gets clearer once it reaches the real operating environment.",
         ],
     },
@@ -257,14 +269,14 @@ STANCE_OPEN_OPTIONS = {
     },
     "systemize": {
         "comment": [
-            "The useful move is turning this from an idea into a system.",
+            "Show me the artifact. The idea is only useful once it becomes a system.",
             "The pattern only matters once it becomes a system.",
-            "The signal is only useful once it turns into process.",
+            "If it cannot survive the workflow, it is just another tab.",
         ],
         "repost": [
             "The idea is only useful once it becomes process.",
-            "The pattern only counts once the system changes around it.",
-            "The signal matters once it turns into something repeatable.",
+            "Show me the artifact. The pattern only counts once the system changes around it.",
+            "If it never becomes repeatable, it is just another tab.",
         ],
     },
 }
@@ -284,11 +296,13 @@ STANCE_CONTRAST_OPTIONS = {
     },
     "nuance": {
         "comment": [
-            "The headline is directionally right. The real issue usually shows up one layer lower.",
-            "I do not think the headline is wrong. I think it stops a little early.",
-            "The surface point is fine. The practical problem usually shows up underneath it.",
+            "That's incomplete. The real shift usually shows up in execution.",
+            "I see why people say this, but the real break usually shows up in the handoff.",
+            "I understand the story. Show me the artifact.",
+            "The headline is fine. The process underneath it is where it gets real.",
         ],
         "repost": [
+            "That's not really the issue. The practical shift usually shows up later.",
             "Directionally yes, but the practical issue usually sits one layer lower.",
             "The headline is fine. The operational problem is usually underneath it.",
             "I agree with the signal, but the real friction usually shows up later.",
@@ -296,14 +310,16 @@ STANCE_CONTRAST_OPTIONS = {
     },
     "counter": {
         "comment": [
-            "I would push this harder because the real issue is not the headline.",
-            "The visible issue is one thing. The actual constraint usually sits underneath it.",
-            "The post is not wrong. It just stops too early.",
+            "That frame is too clean. The real shift usually shows up once the work starts moving.",
+            "That sounds good, but that's not how it works in real life.",
+            "The story sounds clean. Show me the artifact.",
+            "This is not really a system if it falls apart in the workflow.",
         ],
         "repost": [
-            "The visible issue is not really the whole issue here.",
-            "The headline is not wrong. The real constraint usually sits underneath it.",
-            "I would push the frame a little harder because the deeper problem shows up later.",
+            "Partial functionality can hide a real system failure.",
+            "That is a story. Where is the artifact?",
+            "The headline is not wrong. The real constraint usually sits underneath the workflow.",
+            "That dog will not hunt once the process gets real.",
         ],
     },
     "translate": {
@@ -334,11 +350,11 @@ STANCE_CONTRAST_OPTIONS = {
         "comment": [
             "The idea is not the finish line. The repeatable system is.",
             "Noticing the pattern is one thing. Making it repeatable is the real move.",
-            "The pattern is interesting. The system built around it is what matters.",
+            "Show me the artifact. The system built around the pattern is what matters.",
         ],
         "repost": [
             "The idea is not enough. The repeatable system is the real story.",
-            "The pattern only matters once it becomes repeatable.",
+            "If it is not useful, it is just another tab.",
             "Seeing the signal is one thing. Turning it into process is the real move.",
         ],
     },
@@ -359,6 +375,7 @@ def _variation_seed(ctx: dict[str, Any], slot: str) -> int:
             normalize_inline_text(ctx.get("title")),
             normalize_inline_text(ctx.get("priority_lane")),
             normalize_inline_text(ctx.get("stance")),
+            normalize_inline_text(((ctx.get("response_type_packet") or {}).get("response_type"))),
             normalize_inline_text(ctx.get("source_takeaway_origin")),
             slot,
         ]
@@ -382,13 +399,28 @@ def pick_option(ctx: dict[str, Any], slot: str, options: list[str], fallback: st
     if not cleaned:
         return normalize_inline_text(fallback)
     index = _variation_seed(ctx, slot) % len(cleaned)
-    return cleaned[index]
+    selected = cleaned[index]
+    social_template_composition_service.record_option(
+        ctx,
+        slot=slot,
+        options=cleaned,
+        selected=selected,
+        selected_index=index,
+    )
+    return selected
 
 
 def pick_template(ctx: dict[str, Any], slot: str, templates: list[list[str]]) -> list[str]:
     if not templates:
         return []
-    return templates[_variation_seed(ctx, slot) % len(templates)]
+    selected = templates[_variation_seed(ctx, slot) % len(templates)]
+    social_template_composition_service.record_template(
+        ctx,
+        slot=slot,
+        templates=templates,
+        selected=selected,
+    )
+    return selected
 
 
 def normalize_source_class(value: str | None) -> str:
@@ -713,18 +745,84 @@ def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, 
         summary = clean_sentence(signal.get("summary"))
         if summary and summary.lower() != core_line.lower() and not contains_generic_phrase(summary):
             supporting_line = summary
-    belief_context = social_belief_engine.assess_signal(signal, lane_id)
+    article_understanding = social_article_understanding_service.analyze(signal, lane_id)
+    persona_retrieval = social_persona_retrieval_service.retrieve(signal, lane_id, article_understanding)
+    belief_context = social_belief_engine.assess_signal(
+        signal,
+        lane_id,
+        article_understanding=article_understanding,
+        persona_retrieval=persona_retrieval,
+    )
+
+    selected_belief = persona_retrieval.get("selected_belief") or {}
+    selected_experience = persona_retrieval.get("selected_experience") or {}
+    selected_belief_text = clean_sentence(selected_belief.get("summary_text") or selected_belief.get("text"))
+    selected_experience_text = clean_sentence(selected_experience.get("summary_text") or selected_experience.get("text"))
+    if selected_belief_text:
+        belief_context["belief_used"] = selected_belief.get("title") or belief_context.get("belief_used", "")
+        belief_context["belief_summary"] = selected_belief_text
+    if selected_experience_text:
+        belief_context["experience_anchor"] = selected_experience.get("title") or belief_context.get("experience_anchor", "")
+        belief_context["experience_summary"] = selected_experience_text
+
+    johnnie_perspective = social_johnnie_perspective_service.build(
+        signal=signal,
+        lane_id=lane_id,
+        article_understanding=article_understanding,
+        persona_retrieval=persona_retrieval,
+        belief_assessment=belief_context,
+    )
+
     expression_context = select_source_takeaway(
         candidates=[supporting_line, core_line, clean_sentence(signal.get("summary"))],
         lane_id=lane_id,
+        article_understanding=article_understanding,
     )
+    if not normalize_inline_text(expression_context.get("output_text")) and normalize_inline_text(article_understanding.get("thesis")):
+        expression_context = {
+            **expression_context,
+            "source_text": article_understanding.get("thesis", ""),
+            "output_text": ensure_period(article_understanding.get("thesis", "")),
+            "strategy": "article-understanding-fallback",
+            "source_structure": article_understanding.get("source_expression", "plain"),
+            "output_structure": article_understanding.get("source_expression", "plain"),
+            "structure_preserved": True,
+            "source_expression_quality": 7.0,
+            "output_expression_quality": 7.2,
+            "expression_delta": 0.2,
+            "overlap_ratio": 0.0,
+            "adjusted_output_quality": 7.2,
+            "warnings": [],
+        }
+
+    reaction_brief = social_reaction_brief_service.build(
+        lane_id=lane_id,
+        article_understanding=article_understanding,
+        persona_retrieval=persona_retrieval,
+        johnnie_perspective=johnnie_perspective,
+    )
+    response_type_packet = social_response_type_service.select(
+        signal=signal,
+        lane_id=lane_id,
+        article_understanding=article_understanding,
+        johnnie_perspective=johnnie_perspective,
+        reaction_brief=reaction_brief,
+    )
+
+    rendered_stance = belief_context["stance"]
+    response_type = normalize_inline_text(response_type_packet.get("response_type")).lower()
+    if response_type == "personal_story":
+        rendered_stance = "personal-anchor"
+    elif response_type == "contrarian" and rendered_stance not in {"counter", "nuance"}:
+        rendered_stance = "counter"
+
     return {
         "title": clean_sentence(signal.get("title")),
         "core_line": ensure_period(core_line or clean_sentence(signal.get("title")) or "this post"),
         "supporting_line": ensure_period(supporting_line) if supporting_line else "",
         "summary": ensure_period(clean_sentence(signal.get("summary"))),
-        "source_takeaway": expression_context["output_text"],
-        "source_takeaway_origin": expression_context["source_text"],
+        "source_takeaway": expression_context["output_text"] or ensure_period(article_understanding.get("thesis")),
+        "source_takeaway_origin": expression_context["source_text"] or article_understanding.get("thesis", ""),
         "source_takeaway_strategy": expression_context["strategy"],
         "expression_assessment": expression_context,
         "priority_lane": lane_id,
@@ -732,12 +830,21 @@ def build_generation_context(signal: dict[str, Any], lane_id: str) -> dict[str, 
         "belief_summary": belief_context["belief_summary"],
         "experience_anchor": belief_context["experience_anchor"],
         "experience_summary": belief_context["experience_summary"],
-        "stance": belief_context["stance"],
+        "base_stance": belief_context["stance"],
+        "stance": rendered_stance,
         "agreement_level": belief_context["agreement_level"],
         "role_safety": belief_context["role_safety"],
         "stance_comment_open": belief_context["stance_comment_open"],
         "stance_repost_open": belief_context["stance_repost_open"],
         "bridge_line": belief_context["bridge_line"],
+        "article_understanding": article_understanding,
+        "persona_retrieval": persona_retrieval,
+        "johnnie_perspective": johnnie_perspective,
+        "reaction_brief": reaction_brief,
+        "response_type_packet": response_type_packet,
+        "response_type_comment_open": response_type_packet.get("comment_open_override") or "",
+        "response_type_repost_open": response_type_packet.get("repost_open_override") or "",
+        "response_type_bridge": response_type_packet.get("bridge_override") or "",
     }
 
 
@@ -745,6 +852,53 @@ def preserve_source_structure(text: str | None, lane_id: str) -> str:
     cleaned = clean_sentence(text)
     if not cleaned:
         return ""
+
+    lowered = cleaned.lower()
+
+    if "what compounds is" in lowered:
+        match = re.search(r"what compounds is (?P<rest>.+?)(?:\.|$)", cleaned, flags=re.IGNORECASE)
+        if match:
+            rest = clean_sentence(match.group("rest"))
+            if "stops being the moat" in lowered:
+                return ensure_period(f"Feature speed is no longer the moat by itself. What compounds is {rest}")
+            return ensure_period(f"What compounds is {rest}")
+
+    if "does not stay confined to" in lowered or "doesn't stay confined to" in lowered:
+        confined_match = re.search(r"does not stay confined to (?P<scope>.+?)(?:\.|$)", cleaned, flags=re.IGNORECASE)
+        follow_match = re.search(r"\.\s*(?P<follow>[A-Z][^.]+)", cleaned)
+        scope = clean_sentence(confined_match.group("scope")) if confined_match else ""
+        follow = clean_sentence(follow_match.group("follow")) if follow_match else ""
+        if scope and follow:
+            return ensure_period(
+                f"The pressure does not stay confined to {scope}. It eventually shows up when {follow[0].lower() + follow[1:]}"
+            )
+        if scope:
+            return ensure_period(f"The pressure does not stay confined to {scope}")
+
+    if "long before" in lowered:
+        sentence_match = re.search(r"(?P<sentence>[^.]*long before[^.]*\.)", cleaned, flags=re.IGNORECASE)
+        sentence = normalize_inline_text(sentence_match.group("sentence")) if sentence_match else ""
+        if sentence:
+            return ensure_period(f"The timing gap is the real issue. {sentence}")
+
+    hidden_match = re.search(
+        r"the real (gap|issue|problem|constraint|question|test) (usually )?(shows up|sits|starts) in (?P<rest>.+?)(?:\.|$)",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if hidden_match:
+        rest = clean_sentence(hidden_match.group("rest"))
+        return ensure_period(f"The real gap usually shows up in {rest}")
+
+    visible_match = re.search(
+        r"the visible (?P<surface>.+?) is usually cleaner than the underlying (?P<hidden>.+?)(?:\.|$)",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if visible_match:
+        surface = clean_sentence(visible_match.group("surface"))
+        hidden = clean_sentence(visible_match.group("hidden"))
+        return ensure_period(f"The visible {surface} is not the real system. The underlying {hidden} is where the break usually lives")
 
     not_because_match = re.search(r"not because (?P<a>.+?) but because (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
     if not_because_match:
@@ -784,6 +938,50 @@ def rewrite_source_claim(text: str | None, lane_id: str) -> str:
         return ""
 
     lowered = cleaned.lower()
+
+    model_strategy_match = re.search(
+        r"model choice like the whole strategy\.\s*the real gap usually shows up in (?P<rest>.+?)\.\s*access to more models does not help if (?P<condition>.+)$",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if model_strategy_match:
+        rest = clean_sentence(model_strategy_match.group("rest"))
+        condition = clean_sentence(model_strategy_match.group("condition"))
+        return ensure_period(f"The bottleneck is not model access by itself. It usually shows up in {rest}, especially when {condition}")
+
+    real_gap_match = re.search(
+        r"the real (gap|issue|problem|constraint|question|test) (usually )?(shows up|sits|starts) in (?P<rest>.+?)(?:\.|$)",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if real_gap_match:
+        rest = clean_sentence(real_gap_match.group("rest"))
+        return ensure_period(f"The real gap usually shows up in {rest}")
+
+    rare_because_match = re.search(
+        r"rarely .+? because (?P<a>.+?)\. (?:they|teams|people|operators|leaders) .+? because (?P<b>.+?)(?:\.|$)",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if rare_because_match:
+        a = clean_sentence(rare_because_match.group("a"))
+        b = clean_sentence(rare_because_match.group("b"))
+        return ensure_period(f"The visible problem is rarely {a}. The real break usually happens because {b}")
+
+    confined_match = re.search(r"does not stay confined to (?P<scope>.+?)(?:\.|$)", cleaned, flags=re.IGNORECASE)
+    if confined_match:
+        scope = clean_sentence(confined_match.group("scope"))
+        return ensure_period(f"The pressure does not stay confined to {scope}")
+
+    timing_match = re.search(r"(?P<sentence>[^.]*long before[^.]*)(?:\.|$)", cleaned, flags=re.IGNORECASE)
+    if timing_match:
+        sentence = clean_sentence(timing_match.group("sentence"))
+        return ensure_period(f"The timing gap is the issue. {sentence}")
+
+    trend_match = re.search(r"what compounds is (?P<rest>.+?)(?:\.|$)", cleaned, flags=re.IGNORECASE)
+    if trend_match:
+        rest = clean_sentence(trend_match.group("rest"))
+        return ensure_period(f"What compounds is {rest}")
 
     not_because_match = re.search(r"not because (?P<a>.+?) but because (?P<b>.+)$", cleaned, flags=re.IGNORECASE)
     if not_because_match:
@@ -863,8 +1061,21 @@ def repost_seed(ctx: dict[str, Any]) -> str:
     return fallback_by_lane.get(ctx.get("priority_lane", ""), "The underlying signal here is more practical than it first appears.")
 
 
-def select_source_takeaway(*, candidates: list[str], lane_id: str) -> dict[str, Any]:
-    for candidate in candidates:
+def select_source_takeaway(*, candidates: list[str], lane_id: str, article_understanding: dict[str, Any] | None = None) -> dict[str, Any]:
+    article_understanding = article_understanding or {}
+    candidate_pool: list[str] = []
+    for candidate in [
+        article_understanding.get("source_expression_text"),
+        *(article_understanding.get("supporting_claims") or [])[:2],
+        article_understanding.get("thesis"),
+        *candidates,
+    ]:
+        cleaned_candidate = clean_sentence(candidate)
+        if cleaned_candidate and cleaned_candidate.lower() not in {item.lower() for item in candidate_pool}:
+            candidate_pool.append(cleaned_candidate)
+
+    assessed_sources: list[dict[str, Any]] = []
+    for candidate in candidate_pool:
         cleaned = clean_sentence(candidate)
         if not cleaned:
             continue
@@ -883,7 +1094,18 @@ def select_source_takeaway(*, candidates: list[str], lane_id: str) -> dict[str, 
         if not rewrite_candidates:
             continue
 
-        return social_expression_engine.choose_candidate(cleaned, rewrite_candidates)
+        assessed_sources.append(social_expression_engine.choose_candidate(cleaned, rewrite_candidates))
+
+    if assessed_sources:
+        assessed_sources.sort(
+            key=lambda item: (
+                item["structure_preserved"] and item["source_structure"] not in {"none", "plain"},
+                item["adjusted_output_quality"],
+                -item["overlap_ratio"],
+            ),
+            reverse=True,
+        )
+        return assessed_sources[0]
 
     return {
         "source_text": "",
@@ -902,26 +1124,35 @@ def select_source_takeaway(*, candidates: list[str], lane_id: str) -> dict[str, 
 
 
 def comment_open(ctx: dict[str, Any], fallback: str) -> str:
+    response_type_open = normalize_inline_text(ctx.get("response_type_comment_open"))
     stance = ctx.get("stance", "")
     stance_open = normalize_inline_text(ctx.get("stance_comment_open"))
     lane_open = normalize_inline_text(fallback)
     bank = (STANCE_OPEN_OPTIONS.get(stance, {}) or {}).get("comment", [])
+    if response_type_open:
+        return pick_option(ctx, "comment-open", [response_type_open, stance_open, lane_open, *bank], response_type_open)
     if stance in {"counter", "personal-anchor"}:
         return pick_option(ctx, "comment-open", [stance_open, lane_open, *bank], stance_open or lane_open)
     return pick_option(ctx, "comment-open", [lane_open, stance_open, *bank], lane_open or stance_open)
 
 
 def repost_open(ctx: dict[str, Any], fallback: str) -> str:
+    response_type_open = normalize_inline_text(ctx.get("response_type_repost_open"))
     stance = ctx.get("stance", "")
     stance_open = normalize_inline_text(ctx.get("stance_repost_open"))
     lane_open = normalize_inline_text(fallback)
     bank = (STANCE_OPEN_OPTIONS.get(stance, {}) or {}).get("repost", [])
+    if response_type_open:
+        return pick_option(ctx, "repost-open", [response_type_open, stance_open, lane_open, *bank], response_type_open)
     if stance in {"counter", "personal-anchor"}:
         return pick_option(ctx, "repost-open", [stance_open, lane_open, *bank], stance_open or lane_open)
     return pick_option(ctx, "repost-open", [lane_open, stance_open, *bank], lane_open or stance_open)
 
 
 def bridge_line(ctx: dict[str, Any]) -> str:
+    response_type_bridge = normalize_inline_text(ctx.get("response_type_bridge"))
+    if response_type_bridge:
+        return ensure_period(response_type_bridge)
     raw = normalize_inline_text(ctx.get("bridge_line"))
     if not raw:
         return ""
@@ -998,14 +1229,25 @@ def compose_response(ctx: dict[str, Any], slot: str, kind: str, **parts: str) ->
     if not normalized_parts:
         return ""
 
+    selected_template = pick_template(ctx, slot, response_templates(kind, ctx.get("stance", "")))
     ordered_keys: list[str] = []
-    for key in pick_template(ctx, slot, response_templates(kind, ctx.get("stance", ""))):
+    for key in selected_template:
         if key in normalized_parts and key not in ordered_keys:
             ordered_keys.append(key)
     for key in normalized_parts:
         if key not in ordered_keys:
             ordered_keys.append(key)
-    return join_parts([normalized_parts[key] for key in ordered_keys])
+    text = join_parts([normalized_parts[key] for key in ordered_keys])
+    social_template_composition_service.record_response(
+        ctx,
+        slot=slot,
+        response_kind=kind,
+        normalized_parts=normalized_parts,
+        selected_template=selected_template,
+        part_order=ordered_keys,
+        text=text,
+    )
+    return text
 
 
 def contains_any(text: str, needles: list[str]) -> bool:
@@ -1193,23 +1435,25 @@ def build_entrepreneurship_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             takeaway=source_takeaway(ctx),
             bridge=bridge_line(ctx),
             contrast=stance_contrast_line(ctx, "comment"),
-            main=pick_option(
-                ctx,
-                "entrepreneurship-comment-main",
-                [
-                    "The edge is usually not the headline idea by itself. It is what you do with that signal operationally.",
-                    "Most builder advantages come from what gets turned into process, not what gets noticed first.",
-                    "The insight matters less than what the operator does with it after they see it.",
-                ],
+                main=pick_option(
+                    ctx,
+                    "entrepreneurship-comment-main",
+                    [
+                        "Just because something works does not mean it is valuable enough to change behavior.",
+                        "The edge is usually not the headline idea by itself. It is what you do with that signal operationally.",
+                        "Most builder advantages come from what gets turned into process, not what gets noticed first.",
+                        "Show me the artifact. The insight matters less than what the operator does with it after they see it.",
+                    ],
             ),
-            close=pick_option(
-                ctx,
-                "entrepreneurship-comment-close",
-                [
-                    "The builders who turn repeated insight into process usually compound faster.",
-                    "The teams that operationalize the signal early are usually the ones that pull away.",
-                    "That is usually where compounding starts: not in the idea itself, but in the system built around it.",
-                ],
+                close=pick_option(
+                    ctx,
+                    "entrepreneurship-comment-close",
+                    [
+                        "Function is not the same thing as value. The compounding shows up when people actually come back.",
+                        "The builders who turn repeated insight into process usually compound faster.",
+                        "The teams that operationalize the signal early are usually the ones that pull away.",
+                        "If the insight never becomes workflow, it is just another tab. That is usually where compounding starts.",
+                    ],
             ),
         ),
         pick_option(
@@ -1227,14 +1471,15 @@ def build_entrepreneurship_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
             "repost",
             open=repost_open(ctx, repost_seed(ctx)),
             contrast=stance_contrast_line(ctx, "repost"),
-            main=pick_option(
-                ctx,
-                "entrepreneurship-repost-main",
-                [
-                    "This feels more like an execution lesson than a content lesson.",
-                    "The builder lesson here is operational, not aesthetic.",
-                    "This reads like an execution signal more than a headline insight.",
-                ],
+                main=pick_option(
+                    ctx,
+                    "entrepreneurship-repost-main",
+                    [
+                        "A product working is not the same thing as a product earning repeat behavior.",
+                        "This feels more like an execution lesson than a content lesson.",
+                        "The builder lesson here is operational, not aesthetic.",
+                        "This reads like an execution signal more than a headline insight.",
+                    ],
             ),
             close=pick_option(
                 ctx,
@@ -1859,6 +2104,8 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                     ctx,
                     "ai-comment-main",
                     [
+                        "AI is changing what competence looks like. The separation now is who can structure the problem and operate the system with judgment.",
+                        "If you cannot rely on the output, you cannot really build with it. That is where constraints and evaluation start to matter.",
                         "AI literacy is not just tool familiarity. It is knowing how to ask better questions, pressure-test outputs, and keep human judgment in the loop.",
                         "The real divide is usually not access. It is whether people know how to question the output, direct the system well, and keep judgment in the loop.",
                         "AI literacy shows up in judgment: better questions, stronger pressure-testing, and a visible human layer.",
@@ -1868,6 +2115,7 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                     ctx,
                     "ai-comment-close",
                     [
+                        "That is why AI compresses the gap between idea and execution faster than most teams are ready for.",
                         "That is usually the real divide once the technology is already in the room because access alone does not teach discernment.",
                         "Once the tool is in the room, the gap is usually discernment, not access.",
                         "Access does not teach discernment. Judgment does.",
@@ -1902,6 +2150,7 @@ def build_ai_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                     ctx,
                     "ai-repost-close",
                     [
+                        "AI is changing what competence looks like faster than most teams are ready to admit.",
                         "The practical gap is rarely raw access anymore. It is whether people know how to direct the system well and challenge weak outputs when they show up.",
                         "The practical gap is rarely access anymore. It is whether people know how to direct the system well and challenge weak outputs when they show up.",
                         "The gap is usually not whether the tool exists. It is whether people know how to direct it well and challenge weak output when it shows up.",
@@ -1991,6 +2240,7 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                     ctx,
                     "ops-comment-main",
                     [
+                        "Partial functionality can hide a real system failure because teams adapt to drag before they redesign it.",
                         "Most teams do not break at the strategy layer. They break at the handoff, ownership, cadence, and follow-through layer.",
                         "The idea usually survives the strategy meeting. It breaks at the handoff, ownership, and follow-through layer.",
                         "The real leak is usually not strategy. It is ownership, handoffs, cadence, and the follow-through layer.",
@@ -2000,6 +2250,7 @@ def build_ops_pm_comment(ctx: dict[str, str]) -> tuple[str, str, str]:
                     ctx,
                     "ops-comment-close",
                     [
+                        "That is why friction is often a signal, not just an annoyance.",
                         "That is why this feels more like workflow design and project control than thought leadership to me.",
                         "That is why this feels more like workflow design than commentary to me.",
                         "That is why I read this as workflow design and project control more than thought leadership.",
@@ -2129,17 +2380,39 @@ def build_variants(signal: dict[str, Any]) -> dict[str, dict[str, Any]]:
         normalized_comment = " ".join(normalize_voice(comment).split())
         normalized_short_comment = " ".join(normalize_voice(short_comment).split())
         normalized_repost = " ".join(normalize_voice(repost).split())
+        composition_traces = {
+            "comment": social_template_composition_service.build_trace(
+                context,
+                response_kind="comment",
+                post_normalization_text=normalized_comment,
+            ),
+            "repost": social_template_composition_service.build_trace(
+                context,
+                response_kind="repost",
+                post_normalization_text=normalized_repost,
+            ),
+        }
         belief_assessment = {
             "stance": context["stance"],
+            "base_stance": context.get("base_stance", context["stance"]),
             "agreement_level": context["agreement_level"],
             "belief_used": context["belief_used"],
             "belief_summary": context["belief_summary"],
             "experience_anchor": context["experience_anchor"],
             "experience_summary": context["experience_summary"],
             "role_safety": context["role_safety"],
+            "response_type": (context.get("response_type_packet") or {}).get("response_type", ""),
         }
         expression_assessment = context["expression_assessment"]
         technique_assessment = social_technique_engine.select_for_variant(signal, lens_id, belief_assessment)
+        stage_evaluation = social_stage_evaluation_service.evaluate_variant(
+            article_understanding=context.get("article_understanding"),
+            persona_retrieval=context.get("persona_retrieval"),
+            johnnie_perspective=context.get("johnnie_perspective"),
+            reaction_brief=context.get("reaction_brief"),
+            composition_traces=composition_traces,
+            response_type_packet=context.get("response_type_packet"),
+        )
         evaluation = social_evaluation_engine.evaluate_variant(
             lane_id=lens_id,
             signal=signal,
@@ -2149,13 +2422,24 @@ def build_variants(signal: dict[str, Any]) -> dict[str, dict[str, Any]]:
             comment=normalized_comment,
             repost=normalized_repost,
             short_comment=normalized_short_comment,
+            article_understanding=context.get("article_understanding"),
+            persona_retrieval=context.get("persona_retrieval"),
+            johnnie_perspective=context.get("johnnie_perspective"),
+            reaction_brief=context.get("reaction_brief"),
+            composition_traces=composition_traces,
+            response_type_packet=context.get("response_type_packet"),
+            stage_evaluation=stage_evaluation,
         )
         variants[lens_id] = {
             "label": LENS_LABELS[lens_id],
             "comment": normalized_comment,
             "short_comment": normalized_short_comment,
             "repost": normalized_repost,
-            "why_this_angle": f"Use a {LENS_LABELS[lens_id].lower()} framing for this signal. {technique_assessment['reason']}.",
+            "why_this_angle": (
+                f"Use a {LENS_LABELS[lens_id].lower()} framing for this signal with a "
+                f"{((context.get('response_type_packet') or {}).get('response_type') or 'default').replace('_', ' ')} response type. "
+                f"{technique_assessment['reason']}."
+            ),
             "stance": context["stance"],
             "agreement_level": context["agreement_level"],
             "belief_used": context["belief_used"],
@@ -2163,10 +2447,43 @@ def build_variants(signal: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "experience_anchor": context["experience_anchor"],
             "experience_summary": context["experience_summary"],
             "role_safety": context["role_safety"],
+            "article_understanding": context.get("article_understanding"),
+            "persona_retrieval": context.get("persona_retrieval"),
+            "johnnie_perspective": context.get("johnnie_perspective"),
+            "reaction_brief": context.get("reaction_brief"),
+            "response_type_packet": context.get("response_type_packet"),
+            "composition_traces": composition_traces,
             "techniques": technique_assessment["techniques"],
             "emotional_profile": technique_assessment["emotional_profile"],
             "technique_reason": technique_assessment["reason"],
             "expression_assessment": expression_assessment,
+            "stage_evaluation": stage_evaluation,
             "evaluation": evaluation,
+            "context_snapshot": {
+                "title": context["title"],
+                "core_line": context["core_line"],
+                "supporting_line": context["supporting_line"],
+                "summary": context["summary"],
+                "source_takeaway": context["source_takeaway"],
+                "source_takeaway_origin": context["source_takeaway_origin"],
+                "source_takeaway_strategy": context["source_takeaway_strategy"],
+                "belief_used": context["belief_used"],
+                "belief_summary": context["belief_summary"],
+                "experience_anchor": context["experience_anchor"],
+                "experience_summary": context["experience_summary"],
+                "stance": context["stance"],
+                "base_stance": context.get("base_stance", context["stance"]),
+                "agreement_level": context["agreement_level"],
+                "role_safety": context["role_safety"],
+                "stance_comment_open": context["stance_comment_open"],
+                "stance_repost_open": context["stance_repost_open"],
+                "bridge_line": context["bridge_line"],
+                "article_view": (context.get("reaction_brief") or {}).get("article_view", ""),
+                "johnnie_view": (context.get("reaction_brief") or {}).get("johnnie_view", ""),
+                "tension": (context.get("reaction_brief") or {}).get("tension", ""),
+                "content_angle": (context.get("reaction_brief") or {}).get("content_angle", ""),
+                "response_type": ((context.get("response_type_packet") or {}).get("response_type") or ""),
+                "article_stance": ((context.get("article_understanding") or {}).get("article_stance") or ""),
+            },
         }
     return variants

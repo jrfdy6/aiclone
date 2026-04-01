@@ -433,7 +433,7 @@ def _extract_stats(segment: str, asset: dict[str, Any]) -> list[str]:
 def _promotion_metadata(segment: str, asset: dict[str, Any], target_file: str, assessment: dict[str, str]) -> dict[str, Any]:
     belief_summary = _clean_text(assessment.get("belief_summary"))
     experience_summary = _clean_text(assessment.get("experience_summary"))
-    talking_points = [item for item in [segment, belief_summary, experience_summary] if item]
+    talking_points = [segment] if segment else []
     phrase_candidates = [segment] if len(segment.split()) <= 20 else []
     frameworks: list[dict[str, str]] = []
     anecdotes: list[dict[str, str]] = []
@@ -441,7 +441,7 @@ def _promotion_metadata(segment: str, asset: dict[str, Any], target_file: str, a
     if target_file == TARGET_CLAIMS and belief_summary:
         frameworks.append(
             {
-                "title": "Belief candidate",
+                "title": "System hypothesis",
                 "takeaway": belief_summary,
                 "evidence": segment,
             }
@@ -492,31 +492,67 @@ def _build_signal(asset: dict[str, Any], segment: str) -> dict[str, Any]:
     }
 
 
-def _build_notes(asset: dict[str, Any], segment: str, lane_id: str, target_file: str, assessment: dict[str, str]) -> str:
+def _build_notes(
+    asset: dict[str, Any],
+    segment: str,
+    lane_id: str,
+    target_file: str,
+    assessment: dict[str, str],
+    *,
+    primary_route: str = "",
+    response_modes: list[str] | None = None,
+    source_context_excerpt: str = "",
+) -> str:
     lines = [
         f"Source asset: {_clean_text(asset.get('title')) or 'Untitled asset'}",
         f"Source channel: {_clean_text(asset.get('source_channel')) or 'unknown'}",
         f"Lane hint: {lane_id}",
-        f"Target file: {target_file}",
-        "",
-        "Candidate segment:",
-        segment,
     ]
+    if primary_route:
+        lines.append(f"Best first move: {primary_route.replace('_', ' ')}")
+    if response_modes:
+        other_routes = [mode.replace("_", " ") for mode in response_modes if _clean_text(mode) and _clean_text(mode) != _clean_text(primary_route)]
+        if other_routes:
+            lines.append(f"Other possible routes: {', '.join(other_routes)}")
+    lines.extend(
+        [
+            "",
+            "Source segment:",
+            segment,
+        ]
+    )
+    if source_context_excerpt and _clean_text(source_context_excerpt).lower() != _clean_text(segment).lower():
+        lines.extend(
+            [
+                "",
+                "Surrounding source context:",
+                source_context_excerpt,
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            f"Possible canon destination: {target_file}",
+        ]
+    )
     belief_relation = _clean_text(assessment.get("belief_relation"))
     belief_summary = _clean_text(assessment.get("belief_summary"))
     experience_summary = _clean_text(assessment.get("experience_summary"))
     if belief_relation:
-        lines.extend(["", f"Belief relation: {belief_relation}"])
+        lines.extend(["", f"System relation: {belief_relation}"])
     if belief_summary:
-        lines.extend(["", f"Belief summary: {belief_summary}"])
+        lines.extend(["", f"System hypothesis: {belief_summary}"])
     if experience_summary:
-        lines.extend(["", f"Experience anchor: {experience_summary}"])
+        lines.extend(["", f"Possible experience anchor: {experience_summary}"])
     return "\n".join(lines)
 
 
 def _build_metadata(asset: dict[str, Any], segment: str, lane_id: str, target_file: str, assessment: dict[str, str]) -> dict[str, Any]:
     review_key = _review_key(asset, segment, target_file)
     source_label = _clean_text(asset.get("title")) or _clean_text(asset.get("asset_id")) or "long-form source"
+    belief_summary = _clean_text(assessment.get("belief_summary"))
+    experience_anchor = _clean_text(assessment.get("experience_anchor"))
+    experience_summary = _clean_text(assessment.get("experience_summary"))
     return {
         "review_key": review_key,
         "review_source": "long_form_media.segment",
@@ -529,17 +565,22 @@ def _build_metadata(asset: dict[str, Any], segment: str, lane_id: str, target_fi
         "source_path": _clean_text(asset.get("source_path")),
         "evidence_source": source_label,
         "lane_hint": lane_id,
+        "review_stage": "source_first",
         "target_file": target_file,
-        "why_showing": f"I am showing this because a segment from {source_label} looks durable enough to affect your worldview, language, or story archive.",
-        "review_prompt": f"Decide whether this segment belongs in {target_file}, what you agree or disagree with, and what wording or context should be preserved before it shapes the persona.",
+        "suggested_target_file": target_file,
+        "why_showing": f"I am showing this because the system pulled a strong segment from {source_label}. Start with the source itself first. Treat route and canon suggestions as system guesses until you decide what matters.",
+        "review_prompt": "What is the source actually saying, what do you think about it, and should it stay source intelligence, become memory, turn into a post seed, or affect canon?",
         "segment_excerpt": segment,
+        "source_excerpt_clean": segment,
         "stance": assessment.get("stance", ""),
         "agreement_level": assessment.get("agreement_level", ""),
         "belief_relation": assessment.get("belief_relation", ""),
         "belief_used": assessment.get("belief_used", ""),
-        "belief_summary": assessment.get("belief_summary", ""),
-        "experience_anchor": assessment.get("experience_anchor", ""),
-        "experience_summary": assessment.get("experience_summary", ""),
+        "belief_summary": belief_summary,
+        "system_hypothesis": belief_summary,
+        "experience_anchor": experience_anchor,
+        "experience_summary": experience_summary,
+        "system_experience_hypothesis": experience_summary,
         "role_safety": assessment.get("role_safety", ""),
         **_promotion_metadata(segment, asset, target_file, assessment),
     }
@@ -578,12 +619,37 @@ def _needs_existing_refresh(
         "route_reason",
         "route_score",
         "response_modes",
+        "review_stage",
+        "suggested_target_file",
+        "source_context_excerpt",
+        "weak_source_fragment",
     )
     if any(not existing_metadata.get(field) for field in required_fields):
         return True
 
+    refresh_fields = (
+        "review_prompt",
+        "why_showing",
+        "primary_route",
+        "route_reason",
+        "route_score",
+        "response_modes",
+        "review_stage",
+        "suggested_target_file",
+        "system_hypothesis",
+        "system_experience_hypothesis",
+        "source_context_excerpt",
+        "weak_source_fragment",
+    )
+    if any(existing_metadata.get(field) != metadata.get(field) for field in refresh_fields):
+        return True
+
     existing_notes = existing_delta.notes or ""
+    if _clean_text(existing_notes) != _clean_text(notes):
+        return True
     if _is_legacy_relation_note(existing_notes, metadata.get("belief_summary", "")):
+        return True
+    if "Target file:" in existing_notes or "Belief summary:" in existing_notes or "Experience anchor:" in existing_notes:
         return True
 
     if _clean_text(existing_delta.trait) != _clean_text(trait):
@@ -600,7 +666,7 @@ class SocialPersonaReviewService:
         source_assets: dict[str, Any] | None = None,
         transcripts_root: Path | None = None,
         ingestions_root: Path | None = None,
-        max_assets: int = 4,
+        max_assets: int = 12,
         max_segments_per_asset: int = 2,
     ) -> dict[str, Any]:
         extracted = extract_long_form_candidates(
@@ -614,8 +680,13 @@ class SocialPersonaReviewService:
         candidates = [
             item
             for item in extracted.get("candidates") or []
-            if "belief_evidence" in (item.get("response_modes") or [])
+            if _clean_text(item.get("primary_route")) == "belief_evidence"
         ]
+        inventory_asset_ids: set[str] = {
+            _clean_text(item.get("asset_id"))
+            for item in ((source_assets or {}).get("items") or [])
+            if _clean_text(item.get("asset_id"))
+        }
 
         try:
             existing_deltas = persona_delta_service.list_deltas(limit=400)
@@ -637,7 +708,19 @@ class SocialPersonaReviewService:
         resolved_stale = 0
         assets_considered = int(extracted.get("assets_considered") or 0)
         desired_review_keys: set[str] = set()
-        considered_asset_ids: set[str] = set()
+        considered_asset_ids: set[str] = {
+            _clean_text(asset_id) for asset_id in (extracted.get("considered_asset_ids") or []) if _clean_text(asset_id)
+        }
+        extracted_candidate_routes: dict[str, str] = {
+            _clean_text(item.get("candidate_id")): _clean_text(item.get("primary_route"))
+            for item in (extracted.get("candidates") or [])
+            if _clean_text(item.get("candidate_id"))
+        }
+        extracted_asset_ids: set[str] = {
+            _clean_text(item.get("asset_id"))
+            for item in (extracted.get("assets") or [])
+            if _clean_text(item.get("asset_id"))
+        }
 
         for candidate in candidates:
             asset = candidate.get("asset") or {}
@@ -647,8 +730,6 @@ class SocialPersonaReviewService:
             target_file = _clean_text(candidate.get("target_file")) or TARGET_CLAIMS
             review_key = _clean_text(candidate.get("candidate_id"))
             asset_id = _clean_text(candidate.get("asset_id"))
-            if asset_id:
-                considered_asset_ids.add(asset_id)
             desired_review_keys.add(review_key)
 
             metadata = _build_metadata(asset, segment, lane_id, target_file, assessment)
@@ -659,8 +740,29 @@ class SocialPersonaReviewService:
             metadata["primary_route"] = _clean_text(candidate.get("primary_route"))
             metadata["route_reason"] = _clean_text(candidate.get("route_reason"))
             metadata["route_score"] = int(candidate.get("route_score") or 0)
+            metadata["source_context_excerpt"] = _clean_text(candidate.get("source_context_excerpt"))
+            metadata["source_context_before"] = [
+                str(item)
+                for item in (candidate.get("source_context_before") or [])
+                if _clean_text(item)
+            ]
+            metadata["source_context_after"] = [
+                str(item)
+                for item in (candidate.get("source_context_after") or [])
+                if _clean_text(item)
+            ]
+            metadata["weak_source_fragment"] = bool(candidate.get("weak_source_fragment"))
             trait = _trait_label(segment, target_file)
-            notes = _build_notes(asset, segment, lane_id, target_file, assessment)
+            notes = _build_notes(
+                asset,
+                segment,
+                lane_id,
+                target_file,
+                assessment,
+                primary_route=metadata["primary_route"],
+                response_modes=metadata["response_modes"],
+                source_context_excerpt=metadata["source_context_excerpt"],
+            )
 
             existing_delta = existing_review_keys.get(review_key) or persona_delta_service.get_delta_by_review_key(review_key)
             if existing_delta:
@@ -695,7 +797,23 @@ class SocialPersonaReviewService:
             metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
             if review_key in desired_review_keys:
                 continue
-            if _clean_text(metadata.get("source_asset_id")) not in considered_asset_ids:
+            source_asset_id = _clean_text(metadata.get("source_asset_id"))
+            legacy_primary_route = _clean_text(metadata.get("primary_route"))
+            stale_reason = ""
+            sync_state = ""
+            if legacy_primary_route and legacy_primary_route != "belief_evidence":
+                stale_reason = "legacy segment route is no longer canon-eligible and should stay outside the brain review queue"
+                sync_state = "stale_route_downgrade"
+            elif extracted_candidate_routes.get(review_key) and extracted_candidate_routes.get(review_key) != "belief_evidence":
+                stale_reason = "segment no longer qualifies for persona-canon review and should stay outside the brain review queue"
+                sync_state = "stale_route_downgrade"
+            elif source_asset_id and source_asset_id not in inventory_asset_ids:
+                stale_reason = "source asset no longer present in current long-form inventory"
+                sync_state = "stale_source_asset"
+            elif source_asset_id in considered_asset_ids or source_asset_id in extracted_asset_ids:
+                stale_reason = "segment no longer selected by current worldview extractor"
+                sync_state = "stale_segment"
+            else:
                 continue
             if (delta.status or "draft").strip().lower() != "draft":
                 continue
@@ -704,8 +822,8 @@ class SocialPersonaReviewService:
             update = PersonaDeltaUpdate(
                 status="resolved",
                 metadata={
-                    "sync_state": "stale_segment",
-                    "stale_reason": "segment no longer selected by current worldview extractor",
+                    "sync_state": sync_state,
+                    "stale_reason": stale_reason,
                 },
             )
             if persona_delta_service.update_delta(delta.id, update):

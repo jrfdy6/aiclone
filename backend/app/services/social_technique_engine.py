@@ -17,6 +17,55 @@ TECHNIQUE_IDS = [
     "punchline-close",
 ]
 
+_STANCE_TECHNIQUES = {
+    "reinforce": ["specificity-injection", "authority-snap", "delayed-payoff"],
+    "nuance": ["contrarian-reframe", "specificity-injection", "authority-snap"],
+    "counter": ["contrarian-reframe", "pattern-interrupt", "authority-snap"],
+    "translate": ["specificity-injection", "relatability-anchor", "delayed-payoff"],
+    "personal-anchor": ["story-fragment", "relatability-anchor", "delayed-payoff"],
+    "systemize": ["pattern-interrupt", "specificity-injection", "authority-snap"],
+}
+
+_LANE_TECHNIQUES = {
+    "ai": ["curiosity-gap", "specificity-injection", "contrarian-reframe"],
+    "ops-pm": ["pattern-interrupt", "specificity-injection", "authority-snap"],
+    "admissions": ["relatability-anchor", "specificity-injection", "delayed-payoff"],
+    "program-leadership": ["authority-snap", "pattern-interrupt", "delayed-payoff"],
+    "entrepreneurship": ["contrarian-reframe", "curiosity-gap", "punchline-close"],
+    "current-role": ["relatability-anchor", "authority-snap", "specificity-injection"],
+    "enrollment-management": ["specificity-injection", "relatability-anchor", "delayed-payoff"],
+    "therapy": ["relatability-anchor", "story-fragment", "delayed-payoff"],
+    "referral": ["relatability-anchor", "delayed-payoff", "authority-snap"],
+    "personal-story": ["story-fragment", "relatability-anchor", "punchline-close"],
+}
+
+_RESPONSE_TYPE_TECHNIQUES = {
+    "agree": ["specificity-injection", "delayed-payoff"],
+    "contrarian": ["contrarian-reframe", "authority-snap"],
+    "personal_story": ["story-fragment", "relatability-anchor"],
+    "humor": ["pattern-interrupt", "punchline-close"],
+}
+
+_LANE_EMOTIONS = {
+    "ai": ["discernment", "clarity"],
+    "ops-pm": ["structure", "clarity"],
+    "admissions": ["grounding", "trust"],
+    "program-leadership": ["authority", "coaching"],
+    "entrepreneurship": ["ambition", "discernment"],
+    "current-role": ["credibility", "grounding"],
+    "enrollment-management": ["clarity", "trust"],
+    "therapy": ["attunement", "humanity"],
+    "referral": ["trust", "continuity"],
+    "personal-story": ["recognition", "humanity"],
+}
+
+_RESPONSE_TYPE_EMOTIONS = {
+    "agree": ["clarity"],
+    "contrarian": ["tension", "clarity"],
+    "personal_story": ["lived_proof", "humanity"],
+    "humor": ["wit", "release"],
+}
+
 
 def normalize_inline_text(value: str | None) -> str:
     if not value:
@@ -68,71 +117,63 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
+def _extend_unique(target: list[str], values: list[str], *, limit: int) -> None:
+    for value in values:
+        normalized = normalize_inline_text(value)
+        if not normalized or normalized in target:
+            continue
+        target.append(normalized)
+        if len(target) >= limit:
+            return
+
+
 class SocialTechniqueEngine:
     """Selects a small rhetorical technique bundle for each variant."""
 
     def select_for_variant(self, signal: dict[str, Any], lane_id: str, belief: dict[str, str]) -> dict[str, Any]:
         profile = _infer_profile(signal)
         stance = belief.get("stance", "reinforce")
-        techniques: list[str] = []
-        emotional_profile: list[str] = []
+        response_type = normalize_inline_text(belief.get("response_type")).lower().replace("-", "_")
+        selected: list[str] = []
+        emotions: list[str] = []
 
-        if stance == "counter":
-            techniques.extend(["contrarian-reframe", "pattern-interrupt", "authority-snap"])
-            emotional_profile.extend(["tension", "clarity"])
-        elif stance == "nuance":
-            techniques.extend(["specificity-injection", "contrarian-reframe"])
-            emotional_profile.extend(["clarity", "discernment"])
-        elif stance == "translate":
-            techniques.extend(["specificity-injection", "relatability-anchor"])
-            emotional_profile.extend(["practicality", "clarity"])
-        elif stance == "personal-anchor":
-            techniques.extend(["story-fragment", "relatability-anchor", "delayed-payoff"])
-            emotional_profile.extend(["familiarity", "humanity"])
-        elif stance == "systemize":
-            techniques.extend(["pattern-interrupt", "specificity-injection", "authority-snap"])
-            emotional_profile.extend(["clarity", "authority"])
-        else:
-            techniques.extend(["specificity-injection", "authority-snap"])
-            emotional_profile.extend(["clarity"])
-
-        if lane_id == "ai":
-            techniques.append("contrarian-reframe" if stance in {"nuance", "counter"} else "specificity-injection")
-            emotional_profile.append("discernment")
-        elif lane_id in {"ops-pm", "program-leadership"}:
-            techniques.extend(["pattern-interrupt", "authority-snap"])
-            emotional_profile.append("structure")
-        elif lane_id in {"therapy", "referral"}:
-            techniques.extend(["relatability-anchor", "delayed-payoff"])
-            emotional_profile.append("trust")
-        elif lane_id == "personal-story":
-            techniques.extend(["story-fragment", "punchline-close"])
-            emotional_profile.append("recognition")
-        elif lane_id in {"admissions", "current-role", "enrollment-management"}:
-            techniques.extend(["specificity-injection", "relatability-anchor"])
-            emotional_profile.append("grounding")
-        elif lane_id == "entrepreneurship":
-            techniques.extend(["contrarian-reframe", "authority-snap"])
-            emotional_profile.append("ambition")
+        _extend_unique(selected, (_LANE_TECHNIQUES.get(lane_id) or [])[:1], limit=3)
+        _extend_unique(selected, (_RESPONSE_TYPE_TECHNIQUES.get(response_type) or [])[:1], limit=3)
+        _extend_unique(selected, (_STANCE_TECHNIQUES.get(stance) or [])[:2], limit=3)
 
         if profile["is_story"]:
-            techniques.append("story-fragment")
+            _extend_unique(selected, ["story-fragment"], limit=3)
         if profile["is_ops"]:
-            techniques.append("specificity-injection")
+            _extend_unique(selected, ["specificity-injection"], limit=3)
         if profile["is_relationship"]:
-            techniques.append("relatability-anchor")
+            _extend_unique(selected, ["relatability-anchor"], limit=3)
         if profile["is_claim_heavy"]:
-            techniques.append("punchline-close")
+            _extend_unique(selected, ["punchline-close"], limit=3)
         if profile["is_ai"] and lane_id == "ai":
-            techniques.append("curiosity-gap")
+            _extend_unique(selected, ["curiosity-gap"], limit=3)
+        _extend_unique(selected, _LANE_TECHNIQUES.get(lane_id) or [], limit=3)
+        _extend_unique(selected, _RESPONSE_TYPE_TECHNIQUES.get(response_type) or [], limit=3)
+        _extend_unique(selected, _STANCE_TECHNIQUES.get(stance) or [], limit=3)
 
-        selected = _dedupe([technique for technique in techniques if technique in TECHNIQUE_IDS])[:3]
-        emotions = _dedupe([value for value in emotional_profile if value])[:3]
+        _extend_unique(emotions, (_LANE_EMOTIONS.get(lane_id) or [])[:1], limit=3)
+        _extend_unique(emotions, (_RESPONSE_TYPE_EMOTIONS.get(response_type) or [])[:1], limit=3)
+        if stance == "counter":
+            _extend_unique(emotions, ["tension", "clarity"], limit=3)
+        elif stance == "nuance":
+            _extend_unique(emotions, ["discernment", "clarity"], limit=3)
+        elif stance == "personal-anchor":
+            _extend_unique(emotions, ["humanity", "familiarity"], limit=3)
+        elif stance == "systemize":
+            _extend_unique(emotions, ["authority", "structure"], limit=3)
+        else:
+            _extend_unique(emotions, ["clarity"], limit=3)
 
         reason_parts = [
             f"stance={stance}",
             f"lane={lane_id}",
         ]
+        if response_type:
+            reason_parts.append(f"type={response_type}")
         if profile["is_ai"]:
             reason_parts.append("source carries an AI signal")
         if profile["is_ops"]:
@@ -142,11 +183,7 @@ class SocialTechniqueEngine:
         if profile["is_story"]:
             reason_parts.append("source has a story or identity texture")
 
-        return {
-            "techniques": selected,
-            "emotional_profile": emotions,
-            "reason": "; ".join(reason_parts),
-        }
+        return {"techniques": selected[:3], "emotional_profile": emotions[:3], "reason": "; ".join(reason_parts)}
 
 
 social_technique_engine = SocialTechniqueEngine()

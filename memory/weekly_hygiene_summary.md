@@ -1,12 +1,12 @@
-# Weekly Memory Hygiene — 2026-03-12
+# Weekly Memory Hygiene — 2026-03-31
 
 ## Last 7 daily logs (newest last)
-- 2026-03-05.md
-- 2026-03-06.md
-- 2026-03-07.md
-- 2026-03-08.md
-- 2026-03-10.md
-- 2026-03-12.md
+- dream_cycle_log.md
+- memory_health_check_plan.md
+- memory_management_check.md
+- persistent_state.md
+- roadmap.md
+- self-improvement.md
 - weekly_hygiene_summary.md
 
 ## Quick prompts

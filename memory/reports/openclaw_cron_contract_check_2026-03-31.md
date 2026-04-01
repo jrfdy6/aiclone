@@ -1,0 +1,97 @@
+# OpenClaw Cron Contract Check
+
+- Generated: `2026-03-31T05:30:07.616577+00:00`
+- Jobs file: `/Users/neo/.openclaw/cron/jobs.json`
+
+## Summary
+- Jobs checked: `14`
+- Direct references: `152`
+- Skills scanned: `20`
+- Skill references: `92`
+- Missing references: `82`
+- Jobs with missing references: `10`
+
+## Missing References
+
+- job=`Oracle Ledger` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Oracle Ledger` source=job_message ref=`scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`GitHub Backup` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/github-backup/SKILL.md` ref=`./scripts/run_github_backup.sh` resolved=`/Users/neo/.openclaw/workspace/skills/github-backup/scripts/run_github_backup.sh`.
+- job=`GitHub Backup` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/github-backup/SKILL.md` ref=`./scripts/run_github_backup.sh` resolved=`/Users/neo/.openclaw/workspace/skills/github-backup/scripts/run_github_backup.sh`.
+- job=`Nightly Self-Improvement` source=job_message ref=`/Users/neo/.openclaw/workspace/memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Nightly Self-Improvement` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Nightly Self-Improvement` source=job_message ref=`memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Nightly Self-Improvement` source=job_message ref=`scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Morning Daily Brief` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/morning-daily-brief/SKILL.md` ref=`memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Morning Daily Brief` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/morning-daily-brief/SKILL.md` ref=`./scripts/tavily_daily_brief.py` resolved=`/Users/neo/.openclaw/workspace/skills/morning-daily-brief/scripts/tavily_daily_brief.py`.
+- job=`Morning Daily Brief` source=job_message ref=`/Users/neo/.openclaw/workspace/memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Morning Daily Brief` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Morning Daily Brief` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/morning-daily-brief/SKILL.md` ref=`memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Morning Daily Brief` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/morning-daily-brief/SKILL.md` ref=`./scripts/tavily_daily_brief.py` resolved=`/Users/neo/.openclaw/workspace/skills/morning-daily-brief/scripts/tavily_daily_brief.py`.
+- job=`Morning Daily Brief` source=job_message ref=`memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Morning Daily Brief` source=job_message ref=`scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Rolling Docs` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/rolling-docs-refresh/SKILL.md` ref=`memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Rolling Docs` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/rolling-docs-refresh/SKILL.md` ref=`./scripts/doc_status_snapshot.py` resolved=`/Users/neo/.openclaw/workspace/skills/rolling-docs-refresh/scripts/doc_status_snapshot.py`.
+- job=`Rolling Docs` source=job_message ref=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md` resolved=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md`.
+- job=`Rolling Docs` source=job_message ref=`/Users/neo/.openclaw/workspace/docs/persistent_memory_blueprint.md` resolved=`/Users/neo/.openclaw/workspace/docs/persistent_memory_blueprint.md`.
+- job=`Rolling Docs` source=job_message ref=`/Users/neo/.openclaw/workspace/memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Rolling Docs` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/rolling-docs-refresh/SKILL.md` ref=`memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Rolling Docs` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/rolling-docs-refresh/SKILL.md` ref=`./scripts/doc_status_snapshot.py` resolved=`/Users/neo/.openclaw/workspace/skills/rolling-docs-refresh/scripts/doc_status_snapshot.py`.
+- job=`Rolling Docs` source=job_message ref=`docs/context_flush_SOP.md` resolved=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md`.
+- job=`Rolling Docs` source=job_message ref=`docs/persistent_memory_blueprint.md` resolved=`/Users/neo/.openclaw/workspace/docs/persistent_memory_blueprint.md`.
+- job=`Rolling Docs` source=job_message ref=`memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Daily Memory Flush` source=job_message ref=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md` resolved=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md`.
+- job=`Daily Memory Flush` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/daily-memory-flush/SKILL.md` ref=`memory/YYYY-MM-DD.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md`.
+- job=`Daily Memory Flush` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Daily Memory Flush` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/context_flush.py` resolved=`/Users/neo/.openclaw/workspace/scripts/context_flush.py`.
+- job=`Daily Memory Flush` source=job_message ref=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md`.
+- job=`Daily Memory Flush` source=job_message ref=`docs/context_flush_SOP.md` resolved=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md`.
+- job=`Daily Memory Flush` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/daily-memory-flush/SKILL.md` ref=`memory/YYYY-MM-DD.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md`.
+- job=`Daily Memory Flush` source=job_message ref=`scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Daily Memory Flush` source=job_message ref=`scripts/context_flush.py` resolved=`/Users/neo/.openclaw/workspace/scripts/context_flush.py`.
+- job=`Daily Memory Flush` source=job_message ref=`memory/YYYY-MM-DD.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md`.
+- job=`Memory Archive Sweep` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md` ref=`memory/YYYY-MM-DD*.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD*.md`.
+- job=`Memory Archive Sweep` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md` ref=`memory/YYYY-MM-DD-*.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD-*.md`.
+- job=`Memory Archive Sweep` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md` ref=`memory/audit_log_` resolved=`/Users/neo/.openclaw/workspace/memory/audit_log_`.
+- job=`Memory Archive Sweep` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md` ref=`memory/issues/memory-archive.md` resolved=`/Users/neo/.openclaw/workspace/memory/issues/memory-archive.md`.
+- job=`Memory Archive Sweep` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md` ref=`memory/YYYY-MM-DD*.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD*.md`.
+- job=`Memory Archive Sweep` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md` ref=`memory/YYYY-MM-DD-*.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD-*.md`.
+- job=`Memory Archive Sweep` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md` ref=`memory/audit_log_` resolved=`/Users/neo/.openclaw/workspace/memory/audit_log_`.
+- job=`Memory Archive Sweep` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md` ref=`memory/issues/memory-archive.md` resolved=`/Users/neo/.openclaw/workspace/memory/issues/memory-archive.md`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`memory/QMD` resolved=`/Users/neo/.openclaw/workspace/memory/QMD`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`./check_index_status.sh` resolved=`/Users/neo/.openclaw/workspace/skills/memory-health-check/check_index_status.sh`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`./scripts/compaction_guardrail_check.py` resolved=`/Users/neo/.openclaw/workspace/skills/memory-health-check/scripts/compaction_guardrail_check.py`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`./scripts/qmd_freshness_check.py` resolved=`/Users/neo/.openclaw/workspace/skills/memory-health-check/scripts/qmd_freshness_check.py`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`memory/YYYY-MM-DD.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`memory/reports/memory_health_` resolved=`/Users/neo/.openclaw/workspace/memory/reports/memory_health_`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`scripts/check_index_status.sh` resolved=`/Users/neo/.openclaw/workspace/scripts/check_index_status.sh`.
+- job=`Memory Health Check` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Memory Health Check` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/check_index_status.sh` resolved=`/Users/neo/.openclaw/workspace/scripts/check_index_status.sh`.
+- job=`Memory Health Check` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/check_local_runtime_overrides.py` resolved=`/Users/neo/.openclaw/workspace/scripts/check_local_runtime_overrides.py`.
+- job=`Memory Health Check` source=job_message ref=`/Users/neo/.openclaw/workspace/docs/local_runtime_overrides.md` resolved=`/Users/neo/.openclaw/workspace/docs/local_runtime_overrides.md`.
+- job=`Memory Health Check` source=job_message ref=`/Users/neo/.openclaw/workspace/memory/reports/memory_health_` resolved=`/Users/neo/.openclaw/workspace/memory/reports/memory_health_`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`memory/QMD` resolved=`/Users/neo/.openclaw/workspace/memory/QMD`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`./check_index_status.sh` resolved=`/Users/neo/.openclaw/workspace/skills/memory-health-check/check_index_status.sh`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`./scripts/compaction_guardrail_check.py` resolved=`/Users/neo/.openclaw/workspace/skills/memory-health-check/scripts/compaction_guardrail_check.py`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`./scripts/qmd_freshness_check.py` resolved=`/Users/neo/.openclaw/workspace/skills/memory-health-check/scripts/qmd_freshness_check.py`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`memory/YYYY-MM-DD.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`memory/reports/memory_health_` resolved=`/Users/neo/.openclaw/workspace/memory/reports/memory_health_`.
+- job=`Memory Health Check` source=skill_file skill=`/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md` ref=`scripts/check_index_status.sh` resolved=`/Users/neo/.openclaw/workspace/scripts/check_index_status.sh`.
+- job=`Memory Health Check` source=job_message ref=`scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Memory Health Check` source=job_message ref=`scripts/check_index_status.sh` resolved=`/Users/neo/.openclaw/workspace/scripts/check_index_status.sh`.
+- job=`Memory Health Check` source=job_message ref=`scripts/check_local_runtime_overrides.py` resolved=`/Users/neo/.openclaw/workspace/scripts/check_local_runtime_overrides.py`.
+- job=`Memory Health Check` source=job_message ref=`docs/local_runtime_overrides.md` resolved=`/Users/neo/.openclaw/workspace/docs/local_runtime_overrides.md`.
+- job=`Memory Health Check` source=job_message ref=`memory/reports/memory_health_` resolved=`/Users/neo/.openclaw/workspace/memory/reports/memory_health_`.
+- job=`Context Guard` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Context Guard` source=job_message ref=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md` resolved=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md`.
+- job=`Context Guard` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/context_flush.py` resolved=`/Users/neo/.openclaw/workspace/scripts/context_flush.py`.
+- job=`Context Guard` source=job_message ref=`scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Context Guard` source=job_message ref=`docs/context_flush_SOP.md` resolved=`/Users/neo/.openclaw/workspace/docs/context_flush_SOP.md`.
+- job=`Context Guard` source=job_message ref=`scripts/context_flush.py` resolved=`/Users/neo/.openclaw/workspace/scripts/context_flush.py`.
+- job=`Dream Cycle` source=job_message ref=`/Users/neo/.openclaw/workspace/skills/dream-cycle/SKILL.md` resolved=`/Users/neo/.openclaw/workspace/skills/dream-cycle/SKILL.md`. Suggestions: `/Users/neo/.openclaw/workspace/skills/daily-memory-flush/SKILL.md`, `/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md`, `/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md`, `/Users/neo/.openclaw/workspace/skills/weekly-backup/SKILL.md`, `/Users/neo/.openclaw/workspace/skills/rolling-docs-refresh/SKILL.md`
+- job=`Dream Cycle` source=job_message ref=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Dream Cycle` source=job_message ref=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md`.
+- job=`Dream Cycle` source=job_message ref=`/Users/neo/.openclaw/workspace/memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.
+- job=`Dream Cycle` source=job_message ref=`skills/dream-cycle/SKILL.md` resolved=`/Users/neo/.openclaw/workspace/skills/dream-cycle/SKILL.md`. Suggestions: `/Users/neo/.openclaw/workspace/skills/daily-memory-flush/SKILL.md`, `/Users/neo/.openclaw/workspace/skills/memory-health-check/SKILL.md`, `/Users/neo/.openclaw/workspace/skills/memory-archive-maintenance/SKILL.md`, `/Users/neo/.openclaw/workspace/skills/weekly-backup/SKILL.md`, `/Users/neo/.openclaw/workspace/skills/rolling-docs-refresh/SKILL.md`
+- job=`Dream Cycle` source=job_message ref=`scripts/load_context_pack.py` resolved=`/Users/neo/.openclaw/workspace/scripts/load_context_pack.py`.
+- job=`Dream Cycle` source=job_message ref=`memory/YYYY-MM-DD.md` resolved=`/Users/neo/.openclaw/workspace/memory/YYYY-MM-DD.md`.
+- job=`Dream Cycle` source=job_message ref=`memory/doc-updates.md` resolved=`/Users/neo/.openclaw/workspace/memory/doc-updates.md`.

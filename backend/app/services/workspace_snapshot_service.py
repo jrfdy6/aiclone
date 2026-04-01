@@ -18,7 +18,7 @@ from app.services.social_feed_refresh import social_feed_refresh_service
 from app.services.social_long_form_signal_service import build_long_form_route_summary
 from app.services.social_persona_review_service import social_persona_review_service
 from app.services.social_source_asset_service import build_source_asset_inventory
-from app.services.workspace_snapshot_store import get_snapshot_payload, upsert_snapshot
+from app.services.workspace_snapshot_store import get_snapshot_payload, list_snapshot_payloads, upsert_snapshot
 
 
 def resolve_workspace_root() -> Path:
@@ -768,6 +768,16 @@ def _has_selectable_promotion_metadata(metadata: dict[str, Any] | None) -> bool:
 
 def _is_brain_pending_review(status: str, metadata: dict[str, Any] | None) -> bool:
     normalized = (status or "draft").strip().lower()
+    review_source = _metadata_text(metadata, "review_source")
+    if review_source == "long_form_media.segment":
+        sync_state = _metadata_text(metadata, "sync_state") or ""
+        primary_route = _metadata_text(metadata, "primary_route")
+        if sync_state.startswith("stale_"):
+            return False
+        if _metadata_bool(metadata, "weak_source_fragment"):
+            return False
+        if primary_route and primary_route != "belief_evidence":
+            return False
     if normalized in {"draft", "pending", "in_review"}:
         return True
     return normalized == "reviewed" and _has_selectable_promotion_metadata(metadata) and not _metadata_bool(metadata, "pending_promotion")
@@ -1286,6 +1296,19 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
     return None
 
 
+def _load_persisted_snapshot(
+    snapshot_type: str,
+    *,
+    persisted_payloads: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    persisted = (
+        persisted_payloads.get(snapshot_type)
+        if isinstance(persisted_payloads, dict)
+        else get_snapshot_payload(WORKSPACE_KEY, snapshot_type)
+    )
+    return persisted if persisted and _snapshot_is_usable(snapshot_type, persisted) else None
+
+
 class WorkspaceSnapshotService:
     def refresh_persisted_linkedin_os_state(self) -> dict[str, Any]:
         refreshed: dict[str, Any] = {}
@@ -1313,18 +1336,31 @@ class WorkspaceSnapshotService:
                 refreshed[snapshot_type] = _persist_snapshot(snapshot_type, payload, "refresh")
         return refreshed
 
-    def get_linkedin_os_snapshot(self) -> dict[str, Any]:
-        source_assets = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
-        long_form_routes = _load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
-        weekly_plan = _load_snapshot(SNAPSHOT_WEEKLY_PLAN)
+    def get_linkedin_os_snapshot(
+        self,
+        *,
+        persisted_only: bool = False,
+        include_workspace_files: bool = True,
+        include_doc_entries: bool = True,
+    ) -> dict[str, Any]:
+        persisted_payloads = list_snapshot_payloads(WORKSPACE_KEY) if persisted_only else None
+        load_snapshot = (
+            lambda snapshot_type: _load_persisted_snapshot(snapshot_type, persisted_payloads=persisted_payloads)
+            if persisted_only
+            else _load_snapshot(snapshot_type)
+        )
+
+        source_assets = load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+        long_form_routes = load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
+        weekly_plan = load_snapshot(SNAPSHOT_WEEKLY_PLAN)
         weekly_plan = _augment_weekly_plan_payload(weekly_plan, long_form_routes)
-        persona_review_summary = _load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
-        reaction_queue = _load_snapshot(SNAPSHOT_REACTION_QUEUE)
-        social_feed = _load_snapshot(SNAPSHOT_SOCIAL_FEED)
-        feedback_summary = _load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
+        persona_review_summary = load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
+        reaction_queue = load_snapshot(SNAPSHOT_REACTION_QUEUE)
+        social_feed = load_snapshot(SNAPSHOT_SOCIAL_FEED)
+        feedback_summary = load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
         return {
-            "workspace_files": _load_workspace_files(),
-            "doc_entries": _load_doc_entries(),
+            "workspace_files": _load_workspace_files() if include_workspace_files else [],
+            "doc_entries": _load_doc_entries() if include_doc_entries else [],
             "weekly_plan": weekly_plan,
             "reaction_queue": reaction_queue,
             "social_feed": social_feed,

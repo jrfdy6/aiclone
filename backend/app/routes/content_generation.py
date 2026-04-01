@@ -15,6 +15,7 @@ from typing import Optional, List, Dict, Any
 import os
 import json
 import re
+import time
 
 from app.services.embedders import embed_text
 from app.services.content_generation_context_service import (
@@ -25,6 +26,9 @@ from app.services.persona_bundle_context_service import retrieve_bundle_persona_
 from app.services.retrieval import retrieve_similar, retrieve_weighted
 
 router = APIRouter()
+
+CONTENT_FAST_MODEL_ALIAS = "content-fast"
+CONTENT_EDITOR_MODEL_ALIAS = "content-editor"
 
 CORE_BUNDLE_PATHS = {
     "identity/claims.md",
@@ -284,6 +288,10 @@ class ContentGenerationRequest(BaseModel):
     pacer_elements: List[str] = Field(default_factory=list, description="PACER elements to include: Problem, Amplify, Credibility, Educate, Request")
     tone: str = Field("expert_direct", description="Tone: expert_direct, inspiring, conversational")
     audience: str = Field("general", description="Target audience: general, education_admissions, tech_ai, fashion, leadership, neurodivergent, entrepreneurs")
+    source_mode: str = Field(
+        "persona_only",
+        description="How strongly generation should attach to live sources: persona_only, selected_source, recent_signals",
+    )
 
 
 class ContentGenerationResponse(BaseModel):
@@ -336,30 +344,39 @@ class ContentLLMRouterClient:
         errors: List[str] = []
         for provider in self.providers:
             actual_model = _resolve_provider_model(provider, model)
-            try:
-                response = provider.client.chat.completions.create(model=actual_model, **kwargs)
-                self.provider_trace.append(
-                    {
-                        "provider": provider.name,
-                        "requested_model": model,
-                        "actual_model": actual_model,
-                        "status": "success",
-                    }
-                )
-                return response
-            except Exception as exc:
-                self.provider_trace.append(
-                    {
-                        "provider": provider.name,
-                        "requested_model": model,
-                        "actual_model": actual_model,
-                        "status": "failed",
-                        "error": str(exc)[:240],
-                    }
-                )
-                if not _should_fallback_provider(exc):
-                    raise
-                errors.append(f"{provider.name}:{actual_model}:{exc}")
+            call_kwargs = _normalize_chat_completion_kwargs(actual_model, kwargs)
+            max_attempts = 1 + _provider_retry_attempts(provider)
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    response = provider.client.chat.completions.create(model=actual_model, **call_kwargs)
+                    self.provider_trace.append(
+                        {
+                            "provider": provider.name,
+                            "requested_model": model,
+                            "actual_model": actual_model,
+                            "status": "success",
+                            "attempt": attempt,
+                        }
+                    )
+                    return response
+                except Exception as exc:
+                    self.provider_trace.append(
+                        {
+                            "provider": provider.name,
+                            "requested_model": model,
+                            "actual_model": actual_model,
+                            "status": "failed",
+                            "error": str(exc)[:240],
+                            "attempt": attempt,
+                        }
+                    )
+                    if attempt < max_attempts and _should_retry_provider(provider, exc):
+                        time.sleep(_provider_retry_delay_seconds(provider, attempt))
+                        continue
+                    if not _should_fallback_provider(exc):
+                        raise
+                    errors.append(f"{provider.name}:{actual_model}:{exc}")
+                    break
         raise RuntimeError("All content-generation providers failed: " + " | ".join(errors))
 
 
@@ -1142,15 +1159,67 @@ def _uses_fast_model_alias(requested_model: str) -> bool:
     normalized = (requested_model or "").strip().lower()
     if not normalized:
         return True
-    return any(token in normalized for token in ("mini", "flash", "fast"))
+    return any(token in normalized for token in ("mini", "nano", "flash", "fast"))
 
 
 def _resolve_provider_model(provider: ContentLLMProvider, requested_model: str) -> str:
+    normalized = (requested_model or "").strip().lower()
+    if normalized == CONTENT_FAST_MODEL_ALIAS:
+        return provider.fast_model
+    if normalized == CONTENT_EDITOR_MODEL_ALIAS:
+        return provider.editor_model or provider.fast_model
     if provider.name == "openai":
         return requested_model
     if _uses_fast_model_alias(requested_model):
         return provider.fast_model
     return provider.editor_model or provider.fast_model
+
+
+def _is_retryable_rate_limit_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+    if status_code == 429:
+        return True
+    message = str(exc).lower()
+    return any(signal in message for signal in ("429", "rate limit", "resource_exhausted", "quota"))
+
+
+def _provider_retry_attempts(provider: ContentLLMProvider) -> int:
+    explicit = os.getenv("CONTENT_GENERATION_PROVIDER_RETRY_ATTEMPTS", "").strip()
+    if explicit.isdigit():
+        return max(0, int(explicit))
+    if provider.name == "gemini":
+        return 1
+    return 0
+
+
+def _provider_retry_delay_seconds(provider: ContentLLMProvider, attempt: int) -> float:
+    explicit = os.getenv("CONTENT_GENERATION_PROVIDER_RETRY_DELAY_SECONDS", "").strip()
+    if explicit:
+        try:
+            return max(0.0, float(explicit))
+        except ValueError:
+            pass
+    if provider.name == "gemini":
+        return min(3.0, float(attempt))
+    return 0.0
+
+
+def _should_retry_provider(provider: ContentLLMProvider, exc: Exception) -> bool:
+    return provider.name == "gemini" and _is_retryable_rate_limit_error(exc)
+
+
+def _normalize_chat_completion_kwargs(actual_model: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(kwargs)
+    model_name = (actual_model or "").strip().lower()
+    if model_name.startswith("gpt-5"):
+        if "max_tokens" in normalized and "max_completion_tokens" not in normalized:
+            normalized["max_completion_tokens"] = normalized.pop("max_tokens")
+        if "temperature" in normalized and normalized.get("temperature") != 1:
+            normalized.pop("temperature", None)
+    return normalized
 
 
 def _should_fallback_provider(exc: Exception) -> bool:
@@ -1195,7 +1264,7 @@ def get_openai_client():
                     name="openai",
                     client=openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY")),
                     fast_model=os.getenv("CONTENT_GENERATION_OPENAI_FAST_MODEL", "gpt-4o-mini"),
-                    editor_model=os.getenv("CONTENT_GENERATION_OPENAI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o")),
+                    editor_model=os.getenv("CONTENT_GENERATION_OPENAI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o-mini")),
                 )
             )
             continue
@@ -1234,7 +1303,20 @@ def get_openai_client():
 
 
 def _final_editor_model() -> str:
-    return os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o")
+    return CONTENT_EDITOR_MODEL_ALIAS
+
+
+def _use_compact_staged_generation(client: Any, *, content_type: str) -> bool:
+    if content_type != "linkedin_post":
+        return False
+    explicit = (os.getenv("CONTENT_GENERATION_COMPACT_STAGED_MODE") or "").strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    if explicit in {"0", "false", "no", "off"}:
+        return False
+    providers = getattr(client, "providers", []) or []
+    primary_provider = str(getattr(providers[0], "name", "")).lower() if providers else ""
+    return primary_provider in {"gemini", "ollama"}
 
 
 def _split_example_references(example_chunks: List[Dict[str, Any]], *, limit: int = 3) -> tuple[List[str], List[str]]:
@@ -1997,11 +2079,30 @@ def parse_content_options(raw_content: str) -> List[str]:
         cleaned = re.sub(r"^Option\s+\d+:\s*`?[^`\n]+`?\s*", "", cleaned, flags=re.IGNORECASE)
         return cleaned.strip()
 
+    def _split_on_option_headings(text: str) -> List[str]:
+        heading_pattern = re.compile(
+            r"(?im)^(?:#{1,6}\s*)?(?:\*\*)?\s*option\s+\d+(?::\s*`?[^`\n]+`?)?(?:\*\*)?\s*"
+        )
+        matches = list(heading_pattern.finditer(text))
+        if len(matches) < 2:
+            return []
+        options: List[str] = []
+        for index, match in enumerate(matches):
+            start = match.start()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            cleaned = _clean_option(text[start:end])
+            if cleaned:
+                options.append(cleaned)
+        return options
+
     if "---OPTION 1---" in raw_content:
         options = re.split(r"---OPTION \d+---", raw_content)
         return [_clean_option(opt) for opt in options if opt.strip()]
     if "---OPTION---" in raw_content:
         return [_clean_option(opt) for opt in raw_content.split("---OPTION---") if opt.strip()]
+    split_options = _split_on_option_headings(raw_content)
+    if split_options:
+        return split_options
     return [_clean_option(raw_content)] if raw_content.strip() else []
 
 
@@ -2249,10 +2350,13 @@ WRITER RULES:
 - Use casual, direct, spoken rhythm.
 - Keep short paragraphs and line breaks.
 - Stay specific and operator-grounded.
+- Start faster. Lead with tension, contrast, recognition, warning, or operator insight.
+- Make each option land differently. Do not collapse the options into the same hook or rhythm.
 - Do not use generic openings like "X is essential", "X is critical", "In today's world", or "Here's the takeaway".
 - Do not invent stories, names, employers, or metrics.
 - If no story is approved, do not force one.
 - Borrow rhythm and shape from GOOD STYLE REFERENCES, not their facts.
+- If a line sounds like generic LinkedIn advice, replace it with sharper operator language.
 - Return exactly 3 complete options, each separated by ---OPTION---.
 - Do not add standalone filler fragments like "Why?", "This.", "That.", or a one-line restatement of the opener.
 - Use at most one short punch line per option, and only if it adds new meaning.
@@ -2282,7 +2386,7 @@ def write_planned_options(
     if not briefs:
         return []
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=CONTENT_FAST_MODEL_ALIAS,
         messages=[
             {
                 "role": "system",
@@ -2384,7 +2488,7 @@ def critique_planned_options(
     if not rough_options:
         return rough_options
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=CONTENT_FAST_MODEL_ALIAS,
         messages=[
             {
                 "role": "system",
@@ -2602,6 +2706,7 @@ def _sentence_is_signal_bearing(sentence: str, brief: ContentOptionBrief) -> boo
 
 def _contrast_line_from_brief(brief: ContentOptionBrief) -> str:
     evidence = _proof_packet_evidence_text(brief.proof_packet)
+    combined = f"{brief.primary_claim} {evidence}"
     if not evidence:
         return ""
     instead_match = re.search(r"\binstead of ([^.]+)", evidence, flags=re.IGNORECASE)
@@ -2615,6 +2720,16 @@ def _contrast_line_from_brief(brief: ContentOptionBrief) -> str:
         return "Shared state."
     if re.search(r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE):
         return "Explicit handoffs."
+    if re.search(r"\bdashboard\b|\breporting\b|\bvisibility\b", combined, flags=re.IGNORECASE) and re.search(
+        r"\bexecution\b|\boutreach\b|\bpriority\b|\bpriorities\b|\bpipeline\b",
+        combined,
+        flags=re.IGNORECASE,
+    ):
+        return "Not more reporting. Clearer action."
+    if re.search(r"\baccess\b", combined, flags=re.IGNORECASE) and re.search(r"\badoption\b", combined, flags=re.IGNORECASE):
+        return "Not access on paper. Adoption in practice."
+    if re.search(r"\bfamily trust\b|\btrust-building\b|\breferral\b|\benrollment\b", combined, flags=re.IGNORECASE):
+        return "Not a brochure problem. A trust problem."
     return ""
 
 
@@ -2695,6 +2810,20 @@ def _brief_prefers_operator_voice(brief: ContentOptionBrief) -> bool:
     return bool(_significant_terms(text).intersection(STRICT_AUDIENCE_ANCHOR_TERMS.get("tech_ai", set())))
 
 
+def _operator_system_sentence_from_brief(brief: ContentOptionBrief) -> str:
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    if not re.search(r"\brouted workspace snapshot\b", evidence, flags=re.IGNORECASE):
+        return ""
+    for phrase in (
+        "Brain, Ops, daily briefs, planner, persona review, and long-form routing",
+        "Brain, Ops, daily briefs, planner, and long-form routing",
+        "daily briefs, planner, persona review, and long-form routing",
+    ):
+        if phrase.lower() in evidence.lower():
+            return _ensure_sentence(f"{phrase} now run on one routed workspace snapshot")
+    return "One routed workspace snapshot now holds the system."
+
+
 def _strong_closer_from_brief(brief: ContentOptionBrief) -> str:
     claim = brief.primary_claim or ""
     evidence = _proof_packet_evidence_text(brief.proof_packet)
@@ -2754,7 +2883,16 @@ def _ensure_contrast_shape(option: str, brief: ContentOptionBrief) -> str:
     if not cleaned:
         return cleaned
     contrast_line = _contrast_line_from_brief(brief)
-    if _option_mentions_specific_contrast(cleaned, brief):
+    contrast_terms = _significant_terms(contrast_line)
+    option_terms = _significant_terms(cleaned)
+    already_has_target_contrast = bool(
+        contrast_terms
+        and (
+            contrast_terms.issubset(option_terms)
+            or len(contrast_terms.intersection(option_terms)) >= max(2, len(contrast_terms) - 1)
+        )
+    )
+    if _option_mentions_specific_contrast(cleaned, brief) and (already_has_target_contrast or not contrast_line):
         return cleaned
     if not contrast_line:
         return cleaned
@@ -2791,6 +2929,25 @@ def _ensure_paragraph_cadence(option: str, brief: ContentOptionBrief) -> str:
                 insert_at = len(revised) - 1
             revised.insert(insert_at, punch_line)
     return "\n\n".join(paragraph for paragraph in revised if paragraph)
+
+
+def _ensure_short_sentence_presence(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    if any(len(sentence.split()) <= 6 for sentence in _split_sentences(cleaned)):
+        return cleaned
+    punch_line = _mid_punch_line_from_brief(brief, cleaned) or _strong_closer_from_brief(brief)
+    if not punch_line:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if any(punch_line.lower() in paragraph.lower() for paragraph in paragraphs):
+        return cleaned
+    insert_at = len(paragraphs)
+    if len(paragraphs) >= 2:
+        insert_at = len(paragraphs) - 1
+    paragraphs.insert(insert_at, punch_line)
+    return "\n\n".join(paragraphs)
 
 
 def _clean_generic_sentences(option: str, brief: ContentOptionBrief) -> str:
@@ -2858,15 +3015,17 @@ def _drop_opening_restatement(option: str, brief: ContentOptionBrief) -> str:
     if len(paragraphs) < 2:
         return cleaned
     opening = paragraphs[0]
-    follow_up_sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(paragraphs[1]) if sentence.strip()]
-    if not follow_up_sentences:
-        return cleaned
-    if _sentence_is_opening_restatement(follow_up_sentences[0], opening, brief):
-        remaining = follow_up_sentences[1:]
-        if remaining:
-            paragraphs[1] = " ".join(remaining).strip()
-        else:
-            paragraphs.pop(1)
+    for index in range(1, len(paragraphs)):
+        follow_up_sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(paragraphs[index]) if sentence.strip()]
+        if not follow_up_sentences:
+            continue
+        if _sentence_is_opening_restatement(follow_up_sentences[0], opening, brief):
+            remaining = follow_up_sentences[1:]
+            if remaining:
+                paragraphs[index] = " ".join(remaining).strip()
+            else:
+                paragraphs.pop(index)
+            break
     return "\n\n".join(paragraphs)
 
 
@@ -3040,11 +3199,81 @@ def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> 
                 rewritten.append("Malformed JSON kept breaking the flow.")
                 continue
             if re.match(
+                r"^previously, we faced issues with malformed json and (?:weak|inconsistent) schema discipline$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("Malformed JSON and weak schema discipline kept breaking the flow.")
+                continue
+            if re.match(
                 r"^we(?:['’]?re| are) enhancing output handling and validation, even as we continue to improve reliability$",
                 base_sentence,
                 flags=re.IGNORECASE,
             ):
                 rewritten.append("Output handling is stricter now. Reliability is better, but not done.")
+                continue
+            if re.match(
+                r"^we(?:['’]?ve| have) transitioned to (?:a )?unified .+\brouted workspace snapshot\b.*$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append(_operator_system_sentence_from_brief(brief) or "One routed workspace snapshot now holds the system.")
+                continue
+            tightened_match = re.match(
+                r"^(?:now,\s*)?we(?:['’]?ve| have) tightened (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if tightened_match:
+                payload = tightened_match.group(1).strip(" .")
+                if re.search(r"\boutput handling\b|\bvalidation\b", payload, flags=re.IGNORECASE):
+                    rewritten.append("Output handling is tighter now.")
+                else:
+                    rewritten.append(_ensure_sentence(f"{payload[:1].upper() + payload[1:]} is tighter now"))
+                continue
+            tightening_match = re.match(
+                r"^(?:now,\s*)?we(?:['’]?re| are) (?:tightening|making stricter) (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if tightening_match:
+                payload = tightening_match.group(1).strip(" .")
+                if re.search(r"\boutput handling\b|\bvalidation\b", payload, flags=re.IGNORECASE):
+                    rewritten.append("Output handling is tighter now.")
+                else:
+                    rewritten.append(_ensure_sentence(f"{payload[:1].upper() + payload[1:]} is tighter now"))
+                continue
+            unified_match = re.match(
+                r"^with (.+?), we(?:['’]?ve| have) unified (.+?) around (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if unified_match:
+                payload = unified_match.group(2).strip(" .")
+                target = unified_match.group(3).strip(" .")
+                rewritten.append(_ensure_sentence(f"{payload[:1].upper() + payload[1:]} now run on {target}"))
+                continue
+            unified_simple_match = re.match(
+                r"^with (.+?), we(?:['’]?ve| have) unified (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if unified_simple_match:
+                payload = unified_simple_match.group(2).strip(" .")
+                rewritten.append(_ensure_sentence(f"{payload[:1].upper() + payload[1:]} now run together"))
+                continue
+            began_building_match = re.match(
+                r"^we began building (.+?)(?: as (.+))?$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if began_building_match:
+                subject = began_building_match.group(1).strip(" .")
+                descriptor = (began_building_match.group(2) or "").strip(" .")
+                if descriptor:
+                    rewritten.append(_ensure_sentence(f"{subject[:1].upper() + subject[1:]} started as {descriptor}"))
+                else:
+                    rewritten.append(_ensure_sentence(f"{subject[:1].upper() + subject[1:]} started there"))
                 continue
             if re.match(
                 r"^for effective ai, .+\binterconnected\b.*$",
@@ -3146,6 +3375,8 @@ def finalize_planned_options(
         revised = _drop_filler_fragment_paragraphs(revised, brief)
         revised = _ensure_paragraph_cadence(revised, brief)
         revised = _ensure_sharp_landing(revised, brief)
+        revised = _rewrite_soft_operator_sentences(revised, brief)
+        revised = _ensure_short_sentence_presence(revised, brief)
         revised = _drop_redundant_label_tail(revised)
         finalized.append(revised)
     return finalized[: len(briefs)]
@@ -3466,7 +3697,7 @@ def refine_generated_options(
         return rough_options
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=CONTENT_FAST_MODEL_ALIAS,
         messages=[
             {
                 "role": "system",
@@ -3544,7 +3775,7 @@ def sharpen_editorial_options(
         )
     except Exception:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=CONTENT_FAST_MODEL_ALIAS,
             messages=messages,
             temperature=0.35,
             max_tokens=1800,
@@ -3614,7 +3845,7 @@ def enforce_grounding_on_options(
         return rough_options
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=CONTENT_FAST_MODEL_ALIAS,
         messages=[
             {
                 "role": "system",
@@ -3671,7 +3902,7 @@ def _generate_legacy_options(
         disallowed_moves=content_context.disallowed_moves,
     )
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=CONTENT_FAST_MODEL_ALIAS,
         messages=[
             {
                 "role": "system",
@@ -3750,7 +3981,7 @@ def _generate_staged_options(
     content_context: ContentGenerationContext,
     persona_chunks: List[Dict[str, Any]],
     example_chunks: List[Dict[str, Any]],
-) -> tuple[List[str], List[ContentOptionBrief], str]:
+) -> tuple[List[str], List[ContentOptionBrief], str, Dict[str, Any]]:
     good_examples, avoid_examples = _split_example_references(example_chunks, limit=3)
     voice_directives = _extract_voice_directives(persona_chunks, limit=8)
     approved_references = _extract_approved_reference_terms(
@@ -3758,6 +3989,16 @@ def _generate_staged_options(
         content_context.proof_packets,
         content_context.story_beats,
     )
+    fallback_trace: Dict[str, Any] = {
+        "events": [],
+        "recovered_missing_option_count": 0,
+        "critic_used_rough_options": False,
+        "used_consolidated_refinement": False,
+        "used_compact_single_pass": False,
+        "legacy_fallback_triggered": False,
+        "legacy_fallback_reason": "",
+        "final_option_count_before_cap": 0,
+    }
     briefs = plan_content_option_briefs(
         primary_claims=content_context.primary_claims,
         proof_packets=content_context.proof_packets,
@@ -3782,57 +4023,233 @@ def _generate_staged_options(
         disallowed_moves=content_context.disallowed_moves,
     )
     if not rough_options:
-        return [], briefs, "planner_writer_critic"
+        fallback_trace["events"].append(
+            {
+                "stage": "writer",
+                "reason": "writer_returned_no_options",
+                "action": "escalate_to_legacy_if_needed",
+            }
+        )
+        return [], briefs, "planner_writer_critic", fallback_trace
     if len(rough_options) < len(briefs):
-        rough_options = _recover_missing_planned_options(rough_options, briefs)
-    critiqued = critique_planned_options(
-        client=client,
-        topic=req.topic,
-        audience=req.audience,
-        grounding_mode=content_context.grounding_mode,
-        briefs=briefs,
-        rough_options=rough_options,
-        avoid_examples=avoid_examples,
-        voice_directives=voice_directives,
-        approved_references=approved_references,
-    )
-    finalized = finalize_planned_options(
-        options=critiqued or rough_options,
-        briefs=briefs,
-        grounding_mode=content_context.grounding_mode,
-    )
-    if content_context.grounding_mode == "proof_ready" and content_context.proof_packets:
-        finalized = enforce_grounding_on_options(
+        missing_briefs = briefs[len(rough_options):]
+        retry_options = write_planned_options(
+            client=client,
+            topic=req.topic,
+            context=req.context or "",
+            audience=req.audience,
+            grounding_mode=content_context.grounding_mode,
+            grounding_reason=content_context.grounding_reason,
+            topic_anchor_chunks=content_context.topic_anchor_chunks,
+            proof_anchor_chunks=content_context.proof_anchor_chunks,
+            story_anchor_chunks=content_context.story_anchor_chunks,
+            briefs=missing_briefs,
+            good_examples=good_examples,
+            voice_directives=voice_directives,
+            approved_references=approved_references,
+            disallowed_moves=content_context.disallowed_moves,
+        )
+        if retry_options:
+            rough_options = (rough_options + retry_options)[: len(briefs)]
+        if len(rough_options) < len(briefs):
+            fallback_trace["recovered_missing_option_count"] = len(briefs) - len(rough_options)
+            fallback_trace["events"].append(
+                {
+                    "stage": "writer",
+                    "reason": "writer_returned_too_few_options",
+                    "action": "recovered_from_planned_briefs",
+                    "count": fallback_trace["recovered_missing_option_count"],
+                }
+            )
+            rough_options = _recover_missing_planned_options(rough_options, briefs)
+    if _use_compact_staged_generation(client, content_type=req.content_type):
+        fallback_trace["used_compact_single_pass"] = True
+        fallback_trace["events"].append(
+            {
+                "stage": "refinement",
+                "reason": "used_compact_single_pass",
+                "action": "writer_absorbed_refinement_rules",
+            }
+        )
+        finalized = rough_options
+    else:
+        fallback_trace["used_consolidated_refinement"] = True
+        fallback_trace["events"].append(
+            {
+                "stage": "refinement",
+                "reason": "used_consolidated_refinement",
+                "action": "collapsed_critic_grounding_and_editorial_passes",
+            }
+        )
+        finalized = refine_generated_options(
             client=client,
             topic=req.topic,
             audience=req.audience,
             content_type=req.content_type,
+            persona_chunks=persona_chunks,
+            rough_options=rough_options,
+            topic_anchor_chunks=content_context.topic_anchor_chunks,
+            eligible_story_chunks=content_context.story_anchor_chunks,
+            proof_anchor_chunks=content_context.proof_anchor_chunks,
             grounding_mode=content_context.grounding_mode,
-            rough_options=finalized,
+            grounding_reason=content_context.grounding_reason,
+            framing_modes=content_context.framing_modes,
             primary_claims=content_context.primary_claims,
             proof_packets=content_context.proof_packets,
             story_beats=content_context.story_beats,
-            framing_modes=content_context.framing_modes,
+            disallowed_moves=content_context.disallowed_moves,
         )
-    finalized = sharpen_editorial_options(
-        client=client,
-        topic=req.topic,
-        audience=req.audience,
-        content_type=req.content_type,
-        grounding_mode=content_context.grounding_mode,
-        persona_chunks=persona_chunks,
-        rough_options=finalized,
-        primary_claims=content_context.primary_claims,
-        proof_packets=content_context.proof_packets,
-        story_beats=content_context.story_beats,
-        framing_modes=content_context.framing_modes,
-    )
     finalized = finalize_planned_options(
         options=finalized,
         briefs=briefs,
         grounding_mode=content_context.grounding_mode,
     )
-    return finalized[:3], briefs, "planner_writer_critic"
+    fallback_trace["final_option_count_before_cap"] = len(finalized)
+    return finalized[:3], briefs, "planner_writer_critic", fallback_trace
+
+
+def _provider_trace_indicates_fallback(provider_trace: List[Dict[str, Any]]) -> bool:
+    if not provider_trace:
+        return False
+    distinct_providers = {
+        str(entry.get("provider") or "").strip().lower()
+        for entry in provider_trace
+        if str(entry.get("provider") or "").strip()
+    }
+    if len(distinct_providers) > 1:
+        return True
+    return not any(str(entry.get("status") or "").lower() == "success" for entry in provider_trace)
+
+
+async def run_content_generation(req: ContentGenerationRequest) -> ContentGenerationResponse:
+    content_context: ContentGenerationContext = build_content_generation_context(
+        user_id=req.user_id,
+        topic=req.topic,
+        context=req.context,
+        content_type=req.content_type,
+        category=req.category,
+        tone=req.tone,
+        audience=req.audience,
+        source_mode=req.source_mode,
+    )
+    persona_chunks = content_context.persona_chunks
+
+    if persona_chunks:
+        tag_summary = {}
+        for chunk in persona_chunks:
+            tag = chunk.get("persona_tag", "UNKNOWN")
+            tag_summary[tag] = tag_summary.get(tag, 0) + 1
+        print(f"[content_gen] Retrieved persona chunks by tag: {tag_summary}", flush=True)
+    example_chunks = content_context.example_chunks
+    client = get_openai_client()
+    options, option_briefs, generation_strategy, fallback_trace = _generate_staged_options(
+        client=client,
+        req=req,
+        content_context=content_context,
+        persona_chunks=persona_chunks,
+        example_chunks=example_chunks,
+    )
+    if not options:
+        options = _generate_legacy_options(
+            client=client,
+            req=req,
+            content_context=content_context,
+            persona_chunks=persona_chunks,
+            example_chunks=example_chunks,
+        )
+        option_briefs = plan_content_option_briefs(
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            framing_modes=content_context.framing_modes,
+            option_count=max(len(options), 3),
+        )
+        generation_strategy = "legacy_fallback"
+        fallback_trace["legacy_fallback_triggered"] = True
+        fallback_trace["legacy_fallback_reason"] = "staged_generation_returned_no_options"
+        fallback_trace.setdefault("events", []).append(
+            {
+                "stage": "generation",
+                "reason": "staged_generation_returned_no_options",
+                "action": "used_legacy_generator",
+            }
+        )
+    approved_references = _extract_approved_reference_terms(
+        content_context.primary_claims,
+        content_context.proof_packets,
+        content_context.story_beats,
+    )
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    option_framing_plan = _build_option_framing_plan(
+        framing_modes=content_context.framing_modes,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        option_count=3,
+    )
+    topic_anchor_preview = [
+        _render_anchor_chunk(item)[:220]
+        for item in content_context.topic_anchor_chunks[:4]
+    ]
+    core_chunk_preview = [
+        _render_anchor_chunk(item)[:220]
+        for item in content_context.core_chunks[:4]
+    ]
+    proof_anchor_preview = [
+        _render_anchor_chunk(item)[:220]
+        for item in content_context.proof_anchor_chunks[:4]
+    ]
+    taste_scores = [
+        score_option_taste(
+            option,
+            brief=option_briefs[index] if index < len(option_briefs) else None,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+        )
+        for index, option in enumerate(options[:3])
+    ]
+    options, option_briefs, taste_scores = _rank_options_by_taste(
+        options=options[:3],
+        briefs=option_briefs,
+        taste_scores=taste_scores,
+    )
+    provider_trace = getattr(client, "provider_trace", [])
+
+    return ContentGenerationResponse(
+        success=True,
+        options=options[:3],
+        persona_context=content_context.persona_context_summary,
+        examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]],
+        diagnostics={
+            "grounding_mode": content_context.grounding_mode,
+            "generation_strategy": generation_strategy,
+            "primary_claims": content_context.primary_claims,
+            "proof_packets": content_context.proof_packets,
+            "approved_references": approved_references,
+            "voice_directives": voice_directives,
+            "option_framing_plan": option_framing_plan,
+            "planned_option_briefs": [
+                {
+                    "option_number": brief.option_number,
+                    "framing_mode": brief.framing_mode,
+                    "primary_claim": brief.primary_claim,
+                    "proof_packet": brief.proof_packet,
+                    "story_beat": brief.story_beat,
+                }
+                for brief in option_briefs
+            ],
+            "taste_scores": taste_scores,
+            "topic_anchor_preview": topic_anchor_preview,
+            "core_chunk_preview": core_chunk_preview,
+            "proof_anchor_preview": proof_anchor_preview,
+            "fallback_trace": fallback_trace,
+            "provider_fallback_used": _provider_trace_indicates_fallback(provider_trace),
+            "llm_request_count": len(provider_trace),
+            "llm_provider_trace": provider_trace,
+            "source_mode": req.source_mode,
+        },
+    )
 
 
 def _mode_priority_bonus(mode: str) -> int:
@@ -3868,121 +4285,7 @@ async def generate_content(req: ContentGenerationRequest):
     Generate AI-powered content using persona and examples from knowledge base.
     """
     try:
-        content_context: ContentGenerationContext = build_content_generation_context(
-            user_id=req.user_id,
-            topic=req.topic,
-            context=req.context,
-            content_type=req.content_type,
-            category=req.category,
-            tone=req.tone,
-            audience=req.audience,
-        )
-        persona_chunks = content_context.persona_chunks
-
-        # Log what tags were retrieved for debugging
-        if persona_chunks:
-            tag_summary = {}
-            for chunk in persona_chunks:
-                tag = chunk.get("persona_tag", "UNKNOWN")
-                tag_summary[tag] = tag_summary.get(tag, 0) + 1
-            print(f"[content_gen] Retrieved persona chunks by tag: {tag_summary}", flush=True)
-        example_chunks = content_context.example_chunks
-        client = get_openai_client()
-        options, option_briefs, generation_strategy = _generate_staged_options(
-            client=client,
-            req=req,
-            content_context=content_context,
-            persona_chunks=persona_chunks,
-            example_chunks=example_chunks,
-        )
-        if not options:
-            options = _generate_legacy_options(
-                client=client,
-                req=req,
-                content_context=content_context,
-                persona_chunks=persona_chunks,
-                example_chunks=example_chunks,
-            )
-            option_briefs = plan_content_option_briefs(
-                primary_claims=content_context.primary_claims,
-                proof_packets=content_context.proof_packets,
-                story_beats=content_context.story_beats,
-                framing_modes=content_context.framing_modes,
-                option_count=max(len(options), 3),
-            )
-            generation_strategy = "legacy_fallback"
-        approved_references = _extract_approved_reference_terms(
-            content_context.primary_claims,
-            content_context.proof_packets,
-            content_context.story_beats,
-        )
-        voice_directives = _extract_voice_directives(persona_chunks, limit=8)
-        option_framing_plan = _build_option_framing_plan(
-            framing_modes=content_context.framing_modes,
-            primary_claims=content_context.primary_claims,
-            proof_packets=content_context.proof_packets,
-            story_beats=content_context.story_beats,
-            option_count=3,
-        )
-        topic_anchor_preview = [
-            _render_anchor_chunk(item)[:220]
-            for item in content_context.topic_anchor_chunks[:4]
-        ]
-        core_chunk_preview = [
-            _render_anchor_chunk(item)[:220]
-            for item in content_context.core_chunks[:4]
-        ]
-        proof_anchor_preview = [
-            _render_anchor_chunk(item)[:220]
-            for item in content_context.proof_anchor_chunks[:4]
-        ]
-        taste_scores = [
-            score_option_taste(
-                option,
-                brief=option_briefs[index] if index < len(option_briefs) else None,
-                primary_claims=content_context.primary_claims,
-                proof_packets=content_context.proof_packets,
-                story_beats=content_context.story_beats,
-            )
-            for index, option in enumerate(options[:3])
-        ]
-        options, option_briefs, taste_scores = _rank_options_by_taste(
-            options=options[:3],
-            briefs=option_briefs,
-            taste_scores=taste_scores,
-        )
-
-        return ContentGenerationResponse(
-            success=True,
-            options=options[:3],  # Max 3 options
-            persona_context=content_context.persona_context_summary,
-            examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]],
-            diagnostics={
-                "grounding_mode": content_context.grounding_mode,
-                "generation_strategy": generation_strategy,
-                "primary_claims": content_context.primary_claims,
-                "proof_packets": content_context.proof_packets,
-                "approved_references": approved_references,
-                "voice_directives": voice_directives,
-                "option_framing_plan": option_framing_plan,
-                "planned_option_briefs": [
-                    {
-                        "option_number": brief.option_number,
-                        "framing_mode": brief.framing_mode,
-                        "primary_claim": brief.primary_claim,
-                        "proof_packet": brief.proof_packet,
-                        "story_beat": brief.story_beat,
-                    }
-                    for brief in option_briefs
-                ],
-                "taste_scores": taste_scores,
-                "topic_anchor_preview": topic_anchor_preview,
-                "core_chunk_preview": core_chunk_preview,
-                "proof_anchor_preview": proof_anchor_preview,
-                "llm_provider_trace": getattr(client, "provider_trace", []),
-            },
-        )
-        
+        return await run_content_generation(req)
     except Exception as e:
         print(f"Content generation error: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Content generation failed: {str(e)}")

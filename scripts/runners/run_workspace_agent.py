@@ -1,0 +1,602 @@
+#!/usr/bin/env python3
+"""Workspace-agent handoff runner.
+
+Consumes one delegated PM card already opened by Jean-Claude, writes a bounded
+workspace-agent work order inside that workspace, appends Chronicle, and keeps
+the same PM card as the source of truth while the workspace lane executes.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
+MEMORY_ROOT = WORKSPACE_ROOT / "memory"
+CODEX_HANDOFF_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
+REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
+DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
+PACK_FILES = ("AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md", "CHARTER.md")
+
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from automation_run_mirror import build_run_payload, mirror_runs
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _stamp(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _slug(text: str) -> str:
+    lowered = "".join(ch.lower() if ch.isalnum() else "-" for ch in text.strip())
+    return "-".join(part for part in lowered.split("-") if part) or "workspace-agent"
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return _iso(value)
+    return str(value)
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, default=_json_default) + "\n", encoding="utf-8")
+
+
+def _append_jsonl(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=True, default=_json_default) + "\n")
+
+
+def _fetch_json(url: str, *, method: str = "GET", payload: dict[str, Any] | None = None) -> Any:
+    data = None
+    headers = {"Content-Type": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _optional_backend_imports(mode: str) -> dict[str, Any]:
+    if mode != "service":
+        return {"mode": "api"}
+    if str(BACKEND_ROOT) not in sys.path:
+        sys.path.insert(0, str(BACKEND_ROOT))
+    loaded: dict[str, Any] = {}
+    try:
+        from app.models import PMCardUpdate  # type: ignore
+        from app.services.pm_card_service import get_card, list_execution_queue, update_card  # type: ignore
+
+        loaded["PMCardUpdate"] = PMCardUpdate
+        loaded["get_card"] = get_card
+        loaded["list_execution_queue"] = list_execution_queue
+        loaded["update_card"] = update_card
+        loaded["mode"] = "service"
+    except Exception as exc:  # pragma: no cover
+        loaded["mode"] = "api"
+        loaded["error"] = str(exc)
+    return loaded
+
+
+def _read_registry() -> dict[str, dict[str, Any]]:
+    if not REGISTRY_PATH.exists():
+        return {}
+    payload = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    items = payload.get("workspaces") or []
+    registry: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if isinstance(item, dict) and item.get("workspace_key"):
+            registry[str(item["workspace_key"])] = item
+    return registry
+
+
+def _load_pack(base: Path) -> dict[str, Any]:
+    pack: dict[str, Any] = {"base_path": str(base), "files": {}}
+    for name in PACK_FILES:
+        path = base / name
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore").strip()
+        pack["files"][name] = {
+            "path": str(path),
+            "content": text,
+        }
+    return pack
+
+
+def _workspace_root(workspace_key: str, registry: dict[str, dict[str, Any]]) -> Path:
+    item = registry.get(workspace_key) or {}
+    configured = item.get("filesystem_path")
+    if isinstance(configured, str) and configured.strip():
+        base = Path(configured)
+    else:
+        base = WORKSPACE_ROOT / "workspaces" / workspace_key
+    for subdir in ("dispatch", "briefings", "docs", "memory", "agent-ledgers"):
+        (base / subdir).mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _load_queue(imports: dict[str, Any], api_url: str, *, workspace_key: str | None, target_agent: str | None, limit: int) -> tuple[str, list[dict[str, Any]]]:
+    if imports.get("mode") == "service":
+        entries = [
+            entry.model_dump(mode="json")
+            for entry in imports["list_execution_queue"](
+                limit=limit,
+                target_agent=target_agent,
+                workspace_key=workspace_key,
+            )
+        ]
+        return "service", entries
+    query = [f"limit={limit}"]
+    if workspace_key:
+        query.append(f"workspace_key={workspace_key}")
+    if target_agent:
+        query.append(f"target_agent={urllib.parse.quote(target_agent)}")
+    url = f"{api_url}/api/pm/execution-queue?{'&'.join(query)}"
+    entries = _fetch_json(url)
+    return "api", entries if isinstance(entries, list) else []
+
+
+def _load_card(imports: dict[str, Any], api_url: str, card_id: str) -> dict[str, Any]:
+    if imports.get("mode") == "service":
+        card = imports["get_card"](card_id)
+        if card is None:
+            raise SystemExit(f"PM card not found: {card_id}")
+        return card.model_dump(mode="json")
+    payload = _fetch_json(f"{api_url}/api/pm/cards?limit=200")
+    if not isinstance(payload, list):
+        raise SystemExit("PM card list response was not a list.")
+    for card in payload:
+        if str(card.get("id")) == card_id:
+            return card
+    raise SystemExit(f"PM card not found: {card_id}")
+
+
+def _select_entry(
+    entries: list[dict[str, Any]],
+    *,
+    workspace_key: str | None,
+    target_agent: str | None,
+    card_id: str | None,
+) -> dict[str, Any] | None:
+    filtered = []
+    for entry in entries:
+        if card_id and str(entry.get("card_id") or "") != card_id:
+            continue
+        if str(entry.get("execution_mode") or "") != "delegated":
+            continue
+        if str(entry.get("execution_state") or "").lower() not in {"queued", "running"}:
+            continue
+        if workspace_key and str(entry.get("workspace_key") or "") != workspace_key:
+            continue
+        if target_agent and str(entry.get("target_agent") or "") != target_agent:
+            continue
+        filtered.append(entry)
+    if not filtered:
+        return None
+    return sorted(
+        filtered,
+        key=lambda item: (
+            0 if str(item.get("execution_state") or "").lower() == "queued" else 1,
+            _parse_datetime(item.get("last_transition_at"))
+            or _parse_datetime(item.get("queued_at"))
+            or datetime.max.replace(tzinfo=timezone.utc),
+        ),
+    )[0]
+
+
+def _update_card(
+    imports: dict[str, Any],
+    api_url: str,
+    card: dict[str, Any],
+    *,
+    run_id: str,
+    work_order_path: Path,
+    briefing_path: Path,
+    target_agent: str,
+    dry_run: bool,
+) -> dict[str, Any] | None:
+    if dry_run:
+        return None
+    payload = dict(card.get("payload") or {})
+    execution = dict(payload.get("execution") or {})
+    now = _now()
+    history = list(execution.get("history") or [])
+    history.append(
+        {
+            "event": "workspace_pickup",
+            "state": "running",
+            "runner_id": _slug(target_agent),
+            "run_id": run_id,
+            "requested_by": "Jean-Claude",
+            "target_agent": target_agent,
+            "at": now.isoformat(),
+        }
+    )
+    execution.update(
+        {
+            "state": "running",
+            "assigned_runner": _slug(target_agent),
+            "workspace_agent_run_id": run_id,
+            "workspace_agent_packet_path": str(work_order_path),
+            "workspace_agent_briefing_path": str(briefing_path),
+            "workspace_agent_last_report_at": now.isoformat(),
+            "last_transition_at": now.isoformat(),
+            "history": history[-16:],
+        }
+    )
+    payload["execution"] = execution
+    if imports.get("mode") == "service":
+        updated = imports["update_card"](
+            str(card["id"]),
+            imports["PMCardUpdate"](
+                status="in_progress",
+                payload=payload,
+            ),
+        )
+        return updated.model_dump(mode="json") if updated else None
+    return _fetch_json(
+        f"{api_url}/api/pm/cards/{card['id']}",
+        method="PATCH",
+        payload={"status": "in_progress", "payload": payload},
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workspace-key")
+    parser.add_argument("--agent-name")
+    parser.add_argument("--card-id")
+    parser.add_argument("--api-url", default=DEFAULT_API_URL)
+    parser.add_argument("--mode", choices=["api", "service"], default="api")
+    parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--output-root", default=str(MEMORY_ROOT))
+    parser.add_argument("--dry-run", action="store_true")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    started_at = _now()
+    run_id = str(uuid.uuid4())
+    stamp = _stamp(started_at)
+    imports = _optional_backend_imports(args.mode)
+    registry = _read_registry()
+    output_root = Path(args.output_root)
+    ledger_path = output_root / "runner-ledgers" / "workspace-agents.jsonl"
+
+    workspace_key = args.workspace_key
+    target_agent = args.agent_name
+    if workspace_key and not target_agent:
+        target_agent = str((registry.get(workspace_key) or {}).get("workspace_agent") or "")
+    if target_agent is not None and not target_agent.strip():
+        target_agent = None
+
+    queue_mode, entries = _load_queue(
+        imports,
+        args.api_url.rstrip("/"),
+        workspace_key=workspace_key,
+        target_agent=target_agent,
+        limit=args.limit,
+    )
+    selected_entry = _select_entry(
+        entries,
+        workspace_key=workspace_key,
+        target_agent=target_agent,
+        card_id=args.card_id,
+    )
+
+    if selected_entry is None:
+        summary = (
+            f"No delegated workspace-agent execution lane matched {args.card_id}."
+            if args.card_id
+            else "No delegated workspace-agent execution lanes are currently queued or running."
+        )
+        finished_at = _now()
+        _append_jsonl(
+            ledger_path,
+            {
+                "schema_version": "runner_ledger/v1",
+                "run_id": run_id,
+                "runner_id": "workspace-agent",
+                "owner_agent": target_agent or "workspace-agent",
+                "scope": "workspace",
+                "primary_workspace_key": workspace_key,
+                "workspace_scope": [workspace_key] if workspace_key else [],
+                "started_at": started_at,
+                "finished_at": finished_at,
+                "duration_ms": int((finished_at - started_at).total_seconds() * 1000),
+                "status": "noop",
+                "summary": summary,
+                "artifacts_written": [],
+                "memory_promotions": [],
+                "pm_updates": [],
+                "blockers": [],
+                "dependencies": [],
+                "recommended_next_actions": [],
+                "escalations": [],
+                "error": None,
+                "metadata": {"queue_mode": queue_mode, "workspace_key": workspace_key, "target_agent": target_agent, "dry_run": args.dry_run},
+            },
+        )
+        if not args.dry_run:
+            mirror_runs(
+                args.api_url,
+                [
+                    build_run_payload(
+                        run_id=f"workspace_agent_dispatch::{run_id}",
+                        automation_id="workspace_agent_dispatch",
+                        automation_name="Workspace Agent Dispatch",
+                        status="ok",
+                        run_at=started_at,
+                        finished_at=finished_at,
+                        duration_ms=int((finished_at - started_at).total_seconds() * 1000),
+                        owner_agent=target_agent,
+                        scope="workspace",
+                        workspace_key=workspace_key,
+                        action_required=False,
+                        metadata={
+                            "summary": summary,
+                            "result": "noop",
+                            "queue_mode": queue_mode,
+                        },
+                    )
+                ],
+            )
+        print(summary)
+        return 0
+
+    workspace_key = str(selected_entry.get("workspace_key") or workspace_key or "shared_ops")
+    target_agent = str(selected_entry.get("target_agent") or target_agent or "Workspace Agent")
+    card = _load_card(imports, args.api_url.rstrip("/"), str(selected_entry["card_id"]))
+    workspace_root = _workspace_root(workspace_key, registry)
+    card_payload = dict(card.get("payload") or {})
+    execution = dict(card_payload.get("execution") or {})
+    sop_path = Path(str(execution.get("sop_path") or ""))
+    briefing_source = execution.get("briefing_path")
+    input_path = output_root / "runner-inputs" / _slug(target_agent) / f"{stamp}.json"
+    work_order_path = workspace_root / "dispatch" / f"{stamp}_{_slug(target_agent)}_work_order.json"
+    briefing_path = workspace_root / "briefings" / f"{stamp}_{_slug(target_agent)}_status.md"
+    local_ledger_path = workspace_root / "agent-ledgers" / f"{_slug(target_agent)}.jsonl"
+
+    bundle = {
+        "schema_version": "workspace_agent_input/v1",
+        "run_id": run_id,
+        "runner_id": _slug(target_agent),
+        "owner_agent": target_agent,
+        "workspace_key": workspace_key,
+        "workspace_root": str(workspace_root),
+        "pm_card": card,
+        "queue_entry": selected_entry,
+        "sop_path": str(sop_path) if sop_path else None,
+        "manager_agent": "Jean-Claude",
+        "briefing_source_path": str(briefing_source) if briefing_source else None,
+        "manager_pack": _load_pack(WORKSPACE_ROOT / "agents" / "jean-claude"),
+        "workspace_pack": _load_pack(workspace_root),
+        "base_pack": _load_pack(WORKSPACE_ROOT),
+    }
+    work_order = {
+        "schema_version": "workspace_agent_work_order/v1",
+        "run_id": run_id,
+        "workspace_key": workspace_key,
+        "manager_agent": "Jean-Claude",
+        "workspace_agent": target_agent,
+        "card_id": selected_entry["card_id"],
+        "title": selected_entry["title"],
+        "objective": f"{target_agent} should execute this work only inside `{workspace_key}` and report back to Jean-Claude with a bounded status briefing.",
+        "sop_path": str(sop_path) if sop_path else None,
+        "pm_card_id": selected_entry["card_id"],
+        "read_order": [
+            "Read the local workspace pack first.",
+            "Read Jean-Claude's SOP and briefing second.",
+            "Read the PM card before executing or declaring completion.",
+        ],
+        "identity_sources": {
+            "workspace_pack": bundle["workspace_pack"],
+            "manager_pack": bundle["manager_pack"],
+        },
+        "write_back_contract": {
+            "pm_card_id": selected_entry["card_id"],
+            "use_writer": str(WORKSPACE_ROOT / "scripts" / "runners" / "write_execution_result.py"),
+            "preferred_runner_id": _slug(target_agent),
+            "preferred_author_agent": target_agent,
+            "next_state_on_result": "review",
+        },
+    }
+
+    _write_json(input_path, bundle)
+    _write_json(work_order_path, work_order)
+
+    briefing_lines = [
+        f"# {target_agent} Intake Brief",
+        "",
+        f"- Workspace: `{workspace_key}`",
+        f"- Manager: `Jean-Claude`",
+        f"- PM card: `{selected_entry['card_id']}`",
+        f"- Title: {selected_entry['title']}",
+        "",
+        "## Expectation",
+        f"{target_agent} owns execution inside this workspace only and should report back through the shared PM card when the work is done or blocked.",
+        "",
+        "## Inputs",
+        f"- Workspace pack: `{workspace_root / 'AGENTS.md'}`",
+        f"- Workspace identity: `{workspace_root / 'IDENTITY.md'}`",
+        f"- Workspace soul: `{workspace_root / 'SOUL.md'}`",
+        f"- SOP: `{sop_path}`" if sop_path else "- SOP: `missing`",
+        f"- Jean-Claude briefing: `{briefing_source}`" if briefing_source else "- Jean-Claude briefing: `missing`",
+        "",
+        "## Next",
+        f"- Execute inside `{workspace_key}`.",
+        "- Keep the PM card as the source of truth.",
+        "- Write the result back with the execution-result writer before the next executive standup.",
+    ]
+    briefing_path.write_text("\n".join(briefing_lines).rstrip() + "\n", encoding="utf-8")
+
+    chronicle_entry = {
+        "schema_version": "codex_chronicle/v1",
+        "entry_id": str(uuid.uuid4()),
+        "created_at": _iso(_now()),
+        "source": "workspace-agent-handoff",
+        "author_agent": target_agent,
+        "workspace_key": workspace_key,
+        "scope": "workspace",
+        "trigger": "workspace_pickup",
+        "importance": "high",
+        "summary": f"{target_agent} accepted Jean-Claude's SOP for `{selected_entry['title']}` inside `{workspace_key}`.",
+        "signal_types": ["pm", "workspace_execution", "delegation"],
+        "decisions": [f"Keep execution inside `{workspace_key}` and return status through the same PM card."],
+        "blockers": [],
+        "project_updates": [f"Workspace-agent work order written to {work_order_path}"],
+        "learning_updates": [
+            "Delegated workspace execution should stay local while only briefings and PM truth move back to executive leadership."
+        ],
+        "identity_signals": [],
+        "mindset_signals": [],
+        "phrase_signals": [],
+        "outcomes": [f"Workspace-agent briefing written to {briefing_path}"],
+        "follow_ups": ["Complete or unblock the SOP and write the result back through the shared execution writer."],
+        "memory_promotions": [],
+        "pm_candidates": [],
+        "artifacts": [str(work_order_path), str(briefing_path)],
+        "tags": ["workspace-agent", target_agent, workspace_key],
+    }
+
+    if not args.dry_run:
+        _append_jsonl(CODEX_HANDOFF_PATH, chronicle_entry)
+    _append_jsonl(local_ledger_path, chronicle_entry)
+    updated_card = _update_card(
+        imports,
+        args.api_url.rstrip("/"),
+        card,
+        run_id=run_id,
+        work_order_path=work_order_path,
+        briefing_path=briefing_path,
+        target_agent=target_agent,
+        dry_run=args.dry_run,
+    )
+
+    finished_at = _now()
+    ledger_entry = {
+            "schema_version": "runner_ledger/v1",
+            "run_id": run_id,
+            "runner_id": "workspace-agent",
+            "owner_agent": target_agent,
+            "scope": "workspace",
+            "primary_workspace_key": workspace_key,
+            "workspace_scope": [workspace_key],
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration_ms": int((finished_at - started_at).total_seconds() * 1000),
+            "status": "ok",
+            "summary": chronicle_entry["summary"],
+            "artifacts_written": [
+                {"kind": "file", "path": str(input_path), "workspace_key": workspace_key, "label": "workspace-agent input"},
+                {"kind": "file", "path": str(work_order_path), "workspace_key": workspace_key, "label": "workspace-agent work order"},
+                {"kind": "memo", "path": str(briefing_path), "workspace_key": workspace_key, "label": "workspace-agent briefing"},
+            ],
+            "memory_promotions": [],
+            "pm_updates": [
+                {
+                    "action": "running_handoff",
+                    "pm_card_id": selected_entry["card_id"],
+                    "workspace_key": workspace_key,
+                    "owner_agent": target_agent,
+                    "status": "in_progress",
+                    "reason": "Workspace agent accepted the delegated lane and is now executing inside the workspace.",
+                    "payload": {
+                        "execution_state": "running",
+                        "workspace_agent": target_agent,
+                        "workspace_agent_packet_path": str(work_order_path),
+                    },
+                }
+            ],
+            "blockers": [],
+            "dependencies": [],
+            "recommended_next_actions": [
+                "Execute the workspace SOP inside the lane.",
+                "Write the result back through write_execution_result.py when done or blocked.",
+            ],
+            "escalations": [],
+            "error": None,
+            "metadata": {
+                "queue_mode": queue_mode,
+                "selected_card_id": selected_entry["card_id"],
+                "dry_run": args.dry_run,
+                "updated_card_id": updated_card.get("id") if isinstance(updated_card, dict) else None,
+            },
+        }
+    _append_jsonl(ledger_path, ledger_entry)
+    if not args.dry_run:
+        mirror_runs(
+            args.api_url,
+            [
+                build_run_payload(
+                    run_id=f"workspace_agent_dispatch::{run_id}",
+                    automation_id="workspace_agent_dispatch",
+                    automation_name="Workspace Agent Dispatch",
+                    status="ok",
+                    run_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=ledger_entry["duration_ms"],
+                    owner_agent=target_agent,
+                    scope="workspace",
+                    workspace_key=workspace_key,
+                    action_required=False,
+                    metadata={
+                        "summary": chronicle_entry["summary"],
+                        "result": "workspace_pickup",
+                        "selected_card_id": selected_entry["card_id"],
+                        "updated_card_id": updated_card.get("id") if isinstance(updated_card, dict) else None,
+                    },
+                )
+            ],
+        )
+
+    print(chronicle_entry["summary"])
+    print(f"Workspace-agent input: {input_path}")
+    print(f"Work order: {work_order_path}")
+    print(f"Briefing: {briefing_path}")
+    print(f"Ledger: {ledger_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Failed to reach PM API at {DEFAULT_API_URL}: {exc}") from exc

@@ -12,6 +12,7 @@ from app.routes import (
     analytics,
     automations,
     brain,
+    brief_reactions,
     build_reviews,
     briefs,
     calendar,
@@ -19,6 +20,7 @@ from app.routes import (
     content_generation,
     ingest_drive,
     knowledge,
+    lab,
     notifications,
     open_brain,
     persona,
@@ -141,11 +143,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 app.include_router(knowledge.router, prefix="/api/knowledge")
+app.include_router(lab.router)
 app.include_router(capture.router, prefix="/api/capture")
 app.include_router(content_generation.router, prefix="/api/content-generation")
 app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(automations.router, prefix="/api/automations")
 app.include_router(briefs.router)
+app.include_router(brief_reactions.router)
 app.include_router(playbook.router, prefix="/api/playbooks")
 app.include_router(prospects.router, prefix="/api/prospects")
 app.include_router(prospects_manual.router, prefix="/api/prospects/manual")

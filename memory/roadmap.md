@@ -44,6 +44,15 @@
 ## Automation & Heartbeat hygiene
 - Rebuild HEARTBEAT.md guidance around the lighter context pack and cheaper model once Discord delivery is stable.
 - Keep Context Guard + cron delivery logs in `memory/cron-prune.md` so we can prove the guardrails work after restarts.
+- OpenClaw cron rehab is now tracked explicitly in:
+  - `docs/openclaw_cron_rehab_project_plan.md`
+  - `docs/openclaw_cron_rehab_execution_checklist.md`
+  - `docs/openclaw_cron_rehab_backlog.md`
+- Immediate implementation focus is Phase 0 + Phase 1 only:
+  - baseline the real OpenClaw cron inventory
+  - classify runtime/cost/scope
+  - repair stale pathing and missing contract artifacts
+  - do not start the 3-agent / 5-workspace operating model until those tickets are closed
 
 ## Social Intelligence / Narrative Copilot
 - Treat the Workspace social system as LinkedIn-first, not LinkedIn-only: manual URLs, pasted text, LinkedIn saved signals, Reddit, Substack/RSS, and web articles should all converge into one shared signal contract before interpretation.
@@ -67,6 +76,9 @@
   4. make technique selection and evaluation data-informed instead of fully rule-based,
   5. expand the structured feedback layer so copy, approval, post outcomes, and expression deltas all feed the same tuning loop,
   6. only then build the shared tuning dashboard and auto-research loops.
+- Pinned backlog note (`2026-03-31`): `source_expression` is the next obvious quality pass for LinkedIn OS, but it is intentionally pinned instead of active.
+  - Current live state after the latest voice/surfacing pass: `status=passing`, `voice_match_avg=7.5`, `source_expression_avg=7.3`, `benchmark_avg=9.9`.
+  - Resume this only after a conscious re-prioritization; do not let it silently replace higher-urgency product or infrastructure work.
 - The next source-expansion phase should reuse the parent `Media Intake System` instead of creating a separate transcript stack in the social workspace:
   1. treat YouTube, podcasts, and transcript files as upstream source assets,
   2. segment long-form media into claim-sized units before they enter the social runtime,

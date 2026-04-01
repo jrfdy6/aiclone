@@ -29,6 +29,17 @@ PROCESS_TERMS = (
 AI_TERMS = (" ai ", "agent", "model", "prompt", "automation", "llm", "judgment")
 ADMISSIONS_TERMS = (" admissions", " enrollment", " prospect", " student journey", " referral", " family trust")
 STORY_TERMS = (" i ", " my ", " we ", " our ", " learned", " experience", " story")
+STRONG_STORY_TERMS = (
+    " i ",
+    " my ",
+    " my team ",
+    " our team ",
+    " my family ",
+    " i learned",
+    " i remember",
+    " my experience",
+    " origin story",
+)
 BOILERPLATE_PREFIXES = (
     "thank you",
     "hello",
@@ -37,6 +48,17 @@ BOILERPLATE_PREFIXES = (
     "welcome",
     "one question is",
     "that's a great question",
+)
+PROMO_PREFIXES = (
+    "my site:",
+    "full story",
+    "follow ",
+    "follow the ",
+    "follow on ",
+    "subscribe",
+    "join my ",
+    "sign up",
+    "newsletter",
 )
 EVENT_META_TERMS = (
     "south by",
@@ -115,11 +137,23 @@ WEAK_CONTEXT_PATTERNS = (
     r"\bchief product officer was presenting\b",
     r"\bshowed me (?:his|her|their) ai dashboard\b",
 )
+LOW_CONTEXT_STORY_PATTERNS = (
+    r"^remember\b",
+    r"\bthat i showed you\b",
+    r"\bsystem of record hill\b",
+)
 HYPE_PATTERNS = (
     r"\b\d+\s+years in the field of ai\b",
     r"\bthat(?:'s| is) an eternity\b",
     r"\bai magic takes over\b",
     r"\bmost transformative technology of our generation\b",
+    r"\beveryone thinks\b.*\bwhat if\b",
+)
+META_GUIDANCE_PATTERNS = (
+    r"\bnot safe to treat as\b",
+    r"\bstyle-reference-only\b",
+    r"\breference-only\b",
+    r"\bshould remain style-reference-only\b",
 )
 NOISY_LINE_TERMS = (
     "pending owner review",
@@ -131,16 +165,86 @@ NOISY_LINE_TERMS = (
     "validation transcript",
     "media background queue",
 )
+NOISY_ASSET_TERMS = (
+    "queue test transcript",
+    "validation transcript",
+    "media background queue",
+)
 NOISY_SECTION_HEADINGS = ("owner notes", "follow-ups")
 TARGET_CLAIMS = "identity/claims.md"
 TARGET_VOICE = "identity/VOICE_PATTERNS.md"
 TARGET_STORIES = "history/story_bank.md"
+URL_PATTERN = re.compile(r"https?://\S+")
+INLINE_TIMESTAMP_PATTERN = re.compile(r"<\d{2}:\d{2}:\d{2}\.\d{3}>")
+INLINE_CAPTION_TAG_PATTERN = re.compile(r"</?c(?:\.[^>]*)?>")
+CUE_TIMECODE_PATTERN = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}\.\d{3}")
+WEBVTT_HEADER_PATTERN = re.compile(r"^(?:WEBVTT|Kind:|Language:)\b", flags=re.IGNORECASE)
+MUSIC_BRACKET_PATTERN = re.compile(r"\[[^\]]*music[^\]]*\]", flags=re.IGNORECASE)
 
 
 def _clean_text(value: Any) -> str:
     if value is None:
         return ""
     return " ".join(str(value).replace("\xa0", " ").split()).strip()
+
+
+def _collapse_adjacent_repeated_runs(text: str, *, min_run: int = 4, max_run: int = 10) -> str:
+    tokens = [token for token in _clean_text(text).split() if token]
+    if len(tokens) < min_run * 2:
+        return " ".join(tokens)
+    changed = True
+    while changed:
+        changed = False
+        upper = min(max_run, len(tokens) // 2)
+        for size in range(upper, min_run - 1, -1):
+            for start in range(0, len(tokens) - (size * 2) + 1):
+                if tokens[start : start + size] == tokens[start + size : start + (size * 2)]:
+                    del tokens[start : start + size]
+                    changed = True
+                    break
+            if changed:
+                break
+    return " ".join(tokens)
+
+
+def _normalize_transcript_markup(text: str) -> str:
+    cleaned = str(text or "")
+    if not cleaned:
+        return ""
+    cleaned = INLINE_TIMESTAMP_PATTERN.sub(" ", cleaned)
+    cleaned = INLINE_CAPTION_TAG_PATTERN.sub("", cleaned)
+    cleaned = MUSIC_BRACKET_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"\s*-->\s*", " ", cleaned)
+    cleaned = _collapse_adjacent_repeated_runs(cleaned)
+    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"([,.;:!?])(?=\w)", r"\1 ", cleaned)
+    return _clean_text(cleaned)
+
+
+def _normalize_source_document(text: str) -> str:
+    lines: list[str] = []
+    for raw_line in str(text or "").splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            lines.append("")
+            continue
+        if WEBVTT_HEADER_PATTERN.match(stripped) or CUE_TIMECODE_PATTERN.match(stripped):
+            continue
+        cleaned = _normalize_transcript_markup(stripped)
+        if not cleaned:
+            continue
+        pieces = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])", cleaned)
+        emitted = False
+        for piece in pieces:
+            normalized = _clean_text(piece)
+            if not normalized:
+                continue
+            lines.append(normalized)
+            emitted = True
+        if not emitted:
+            lines.append(cleaned)
+    return "\n".join(line for line in lines if line is not None).strip()
 
 
 def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
@@ -169,6 +273,8 @@ def _normalize_source_line(raw_line: str) -> str:
     line = raw_line.strip()
     if not line:
         return ""
+    if WEBVTT_HEADER_PATTERN.match(line) or CUE_TIMECODE_PATTERN.match(line):
+        return ""
     if line.startswith("#"):
         return ""
     if re.match(r"^- \[[ xX]\]\s+", line):
@@ -178,7 +284,7 @@ def _normalize_source_line(raw_line: str) -> str:
     line = re.sub(r"^\*\*[^*]+\*\*:\s*", "", line)
     line = re.sub(r"^(Transcript\s+Host|Host|Speaker\s*\d+|Moderator|Interviewer|Question|Audience):\s*", "", line, flags=re.IGNORECASE)
     line = re.sub(r"^Transcript\s*$", "", line, flags=re.IGNORECASE)
-    line = _clean_text(line)
+    line = _normalize_transcript_markup(line)
     lowered = line.lower()
     if not line:
         return ""
@@ -301,17 +407,50 @@ def _read_asset_content(asset: dict[str, Any], repo_root: Path) -> tuple[dict[st
         return {}, ""
     raw = path.read_text(encoding="utf-8")
     meta, body = _parse_frontmatter(raw)
-    return meta, _trim_noise_sections(body)
+    return meta, _normalize_source_document(_trim_noise_sections(body))
+
+
+def _asset_has_segmentable_transcript(asset: dict[str, Any], meta: dict[str, Any], body: str) -> bool:
+    asset_text = " ".join(
+        _clean_text(asset.get(key))
+        for key in ("title", "summary", "asset_id", "raw_path", "source_path")
+    ).lower()
+    if any(term in asset_text for term in NOISY_ASSET_TERMS):
+        return False
+    source_type = _clean_text(asset.get("source_type") or meta.get("source_type")).lower()
+    word_count = asset.get("word_count")
+    body_text = _clean_text(body).lower()
+
+    if source_type in {"youtube_transcript", "podcast_transcript"}:
+        if isinstance(word_count, (int, float)) and word_count > 0:
+            return True
+        if body_text.startswith("# source notes") or "transcript capture still pending" in body_text:
+            return False
+
+    return bool(body.strip())
 
 
 def _is_boilerplate(sentence: str, asset_title: str) -> bool:
-    lowered = f" {_clean_text(sentence).lower()} "
+    cleaned = _clean_text(sentence)
+    lowered = f" {cleaned.lower()} "
     if any(lowered.strip().startswith(prefix) for prefix in BOILERPLATE_PREFIXES):
+        return True
+    if any(lowered.strip().startswith(prefix) for prefix in PROMO_PREFIXES):
+        return True
+    if "selected from youtube watchlist" in lowered:
+        return True
+    if "transcript capture still pending" in lowered:
         return True
     if any(term in lowered for term in NOISY_LINE_TERMS):
         return True
     title = _clean_text(asset_title).lower()
     if title and lowered.strip() == title:
+        return True
+    if len(URL_PATTERN.findall(cleaned)) >= 1:
+        return True
+    if cleaned.count("@") >= 2:
+        return True
+    if cleaned.count(":") >= 3 and len(cleaned.split()) <= 35:
         return True
     if len(lowered.split()) < 6:
         return True
@@ -360,41 +499,103 @@ def _score_sentence(sentence: str, asset: dict[str, Any]) -> tuple[int, int, int
     return score, len(words), -len(text)
 
 
-def _extract_segments(asset: dict[str, Any], body: str, max_segments: int) -> list[tuple[str, tuple[int, int, int]]]:
+def _find_context_index(segment: str, sentences: list[str]) -> int | None:
+    if not sentences:
+        return None
+    normalized_segment = _clean_text(segment).lower()
+    if not normalized_segment:
+        return None
+    for index, sentence in enumerate(sentences):
+        if _clean_text(sentence).lower() == normalized_segment:
+            return index
+
+    segment_terms = set(re.findall(r"[a-z0-9]+", normalized_segment))
+    if not segment_terms:
+        return None
+    best_index: int | None = None
+    best_overlap = 0
+    for index, sentence in enumerate(sentences):
+        sentence_terms = set(re.findall(r"[a-z0-9]+", _clean_text(sentence).lower()))
+        overlap = len(segment_terms & sentence_terms)
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_index = index
+    return best_index if best_overlap >= min(4, len(segment_terms)) else None
+
+
+def _build_segment_context(segment: str, sentences: list[str], *, window: int = 2) -> dict[str, Any]:
+    cleaned_segment = _clean_text(segment)
+    if not cleaned_segment:
+        return {
+            "source_context_excerpt": "",
+            "source_context_before": [],
+            "source_context_after": [],
+        }
+    index = _find_context_index(cleaned_segment, sentences)
+    if index is None:
+        return {
+            "source_context_excerpt": cleaned_segment,
+            "source_context_before": [],
+            "source_context_after": [],
+        }
+    before = [_clean_text(item) for item in sentences[max(0, index - window) : index] if _clean_text(item)]
+    after = [_clean_text(item) for item in sentences[index + 1 : index + 1 + window] if _clean_text(item)]
+    context_excerpt = " ".join(before + [cleaned_segment] + after).strip()
+    return {
+        "source_context_excerpt": context_excerpt or cleaned_segment,
+        "source_context_before": before,
+        "source_context_after": after,
+    }
+
+
+def _extract_segments(asset: dict[str, Any], body: str, max_segments: int) -> list[dict[str, Any]]:
     summary = _clean_text(asset.get("summary"))
-    candidates: list[str] = []
+    candidates: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    for candidate in _bullet_lines(body, limit=24) + _candidate_sentences(summary, limit=8):
-        lowered = candidate.lower()
-        if lowered in seen:
-            continue
-        seen.add(lowered)
-        candidates.append(candidate)
+    body_first_candidates = _bullet_lines(body, limit=24) + _candidate_sentences(body, limit=80)
+    summary_candidates = [] if body_first_candidates else _candidate_sentences(summary, limit=8)
 
-    body_sentences = _candidate_sentences(body, limit=80)
-    for candidate in body_sentences:
+    for candidate in body_first_candidates + summary_candidates:
         lowered = candidate.lower()
         if lowered in seen:
             continue
         seen.add(lowered)
-        candidates.append(candidate)
+        candidates.append(
+            {
+                "segment": candidate,
+                "context_pool": body_first_candidates if candidate in body_first_candidates else [candidate],
+            }
+        )
 
     scored = [
-        (candidate, _score_sentence(candidate, asset))
-        for candidate in candidates
-        if not _is_boilerplate(candidate, _clean_text(asset.get("title")))
+        (
+            entry["segment"],
+            _score_sentence(str(entry["segment"]), asset),
+            entry.get("context_pool") if isinstance(entry.get("context_pool"), list) else [],
+        )
+        for entry in candidates
+        if not _is_boilerplate(str(entry.get("segment") or ""), _clean_text(asset.get("title")))
     ]
     scored.sort(key=lambda item: item[1], reverse=True)
 
-    selected: list[tuple[str, tuple[int, int, int]]] = []
-    for candidate, metrics in scored:
+    selected: list[dict[str, Any]] = []
+    for candidate, metrics, context_pool in scored:
         if metrics[0] < 2:
             continue
         candidate_words = set(re.findall(r"[a-z0-9]+", candidate.lower()))
-        if any(len(candidate_words & set(re.findall(r"[a-z0-9]+", existing.lower()))) >= min(8, len(candidate_words)) for existing, _ in selected):
+        if any(
+            len(candidate_words & set(re.findall(r"[a-z0-9]+", str(existing.get("segment") or "").lower()))) >= min(8, len(candidate_words))
+            for existing in selected
+        ):
             continue
-        selected.append((candidate, metrics))
+        selected.append(
+            {
+                "segment": candidate,
+                "metrics": metrics,
+                **_build_segment_context(candidate, [str(item) for item in context_pool if _clean_text(item)]),
+            }
+        )
         if len(selected) >= max_segments:
             break
     return selected
@@ -406,7 +607,7 @@ def _lane_hint(text: str) -> str:
         return "ai"
     if any(term in lowered for term in ADMISSIONS_TERMS):
         return "admissions"
-    if any(term in lowered for term in STORY_TERMS):
+    if any(term in lowered for term in STRONG_STORY_TERMS):
         return "personal-story"
     if any(term in lowered for term in PROCESS_TERMS):
         return "program-leadership"
@@ -415,7 +616,7 @@ def _lane_hint(text: str) -> str:
 
 def _choose_target_file(text: str, lane_id: str, assessment: dict[str, str]) -> str:
     lowered = f" {_clean_text(text).lower()} "
-    if lane_id == "personal-story" or any(term in lowered for term in ("i learned", "i remember", "my experience", "origin story")):
+    if lane_id == "personal-story" or any(term in lowered for term in (" i learned", " i remember", " my experience", " origin story")):
         return TARGET_STORIES
     if assessment.get("stance") in {"counter", "nuance"} or any(term in lowered for term in CONTRAST_TERMS):
         return TARGET_CLAIMS
@@ -490,10 +691,99 @@ def _is_repost_ready_segment(segment: str, score: int, target_file: str) -> bool
     return bool(re.search(r"\b\d+\b", cleaned) or any(term in lowered for term in CONTRAST_TERMS))
 
 
-def _classify_routes(segment: str, assessment: dict[str, str], target_file: str, worldview_score: int) -> tuple[list[str], str, str, int]:
-    routes = {"post_seed", "belief_evidence"}
+def _is_belief_evidence_segment(segment: str, assessment: dict[str, str], target_file: str, route_score: int) -> bool:
+    cleaned = _clean_text(segment)
+    if not cleaned:
+        return False
+    lowered = f" {cleaned.lower()} "
+    words = len(cleaned.split())
+    if cleaned.endswith("?"):
+        return False
+    if any(re.search(pattern, lowered) for pattern in META_GUIDANCE_PATTERNS):
+        return False
+    if target_file == TARGET_STORIES:
+        return words >= 10 and any(term in lowered for term in STRONG_STORY_TERMS)
+    if target_file == TARGET_VOICE:
+        return 6 <= words <= 18
+    if route_score < 5:
+        return False
+    if any(term in lowered for term in WORLDVIEW_TERMS):
+        return True
+    if any(term in lowered for term in PROCESS_TERMS) and _clean_text(assessment.get("belief_summary")):
+        return True
+    if assessment.get("stance") in {"counter", "nuance"} and words <= 22:
+        return True
+    return False
+
+
+def _is_low_context_story_fragment(segment: str, source_context_excerpt: str = "") -> bool:
+    cleaned = _clean_text(segment)
+    if not cleaned:
+        return False
+    lowered = f" {cleaned.lower()} "
+    context_cleaned = _clean_text(source_context_excerpt)
+    if any(re.search(pattern, lowered) for pattern in LOW_CONTEXT_STORY_PATTERNS):
+        return True
+    demonstrative_hits = sum(lowered.count(token) for token in (" that ", " this ", " these ", " those ", " it "))
+    if cleaned.endswith("?") and (demonstrative_hits >= 2 or "showed you" in lowered):
+        return True
+    if cleaned.endswith("?") and (_clean_text(context_cleaned).lower() in {"", cleaned.lower()}):
+        return True
+    return False
+
+
+def _is_manual_reference_source(asset: dict[str, Any]) -> bool:
+    channel = _clean_text(asset.get("source_channel")).lower()
+    source_type = _clean_text(asset.get("source_type")).lower()
+    return channel == "manual" or source_type == "transcript_note"
+
+
+def _has_lived_proof_context(segment: str, source_context_excerpt: str = "") -> bool:
+    lowered = f" {_clean_text(segment).lower()} "
+    if any(term in lowered for term in STRONG_STORY_TERMS):
+        return True
+    context_lowered = f" {_clean_text(source_context_excerpt).lower()} "
+    return any(term in context_lowered for term in STRONG_STORY_TERMS)
+
+
+def _is_high_value_non_lived_segment(segment: str, assessment: dict[str, str], route_score: int) -> bool:
+    cleaned = _clean_text(segment)
+    if not cleaned:
+        return False
+    lowered = f" {cleaned.lower()} "
+    words = len(cleaned.split())
+    if route_score < 14:
+        return False
+    if words < 9 or words > 34:
+        return False
+    if not any(term in lowered for term in WORLDVIEW_TERMS + PROCESS_TERMS + CONTRAST_TERMS):
+        return False
+    return _clean_text(assessment.get("stance")) in {"counter", "nuance", "translate"}
+
+
+def _classify_routes(
+    segment: str,
+    assessment: dict[str, str],
+    target_file: str,
+    worldview_score: int,
+    *,
+    source_context_excerpt: str = "",
+) -> tuple[list[str], str, str, int]:
     score = _route_score(segment, assessment, target_file, worldview_score)
     words = len(segment.split())
+    low_context_story = target_file == TARGET_STORIES and _is_low_context_story_fragment(segment, source_context_excerpt)
+    belief_candidate = False if low_context_story else _is_belief_evidence_segment(segment, assessment, target_file, score)
+    routes = {"post_seed"}
+    if belief_candidate:
+        routes.add("belief_evidence")
+
+    if low_context_story:
+        return (
+            ["post_seed"],
+            "post_seed",
+            "segment depends on missing story context and is safer as source intelligence or a post seed than a canon candidate",
+            score,
+        )
 
     if _is_comment_ready_segment(segment, score, target_file):
         routes.add("comment")
@@ -503,12 +793,12 @@ def _classify_routes(segment: str, assessment: dict[str, str], target_file: str,
     if "comment" in routes:
         primary = "comment"
         reason = "segment is compact and explicit enough for direct reaction"
-    elif target_file == TARGET_VOICE or words <= 18:
+    elif belief_candidate and (target_file == TARGET_VOICE or words <= 18 or score >= 8):
         primary = "belief_evidence"
-        reason = "segment is better suited to persona language or worldview capture"
+        reason = "segment reads like a durable worldview or language fragment that may be worth canon review"
     else:
         primary = "post_seed"
-        reason = "segment is stronger as an original post angle than a direct reaction"
+        reason = "segment is stronger as a post seed or source-intelligence input than a direct canon claim"
 
     ordered = [mode for mode in ("comment", "repost", "post_seed", "belief_evidence") if mode in routes]
     return ordered, primary, reason, score
@@ -532,7 +822,7 @@ def extract_long_form_candidates(
     source_assets: dict[str, Any] | None = None,
     transcripts_root: Path | None = None,
     ingestions_root: Path | None = None,
-    max_assets: int = 4,
+    max_assets: int = 12,
     max_segments_per_asset: int = 2,
 ) -> dict[str, Any]:
     inventory = source_assets
@@ -560,8 +850,11 @@ def extract_long_form_candidates(
         assets_considered += 1
         channel = _clean_text(asset.get("source_channel")) or "unknown"
         by_channel[channel] = by_channel.get(channel, 0) + 1
-        _, body = _read_asset_content(asset, repo_root)
+        meta, body = _read_asset_content(asset, repo_root)
         if not body:
+            skipped_no_segments += 1
+            continue
+        if not _asset_has_segmentable_transcript(asset, meta, body):
             skipped_no_segments += 1
             continue
         segments = _extract_segments(asset, body, max_segments=max_segments_per_asset)
@@ -570,12 +863,34 @@ def extract_long_form_candidates(
             continue
 
         asset_candidates: list[dict[str, Any]] = []
-        for index, (segment, metrics) in enumerate(segments, start=1):
+        for index, segment_payload in enumerate(segments, start=1):
+            segment = _clean_text(segment_payload.get("segment"))
+            metrics = segment_payload.get("metrics") or (0, 0, 0)
             worldview_score = int(metrics[0])
             lane_id = _lane_hint(segment)
             assessment = social_belief_engine.assess_signal(_build_signal(asset, segment), lane_id)
             target_file = _choose_target_file(segment, lane_id, assessment)
-            response_modes, primary_route, route_reason, route_score = _classify_routes(segment, assessment, target_file, worldview_score)
+            source_context_excerpt = _clean_text(segment_payload.get("source_context_excerpt"))
+            response_modes, primary_route, route_reason, route_score = _classify_routes(
+                segment,
+                assessment,
+                target_file,
+                worldview_score,
+                source_context_excerpt=source_context_excerpt,
+            )
+            manual_reference_source = _is_manual_reference_source(asset)
+            lived_proof_context = _has_lived_proof_context(segment, source_context_excerpt)
+            high_value_non_lived = _is_high_value_non_lived_segment(segment, assessment, route_score)
+            if manual_reference_source and "belief_evidence" in response_modes and not lived_proof_context and not high_value_non_lived:
+                response_modes = [mode for mode in response_modes if mode != "belief_evidence"]
+                if not response_modes:
+                    response_modes = ["post_seed"]
+                if primary_route == "belief_evidence":
+                    primary_route = response_modes[0]
+                route_reason = (
+                    "segment is strategic source intelligence and should stay a post seed unless lived-proof context or exceptional value is clear"
+                )
+            weak_source_fragment = target_file == TARGET_STORIES and _is_low_context_story_fragment(segment, source_context_excerpt)
             candidate = {
                 "candidate_id": _review_key(asset, segment, target_file),
                 "asset_id": _clean_text(asset.get("asset_id")),
@@ -593,6 +908,13 @@ def extract_long_form_candidates(
                 "belief_relation": assessment.get("belief_relation", ""),
                 "belief_summary": _clean_text(assessment.get("belief_summary")),
                 "experience_summary": _clean_text(assessment.get("experience_summary")),
+                "source_context_excerpt": source_context_excerpt,
+                "source_context_before": [str(item) for item in (segment_payload.get("source_context_before") or []) if _clean_text(item)],
+                "source_context_after": [str(item) for item in (segment_payload.get("source_context_after") or []) if _clean_text(item)],
+                "weak_source_fragment": weak_source_fragment,
+                "manual_reference_source": manual_reference_source,
+                "lived_proof_context": lived_proof_context,
+                "high_value_non_lived": high_value_non_lived,
                 "response_modes": response_modes,
                 "primary_route": primary_route,
                 "route_reason": route_reason,
@@ -629,6 +951,7 @@ def extract_long_form_candidates(
 
     return {
         "assets_considered": assets_considered,
+        "considered_asset_ids": [_clean_text(item.get("asset_id")) for item in items[:max_assets] if _clean_text(item.get("asset_id"))],
         "segments_total": len(candidates),
         "skipped_no_segments": skipped_no_segments,
         "route_counts": route_counts,
@@ -646,7 +969,7 @@ def build_long_form_route_summary(
     source_assets: dict[str, Any] | None = None,
     transcripts_root: Path | None = None,
     ingestions_root: Path | None = None,
-    max_assets: int = 4,
+    max_assets: int = 12,
     max_segments_per_asset: int = 2,
 ) -> dict[str, Any]:
     extracted = extract_long_form_candidates(
@@ -681,6 +1004,8 @@ def build_long_form_route_summary(
                 "stance": item["stance"],
                 "belief_relation": item.get("belief_relation", ""),
                 "belief_summary": item["belief_summary"],
+                "source_context_excerpt": item.get("source_context_excerpt", ""),
+                "weak_source_fragment": bool(item.get("weak_source_fragment")),
                 "response_modes": item["response_modes"],
                 "primary_route": item["primary_route"],
                 "route_reason": item["route_reason"],

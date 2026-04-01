@@ -596,7 +596,16 @@ def _infer_role_safety(signal: dict[str, Any], lane_id: str, profile: dict[str, 
     return "safe"
 
 
-def _choose_stance(signal: dict[str, Any], lane_id: str, profile: dict[str, bool], role_safety: str) -> str:
+def _choose_stance(
+    signal: dict[str, Any],
+    lane_id: str,
+    profile: dict[str, bool],
+    role_safety: str,
+    article_understanding: dict[str, Any] | None = None,
+    persona_retrieval: dict[str, Any] | None = None,
+) -> str:
+    article_understanding = article_understanding or {}
+    persona_retrieval = persona_retrieval or {}
     text = " ".join(
         [
             normalize_inline_text(signal.get("title")),
@@ -605,19 +614,54 @@ def _choose_stance(signal: dict[str, Any], lane_id: str, profile: dict[str, bool
             " ".join(signal.get("supporting_claims") or []),
         ]
     ).lower()
+    article_kind = normalize_inline_text(article_understanding.get("article_kind")).lower()
+    article_stance = normalize_inline_text(article_understanding.get("article_stance")).lower()
+    world_domains = {str(item).lower() for item in (article_understanding.get("world_domains") or []) if str(item).strip()}
+    selected_experience = persona_retrieval.get("selected_experience") or {}
+    has_lived_anchor = bool(normalize_inline_text(selected_experience.get("text") or selected_experience.get("title")))
 
     if lane_id == "personal-story":
         stance = "personal-anchor"
+    elif lane_id == "admissions":
+        stance = "personal-anchor" if has_lived_anchor and (article_kind == "news" or {"education", "admissions"} & world_domains) else "translate"
+    elif lane_id in {"current-role", "enrollment-management", "therapy", "referral"}:
+        stance = "personal-anchor" if has_lived_anchor and article_kind == "news" else "translate"
+    elif lane_id == "ops-pm":
+        if article_kind in {"warning", "operator_lesson"} or "ops" in world_domains:
+            stance = "systemize"
+        elif article_kind == "news":
+            stance = "translate"
+        else:
+            stance = "nuance"
+    elif lane_id == "program-leadership":
+        if has_lived_anchor and (article_kind == "news" or "leadership" in world_domains):
+            stance = "personal-anchor"
+        elif article_stance in {"warn", "advocate"} or profile["is_leadership"]:
+            stance = "systemize"
+        else:
+            stance = "nuance"
+    elif lane_id == "entrepreneurship":
+        if article_kind == "trend":
+            stance = "counter"
+        elif article_stance in {"speculate", "advocate"}:
+            stance = "nuance"
+        else:
+            stance = "systemize"
+    elif lane_id == "ai":
+        if article_stance in {"speculate", "advocate"} or profile["is_hype"]:
+            stance = "nuance"
+        elif article_kind == "news" and {"education", "admissions"} & world_domains:
+            stance = "translate"
+        else:
+            stance = "counter" if contains_any(text, ["replace", "obsolete", "future is", "everyone", "nobody"]) else "nuance"
     elif lane_id in {"program-leadership", "ops-pm", "entrepreneurship"}:
         stance = "systemize"
     elif lane_id in {"admissions", "current-role", "enrollment-management", "therapy", "referral"}:
         stance = "translate"
-    elif lane_id == "ai":
-        stance = "nuance" if profile["is_ai"] or profile["is_hype"] else "translate"
     else:
         stance = "reinforce"
 
-    if contains_any(text, ["but", "however", "missing piece", "left out", "not enough"]):
+    if contains_any(text, ["but", "however", "missing piece", "left out", "not enough"]) and stance not in {"personal-anchor", "systemize"}:
         stance = "nuance"
     if profile["is_hype"] and lane_id in {"ai", "ops-pm", "entrepreneurship"}:
         stance = "counter"
@@ -703,13 +747,26 @@ def _build_stance_language(stance: str, belief_summary: str, experience_summary:
 class SocialBeliefEngine:
     """Rule-based first pass for stance and experience anchoring."""
 
-    def assess_signal(self, signal: dict[str, Any], lane_id: str) -> dict[str, str]:
+    def assess_signal(
+        self,
+        signal: dict[str, Any],
+        lane_id: str,
+        article_understanding: dict[str, Any] | None = None,
+        persona_retrieval: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
         truth = load_persona_truth()
         profile = _infer_profile(signal)
         belief = _choose_belief(signal, lane_id, profile, truth)
         experience = _choose_experience(signal, lane_id, profile, truth)
         role_safety = _infer_role_safety(signal, lane_id, profile)
-        stance = _choose_stance(signal, lane_id, profile, role_safety)
+        stance = _choose_stance(
+            signal,
+            lane_id,
+            profile,
+            role_safety,
+            article_understanding=article_understanding,
+            persona_retrieval=persona_retrieval,
+        )
         language = _build_stance_language(
             stance,
             belief.get("belief_summary", ""),

@@ -44,40 +44,74 @@ async function loadBrainInitialState(): Promise<BrainInitialState> {
 
 function loadDocs(): DocEntry[] {
   try {
-    const workspaceRoot = path.join(process.cwd(), '..');
+    const cwd = process.cwd();
+    const workspaceRoot = fs.existsSync(path.join(cwd, 'memory')) ? cwd : path.join(cwd, '..');
+    const searchRoots = Array.from(new Set([cwd, workspaceRoot]));
     const roots = [
-      { dir: path.join(process.cwd(), 'knowledge/aiclone'), group: 'Knowledge Docs' },
-      { dir: path.join(workspaceRoot, 'knowledge/aiclone'), group: 'Knowledge Docs' },
-      { dir: path.join(process.cwd(), 'docs'), group: 'System Docs' },
-      { dir: path.join(workspaceRoot, 'docs'), group: 'System Docs' },
-      { dir: path.join(process.cwd(), 'SOPs'), group: 'Operating Docs' },
-      { dir: path.join(workspaceRoot, 'SOPs'), group: 'Operating Docs' },
-      { dir: path.join(process.cwd(), 'knowledge/persona/feeze/identity'), group: 'Persona Bundle' },
-      { dir: path.join(workspaceRoot, 'knowledge/persona/feeze/identity'), group: 'Persona Bundle' },
-      { dir: path.join(process.cwd(), 'workspaces/linkedin-content-os/docs'), group: 'Workspace Reference' },
-      { dir: path.join(workspaceRoot, 'workspaces/linkedin-content-os/docs'), group: 'Workspace Reference' },
+      { relDir: 'knowledge/aiclone', group: 'Knowledge Docs' },
+      { relDir: 'knowledge/source-intelligence', group: 'Source Intelligence' },
+      { relDir: 'docs', group: 'System Docs' },
+      { relDir: 'SOPs', group: 'Operating Docs' },
+      { relDir: 'knowledge/persona/feeze/identity', group: 'Persona Bundle' },
+      { relDir: 'workspaces/linkedin-content-os/docs', group: 'Workspace Reference' },
+    ];
+    const explicitFiles = [
+      { relPath: 'memory/persistent_state.md', group: 'Canonical Memory' },
+      { relPath: 'memory/LEARNINGS.md', group: 'Canonical Memory' },
+      { relPath: 'memory/daily-briefs.md', group: 'Canonical Memory' },
+      { relPath: 'memory/cron-prune.md', group: 'Canonical Memory' },
+      { relPath: 'memory/dream_cycle_log.md', group: 'Canonical Memory' },
+      { relPath: 'memory/codex_session_handoff.jsonl', group: 'Canonical Memory', name: 'codex_session_handoff' },
+      { relPath: 'memory/reports/brain_canonical_memory_sync_latest.md', group: 'Canonical Memory', name: 'brain_canonical_memory_sync_latest' },
+      { relPath: 'docs/brain_truth_lanes_and_promotion_flow.md', group: 'System Docs' },
     ];
     const seen = new Set<string>();
     const docs: DocEntry[] = [];
+    const pushDoc = (fullPath: string, group: string, nameOverride?: string) => {
+      const relPath = path.relative(workspaceRoot, fullPath);
+      if (seen.has(relPath)) return;
+      seen.add(relPath);
+      const raw = fs.readFileSync(fullPath, 'utf-8');
+      const snippet = raw.split('\n').find((line) => line.trim().length > 0) ?? '';
+      const stat = fs.statSync(fullPath);
+      docs.push({
+        name: nameOverride ?? path.basename(fullPath).replace(path.extname(fullPath), ''),
+        path: relPath,
+        snippet,
+        content: raw,
+        group,
+        updatedAt: stat.mtime.toISOString(),
+      } satisfies DocEntry);
+    };
+
     for (const root of roots) {
-      if (!fs.existsSync(root.dir)) continue;
-      for (const file of fs.readdirSync(root.dir)) {
-        if (!file.endsWith('.md')) continue;
-        const fullPath = path.join(root.dir, file);
-        const relPath = path.relative(process.cwd(), fullPath);
-        if (seen.has(relPath)) continue;
-        seen.add(relPath);
-        const raw = fs.readFileSync(fullPath, 'utf-8');
-        const snippet = raw.split('\n').find((line) => line.trim().length > 0) ?? '';
-        const stat = fs.statSync(fullPath);
-        docs.push({
-          name: file.replace('.md', ''),
-          path: relPath,
-          snippet,
-          content: raw,
-          group: root.group,
-          updatedAt: stat.mtime.toISOString(),
-        } satisfies DocEntry);
+      for (const baseRoot of searchRoots) {
+        const dir = path.join(baseRoot, root.relDir);
+        if (!fs.existsSync(dir)) continue;
+        for (const file of fs.readdirSync(dir)) {
+          if (!file.endsWith('.md')) continue;
+          pushDoc(path.join(dir, file), root.group);
+        }
+      }
+    }
+
+    for (const entry of explicitFiles) {
+      for (const baseRoot of searchRoots) {
+        const fullPath = path.join(baseRoot, entry.relPath);
+        if (!fs.existsSync(fullPath)) continue;
+        pushDoc(fullPath, entry.group, entry.name);
+      }
+    }
+
+    const memoryDir = path.join(workspaceRoot, 'memory');
+    if (fs.existsSync(memoryDir)) {
+      const latestDailyLog = fs
+        .readdirSync(memoryDir)
+        .filter((file) => /^\d{4}-\d{2}-\d{2}\.md$/.test(file))
+        .sort()
+        .pop();
+      if (latestDailyLog) {
+        pushDoc(path.join(memoryDir, latestDailyLog), 'Canonical Memory', latestDailyLog.replace('.md', ''));
       }
     }
     if (docs.length > 0) {

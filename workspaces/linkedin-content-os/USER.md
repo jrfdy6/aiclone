@@ -1,9 +1,10 @@
-# USER.md - LinkedIn Channel Preferences
+# USER.md - FEEZIE OS Preferences
 
-This workspace serves Feeze on LinkedIn.
+This workspace serves Feeze's public visibility system, starting with LinkedIn and widening over time.
 
 Channel-specific preferences:
 - Keep posts grounded in real work, real stories, and real proof.
+- Treat LinkedIn as the first surface, not the whole destination.
 - Protect the balance across current job, program leadership, education, AI, ops/project management, therapy, referral, entrepreneurship, and style.
 - Favor operator clarity over startup hype.
 - Use a practical, human voice rather than sterile corporate language.
@@ -14,5 +15,6 @@ Channel-specific preferences:
 
 Default content objectives:
 - Build recognizable thought leadership.
-- Support existing initiatives and business credibility.
+- Support existing initiatives, business credibility, and career positioning.
 - Capture lived lessons that strengthen the canonical persona over time.
+- Let this lane evolve into a broader FEEZIE OS surface that can later include Instagram and broader career positioning.

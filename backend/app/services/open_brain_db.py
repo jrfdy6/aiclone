@@ -143,16 +143,21 @@ _BASE_SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS standups (
         id UUID PRIMARY KEY,
         owner TEXT NOT NULL,
+        workspace_key TEXT DEFAULT 'shared_ops',
         status TEXT,
         blockers TEXT[] DEFAULT '{}',
         commitments TEXT[] DEFAULT '{}',
         needs TEXT[] DEFAULT '{}',
         source TEXT,
         conversation_path TEXT,
+        payload JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ DEFAULT NOW()
     )
     """,
     "CREATE INDEX IF NOT EXISTS standups_owner_idx ON standups(owner)",
+    "ALTER TABLE standups ADD COLUMN IF NOT EXISTS workspace_key TEXT DEFAULT 'shared_ops'",
+    "ALTER TABLE standups ADD COLUMN IF NOT EXISTS payload JSONB DEFAULT '{}'::jsonb",
+    "CREATE INDEX IF NOT EXISTS standups_workspace_idx ON standups(workspace_key, created_at DESC)",
     """
     CREATE TABLE IF NOT EXISTS daily_briefs (
         id UUID PRIMARY KEY,
@@ -169,6 +174,26 @@ _BASE_SCHEMA_STATEMENTS = (
     """,
     "CREATE INDEX IF NOT EXISTS daily_briefs_date_idx ON daily_briefs(brief_date DESC)",
     """
+    CREATE TABLE IF NOT EXISTS brief_reactions (
+        id UUID PRIMARY KEY,
+        brief_id TEXT NOT NULL,
+        item_key TEXT NOT NULL,
+        item_title TEXT NOT NULL,
+        reaction_kind TEXT NOT NULL,
+        text TEXT NOT NULL,
+        source_kind TEXT,
+        source_url TEXT,
+        source_path TEXT,
+        linked_delta_id TEXT,
+        linked_capture_id TEXT,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS brief_reactions_brief_idx ON brief_reactions(brief_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS brief_reactions_item_idx ON brief_reactions(item_key, created_at DESC)",
+    """
     CREATE TABLE IF NOT EXISTS workspace_snapshots (
         id UUID PRIMARY KEY,
         workspace_key TEXT NOT NULL,
@@ -181,6 +206,33 @@ _BASE_SCHEMA_STATEMENTS = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS workspace_snapshots_workspace_idx ON workspace_snapshots(workspace_key, snapshot_type)",
+    """
+    CREATE TABLE IF NOT EXISTS automation_runs (
+        id TEXT PRIMARY KEY,
+        automation_id TEXT NOT NULL,
+        automation_name TEXT NOT NULL,
+        source TEXT DEFAULT 'static_registry',
+        runtime TEXT,
+        status TEXT DEFAULT 'unknown',
+        delivered BOOLEAN,
+        delivery_channel TEXT,
+        delivery_target TEXT,
+        run_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        duration_ms INT,
+        error TEXT,
+        owner_agent TEXT,
+        session_target TEXT,
+        scope TEXT DEFAULT 'shared_ops',
+        workspace_key TEXT,
+        action_required BOOLEAN DEFAULT FALSE,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS automation_runs_automation_idx ON automation_runs(automation_id, run_at DESC)",
+    "CREATE INDEX IF NOT EXISTS automation_runs_status_idx ON automation_runs(status, action_required, run_at DESC)",
 )
 
 

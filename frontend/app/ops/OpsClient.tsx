@@ -35,6 +35,72 @@ export type DocReference = {
   updatedAt: string;
 };
 
+export type ExecutiveArtifact = {
+  id: string;
+  label: string;
+  category: 'codex' | 'openclaw' | 'local' | 'memory';
+  path?: string;
+  updatedAt?: string;
+  summary: string;
+  detail: string;
+};
+
+export type ChronicleEntry = {
+  id: string;
+  createdAt?: string;
+  workspaceKey: string;
+  scope?: string;
+  summary: string;
+  signalTypes: string[];
+  decisions: string[];
+  blockers: string[];
+  followUps: string[];
+  tags: string[];
+};
+
+export type StandupPrepPacket = {
+  id: string;
+  standupKind: string;
+  workspaceKey: string;
+  ownerAgent: string;
+  generatedAt?: string;
+  summary: string;
+  agenda: string[];
+  blockers: string[];
+  commitments: string[];
+  needs: string[];
+  artifactDeltas: string[];
+  pmSnapshot?: Record<string, unknown>;
+  pmUpdateTitles: string[];
+  memoryPromotions: string[];
+  sourcePaths: string[];
+  path: string;
+};
+
+export type PMRecommendationItem = {
+  workspaceKey: string;
+  scope: string;
+  ownerAgent: string;
+  title: string;
+  status: string;
+  reason: string;
+};
+
+export type PMRecommendationPacket = {
+  id: string;
+  workspaceKey: string;
+  createdAt?: string;
+  path: string;
+  items: PMRecommendationItem[];
+};
+
+export type ExecutiveFeed = {
+  artifacts: ExecutiveArtifact[];
+  chronicleEntries: ChronicleEntry[];
+  standupPreps: StandupPrepPacket[];
+  pmRecommendations: PMRecommendationPacket[];
+};
+
 type ComplianceMetrics = {
   approvals_last_24h: number;
   prospects_with_email: number;
@@ -63,6 +129,11 @@ type Automation = {
   cron: string;
   status: string;
   channel: string;
+  source?: string;
+  runtime?: string | null;
+  last_status?: string;
+  scope?: string;
+  workspace_key?: string | null;
   last_run_at?: string;
   next_run_at?: string;
 };
@@ -81,16 +152,71 @@ type PMCard = {
   updated_at?: string;
 };
 
+type ExecutionQueueEntry = {
+  card_id: string;
+  title: string;
+  workspace_key: string;
+  pm_status: string;
+  execution_state: string;
+  manager_agent: string;
+  target_agent: string;
+  workspace_agent?: string | null;
+  execution_mode: string;
+  requested_by?: string | null;
+  assigned_runner?: string | null;
+  lane: string;
+  reason?: string | null;
+  source?: string | null;
+  link_type?: string | null;
+  queued_at?: string | null;
+  last_transition_at?: string | null;
+};
+
 type StandupEntry = {
   id: string;
   owner: string;
+  workspace_key?: string;
   status?: string | null;
   blockers: string[];
   commitments: string[];
   needs: string[];
   source?: string | null;
   conversation_path?: string | null;
+  payload?: Record<string, unknown>;
   created_at?: string;
+};
+
+type StandupPromotionResult = {
+  standup: StandupEntry;
+  created_cards: PMCard[];
+  existing_cards: PMCard[];
+};
+
+type MeetingRoomHealth = {
+  key: string;
+  label: string;
+  workspaceKey: string;
+  status: string;
+  reason: string;
+  latestEntry: StandupEntry | null;
+  roundCount: number;
+};
+
+type MeetingOpsSummary = {
+  rooms: MeetingRoomHealth[];
+  byRoomKey: Record<string, MeetingRoomHealth>;
+  linkedCardCount: number;
+  resolvedLinkedCardCount: number;
+  orphanStandupCount: number;
+  staleReadyCount: number;
+  staleReviewCount: number;
+  staleRunningCount: number;
+  recentStandups: StandupEntry[];
+};
+
+type PMCardDispatchResult = {
+  card: PMCard;
+  queue_entry: ExecutionQueueEntry;
 };
 
 type Panel = 'mission' | 'team' | 'pm' | 'standups' | 'workspace' | 'docs';
@@ -669,6 +795,7 @@ type TelemetryErrors = {
   brain: string | null;
   brainHealth: string | null;
   pmCards: string | null;
+  executionQueue: string | null;
   standups: string | null;
 };
 
@@ -683,6 +810,7 @@ const TELEMETRY_LABELS: Record<keyof TelemetryErrors, string> = {
   brain: 'Open Brain telemetry',
   brainHealth: 'Open Brain health',
   pmCards: 'PM board',
+  executionQueue: 'Codex execution queue',
   standups: 'Standups',
 };
 
@@ -894,11 +1022,13 @@ const WORKSPACE_HUBS: Array<{
 export default function OpsClient({
   workspaceFiles,
   docEntries,
+  executiveFeed,
   initialPanel = 'mission',
   initialWorkspaceKey,
 }: {
   workspaceFiles: WorkspaceFile[];
   docEntries: DocReference[];
+  executiveFeed: ExecutiveFeed;
   initialPanel?: Panel;
   initialWorkspaceKey?: string;
 }) {
@@ -907,6 +1037,7 @@ export default function OpsClient({
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [pmCards, setPmCards] = useState<PMCard[]>([]);
+  const [executionQueue, setExecutionQueue] = useState<ExecutionQueueEntry[]>([]);
   const [standups, setStandups] = useState<StandupEntry[]>([]);
   const [brainMetrics, setBrainMetrics] = useState<OpenBrainTelemetry | null>(null);
   const [brainHealth, setBrainHealth] = useState<OpenBrainHealth | null>(null);
@@ -942,6 +1073,7 @@ export default function OpsClient({
     brain: null,
     brainHealth: null,
     pmCards: null,
+    executionQueue: null,
     standups: null,
   });
 
@@ -1027,10 +1159,11 @@ export default function OpsClient({
       fetchJson<OpenBrainTelemetry>(`${API_URL}/api/analytics/open-brain`),
       fetchJson<OpenBrainHealth>(`${API_URL}/api/open-brain/health`),
       fetchJson<PMCard[]>(`${API_URL}/api/pm/cards?limit=50`),
+      fetchJson<ExecutionQueueEntry[]>(`${API_URL}/api/pm/execution-queue?limit=50`),
       fetchJson<StandupEntry[]>(`${API_URL}/api/standups/?limit=20`),
     ]);
 
-    const [metricsResp, logsResp, healthResp, automationsResp, brainResp, brainHealthResp, pmResp, standupsResp] = requests;
+    const [metricsResp, logsResp, healthResp, automationsResp, brainResp, brainHealthResp, pmResp, executionQueueResp, standupsResp] = requests;
 
     if (metricsResp.status === 'fulfilled') {
       setMetrics(metricsResp.value ?? null);
@@ -1081,6 +1214,13 @@ export default function OpsClient({
       updateSectionError('pmCards', toErrorMessage(pmResp.reason));
     }
 
+    if (executionQueueResp.status === 'fulfilled') {
+      setExecutionQueue(Array.isArray(executionQueueResp.value) ? executionQueueResp.value : []);
+      updateSectionError('executionQueue', null);
+    } else {
+      updateSectionError('executionQueue', toErrorMessage(executionQueueResp.reason));
+    }
+
     if (standupsResp.status === 'fulfilled') {
       setStandups(Array.isArray(standupsResp.value) ? standupsResp.value : []);
       updateSectionError('standups', null);
@@ -1097,6 +1237,47 @@ export default function OpsClient({
     setLoading(false);
     setIsRefreshing(false);
   }, [updateSectionError]);
+
+  const promoteStandup = useCallback(
+    async (prep: StandupPrepPacket, recommendationPacket: PMRecommendationPacket | null, chronicleEntry: ChronicleEntry | null) => {
+      const response = await fetch(`${API_URL}/api/standups/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildStandupPromotionPayload(prep, recommendationPacket, chronicleEntry)),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        throw new Error(`${response.status} ${response.statusText}: ${text}`);
+      }
+      const result = (await response.json()) as StandupPromotionResult;
+      await loadTelemetry();
+      return result;
+    },
+    [loadTelemetry],
+  );
+
+  const dispatchPmCard = useCallback(
+    async (cardId: string, targetAgent = 'Jean-Claude') => {
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_agent: targetAgent,
+          lane: 'codex',
+          requested_by: 'Jean-Claude',
+          execution_state: 'queued',
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        throw new Error(`${response.status} ${response.statusText}: ${text}`);
+      }
+      const result = (await response.json()) as PMCardDispatchResult;
+      await loadTelemetry();
+      return result;
+    },
+    [loadTelemetry],
+  );
 
   useEffect(() => {
     loadTelemetry();
@@ -1214,8 +1395,28 @@ export default function OpsClient({
         />
       )}
       {activePanel === 'team' && <OrgChartSection layers={orgLayers} />}
-      {activePanel === 'pm' && <PMBoardPanel cards={pmCards} error={sectionErrors.pmCards} />}
-      {activePanel === 'standups' && <StandupsPanel entries={standups} error={sectionErrors.standups} />}
+      {activePanel === 'pm' && (
+        <PMBoardPanel
+          cards={pmCards}
+          executionQueue={executionQueue}
+          automations={automations}
+          executiveFeed={executiveFeed}
+          error={sectionErrors.pmCards}
+          queueError={sectionErrors.executionQueue}
+          onDispatch={dispatchPmCard}
+        />
+      )}
+      {activePanel === 'standups' && (
+        <StandupsPanel
+          entries={standups}
+          pmCards={pmCards}
+          executionQueue={executionQueue}
+          automations={automations}
+          executiveFeed={executiveFeed}
+          error={sectionErrors.standups}
+          onPromote={promoteStandup}
+        />
+      )}
       {activePanel === 'workspace' && (
         <WorkspaceHubPanel
           files={effectiveWorkspaceFiles}
@@ -1414,8 +1615,124 @@ function OpenBrainPanel({ metrics, health }: { metrics: OpenBrainTelemetry | nul
   );
 }
 
-function PMBoardPanel({ cards, error }: { cards: PMCard[]; error: string | null }) {
+const STANDUP_ROOMS: {
+  key: string;
+  label: string;
+  workspaceKey: string;
+  description: string;
+  participants: string[];
+  sources: string[];
+}[] = [
+  {
+    key: 'executive_ops',
+    label: 'Executive Standup',
+    workspaceKey: 'shared_ops',
+    description: 'System-wide review across Chronicle, pruning cycles, heartbeat, dream cycle, PM board movement, and cross-workspace execution.',
+    participants: ['Jean-Claude', 'Neo', 'Yoda'],
+    sources: ['Codex Chronicle', 'Pruning Cycles', 'Heartbeat', 'Daily Brief', 'Dream Cycle', 'OpenClaw Crons', 'Local Device Loop'],
+  },
+  {
+    key: 'operations',
+    label: 'Operations Standup',
+    workspaceKey: 'shared_ops',
+    description: 'Maintenance lane for automation health, Open Brain continuity, delivery integrity, and local runtime behavior.',
+    participants: ['Jean-Claude', 'Neo'],
+    sources: ['Heartbeat', 'OpenClaw Crons', 'Pruning Cycles', 'Persistent State', 'PM Queue'],
+  },
+  {
+    key: 'weekly_review',
+    label: 'Weekly Review',
+    workspaceKey: 'shared_ops',
+    description: 'Retrospective and next-week planning driven by PM outcomes, prior meeting transcripts, runner results, and maintenance signals.',
+    participants: ['Jean-Claude', 'Neo', 'Yoda'],
+    sources: ['PM Board', 'Meeting Transcripts', 'Chronicle', 'Daily Brief', 'Runner Results'],
+  },
+  {
+    key: 'saturday_vision',
+    label: 'Saturday Vision Sync',
+    workspaceKey: 'shared_ops',
+    description: 'Strategy-only meeting for Johnnie, FEEZIE OS, and portfolio direction. No routine PM hygiene unless a conclusion clearly deserves promotion into real work.',
+    participants: ['Jean-Claude', 'Neo', 'Yoda'],
+    sources: ['Chronicle', 'Strategic Memos', 'Weekly Review', 'FEEZIE OS', 'Long-Term Goals'],
+  },
+  {
+    key: 'linkedin-os',
+    label: 'FEEZIE OS Standup',
+    workspaceKey: 'linkedin-os',
+    description: 'Workspace meeting for FEEZIE OS execution across the current LinkedIn lane and broader public visibility direction.',
+    participants: ['Jean-Claude', 'Neo', 'Yoda'],
+    sources: ['Codex Chronicle', 'Workspace Files', 'PM Board', 'Progress Pulse', 'Dream Cycle'],
+  },
+  {
+    key: 'fusion-os',
+    label: 'Fusion Standup',
+    workspaceKey: 'fusion-os',
+    description: 'Workspace meeting lane where Jean-Claude manages and Fusion Systems Operator executes inside Fusion only.',
+    participants: ['Jean-Claude', 'Fusion Systems Operator'],
+    sources: ['Chronicle', 'PM Board', 'Workspace Docs'],
+  },
+  {
+    key: 'easyoutfitapp',
+    label: 'EasyOutfitApp Standup',
+    workspaceKey: 'easyoutfitapp',
+    description: 'Workspace meeting lane where Jean-Claude manages and Easy Outfit Product Agent executes inside EasyOutfitApp only.',
+    participants: ['Jean-Claude', 'Easy Outfit Product Agent'],
+    sources: ['Chronicle', 'PM Board', 'Workspace Docs'],
+  },
+  {
+    key: 'ai-swag-store',
+    label: 'AI Swag Store Standup',
+    workspaceKey: 'ai-swag-store',
+    description: 'Workspace meeting lane where Jean-Claude manages and Commerce Growth Agent executes inside AI Swag Store only.',
+    participants: ['Jean-Claude', 'Commerce Growth Agent'],
+    sources: ['Chronicle', 'PM Board', 'Workspace Docs'],
+  },
+  {
+    key: 'agc',
+    label: 'AGC Standup',
+    workspaceKey: 'agc',
+    description: 'Workspace meeting lane where Jean-Claude manages and AGC Strategy Agent executes inside AGC only.',
+    participants: ['Jean-Claude', 'AGC Strategy Agent'],
+    sources: ['Chronicle', 'PM Board', 'Workspace Docs'],
+  },
+];
+
+function PMBoardPanel({
+  cards,
+  executionQueue,
+  automations,
+  executiveFeed,
+  error,
+  queueError,
+  onDispatch,
+}: {
+  cards: PMCard[];
+  executionQueue: ExecutionQueueEntry[];
+  automations: Automation[];
+  executiveFeed: ExecutiveFeed;
+  error: string | null;
+  queueError: string | null;
+  onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
+}) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
+  const executionBuckets = useMemo(() => groupExecutionQueue(executionQueue), [executionQueue]);
+  const recommendationItems = useMemo(
+    () =>
+      executiveFeed.pmRecommendations.flatMap((packet) =>
+        packet.items.map((item) => ({
+          ...item,
+          packetId: packet.id,
+          createdAt: packet.createdAt,
+          path: packet.path,
+        })),
+      ),
+    [executiveFeed.pmRecommendations],
+  );
+  const laneSummary = useMemo(() => buildPmLaneSummary(cards, recommendationItems), [cards, recommendationItems]);
+  const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
+  const [dispatchingCardId, setDispatchingCardId] = useState<string | null>(null);
+  const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
   const columns: { key: keyof typeof buckets; label: string }[] = [
     { key: 'todo', label: 'To Do' },
     { key: 'in_progress', label: 'In Progress' },
@@ -1423,14 +1740,162 @@ function PMBoardPanel({ cards, error }: { cards: PMCard[]; error: string | null 
     { key: 'done', label: 'Done' },
   ];
 
+  const handleDispatch = useCallback(
+    async (entry: ExecutionQueueEntry) => {
+      try {
+        setDispatchingCardId(entry.card_id);
+        setDispatchError(null);
+        setDispatchFeedback(null);
+        const result = await onDispatch(entry.card_id, entry.target_agent || 'Jean-Claude');
+        setDispatchFeedback(
+          `Jean-Claude opened the execution lane for "${result.card.title}" and routed it toward ${result.queue_entry.target_agent}.`,
+        );
+      } catch (dispatchIssue) {
+        setDispatchError(toErrorMessage(dispatchIssue));
+      } finally {
+        setDispatchingCardId(null);
+      }
+    },
+    [onDispatch],
+  );
+
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div>
         <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>PM Board</p>
-        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Task flow</h2>
-        <p style={{ color: '#94a3b8' }}>Live cards from the production PM API, grouped by status.</p>
+        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Execution truth</h2>
+        <p style={{ color: '#94a3b8' }}>Standups feed this board. Live PM cards remain the source of truth, and standup-generated recommendations stage the next work before it is formally created.</p>
       </div>
       {error && <SectionAlert message={`${TELEMETRY_LABELS.pmCards}: ${error}`} />}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+        <MiniMeta label="Live Cards" value={`${cards.length}`} detail="current PM API backlog" />
+        <MiniMeta label="Standup Queue" value={`${recommendationItems.length}`} detail="recommendations waiting for promotion" />
+        <MiniMeta label="Codex Ready" value={`${executionBuckets.ready.length}`} detail="cards Neo can queue now" />
+        <MiniMeta label="Queued" value={`${executionBuckets.queued.length}`} detail="tasks staged for Codex execution" />
+        <MiniMeta label="Shared Ops" value={`${laneSummary.sharedOps}`} detail="executive / operations scope" />
+        <MiniMeta label="Workspace Lanes" value={`${laneSummary.workspaceLanes}`} detail="distinct workspace buckets touched" />
+        <MiniMeta label="OpenClaw Crons" value={`${automationCounts.openclaw}`} detail="automation inputs visible in Ops" />
+        <MiniMeta label="Local Loop" value={`${executiveFeed.artifacts.filter((artifact) => artifact.category === 'local').length}`} detail="Chronicle and promotion surfaces" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        {STANDUP_ROOMS.map((room) => {
+          const itemCount = laneSummary.byWorkspace[room.workspaceKey] ?? 0;
+          const recommendationCount = recommendationItems.filter((item) => item.workspaceKey === room.workspaceKey).length;
+          return (
+            <article key={room.key} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{room.label}</p>
+                {statusBadge(recommendationCount > 0 ? 'active' : itemCount > 0 ? 'review' : 'planned')}
+              </div>
+              <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: '0 0 10px' }}>{room.description}</p>
+              <div style={{ display: 'flex', gap: '10px', color: '#cbd5f5', fontSize: '12px', flexWrap: 'wrap' }}>
+                <span>Live cards: {itemCount}</span>
+                <span>Queued: {recommendationCount}</span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
+        <div style={{ marginBottom: '12px' }}>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Standup Queue</p>
+          <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Recommendations waiting for board promotion</h3>
+          <p style={{ color: '#94a3b8' }}>These are the first cards being proposed by the standup loop before they become formal PM entries.</p>
+        </div>
+        <div style={{ display: 'grid', gap: '12px' }}>
+          {recommendationItems.length === 0 && <EmptyPanel message="No standup-generated PM recommendations yet." compact />}
+          {recommendationItems.map((item, index) => (
+            <article key={`${item.packetId}-${index}`} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                <p style={{ color: 'white', fontWeight: 600, margin: 0 }}>{item.title}</p>
+                {statusBadge(item.status)}
+              </div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
+                <span>{meetingLabelForWorkspace(item.workspaceKey)}</span>
+                <span>{item.ownerAgent}</span>
+                <span>{item.createdAt ? formatTimestamp(new Date(item.createdAt)) : 'Pending promotion'}</span>
+              </div>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.reason}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
+        <div style={{ marginBottom: '12px' }}>
+          <p style={{ color: '#22c55e', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Codex Queue</p>
+          <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Jean-Claude execution queue</h3>
+          <p style={{ color: '#94a3b8' }}>Standup-created PM cards become execution-ready here. Jean-Claude owns the SOP and delegation flow, then either executes directly in the executive lane or hands work to the workspace agent.</p>
+        </div>
+        {queueError && <SectionAlert message={`${TELEMETRY_LABELS.executionQueue}: ${queueError}`} />}
+        {dispatchError && <SectionAlert message={dispatchError} />}
+        {dispatchFeedback && <SectionAlert message={dispatchFeedback} />}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          <MiniMeta label="Ready" value={`${executionBuckets.ready.length}`} detail="awaiting Jean-Claude SOP" />
+          <MiniMeta label="Queued" value={`${executionBuckets.queued.length}`} detail="staged for Jean-Claude pickup" />
+          <MiniMeta label="Running" value={`${executionBuckets.running.length}`} detail="active workspace execution" />
+          <MiniMeta label="Review" value={`${executionBuckets.review.length}`} detail="result written back" />
+          <MiniMeta label="Failed" value={`${executionBuckets.failed.length}`} detail="needs intervention" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginTop: '14px' }}>
+          {([
+            { key: 'ready', label: 'Ready for Jean-Claude' },
+            { key: 'queued', label: 'Queued' },
+            { key: 'running', label: 'Running' },
+            { key: 'review', label: 'Review' },
+          ] as const).map((column) => (
+            <div key={column.key} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px', minHeight: '220px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+                <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{column.label}</p>
+                <span style={{ color: '#64748b', fontSize: '12px' }}>{executionBuckets[column.key].length}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {executionBuckets[column.key].length === 0 && <p style={{ color: '#475569', fontSize: '13px' }}>Nothing in this lane yet.</p>}
+                {executionBuckets[column.key].map((entry) => (
+                  <article key={`${column.key}-${entry.card_id}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                      <p style={{ color: 'white', fontWeight: 600, margin: 0 }}>{entry.title}</p>
+                      {statusBadge(entry.execution_state)}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
+                      <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
+                      <span>Manager: {entry.manager_agent}</span>
+                      <span>Target: {entry.target_agent}</span>
+                      <span>{entry.pm_status}</span>
+                    </div>
+                    {entry.reason && <p style={{ color: '#cbd5f5', fontSize: '13px', margin: '0 0 10px' }}>{entry.reason}</p>}
+                    <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span>Lane: {entry.lane}</span>
+                      <span>Mode: {entry.execution_mode}</span>
+                      {entry.workspace_agent && <span>Workspace agent: {entry.workspace_agent}</span>}
+                      <span>Updated: {entry.last_transition_at ? formatTimestamp(new Date(entry.last_transition_at)) : '-'}</span>
+                    </div>
+                    {column.key === 'ready' && (
+                      <button
+                        type="button"
+                        onClick={() => handleDispatch(entry)}
+                        disabled={dispatchingCardId === entry.card_id}
+                        style={{
+                          marginTop: '12px',
+                          width: '100%',
+                          borderRadius: '999px',
+                          border: '1px solid #0f766e',
+                          backgroundColor: dispatchingCardId === entry.card_id ? '#0f172a' : '#0f3d37',
+                          color: '#d1fae5',
+                          padding: '10px 12px',
+                          cursor: dispatchingCardId === entry.card_id ? 'wait' : 'pointer',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {dispatchingCardId === entry.card_id ? 'Queueing...' : `Open SOP via ${entry.manager_agent}`}
+                      </button>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
         {columns.map((column) => (
           <div key={column.key} style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px', minHeight: '260px' }}>
@@ -1445,9 +1910,10 @@ function PMBoardPanel({ cards, error }: { cards: PMCard[]; error: string | null 
                   <p style={{ color: 'white', fontWeight: 600, marginBottom: '8px' }}>{card.title}</p>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
                     <span>{card.owner ?? 'Unassigned'}</span>
-                    <span>{card.source ?? 'manual'}</span>
+                    <span>{meetingLabelForWorkspace(workspaceKeyFromCard(card))}</span>
                   </div>
                   <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span>Source: {card.source ?? 'manual'}</span>
                     <span>Updated: {card.updated_at ? formatTimestamp(new Date(card.updated_at)) : '-'}</span>
                     <span>Due: {card.due_at ? formatTimestamp(new Date(card.due_at)) : '-'}</span>
                   </div>
@@ -1461,27 +1927,265 @@ function PMBoardPanel({ cards, error }: { cards: PMCard[]; error: string | null 
   );
 }
 
-function StandupsPanel({ entries, error }: { entries: StandupEntry[]; error: string | null }) {
+function StandupsPanel({
+  entries,
+  pmCards,
+  executionQueue,
+  automations,
+  executiveFeed,
+  error,
+  onPromote,
+}: {
+  entries: StandupEntry[];
+  pmCards: PMCard[];
+  executionQueue: ExecutionQueueEntry[];
+  automations: Automation[];
+  executiveFeed: ExecutiveFeed;
+  error: string | null;
+  onPromote: (
+    prep: StandupPrepPacket,
+    recommendationPacket: PMRecommendationPacket | null,
+    chronicleEntry: ChronicleEntry | null,
+  ) => Promise<StandupPromotionResult>;
+}) {
+  const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
+  const latestChronicle = executiveFeed.chronicleEntries[executiveFeed.chronicleEntries.length - 1] ?? executiveFeed.chronicleEntries[0] ?? null;
+  const meetingOps = useMemo(() => buildMeetingOps(STANDUP_ROOMS, entries, pmCards, executionQueue), [entries, pmCards, executionQueue]);
+  const [meetingView, setMeetingView] = useState<'list' | 'weekly' | 'monthly'>('list');
+  const [promotingKey, setPromotingKey] = useState<string | null>(null);
+  const [promotionFeedback, setPromotionFeedback] = useState<string | null>(null);
+  const [promotionError, setPromotionError] = useState<string | null>(null);
+
+  const handlePromote = useCallback(
+    async (room: (typeof STANDUP_ROOMS)[number], prep: StandupPrepPacket) => {
+      try {
+        setPromotingKey(room.key);
+        setPromotionError(null);
+        setPromotionFeedback(null);
+        const recommendationPacket = findRecommendationPacketForRoom(room, executiveFeed.pmRecommendations);
+        const result = await onPromote(prep, recommendationPacket, latestChronicle);
+        const createdCount = result.created_cards.length;
+        const existingCount = result.existing_cards.length;
+        setPromotionFeedback(
+          `${room.label} created. ${createdCount} PM card${createdCount === 1 ? '' : 's'} added${existingCount ? `, ${existingCount} already existed` : ''}.`,
+        );
+      } catch (err) {
+        setPromotionError(toErrorMessage(err));
+      } finally {
+        setPromotingKey(null);
+      }
+    },
+    [executiveFeed.pmRecommendations, latestChronicle, onPromote],
+  );
+
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div>
         <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Standups</p>
-        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Async status reports</h2>
-        <p style={{ color: '#94a3b8' }}>Formatted reports from the standup API, including blockers, commitments, and cross-team needs.</p>
+        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Meeting layer</h2>
+        <p style={{ color: '#94a3b8' }}>The PM board leads the meeting. Chronicle, pruning, crons, and workspace artifacts only support the decisions, owners, and PM mutations that come out of it.</p>
       </div>
       {error && <SectionAlert message={`${TELEMETRY_LABELS.standups}: ${error}`} />}
+      {promotionError && <SectionAlert message={`Standup promotion: ${promotionError}`} />}
+      {promotionFeedback && (
+        <div style={{ borderRadius: '14px', border: '1px solid rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '12px 14px', color: '#bbf7d0', fontSize: '13px' }}>
+          {promotionFeedback}
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+        <MiniMeta label="Chronicle Chunks" value={`${executiveFeed.chronicleEntries.length}`} detail="recent Codex memory stream" />
+        <MiniMeta label="Standup Packs" value={`${executiveFeed.standupPreps.length}`} detail="PM-first meetings ready" />
+        <MiniMeta label="PM Packets" value={`${executiveFeed.pmRecommendations.length}`} detail="standup-driven execution queue" />
+        <MiniMeta label="OpenClaw Crons" value={`${automationCounts.openclaw}`} detail="heartbeat, briefs, dream cycle, progress" />
+        <MiniMeta label="Local Loop" value={`${executiveFeed.artifacts.filter((artifact) => artifact.category === 'local').length}`} detail="Chronicle sync, prep, promotion" />
+        <MiniMeta label="Latest Chronicle" value={latestChronicle?.createdAt ? formatTimestamp(new Date(latestChronicle.createdAt)) : '-'} detail={latestChronicle ? summarize(latestChronicle.summary, 52) : 'No Chronicle entries yet'} />
+      </div>
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
+        <div style={{ marginBottom: '12px' }}>
+          <p style={{ color: '#22c55e', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Meeting Ops</p>
+          <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Watchdog, dispatch, and accountability</h3>
+          <p style={{ color: '#94a3b8' }}>This is the practical signal: did the meeting run, did it attach to PM work, and is the resulting work still moving.</p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+          <MiniMeta
+            label="Healthy Rooms"
+            value={`${meetingOps.rooms.filter((room) => room.status === 'ok').length}`}
+            detail={`${meetingOps.rooms.filter((room) => room.status !== 'ok' && room.status !== 'planned').length} need attention`}
+          />
+          <MiniMeta label="Linked Cards" value={`${meetingOps.linkedCardCount}`} detail="active PM cards tied back to standups" />
+          <MiniMeta label="Resolved Links" value={`${meetingOps.resolvedLinkedCardCount}`} detail="closed historical PM cards kept for transcript traceability" />
+          <MiniMeta label="Orphan Standups" value={`${meetingOps.orphanStandupCount}`} detail="meetings with decisions but no linked PM card" />
+          <MiniMeta label="Stale Ready" value={`${meetingOps.staleReadyCount}`} detail="ready execution items aging in place" />
+          <MiniMeta label="Stale Review" value={`${meetingOps.staleReviewCount}`} detail="results waiting too long for a closeout" />
+          <MiniMeta label="Stale Running" value={`${meetingOps.staleRunningCount}`} detail="queued/running lanes that need follow-through" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginTop: '14px' }}>
+          {meetingOps.rooms.map((room) => (
+            <article key={`room-health-${room.key}`} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{room.label}</p>
+                {statusBadge(room.status)}
+              </div>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', margin: '0 0 8px' }}>{room.reason}</p>
+              <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span>Workspace: {meetingLabelForWorkspace(room.workspaceKey)}</span>
+                <span>Rounds: {room.roundCount}</span>
+                <span>
+                  Latest: {room.latestEntry?.created_at ? formatTimestamp(new Date(room.latestEntry.created_at)) : 'No transcript yet'}
+                </span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
+        <div style={{ marginBottom: '12px' }}>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Source Artifacts</p>
+          <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>What is feeding the meetings right now</h3>
+        <p style={{ color: '#94a3b8' }}>These are the supporting files and runtime surfaces the team should read after checking the PM board slice for the meeting.</p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+          {executiveFeed.artifacts.map((artifact) => (
+            <article key={artifact.id} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                <p style={{ color: 'white', fontWeight: 600, margin: 0 }}>{artifact.label}</p>
+                {statusBadge(artifact.category)}
+              </div>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: '0 0 8px' }}>{artifact.summary}</p>
+              <div style={{ color: '#94a3b8', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span>{artifact.detail}</span>
+                <span>{artifact.updatedAt ? formatTimestamp(new Date(artifact.updatedAt)) : 'No timestamp'}</span>
+                {artifact.path && <span>{artifact.path}</span>}
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#c084fc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Meeting History</p>
+            <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>List, weekly, and monthly views</h3>
+            <p style={{ color: '#94a3b8' }}>Practical visibility only. No staged conference-room gimmicks.</p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {(['list', 'weekly', 'monthly'] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                onClick={() => setMeetingView(view)}
+                style={{
+                  borderRadius: '999px',
+                  border: '1px solid #334155',
+                  backgroundColor: meetingView === view ? '#1e293b' : '#0b1324',
+                  color: meetingView === view ? '#f8fafc' : '#94a3b8',
+                  padding: '8px 14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  textTransform: 'capitalize',
+                }}
+              >
+                {view}
+              </button>
+            ))}
+          </div>
+        </div>
+        {meetingView === 'list' && <MeetingListView entries={meetingOps.recentStandups} />}
+        {meetingView === 'weekly' && <MeetingWeeklyView entries={meetingOps.recentStandups} />}
+        {meetingView === 'monthly' && <MeetingMonthlyView entries={meetingOps.recentStandups} />}
+      </section>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+        {STANDUP_ROOMS.map((room) => {
+          const prep = findStandupPrepForRoom(room, executiveFeed.standupPreps);
+          const liveEntry = findLiveStandupEntry(room, entries);
+          const roomHealth = meetingOps.byRoomKey[room.key];
+          const agenda = prep?.agenda ?? extractStandupList(liveEntry?.payload, 'agenda');
+          const blockers = prep?.blockers ?? liveEntry?.blockers ?? [];
+          const commitments = prep?.commitments ?? liveEntry?.commitments ?? [];
+          const needs = prep?.needs ?? liveEntry?.needs ?? [];
+          const artifactDeltas = prep?.artifactDeltas ?? extractStandupList(liveEntry?.payload, 'artifact_deltas');
+          const pmSnapshotLines = prep ? extractPmSnapshotLines(prep.pmSnapshot) : extractPmSnapshotLines(liveEntry?.payload?.pm_snapshot);
+          const pmTitles = prep?.pmUpdateTitles ?? [];
+          const cardStatus = prep ? 'prepared' : roomHealth?.status ?? (liveEntry ? liveEntry.status ?? 'recorded' : room.workspaceKey === 'shared_ops' ? 'ready' : 'planned');
+
+          return (
+            <article key={room.key} style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                <div>
+                  <h3 style={{ fontSize: '20px', color: 'white', margin: 0 }}>{room.label}</h3>
+                  <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>{prep?.generatedAt ? formatTimestamp(new Date(prep.generatedAt)) : liveEntry?.created_at ? formatTimestamp(new Date(liveEntry.created_at)) : 'Awaiting first artifact-backed meeting'}</p>
+                </div>
+                {statusBadge(cardStatus)}
+              </div>
+              <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, marginBottom: '12px' }}>{prep?.summary ?? room.description}</p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                {room.participants.map((participant) => (
+                  <span key={participant} style={{ borderRadius: '999px', border: '1px solid #334155', padding: '4px 10px', color: '#e2e8f0', fontSize: '12px' }}>
+                    {participant}
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                {room.sources.map((source) => (
+                  <span key={source} style={{ borderRadius: '999px', backgroundColor: '#0f172a', border: '1px solid #1f2937', padding: '4px 10px', color: '#94a3b8', fontSize: '11px' }}>
+                    {source}
+                  </span>
+                ))}
+              </div>
+              {prep && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap' }}>
+                  <div style={{ color: '#94a3b8', fontSize: '12px' }}>
+                    Promotion will create the standup record and seed PM cards from the current prep packet.
+                  </div>
+                  <button
+                    onClick={() => handlePromote(room, prep)}
+                    disabled={promotingKey === room.key}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: '999px',
+                      border: '1px solid rgba(56,189,248,0.35)',
+                      backgroundColor: promotingKey === room.key ? '#0f172a' : '#38bdf8',
+                      color: promotingKey === room.key ? '#94a3b8' : '#04111f',
+                      fontWeight: 700,
+                      cursor: promotingKey === room.key ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {promotingKey === room.key ? 'Creating…' : `Create ${room.label}`}
+                  </button>
+                </div>
+              )}
+              <PanelList title="Captured PM Snapshot" items={pmSnapshotLines} emptyLabel="No PM snapshot captured yet." />
+              <PanelList title="Agenda" items={agenda} emptyLabel="No agenda captured yet." />
+              <PanelList title="Artifact Deltas" items={artifactDeltas} emptyLabel="No supporting artifact deltas captured yet." />
+              <PanelList title="Blockers" items={blockers} emptyLabel="No blockers captured yet." />
+              <PanelList title="Commitments" items={commitments} emptyLabel="No commitments captured yet." />
+              <PanelList title="Needs" items={needs} emptyLabel="No cross-team needs captured yet." />
+              <PanelList title="PM Changes" items={pmTitles} emptyLabel="No PM recommendations attached yet." />
+            </article>
+          );
+        })}
+      </div>
       <div style={{ display: 'grid', gap: '14px' }}>
-        {entries.length === 0 && <EmptyPanel message="No standup entries recorded yet." />}
+        {entries.length === 0 && <EmptyPanel message="No live standup API entries recorded yet. The new local standup-prep packets are ready to seed the first meetings." />}
         {entries.map((entry) => (
           <article key={entry.id} style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '18px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
               <div>
                 <h3 style={{ fontSize: '20px', color: 'white', margin: 0 }}>{entry.owner}</h3>
-                <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>{entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}</p>
+                <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>
+                  {meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')} · {entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}
+                </p>
               </div>
               {statusBadge(entry.status ?? 'pending')}
             </div>
             <PanelList title="Status" items={entry.status ? [entry.status] : []} emptyLabel="No status summary yet." />
+            <PanelList title="Captured PM Snapshot" items={extractPmSnapshotLines(entry.payload?.pm_snapshot)} emptyLabel="No PM snapshot captured." />
+            <PanelList title="Current Linked PM Cards" items={liveLinkedCardItems(entry, pmCards)} emptyLabel="No live PM cards linked to this standup." />
+            <PanelList title="Agenda" items={extractStandupList(entry.payload, 'agenda')} emptyLabel="No agenda captured." />
+            <PanelList title="Discussion" items={extractStandupDiscussion(entry.payload)} emptyLabel="No executive discussion captured." />
+            <PanelList title="Decisions" items={extractStandupList(entry.payload, 'decisions')} emptyLabel="No decisions captured." />
+            <PanelList title="Owners" items={extractStandupList(entry.payload, 'owners')} emptyLabel="No owners captured." />
+            <PanelList title="Artifact Deltas" items={extractStandupList(entry.payload, 'artifact_deltas')} emptyLabel="No artifact deltas captured." />
             <PanelList title="Blockers" items={entry.blockers} emptyLabel="No blockers captured." />
             <PanelList title="Commitments" items={entry.commitments} emptyLabel="No commitments captured." />
             <PanelList title="Needs" items={entry.needs} emptyLabel="No cross-team needs captured." />
@@ -1489,6 +2193,93 @@ function StandupsPanel({ entries, error }: { entries: StandupEntry[]; error: str
         ))}
       </div>
     </section>
+  );
+}
+
+function MeetingListView({ entries }: { entries: StandupEntry[] }) {
+  return (
+    <div style={{ display: 'grid', gap: '12px' }}>
+      {entries.length === 0 && <EmptyPanel message="No standup transcripts recorded yet." compact />}
+      {entries.map((entry) => {
+        const discussion = standupDiscussion(entry);
+        const decisions = extractStandupList(entry.payload, 'decisions');
+        const owners = extractStandupList(entry.payload, 'owners');
+        return (
+          <article key={`meeting-list-${entry.id}`} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{standupLabel(entry)}</p>
+              {statusBadge(entry.status ?? 'completed')}
+            </div>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
+              <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
+              <span>{entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}</span>
+              <span>{discussion.length} rounds</span>
+              <span>{decisions.length} decisions</span>
+            </div>
+            <p style={{ color: '#cbd5f5', fontSize: '13px', margin: '0 0 8px' }}>{standupSummary(entry)}</p>
+            <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span>Owners: {owners.length ? owners.slice(0, 2).join(' | ') : 'Not captured yet'}</span>
+              <span>Commitments: {entry.commitments.length}</span>
+              <span>Blockers: {entry.blockers.length}</span>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function MeetingWeeklyView({ entries }: { entries: StandupEntry[] }) {
+  const days = buildRecentDayBuckets(entries, 7);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px' }}>
+      {days.map((day) => (
+        <article key={`weekly-${day.key}`} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px', minHeight: '180px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '10px' }}>
+            <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{day.label}</p>
+            <span style={{ color: '#64748b', fontSize: '12px' }}>{day.entries.length}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {day.entries.length === 0 && <p style={{ color: '#475569', fontSize: '13px' }}>No meetings recorded.</p>}
+            {day.entries.map((entry) => (
+              <div key={`weekly-entry-${entry.id}`} style={{ borderRadius: '12px', border: '1px solid #162033', backgroundColor: '#08101f', padding: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '6px' }}>
+                  <p style={{ color: 'white', fontSize: '13px', fontWeight: 600, margin: 0 }}>{standupLabel(entry)}</p>
+                  {statusBadge(entry.status ?? 'completed')}
+                </div>
+                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                  {entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'} · {standupDiscussion(entry).length} rounds
+                </p>
+              </div>
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function MeetingMonthlyView({ entries }: { entries: StandupEntry[] }) {
+  const days = buildMonthBuckets(entries);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
+      {days.map((day) => (
+        <article key={`monthly-${day.key}`} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '12px', minHeight: '120px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+            <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{day.label}</p>
+            <span style={{ color: day.entries.length ? '#38bdf8' : '#475569', fontSize: '12px' }}>{day.entries.length}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {day.entries.slice(0, 3).map((entry) => (
+              <p key={`monthly-entry-${entry.id}`} style={{ color: '#94a3b8', fontSize: '11px', margin: 0 }}>
+                {standupLabel(entry)}
+              </p>
+            ))}
+            {day.entries.length > 3 && <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>+{day.entries.length - 3} more</p>}
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -4019,6 +4810,319 @@ function groupPmCards(cards: PMCard[]) {
   );
 }
 
+function groupExecutionQueue(entries: ExecutionQueueEntry[]) {
+  return entries.reduce(
+    (acc, entry) => {
+      const normalized = normalizeExecutionState(entry.execution_state);
+      acc[normalized].push(entry);
+      return acc;
+    },
+    {
+      ready: [] as ExecutionQueueEntry[],
+      queued: [] as ExecutionQueueEntry[],
+      running: [] as ExecutionQueueEntry[],
+      review: [] as ExecutionQueueEntry[],
+      failed: [] as ExecutionQueueEntry[],
+      done: [] as ExecutionQueueEntry[],
+    },
+  );
+}
+
+function workspaceKeyFromCard(card: PMCard) {
+  const payload = (card.payload ?? {}) as Record<string, unknown>;
+  for (const key of ['workspace_key', 'workspace', 'belongs_to_workspace']) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return 'shared_ops';
+}
+
+function meetingLabelForWorkspace(workspaceKey: string) {
+  switch (workspaceKey) {
+    case 'shared_ops':
+      return 'Executive / Operations';
+    case 'linkedin-os':
+      return 'LinkedIn OS';
+    case 'fusion-os':
+      return 'Fusion';
+    case 'easyoutfitapp':
+      return 'Easy Outfit';
+    case 'ai-swag-store':
+      return 'AI Swag Store';
+    case 'agc':
+      return 'AGC';
+    default:
+      return workspaceKey || 'Shared Ops';
+  }
+}
+
+function summarizeAutomationSources(automations: Automation[]) {
+  return automations.reduce(
+    (acc, automation) => {
+      if (automation.source === 'openclaw_jobs_json' || automation.runtime?.includes('openclaw')) {
+        acc.openclaw += 1;
+      } else {
+        acc.local += 1;
+      }
+      return acc;
+    },
+    { openclaw: 0, local: 0 },
+  );
+}
+
+function buildPmLaneSummary(
+  cards: PMCard[],
+  recommendationItems: Array<{ workspaceKey: string }>,
+) {
+  const byWorkspace: Record<string, number> = {};
+  cards.forEach((card) => {
+    const workspaceKey = workspaceKeyFromCard(card);
+    byWorkspace[workspaceKey] = (byWorkspace[workspaceKey] ?? 0) + 1;
+  });
+  recommendationItems.forEach((item) => {
+    byWorkspace[item.workspaceKey] = (byWorkspace[item.workspaceKey] ?? 0) + 1;
+  });
+  const workspaceKeys = Object.keys(byWorkspace);
+  return {
+    byWorkspace,
+    sharedOps: byWorkspace.shared_ops ?? 0,
+    workspaceLanes: workspaceKeys.filter((key) => key !== 'shared_ops').length,
+  };
+}
+
+function findStandupPrepForRoom(
+  room: { key: string; workspaceKey: string },
+  standupPreps: StandupPrepPacket[],
+) {
+  const exact = standupPreps.find((prep) => prep.standupKind === room.key);
+  if (exact) {
+    return exact;
+  }
+  if (room.workspaceKey === 'shared_ops') {
+    return null;
+  }
+  return standupPreps.find((prep) => prep.workspaceKey === room.workspaceKey) ?? null;
+}
+
+function findLiveStandupEntry(
+  room: { key: string; workspaceKey: string },
+  entries: StandupEntry[],
+) {
+  const exact = entries.find((entry) => {
+    const kind = typeof entry.payload?.standup_kind === 'string' ? entry.payload.standup_kind : null;
+    return kind === room.key;
+  });
+  if (exact) {
+    return exact;
+  }
+  if (room.workspaceKey === 'shared_ops') {
+    return null;
+  }
+  return entries.find((entry) => (entry.workspace_key ?? 'shared_ops') === room.workspaceKey) ?? null;
+}
+
+function findRecommendationPacketForRoom(
+  room: { workspaceKey: string },
+  packets: PMRecommendationPacket[],
+) {
+  return packets.find((packet) => packet.workspaceKey === room.workspaceKey) ?? null;
+}
+
+function buildStandupPromotionPayload(
+  prep: StandupPrepPacket,
+  recommendationPacket: PMRecommendationPacket | null,
+  chronicleEntry: ChronicleEntry | null,
+) {
+  const includeYoda = shouldIncludeYoda(prep);
+  const participants = includeYoda ? ['Jean-Claude', 'Neo', 'Yoda'] : ['Jean-Claude', 'Neo'];
+  const pmUpdates =
+    recommendationPacket?.items.map((item) => ({
+      workspace_key: item.workspaceKey,
+      scope: item.scope,
+      owner_agent: item.ownerAgent,
+      title: item.title,
+      status: item.status,
+      reason: item.reason,
+      payload: {
+        recommendation_path: recommendationPacket.path,
+        created_from_prep_id: prep.id,
+      },
+    })) ?? [];
+  const decisions = buildStandupDecisions(prep, pmUpdates);
+  const owners = buildStandupOwners(prep, includeYoda);
+  const discussionRounds = buildStandupDiscussionRounds(prep, chronicleEntry, decisions, owners, includeYoda);
+
+  return {
+    standup_kind: prep.standupKind,
+    owner: 'Jean-Claude',
+    workspace_key: prep.workspaceKey,
+    summary: prep.summary,
+    agenda: prep.agenda,
+    blockers: prep.blockers,
+    commitments: prep.commitments,
+    needs: prep.needs,
+    decisions,
+    owners,
+    artifact_deltas: prep.artifactDeltas,
+    source: 'standup_prep',
+    conversation_path: prep.path,
+    source_paths: prep.sourcePaths,
+    memory_promotions: prep.memoryPromotions,
+    pm_snapshot: prep.pmSnapshot ?? {},
+    participants,
+    discussion_rounds: discussionRounds,
+    jean_claude_note: buildJeanClaudeStandupNote(prep),
+    neo_note: buildNeoStandupNote(prep, decisions),
+    yoda_note: includeYoda ? buildYodaStandupNote(prep, chronicleEntry) : null,
+    prep_id: prep.id,
+    recommendation_path: recommendationPacket?.path ?? null,
+    pm_updates: pmUpdates,
+  };
+}
+
+function shouldIncludeYoda(prep: StandupPrepPacket) {
+  return prep.workspaceKey === 'shared_ops' || prep.workspaceKey === 'linkedin-os';
+}
+
+function buildJeanClaudeStandupNote(prep: StandupPrepPacket) {
+  const pmLines = extractPmSnapshotLines(prep.pmSnapshot);
+  const agendaLead = prep.agenda[0];
+  const deltaLead = prep.artifactDeltas[0];
+  const parts = [pmLines[0], agendaLead ? `Agenda starts with ${agendaLead}` : null, deltaLead ? `Latest delta: ${deltaLead}` : null]
+    .filter((item): item is string => Boolean(item));
+  return parts.join(' ') || prep.summary;
+}
+
+function buildNeoStandupNote(prep: StandupPrepPacket, decisions: string[]) {
+  if (decisions.length > 0) {
+    return `Keep the board as the source of truth. Pressure-test ${decisions[0]} and expand scope only if the current lane is actually clear.`;
+  }
+  return 'Keep the PM board ahead of narrative. If there is no clear board move, say nothing is ready and leave the lane alone.';
+}
+
+function buildYodaStandupNote(prep: StandupPrepPacket, chronicleEntry: ChronicleEntry | null) {
+  const chronicleContext = chronicleEntry?.summary ? `Current Chronicle signal: ${summarize(chronicleEntry.summary, 110)}` : 'Current Chronicle signal is still consolidating.';
+  if (prep.workspaceKey === 'linkedin-os') {
+    return `Protect the North Star: FEEZIE OS should strengthen Johnnie's brand, career, and long-term positioning through the current LinkedIn lane and the broader public system it is becoming. ${chronicleContext}`;
+  }
+  return `Protect the why behind the system: this work should deepen Johnnie's second-brain, preserve his voice, and keep execution aligned with the broader AI project rather than generic automation. ${chronicleContext}`;
+}
+
+function buildStandupDecisions(
+  prep: StandupPrepPacket,
+  pmUpdates: Array<{ title: string }>,
+) {
+  const lines = extractPmSnapshotLines(prep.pmSnapshot);
+  const decisions: string[] = [];
+  if (lines.some((line) => line.toLowerCase().includes('blocked'))) {
+    decisions.push('Resolve blocked PM work before additional scope enters the lane.');
+  }
+  pmUpdates.slice(0, 2).forEach((item) => {
+    if (item.title.trim()) {
+      decisions.push(`Create or queue ${item.title} on the PM board.`);
+    }
+  });
+  if (decisions.length === 0 && prep.commitments.length > 0) {
+    decisions.push(`Keep ${prep.commitments[0]} moving and revisit it at the next standup.`);
+  }
+  if (decisions.length === 0) {
+    decisions.push('Nothing to report. Leave the board unchanged and wait for the next real signal.');
+  }
+  return decisions.slice(0, 5);
+}
+
+function buildStandupOwners(prep: StandupPrepPacket, includeYoda: boolean) {
+  const owners = ['Jean-Claude — update the PM board, open the next SOP, and carry the lane summary back to leadership.'];
+  const workspaceOwners: Record<string, string> = {
+    'fusion-os': 'Fusion Systems Operator',
+    easyoutfitapp: 'Easy Outfit Product Agent',
+    'ai-swag-store': 'Commerce Growth Agent',
+    agc: 'AGC Strategy Agent',
+  };
+  if (!['shared_ops', 'linkedin-os'].includes(prep.workspaceKey)) {
+    owners.push(`${workspaceOwners[prep.workspaceKey] ?? 'Workspace Agent'} — execute inside ${prep.workspaceKey} only and report back through workspace memory plus the PM card.`);
+  }
+  if (includeYoda) {
+    owners.push('Yoda — challenge whether the next move still aligns with the North Star before scope expands.');
+  }
+  return owners;
+}
+
+function buildStandupDiscussionRounds(
+  prep: StandupPrepPacket,
+  chronicleEntry: ChronicleEntry | null,
+  decisions: string[],
+  owners: string[],
+  includeYoda: boolean,
+) {
+  const rounds: Array<Record<string, unknown>> = [
+    {
+      round: 1,
+      speaker: 'Jean-Claude',
+      role: 'workspace-president',
+      note: buildJeanClaudeStandupNote(prep),
+      focus: 'pm_board_first',
+    },
+    {
+      round: 2,
+      speaker: 'Neo',
+      role: 'system-operator',
+      note: buildNeoStandupNote(prep, decisions),
+      focus: 'priority_and_scope',
+    },
+  ];
+  if (includeYoda) {
+    rounds.push({
+      round: 3,
+      speaker: 'Yoda',
+      role: 'strategic-overlay',
+      note: buildYodaStandupNote(prep, chronicleEntry),
+      focus: 'north_star',
+    });
+  }
+  rounds.push({
+    round: includeYoda ? 4 : 3,
+    speaker: 'Jean-Claude',
+    role: 'workspace-president',
+    note: `Decision set: ${decisions.slice(0, 2).join('; ')} Owners: ${owners.slice(0, 2).join(' ')}`,
+    focus: 'decision_and_handoff',
+  });
+  return rounds;
+}
+
+function extractStandupDiscussion(payload?: Record<string, unknown>) {
+  const discussion = Array.isArray(payload?.discussion) ? payload?.discussion : [];
+  return discussion
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const round = typeof item.round === 'number' ? `Round ${item.round} · ` : '';
+      const speaker = typeof item.speaker === 'string' ? item.speaker : 'Unknown';
+      const note = typeof item.note === 'string' ? item.note : '';
+      if (!note.trim()) {
+        return null;
+      }
+      return `${round}${speaker}: ${note}`;
+    })
+    .filter((item): item is string => Boolean(item));
+}
+
+function extractStandupList(payload: Record<string, unknown> | undefined, key: string) {
+  const items = payload?.[key];
+  return Array.isArray(items) ? items.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+}
+
+function extractPmSnapshotLines(snapshot: unknown) {
+  if (!snapshot || typeof snapshot !== 'object') {
+    return [];
+  }
+  const lines = (snapshot as Record<string, unknown>).lines;
+  return Array.isArray(lines) ? lines.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+}
+
 type MarkdownSubsection = {
   title: string;
   body: string;
@@ -4790,18 +5894,233 @@ function normalizeStatus(status: string) {
   return 'todo';
 }
 
+function normalizeExecutionState(state: string) {
+  const normalized = state.toLowerCase();
+  if (normalized === 'queued') return 'queued';
+  if (normalized === 'running' || normalized === 'in_progress' || normalized === 'in-progress') return 'running';
+  if (normalized === 'review') return 'review';
+  if (normalized === 'failed' || normalized === 'blocked') return 'failed';
+  if (normalized === 'done' || normalized === 'completed') return 'done';
+  return 'ready';
+}
+
+function standupKind(entry: StandupEntry) {
+  const payload = entry.payload ?? {};
+  const value = payload.standup_kind;
+  return typeof value === 'string' && value.trim() ? value.trim() : entry.workspace_key || 'shared_ops';
+}
+
+function standupLabel(entry: StandupEntry) {
+  const room = STANDUP_ROOMS.find((candidate) => candidate.key === standupKind(entry) && candidate.workspaceKey === entry.workspace_key);
+  return room?.label ?? standupKind(entry);
+}
+
+function standupSummary(entry: StandupEntry) {
+  const payload = entry.payload ?? {};
+  const summary = payload.summary;
+  return typeof summary === 'string' && summary.trim() ? summary.trim() : 'Standup transcript recorded.';
+}
+
+function standupDiscussion(entry: StandupEntry) {
+  const payload = entry.payload ?? {};
+  const discussion = payload.discussion;
+  return Array.isArray(discussion) ? discussion.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : [];
+}
+
+function isMeaningfulStandup(entry: StandupEntry) {
+  return (
+    standupDiscussion(entry).length >= 3 ||
+    extractStandupList(entry.payload, 'decisions').length > 0 ||
+    entry.commitments.length > 0 ||
+    entry.blockers.length > 0
+  );
+}
+
+function standupCreatedAt(entry: StandupEntry) {
+  return entry.created_at ? new Date(entry.created_at) : new Date(0);
+}
+
+function isStandupLinkedCard(card: PMCard) {
+  const payload = card.payload ?? {};
+  return card.link_type === 'standup' || Boolean(payload.created_from_standup_id);
+}
+
+function linkedCardsForStandup(entry: StandupEntry, pmCards: PMCard[]) {
+  return pmCards.filter((card) => {
+    const payload = card.payload ?? {};
+    return card.link_id === entry.id || payload.created_from_standup_id === entry.id;
+  });
+}
+
+function liveLinkedCardItems(entry: StandupEntry, pmCards: PMCard[]) {
+  return linkedCardsForStandup(entry, pmCards)
+    .sort((left, right) => {
+      const leftDone = (left.status ?? '').toLowerCase() === 'done' ? 1 : 0;
+      const rightDone = (right.status ?? '').toLowerCase() === 'done' ? 1 : 0;
+      if (leftDone !== rightDone) {
+        return leftDone - rightDone;
+      }
+      const leftTime = left.updated_at ? new Date(left.updated_at).getTime() : 0;
+      const rightTime = right.updated_at ? new Date(right.updated_at).getTime() : 0;
+      return rightTime - leftTime;
+    })
+    .map((card) => `${card.status ?? 'unknown'} · ${card.title}`);
+}
+
+function buildMeetingOps(
+  rooms: Array<{ key: string; label: string; workspaceKey: string }>,
+  entries: StandupEntry[],
+  pmCards: PMCard[],
+  executionQueue: ExecutionQueueEntry[],
+): MeetingOpsSummary {
+  const sortedEntries = [...entries].sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime());
+  const now = Date.now();
+  const linkedCards = pmCards.filter((card) => isStandupLinkedCard(card));
+  const linkedCardCount = linkedCards.filter((card) => (card.status ?? '').toLowerCase() !== 'done').length;
+  const resolvedLinkedCardCount = linkedCards.filter((card) => (card.status ?? '').toLowerCase() === 'done').length;
+
+  const orphanStandupCount = sortedEntries.filter((entry) => {
+    if (!isMeaningfulStandup(entry)) {
+      return false;
+    }
+    return linkedCardsForStandup(entry, pmCards).length === 0;
+  }).length;
+
+  const staleReadyCount = executionQueue.filter((entry) => {
+    const timestamp = entry.last_transition_at ?? entry.queued_at;
+    return normalizeExecutionState(entry.execution_state) === 'ready' && timestamp && now - new Date(timestamp).getTime() > 90 * 60 * 1000;
+  }).length;
+  const staleReviewCount = executionQueue.filter((entry) => {
+    const timestamp = entry.last_transition_at ?? entry.queued_at;
+    return normalizeExecutionState(entry.execution_state) === 'review' && timestamp && now - new Date(timestamp).getTime() > 24 * 60 * 60 * 1000;
+  }).length;
+  const staleRunningCount = executionQueue.filter((entry) => {
+    const normalized = normalizeExecutionState(entry.execution_state);
+    const timestamp = entry.last_transition_at ?? entry.queued_at;
+    return (normalized === 'queued' || normalized === 'running') && timestamp && now - new Date(timestamp).getTime() > 24 * 60 * 60 * 1000;
+  }).length;
+
+  const roomsSummary = rooms.map((room) => {
+    const liveEntries = sortedEntries.filter((entry) => standupKind(entry) === room.key && entry.workspace_key === room.workspaceKey);
+    const latestEntry = liveEntries[0] ?? null;
+    const roundCount = latestEntry ? standupDiscussion(latestEntry).length : 0;
+    const isExpected = !['fusion-os', 'agc'].includes(room.key);
+    let status = 'planned';
+    let reason = 'Reserved lane. No meeting transcript expected yet.';
+
+    if (latestEntry) {
+      const ageMs = now - standupCreatedAt(latestEntry).getTime();
+      const maxAgeMs =
+        room.key === 'weekly_review' || room.key === 'saturday_vision' ? 8 * 24 * 60 * 60 * 1000 : 36 * 60 * 60 * 1000;
+      if (roundCount < 3 || !standupSummary(latestEntry)) {
+        status = 'warning';
+        reason = 'Transcript exists but the meeting still looks thin.';
+      } else if (ageMs > maxAgeMs) {
+        status = 'stale';
+        reason = 'Latest meeting is older than the target cadence window.';
+      } else {
+        status = 'ok';
+        reason = 'Meeting transcript is fresh and has enough discussion to be useful.';
+      }
+    } else if (isExpected) {
+      status = 'missing';
+      reason = 'No meeting transcript recorded for this required lane yet.';
+    }
+
+    return {
+      key: room.key,
+      label: room.label,
+      workspaceKey: room.workspaceKey,
+      status,
+      reason,
+      latestEntry,
+      roundCount,
+    } satisfies MeetingRoomHealth;
+  });
+
+  return {
+    rooms: roomsSummary,
+    byRoomKey: Object.fromEntries(roomsSummary.map((room) => [room.key, room])),
+    linkedCardCount,
+    resolvedLinkedCardCount,
+    orphanStandupCount,
+    staleReadyCount,
+    staleReviewCount,
+    staleRunningCount,
+    recentStandups: sortedEntries.slice(0, 40),
+  };
+}
+
+function buildRecentDayBuckets(entries: StandupEntry[], days: number) {
+  const buckets: Array<{ key: string; label: string; entries: StandupEntry[] }> = [];
+  const byDay = new Map<string, StandupEntry[]>();
+  entries.forEach((entry) => {
+    const date = standupCreatedAt(entry);
+    const key = date.toISOString().slice(0, 10);
+    const current = byDay.get(key) ?? [];
+    current.push(entry);
+    byDay.set(key, current);
+  });
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - offset);
+    const key = date.toISOString().slice(0, 10);
+    buckets.push({
+      key,
+      label: date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+      entries: (byDay.get(key) ?? []).sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime()),
+    });
+  }
+  return buckets;
+}
+
+function buildMonthBuckets(entries: StandupEntry[]) {
+  const today = new Date();
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const byDay = new Map<string, StandupEntry[]>();
+  entries.forEach((entry) => {
+    const date = standupCreatedAt(entry);
+    if (date.getFullYear() !== today.getFullYear() || date.getMonth() !== today.getMonth()) {
+      return;
+    }
+    const key = date.toISOString().slice(0, 10);
+    const current = byDay.get(key) ?? [];
+    current.push(entry);
+    byDay.set(key, current);
+  });
+
+  const buckets: Array<{ key: string; label: string; entries: StandupEntry[] }> = [];
+  for (let day = 1; day <= lastDay.getDate(); day += 1) {
+    const current = new Date(today.getFullYear(), today.getMonth(), day);
+    const key = current.toISOString().slice(0, 10);
+    buckets.push({
+      key,
+      label: current.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      entries: (byDay.get(key) ?? []).sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime()),
+    });
+  }
+  return buckets;
+}
+
 function statusBadge(status?: string) {
   const normalized = status?.toLowerCase();
-  const color =
-    normalized === 'healthy' || normalized === 'active' || normalized === 'done'
-      ? '#22c55e'
-      : normalized === 'warning' || normalized === 'review'
-        ? '#fbbf24'
-        : normalized === 'error'
-          ? '#f87171'
-          : normalized === 'in_progress' || normalized === 'in-progress'
-            ? '#38bdf8'
-            : '#94a3b8';
+  let color = '#94a3b8';
+  if (normalized === 'healthy' || normalized === 'active' || normalized === 'done' || normalized === 'ok') {
+    color = '#22c55e';
+  } else if (normalized === 'ready') {
+    color = '#a78bfa';
+  } else if (normalized === 'queued') {
+    color = '#14b8a6';
+  } else if (normalized === 'running' || normalized === 'in_progress' || normalized === 'in-progress') {
+    color = '#38bdf8';
+  } else if (normalized === 'failed' || normalized === 'blocked' || normalized === 'error' || normalized === 'missing') {
+    color = '#f87171';
+  } else if (normalized === 'warning' || normalized === 'review' || normalized === 'stale' || normalized === 'thin') {
+    color = '#fbbf24';
+  } else if (normalized === 'planned') {
+    color = '#64748b';
+  }
   return (
     <span style={{ padding: '4px 12px', borderRadius: '999px', backgroundColor: `${color}33`, color, fontSize: '12px', textTransform: 'capitalize' }}>
       {status ?? 'unknown'}

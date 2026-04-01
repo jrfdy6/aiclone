@@ -8,6 +8,7 @@ import { apiPost } from '@/lib/api-client';
 
 type PostingMode = 'post' | 'comment';
 type ContentCategory = 'value' | 'sales' | 'personal';
+type ContentSourceMode = 'persona_only' | 'selected_source' | 'recent_signals';
 
 type GeneratedContentResponse = {
   success?: boolean;
@@ -63,6 +64,12 @@ const CATEGORY_OPTIONS: { value: ContentCategory; label: string }[] = [
   { value: 'personal', label: 'Personal' },
 ];
 
+const CONTENT_SOURCE_OPTIONS: { value: ContentSourceMode; label: string; hint: string }[] = [
+  { value: 'persona_only', label: 'Persona only', hint: 'Generate from Johnnie canon and your prompt, not from a live source.' },
+  { value: 'selected_source', label: 'Selected source', hint: 'Use this source card as the main anchor for the draft.' },
+  { value: 'recent_signals', label: 'Recent signals', hint: 'Blend recent relevant source material into the draft.' },
+];
+
 function mapAudienceFromLane(lane: string) {
   const normalized = lane.trim().toLowerCase();
   if (['ai', 'ops-pm', 'tech_ai'].includes(normalized)) return 'tech_ai';
@@ -102,22 +109,23 @@ function postingWorkspaceTabs() {
 
 function PostingWorkspaceClient() {
   const searchParams = useSearchParams();
+  const safeSearchParams = searchParams ?? new URLSearchParams();
   const initialQuery = useMemo<PostingQueryState>(
     () => ({
-      mode: searchParams.get('mode') === 'comment' ? 'comment' : 'post',
-      autoplay: searchParams.get('autoplay') === '1',
-      title: searchParams.get('title') ?? '',
-      summary: searchParams.get('summary') ?? '',
-      hook: searchParams.get('hook') ?? '',
-      sourceUrl: searchParams.get('sourceUrl') ?? '',
-      sourcePath: searchParams.get('sourcePath') ?? '',
-      priorityLane: searchParams.get('priorityLane') ?? '',
-      sourceKind: searchParams.get('sourceKind') ?? '',
-      routeReason: searchParams.get('routeReason') ?? '',
-      targetFile: searchParams.get('targetFile') ?? '',
-      section: searchParams.get('section') ?? '',
+      mode: safeSearchParams.get('mode') === 'comment' ? 'comment' : 'post',
+      autoplay: safeSearchParams.get('autoplay') === '1',
+      title: safeSearchParams.get('title') ?? '',
+      summary: safeSearchParams.get('summary') ?? '',
+      hook: safeSearchParams.get('hook') ?? '',
+      sourceUrl: safeSearchParams.get('sourceUrl') ?? '',
+      sourcePath: safeSearchParams.get('sourcePath') ?? '',
+      priorityLane: safeSearchParams.get('priorityLane') ?? '',
+      sourceKind: safeSearchParams.get('sourceKind') ?? '',
+      routeReason: safeSearchParams.get('routeReason') ?? '',
+      targetFile: safeSearchParams.get('targetFile') ?? '',
+      section: safeSearchParams.get('section') ?? '',
     }),
-    [searchParams],
+    [safeSearchParams],
   );
 
   const [activeMode, setActiveMode] = useState<PostingMode>(initialQuery.mode);
@@ -126,6 +134,9 @@ function PostingWorkspaceClient() {
     buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason]),
   );
   const [audience, setAudience] = useState(mapAudienceFromLane(initialQuery.priorityLane));
+  const [sourceMode, setSourceMode] = useState<ContentSourceMode>(
+    initialQuery.title || initialQuery.sourceUrl || initialQuery.summary ? 'selected_source' : 'persona_only',
+  );
   const [category, setCategory] = useState<ContentCategory>('value');
   const [commentLane, setCommentLane] = useState(normalizeCommentLane(initialQuery.priorityLane));
   const [postLoading, setPostLoading] = useState(false);
@@ -145,6 +156,7 @@ function PostingWorkspaceClient() {
     setTopic(initialQuery.title);
     setContext(buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason]));
     setAudience(mapAudienceFromLane(initialQuery.priorityLane));
+    setSourceMode(initialQuery.title || initialQuery.sourceUrl || initialQuery.summary ? 'selected_source' : 'persona_only');
     setCommentLane(normalizeCommentLane(initialQuery.priorityLane));
     setPostOptions([]);
     setCommentPreview(null);
@@ -158,14 +170,20 @@ function PostingWorkspaceClient() {
     setPostLoading(true);
     setPostError(null);
     try {
+      const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
+      const topicToSend = sourceAttached ? topic || initialQuery.title || 'operator insight' : topic || 'operator insight';
+      const contextToSend = sourceAttached
+        ? context || buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason])
+        : context || '';
       const response = await apiPost<GeneratedContentResponse>('/api/content-generation/generate', {
         user_id: 'johnnie_fields',
-        topic: topic || initialQuery.title || 'operator insight',
-        context: context || buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason]),
+        topic: topicToSend,
+        context: contextToSend,
         content_type: 'linkedin_post',
         category,
         tone: 'expert_direct',
         audience,
+        source_mode: sourceMode,
       });
       const options = Array.isArray(response?.options) ? response.options.filter((option) => typeof option === 'string' && option.trim().length > 0) : [];
       setPostOptions(options);
@@ -181,7 +199,7 @@ function PostingWorkspaceClient() {
     } finally {
       setPostLoading(false);
     }
-  }, [audience, category, context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, topic]);
+  }, [audience, category, context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, sourceMode, topic]);
 
   const handleGenerateComment = useCallback(async () => {
     setCommentLoading(true);
@@ -374,11 +392,21 @@ function PostingWorkspaceClient() {
               <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Topic</span>
               <input value={topic} onChange={(event) => setTopic(event.target.value)} style={fieldStyle} />
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px' }}>
               <label style={{ display: 'grid', gap: '6px' }}>
                 <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Audience</span>
                 <select value={audience} onChange={(event) => setAudience(event.target.value)} style={fieldStyle}>
                   {AUDIENCE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: '6px' }}>
+                <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Source basis</span>
+                <select value={sourceMode} onChange={(event) => setSourceMode(event.target.value as ContentSourceMode)} style={fieldStyle}>
+                  {CONTENT_SOURCE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -396,6 +424,9 @@ function PostingWorkspaceClient() {
                 </select>
               </label>
             </div>
+            <p style={{ color: '#64748b', fontSize: '12px', margin: '-4px 0 0' }}>
+              {CONTENT_SOURCE_OPTIONS.find((option) => option.value === sourceMode)?.hint}
+            </p>
             <label style={{ display: 'grid', gap: '6px' }}>
               <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Context</span>
               <textarea value={context} onChange={(event) => setContext(event.target.value)} rows={8} style={textareaStyle} />
