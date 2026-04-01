@@ -55,6 +55,20 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os", "fusion-os", "ai-swag-store"])
 
+    def test_generic_store_language_does_not_false_positive_into_ai_swag_store(self) -> None:
+        delta = _delta(
+            trait="Remember that the hill that I showed you, the system of record hill?",
+            notes=(
+                "If you're a scheduling tool, don't facilitate bookings, store the history of every booking, "
+                "customer preferences, cancellation patterns, and lifetime value."
+            ),
+        )
+
+        result = recommend_brain_workspaces(delta)
+
+        self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os"])
+        self.assertNotIn("ai-swag-store", result["workspace_keys"])
+
 
 if __name__ == "__main__":
     unittest.main()

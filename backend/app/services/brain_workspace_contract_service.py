@@ -69,66 +69,83 @@ AI_PORTFOLIO_HINTS = (
     "prompt",
     "prompts",
 )
-WORKSPACE_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
-    "fusion-os": (
-        "fusion",
-        "academy",
-        "education",
-        "higher education",
-        "college",
-        "admissions",
-        "enrollment",
-        "referral",
-        "referrals",
-        "school",
-        "schools",
-        "family",
-        "families",
-        "student",
-        "students",
-        "market development",
-        "twice exceptional",
-        "2e",
-        "neurodivergent",
-    ),
-    "easyoutfitapp": (
-        "easy outfit",
-        "easyoutfit",
-        "outfit",
-        "outfits",
-        "style",
-        "fashion",
-        "wardrobe",
-        "closet",
-        "digital closet",
-        "digital organization",
-        "personal style",
-        "recommendation quality",
-        "metadata quality",
-    ),
-    "ai-swag-store": (
-        "swag",
-        "merch",
-        "merchandise",
-        "accessory",
-        "accessories",
-        "commerce",
-        "catalog",
-        "fulfillment",
-        "product drop",
-        "product drops",
-        "demand signal",
-        "demand test",
-        "shop",
-        "store",
-    ),
-    "agc": (
-        "agc",
-        "agc initiative",
-        "agc initiatives",
-        "agc work",
-        "agc mission",
-    ),
+WORKSPACE_DOMAIN_HINTS: dict[str, dict[str, tuple[str, ...]]] = {
+    "fusion-os": {
+        "strong": (
+            "fusion academy",
+            "education",
+            "higher education",
+            "admissions",
+            "enrollment",
+            "referral",
+            "referrals",
+            "market development",
+            "twice exceptional",
+            "2e",
+            "neurodivergent",
+        ),
+        "weak": (
+            "fusion",
+            "academy",
+            "college",
+            "school",
+            "schools",
+            "family",
+            "families",
+            "student",
+            "students",
+        ),
+    },
+    "easyoutfitapp": {
+        "strong": (
+            "easy outfit",
+            "easyoutfit",
+            "outfit",
+            "outfits",
+            "fashion",
+            "wardrobe",
+            "closet",
+            "digital closet",
+            "digital organization",
+            "personal style",
+        ),
+        "weak": (
+            "style",
+            "recommendation quality",
+            "metadata quality",
+        ),
+    },
+    "ai-swag-store": {
+        "strong": (
+            "ai swag",
+            "swag",
+            "merch",
+            "merchandise",
+            "accessory",
+            "accessories",
+            "product drop",
+            "product drops",
+            "catalog",
+            "fulfillment",
+            "demand signal",
+            "demand test",
+        ),
+        "weak": (
+            "commerce",
+            "shop",
+            "shopify",
+        ),
+    },
+    "agc": {
+        "strong": (
+            "agc",
+            "agc initiative",
+            "agc initiatives",
+            "agc work",
+            "agc mission",
+        ),
+        "weak": (),
+    },
 }
 
 
@@ -186,27 +203,37 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
             add_score(workspace_key, 3, "AI is a portfolio-wide signal across the active project stack.")
         add_score("shared_ops", 3, "AI touches multiple workspaces, so executive review should stay in the loop.")
 
-    for workspace_key, hints in WORKSPACE_DOMAIN_HINTS.items():
+    for workspace_key, hint_groups in WORKSPACE_DOMAIN_HINTS.items():
         contract_blob = _workspace_contract_blob(workspace_key)
-        primary_match_count = _count_matches(primary_blob, hints)
-        secondary_match_count = _count_matches(secondary_blob, hints)
-        contract_match_count = _count_matches(contract_blob, hints)
+        strong_hints = hint_groups.get("strong", ())
+        weak_hints = hint_groups.get("weak", ())
+        primary_strong_matches = _count_matches(primary_blob, strong_hints)
+        primary_weak_matches = _count_matches(primary_blob, weak_hints)
+        secondary_strong_matches = _count_matches(secondary_blob, strong_hints)
+        secondary_weak_matches = _count_matches(secondary_blob, weak_hints)
+        contract_match_count = _count_matches(contract_blob, strong_hints) + _count_matches(contract_blob, weak_hints)
         contract_excerpt = _workspace_contract_excerpt(workspace_key)
 
-        if primary_match_count >= 2:
+        if primary_strong_matches >= 2:
             add_score(
                 workspace_key,
-                5 if contract_match_count > 0 else 4,
-                f"Multiple direct source cues align with {WORKSPACE_CONFIG[workspace_key]['display_name']}{' and its workspace contract' if contract_match_count > 0 else ''}. {contract_excerpt}",
+                6 if contract_match_count > 0 else 5,
+                f"Multiple strong source cues align with {WORKSPACE_CONFIG[workspace_key]['display_name']}{' and its workspace contract' if contract_match_count > 0 else ''}. {contract_excerpt}",
             )
-        elif primary_match_count == 1:
+        elif primary_strong_matches == 1:
+            add_score(
+                workspace_key,
+                4 if contract_match_count > 0 else 3,
+                f"A strong source cue aligns with {WORKSPACE_CONFIG[workspace_key]['display_name']}{' and its workspace contract' if contract_match_count > 0 else ''}. {contract_excerpt}",
+            )
+        elif primary_weak_matches >= 2:
             add_score(
                 workspace_key,
                 3 if contract_match_count > 0 else 2,
-                f"A direct source cue aligns with {WORKSPACE_CONFIG[workspace_key]['display_name']}{' and its workspace contract' if contract_match_count > 0 else ''}. {contract_excerpt}",
+                f"Multiple weaker source cues still align with {WORKSPACE_CONFIG[workspace_key]['display_name']}{' and its workspace contract' if contract_match_count > 0 else ''}. {contract_excerpt}",
             )
 
-        if secondary_match_count > 0:
+        if secondary_strong_matches > 0 or secondary_weak_matches >= 2:
             add_score(
                 workspace_key,
                 1,
@@ -252,7 +279,7 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
     return {
         "workspace_keys": selected_keys,
         "suggestion_details": suggestion_details,
-        "contract_version": "brain_workspace_contract_v1",
+        "contract_version": "brain_workspace_contract_v2",
     }
 
 
