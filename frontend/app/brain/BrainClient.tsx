@@ -2439,9 +2439,11 @@ function PersonaPanel({
     () => metadataStringArray(selectedDelta?.metadata, 'brain_suggested_workspace_keys').filter(isBrainWorkspaceKey),
     [selectedDelta],
   );
+  const conservativeFallbackWorkspaceKeys = useMemo(() => fallbackBrainWorkspaceKeys(selectedDelta), [selectedDelta]);
+  const usingBackendWorkspaceSuggestions = backendSuggestedWorkspaceKeys.length > 0;
   const suggestedWorkspaceKeys = useMemo(
-    () => (backendSuggestedWorkspaceKeys.length > 0 ? backendSuggestedWorkspaceKeys : suggestBrainWorkspaceKeys(selectedDelta)),
-    [backendSuggestedWorkspaceKeys, selectedDelta],
+    () => (usingBackendWorkspaceSuggestions ? backendSuggestedWorkspaceKeys : conservativeFallbackWorkspaceKeys),
+    [backendSuggestedWorkspaceKeys, conservativeFallbackWorkspaceKeys, usingBackendWorkspaceSuggestions],
   );
   const backendWorkspaceSuggestionDetails = useMemo(
     () =>
@@ -3834,7 +3836,7 @@ function PersonaPanel({
                         ))}
                     </div>
                     <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
-                      Brain starts with FEEZIE OS and uses backend workspace contracts to suggest other relevant routes. Suggested now: {suggestedWorkspaceKeys.map(labelForBrainWorkspace).join(', ')}.
+                      Brain starts with FEEZIE OS and uses {usingBackendWorkspaceSuggestions ? 'backend workspace contracts' : 'conservative fallback defaults'} to suggest other relevant routes. Suggested now: {suggestedWorkspaceKeys.map(labelForBrainWorkspace).join(', ')}.
                       {suggestedWorkspaceReasonSummary ? ` ${suggestedWorkspaceReasonSummary}` : ''}
                     </p>
                   </div>
@@ -6146,148 +6148,40 @@ function compactStandupKind(value: string) {
   return value.replace(/[_-]+/g, ' ');
 }
 
-function suggestBrainWorkspaceKeys(delta: PersonaDeltaEntry | null) {
-  const suggestions = scoreBrainWorkspaceSuggestions(delta);
-  return suggestions.map((entry) => entry.key);
-}
-
 function isBrainWorkspaceKey(value: string): value is BrainWorkspaceKey {
   return brainWorkspaceOptions.some((option) => option.key === value);
 }
 
-function scoreBrainWorkspaceSuggestions(delta: PersonaDeltaEntry | null) {
-  const scored = new Map<BrainWorkspaceKey, { score: number; reasons: string[] }>();
-  const addScore = (workspaceKey: BrainWorkspaceKey, points: number, reason: string) => {
-    const existing = scored.get(workspaceKey) ?? { score: 0, reasons: [] };
-    existing.score += points;
-    if (!existing.reasons.includes(reason)) {
-      existing.reasons.push(reason);
+function fallbackBrainWorkspaceKeys(delta: PersonaDeltaEntry | null): BrainWorkspaceKey[] {
+  const keys: BrainWorkspaceKey[] = [];
+  const push = (workspaceKey: BrainWorkspaceKey) => {
+    if (!keys.includes(workspaceKey)) {
+      keys.push(workspaceKey);
     }
-    scored.set(workspaceKey, existing);
   };
 
-  addScore('linkedin-os', 3, 'FEEZIE OS stays in the loop by default.');
+  push('linkedin-os');
 
   const metadataWorkspace = metadataText(delta?.metadata, 'workspace_key');
   if (metadataWorkspace && isBrainWorkspaceKey(metadataWorkspace)) {
-    addScore(metadataWorkspace, 4, 'The review item metadata already points here.');
+    push(metadataWorkspace);
   }
 
   for (const priorWorkspace of metadataStringArray(delta?.metadata, 'last_brain_route_workspace_keys')) {
     if (isBrainWorkspaceKey(priorWorkspace)) {
-      addScore(priorWorkspace, 2, 'This signal has already been routed here before.');
+      push(priorWorkspace);
     }
   }
 
-  const personaTarget = (delta?.persona_target || '').toLowerCase();
-  if (personaTarget.includes('feeze') || personaTarget.includes('linkedin')) {
-    addScore('linkedin-os', 3, 'The persona target is explicitly Feeze / LinkedIn aligned.');
+  if (!keys.includes('shared_ops')) {
+    push('shared_ops');
   }
 
-  const primaryBlob = [
-    delta?.persona_target,
-    delta?.trait,
-    delta?.notes,
-    metadataText(delta?.metadata, 'lane_hint'),
-    metadataText(delta?.metadata, 'evidence_source'),
-    metadataText(delta?.metadata, 'source_excerpt_clean'),
-    metadataText(delta?.metadata, 'source_context_excerpt'),
-    metadataText(delta?.metadata, 'belief_summary'),
-    metadataText(delta?.metadata, 'system_hypothesis'),
-    metadataStringArray(delta?.metadata, 'talking_points').join(' '),
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  const secondaryBlob = [
-    metadataText(delta?.metadata, 'experience_anchor'),
-    metadataText(delta?.metadata, 'experience_summary'),
-    metadataText(delta?.metadata, 'system_experience_hypothesis'),
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  const hasPortfolioAISignal = countBrainSignalMatches(primaryBlob, brainPortfolioAIHints) > 0;
-  if (hasPortfolioAISignal) {
-    addScore('linkedin-os', 2, 'AI is always relevant to FEEZIE OS.');
-    for (const workspaceKey of brainPortfolioAIWorkspaces) {
-      addScore(workspaceKey, 3, 'AI is a cross-portfolio signal and should be considered across the project stack.');
-    }
-    addScore('shared_ops', 3, 'AI affects multiple workspaces, so executive review should stay in the loop.');
-  }
-
-  for (const [workspaceKey, hints] of Object.entries(brainWorkspaceKeywordHints) as [BrainWorkspaceSignalKey, string[]][]) {
-    const primaryMatchCount = countBrainSignalMatches(primaryBlob, hints);
-    const secondaryMatchCount = countBrainSignalMatches(secondaryBlob, hints);
-
-    if (primaryMatchCount >= 2) {
-      addScore(workspaceKey, 4, `Multiple direct source cues point toward ${labelForBrainWorkspace(workspaceKey)}.`);
-    } else if (primaryMatchCount === 1) {
-      addScore(workspaceKey, 2, `A direct source cue points toward ${labelForBrainWorkspace(workspaceKey)}.`);
-    }
-
-    if (secondaryMatchCount > 0) {
-      addScore(workspaceKey, 1, `A weaker experience/context anchor points toward ${labelForBrainWorkspace(workspaceKey)}.`);
-    }
-  }
-
-  const fusionRelevant = (scored.get('fusion-os')?.score ?? 0) >= 3;
-  const merchRelevant = (scored.get('ai-swag-store')?.score ?? 0) >= 3;
-  if (fusionRelevant && merchRelevant) {
-    addScore('fusion-os', 2, 'This looks like a Fusion + merch crossover, so Fusion OS should stay selected.');
-    addScore('ai-swag-store', 2, 'This looks like a Fusion + merch crossover, so AI Swag Store should stay selected.');
-    addScore('shared_ops', 2, 'This signal spans two operating lanes and should stay visible to executive review.');
-  }
-
-  const nonDefaultWorkspaceSuggestions = brainWorkspaceOptions
-    .map((option) => option.key)
-    .filter((workspaceKey): workspaceKey is BrainWorkspaceSignalKey => workspaceKey !== 'shared_ops' && workspaceKey !== 'linkedin-os')
-    .filter((workspaceKey) => (scored.get(workspaceKey)?.score ?? 0) >= 3);
-
-  if (nonDefaultWorkspaceSuggestions.length === 0) {
-    addScore('shared_ops', 2, 'No other workspace crossed the evidence threshold, so this should stay in executive review.');
-  } else if (nonDefaultWorkspaceSuggestions.length > 1) {
-    addScore('shared_ops', 3, 'This signal appears cross-workspace and should also stay visible in executive review.');
-  }
-
-  return brainWorkspaceOptions
-    .map((option) => option.key)
-    .filter((workspaceKey) => {
-      if (workspaceKey === 'linkedin-os' || workspaceKey === 'shared_ops') {
-        return scored.has(workspaceKey);
-      }
-      return (scored.get(workspaceKey)?.score ?? 0) >= 3;
-    })
-    .map((workspaceKey) => ({
-      key: workspaceKey,
-      score: scored.get(workspaceKey)?.score ?? 0,
-      reasons: scored.get(workspaceKey)?.reasons ?? [],
-    }));
+  return keys;
 }
 
 function labelForBrainWorkspace(workspaceKey: string) {
   return brainWorkspaceOptions.find((option) => option.key === workspaceKey)?.label ?? humanizeSnakeCase(workspaceKey);
-}
-
-function countBrainSignalMatches(text: string, hints: readonly string[]) {
-  return hints.filter((hint) => brainTextIncludesHint(text, hint)).length;
-}
-
-function brainTextIncludesHint(text: string, hint: string) {
-  if (!text || !hint) {
-    return false;
-  }
-  const normalizedHint = hint.toLowerCase();
-  if (normalizedHint.length <= 3 && !normalizedHint.includes(' ')) {
-    return new RegExp(`(^|[^a-z0-9])${escapeRegExp(normalizedHint)}([^a-z0-9]|$)`).test(text);
-  }
-  return text.includes(normalizedHint);
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function suggestStandupKindForWorkspace(workspaceKey: string) {
