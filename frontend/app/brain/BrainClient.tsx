@@ -612,6 +612,9 @@ const brainWorkspaceKeywordHints: Record<BrainWorkspaceSignalKey, string[]> = {
   'fusion-os': [
     'fusion',
     'academy',
+    'education',
+    'higher education',
+    'college',
     'admissions',
     'enrollment',
     'referral',
@@ -623,6 +626,9 @@ const brainWorkspaceKeywordHints: Record<BrainWorkspaceSignalKey, string[]> = {
     'student',
     'students',
     'market development',
+    'twice exceptional',
+    '2e',
+    'neurodivergent',
   ],
   easyoutfitapp: [
     'easy outfit',
@@ -633,6 +639,9 @@ const brainWorkspaceKeywordHints: Record<BrainWorkspaceSignalKey, string[]> = {
     'fashion',
     'wardrobe',
     'closet',
+    'digital closet',
+    'digital organization',
+    'personal style',
     'recommendation quality',
     'metadata quality',
   ],
@@ -640,6 +649,8 @@ const brainWorkspaceKeywordHints: Record<BrainWorkspaceSignalKey, string[]> = {
     'swag',
     'merch',
     'merchandise',
+    'accessory',
+    'accessories',
     'commerce',
     'catalog',
     'fulfillment',
@@ -658,6 +669,25 @@ const brainWorkspaceKeywordHints: Record<BrainWorkspaceSignalKey, string[]> = {
     'agc mission',
   ],
 };
+
+const brainPortfolioAIHints = [
+  'ai',
+  'artificial intelligence',
+  'ai clone',
+  'second brain',
+  'agent',
+  'agents',
+  'llm',
+  'llms',
+  'openai',
+  'anthropic',
+  'chatgpt',
+  'claude',
+  'prompt',
+  'prompts',
+] as const;
+
+const brainPortfolioAIWorkspaces: BrainWorkspaceSignalKey[] = ['fusion-os', 'easyoutfitapp', 'ai-swag-store', 'agc'];
 
 type BrainClientInitialState = {
   briefs?: DailyBriefEntry[];
@@ -6152,19 +6182,36 @@ function scoreBrainWorkspaceSuggestions(delta: PersonaDeltaEntry | null) {
     .join(' ')
     .toLowerCase();
 
-  for (const [workspaceKey, hints] of Object.entries(brainWorkspaceKeywordHints) as [BrainWorkspaceSignalKey, string[]][]) {
-    const primaryMatches = hints.filter((hint) => primaryBlob.includes(hint));
-    const secondaryMatches = hints.filter((hint) => secondaryBlob.includes(hint));
+  const hasPortfolioAISignal = countBrainSignalMatches(primaryBlob, brainPortfolioAIHints) > 0;
+  if (hasPortfolioAISignal) {
+    addScore('linkedin-os', 2, 'AI is always relevant to FEEZIE OS.');
+    for (const workspaceKey of brainPortfolioAIWorkspaces) {
+      addScore(workspaceKey, 3, 'AI is a cross-portfolio signal and should be considered across the project stack.');
+    }
+    addScore('shared_ops', 3, 'AI affects multiple workspaces, so executive review should stay in the loop.');
+  }
 
-    if (primaryMatches.length >= 2) {
+  for (const [workspaceKey, hints] of Object.entries(brainWorkspaceKeywordHints) as [BrainWorkspaceSignalKey, string[]][]) {
+    const primaryMatchCount = countBrainSignalMatches(primaryBlob, hints);
+    const secondaryMatchCount = countBrainSignalMatches(secondaryBlob, hints);
+
+    if (primaryMatchCount >= 2) {
       addScore(workspaceKey, 4, `Multiple direct source cues point toward ${labelForBrainWorkspace(workspaceKey)}.`);
-    } else if (primaryMatches.length === 1) {
+    } else if (primaryMatchCount === 1) {
       addScore(workspaceKey, 2, `A direct source cue points toward ${labelForBrainWorkspace(workspaceKey)}.`);
     }
 
-    if (secondaryMatches.length > 0) {
+    if (secondaryMatchCount > 0) {
       addScore(workspaceKey, 1, `A weaker experience/context anchor points toward ${labelForBrainWorkspace(workspaceKey)}.`);
     }
+  }
+
+  const fusionRelevant = (scored.get('fusion-os')?.score ?? 0) >= 3;
+  const merchRelevant = (scored.get('ai-swag-store')?.score ?? 0) >= 3;
+  if (fusionRelevant && merchRelevant) {
+    addScore('fusion-os', 2, 'This looks like a Fusion + merch crossover, so Fusion OS should stay selected.');
+    addScore('ai-swag-store', 2, 'This looks like a Fusion + merch crossover, so AI Swag Store should stay selected.');
+    addScore('shared_ops', 2, 'This signal spans two operating lanes and should stay visible to executive review.');
   }
 
   const nonDefaultWorkspaceSuggestions = brainWorkspaceOptions
@@ -6195,6 +6242,25 @@ function scoreBrainWorkspaceSuggestions(delta: PersonaDeltaEntry | null) {
 
 function labelForBrainWorkspace(workspaceKey: string) {
   return brainWorkspaceOptions.find((option) => option.key === workspaceKey)?.label ?? humanizeSnakeCase(workspaceKey);
+}
+
+function countBrainSignalMatches(text: string, hints: readonly string[]) {
+  return hints.filter((hint) => brainTextIncludesHint(text, hint)).length;
+}
+
+function brainTextIncludesHint(text: string, hint: string) {
+  if (!text || !hint) {
+    return false;
+  }
+  const normalizedHint = hint.toLowerCase();
+  if (normalizedHint.length <= 3 && !normalizedHint.includes(' ')) {
+    return new RegExp(`(^|[^a-z0-9])${escapeRegExp(normalizedHint)}([^a-z0-9]|$)`).test(text);
+  }
+  return text.includes(normalizedHint);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function suggestStandupKindForWorkspace(workspaceKey: string) {
