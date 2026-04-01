@@ -6216,6 +6216,9 @@ function participantsForBrainRoute(workspaceKey: string, standupKind: string) {
   if (standupKind === 'executive_ops' || standupKind === 'operations' || standupKind === 'weekly_review' || standupKind === 'saturday_vision') {
     return ['Jean-Claude', 'Neo', 'Yoda'];
   }
+  if (workspaceKey === 'shared_ops' || workspaceKey === 'linkedin-os') {
+    return ['Jean-Claude', 'Neo', 'Yoda'];
+  }
   const executionModel = executionModelForBrainWorkspace(workspaceKey);
   return executionModel.mode === 'delegated' ? ['Jean-Claude', executionModel.executor] : ['Jean-Claude'];
 }

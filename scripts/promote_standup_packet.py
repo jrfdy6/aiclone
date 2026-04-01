@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -11,12 +12,16 @@ from typing import Any
 
 
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
-WORKSPACE_AGENT_NAMES = {
-    "fusion-os": "Fusion Systems Operator",
-    "easyoutfitapp": "Easy Outfit Product Agent",
-    "ai-swag-store": "Commerce Growth Agent",
-    "agc": "AGC Strategy Agent",
-}
+WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.workspace_runtime_contract_service import (
+    default_standup_kind_for_workspace,
+    standup_participants_for,
+    workspace_agent_name,
+)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -45,26 +50,8 @@ def _summarize(text: str, max_len: int = 110) -> str:
     return normalized[: max_len - 1].rstrip() + "…"
 
 
-def _should_include_yoda(standup_kind: str, workspace_key: str) -> bool:
-    if workspace_key == "linkedin-os":
-        return True
-    return standup_kind in {"executive_ops", "operations", "weekly_review", "saturday_vision"}
-
-
 def _workspace_agent_name(workspace_key: str) -> str:
-    return WORKSPACE_AGENT_NAMES.get(workspace_key, "Workspace Agent")
-
-
-def _participants_for(standup_kind: str, workspace_key: str, *, include_yoda: bool) -> list[str]:
-    if workspace_key not in {"shared_ops", "linkedin-os"}:
-        participants = ["Jean-Claude", _workspace_agent_name(workspace_key)]
-    elif standup_kind == "operations":
-        participants = ["Jean-Claude", "Neo"]
-    else:
-        participants = ["Jean-Claude", "Neo"]
-    if include_yoda and "Yoda" not in participants:
-        participants.append("Yoda")
-    return participants
+    return workspace_agent_name(workspace_key)
 
 
 def _pm_updates_from(recommendation: dict[str, Any] | None, prep: dict[str, Any]) -> list[dict[str, Any]]:
@@ -109,7 +96,7 @@ def _build_owners(prep: dict[str, Any], include_yoda: bool) -> list[str]:
     workspace_key = str(prep.get("workspace_key") or "shared_ops")
     owners = ["Jean-Claude — update the PM board, open the next SOP, and carry the lane summary back to leadership."]
     if workspace_key not in {"shared_ops", "linkedin-os"}:
-        workspace_agent = WORKSPACE_AGENT_NAMES.get(workspace_key, "Workspace Agent")
+        workspace_agent = _workspace_agent_name(workspace_key)
         owners.append(
             f"{workspace_agent} — execute inside `{workspace_key}` only and report back through workspace memory plus the PM card."
         )
@@ -245,10 +232,10 @@ def _build_discussion_rounds(
 
 
 def _build_payload(prep: dict[str, Any], recommendation: dict[str, Any] | None, chronicle_entry: dict[str, Any] | None) -> dict[str, Any]:
-    standup_kind = str(prep.get("standup_kind") or "executive_ops")
     workspace_key = str(prep.get("workspace_key") or "shared_ops")
-    include_yoda = _should_include_yoda(standup_kind, workspace_key)
-    participants = _participants_for(standup_kind, workspace_key, include_yoda=include_yoda)
+    standup_kind = str(prep.get("standup_kind") or default_standup_kind_for_workspace(workspace_key))
+    participants = standup_participants_for(workspace_key, standup_kind)
+    include_yoda = "Yoda" in participants
     pm_updates = []
     source_updates = _pm_updates_from(recommendation, prep)
     for item in source_updates:
