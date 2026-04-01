@@ -2407,24 +2407,9 @@ function PersonaPanel({
     [canonActionItems, targetFile],
   );
   const canMakeCanonNow = canonActionItems.length > 0 && canonActionGate.decision === 'allow';
-  const canonActionLabel =
-    canonActionItems.length === 0 ? 'Select canon fragments' : canMakeCanonNow ? 'Make canon' : 'Save canon selection';
-  const canonActionHint =
-    canonActionItems.length === 0
-      ? 'Pick at least one optional canon fragment first.'
-      : canMakeCanonNow
-      ? 'This writes the selected fragments into runtime canon now.'
-      : canonActionGate.reason || 'This saves your canon choice and holds it until the proof is stronger.';
   const hasRouteTargets = routeToMemory || routeToStandup || routeToPM;
   const isFinalizePending = isSavingReflection || isRoutingSignal;
   const finalizeActionDisabled = !hasRouteTargets && canonActionItems.length === 0;
-  const finalizeActionLabel = hasRouteTargets
-    ? canonActionItems.length > 0
-      ? canMakeCanonNow
-        ? 'Finalize canon + route'
-        : 'Finalize review + route'
-      : 'Save + route'
-    : canonActionLabel;
   const finalizeActionBusyLabel = hasRouteTargets
     ? canMakeCanonNow
       ? 'Finalizing…'
@@ -2432,9 +2417,17 @@ function PersonaPanel({
     : canMakeCanonNow
     ? 'Making canon…'
     : 'Saving canon…';
-  const finalizeActionHint = hasRouteTargets
-    ? `${canonActionHint} Routing will run in the same action.`
-    : canonActionHint;
+  const finalizeActionSummary = hasRouteTargets
+    ? canonActionItems.length > 0
+      ? canMakeCanonNow
+        ? 'Finalize will write canon now and send this signal downstream.'
+        : `${canonActionGate.reason || 'Finalize will save this canon selection.'} Routing runs in the same action.`
+      : 'Finalize will save this review and send it downstream.'
+    : canonActionItems.length > 0
+    ? canMakeCanonNow
+      ? 'Finalize will write the selected canon fragments now.'
+      : canonActionGate.reason || 'Finalize will save this canon selection for later promotion.'
+    : 'Choose canon fragments or route targets to finalize. Use Save note if you only want to capture your judgment.';
   const backendSuggestedWorkspaceKeys = useMemo(
     () => metadataStringArray(selectedDelta?.metadata, 'brain_suggested_workspace_keys').filter(isBrainWorkspaceKey),
     [selectedDelta],
@@ -3937,7 +3930,7 @@ function PersonaPanel({
                     ))}
                     {routeToStandup && <InlineBadge label={`Standup: ${compactStandupKind(triageStandupKind)}`} tone="#38bdf8" />}
                     {routeToPM && <InlineBadge label="PM routing enabled" tone="#f59e0b" />}
-                    {!routeToMemory && !routeToStandup && !routeToPM && <InlineBadge label="No route selected" tone="#64748b" />}
+                    {!routeToMemory && !routeToStandup && !routeToPM && <InlineBadge label="Routing off" tone="#64748b" />}
                   </div>
                   {triageState.message && (
                     <p style={{ color: triageToneColor, fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
@@ -3995,10 +3988,11 @@ function PersonaPanel({
                     zIndex: 1,
                   }}
                 >
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <InlineBadge label="Save note = memory only" tone="#38bdf8" />
-                    <InlineBadge label={canMakeCanonNow ? 'Make canon = write now' : 'Canon selection = hold if proof is weak'} tone="#818cf8" />
-                    <InlineBadge label="Finalize = canon + routing in one step" tone="#f59e0b" />
+                  <div style={{ display: 'grid', gap: '4px' }}>
+                    <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: 0 }}>Submit</p>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                      Save note stores judgment only. Finalize is the done action for canon and downstream routing.
+                    </p>
                   </div>
                   {selectedPromotionItems.length > 0 && compactPersonaChrome && (
                     <div
@@ -4027,49 +4021,50 @@ function PersonaPanel({
                     </p>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <InlineBadge label={`Response: ${humanizeResponseKind(selectedResponseKind)}`} tone="#38bdf8" />
-                    <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
-                    {selectableItems.length > 0 && <InlineBadge label="Canon fragments available" tone="#818cf8" />}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <button
-                        onClick={() => saveReflection('reviewed')}
-                        disabled={isFinalizePending}
-                        style={{
-                          border: '1px solid #38bdf8',
-                          backgroundColor: isFinalizePending ? '#0c4a6e' : '#0f172a',
-                          color: 'white',
-                          borderRadius: '12px',
-                          padding: '10px 14px',
-                          cursor: isFinalizePending ? 'wait' : 'pointer',
-                          fontWeight: 600,
-                        }}
-                      >
-                        {isFinalizePending ? 'Saving…' : 'Save note'}
-                      </button>
-                      <button
-                        onClick={() => finalizeReviewedSignal()}
-                        disabled={isFinalizePending || finalizeActionDisabled}
-                        style={{
-                          border: '1px solid #334155',
-                          backgroundColor: '#020617',
-                          color: isFinalizePending || finalizeActionDisabled ? '#64748b' : '#cbd5f5',
-                          borderRadius: '12px',
-                          padding: '10px 14px',
-                          cursor: isFinalizePending ? 'wait' : finalizeActionDisabled ? 'not-allowed' : 'pointer',
-                          fontWeight: 500,
-                        }}
-                      >
-                        {isFinalizePending ? finalizeActionBusyLabel : finalizeActionLabel}
-                      </button>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <InlineBadge label={humanizeResponseKind(selectedResponseKind)} tone="#38bdf8" />
+                      <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
+                      {selectedPromotionItems.length > 0 && <InlineBadge label={`${selectedPromotionItems.length} canon selected`} tone="#818cf8" />}
                     </div>
-                    <p style={{ color: '#94a3b8', fontSize: '11px', maxWidth: '520px', textAlign: 'left', margin: 0 }}>
-                      Save note stores judgment only. Finalize saves the review and, when selected, makes canon and routes to the system in the same action. {finalizeActionHint}
-                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', maxWidth: '560px' }}>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => saveReflection('reviewed')}
+                          disabled={isFinalizePending}
+                          style={{
+                            border: '1px solid #334155',
+                            backgroundColor: isFinalizePending ? '#0f172a' : '#020617',
+                            color: isFinalizePending ? '#64748b' : '#cbd5f5',
+                            borderRadius: '12px',
+                            padding: '10px 14px',
+                            cursor: isFinalizePending ? 'wait' : 'pointer',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {isFinalizePending ? 'Saving…' : 'Save note'}
+                        </button>
+                        <button
+                          onClick={() => finalizeReviewedSignal()}
+                          disabled={isFinalizePending || finalizeActionDisabled}
+                          style={{
+                            border: '1px solid #f59e0b',
+                            backgroundColor: isFinalizePending || finalizeActionDisabled ? '#111827' : '#f59e0b',
+                            color: isFinalizePending || finalizeActionDisabled ? '#64748b' : '#0f172a',
+                            borderRadius: '12px',
+                            padding: '10px 16px',
+                            cursor: isFinalizePending ? 'wait' : finalizeActionDisabled ? 'not-allowed' : 'pointer',
+                            fontWeight: 700,
+                            boxShadow: isFinalizePending || finalizeActionDisabled ? 'none' : '0 10px 24px rgba(245, 158, 11, 0.22)',
+                          }}
+                        >
+                          {isFinalizePending ? finalizeActionBusyLabel : 'Finalize'}
+                        </button>
+                      </div>
+                      <p style={{ color: '#94a3b8', fontSize: '11px', maxWidth: '560px', textAlign: 'left', margin: 0 }}>
+                        {finalizeActionSummary}
+                      </p>
+                    </div>
                   </div>
-                </div>
                   {savedResponseExcerpt && compactPersonaChrome && (
                     <details
                       style={{
@@ -4283,16 +4278,18 @@ function PersonaPanel({
               position: usePinnedPersonaViewport ? 'sticky' : 'static',
               top: usePinnedPersonaViewport ? '88px' : undefined,
               zIndex: 2,
-              borderRadius: '12px',
+              borderRadius: '999px',
               border: '1px solid #14532d',
               backgroundColor: '#052e16',
-              padding: '12px 14px',
+              padding: '8px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              flexWrap: 'wrap',
             }}
           >
-            <p style={{ color: '#86efac', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
-              Canon Status Updated
-            </p>
-            <p style={{ color: '#dcfce7', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+            <InlineBadge label="Canon updated" tone="#22c55e" />
+            <p style={{ color: '#dcfce7', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
               {promotionState.message}
             </p>
           </div>
