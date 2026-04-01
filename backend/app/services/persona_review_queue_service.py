@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from app.models import PersonaDelta
+from app.services.brain_workspace_contract_service import recommend_brain_workspaces
 
 
 def _metadata_text(metadata: dict[str, Any] | None, key: str) -> str | None:
@@ -59,6 +60,16 @@ def is_workspace_approved(status: str, metadata: dict[str, Any] | None) -> bool:
 
 def is_brain_pending_review(status: str, metadata: dict[str, Any] | None) -> bool:
     normalized = (status or "draft").strip().lower()
+    review_source = _metadata_text(metadata, "review_source")
+    if review_source == "long_form_media.segment":
+        sync_state = _metadata_text(metadata, "sync_state") or ""
+        primary_route = _metadata_text(metadata, "primary_route")
+        if sync_state.startswith("stale_"):
+            return False
+        if _metadata_bool(metadata, "weak_source_fragment"):
+            return False
+        if primary_route and primary_route != "belief_evidence":
+            return False
     if normalized in {"draft", "pending", "in_review"}:
         return True
     return normalized == "reviewed" and has_selectable_promotion_metadata(metadata) and not _metadata_bool(
@@ -221,6 +232,7 @@ def queue_metadata(delta: PersonaDelta) -> dict[str, Any]:
     metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
     stage = persona_delta_stage(delta.status, metadata)
     muted = should_mute_active_delta(delta)
+    workspace_recommendation = recommend_brain_workspaces(delta)
     return {
         "queue_stage": stage,
         "queue_review_source": _metadata_text(metadata, "review_source") or "unknown",
@@ -229,6 +241,9 @@ def queue_metadata(delta: PersonaDelta) -> dict[str, Any]:
         "queue_promotion_ready": is_promotion_ready(delta.status, metadata),
         "queue_muted": muted,
         "queue_priority_score": queue_priority_score(delta),
+        "brain_suggested_workspace_keys": workspace_recommendation["workspace_keys"],
+        "brain_workspace_suggestion_details": workspace_recommendation["suggestion_details"],
+        "brain_workspace_contract_version": workspace_recommendation["contract_version"],
     }
 
 

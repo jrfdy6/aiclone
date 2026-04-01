@@ -2435,6 +2435,34 @@ function PersonaPanel({
   const finalizeActionHint = hasRouteTargets
     ? `${canonActionHint} Routing will run in the same action.`
     : canonActionHint;
+  const backendSuggestedWorkspaceKeys = useMemo(
+    () => metadataStringArray(selectedDelta?.metadata, 'brain_suggested_workspace_keys').filter(isBrainWorkspaceKey),
+    [selectedDelta],
+  );
+  const suggestedWorkspaceKeys = useMemo(
+    () => (backendSuggestedWorkspaceKeys.length > 0 ? backendSuggestedWorkspaceKeys : suggestBrainWorkspaceKeys(selectedDelta)),
+    [backendSuggestedWorkspaceKeys, selectedDelta],
+  );
+  const backendWorkspaceSuggestionDetails = useMemo(
+    () =>
+      metadataArray(selectedDelta?.metadata, 'brain_workspace_suggestion_details').filter(
+        (value): value is { workspace_key?: BrainWorkspaceKey; reasons?: string[] } =>
+          Boolean(
+            value &&
+              typeof value === 'object' &&
+              !Array.isArray(value) &&
+              (!('workspace_key' in value) || value.workspace_key == null || (typeof value.workspace_key === 'string' && isBrainWorkspaceKey(value.workspace_key))),
+          ),
+      ),
+    [selectedDelta],
+  );
+  const suggestedWorkspaceReasonSummary = useMemo(() => {
+    const firstDetail = backendWorkspaceSuggestionDetails.find(
+      (detail) => detail.workspace_key && suggestedWorkspaceKeys.includes(detail.workspace_key),
+    );
+    const firstReason = Array.isArray(firstDetail?.reasons) ? firstDetail?.reasons.find((reason) => typeof reason === 'string' && reason.trim().length > 0) : null;
+    return typeof firstReason === 'string' ? firstReason : null;
+  }, [backendWorkspaceSuggestionDetails, suggestedWorkspaceKeys]);
   const routeHistory = useMemo(
     () =>
       metadataArray(selectedDelta?.metadata, 'brain_route_history').filter(
@@ -2449,7 +2477,6 @@ function PersonaPanel({
       ),
     [selectedDelta],
   );
-  const suggestedWorkspaceKeys = useMemo(() => suggestBrainWorkspaceKeys(selectedDelta), [selectedDelta]);
   const triageWorkspaceSelection = useMemo(() => (triageWorkspaceKeys.length > 0 ? triageWorkspaceKeys : suggestedWorkspaceKeys), [suggestedWorkspaceKeys, triageWorkspaceKeys]);
   const triageExecutionPreviews = useMemo(
     () =>
@@ -2600,17 +2627,16 @@ function PersonaPanel({
   }, [selectedDelta]);
 
   useEffect(() => {
-    const nextSuggestedWorkspaceKeys = suggestBrainWorkspaceKeys(selectedDelta);
     setRouteToMemory(false);
     setRouteToStandup(false);
     setRouteToPM(false);
     setShowTriageControls(true);
     setTriageMemoryTargets(['persistent_state']);
-    setTriageWorkspaceKeys(nextSuggestedWorkspaceKeys);
+    setTriageWorkspaceKeys(suggestedWorkspaceKeys);
     setTriageStandupKind('auto');
     setTriagePMTitle(selectedDelta ? defaultBrainPMTitle(selectedDelta) : '');
     setTriageState({ tone: 'idle', message: '' });
-  }, [selectedDelta]);
+  }, [selectedDelta, suggestedWorkspaceKeys]);
 
   async function postPromotionCommit(deltaId: string) {
     const response = await fetch(`${API_URL}/api/brain/persona-promote/${deltaId}`, {
@@ -3023,7 +3049,7 @@ function PersonaPanel({
     if (preset === 'workspace_followup') {
       const workspaceKeys =
         triageWorkspaceSelection.length === 1 && triageWorkspaceSelection[0] === 'shared_ops'
-          ? suggestBrainWorkspaceKeys(selectedDelta)
+          ? suggestedWorkspaceKeys
           : triageWorkspaceSelection;
       setRouteToMemory(true);
       setRouteToStandup(true);
@@ -3808,7 +3834,8 @@ function PersonaPanel({
                         ))}
                     </div>
                     <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
-                      Brain starts with FEEZIE OS and auto-suggests other workspace routes when the signal looks relevant. Suggested now: {suggestedWorkspaceKeys.map(labelForBrainWorkspace).join(', ')}.
+                      Brain starts with FEEZIE OS and uses backend workspace contracts to suggest other relevant routes. Suggested now: {suggestedWorkspaceKeys.map(labelForBrainWorkspace).join(', ')}.
+                      {suggestedWorkspaceReasonSummary ? ` ${suggestedWorkspaceReasonSummary}` : ''}
                     </p>
                   </div>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
