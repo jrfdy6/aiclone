@@ -2486,6 +2486,27 @@ function PersonaPanel({
       }),
     [triageStandupKind, triageWorkspaceSelection],
   );
+  const triageWorkspaceSummary = useMemo(
+    () => triageWorkspaceSelection.map(labelForBrainWorkspace).join(', '),
+    [triageWorkspaceSelection],
+  );
+  const triageRouteSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (routeToMemory) {
+      parts.push(
+        triageMemoryTargets.length > 0
+          ? `Memory: ${triageMemoryTargets.map(humanizeCanonicalMemoryTarget).join(', ')}`
+          : 'Memory enabled',
+      );
+    }
+    if (routeToStandup) {
+      parts.push(`Standup: ${compactStandupKind(triageStandupKind)}`);
+    }
+    if (routeToPM) {
+      parts.push('PM queue enabled');
+    }
+    return parts.length > 0 ? parts.join(' · ') : 'Review only for now. No downstream routing is enabled.';
+  }, [routeToMemory, routeToPM, routeToStandup, triageMemoryTargets, triageStandupKind]);
   const sourceTitle = metadataText(selectedDelta?.metadata, 'evidence_source') ?? metadataText(selectedDelta?.metadata, 'source_asset_id') ?? selectedDelta?.trait ?? 'Untitled source';
   const sourceChannel = metadataText(selectedDelta?.metadata, 'source_channel') ?? metadataText(selectedDelta?.metadata, 'source_type');
   const sourceUrl = metadataText(selectedDelta?.metadata, 'source_url');
@@ -3772,14 +3793,14 @@ function PersonaPanel({
                   gap: compactPersonaChrome ? '9px' : '10px',
                 }}
               >
-                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Step 3 · Decide and save</p>
+                <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Step 3 · Save and route</p>
                 {!compactPersonaChrome && (
                   <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
                     Decide whether this source is worth keeping at all before you worry about promotion. Only use canon when the source is actually strong enough.
                   </p>
                 )}
                 <div style={{ display: 'grid', gap: '8px' }}>
-                  <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>First decision</p>
+                  <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Source call</p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <QuickFillButton label="Not useful" onClick={() => seedSourceDecision('not_useful')} />
                     <QuickFillButton label="Useful source" onClick={() => seedSourceDecision('source_only')} />
@@ -3788,7 +3809,7 @@ function PersonaPanel({
                   </div>
                 </div>
                 <div style={{ display: 'grid', gap: '8px' }}>
-                  <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>How are you responding?</p>
+                  <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Response</p>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <QuickFillButton label="Agree" onClick={() => queueTemplate('agree')} />
                     <QuickFillButton label="Disagree" onClick={() => queueTemplate('disagree')} />
@@ -3797,10 +3818,15 @@ function PersonaPanel({
                     <QuickFillButton label="Wording" onClick={() => queueTemplate('language')} />
                   </div>
                 </div>
-                <div style={{ display: 'grid', gap: '8px', padding: '10px', borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#010617' }}>
-                  <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
-                    Quick routing (one place for destination decisions)
-                  </p>
+                <div style={{ display: 'grid', gap: '10px', padding: '10px', borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#010617' }}>
+                  <div style={{ display: 'grid', gap: '4px' }}>
+                    <p style={{ color: '#cbd5f5', fontSize: '12px', fontWeight: 700, margin: 0 }}>
+                      Routing
+                    </p>
+                    <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                      Choose where this should go after review. Workspaces can stay broad; memory, standup, and PM are optional downstream actions.
+                    </p>
+                  </div>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     {brainTriagePresetOptions.map((preset) => (
                       <button
@@ -3921,16 +3947,20 @@ function PersonaPanel({
                       ))}
                     </div>
                   )}
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {triageWorkspaceSelection.map((workspaceKey) => (
-                      <InlineBadge key={`workspace-${workspaceKey}`} label={`Workspace: ${labelForBrainWorkspace(workspaceKey)}`} tone="#38bdf8" />
-                    ))}
-                    {routeToMemory && triageMemoryTargets.map((target) => (
-                      <InlineBadge key={`quick-memory-${target}`} label={`Memory: ${humanizeCanonicalMemoryTarget(target)}`} tone="#22c55e" />
-                    ))}
-                    {routeToStandup && <InlineBadge label={`Standup: ${compactStandupKind(triageStandupKind)}`} tone="#38bdf8" />}
-                    {routeToPM && <InlineBadge label="PM routing enabled" tone="#f59e0b" />}
-                    {!routeToMemory && !routeToStandup && !routeToPM && <InlineBadge label="Routing off" tone="#64748b" />}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gap: '4px',
+                      paddingTop: '8px',
+                      borderTop: '1px solid #172036',
+                    }}
+                  >
+                    <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
+                      Workspaces: {triageWorkspaceSummary}
+                    </p>
+                    <p style={{ color: hasRouteTargets ? '#94a3b8' : '#64748b', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                      {triageRouteSummary}
+                    </p>
                   </div>
                   {triageState.message && (
                     <p style={{ color: triageToneColor, fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
@@ -4023,7 +4053,6 @@ function PersonaPanel({
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                       <InlineBadge label={humanizeResponseKind(selectedResponseKind)} tone="#38bdf8" />
-                      <InlineBadge label={humanizeBeliefRelation(metadataText(selectedDelta.metadata, 'belief_relation'))} tone="#22c55e" />
                       {selectedPromotionItems.length > 0 && <InlineBadge label={`${selectedPromotionItems.length} canon selected`} tone="#818cf8" />}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', maxWidth: '560px' }}>
