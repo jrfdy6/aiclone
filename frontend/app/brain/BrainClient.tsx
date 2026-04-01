@@ -599,6 +599,7 @@ const brainWorkspaceOptions = [
   { key: 'agc', label: 'AGC' },
 ] as const;
 type BrainWorkspaceKey = (typeof brainWorkspaceOptions)[number]['key'];
+type BrainWorkspaceSignalKey = Exclude<BrainWorkspaceKey, 'shared_ops' | 'linkedin-os'>;
 
 const brainTriagePresetOptions = [
   { key: 'canon_only', label: 'Canon + Memory' },
@@ -607,7 +608,7 @@ const brainTriagePresetOptions = [
   { key: 'pm_only', label: 'PM Only' },
 ] as const;
 
-const brainWorkspaceKeywordHints: Record<string, string[]> = {
+const brainWorkspaceKeywordHints: Record<BrainWorkspaceSignalKey, string[]> = {
   'fusion-os': [
     'fusion',
     'academy',
@@ -6089,19 +6090,44 @@ function compactStandupKind(value: string) {
 }
 
 function suggestBrainWorkspaceKeys(delta: PersonaDeltaEntry | null) {
-  const suggestions = new Set<BrainWorkspaceKey>(['linkedin-os']);
+  const suggestions = scoreBrainWorkspaceSuggestions(delta);
+  return suggestions.map((entry) => entry.key);
+}
+
+function isBrainWorkspaceKey(value: string): value is BrainWorkspaceKey {
+  return brainWorkspaceOptions.some((option) => option.key === value);
+}
+
+function scoreBrainWorkspaceSuggestions(delta: PersonaDeltaEntry | null) {
+  const scored = new Map<BrainWorkspaceKey, { score: number; reasons: string[] }>();
+  const addScore = (workspaceKey: BrainWorkspaceKey, points: number, reason: string) => {
+    const existing = scored.get(workspaceKey) ?? { score: 0, reasons: [] };
+    existing.score += points;
+    if (!existing.reasons.includes(reason)) {
+      existing.reasons.push(reason);
+    }
+    scored.set(workspaceKey, existing);
+  };
+
+  addScore('linkedin-os', 3, 'FEEZIE OS stays in the loop by default.');
+
   const metadataWorkspace = metadataText(delta?.metadata, 'workspace_key');
   if (metadataWorkspace && isBrainWorkspaceKey(metadataWorkspace)) {
-    suggestions.add(metadataWorkspace);
+    addScore(metadataWorkspace, 4, 'The review item metadata already points here.');
   }
 
   for (const priorWorkspace of metadataStringArray(delta?.metadata, 'last_brain_route_workspace_keys')) {
     if (isBrainWorkspaceKey(priorWorkspace)) {
-      suggestions.add(priorWorkspace);
+      addScore(priorWorkspace, 2, 'This signal has already been routed here before.');
     }
   }
 
-  const searchBlob = [
+  const personaTarget = (delta?.persona_target || '').toLowerCase();
+  if (personaTarget.includes('feeze') || personaTarget.includes('linkedin')) {
+    addScore('linkedin-os', 3, 'The persona target is explicitly Feeze / LinkedIn aligned.');
+  }
+
+  const primaryBlob = [
     delta?.persona_target,
     delta?.trait,
     delta?.notes,
@@ -6109,9 +6135,6 @@ function suggestBrainWorkspaceKeys(delta: PersonaDeltaEntry | null) {
     metadataText(delta?.metadata, 'evidence_source'),
     metadataText(delta?.metadata, 'source_excerpt_clean'),
     metadataText(delta?.metadata, 'source_context_excerpt'),
-    metadataText(delta?.metadata, 'experience_anchor'),
-    metadataText(delta?.metadata, 'experience_summary'),
-    metadataText(delta?.metadata, 'system_experience_hypothesis'),
     metadataText(delta?.metadata, 'belief_summary'),
     metadataText(delta?.metadata, 'system_hypothesis'),
     metadataStringArray(delta?.metadata, 'talking_points').join(' '),
@@ -6120,23 +6143,54 @@ function suggestBrainWorkspaceKeys(delta: PersonaDeltaEntry | null) {
     .join(' ')
     .toLowerCase();
 
-  for (const [workspaceKey, hints] of Object.entries(brainWorkspaceKeywordHints) as [BrainWorkspaceKey, string[]][]) {
-    if (hints.some((hint) => searchBlob.includes(hint))) {
-      suggestions.add(workspaceKey);
+  const secondaryBlob = [
+    metadataText(delta?.metadata, 'experience_anchor'),
+    metadataText(delta?.metadata, 'experience_summary'),
+    metadataText(delta?.metadata, 'system_experience_hypothesis'),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  for (const [workspaceKey, hints] of Object.entries(brainWorkspaceKeywordHints) as [BrainWorkspaceSignalKey, string[]][]) {
+    const primaryMatches = hints.filter((hint) => primaryBlob.includes(hint));
+    const secondaryMatches = hints.filter((hint) => secondaryBlob.includes(hint));
+
+    if (primaryMatches.length >= 2) {
+      addScore(workspaceKey, 4, `Multiple direct source cues point toward ${labelForBrainWorkspace(workspaceKey)}.`);
+    } else if (primaryMatches.length === 1) {
+      addScore(workspaceKey, 2, `A direct source cue points toward ${labelForBrainWorkspace(workspaceKey)}.`);
+    }
+
+    if (secondaryMatches.length > 0) {
+      addScore(workspaceKey, 1, `A weaker experience/context anchor points toward ${labelForBrainWorkspace(workspaceKey)}.`);
     }
   }
 
-  if (!Array.from(suggestions).some((workspaceKey) => workspaceKey !== 'linkedin-os')) {
-    suggestions.add('shared_ops');
+  const nonDefaultWorkspaceSuggestions = brainWorkspaceOptions
+    .map((option) => option.key)
+    .filter((workspaceKey): workspaceKey is BrainWorkspaceSignalKey => workspaceKey !== 'shared_ops' && workspaceKey !== 'linkedin-os')
+    .filter((workspaceKey) => (scored.get(workspaceKey)?.score ?? 0) >= 3);
+
+  if (nonDefaultWorkspaceSuggestions.length === 0) {
+    addScore('shared_ops', 2, 'No other workspace crossed the evidence threshold, so this should stay in executive review.');
+  } else if (nonDefaultWorkspaceSuggestions.length > 1) {
+    addScore('shared_ops', 3, 'This signal appears cross-workspace and should also stay visible in executive review.');
   }
 
   return brainWorkspaceOptions
     .map((option) => option.key)
-    .filter((workspaceKey) => suggestions.has(workspaceKey));
-}
-
-function isBrainWorkspaceKey(value: string): value is BrainWorkspaceKey {
-  return brainWorkspaceOptions.some((option) => option.key === value);
+    .filter((workspaceKey) => {
+      if (workspaceKey === 'linkedin-os' || workspaceKey === 'shared_ops') {
+        return scored.has(workspaceKey);
+      }
+      return (scored.get(workspaceKey)?.score ?? 0) >= 3;
+    })
+    .map((workspaceKey) => ({
+      key: workspaceKey,
+      score: scored.get(workspaceKey)?.score ?? 0,
+      reasons: scored.get(workspaceKey)?.reasons ?? [],
+    }));
 }
 
 function labelForBrainWorkspace(workspaceKey: string) {
