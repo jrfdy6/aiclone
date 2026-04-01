@@ -1399,6 +1399,7 @@ export default function OpsClient({
         <PMBoardPanel
           cards={pmCards}
           executionQueue={executionQueue}
+          standups={standups}
           automations={automations}
           executiveFeed={executiveFeed}
           error={sectionErrors.pmCards}
@@ -1700,6 +1701,7 @@ const STANDUP_ROOMS: {
 function PMBoardPanel({
   cards,
   executionQueue,
+  standups,
   automations,
   executiveFeed,
   error,
@@ -1708,6 +1710,7 @@ function PMBoardPanel({
 }: {
   cards: PMCard[];
   executionQueue: ExecutionQueueEntry[];
+  standups: StandupEntry[];
   automations: Automation[];
   executiveFeed: ExecutiveFeed;
   error: string | null;
@@ -1716,6 +1719,7 @@ function PMBoardPanel({
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
   const executionBuckets = useMemo(() => groupExecutionQueue(executionQueue), [executionQueue]);
+  const activeCards = useMemo(() => cards.filter((card) => normalizeStatus(card.status) !== 'done'), [cards]);
   const recommendationItems = useMemo(
     () =>
       executiveFeed.pmRecommendations.flatMap((packet) =>
@@ -1728,8 +1732,9 @@ function PMBoardPanel({
       ),
     [executiveFeed.pmRecommendations],
   );
-  const laneSummary = useMemo(() => buildPmLaneSummary(cards, recommendationItems), [cards, recommendationItems]);
+  const laneSummary = useMemo(() => buildPmLaneSummary(activeCards), [activeCards]);
   const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
+  const meetingOps = useMemo(() => buildMeetingOps(STANDUP_ROOMS, standups, cards, executionQueue), [standups, cards, executionQueue]);
   const [dispatchingCardId, setDispatchingCardId] = useState<string | null>(null);
   const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
@@ -1768,29 +1773,42 @@ function PMBoardPanel({
       </div>
       {error && <SectionAlert message={`${TELEMETRY_LABELS.pmCards}: ${error}`} />}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
-        <MiniMeta label="Live Cards" value={`${cards.length}`} detail="current PM API backlog" />
+        <MiniMeta label="Active Cards" value={`${activeCards.length}`} detail="todo + in progress + review" />
+        <MiniMeta label="Closed" value={`${buckets.done.length}`} detail="resolved cards still visible in PM history" />
         <MiniMeta label="Standup Queue" value={`${recommendationItems.length}`} detail="recommendations waiting for promotion" />
-        <MiniMeta label="Codex Ready" value={`${executionBuckets.ready.length}`} detail="cards Neo can queue now" />
-        <MiniMeta label="Queued" value={`${executionBuckets.queued.length}`} detail="tasks staged for Codex execution" />
+        <MiniMeta label="Codex Ready" value={`${executionBuckets.ready.length}`} detail="cards Jean-Claude can queue now" />
+        <MiniMeta label="Running" value={`${executionBuckets.running.length}`} detail="active workspace execution" />
         <MiniMeta label="Shared Ops" value={`${laneSummary.sharedOps}`} detail="executive / operations scope" />
         <MiniMeta label="Workspace Lanes" value={`${laneSummary.workspaceLanes}`} detail="distinct workspace buckets touched" />
-        <MiniMeta label="OpenClaw Crons" value={`${automationCounts.openclaw}`} detail="automation inputs visible in Ops" />
-        <MiniMeta label="Local Loop" value={`${executiveFeed.artifacts.filter((artifact) => artifact.category === 'local').length}`} detail="Chronicle and promotion surfaces" />
+        <MiniMeta label="Automation Jobs" value={`${automationCounts.total}`} detail="visible in Ops right now" />
+        <MiniMeta label="Launchd Loop" value={`${automationCounts.launchd}`} detail="local runners and maintenance jobs" />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         {STANDUP_ROOMS.map((room) => {
+          const roomHealth = meetingOps.byRoomKey[room.key];
           const itemCount = laneSummary.byWorkspace[room.workspaceKey] ?? 0;
           const recommendationCount = recommendationItems.filter((item) => item.workspaceKey === room.workspaceKey).length;
+          const latestMeetingLabel = roomHealth?.latestEntry?.created_at
+            ? formatTimestamp(new Date(roomHealth.latestEntry.created_at))
+            : roomHealth?.status === 'planned'
+              ? 'Not scheduled yet'
+              : 'No transcript yet';
+          const roomStatus =
+            recommendationCount > 0 && (!roomHealth || roomHealth.status === 'planned')
+              ? 'active'
+              : roomHealth?.status ?? 'planned';
           return (
             <article key={room.key} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
                 <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{room.label}</p>
-                {statusBadge(recommendationCount > 0 ? 'active' : itemCount > 0 ? 'review' : 'planned')}
+                {statusBadge(roomStatus)}
               </div>
               <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: '0 0 10px' }}>{room.description}</p>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', margin: '0 0 10px' }}>{roomHealth?.reason ?? 'Reserved lane. No meeting transcript expected yet.'}</p>
               <div style={{ display: 'flex', gap: '10px', color: '#cbd5f5', fontSize: '12px', flexWrap: 'wrap' }}>
-                <span>Live cards: {itemCount}</span>
-                <span>Queued: {recommendationCount}</span>
+                <span>PM cards: {itemCount}</span>
+                <span>Pending PM: {recommendationCount}</span>
+                <span>Latest: {latestMeetingLabel}</span>
               </div>
             </article>
           );
@@ -1858,15 +1876,15 @@ function PMBoardPanel({
                     </div>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
                       <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
-                      <span>Manager: {entry.manager_agent}</span>
-                      <span>Target: {entry.target_agent}</span>
+                      <span>Manager: {displayManagerAgent(entry.workspace_key, entry.manager_agent)}</span>
+                      <span>Target: {displayTargetAgent(entry.workspace_key, entry.target_agent)}</span>
                       <span>{entry.pm_status}</span>
                     </div>
                     {entry.reason && <p style={{ color: '#cbd5f5', fontSize: '13px', margin: '0 0 10px' }}>{entry.reason}</p>}
                     <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <span>Lane: {entry.lane}</span>
                       <span>Mode: {entry.execution_mode}</span>
-                      {entry.workspace_agent && <span>Workspace agent: {entry.workspace_agent}</span>}
+                      {entry.workspace_agent && <span>Workspace agent: {displayWorkspaceAgent(entry.workspace_key, entry.workspace_agent)}</span>}
                       <span>Updated: {entry.last_transition_at ? formatTimestamp(new Date(entry.last_transition_at)) : '-'}</span>
                     </div>
                     {column.key === 'ready' && (
@@ -1996,8 +2014,8 @@ function StandupsPanel({
         <MiniMeta label="Chronicle Chunks" value={`${executiveFeed.chronicleEntries.length}`} detail="recent Codex memory stream" />
         <MiniMeta label="Standup Packs" value={`${executiveFeed.standupPreps.length}`} detail="PM-first meetings ready" />
         <MiniMeta label="PM Packets" value={`${executiveFeed.pmRecommendations.length}`} detail="standup-driven execution queue" />
-        <MiniMeta label="OpenClaw Crons" value={`${automationCounts.openclaw}`} detail="heartbeat, briefs, dream cycle, progress" />
-        <MiniMeta label="Local Loop" value={`${executiveFeed.artifacts.filter((artifact) => artifact.category === 'local').length}`} detail="Chronicle sync, prep, promotion" />
+        <MiniMeta label="Automation Jobs" value={`${automationCounts.total}`} detail="jobs visible in Ops right now" />
+        <MiniMeta label="Launchd Loop" value={`${automationCounts.launchd}`} detail="local runner and maintenance jobs" />
         <MiniMeta label="Latest Chronicle" value={latestChronicle?.createdAt ? formatTimestamp(new Date(latestChronicle.createdAt)) : '-'} detail={latestChronicle ? summarize(latestChronicle.summary, 52) : 'No Chronicle entries yet'} />
       </div>
       <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
@@ -4858,31 +4876,95 @@ function meetingLabelForWorkspace(workspaceKey: string) {
   }
 }
 
+const WORKSPACE_RUNTIME_DISPLAY: Record<string, { targetAgent: string; workspaceAgent: string | null; legacyAliases: string[] }> = {
+  'shared_ops': { targetAgent: 'Jean-Claude', workspaceAgent: null, legacyAliases: [] },
+  'linkedin-os': { targetAgent: 'Jean-Claude', workspaceAgent: null, legacyAliases: [] },
+  'fusion-os': {
+    targetAgent: 'Fusion Systems Operator',
+    workspaceAgent: 'Fusion Systems Operator',
+    legacyAliases: ['Fusion Agent'],
+  },
+  easyoutfitapp: {
+    targetAgent: 'Easy Outfit Product Agent',
+    workspaceAgent: 'Easy Outfit Product Agent',
+    legacyAliases: ['Easy Outfit Agent'],
+  },
+  'ai-swag-store': {
+    targetAgent: 'Commerce Growth Agent',
+    workspaceAgent: 'Commerce Growth Agent',
+    legacyAliases: ['AI Swag Store Agent', 'Commerce Agent'],
+  },
+  agc: {
+    targetAgent: 'AGC Strategy Agent',
+    workspaceAgent: 'AGC Strategy Agent',
+    legacyAliases: ['AGC Agent'],
+  },
+};
+
+function displayManagerAgent(_workspaceKey: string | null | undefined, managerAgent?: string | null) {
+  return managerAgent || 'Jean-Claude';
+}
+
+function displayTargetAgent(workspaceKey: string | null | undefined, targetAgent?: string | null) {
+  const contract = WORKSPACE_RUNTIME_DISPLAY[workspaceKey ?? ''];
+  if (!contract) {
+    return targetAgent || 'Jean-Claude';
+  }
+  if (!targetAgent) {
+    return contract.targetAgent;
+  }
+  const normalized = targetAgent.trim().toLowerCase();
+  if (contract.legacyAliases.some((alias) => alias.toLowerCase() === normalized)) {
+    return contract.targetAgent;
+  }
+  return targetAgent;
+}
+
+function displayWorkspaceAgent(workspaceKey: string | null | undefined, workspaceAgent?: string | null) {
+  const contract = WORKSPACE_RUNTIME_DISPLAY[workspaceKey ?? ''];
+  if (!contract) {
+    return workspaceAgent || 'Workspace Agent';
+  }
+  if (!workspaceAgent) {
+    return contract.workspaceAgent || 'Workspace Agent';
+  }
+  const normalized = workspaceAgent.trim().toLowerCase();
+  if (contract.legacyAliases.some((alias) => alias.toLowerCase() === normalized)) {
+    return contract.workspaceAgent || workspaceAgent;
+  }
+  return workspaceAgent;
+}
+
 function summarizeAutomationSources(automations: Automation[]) {
   return automations.reduce(
     (acc, automation) => {
-      if (automation.source === 'openclaw_jobs_json' || automation.runtime?.includes('openclaw')) {
+      acc.total += 1;
+      const source = (automation.source ?? '').toLowerCase();
+      const runtime = (automation.runtime ?? '').toLowerCase();
+      const channel = (automation.channel ?? '').toLowerCase();
+      const isOpenclaw = source === 'openclaw_jobs_json' || runtime.includes('openclaw') || channel.startsWith('openclaw');
+      const isLaunchd = source.includes('launchd') || runtime.includes('launchd') || runtime.includes('local_launchd');
+      const isLocal = isLaunchd || source.includes('local') || runtime.includes('local machine');
+      if (isOpenclaw) {
         acc.openclaw += 1;
-      } else {
+      }
+      if (isLaunchd) {
+        acc.launchd += 1;
+      }
+      if (isLocal) {
         acc.local += 1;
       }
       return acc;
     },
-    { openclaw: 0, local: 0 },
+    { openclaw: 0, local: 0, launchd: 0, total: 0 },
   );
 }
 
-function buildPmLaneSummary(
-  cards: PMCard[],
-  recommendationItems: Array<{ workspaceKey: string }>,
-) {
+function buildPmLaneSummary(cards: PMCard[]) {
   const byWorkspace: Record<string, number> = {};
   cards.forEach((card) => {
     const workspaceKey = workspaceKeyFromCard(card);
     byWorkspace[workspaceKey] = (byWorkspace[workspaceKey] ?? 0) + 1;
-  });
-  recommendationItems.forEach((item) => {
-    byWorkspace[item.workspaceKey] = (byWorkspace[item.workspaceKey] ?? 0) + 1;
   });
   const workspaceKeys = Object.keys(byWorkspace);
   return {
@@ -6004,7 +6086,7 @@ function buildMeetingOps(
     const liveEntries = sortedEntries.filter((entry) => standupKind(entry) === room.key && entry.workspace_key === room.workspaceKey);
     const latestEntry = liveEntries[0] ?? null;
     const roundCount = latestEntry ? standupDiscussion(latestEntry).length : 0;
-    const isExpected = !['fusion-os', 'agc'].includes(room.key);
+    const isExpected = !['easyoutfitapp', 'ai-swag-store', 'agc'].includes(room.key);
     let status = 'planned';
     let reason = 'Reserved lane. No meeting transcript expected yet.';
 
