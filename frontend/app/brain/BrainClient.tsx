@@ -598,6 +598,7 @@ const brainWorkspaceOptions = [
   { key: 'ai-swag-store', label: 'AI Swag Store' },
   { key: 'agc', label: 'AGC' },
 ] as const;
+type BrainWorkspaceKey = (typeof brainWorkspaceOptions)[number]['key'];
 
 const brainTriagePresetOptions = [
   { key: 'canon_only', label: 'Canon + Memory' },
@@ -605,6 +606,57 @@ const brainTriagePresetOptions = [
   { key: 'workspace_followup', label: 'Workspace Follow-Up' },
   { key: 'pm_only', label: 'PM Only' },
 ] as const;
+
+const brainWorkspaceKeywordHints: Record<string, string[]> = {
+  'fusion-os': [
+    'fusion',
+    'academy',
+    'admissions',
+    'enrollment',
+    'referral',
+    'referrals',
+    'school',
+    'schools',
+    'family',
+    'families',
+    'student',
+    'students',
+    'market development',
+  ],
+  easyoutfitapp: [
+    'easy outfit',
+    'easyoutfit',
+    'outfit',
+    'outfits',
+    'style',
+    'fashion',
+    'wardrobe',
+    'closet',
+    'recommendation quality',
+    'metadata quality',
+  ],
+  'ai-swag-store': [
+    'swag',
+    'merch',
+    'merchandise',
+    'commerce',
+    'catalog',
+    'fulfillment',
+    'product drop',
+    'product drops',
+    'demand signal',
+    'demand test',
+    'shop',
+    'store',
+  ],
+  agc: [
+    'agc',
+    'agc initiative',
+    'agc initiatives',
+    'agc work',
+    'agc mission',
+  ],
+};
 
 type BrainClientInitialState = {
   briefs?: DailyBriefEntry[];
@@ -2366,7 +2418,8 @@ function PersonaPanel({
       ),
     [selectedDelta],
   );
-  const triageWorkspaceSelection = useMemo(() => (triageWorkspaceKeys.length > 0 ? triageWorkspaceKeys : ['shared_ops']), [triageWorkspaceKeys]);
+  const suggestedWorkspaceKeys = useMemo(() => suggestBrainWorkspaceKeys(selectedDelta), [selectedDelta]);
+  const triageWorkspaceSelection = useMemo(() => (triageWorkspaceKeys.length > 0 ? triageWorkspaceKeys : suggestedWorkspaceKeys), [suggestedWorkspaceKeys, triageWorkspaceKeys]);
   const triageExecutionPreviews = useMemo(
     () =>
       triageWorkspaceSelection.map((workspaceKey) => {
@@ -2516,13 +2569,13 @@ function PersonaPanel({
   }, [selectedDelta]);
 
   useEffect(() => {
-    const suggestedWorkspaceKey = suggestBrainWorkspaceKey(selectedDelta);
+    const nextSuggestedWorkspaceKeys = suggestBrainWorkspaceKeys(selectedDelta);
     setRouteToMemory(false);
     setRouteToStandup(false);
     setRouteToPM(false);
     setShowTriageControls(true);
     setTriageMemoryTargets(['persistent_state']);
-    setTriageWorkspaceKeys([suggestedWorkspaceKey]);
+    setTriageWorkspaceKeys(nextSuggestedWorkspaceKeys);
     setTriageStandupKind('auto');
     setTriagePMTitle(selectedDelta ? defaultBrainPMTitle(selectedDelta) : '');
     setTriageState({ tone: 'idle', message: '' });
@@ -2937,17 +2990,23 @@ function PersonaPanel({
       return;
     }
     if (preset === 'workspace_followup') {
-      const workspaceKey = triageWorkspaceSelection[0] === 'shared_ops' ? suggestBrainWorkspaceKey(selectedDelta) : triageWorkspaceSelection[0];
+      const workspaceKeys =
+        triageWorkspaceSelection.length === 1 && triageWorkspaceSelection[0] === 'shared_ops'
+          ? suggestBrainWorkspaceKeys(selectedDelta)
+          : triageWorkspaceSelection;
       setRouteToMemory(true);
       setRouteToStandup(true);
       setRouteToPM(true);
-      setTriageWorkspaceKeys([workspaceKey]);
+      setTriageWorkspaceKeys(workspaceKeys);
       setTriageStandupKind('auto');
       setTriageMemoryTargets(['chronicle', 'learnings']);
       if (selectedDelta) {
         setTriagePMTitle(defaultBrainPMTitle(selectedDelta));
       }
-      setTriageState({ tone: 'success', message: `Preset applied: Workspace Follow-Up (${labelForBrainWorkspace(workspaceKey)}).` });
+      setTriageState({
+        tone: 'success',
+        message: `Preset applied: Workspace Follow-Up (${workspaceKeys.map(labelForBrainWorkspace).join(', ')}).`,
+      });
       return;
     }
     setRouteToMemory(false);
@@ -3715,10 +3774,10 @@ function PersonaPanel({
                         >
                           {workspace.label}
                         </button>
-                      ))}
+                        ))}
                     </div>
                     <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
-                      Select one or many. Brain can fan this out across multiple workspaces from one review.
+                      Brain starts with FEEZIE OS and auto-suggests other workspace routes when the signal looks relevant. Suggested now: {suggestedWorkspaceKeys.map(labelForBrainWorkspace).join(', ')}.
                     </p>
                   </div>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -6029,17 +6088,55 @@ function compactStandupKind(value: string) {
   return value.replace(/[_-]+/g, ' ');
 }
 
-function suggestBrainWorkspaceKey(delta: PersonaDeltaEntry | null) {
+function suggestBrainWorkspaceKeys(delta: PersonaDeltaEntry | null) {
+  const suggestions = new Set<BrainWorkspaceKey>(['linkedin-os']);
   const metadataWorkspace = metadataText(delta?.metadata, 'workspace_key');
-  if (metadataWorkspace && brainWorkspaceOptions.some((option) => option.key === metadataWorkspace)) {
-    return metadataWorkspace;
+  if (metadataWorkspace && isBrainWorkspaceKey(metadataWorkspace)) {
+    suggestions.add(metadataWorkspace);
   }
-  const personaTarget = (delta?.persona_target || '').toLowerCase();
-  const trait = (delta?.trait || '').toLowerCase();
-  if (personaTarget.includes('feeze') || personaTarget.includes('linkedin') || trait.includes('feezie') || trait.includes('linkedin')) {
-    return 'linkedin-os';
+
+  for (const priorWorkspace of metadataStringArray(delta?.metadata, 'last_brain_route_workspace_keys')) {
+    if (isBrainWorkspaceKey(priorWorkspace)) {
+      suggestions.add(priorWorkspace);
+    }
   }
-  return 'shared_ops';
+
+  const searchBlob = [
+    delta?.persona_target,
+    delta?.trait,
+    delta?.notes,
+    metadataText(delta?.metadata, 'lane_hint'),
+    metadataText(delta?.metadata, 'evidence_source'),
+    metadataText(delta?.metadata, 'source_excerpt_clean'),
+    metadataText(delta?.metadata, 'source_context_excerpt'),
+    metadataText(delta?.metadata, 'experience_anchor'),
+    metadataText(delta?.metadata, 'experience_summary'),
+    metadataText(delta?.metadata, 'system_experience_hypothesis'),
+    metadataText(delta?.metadata, 'belief_summary'),
+    metadataText(delta?.metadata, 'system_hypothesis'),
+    metadataStringArray(delta?.metadata, 'talking_points').join(' '),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  for (const [workspaceKey, hints] of Object.entries(brainWorkspaceKeywordHints) as [BrainWorkspaceKey, string[]][]) {
+    if (hints.some((hint) => searchBlob.includes(hint))) {
+      suggestions.add(workspaceKey);
+    }
+  }
+
+  if (!Array.from(suggestions).some((workspaceKey) => workspaceKey !== 'linkedin-os')) {
+    suggestions.add('shared_ops');
+  }
+
+  return brainWorkspaceOptions
+    .map((option) => option.key)
+    .filter((workspaceKey) => suggestions.has(workspaceKey));
+}
+
+function isBrainWorkspaceKey(value: string): value is BrainWorkspaceKey {
+  return brainWorkspaceOptions.some((option) => option.key === value);
 }
 
 function labelForBrainWorkspace(workspaceKey: string) {
