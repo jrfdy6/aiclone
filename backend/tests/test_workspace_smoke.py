@@ -709,6 +709,48 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertFalse(older.metadata.get("source_intelligence_live"))
         self.assertIsNone(older.metadata.get("source_intelligence"))
 
+    def test_daily_briefs_prefer_newer_local_brief_over_stale_db_row(self) -> None:
+        stale_db_brief = daily_brief_module.DailyBrief(
+            id="db-2026-03-20",
+            brief_date=datetime(2026, 3, 20, tzinfo=timezone.utc).date(),
+            title="Morning Daily Brief — 2026-03-20",
+            summary="Stale DB brief",
+            content_markdown="Morning Daily Brief — 2026-03-20\n\nOld database content.",
+            source="cron_history",
+            source_ref="db://daily_briefs/2026-03-20",
+            metadata={},
+            created_at=datetime(2026, 3, 20, 15, 30, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 3, 20, 15, 30, tzinfo=timezone.utc),
+        )
+        fresh_local_brief = daily_brief_module.DailyBrief(
+            id="local-2026-04-01",
+            brief_date=datetime(2026, 4, 1, tzinfo=timezone.utc).date(),
+            title="Morning Daily Brief — 2026-04-01",
+            summary="Fresh local brief",
+            content_markdown="Morning Daily Brief — 2026-04-01\n\nFresh local content.",
+            source="workspace_markdown",
+            source_ref="/workspace/memory/daily-briefs.md",
+            metadata={},
+            created_at=datetime(2026, 4, 1, 11, 30, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 4, 1, 11, 30, tzinfo=timezone.utc),
+        )
+
+        with patch.object(daily_brief_module, "_load_from_db", return_value=[stale_db_brief]), patch.object(
+            daily_brief_module,
+            "_load_from_local_files",
+            return_value=[fresh_local_brief],
+        ), patch.object(
+            daily_brief_module,
+            "_snapshot_payloads",
+            return_value={},
+        ):
+            briefs = daily_brief_module.list_daily_briefs(limit=5)
+
+        self.assertEqual(len(briefs), 2)
+        self.assertEqual(briefs[0].brief_date.isoformat(), "2026-04-01")
+        self.assertEqual(briefs[0].source, "workspace_markdown")
+        self.assertEqual(briefs[1].brief_date.isoformat(), "2026-03-20")
+
     def test_daily_briefs_route_surfaces_source_intelligence_overlay(self) -> None:
         fake_payloads = {
             "weekly_plan": {

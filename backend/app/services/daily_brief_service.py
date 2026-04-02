@@ -26,9 +26,9 @@ _WORKSPACE_CANDIDATES = (
 
 def list_daily_briefs(limit: int = 50) -> List[DailyBrief]:
     rows = _load_from_db(limit)
-    if rows:
-        return _attach_brief_stream(_attach_source_intelligence_overlay(rows))
-    return _attach_brief_stream(_attach_source_intelligence_overlay(_load_from_local_files(limit)))
+    local_rows = _load_from_local_files(limit)
+    merged = _merge_briefs(rows, local_rows, limit=limit)
+    return _attach_brief_stream(_attach_source_intelligence_overlay(merged))
 
 
 def _load_from_db(limit: int) -> List[DailyBrief]:
@@ -62,16 +62,18 @@ def _load_from_local_files(limit: int) -> List[DailyBrief]:
             continue
         current_file = workspace / "memory" / "daily-briefs.md"
         if current_file.exists():
+            stat = current_file.stat()
             parsed = parse_briefs_markdown(current_file.read_text(), source_ref=str(current_file))
-            entries.extend(_parsed_to_models(parsed, source="workspace_markdown"))
+            entries.extend(_parsed_to_models(parsed, source="workspace_markdown", file_updated_at=datetime.fromtimestamp(stat.st_mtime)))
             break
     entries.sort(key=lambda item: (item.brief_date, item.updated_at), reverse=True)
     return entries[:limit]
 
 
-def _parsed_to_models(parsed_entries: List[ParsedBrief], *, source: str) -> List[DailyBrief]:
+def _parsed_to_models(parsed_entries: List[ParsedBrief], *, source: str, file_updated_at: datetime | None = None) -> List[DailyBrief]:
     models: List[DailyBrief] = []
     for entry in parsed_entries:
+        timestamp = file_updated_at or datetime.combine(entry.brief_date, time.min)
         models.append(
             DailyBrief(
                 id=f"local-{entry.brief_date.isoformat()}",
@@ -82,11 +84,28 @@ def _parsed_to_models(parsed_entries: List[ParsedBrief], *, source: str) -> List
                 source=source,
                 source_ref=entry.metadata.get("source_ref"),
                 metadata=entry.metadata,
-                created_at=datetime.combine(entry.brief_date, time.min),
-                updated_at=datetime.combine(entry.brief_date, time.min),
+                created_at=timestamp,
+                updated_at=timestamp,
             )
         )
     return models
+
+
+def _merge_briefs(primary: List[DailyBrief], secondary: List[DailyBrief], *, limit: int) -> List[DailyBrief]:
+    by_date: dict[str, DailyBrief] = {}
+    for entry in [*primary, *secondary]:
+        key = entry.brief_date.isoformat()
+        current = by_date.get(key)
+        if current is None:
+            by_date[key] = entry
+            continue
+        current_sort = (current.updated_at, current.source == "workspace_markdown")
+        entry_sort = (entry.updated_at, entry.source == "workspace_markdown")
+        if entry_sort > current_sort:
+            by_date[key] = entry
+    merged = list(by_date.values())
+    merged.sort(key=lambda item: (item.brief_date, item.updated_at), reverse=True)
+    return merged[:limit]
 
 
 def _normalize_candidate_items(items: Any, *, limit: int = 3) -> list[dict[str, str]]:
