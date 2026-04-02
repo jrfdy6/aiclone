@@ -2071,13 +2071,13 @@ function PMBoardPanel({
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
                         <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{item.title}</p>
-                        {statusBadge(item.executionState ?? item.pmStatus)}
+                        {statusBadge(item.executionState ? displayExecutionStateLabel(item.executionState) : displayPmStatusLabel(item.pmStatus, item.lane, item.executionState))}
                       </div>
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '11px', color: '#cbd5e1', marginBottom: '6px' }}>
                         <span style={{ padding: '3px 8px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent }}>
                           {meetingLabelForWorkspace(item.workspaceKey)}
                         </span>
-                        {item.executionState && statusBadge(item.pmStatus)}
+                        {item.executionState && statusBadge(displayPmStatusLabel(item.pmStatus, item.lane, item.executionState))}
                         {!item.executionState && item.owner ? <span>{item.owner}</span> : null}
                       </div>
                       {item.reason && <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.45, margin: '0 0 8px' }}>{item.reason}</p>}
@@ -2164,7 +2164,6 @@ function PMCardDetailModal({
   const guidance = boardItemGuidance(boardItem);
   const payload = card.payload ?? {};
   const rawSource = boardItem.source ?? card.source ?? 'manual';
-  const rawStatus = typeof card.status === 'string' ? card.status.trim().toLowerCase() : '';
   const linkType = typeof card.link_type === 'string' && card.link_type.trim() ? card.link_type.trim() : 'manual';
   const linkId = typeof card.link_id === 'string' && card.link_id.trim() ? card.link_id.trim() : null;
   const createdFromStandupId =
@@ -2203,7 +2202,9 @@ function PMCardDetailModal({
     ),
   );
   const historyItems = buildPmCardHistoryItems(card, boardItem, linkedStandups);
-  const heldAtPmLayer = rawStatus === 'blocked' && boardItem.lane === 'todo';
+  const heldAtPmLayer = isHeldPmLayerStatus(card.status, boardItem.lane, boardItem.executionState);
+  const pmStatusLabel = displayPmStatusLabel(card.status, boardItem.lane, boardItem.executionState);
+  const executionStatusLabel = boardItem.executionState ? displayExecutionStateLabel(boardItem.executionState) : null;
   const rawRecord = JSON.stringify(
     {
       card,
@@ -2316,8 +2317,8 @@ function PMCardDetailModal({
           <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: '#111827', color: '#e2e8f0', border: '1px solid #1f2937' }}>
             Lane: {boardColumns.find((column) => column.key === boardItem.lane)?.label ?? boardItem.lane}
           </span>
-          {statusBadge(boardItem.pmStatus)}
-          {boardItem.executionState ? statusBadge(boardItem.executionState) : null}
+          {statusBadge(pmStatusLabel)}
+          {executionStatusLabel ? statusBadge(executionStatusLabel) : null}
           {linkedStandups.length > 0 ? (
             <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: '#111827', color: '#cbd5f5', border: '1px solid #1f2937', fontSize: '12px' }}>
               {linkedStandups.length} linked meeting{linkedStandups.length === 1 ? '' : 's'}
@@ -2376,8 +2377,8 @@ function PMCardDetailModal({
                 <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Card Metadata</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#cbd5f5', fontSize: '13px' }}>
                   <div>Source: {rawSource}</div>
-                  <div>PM status: {boardItem.pmStatus}</div>
-                  <div>Execution state: {boardItem.executionState ?? 'not in execution yet'}</div>
+                  <div>PM status: {pmStatusLabel}</div>
+                  <div>Execution state: {executionStatusLabel ?? 'not in execution yet'}</div>
                   <div>Updated: {boardItem.updatedAt ? formatTimestamp(new Date(boardItem.updatedAt)) : '-'}</div>
                   <div>Due: {boardItem.dueAt ? formatTimestamp(new Date(boardItem.dueAt)) : '-'}</div>
                   <div>Manager: {displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)}</div>
@@ -2615,13 +2616,13 @@ function PMCardDetailModal({
                   1. {linkedStandups.length > 0 ? `${linkedStandups.length} standup record${linkedStandups.length === 1 ? '' : 's'} linked into this card.` : `This card currently has no linked standup record.`}
                 </p>
                 <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                  2. The PM card is currently `{boardItem.pmStatus}` in PM and `{boardItem.executionState ?? 'not in execution yet'}` in execution.
+                  2. The PM card is currently `{pmStatusLabel}` in PM and `{executionStatusLabel ?? 'not in execution yet'}` in execution.
                 </p>
                 <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
                   3. Manager/target chain: {displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)} {'->'} {displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}.
                 </p>
                 <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                  4. Latest result signal: {latestExecutionResult ? String(latestExecutionResult.status || 'unknown') : 'none yet'}.
+                  4. Latest result signal: {latestExecutionResult ? humanizeStatusLabel(String(latestExecutionResult.status || 'unknown')) : 'none yet'}.
                 </p>
               </div>
             </section>
@@ -3649,14 +3650,14 @@ function MeetingReaderView({
                             <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: '0 0 6px' }}>{item.card.title}</p>
                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', color: '#cbd5f5', fontSize: '12px' }}>
                               <span>{meetingLabelForWorkspace(item.boardItem.workspaceKey)}</span>
-                              <span>PM: {item.card.status}</span>
+                              <span>PM: {displayPmStatusLabel(item.card.status, item.boardItem.lane, item.boardItem.executionState)}</span>
                               <span>Lane: {item.boardItem.lane}</span>
                               <span>Updated: {item.card.updated_at ? formatTimestamp(new Date(item.card.updated_at)) : '-'}</span>
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                            {statusBadge(item.boardItem.lane)}
-                            {statusBadge(item.card.status)}
+                            {statusBadge(item.boardItem.lane === 'failed' ? 'blocked' : item.boardItem.lane)}
+                            {statusBadge(displayPmStatusLabel(item.card.status, item.boardItem.lane, item.boardItem.executionState))}
                           </div>
                         </div>
 
@@ -3926,10 +3927,11 @@ function buildStandupHistoryItems(entry: StandupEntry, linkedCards: LinkedStandu
 function buildPmCardHistoryItems(card: PMCard, boardItem: UnifiedBoardItem, linkedStandups: StandupEntry[]): MeetingHistoryItem[] {
   const payload = card.payload ?? {};
   const items: MeetingHistoryItem[] = [];
+  const pmStatusLabel = displayPmStatusLabel(card.status, boardItem.lane, boardItem.executionState);
   if (card.created_at) {
     items.push({
       label: 'Created',
-      detail: `PM card stored on ${formatTimestamp(new Date(card.created_at))} with status \`${card.status ?? 'todo'}\`.`,
+      detail: `PM card stored on ${formatTimestamp(new Date(card.created_at))} with status \`${pmStatusLabel}\`.`,
       tone: '#e2e8f0',
     });
   }
@@ -3958,7 +3960,7 @@ function buildPmCardHistoryItems(card: PMCard, boardItem: UnifiedBoardItem, link
   if (boardItem.queueEntry) {
     items.push({
       label: 'Execution Lane',
-      detail: `Execution is currently \`${boardItem.executionState ?? 'unknown'}\` in lane \`${boardItem.queueEntry.lane}\`, managed by ${displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)} and targeting ${displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}.`,
+      detail: `Execution is currently \`${displayExecutionStateLabel(boardItem.executionState)}\` in lane \`${boardItem.queueEntry.lane}\`, managed by ${displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)} and targeting ${displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}.`,
       tone: ['failed', 'blocked'].includes((boardItem.executionState ?? '').toLowerCase()) ? '#f87171' : '#22c55e',
     });
   }
@@ -3980,7 +3982,7 @@ function buildPmCardHistoryItems(card: PMCard, boardItem: UnifiedBoardItem, link
   if (latestExecutionResult) {
     items.push({
       label: 'Latest Execution Result',
-      detail: `Execution wrote back status \`${String(latestExecutionResult.status || 'unknown')}\`${latestExecutionResult.review_resolution ? ` and review resolution \`${String(latestExecutionResult.review_resolution)}\`` : ''}.`,
+      detail: `Execution wrote back status \`${humanizeStatusLabel(String(latestExecutionResult.status || 'unknown'))}\`${latestExecutionResult.review_resolution ? ` and review resolution \`${String(latestExecutionResult.review_resolution)}\`` : ''}.`,
       tone: String(latestExecutionResult.status || '') === 'done' ? '#22c55e' : '#fbbf24',
     });
   }
@@ -6717,7 +6719,11 @@ function groupPmCards(cards: PMCard[]) {
   return cards.reduce(
     (acc, card) => {
       const normalized = normalizeStatus(card.status);
-      acc[normalized].push(card);
+      if (normalized === 'blocked') {
+        acc.todo.push(card);
+      } else {
+        acc[normalized].push(card);
+      }
       return acc;
     },
     { todo: [] as PMCard[], in_progress: [] as PMCard[], review: [] as PMCard[], done: [] as PMCard[] },
@@ -6966,6 +6972,13 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
 function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
   switch (item.lane) {
     case 'todo':
+      if (isHeldPmLayerStatus(item.pmStatus, item.lane, item.executionState)) {
+        return {
+          summary: 'This card is being held at the PM layer. A blocking judgment exists, but the work is not currently in an active execution lane.',
+          userRole: 'Decide whether the card should remain held, be clarified, or be re-opened into execution.',
+          nextAction: 'If the blocker is resolved, move it back toward Ready or return it to Jean-Claude with clearer direction.',
+        };
+      }
       return {
         summary: 'This card is recognized work on the PM board, but it has not entered the execution loop yet.',
         userRole: 'Decide whether this should stay as backlog, be clarified, or be moved into execution.',
@@ -6978,6 +6991,13 @@ function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
         nextAction: 'Use Open SOP if the card is clear and you want the system to start work now.',
       };
     case 'queued':
+      if (normalizeStatus(item.pmStatus) === 'blocked') {
+        return {
+          summary: 'This card has been marked blocked and rerouted back toward Jean-Claude, but it is still sitting inside an active queue.',
+          userRole: 'Treat this as a manager-attention lane. The work needs clarification before normal execution resumes.',
+          nextAction: 'Resolve the blocker or return the card to a clean execution path.',
+        };
+      }
       return {
         summary: 'Jean-Claude has already opened the lane. The work is staged and waiting for pickup or handoff.',
         userRole: 'Mostly observe. Step in only if this queue state is lingering too long.',
@@ -8093,6 +8113,7 @@ function normalizeStatus(status: string) {
   if (normalized === 'in_progress' || normalized === 'in-progress') return 'in_progress';
   if (normalized === 'review') return 'review';
   if (normalized === 'done') return 'done';
+  if (normalized === 'failed' || normalized === 'blocked' || normalized === 'error') return 'blocked';
   return 'todo';
 }
 
@@ -8104,6 +8125,43 @@ function normalizeExecutionState(state: string) {
   if (normalized === 'failed' || normalized === 'blocked') return 'failed';
   if (normalized === 'done' || normalized === 'completed') return 'done';
   return 'ready';
+}
+
+function humanizeStatusLabel(status?: string | null) {
+  if (!status) {
+    return 'unknown';
+  }
+  return status.replace(/[_-]+/g, ' ');
+}
+
+function isHeldPmLayerStatus(
+  pmStatus?: string | null,
+  lane?: UnifiedBoardLaneKey | null,
+  executionState?: string | null,
+) {
+  return normalizeStatus(pmStatus ?? 'todo') === 'blocked' && !executionState && (lane === 'todo' || lane == null);
+}
+
+function displayPmStatusLabel(
+  pmStatus?: string | null,
+  lane?: UnifiedBoardLaneKey | null,
+  executionState?: string | null,
+) {
+  if (isHeldPmLayerStatus(pmStatus, lane, executionState)) {
+    return 'held';
+  }
+  const normalized = normalizeStatus(pmStatus ?? 'todo');
+  if (normalized === 'in_progress') return 'in progress';
+  if (normalized === 'blocked') return 'blocked';
+  if (normalized === 'done') return 'done';
+  if (normalized === 'review') return 'review';
+  return humanizeStatusLabel(pmStatus ?? 'todo');
+}
+
+function displayExecutionStateLabel(executionState?: string | null) {
+  const normalized = normalizeExecutionState(executionState ?? 'ready');
+  if (normalized === 'failed') return 'blocked';
+  return humanizeStatusLabel(normalized);
 }
 
 function standupKind(entry: StandupEntry) {
@@ -8183,7 +8241,12 @@ function liveLinkedCardItems(entry: StandupEntry, pmCards: PMCard[]) {
       const rightTime = right.updated_at ? new Date(right.updated_at).getTime() : 0;
       return rightTime - leftTime;
     })
-    .map((card) => `${card.status ?? 'unknown'} · ${card.title}`);
+    .map((card) => {
+      const normalized = normalizeStatus(card.status ?? 'todo');
+      const lane: UnifiedBoardLaneKey =
+        normalized === 'in_progress' ? 'running' : normalized === 'review' ? 'review' : normalized === 'done' ? 'done' : 'todo';
+      return `${displayPmStatusLabel(card.status, lane, null)} · ${card.title}`;
+    });
 }
 
 function buildMeetingOps(
@@ -8335,14 +8398,14 @@ function statusBadge(status?: string) {
     color = '#38bdf8';
   } else if (normalized === 'failed' || normalized === 'blocked' || normalized === 'error' || normalized === 'missing') {
     color = '#f87171';
-  } else if (normalized === 'warning' || normalized === 'review' || normalized === 'stale' || normalized === 'thin') {
+  } else if (normalized === 'warning' || normalized === 'review' || normalized === 'stale' || normalized === 'thin' || normalized === 'held') {
     color = '#fbbf24';
   } else if (normalized === 'planned') {
     color = '#64748b';
   }
   return (
     <span style={{ padding: '4px 12px', borderRadius: '999px', backgroundColor: `${color}33`, color, fontSize: '12px', textTransform: 'capitalize' }}>
-      {status ?? 'unknown'}
+      {humanizeStatusLabel(status)}
     </span>
   );
 }
