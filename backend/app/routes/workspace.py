@@ -23,9 +23,13 @@ def _serialize_status(status: dict[str, None | bool | datetime | str]) -> dict[s
 
 def _has_live_workspace_payload(snapshot: dict[str, object]) -> bool:
     source_assets = snapshot.get("source_assets")
+    content_reservoir = snapshot.get("content_reservoir")
     social_feed = snapshot.get("social_feed")
     source_items = source_assets.get("items") if isinstance(source_assets, dict) else None
+    reservoir_items = content_reservoir.get("items") if isinstance(content_reservoir, dict) else None
     feed_items = social_feed.get("items") if isinstance(social_feed, dict) else None
+    if source_items and not reservoir_items:
+        return False
     return bool(source_items) or bool(feed_items)
 
 
