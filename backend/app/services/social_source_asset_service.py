@@ -562,6 +562,9 @@ def _fragment_promotion_recommendation(fragment: dict[str, Any], asset_meta: dic
     is_voice_fragment = primary_type in {"quote", "voice_pattern"} or "quote" in labels or source_section == "reusable_quotes"
     is_persona_shape = bool({"lesson", "worldview", "anecdote", "canon_candidate"} & labels) or lane == "persona_candidate"
     is_operational = "operational" in labels
+    is_summary_like = source_section in {"summary", "structured_summary", "lessons_learned", "key_anecdotes"}
+    is_strong_worldview_or_lesson = primary_type in {"lesson", "worldview"} and score >= 7
+    is_compact_expression = primary_type in {"worldview", "quote"} and score >= 7
 
     if origin == "transcript_library":
         if persona_use_mode == "reference_only":
@@ -600,10 +603,16 @@ def _fragment_promotion_recommendation(fragment: dict[str, Any], asset_meta: dic
 
     if "canon_candidate" in labels and lane == "persona_candidate" and score >= 8:
         return "canon_suggestion", "This live source fragment looks strong enough to suggest for canon review."
+    if is_strong_worldview_or_lesson and is_summary_like and not is_operational:
+        return "persona_candidate", "This source fragment reads like a durable lesson or worldview statement that deserves persona review."
     if lane == "persona_candidate" and score >= 7 and not is_operational:
         return "persona_candidate", "This source fragment is durable enough to send into persona review."
-    if is_voice_fragment and score >= 8:
+    if is_voice_fragment and score >= 7:
         return "voice_guidance_only", "This source fragment is better as voice guidance than as canon."
+    if lane == "post_candidate" and is_compact_expression and not is_operational:
+        return "voice_guidance_only", "This source fragment is sharp enough to guide phrasing and public expression without becoming canon."
+    if primary_type == "worldview" and score >= 8 and not is_operational:
+        return "persona_candidate", "This source fragment expresses a strong worldview that should be reviewed in persona."
     return "source_only", "Keep this fragment in source intelligence until it earns a stronger promotion."
 
 
