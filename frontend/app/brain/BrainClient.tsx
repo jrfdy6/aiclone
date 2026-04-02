@@ -1774,6 +1774,12 @@ function DailyBriefsPanel({
               <h2 style={{ color: 'white', fontSize: '26px', marginBottom: '8px' }}>{selected.title}</h2>
               {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>}
             </div>
+            <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+              <p style={{ color: '#fbbf24', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Surface Contract</p>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                Daily Briefs are for fast system awareness: what happened, what changed, and what deserves attention now. Persona is the separate curation surface where you decide what should become durable identity, worldview, or canon.
+              </p>
+            </div>
             <BriefSystemChainPanel brief={selected} overlay={selectedSourceIntelligence} streamCount={streamItems.length} />
             {selectedSourceIntelligence && <BriefSourceIntelligencePanel overlay={selectedSourceIntelligence} />}
             {streamItems.length > 0 && <BriefStreamPanel brief={selected} items={streamItems} onRefresh={onRefresh} />}
@@ -1817,27 +1823,27 @@ function BriefSystemChainPanel({
       : brief.source;
   const cards = [
     {
-      title: 'Saved Brief',
+      title: 'System Digest',
       value: brief.brief_date,
-      detail: `Stored from ${humanizeSnakeCase(syncOrigin || 'workspace_markdown')}`,
+      detail: `Saved narrative snapshot from ${humanizeSnakeCase(syncOrigin || 'workspace_markdown')}`,
       tone: '#818cf8',
     },
     {
-      title: 'Live Overlay',
+      title: 'Live Source Layer',
       value: overlay?.generated_at ? formatTimestamp(new Date(overlay.generated_at)) : 'No live overlay',
-      detail: overlay ? 'Current shared source snapshot layered onto the latest saved brief.' : 'No source overlay attached to this brief.',
+      detail: overlay ? 'Current upstream source pressure layered onto the latest brief.' : 'No source overlay attached to this brief.',
       tone: '#38bdf8',
     },
     {
-      title: 'Brief Stream',
+      title: 'Action Stream',
       value: String(streamCount),
-      detail: 'Reaction-ready items flowing from the same brief/source system.',
+      detail: 'Posting or response-ready items flowing from the same source system.',
       tone: '#22c55e',
     },
     {
-      title: 'Persona Review',
+      title: 'Persona Handoff',
       value: String(reviewCount),
-      detail: 'Worldview or judgment items currently visible from the live source layer.',
+      detail: 'Possible persona curation items surfaced from the same live source layer.',
       tone: '#f59e0b',
     },
   ];
@@ -1847,7 +1853,7 @@ function BriefSystemChainPanel({
       <div style={{ marginBottom: '12px' }}>
         <p style={{ color: '#a78bfa', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Shared Intelligence Chain</p>
         <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-          Saved Daily Briefs and Live Source Intelligence are two layers of the same flow: the brief is the saved narrative snapshot, and the overlay is the current upstream source system feeding the next review and routing decisions.
+          The brief is the saved digest. The live overlay is the current upstream source system. Persona is downstream from this flow: the brief can point toward persona implications, but persona curation still happens in the Persona queue.
         </p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
@@ -1886,7 +1892,7 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
         <div>
           <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Live Source Intelligence</p>
           <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, maxWidth: '760px' }}>
-            This is the current shared planning overlay from the source system, not a second brief-only inference path.
+            This is the current shared source and planning overlay. It can point toward posting, planning, or persona implications, but it is not itself a second persona queue.
           </p>
         </div>
         <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right' }}>
@@ -1910,13 +1916,13 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           tone="#38bdf8"
         />
         <PriorityFocusCard
-          title="What shapes worldview"
-          description={beliefEvidence[0] ? compactBriefCandidate(beliefEvidence[0]) : 'No strong belief-evidence candidate is visible right now.'}
+          title="What may affect persona"
+          description={beliefEvidence[0] ? compactBriefCandidate(beliefEvidence[0]) : 'No strong persona-relevant belief signal is visible right now.'}
           tone="#22c55e"
         />
         <PriorityFocusCard
-          title="What needs judgment"
-          description={reviewItems[0] ? compactReviewItem(reviewItems[0]) : 'No worldview review item is at the top of the queue right now.'}
+          title="What may need persona curation"
+          description={reviewItems[0] ? compactReviewItem(reviewItems[0]) : 'No persona handoff item is at the top of the queue right now.'}
           tone="#818cf8"
         />
       </div>
@@ -1938,15 +1944,18 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           emptyLabel="No live media seeds yet."
         />
         <BriefOverlayBlock
-          title="Top Belief Evidence"
+          title="Signals With Persona Implications"
           items={beliefEvidence.map((item) => compactBriefCandidate(item))}
-          emptyLabel="No live belief evidence yet."
+          emptyLabel="No live persona-relevant signals yet."
         />
       </div>
 
       {reviewItems.length > 0 && (
         <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #1f2937' }}>
-          <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>Recent worldview review items</p>
+          <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Persona Handoff Preview</p>
+          <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.5, margin: '0 0 8px' }}>
+            These items are possible handoffs into Persona. They are not canon decisions yet, and they should be judged in the Persona queue rather than here in the brief.
+          </p>
           <div style={{ display: 'grid', gap: '8px' }}>
             {reviewItems.map((item, index) => (
               <div key={`${item.trait ?? 'review'}-${index}`} style={{ borderRadius: '10px', border: '1px solid #1f2937', padding: '10px', backgroundColor: '#030712' }}>
