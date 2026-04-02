@@ -23,7 +23,7 @@ from .brain import (
 )
 from .brief_reactions import BriefReaction, BriefReactionCreate, BriefReactionCreateResponse, BriefReactionPersonaContext
 from .build_reviews import BuildReview, BuildReviewUpdate, BuildReviewUpsert
-from .daily_briefs import DailyBrief
+from .daily_briefs import DailyBrief, DailyBriefSyncRequest
 from .open_brain import OpenBrainHealth, OpenBrainSearchHit, OpenBrainSearchRequest, OpenBrainSearchResponse
 from .persona import PersonaDelta, PersonaDeltaCreate, PersonaDeltaResolve, PersonaDeltaUpdate
 from .pm_board import ExecutionQueueEntry, PMCard, PMCardCreate, PMCardDispatchRequest, PMCardDispatchResult, PMCardUpdate
@@ -70,6 +70,7 @@ __all__ = [
     "BuildReviewUpdate",
     "BuildReviewUpsert",
     "DailyBrief",
+    "DailyBriefSyncRequest",
     "OpenBrainHealth",
     "OpenBrainSearchHit",
     "OpenBrainSearchRequest",

@@ -17,3 +17,10 @@ class DailyBrief(BaseModel):
     metadata: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+class DailyBriefSyncRequest(BaseModel):
+    raw_markdown: str
+    source: str = "workspace_markdown"
+    source_ref: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)

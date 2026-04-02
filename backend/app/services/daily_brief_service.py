@@ -4,13 +4,16 @@ import os
 from datetime import datetime, time
 from pathlib import Path
 from typing import Any, List
+from uuid import uuid4
 
 try:
     from psycopg.errors import UndefinedTable
     from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
 except ImportError:  # pragma: no cover - local fallback when DB deps are absent
     UndefinedTable = Exception  # type: ignore[assignment]
     dict_row = None
+    Jsonb = None  # type: ignore[assignment]
 
 from app.models import DailyBrief
 from app.services import brief_reaction_service
@@ -53,6 +56,71 @@ def _load_from_db(limit: int) -> List[DailyBrief]:
         return []
     except Exception:
         return []
+
+
+def sync_daily_briefs_from_markdown(
+    raw_markdown: str,
+    *,
+    source: str = "workspace_markdown",
+    source_ref: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> List[DailyBrief]:
+    if not raw_markdown.strip():
+        return []
+
+    parsed = parse_briefs_markdown(raw_markdown, source_ref=source_ref)
+    if not parsed:
+        return []
+
+    try:
+        from app.services.open_brain_db import get_pool
+
+        pool = get_pool()
+    except Exception:
+        return []
+
+    synced: List[DailyBrief] = []
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            for entry in parsed:
+                row_id = str(uuid4())
+                row_metadata = dict(entry.metadata or {})
+                row_metadata.update(metadata or {})
+                row_metadata["synced_from_markdown"] = True
+                if source_ref:
+                    row_metadata["source_ref"] = source_ref
+                cur.execute(
+                    """
+                    INSERT INTO daily_briefs (id, brief_date, title, summary, content_markdown, source, source_ref, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (brief_date) DO UPDATE
+                    SET title = EXCLUDED.title,
+                        summary = EXCLUDED.summary,
+                        content_markdown = EXCLUDED.content_markdown,
+                        source = EXCLUDED.source,
+                        source_ref = EXCLUDED.source_ref,
+                        metadata = COALESCE(daily_briefs.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+                        updated_at = NOW()
+                    RETURNING id, brief_date, title, summary, content_markdown, source, source_ref, metadata, created_at, updated_at
+                    """,
+                    (
+                        row_id,
+                        entry.brief_date,
+                        entry.title,
+                        entry.summary,
+                        entry.content_markdown,
+                        source,
+                        source_ref,
+                        Jsonb(row_metadata) if Jsonb is not None else row_metadata,
+                    ),
+                )
+                row = cur.fetchone()
+                if row:
+                    synced.append(_row_to_brief(row))
+        conn.commit()
+
+    synced.sort(key=lambda item: (item.brief_date, item.updated_at), reverse=True)
+    return synced
 
 
 def _load_from_local_files(limit: int) -> List[DailyBrief]:
