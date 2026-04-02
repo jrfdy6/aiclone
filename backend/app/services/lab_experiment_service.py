@@ -11,7 +11,7 @@ from app.services import social_long_form_signal_service as long_form_signal_ser
 from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.social_signal_utils import build_variants, normalize_saved_signal
 from app.services.workspace_snapshot_service import ROOT as WORKSPACE_ROOT
-from app.services.workspace_snapshot_service import _ingestions_root, _transcripts_root, workspace_snapshot_service
+from app.services.workspace_snapshot_service import _candidate_roots, _ingestions_root, _transcripts_root, workspace_snapshot_service
 
 EXPERIMENT_ID = "content-fallback-observatory"
 SOCIAL_EXPERIMENT_ID = "article-response-matrix"
@@ -1454,6 +1454,53 @@ def _origin_breakdown_for_assets(assets: list[dict[str, Any]]) -> dict[str, Any]
     return breakdown
 
 
+def _inventory_root_candidates() -> list[tuple[Path, Path, Path]]:
+    candidates: list[tuple[Path, Path, Path]] = []
+    seen: set[tuple[Path, Path, Path]] = set()
+
+    def add_candidate(transcripts_root: Path, ingestions_root: Path, repo_root: Path) -> None:
+        key = (transcripts_root.resolve(), ingestions_root.resolve(), repo_root.resolve())
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append((transcripts_root, ingestions_root, repo_root))
+
+    add_candidate(_transcripts_root(), _ingestions_root(), WORKSPACE_ROOT)
+    for base in _candidate_roots():
+        add_candidate(base / "knowledge" / "aiclone" / "transcripts", base / "knowledge" / "ingestions", base)
+        add_candidate(base / "backend" / "knowledge" / "aiclone" / "transcripts", base / "backend" / "knowledge" / "ingestions", base / "backend")
+    return candidates
+
+
+def _load_richest_runtime_source_assets() -> dict[str, Any] | None:
+    best_payload: dict[str, Any] | None = None
+    best_score = (-1, -1)
+
+    for transcripts_root, ingestions_root, repo_root in _inventory_root_candidates():
+        if not transcripts_root.exists() and not ingestions_root.exists():
+            continue
+        try:
+            payload = build_source_asset_inventory(
+                transcripts_root=transcripts_root,
+                ingestions_root=ingestions_root,
+                repo_root=repo_root,
+            )
+        except Exception:
+            continue
+        items = payload.get("items") or []
+        counts = payload.get("counts") or {}
+        total = int(counts.get("total") or len(items))
+        deep_fragments = int(counts.get("deep_harvest_fragments") or 0)
+        score = (total, deep_fragments)
+        if score > best_score:
+            best_payload = payload
+            best_score = score
+
+    if best_payload and (best_payload.get("items") or []):
+        return best_payload
+    return None
+
+
 def _load_live_source_payloads() -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
     source_assets_payload: dict[str, Any] | None = None
     long_form_routes_payload: dict[str, Any] | None = None
@@ -1474,14 +1521,7 @@ def _load_live_source_payloads() -> tuple[dict[str, Any] | None, dict[str, Any] 
         if source_assets_payload or long_form_routes_payload:
             source = "persisted_snapshot"
 
-    try:
-        runtime_source_assets = build_source_asset_inventory(
-            transcripts_root=_transcripts_root(),
-            ingestions_root=_ingestions_root(),
-            repo_root=WORKSPACE_ROOT,
-        )
-    except Exception:
-        runtime_source_assets = None
+    runtime_source_assets = _load_richest_runtime_source_assets()
 
     if runtime_source_assets and (runtime_source_assets.get("items") or []):
         source_assets_payload = runtime_source_assets
@@ -1501,7 +1541,8 @@ def _load_live_source_payloads() -> tuple[dict[str, Any] | None, dict[str, Any] 
 
     if runtime_routes and (runtime_routes.get("candidates") or runtime_routes.get("assets_considered")):
         long_form_routes_payload = runtime_routes
-        source = "runtime_corpus"
+        if runtime_source_assets and (runtime_source_assets.get("items") or []):
+            source = "runtime_corpus"
 
     return source_assets_payload, long_form_routes_payload, source
 
