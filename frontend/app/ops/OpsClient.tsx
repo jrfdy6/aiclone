@@ -1499,6 +1499,8 @@ export default function OpsClient({
           error={sectionErrors.pmCards}
           queueError={sectionErrors.executionQueue}
           onDispatch={dispatchPmCard}
+          onUpdatePmCard={updatePmCard}
+          onOpenArtifactPath={openArtifactPath}
         />
       )}
       {activePanel === 'standups' && (
@@ -1804,6 +1806,8 @@ function PMBoardPanel({
   error,
   queueError,
   onDispatch,
+  onUpdatePmCard,
+  onOpenArtifactPath,
 }: {
   cards: PMCard[];
   executionQueue: ExecutionQueueEntry[];
@@ -1813,6 +1817,8 @@ function PMBoardPanel({
   error: string | null;
   queueError: string | null;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
+  onUpdatePmCard: (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => Promise<PMCard>;
+  onOpenArtifactPath: (path: string) => void;
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
   const executionBuckets = useMemo(() => groupExecutionQueue(executionQueue), [executionQueue]);
@@ -1858,7 +1864,20 @@ function PMBoardPanel({
   const [dispatchingCardId, setDispatchingCardId] = useState<string | null>(null);
   const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
-  const [selectedBoardItem, setSelectedBoardItem] = useState<UnifiedBoardItem | null>(null);
+  const [selectedBoardCardId, setSelectedBoardCardId] = useState<string | null>(null);
+  const unifiedBoardItems = useMemo(() => Object.values(unifiedBoard).flat(), [unifiedBoard]);
+  const selectedBoardItem = useMemo(
+    () => (selectedBoardCardId ? unifiedBoardItems.find((item) => item.cardId === selectedBoardCardId) ?? null : null),
+    [selectedBoardCardId, unifiedBoardItems],
+  );
+  const selectedBoardCard = useMemo(
+    () => (selectedBoardCardId ? cards.find((card) => card.id === selectedBoardCardId) ?? null : null),
+    [cards, selectedBoardCardId],
+  );
+  const selectedBoardLinkedStandups = useMemo(
+    () => (selectedBoardCard ? linkedStandupsForCard(selectedBoardCard, standups) : []),
+    [selectedBoardCard, standups],
+  );
   const boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[] = [
     { key: 'todo', label: 'Backlog', detail: 'pm card exists, not in execution yet' },
     { key: 'ready', label: 'Ready', detail: 'Jean-Claude can open SOP now' },
@@ -1889,17 +1908,23 @@ function PMBoardPanel({
   );
 
   useEffect(() => {
-    if (!selectedBoardItem) {
+    if (!selectedBoardCardId) {
       return undefined;
     }
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setSelectedBoardItem(null);
+        setSelectedBoardCardId(null);
       }
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [selectedBoardItem]);
+  }, [selectedBoardCardId]);
+
+  useEffect(() => {
+    if (selectedBoardCardId && !selectedBoardItem) {
+      setSelectedBoardCardId(null);
+    }
+  }, [selectedBoardCardId, selectedBoardItem]);
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2028,11 +2053,11 @@ function PMBoardPanel({
                       key={`${column.key}-${item.id}`}
                       role="button"
                       tabIndex={0}
-                      onClick={() => setSelectedBoardItem(item)}
+                      onClick={() => setSelectedBoardCardId(item.cardId)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          setSelectedBoardItem(item);
+                          setSelectedBoardCardId(item.cardId);
                         }
                       }}
                       style={{
@@ -2095,149 +2120,592 @@ function PMBoardPanel({
           ))}
         </div>
       </section>
-      {selectedBoardItem ? (
-        <div
-          onClick={() => setSelectedBoardItem(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 80,
-            backgroundColor: 'rgba(2, 6, 23, 0.78)',
-            backdropFilter: 'blur(10px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '28px',
-          }}
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            style={{
-              width: 'min(920px, 100%)',
-              maxHeight: 'min(88vh, 920px)',
-              overflowY: 'auto',
-              borderRadius: '22px',
-              border: '1px solid #1f2937',
-              backgroundColor: '#0b1324',
-              boxShadow: '0 24px 80px rgba(15, 23, 42, 0.55)',
-              padding: '18px',
-            }}
-          >
-            {(() => {
-              const theme = workspaceBoardTheme(selectedBoardItem.workspaceKey);
-              const guidance = boardItemGuidance(selectedBoardItem);
-              return (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '14px' }}>
-                    <div>
-                      <p style={{ color: '#94a3b8', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>PM Card Detail</p>
-                      <h3 style={{ color: 'white', fontSize: '28px', lineHeight: 1.2, margin: 0 }}>{selectedBoardItem.title}</h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedBoardItem(null)}
-                      style={{
-                        borderRadius: '999px',
-                        border: '1px solid #1f2937',
-                        backgroundColor: '#111827',
-                        color: '#cbd5e1',
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        fontWeight: 600,
-                      }}
-                    >
-                      Close
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
-                    <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent, border: `1px solid ${theme.border}` }}>
-                      {meetingLabelForWorkspace(selectedBoardItem.workspaceKey)}
-                    </span>
-                    <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: '#111827', color: '#e2e8f0', border: '1px solid #1f2937' }}>
-                      Lane: {boardColumns.find((column) => column.key === selectedBoardItem.lane)?.label ?? selectedBoardItem.lane}
-                    </span>
-                    {statusBadge(selectedBoardItem.pmStatus)}
-                    {selectedBoardItem.executionState ? statusBadge(selectedBoardItem.executionState) : null}
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 0.95fr', gap: '14px' }}>
-                    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
-                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>What This Card Means</p>
-                      <p style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: 1.6, margin: '0 0 14px' }}>{guidance.summary}</p>
-
-                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Your Role</p>
-                      <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, margin: '0 0 14px' }}>{guidance.userRole}</p>
-
-                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Next Best Action</p>
-                      <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, margin: 0 }}>{guidance.nextAction}</p>
-                    </section>
-
-                    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
-                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Card Metadata</p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#cbd5f5', fontSize: '13px' }}>
-                        <div>Source: {selectedBoardItem.source ?? 'manual'}</div>
-                        <div>PM status: {selectedBoardItem.pmStatus}</div>
-                        <div>Execution state: {selectedBoardItem.executionState ?? 'not in execution yet'}</div>
-                        <div>Updated: {selectedBoardItem.updatedAt ? formatTimestamp(new Date(selectedBoardItem.updatedAt)) : '-'}</div>
-                        <div>Due: {selectedBoardItem.dueAt ? formatTimestamp(new Date(selectedBoardItem.dueAt)) : '-'}</div>
-                        <div>Manager: {displayManagerAgent(selectedBoardItem.workspaceKey, selectedBoardItem.managerAgent)}</div>
-                        <div>Target: {displayTargetAgent(selectedBoardItem.workspaceKey, selectedBoardItem.targetAgent)}</div>
-                        {selectedBoardItem.workspaceAgent ? <div>Workspace agent: {displayWorkspaceAgent(selectedBoardItem.workspaceKey, selectedBoardItem.workspaceAgent)}</div> : null}
-                        {selectedBoardItem.executionMode ? <div>Execution mode: {selectedBoardItem.executionMode}</div> : null}
-                      </div>
-                    </section>
-                  </div>
-
-                  {selectedBoardItem.reason ? (
-                    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px', marginTop: '14px' }}>
-                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Why This Card Exists</p>
-                      <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{selectedBoardItem.reason}</p>
-                    </section>
-                  ) : null}
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
-                    {selectedBoardItem.lane === 'ready' && selectedBoardItem.queueEntry ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleDispatch(selectedBoardItem.queueEntry as ExecutionQueueEntry)}
-                        disabled={dispatchingCardId === selectedBoardItem.cardId}
-                        style={{
-                          borderRadius: '999px',
-                          border: `1px solid ${theme.border}`,
-                          backgroundColor: dispatchingCardId === selectedBoardItem.cardId ? '#0f172a' : '#0f3d37',
-                          color: '#d1fae5',
-                          padding: '10px 14px',
-                          cursor: dispatchingCardId === selectedBoardItem.cardId ? 'wait' : 'pointer',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {dispatchingCardId === selectedBoardItem.cardId ? 'Queueing...' : 'Open SOP'}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedBoardItem(null)}
-                      style={{
-                        borderRadius: '999px',
-                        border: '1px solid #1f2937',
-                        backgroundColor: '#111827',
-                        color: '#cbd5e1',
-                        padding: '10px 14px',
-                        cursor: 'pointer',
-                        fontWeight: 700,
-                      }}
-                    >
-                      Done
-                    </button>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        </div>
+      {selectedBoardItem && selectedBoardCard ? (
+        <PMCardDetailModal
+          key={selectedBoardCard.id}
+          boardItem={selectedBoardItem}
+          card={selectedBoardCard}
+          linkedStandups={selectedBoardLinkedStandups}
+          boardColumns={boardColumns}
+          onClose={() => setSelectedBoardCardId(null)}
+          onDispatch={onDispatch}
+          onUpdatePmCard={onUpdatePmCard}
+          onOpenArtifactPath={onOpenArtifactPath}
+        />
       ) : null}
     </section>
+  );
+}
+
+function PMCardDetailModal({
+  boardItem,
+  card,
+  linkedStandups,
+  boardColumns,
+  onClose,
+  onDispatch,
+  onUpdatePmCard,
+  onOpenArtifactPath,
+}: {
+  boardItem: UnifiedBoardItem;
+  card: PMCard;
+  linkedStandups: StandupEntry[];
+  boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[];
+  onClose: () => void;
+  onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
+  onUpdatePmCard: (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => Promise<PMCard>;
+  onOpenArtifactPath: (path: string) => void;
+}) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'outcomes' | 'raw'>('overview');
+  const [actioningCardId, setActioningCardId] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const theme = workspaceBoardTheme(boardItem.workspaceKey);
+  const guidance = boardItemGuidance(boardItem);
+  const payload = card.payload ?? {};
+  const rawSource = boardItem.source ?? card.source ?? 'manual';
+  const rawStatus = typeof card.status === 'string' ? card.status.trim().toLowerCase() : '';
+  const linkType = typeof card.link_type === 'string' && card.link_type.trim() ? card.link_type.trim() : 'manual';
+  const linkId = typeof card.link_id === 'string' && card.link_id.trim() ? card.link_id.trim() : null;
+  const createdFromStandupId =
+    typeof payload.created_from_standup_id === 'string' && payload.created_from_standup_id.trim()
+      ? payload.created_from_standup_id.trim()
+      : null;
+  const createdFromPrepId =
+    typeof payload.created_from_prep_id === 'string' && payload.created_from_prep_id.trim() ? payload.created_from_prep_id.trim() : null;
+  const recommendationPath =
+    typeof payload.recommendation_path === 'string' && payload.recommendation_path.trim() ? payload.recommendation_path.trim() : null;
+  const latestExecutionResult =
+    payload.latest_execution_result && typeof payload.latest_execution_result === 'object'
+      ? (payload.latest_execution_result as Record<string, unknown>)
+      : null;
+  const latestExecutionSummary =
+    typeof latestExecutionResult?.summary === 'string' && latestExecutionResult.summary.trim() ? latestExecutionResult.summary.trim() : null;
+  const latestManualReview =
+    payload.latest_manual_review && typeof payload.latest_manual_review === 'object'
+      ? (payload.latest_manual_review as Record<string, unknown>)
+      : null;
+  const linkedConversationPaths = Array.from(
+    new Set(
+      linkedStandups
+        .map((entry) => (typeof entry.conversation_path === 'string' && entry.conversation_path.trim() ? entry.conversation_path.trim() : null))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  const linkedSourcePaths = Array.from(
+    new Set(
+      linkedStandups.flatMap((entry) => {
+        const itemPayload = entry.payload ?? {};
+        return Array.isArray(itemPayload.source_paths)
+          ? itemPayload.source_paths.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          : [];
+      }),
+    ),
+  );
+  const historyItems = buildPmCardHistoryItems(card, boardItem, linkedStandups);
+  const heldAtPmLayer = rawStatus === 'blocked' && boardItem.lane === 'todo';
+  const rawRecord = JSON.stringify(
+    {
+      card,
+      queue_entry: boardItem.queueEntry ?? null,
+      linked_standups: linkedStandups.map((entry) => ({
+        id: entry.id,
+        owner: entry.owner,
+        workspace_key: entry.workspace_key,
+        status: entry.status,
+        source: entry.source,
+        conversation_path: entry.conversation_path,
+        created_at: entry.created_at,
+        payload: entry.payload ?? {},
+      })),
+    },
+    null,
+    2,
+  );
+
+  const handleCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked') => {
+    try {
+      setActioningCardId(card.id);
+      setActionError(null);
+      setActionFeedback(null);
+      if (action === 'dispatch') {
+        await onDispatch(card.id, boardItem.queueEntry?.target_agent || displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent));
+        setActionFeedback(`Opened SOP for ${card.title}.`);
+        return;
+      }
+      await onUpdatePmCard(
+        card.id,
+        buildStandupCardActionPatch(action, {
+          card,
+          queueEntry: boardItem.queueEntry ?? null,
+          boardItem,
+          guidance,
+        }),
+      );
+      setActionFeedback(
+        action === 'approve'
+          ? `Closed ${card.title}.`
+          : action === 'return'
+            ? `Returned ${card.title} to Jean-Claude.`
+            : `Marked ${card.title} as blocked and rerouted it to Jean-Claude.`,
+      );
+    } catch (error) {
+      setActionError(toErrorMessage(error));
+    } finally {
+      setActioningCardId(null);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 80,
+        backgroundColor: 'rgba(2, 6, 23, 0.78)',
+        backdropFilter: 'blur(10px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '28px',
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: 'min(980px, 100%)',
+          maxHeight: 'min(88vh, 940px)',
+          overflowY: 'auto',
+          borderRadius: '22px',
+          border: '1px solid #1f2937',
+          backgroundColor: '#0b1324',
+          boxShadow: '0 24px 80px rgba(15, 23, 42, 0.55)',
+          padding: '18px',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#94a3b8', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>PM Card Detail</p>
+            <h3 style={{ color: 'white', fontSize: '28px', lineHeight: 1.2, margin: 0 }}>{boardItem.title}</h3>
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '6px 0 0' }}>
+              {meetingLabelForWorkspace(boardItem.workspaceKey)} · {boardItem.updatedAt ? formatTimestamp(new Date(boardItem.updatedAt)) : '-'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              borderRadius: '999px',
+              border: '1px solid #1f2937',
+              backgroundColor: '#111827',
+              color: '#cbd5e1',
+              padding: '8px 12px',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            Close
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent, border: `1px solid ${theme.border}` }}>
+            {meetingLabelForWorkspace(boardItem.workspaceKey)}
+          </span>
+          <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: '#111827', color: '#e2e8f0', border: '1px solid #1f2937' }}>
+            Lane: {boardColumns.find((column) => column.key === boardItem.lane)?.label ?? boardItem.lane}
+          </span>
+          {statusBadge(boardItem.pmStatus)}
+          {boardItem.executionState ? statusBadge(boardItem.executionState) : null}
+          {linkedStandups.length > 0 ? (
+            <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: '#111827', color: '#cbd5f5', border: '1px solid #1f2937', fontSize: '12px' }}>
+              {linkedStandups.length} linked meeting{linkedStandups.length === 1 ? '' : 's'}
+            </span>
+          ) : null}
+        </div>
+
+        {actionError && <SectionAlert message={`PM card action: ${actionError}`} />}
+        {actionFeedback && (
+          <div style={{ borderRadius: '14px', border: '1px solid rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '12px 14px', color: '#bbf7d0', fontSize: '13px', marginBottom: '12px' }}>
+            {actionFeedback}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          {([
+            ['overview', 'Overview'],
+            ['evidence', 'Evidence'],
+            ['outcomes', 'Outcomes'],
+            ['raw', 'Raw'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActiveTab(key)}
+              style={{
+                borderRadius: '999px',
+                border: activeTab === key ? '1px solid rgba(251,191,36,0.45)' : '1px solid #334155',
+                backgroundColor: activeTab === key ? 'rgba(251,191,36,0.12)' : '#0f172a',
+                color: activeTab === key ? '#f8fafc' : '#94a3b8',
+                padding: '8px 14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'overview' && (
+          <div style={{ display: 'grid', gap: '14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 0.95fr', gap: '14px' }}>
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>What This Card Means</p>
+                <p style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: 1.6, margin: '0 0 14px' }}>{guidance.summary}</p>
+
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Your Role</p>
+                <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, margin: '0 0 14px' }}>{guidance.userRole}</p>
+
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Next Best Action</p>
+                <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, margin: 0 }}>{guidance.nextAction}</p>
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Card Metadata</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#cbd5f5', fontSize: '13px' }}>
+                  <div>Source: {rawSource}</div>
+                  <div>PM status: {boardItem.pmStatus}</div>
+                  <div>Execution state: {boardItem.executionState ?? 'not in execution yet'}</div>
+                  <div>Updated: {boardItem.updatedAt ? formatTimestamp(new Date(boardItem.updatedAt)) : '-'}</div>
+                  <div>Due: {boardItem.dueAt ? formatTimestamp(new Date(boardItem.dueAt)) : '-'}</div>
+                  <div>Manager: {displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)}</div>
+                  <div>Target: {displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}</div>
+                  {boardItem.workspaceAgent ? <div>Workspace agent: {displayWorkspaceAgent(boardItem.workspaceKey, boardItem.workspaceAgent)}</div> : null}
+                  {boardItem.executionMode ? <div>Execution mode: {boardItem.executionMode}</div> : null}
+                </div>
+              </section>
+            </div>
+
+            {boardItem.reason ? (
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Why This Card Exists</p>
+                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{boardItem.reason}</p>
+              </section>
+            ) : null}
+
+            {heldAtPmLayer ? (
+              <section style={{ borderRadius: '16px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '16px' }}>
+                <p style={{ color: '#fbbf24', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Held At PM Layer</p>
+                <p style={{ color: '#fef3c7', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>
+                  This card carries a blocked judgment in PM metadata, but it is not currently in an active execution lane. That means the system is holding it for clearer direction before execution resumes.
+                </p>
+              </section>
+            ) : null}
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Linked Meeting Context</p>
+              {linkedStandups.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No standup record is explicitly linked to this PM card yet.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  {linkedStandups.map((entry) => {
+                    const provenance = standupRecordProvenance(entry);
+                    return (
+                      <article key={`${card.id}-linked-standup-${entry.id}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                          <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{standupLabel(entry)}</p>
+                          <span
+                            style={{
+                              borderRadius: '999px',
+                              border: `1px solid ${provenance.border}`,
+                              backgroundColor: provenance.background,
+                              color: provenance.tone,
+                              padding: '4px 8px',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {provenance.label}
+                          </span>
+                        </div>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', margin: '0 0 6px' }}>
+                          {meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')} · {entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}
+                        </p>
+                        <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{summarize(standupSummary(entry), 180)}</p>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'evidence' && (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Record Linkage</p>
+              <div style={{ display: 'grid', gap: '6px', color: '#cbd5f5', fontSize: '13px' }}>
+                <div>Source: {rawSource}</div>
+                <div>Link type: {linkType}</div>
+                {linkId ? <div>Link id: {linkId}</div> : null}
+                {createdFromStandupId ? <div>Created from standup: {createdFromStandupId}</div> : null}
+                {createdFromPrepId ? <div>Created from prep: {createdFromPrepId}</div> : null}
+                {recommendationPath ? (
+                  <div>
+                    Recommendation packet:{' '}
+                    <button
+                      type="button"
+                      onClick={() => onOpenArtifactPath(recommendationPath)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        padding: 0,
+                        color: '#f8fafc',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        textUnderlineOffset: '2px',
+                      }}
+                      title={recommendationPath}
+                    >
+                      {summarizePathForDisplay(recommendationPath)}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Linked Meeting Artifacts</p>
+              {linkedStandups.length === 0 && linkedConversationPaths.length === 0 && linkedSourcePaths.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No linked meeting artifacts are available for this card yet.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  {linkedConversationPaths.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Conversation artifacts</p>
+                      {linkedConversationPaths.map((path) => (
+                        <button
+                          key={`${card.id}-conversation-${path}`}
+                          type="button"
+                          onClick={() => onOpenArtifactPath(path)}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            padding: 0,
+                            textAlign: 'left',
+                            color: '#cbd5f5',
+                            fontSize: '12px',
+                            fontFamily: 'monospace',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            textUnderlineOffset: '2px',
+                          }}
+                          title={path}
+                        >
+                          {summarizePathForDisplay(path)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {linkedSourcePaths.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Supporting source paths</p>
+                      {linkedSourcePaths.slice(0, 8).map((path) => (
+                        <button
+                          key={`${card.id}-source-${path}`}
+                          type="button"
+                          onClick={() => onOpenArtifactPath(path)}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            padding: 0,
+                            textAlign: 'left',
+                            color: '#cbd5f5',
+                            fontSize: '12px',
+                            fontFamily: 'monospace',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            textUnderlineOffset: '2px',
+                          }}
+                          title={path}
+                        >
+                          {summarizePathForDisplay(path)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </section>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Latest Manual Review</p>
+                {!latestManualReview ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No manual review metadata stored on this card yet.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px', color: '#e2e8f0', fontSize: '13px' }}>
+                    <span>Action: {String(latestManualReview.action || 'unknown')}</span>
+                    <span>Reviewed by: {String(latestManualReview.reviewed_by || 'unknown')}</span>
+                    <span>From lane: {String(latestManualReview.from_lane || 'unknown')}</span>
+                    <span>
+                      Reviewed at:{' '}
+                      {latestManualReview.reviewed_at ? formatTimestamp(new Date(String(latestManualReview.reviewed_at))) : '-'}
+                    </span>
+                  </div>
+                )}
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Latest Execution Result</p>
+                {!latestExecutionResult ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No execution result has been written back yet.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px', color: '#e2e8f0', fontSize: '13px' }}>
+                    <span>Status: {String(latestExecutionResult.status || 'unknown')}</span>
+                    {latestExecutionSummary ? <span>Summary: {summarize(latestExecutionSummary, 180)}</span> : null}
+                    {latestExecutionResult.review_resolution ? <span>Review resolution: {String(latestExecutionResult.review_resolution)}</span> : null}
+                    {latestExecutionResult.reviewed_at ? <span>Reviewed at: {formatTimestamp(new Date(String(latestExecutionResult.reviewed_at)))}</span> : null}
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'outcomes' && (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Current Lane</p>
+                <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{boardColumns.find((column) => column.key === boardItem.lane)?.label ?? boardItem.lane}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{guidance.summary}</p>
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Linked Meetings</p>
+                <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{linkedStandups.length}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>meeting record{linkedStandups.length === 1 ? '' : 's'} currently point into this card</p>
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Execution Ownership</p>
+                <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>managed by {displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)}</p>
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Latest Result</p>
+                <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{latestExecutionResult ? String(latestExecutionResult.status || 'unknown') : 'No result yet'}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{latestExecutionSummary ? summarize(latestExecutionSummary, 96) : 'Execution has not written a result back yet.'}</p>
+              </section>
+            </div>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Meeting-To-Work Chain</p>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                  1. {linkedStandups.length > 0 ? `${linkedStandups.length} standup record${linkedStandups.length === 1 ? '' : 's'} linked into this card.` : `This card currently has no linked standup record.`}
+                </p>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                  2. The PM card is currently `{boardItem.pmStatus}` in PM and `{boardItem.executionState ?? 'not in execution yet'}` in execution.
+                </p>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                  3. Manager/target chain: {displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)} {'->'} {displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}.
+                </p>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                  4. Latest result signal: {latestExecutionResult ? String(latestExecutionResult.status || 'unknown') : 'none yet'}.
+                </p>
+              </div>
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Actions</p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {(boardItem.lane === 'ready' || boardItem.lane === 'todo') && (
+                  <button
+                    type="button"
+                    disabled={actioningCardId === card.id}
+                    onClick={() => void handleCardAction('dispatch')}
+                    style={meetingActionButtonStyle('primary', actioningCardId === card.id)}
+                  >
+                    {actioningCardId === card.id ? 'Opening…' : 'Open SOP'}
+                  </button>
+                )}
+                {boardItem.lane === 'review' && (
+                  <button
+                    type="button"
+                    disabled={actioningCardId === card.id}
+                    onClick={() => void handleCardAction('approve')}
+                    style={meetingActionButtonStyle('success', actioningCardId === card.id)}
+                  >
+                    {actioningCardId === card.id ? 'Closing…' : 'Approve and close'}
+                  </button>
+                )}
+                {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
+                  <button
+                    type="button"
+                    disabled={actioningCardId === card.id}
+                    onClick={() => void handleCardAction('return')}
+                    style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
+                  >
+                    {actioningCardId === card.id ? 'Returning…' : 'Return to Jean-Claude'}
+                  </button>
+                )}
+                {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
+                  <button
+                    type="button"
+                    disabled={actioningCardId === card.id}
+                    onClick={() => void handleCardAction('blocked')}
+                    style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
+                  >
+                    {actioningCardId === card.id ? 'Routing…' : 'Mark blocked'}
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Record History</p>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {historyItems.map((item) => (
+                  <div key={`${card.id}-history-${item.label}-${item.detail}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '12px' }}>
+                    <p style={{ color: item.tone ?? '#f8fafc', fontSize: '13px', fontWeight: 700, margin: '0 0 4px' }}>{item.label}</p>
+                    <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{item.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'raw' && (
+          <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+            <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Stored PM Payload</p>
+            <pre
+              style={{
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                color: '#e2e8f0',
+                fontSize: '12px',
+                lineHeight: 1.6,
+                margin: 0,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+              }}
+            >
+              {rawRecord}
+            </pre>
+          </section>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -3450,6 +3918,70 @@ function buildStandupHistoryItems(entry: StandupEntry, linkedCards: LinkedStandu
       label: 'Latest Execution Result',
       detail: `The most recent result write-back came from \`${latestExecution.title}\` with status \`${String(latestExecution.result.status || 'unknown')}\`.`,
       tone: String(latestExecution.result.status || '') === 'done' ? '#22c55e' : '#fbbf24',
+    });
+  }
+  return items;
+}
+
+function buildPmCardHistoryItems(card: PMCard, boardItem: UnifiedBoardItem, linkedStandups: StandupEntry[]): MeetingHistoryItem[] {
+  const payload = card.payload ?? {};
+  const items: MeetingHistoryItem[] = [];
+  if (card.created_at) {
+    items.push({
+      label: 'Created',
+      detail: `PM card stored on ${formatTimestamp(new Date(card.created_at))} with status \`${card.status ?? 'todo'}\`.`,
+      tone: '#e2e8f0',
+    });
+  }
+  if (linkedStandups.length > 0) {
+    const latestStandup = [...linkedStandups].sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime())[0];
+    items.push({
+      label: 'Linked Meetings',
+      detail: `${linkedStandups.length} standup record${linkedStandups.length === 1 ? '' : 's'} currently link into this card. Latest linked meeting: ${latestStandup ? `${standupLabel(latestStandup)} on ${latestStandup.created_at ? formatTimestamp(new Date(latestStandup.created_at)) : 'unknown date'}` : 'unknown'}.`,
+      tone: '#38bdf8',
+    });
+  }
+  if (typeof payload.created_from_prep_id === 'string' && payload.created_from_prep_id.trim()) {
+    items.push({
+      label: 'Created From Prep',
+      detail: `This PM card was seeded from prep packet \`${payload.created_from_prep_id}\`.`,
+      tone: '#fbbf24',
+    });
+  }
+  if (typeof payload.recommendation_path === 'string' && payload.recommendation_path.trim()) {
+    items.push({
+      label: 'Recommendation Packet Attached',
+      detail: `This card carries recommendation evidence from ${summarizePathForDisplay(payload.recommendation_path)}.`,
+      tone: '#38bdf8',
+    });
+  }
+  if (boardItem.queueEntry) {
+    items.push({
+      label: 'Execution Lane',
+      detail: `Execution is currently \`${boardItem.executionState ?? 'unknown'}\` in lane \`${boardItem.queueEntry.lane}\`, managed by ${displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)} and targeting ${displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}.`,
+      tone: ['failed', 'blocked'].includes((boardItem.executionState ?? '').toLowerCase()) ? '#f87171' : '#22c55e',
+    });
+  }
+  const latestManualReview =
+    payload.latest_manual_review && typeof payload.latest_manual_review === 'object'
+      ? (payload.latest_manual_review as Record<string, unknown>)
+      : null;
+  if (latestManualReview) {
+    items.push({
+      label: 'Latest Manual Review',
+      detail: `Manual review recorded action \`${String(latestManualReview.action || 'unknown')}\` from lane \`${String(latestManualReview.from_lane || 'unknown')}\` at ${latestManualReview.reviewed_at ? formatTimestamp(new Date(String(latestManualReview.reviewed_at))) : 'an unknown time'}.`,
+      tone: '#fbbf24',
+    });
+  }
+  const latestExecutionResult =
+    payload.latest_execution_result && typeof payload.latest_execution_result === 'object'
+      ? (payload.latest_execution_result as Record<string, unknown>)
+      : null;
+  if (latestExecutionResult) {
+    items.push({
+      label: 'Latest Execution Result',
+      detail: `Execution wrote back status \`${String(latestExecutionResult.status || 'unknown')}\`${latestExecutionResult.review_resolution ? ` and review resolution \`${String(latestExecutionResult.review_resolution)}\`` : ''}.`,
+      tone: String(latestExecutionResult.status || '') === 'done' ? '#22c55e' : '#fbbf24',
     });
   }
   return items;
@@ -7617,6 +8149,19 @@ function standupCreatedAt(entry: StandupEntry) {
 function isStandupLinkedCard(card: PMCard) {
   const payload = card.payload ?? {};
   return card.link_type === 'standup' || Boolean(payload.created_from_standup_id);
+}
+
+function linkedStandupsForCard(card: PMCard, standups: StandupEntry[]) {
+  const payload = card.payload ?? {};
+  const linkedIds = new Set(
+    [card.link_id, payload.created_from_standup_id]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim()),
+  );
+  if (linkedIds.size === 0) {
+    return [] as StandupEntry[];
+  }
+  return standups.filter((entry) => linkedIds.has(entry.id));
 }
 
 function linkedCardsForStandup(entry: StandupEntry, pmCards: PMCard[]) {
