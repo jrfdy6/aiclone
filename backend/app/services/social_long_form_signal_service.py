@@ -121,6 +121,42 @@ PM_ROUTE_TERMS = (
     "standup",
     "operational",
 )
+PM_DECISION_TERMS = (
+    " backlog ",
+    " ownership ",
+    " handoff ",
+    " dispatch ",
+    " queue ",
+    " review ",
+    " standup ",
+    " operating system ",
+)
+TEMPORAL_AWARENESS_TERMS = (
+    " overnight ",
+    " this morning ",
+    " morning picture ",
+    " what changed ",
+    " current cycle ",
+    " today ",
+    " this week ",
+    " last night ",
+    " jobs completed ",
+)
+STRONG_PERSONA_PATTERNS = (
+    r"\bmatters more than\b",
+    r"\bis what decides whether\b",
+    r"\bearn(?:s|ed)? trust\b",
+    r"\bworkflow clarity\b",
+    r"\boperator judgment\b",
+)
+EXTERNAL_EXPRESSION_TERMS = (
+    " team ",
+    " teams ",
+    " operators ",
+    " product teams ",
+    " institution ",
+    " institutions ",
+)
 REACTION_DISCOURAGED_PREFIXES = (
     "the ",
     "that's ",
@@ -849,15 +885,45 @@ def _handoff_lane_for_candidate(
             [],
         )
 
+    temporal_awareness = any(term in lowered for term in TEMPORAL_AWARENESS_TERMS)
+    if temporal_awareness:
+        return (
+            "brief_only",
+            "segment is time-bound operational awareness and belongs in the brief before any deeper persona or PM promotion",
+            ["brief"],
+        )
+
     operational_pressure = any(term in lowered for term in PM_ROUTE_TERMS) or lane_hint == "program-leadership"
-    if operational_pressure and route_score >= 15 and _clean_text(assessment.get("stance")) in {"counter", "nuance", "translate"}:
+    operational_decision = any(term in lowered for term in PM_DECISION_TERMS)
+    if (
+        operational_pressure
+        and operational_decision
+        and route_score >= 8
+        and _clean_text(assessment.get("stance")) in {"counter", "nuance", "translate"}
+    ):
         return (
             "route_to_pm",
             "segment carries operational pressure and should be reviewed for execution routing before it turns into persona or posting work",
             ["brief"],
         )
 
-    if primary_route == "belief_evidence":
+    strong_persona_worldview = (
+        lived_proof_context
+        or target_file in {TARGET_STORIES, TARGET_VOICE}
+        or any(re.search(pattern, lowered) for pattern in STRONG_PERSONA_PATTERNS)
+        or (
+            any(term in lowered for term in (" trust ", " judgment ", " workflow clarity ", " principle ", " values "))
+            and any(term in lowered for term in CONTRAST_TERMS)
+        )
+    )
+
+    external_expression = (
+        not lived_proof_context
+        and any(term in lowered for term in EXTERNAL_EXPRESSION_TERMS)
+        and any(term in lowered for term in AI_TERMS + PROCESS_TERMS)
+    )
+
+    if "belief_evidence" in response_modes and strong_persona_worldview:
         secondary = ["brief"]
         if any(mode in {"comment", "repost", "post_seed"} for mode in response_modes):
             secondary.append("posting")
@@ -865,6 +931,13 @@ def _handoff_lane_for_candidate(
             "persona_candidate",
             "segment reads like durable worldview, voice, or identity evidence and should be judged in Persona",
             secondary,
+        )
+
+    if "belief_evidence" in response_modes and external_expression and route_score >= 10:
+        return (
+            "post_candidate",
+            "segment is strong commentary for public expression, but it is not self-revealing enough yet to become Persona",
+            ["brief"],
         )
 
     if primary_route == "post_seed" and any(mode in {"comment", "repost"} for mode in response_modes):

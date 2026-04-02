@@ -138,6 +138,8 @@ class LabExperimentServiceTests(unittest.TestCase):
 
         self.assertEqual(record["id"], lab_experiment_service.SOURCE_HANDOFF_EXPERIMENT_ID)
         self.assertEqual(len(record["sample_runs"]), len(lab_experiment_service.SOURCE_HANDOFF_PROBES))
+        self.assertEqual(record["current"]["metric_cards"][0]["id"], "exact_match_rate")
+        self.assertEqual(record["current"]["metric_cards"][0]["value"], 100.0)
         self.assertTrue(
             {
                 "exact_match_rate",
@@ -154,5 +156,6 @@ class LabExperimentServiceTests(unittest.TestCase):
             self.assertIn("expected_handoff_lane", snapshot)
             self.assertIn("actual_handoff_lane", snapshot)
             self.assertIn("primary_route", snapshot)
+            self.assertEqual(snapshot.get("expected_handoff_lane"), snapshot.get("actual_handoff_lane"))
             stage_ids = {stage["id"] for stage in item["stage_results"]}
             self.assertTrue({"source_contract", "route_classification", "handoff_decision"}.issubset(stage_ids))
