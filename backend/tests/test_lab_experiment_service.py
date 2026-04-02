@@ -258,8 +258,20 @@ class LabExperimentServiceTests(unittest.TestCase):
                     "key_anecdotes": ["A customer relaxed the second a human answered the phone."],
                     "reusable_quotes": ["Trust and clarity beat persuasion."],
                     "quality_flags": [],
-                    "deep_harvest_fragments": [],
-                    "deep_harvest_counts": {"total": 0},
+                    "deep_harvest_fragments": [
+                        {
+                            "text": "Trust and clarity beat persuasion.",
+                            "primary_type": "quote",
+                            "labels": ["quote", "voice_pattern"],
+                            "score": 8,
+                            "word_count": 5,
+                            "likely_handoff_lane": "post_candidate",
+                            "promotion_recommendation": "voice_guidance_only",
+                            "promotion_reason": "This source fragment is better as voice guidance than as canon.",
+                            "source_section": "reusable_quotes",
+                        }
+                    ],
+                    "deep_harvest_counts": {"total": 1, "voice_guidance_only_count": 1, "by_recommendation": {"voice_guidance_only": 1}},
                 },
                 {
                     "title": "Bootcamp Notes",
@@ -275,8 +287,20 @@ class LabExperimentServiceTests(unittest.TestCase):
                     "key_anecdotes": [],
                     "reusable_quotes": [],
                     "quality_flags": ["lessons_missing", "anecdotes_missing", "quotes_missing"],
-                    "deep_harvest_fragments": [],
-                    "deep_harvest_counts": {"total": 0},
+                    "deep_harvest_fragments": [
+                        {
+                            "text": "Operator judgment and workflow clarity matter because trust breaks when review handoffs hide the human too early.",
+                            "primary_type": "canon_candidate",
+                            "labels": ["lesson", "worldview", "operational", "canon_candidate"],
+                            "score": 10,
+                            "word_count": 14,
+                            "likely_handoff_lane": "persona_candidate",
+                            "promotion_recommendation": "canon_suggestion",
+                            "promotion_reason": "This persona-interview fragment reads like durable self-model material and deserves canon review.",
+                            "source_section": "lessons_learned",
+                        }
+                    ],
+                    "deep_harvest_counts": {"total": 1, "canon_suggestion_count": 1, "by_recommendation": {"canon_suggestion": 1}},
                 },
             ],
             "counts": {"by_channel": {"youtube": 1, "manual": 1}},
@@ -313,3 +337,8 @@ class LabExperimentServiceTests(unittest.TestCase):
         self.assertEqual(audit["origin_breakdown"]["transcript_library"]["quality_metrics"]["quote_coverage_rate"], 0.0)
         self.assertEqual(audit["candidate_samples"][0]["signal_snapshot"]["source_origin"], "media_pipeline")
         self.assertEqual(audit["asset_samples"][1]["origin"], "transcript_library")
+        self.assertEqual(audit["slice_counts"]["fragment_recommendation_counts"]["voice_guidance_only"], 1)
+        self.assertEqual(audit["slice_counts"]["fragment_recommendation_counts"]["canon_suggestion"], 1)
+        self.assertEqual(audit["deep_harvest_metrics"]["voice_guidance_only_rate"], 50.0)
+        self.assertEqual(audit["deep_harvest_metrics"]["canon_suggestion_rate"], 50.0)
+        self.assertEqual(audit["fragment_samples"][0]["promotion_recommendation"], "canon_suggestion")

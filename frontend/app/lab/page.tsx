@@ -207,6 +207,10 @@ type LabExperiment = {
       canon_candidate_rate: number;
       post_candidate_rate: number;
       route_to_pm_rate: number;
+      voice_guidance_only_rate?: number;
+      persona_recommendation_rate?: number;
+      canon_suggestion_rate?: number;
+      source_only_recommendation_rate?: number;
     };
     origin_breakdown?: Record<
       string,
@@ -237,6 +241,7 @@ type LabExperiment = {
       issue_counts: Record<string, number>;
       fragment_type_counts: Record<string, number>;
       fragment_lane_counts: Record<string, number>;
+      fragment_recommendation_counts?: Record<string, number>;
       fragment_source_section_counts: Record<string, number>;
     };
     top_issues: { id: string; label: string; count: number }[];
@@ -309,10 +314,14 @@ type LabExperiment = {
         total?: number;
         by_type?: Record<string, number>;
         by_handoff_lane?: Record<string, number>;
+        by_recommendation?: Record<string, number>;
         by_source_section?: Record<string, number>;
         canon_candidate_count?: number;
         persona_candidate_count?: number;
         post_candidate_count?: number;
+        voice_guidance_only_count?: number;
+        persona_recommendation_count?: number;
+        canon_suggestion_count?: number;
       };
       top_fragments?: {
         text?: string;
@@ -321,6 +330,8 @@ type LabExperiment = {
         source_section?: string;
         score?: number;
         likely_handoff_lane?: string;
+        promotion_recommendation?: string;
+        promotion_reason?: string;
       }[];
     }[];
     fragment_samples: {
@@ -330,11 +341,16 @@ type LabExperiment = {
       score: number;
       word_count: number;
       likely_handoff_lane: string;
+      promotion_recommendation?: string;
+      promotion_reason?: string;
       source_section: string;
       asset_title: string;
       asset_source_path?: string;
       asset_source_channel?: string;
       asset_origin?: string;
+      asset_transcript_note_kind?: string;
+      asset_persona_use_mode?: string;
+      asset_voice_signal_priority?: string;
     }[];
   };
   history: {
@@ -1096,6 +1112,7 @@ function LiveSourceAuditSection({
   const [personaUseModeFilter, setPersonaUseModeFilter] = useState('all');
   const [fragmentTypeFilter, setFragmentTypeFilter] = useState('all');
   const [fragmentLaneFilter, setFragmentLaneFilter] = useState('all');
+  const [fragmentRecommendationFilter, setFragmentRecommendationFilter] = useState('all');
   const [fragmentSectionFilter, setFragmentSectionFilter] = useState('all');
 
   useEffect(() => {
@@ -1110,6 +1127,7 @@ function LiveSourceAuditSection({
     setPersonaUseModeFilter('all');
     setFragmentTypeFilter('all');
     setFragmentLaneFilter('all');
+    setFragmentRecommendationFilter('all');
     setFragmentSectionFilter('all');
   }, [audit.generated_at, audit.source]);
 
@@ -1145,13 +1163,27 @@ function LiveSourceAuditSection({
     return fragmentSamples.filter((fragment) => {
       if (originFilter !== 'all' && fragment.asset_origin !== originFilter) return false;
       if (channelFilter !== 'all' && fragment.asset_source_channel !== channelFilter) return false;
+      if (transcriptNoteKindFilter !== 'all' && fragment.asset_transcript_note_kind !== transcriptNoteKindFilter) return false;
+      if (personaUseModeFilter !== 'all' && fragment.asset_persona_use_mode !== personaUseModeFilter) return false;
       if (fragmentTypeFilter !== 'all' && fragment.primary_type !== fragmentTypeFilter) return false;
       if (fragmentLaneFilter !== 'all' && fragment.likely_handoff_lane !== fragmentLaneFilter) return false;
+      if (fragmentRecommendationFilter !== 'all' && fragment.promotion_recommendation !== fragmentRecommendationFilter) return false;
       if (fragmentSectionFilter !== 'all' && fragment.source_section !== fragmentSectionFilter) return false;
       if (issueFilter !== 'all' && !fragment.labels.includes(issueFilter)) return false;
       return true;
     });
-  }, [fragmentSamples, originFilter, channelFilter, fragmentTypeFilter, fragmentLaneFilter, fragmentSectionFilter, issueFilter]);
+  }, [
+    fragmentSamples,
+    originFilter,
+    channelFilter,
+    transcriptNoteKindFilter,
+    personaUseModeFilter,
+    fragmentTypeFilter,
+    fragmentLaneFilter,
+    fragmentRecommendationFilter,
+    fragmentSectionFilter,
+    issueFilter,
+  ]);
 
   const originOptions = useMemo(
     () => Object.entries(audit.slice_counts.origin_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
@@ -1202,6 +1234,10 @@ function LiveSourceAuditSection({
     () => Object.entries(audit.slice_counts.fragment_lane_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
     [audit.slice_counts.fragment_lane_counts],
   );
+  const fragmentRecommendationOptions = useMemo(
+    () => Object.entries(audit.slice_counts.fragment_recommendation_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.fragment_recommendation_counts],
+  );
   const fragmentSectionOptions = useMemo(
     () => Object.entries(audit.slice_counts.fragment_source_section_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
     [audit.slice_counts.fragment_source_section_counts],
@@ -1251,6 +1287,12 @@ function LiveSourceAuditSection({
           <PrototypeStat label="Post Ready" value={`${audit.deep_harvest_metrics.post_candidate_rate}%`} tone="#38bdf8" />
           <PrototypeStat label="PM Ready" value={`${audit.deep_harvest_metrics.route_to_pm_rate}%`} tone="#ef4444" />
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginTop: '12px' }}>
+          <PrototypeStat label="Voice Guide" value={`${audit.deep_harvest_metrics.voice_guidance_only_rate ?? 0}%`} tone="#f59e0b" />
+          <PrototypeStat label="Persona Promote" value={`${audit.deep_harvest_metrics.persona_recommendation_rate ?? 0}%`} tone="#22c55e" />
+          <PrototypeStat label="Canon Suggest" value={`${audit.deep_harvest_metrics.canon_suggestion_rate ?? 0}%`} tone="#a78bfa" />
+          <PrototypeStat label="Stay Source" value={`${audit.deep_harvest_metrics.source_only_recommendation_rate ?? 0}%`} tone="#64748b" />
+        </div>
       </div>
 
       {audit.origin_breakdown && Object.keys(audit.origin_breakdown).length > 0 && (
@@ -1294,6 +1336,13 @@ function LiveSourceAuditSection({
         <FilterChipGroup label="Quality Issues" options={issueOptions} activeValue={issueFilter} onChange={setIssueFilter} tone="#ef4444" />
         <FilterChipGroup label="Fragment Types" options={fragmentTypeOptions} activeValue={fragmentTypeFilter} onChange={setFragmentTypeFilter} tone="#f59e0b" />
         <FilterChipGroup label="Fragment Lanes" options={fragmentLaneOptions} activeValue={fragmentLaneFilter} onChange={setFragmentLaneFilter} tone="#22c55e" />
+        <FilterChipGroup
+          label="Promotion Recommendations"
+          options={fragmentRecommendationOptions}
+          activeValue={fragmentRecommendationFilter}
+          onChange={setFragmentRecommendationFilter}
+          tone="#a78bfa"
+        />
         <FilterChipGroup label="Fragment Sections" options={fragmentSectionOptions} activeValue={fragmentSectionFilter} onChange={setFragmentSectionFilter} tone="#64748b" />
       </div>
 
@@ -1320,11 +1369,17 @@ function LiveSourceAuditSection({
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     <InlineTone label={humanizeKey(fragment.primary_type)} tone="#f59e0b" />
                     <InlineTone label={humanizeKey(fragment.likely_handoff_lane)} tone="#22c55e" />
+                    {fragment.promotion_recommendation && fragment.promotion_recommendation !== 'unknown' && (
+                      <InlineTone label={humanizeKey(fragment.promotion_recommendation)} tone={recommendationTone(fragment.promotion_recommendation)} />
+                    )}
                   </div>
                 </div>
                 <p style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: '8px' }}>{fragment.text}</p>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
                   {fragment.asset_source_channel && <InlineTone label={humanizeKey(fragment.asset_source_channel)} tone="#64748b" />}
+                  {fragment.asset_transcript_note_kind && <InlineTone label={humanizeKey(fragment.asset_transcript_note_kind)} tone="#fb7185" />}
+                  {fragment.asset_persona_use_mode && <InlineTone label={humanizeKey(fragment.asset_persona_use_mode)} tone="#14b8a6" />}
+                  {fragment.asset_voice_signal_priority && <InlineTone label={`Voice ${humanizeKey(fragment.asset_voice_signal_priority)}`} tone="#a78bfa" />}
                   {fragment.source_section && <InlineTone label={humanizeKey(fragment.source_section)} tone="#334155" />}
                   <InlineTone label={`Score ${fragment.score}`} tone="#a78bfa" />
                   <InlineTone label={`${fragment.word_count} words`} tone="#475569" />
@@ -1332,6 +1387,7 @@ function LiveSourceAuditSection({
                     <InlineTone key={`${fragment.asset_title}:${fragment.text}:${label}`} label={humanizeKey(label)} tone="#14b8a6" />
                   ))}
                 </div>
+                {fragment.promotion_reason && <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '6px' }}>{fragment.promotion_reason}</p>}
                 {fragment.asset_source_path && <p style={{ color: '#64748b', fontSize: '11px' }}>{fragment.asset_source_path}</p>}
               </div>
             ))}
@@ -1409,6 +1465,15 @@ function LiveSourceAuditSection({
                   {typeof asset.deep_harvest_counts?.canon_candidate_count === 'number' && asset.deep_harvest_counts.canon_candidate_count > 0 && (
                     <InlineTone label={`Canon ${asset.deep_harvest_counts.canon_candidate_count}`} tone="#a78bfa" />
                   )}
+                  {typeof asset.deep_harvest_counts?.voice_guidance_only_count === 'number' && asset.deep_harvest_counts.voice_guidance_only_count > 0 && (
+                    <InlineTone label={`Voice ${asset.deep_harvest_counts.voice_guidance_only_count}`} tone="#f59e0b" />
+                  )}
+                  {typeof asset.deep_harvest_counts?.persona_recommendation_count === 'number' && asset.deep_harvest_counts.persona_recommendation_count > 0 && (
+                    <InlineTone label={`Persona ${asset.deep_harvest_counts.persona_recommendation_count}`} tone="#22c55e" />
+                  )}
+                  {typeof asset.deep_harvest_counts?.canon_suggestion_count === 'number' && asset.deep_harvest_counts.canon_suggestion_count > 0 && (
+                    <InlineTone label={`Suggest ${asset.deep_harvest_counts.canon_suggestion_count}`} tone="#a78bfa" />
+                  )}
                 </div>
                 {(asset.lessons_learned?.length || asset.key_anecdotes?.length || asset.reusable_quotes?.length) ? (
                   <div style={{ display: 'grid', gap: '6px' }}>
@@ -1435,9 +1500,11 @@ function LiveSourceAuditSection({
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
                           {fragment.primary_type && <InlineTone label={humanizeKey(fragment.primary_type)} tone="#f59e0b" />}
                           {fragment.likely_handoff_lane && <InlineTone label={humanizeKey(fragment.likely_handoff_lane)} tone="#22c55e" />}
+                          {fragment.promotion_recommendation && <InlineTone label={humanizeKey(fragment.promotion_recommendation)} tone={recommendationTone(fragment.promotion_recommendation)} />}
                           {typeof fragment.score === 'number' && <InlineTone label={`Score ${fragment.score}`} tone="#475569" />}
                         </div>
                         {fragment.text && <p style={{ color: '#cbd5e1', fontSize: '12px' }}>{fragment.text}</p>}
+                        {fragment.promotion_reason && <p style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>{fragment.promotion_reason}</p>}
                       </div>
                     ))}
                   </div>
@@ -1575,6 +1642,13 @@ function scoreTone(score: number) {
   if (score >= 8.5) return '#22c55e';
   if (score >= 7) return '#f59e0b';
   return '#ef4444';
+}
+
+function recommendationTone(recommendation: string) {
+  if (recommendation === 'canon_suggestion') return '#a78bfa';
+  if (recommendation === 'persona_candidate') return '#22c55e';
+  if (recommendation === 'voice_guidance_only') return '#f59e0b';
+  return '#64748b';
 }
 
 function groupStageResults(

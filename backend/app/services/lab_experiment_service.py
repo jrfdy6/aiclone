@@ -1564,6 +1564,9 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "asset_source_channel": str(asset.get("source_channel") or ""),
             "asset_source_type": str(asset.get("source_type") or ""),
             "asset_origin": str(asset.get("origin") or "unknown"),
+            "asset_transcript_note_kind": str(asset.get("transcript_note_kind") or ""),
+            "asset_persona_use_mode": str(asset.get("persona_use_mode") or ""),
+            "asset_voice_signal_priority": str(asset.get("voice_signal_priority") or ""),
         }
         for asset in assets
         for fragment in (asset.get("deep_harvest_fragments") or [])
@@ -1584,6 +1587,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
     issue_counts = _bucket_counts([flag for flags in quality_flags for flag in flags], empty_label="none")
     fragment_type_counts = _bucket_counts([str(item.get("primary_type") or "unknown") for item in fragments])
     fragment_lane_counts = _bucket_counts([str(item.get("likely_handoff_lane") or "unknown") for item in fragments])
+    fragment_recommendation_counts = _bucket_counts([str(item.get("promotion_recommendation") or "unknown") for item in fragments])
     fragment_source_section_counts = _bucket_counts([str(item.get("source_section") or "unknown") for item in fragments])
     quality_metrics = _quality_metrics_for_assets(assets)
     origin_breakdown = _origin_breakdown_for_assets(assets)
@@ -1592,6 +1596,10 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
     canon_fragment_count = sum(1 for item in fragments if "canon_candidate" in (item.get("labels") or []))
     post_fragment_count = sum(1 for item in fragments if item.get("likely_handoff_lane") == "post_candidate")
     pm_fragment_count = sum(1 for item in fragments if item.get("likely_handoff_lane") == "route_to_pm")
+    voice_guidance_fragment_count = sum(1 for item in fragments if item.get("promotion_recommendation") == "voice_guidance_only")
+    persona_recommendation_fragment_count = sum(1 for item in fragments if item.get("promotion_recommendation") == "persona_candidate")
+    canon_suggestion_fragment_count = sum(1 for item in fragments if item.get("promotion_recommendation") == "canon_suggestion")
+    source_only_recommendation_fragment_count = sum(1 for item in fragments if item.get("promotion_recommendation") == "source_only")
 
     candidate_samples: list[dict[str, Any]] = []
     for candidate in candidates[:limit_candidates]:
@@ -1672,11 +1680,16 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "score": int(fragment.get("score") or 0),
             "word_count": int(fragment.get("word_count") or 0),
             "likely_handoff_lane": str(fragment.get("likely_handoff_lane") or "unknown"),
+            "promotion_recommendation": str(fragment.get("promotion_recommendation") or "unknown"),
+            "promotion_reason": str(fragment.get("promotion_reason") or ""),
             "source_section": str(fragment.get("source_section") or "unknown"),
             "asset_title": str(fragment.get("asset_title") or "Untitled asset"),
             "asset_source_path": str(fragment.get("asset_source_path") or ""),
             "asset_source_channel": str(fragment.get("asset_source_channel") or ""),
             "asset_origin": str(fragment.get("asset_origin") or "unknown"),
+            "asset_transcript_note_kind": str(fragment.get("asset_transcript_note_kind") or ""),
+            "asset_persona_use_mode": str(fragment.get("asset_persona_use_mode") or ""),
+            "asset_voice_signal_priority": str(fragment.get("asset_voice_signal_priority") or ""),
         }
         for fragment in sorted(
             fragments,
@@ -1708,6 +1721,10 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "canon_candidate_rate": _audit_rate(canon_fragment_count, total_fragments),
             "post_candidate_rate": _audit_rate(post_fragment_count, total_fragments),
             "route_to_pm_rate": _audit_rate(pm_fragment_count, total_fragments),
+            "voice_guidance_only_rate": _audit_rate(voice_guidance_fragment_count, total_fragments),
+            "persona_recommendation_rate": _audit_rate(persona_recommendation_fragment_count, total_fragments),
+            "canon_suggestion_rate": _audit_rate(canon_suggestion_fragment_count, total_fragments),
+            "source_only_recommendation_rate": _audit_rate(source_only_recommendation_fragment_count, total_fragments),
         },
         "slice_counts": {
             "handoff_lane_counts": handoff_lane_counts,
@@ -1721,6 +1738,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "issue_counts": issue_counts,
             "fragment_type_counts": fragment_type_counts,
             "fragment_lane_counts": fragment_lane_counts,
+            "fragment_recommendation_counts": fragment_recommendation_counts,
             "fragment_source_section_counts": fragment_source_section_counts,
         },
         "origin_breakdown": origin_breakdown,

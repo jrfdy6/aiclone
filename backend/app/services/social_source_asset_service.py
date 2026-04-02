@@ -549,6 +549,78 @@ def _fragment_handoff_lane(labels: list[str], score: int) -> str:
     return "source_only"
 
 
+def _fragment_promotion_recommendation(fragment: dict[str, Any], asset_meta: dict[str, Any]) -> tuple[str, str]:
+    labels = {str(item) for item in (fragment.get("labels") or []) if str(item).strip()}
+    primary_type = str(fragment.get("primary_type") or "signal")
+    score = int(fragment.get("score") or 0)
+    lane = str(fragment.get("likely_handoff_lane") or "source_only")
+    source_section = str(fragment.get("source_section") or "")
+    origin = str(asset_meta.get("origin") or "")
+    persona_use_mode = str(asset_meta.get("persona_use_mode") or "")
+    voice_priority = str(asset_meta.get("voice_signal_priority") or "")
+
+    is_voice_fragment = primary_type in {"quote", "voice_pattern"} or "quote" in labels or source_section == "reusable_quotes"
+    is_persona_shape = bool({"lesson", "worldview", "anecdote", "canon_candidate"} & labels) or lane == "persona_candidate"
+    is_operational = "operational" in labels
+
+    if origin == "transcript_library":
+        if persona_use_mode == "reference_only":
+            if is_voice_fragment and score >= 7:
+                return "voice_guidance_only", "Reference material can sharpen phrasing and source-expression, but it should not become canon."
+            return "source_only", "External reference batches stay as reference context unless you explicitly promote them."
+
+        if persona_use_mode == "voice_guidance_only":
+            if is_voice_fragment and (score >= 5 or source_section == "reusable_quotes"):
+                return "voice_guidance_only", "Approved voice-proof material should shape cadence and phrase choice, not become canon by default."
+            if is_persona_shape and score >= 8 and not is_operational:
+                return "persona_candidate", "This guidance note contains durable identity or lived-proof material worth persona review."
+            return "source_only", "Keep this guidance fragment as source context until it earns stronger persona value."
+
+        if persona_use_mode == "voice_and_experience":
+            if "canon_candidate" in labels and score >= 8 and not is_voice_fragment:
+                return "canon_suggestion", "This persona-interview fragment reads like durable self-model material and deserves canon review."
+            if is_persona_shape and score >= 7 and not is_operational:
+                return "persona_candidate", "This persona-interview fragment looks strong enough for persona review."
+            if is_voice_fragment and (score >= 5 or voice_priority == "high"):
+                return "voice_guidance_only", "This persona-interview phrase should guide tone and sentence structure."
+            return "source_only", "Keep this interview fragment as supporting context until it is sharper."
+
+        if persona_use_mode == "operating_context":
+            if is_persona_shape and score >= 8 and not is_operational:
+                return "persona_candidate", "This operating-context fragment expresses a durable system principle worth persona review."
+            if is_voice_fragment and voice_priority == "high" and score >= 7:
+                return "voice_guidance_only", "This operating-context phrase is useful for tone, but not canon by default."
+            return "source_only", "Program context should remain source context unless it clearly becomes a durable principle."
+
+        if is_persona_shape and score >= 8 and not is_operational:
+            return "persona_candidate", "This transcript-note fragment looks durable enough for persona review."
+        if is_voice_fragment and voice_priority == "high" and score >= 7:
+            return "voice_guidance_only", "This transcript-note phrase should inform voice without becoming canon."
+        return "source_only", "Keep this manual note fragment in source review until it earns a stronger role."
+
+    if "canon_candidate" in labels and lane == "persona_candidate" and score >= 8:
+        return "canon_suggestion", "This live source fragment looks strong enough to suggest for canon review."
+    if lane == "persona_candidate" and score >= 7 and not is_operational:
+        return "persona_candidate", "This source fragment is durable enough to send into persona review."
+    if is_voice_fragment and score >= 8:
+        return "voice_guidance_only", "This source fragment is better as voice guidance than as canon."
+    return "source_only", "Keep this fragment in source intelligence until it earns a stronger promotion."
+
+
+def _annotate_fragment_recommendations(fragments: list[dict[str, Any]], asset_meta: dict[str, Any]) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for fragment in fragments:
+        recommendation, reason = _fragment_promotion_recommendation(fragment, asset_meta)
+        annotated.append(
+            {
+                **fragment,
+                "promotion_recommendation": recommendation,
+                "promotion_reason": reason,
+            }
+        )
+    return annotated
+
+
 def _build_deep_harvest_fragments(
     *,
     summary: str,
@@ -612,10 +684,14 @@ def _deep_harvest_counts(fragments: list[dict[str, Any]]) -> dict[str, Any]:
         "total": len(fragments),
         "by_type": _fragment_bucket_counts(fragments, "primary_type"),
         "by_handoff_lane": _fragment_bucket_counts(fragments, "likely_handoff_lane"),
+        "by_recommendation": _fragment_bucket_counts(fragments, "promotion_recommendation"),
         "by_source_section": _fragment_bucket_counts(fragments, "source_section"),
         "canon_candidate_count": sum(1 for item in fragments if "canon_candidate" in (item.get("labels") or [])),
         "persona_candidate_count": sum(1 for item in fragments if item.get("likely_handoff_lane") == "persona_candidate"),
         "post_candidate_count": sum(1 for item in fragments if item.get("likely_handoff_lane") == "post_candidate"),
+        "voice_guidance_only_count": sum(1 for item in fragments if item.get("promotion_recommendation") == "voice_guidance_only"),
+        "persona_recommendation_count": sum(1 for item in fragments if item.get("promotion_recommendation") == "persona_candidate"),
+        "canon_suggestion_count": sum(1 for item in fragments if item.get("promotion_recommendation") == "canon_suggestion"),
     }
 
 
@@ -712,13 +788,21 @@ def _build_transcript_note_assets(transcripts_root: Path, repo_root: Path) -> li
         anecdotes = _transcript_note_anecdotes(note_items, clean_document)
         quotes = _transcript_note_quotes(note_items, clean_document)
         open_questions = _transcript_note_open_questions(note_items, clean_document)
-        deep_harvest_fragments = _build_deep_harvest_fragments(
-            summary=summary,
-            structured_summary=structured_summary,
-            lessons=lessons,
-            anecdotes=anecdotes,
-            quotes=quotes,
-            clean_document=clean_document,
+        asset_meta = {
+            "origin": "transcript_library",
+            "persona_use_mode": persona_use_mode,
+            "voice_signal_priority": voice_priority,
+        }
+        deep_harvest_fragments = _annotate_fragment_recommendations(
+            _build_deep_harvest_fragments(
+                summary=summary,
+                structured_summary=structured_summary,
+                lessons=lessons,
+                anecdotes=anecdotes,
+                quotes=quotes,
+                clean_document=clean_document,
+            ),
+            asset_meta,
         )
         source_descriptor = _clean_text(meta.get("source"))
         source_url = _extract_url(source_descriptor)
@@ -785,13 +869,21 @@ def _build_ingestion_assets(ingestions_root: Path, repo_root: Path) -> list[dict
         open_questions = _extraction_strings(meta.get("open_questions"), 6) or _section_bullets(_extract_section(body, "Open Questions"), limit=6)
         quality_flags = _list_strings(meta.get("extraction_quality_flags"), 12) or _summary_quality_flags(summary, structured_summary, lessons, anecdotes, quotes)
         clean_document = _extract_section(body, "Clean Transcript / Document") or body
-        deep_harvest_fragments = _build_deep_harvest_fragments(
-            summary=summary,
-            structured_summary=structured_summary,
-            lessons=lessons,
-            anecdotes=anecdotes,
-            quotes=quotes,
-            clean_document=clean_document,
+        asset_meta = {
+            "origin": "media_pipeline",
+            "persona_use_mode": "",
+            "voice_signal_priority": "",
+        }
+        deep_harvest_fragments = _annotate_fragment_recommendations(
+            _build_deep_harvest_fragments(
+                summary=summary,
+                structured_summary=structured_summary,
+                lessons=lessons,
+                anecdotes=anecdotes,
+                quotes=quotes,
+                clean_document=clean_document,
+            ),
+            asset_meta,
         )
         raw_files = _list_strings(meta.get("raw_files"), 20)
         asset = {
