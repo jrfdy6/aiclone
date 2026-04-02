@@ -6,12 +6,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from app.routes import content_generation
+from app.services import social_long_form_signal_service as long_form_signal_service
 from app.services.social_signal_utils import build_variants, normalize_saved_signal
 
 EXPERIMENT_ID = "content-fallback-observatory"
 SOCIAL_EXPERIMENT_ID = "article-response-matrix"
+SOURCE_HANDOFF_EXPERIMENT_ID = "source-handoff-matrix"
 TARGET_FALLBACK_RATE = 5.0
 TARGET_SOCIAL_FAILURE_RATE = 0.0
+TARGET_HANDOFF_MISMATCH_RATE = 10.0
 TARGET_SOCIAL_BENCHMARK_SCORE = 9.5
 TARGET_SOCIAL_BENCHMARK_FLOOR = 9.0
 MAX_HISTORY = 8
@@ -101,6 +104,64 @@ ARTICLE_RESPONSE_PROBES: List[dict[str, str]] = [
             "What compounds is distribution, user trust, and the operational system that keeps insight close to the product. "
             "The builders who turn repeated customer signals into process usually keep the edge longer."
         ),
+    },
+]
+
+SOURCE_HANDOFF_PROBES: List[dict[str, str]] = [
+    {
+        "topic": "low-context story fragment",
+        "title": "Remember that hill that I showed you, the system of record hill?",
+        "platform": "manual",
+        "source_channel": "manual",
+        "source_type": "transcript_note",
+        "url": "https://example.com/lab/source-handoff/low-context-story",
+        "author": "Johnnie",
+        "segment": "Remember that hill that I showed you, the system of record hill?",
+        "expected_handoff_lane": "source_only",
+    },
+    {
+        "topic": "system awareness without durable identity",
+        "title": "The overnight jobs completed, but the team still needs a clearer morning picture of what changed.",
+        "platform": "web",
+        "source_channel": "web",
+        "source_type": "article",
+        "url": "https://example.com/lab/source-handoff/brief-awareness",
+        "author": "Signal Desk",
+        "segment": "The overnight jobs completed, but the team still needs a clearer morning picture of what changed.",
+        "expected_handoff_lane": "brief_only",
+    },
+    {
+        "topic": "public-expression seed",
+        "title": "Access to more models does not help if the team still cannot pressure-test outputs or decide when to escalate.",
+        "platform": "substack",
+        "source_channel": "substack",
+        "source_type": "article",
+        "url": "https://example.com/lab/source-handoff/post-candidate",
+        "author": "Signal Desk",
+        "segment": "Access to more models does not help if the team still cannot pressure-test outputs or decide when to escalate.",
+        "expected_handoff_lane": "post_candidate",
+    },
+    {
+        "topic": "durable worldview evidence",
+        "title": "Workflow clarity matters more than tool abundance because operator judgment is what decides whether the system earns trust.",
+        "platform": "podcast",
+        "source_channel": "podcast",
+        "source_type": "transcript",
+        "url": "https://example.com/lab/source-handoff/persona-candidate",
+        "author": "Johnnie",
+        "segment": "Workflow clarity matters more than tool abundance because operator judgment is what decides whether the system earns trust.",
+        "expected_handoff_lane": "persona_candidate",
+    },
+    {
+        "topic": "operational routing pressure",
+        "title": "The visible backlog is usually cleaner than the underlying operating system because ownership and handoff rules are still unclear.",
+        "platform": "rss",
+        "source_channel": "rss",
+        "source_type": "article",
+        "url": "https://example.com/lab/source-handoff/route-to-pm",
+        "author": "Workflow Review",
+        "segment": "The visible backlog is usually cleaner than the underlying operating system because ownership and handoff rules are still unclear.",
+        "expected_handoff_lane": "route_to_pm",
     },
 ]
 
@@ -465,10 +526,82 @@ SOCIAL_STAGE_CATALOG: List[dict[str, Any]] = [
     },
 ]
 
+HANDOFF_STAGE_CATALOG: List[dict[str, Any]] = [
+    {
+        "id": "source_contract",
+        "label": "Source Contract",
+        "section": "source",
+        "description": "Capture enough source metadata for the handoff classifier to reason over the segment honestly.",
+        "possible_failures": [
+            "source_contract_incomplete",
+            "source_channel_missing",
+            "source_type_missing",
+        ],
+    },
+    {
+        "id": "segment_quality",
+        "label": "Segment Quality",
+        "section": "source",
+        "description": "Make sure the segment is clean enough and context-rich enough to classify at all.",
+        "possible_failures": [
+            "segment_too_weak",
+            "segment_low_context",
+            "segment_context_thin",
+        ],
+    },
+    {
+        "id": "belief_assessment",
+        "label": "Belief Assessment",
+        "section": "classification",
+        "description": "Assess stance, belief relation, and lived proof context before assigning a downstream lane.",
+        "possible_failures": [
+            "assessment_missing",
+            "stance_missing",
+            "belief_signal_thin",
+        ],
+    },
+    {
+        "id": "route_classification",
+        "label": "Route Classification",
+        "section": "classification",
+        "description": "Choose response modes, primary route, and route reason from the actual segment.",
+        "possible_failures": [
+            "route_modes_missing",
+            "primary_route_missing",
+            "route_score_low",
+        ],
+    },
+    {
+        "id": "guardrail_application",
+        "label": "Guardrail Application",
+        "section": "decision",
+        "description": "Apply weak-fragment and manual-reference guardrails before promoting the segment downstream.",
+        "possible_failures": [
+            "source_guardrail_missed",
+            "manual_reference_not_downgraded",
+            "low_context_story_not_downgraded",
+        ],
+    },
+    {
+        "id": "handoff_decision",
+        "label": "Handoff Decision",
+        "section": "decision",
+        "description": "Map the classifier output to the product handoff lane that Brain, Persona, and PM should consume.",
+        "possible_failures": [
+            "handoff_lane_mismatch",
+            "persona_overpromotion",
+            "post_underpromotion",
+            "pm_underpromotion",
+        ],
+    },
+]
+
 _STAGE_ORDER = [stage["id"] for stage in STAGE_CATALOG]
 _STAGE_LABELS = {stage["id"]: stage["label"] for stage in STAGE_CATALOG}
 _SOCIAL_STAGE_ORDER = [stage["id"] for stage in SOCIAL_STAGE_CATALOG]
 _SOCIAL_STAGE_LABELS = {stage["id"]: stage["label"] for stage in SOCIAL_STAGE_CATALOG}
+_HANDOFF_STAGE_ORDER = [stage["id"] for stage in HANDOFF_STAGE_CATALOG]
+_HANDOFF_STAGE_LABELS = {stage["id"]: stage["label"] for stage in HANDOFF_STAGE_CATALOG}
 
 
 @contextmanager
@@ -839,6 +972,379 @@ def _build_social_stage_health(results: list[dict[str, Any]]) -> list[dict[str, 
             }
         )
     return summary
+
+
+def _handoff_stage_result(stage_id: str, status: str, reason: str, detail: str) -> dict[str, Any]:
+    stage = next(item for item in HANDOFF_STAGE_CATALOG if item["id"] == stage_id)
+    return {
+        "id": stage_id,
+        "label": _HANDOFF_STAGE_LABELS[stage_id],
+        "section": stage.get("section") or "evaluation",
+        "status": status,
+        "reason": reason,
+        "detail": detail,
+        "score": None,
+        "evidence": [],
+        "missing_fields": [],
+    }
+
+
+def _build_handoff_stage_health(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
+    for stage in HANDOFF_STAGE_CATALOG:
+        stage_runs = [item for item in results if item.get("stage_results")]
+        stage_results = [
+            next((entry for entry in item["stage_results"] if entry.get("id") == stage["id"]), None)
+            for item in stage_runs
+        ]
+        stage_results = [item for item in stage_results if item]
+        reason_counts: dict[str, int] = {}
+        counts = {"pass": 0, "warn": 0, "fail": 0, "missing": 0}
+        for item in stage_results:
+            status = str(item.get("status") or "warn")
+            counts[status] = counts.get(status, 0) + 1
+            reason = str(item.get("reason") or "")
+            if status != "pass" and reason:
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        summary.append(
+            {
+                **stage,
+                "counts": counts,
+                "top_failure_reasons": [
+                    key for key, _ in sorted(reason_counts.items(), key=lambda pair: pair[1], reverse=True)[:3]
+                ],
+            }
+        )
+    return summary
+
+
+def _evaluate_source_handoff_probe(probe: dict[str, str]) -> dict[str, Any]:
+    asset = {
+        "asset_id": f"lab-source::{probe['title']}",
+        "title": probe["title"],
+        "summary": probe.get("summary") or probe["segment"],
+        "source_channel": probe.get("source_channel") or probe.get("platform") or "web",
+        "source_type": probe.get("source_type") or "article",
+        "source_url": probe.get("url") or "",
+        "source_class": "long_form_media",
+        "topics": [probe.get("topic") or ""],
+        "tags": ["lab_source_handoff_probe"],
+    }
+    segment = str(probe.get("segment") or "").strip()
+    source_context_excerpt = str(probe.get("source_context_excerpt") or segment).strip()
+    worldview_score = int((long_form_signal_service._score_sentence(segment, asset) or (0, 0, 0))[0])
+    lane_id = long_form_signal_service._lane_hint(segment)
+    assessment = long_form_signal_service.social_belief_engine.assess_signal(
+        long_form_signal_service._build_signal(asset, segment),
+        lane_id,
+    )
+    target_file = long_form_signal_service._choose_target_file(segment, lane_id, assessment)
+    response_modes, primary_route, route_reason, route_score = long_form_signal_service._classify_routes(
+        segment,
+        assessment,
+        target_file,
+        worldview_score,
+        source_context_excerpt=source_context_excerpt,
+    )
+    manual_reference_source = long_form_signal_service._is_manual_reference_source(asset)
+    lived_proof_context = long_form_signal_service._has_lived_proof_context(segment, source_context_excerpt)
+    high_value_non_lived = long_form_signal_service._is_high_value_non_lived_segment(segment, assessment, route_score)
+    if manual_reference_source and "belief_evidence" in response_modes and not lived_proof_context and not high_value_non_lived:
+        response_modes = [mode for mode in response_modes if mode != "belief_evidence"]
+        if not response_modes:
+            response_modes = ["post_seed"]
+        if primary_route == "belief_evidence":
+            primary_route = response_modes[0]
+        route_reason = (
+            "segment is strategic source intelligence and should stay a post seed unless lived-proof context or exceptional value is clear"
+        )
+    weak_source_fragment = (
+        target_file == long_form_signal_service.TARGET_STORIES
+        and long_form_signal_service._is_low_context_story_fragment(segment, source_context_excerpt)
+    )
+    handoff_lane, handoff_reason, secondary_consumers = long_form_signal_service._handoff_lane_for_candidate(
+        segment=segment,
+        lane_hint=lane_id,
+        target_file=target_file,
+        assessment=assessment,
+        response_modes=response_modes,
+        primary_route=primary_route,
+        route_reason=route_reason,
+        route_score=route_score,
+        weak_source_fragment=weak_source_fragment,
+        manual_reference_source=manual_reference_source,
+        lived_proof_context=lived_proof_context,
+        high_value_non_lived=high_value_non_lived,
+    )
+
+    expected_lane = str(probe.get("expected_handoff_lane") or "brief_only")
+    exact_match = handoff_lane == expected_lane
+
+    source_contract_missing = [
+        field
+        for field, value in {
+            "source_channel": asset.get("source_channel"),
+            "source_type": asset.get("source_type"),
+            "source_url": asset.get("source_url"),
+        }.items()
+        if not str(value or "").strip()
+    ]
+
+    stage_results: list[dict[str, Any]] = []
+    if source_contract_missing:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "source_contract",
+                    "fail",
+                    "source_contract_incomplete",
+                    "The probe is missing required source metadata for honest handoff classification.",
+                ),
+                missing_fields=source_contract_missing,
+            )
+        )
+    else:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "source_contract",
+                    "pass",
+                    "source_contract_ready",
+                    f"Captured {asset['source_channel']} / {asset['source_type']} metadata before classification.",
+                ),
+                evidence=[asset["source_channel"], asset["source_type"]],
+            )
+        )
+
+    if weak_source_fragment:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "segment_quality",
+                    "warn",
+                    "segment_low_context",
+                    "The segment depends on missing story context, so downstream promotion should be conservative.",
+                ),
+                score=route_score,
+                evidence=[source_context_excerpt],
+            )
+        )
+    elif route_score < 8:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "segment_quality",
+                    "warn",
+                    "segment_too_weak",
+                    "The segment is valid, but it is not especially strong for downstream promotion.",
+                ),
+                score=route_score,
+                evidence=[source_context_excerpt],
+            )
+        )
+    else:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "segment_quality",
+                    "pass",
+                    "segment_ready",
+                    "The segment is clean enough and context-rich enough for handoff classification.",
+                ),
+                score=route_score,
+                evidence=[source_context_excerpt],
+            )
+        )
+
+    assessment_fields = [
+        field
+        for field, value in {
+            "stance": assessment.get("stance"),
+            "belief_relation": assessment.get("belief_relation"),
+        }.items()
+        if not str(value or "").strip()
+    ]
+    if assessment_fields:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "belief_assessment",
+                    "warn",
+                    "assessment_missing",
+                    "The belief engine returned a thin stance packet, which weakens downstream confidence.",
+                ),
+                missing_fields=assessment_fields,
+                evidence=[str(assessment.get("belief_summary") or "")],
+            )
+        )
+    else:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "belief_assessment",
+                    "pass",
+                    "assessment_ready",
+                    "The belief engine returned enough stance context to support a handoff decision.",
+                ),
+                evidence=[
+                    str(assessment.get("stance") or ""),
+                    str(assessment.get("belief_relation") or ""),
+                    str(assessment.get("belief_summary") or ""),
+                ],
+            )
+        )
+
+    if not response_modes or not primary_route:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "route_classification",
+                    "fail",
+                    "route_modes_missing",
+                    "The classifier did not return enough route structure to compute a handoff lane.",
+                ),
+                score=route_score,
+                missing_fields=["response_modes", "primary_route"],
+            )
+        )
+    elif route_score < 5:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "route_classification",
+                    "warn",
+                    "route_score_low",
+                    "A route was selected, but the underlying score is low enough that promotion confidence should stay light.",
+                ),
+                score=route_score,
+                evidence=[primary_route, *response_modes],
+            )
+        )
+    else:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "route_classification",
+                    "pass",
+                    "route_classified",
+                    f"Selected {primary_route} with {', '.join(response_modes)} available as downstream modes.",
+                ),
+                score=route_score,
+                evidence=[primary_route, *response_modes],
+            )
+        )
+
+    if expected_lane == "source_only" and handoff_lane != "source_only":
+        reason = "low_context_story_not_downgraded" if weak_source_fragment else "manual_reference_not_downgraded"
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "guardrail_application",
+                    "fail",
+                    reason,
+                    "The probe should have stayed upstream, but the guardrail did not hold.",
+                ),
+                evidence=[handoff_lane, handoff_reason],
+            )
+        )
+    else:
+        guardrail_detail = (
+            "The source-only guardrail held as expected."
+            if expected_lane == "source_only"
+            else "No upstream-only downgrade was required for this probe."
+        )
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "guardrail_application",
+                    "pass",
+                    "guardrail_held",
+                    guardrail_detail,
+                ),
+                evidence=[handoff_lane, handoff_reason],
+            )
+        )
+
+    mismatch_reason = "handoff_lane_mismatch"
+    if expected_lane != "persona_candidate" and handoff_lane == "persona_candidate":
+        mismatch_reason = "persona_overpromotion"
+    elif expected_lane == "post_candidate" and handoff_lane != "post_candidate":
+        mismatch_reason = "post_underpromotion"
+    elif expected_lane == "route_to_pm" and handoff_lane != "route_to_pm":
+        mismatch_reason = "pm_underpromotion"
+
+    if exact_match:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "handoff_decision",
+                    "pass",
+                    "handoff_match",
+                    f"Expected {expected_lane} and the classifier returned {handoff_lane}.",
+                ),
+                evidence=[expected_lane, handoff_lane, handoff_reason],
+            )
+        )
+    else:
+        stage_results.append(
+            _extend_stage(
+                _handoff_stage_result(
+                    "handoff_decision",
+                    "fail",
+                    mismatch_reason,
+                    f"Expected {expected_lane} but the classifier returned {handoff_lane}.",
+                ),
+                evidence=[expected_lane, handoff_lane, handoff_reason],
+            )
+        )
+
+    return {
+        "expected_handoff_lane": expected_lane,
+        "actual_handoff_lane": handoff_lane,
+        "exact_match": exact_match,
+        "primary_route": primary_route,
+        "response_modes": response_modes,
+        "route_reason": route_reason,
+        "route_score": route_score,
+        "lane_hint": lane_id,
+        "target_file": target_file,
+        "assessment": assessment,
+        "handoff_reason": handoff_reason,
+        "secondary_consumers": secondary_consumers,
+        "manual_reference_source": manual_reference_source,
+        "weak_source_fragment": weak_source_fragment,
+        "stage_results": stage_results,
+        "sample_run": {
+            "topic": probe["title"],
+            "audience": expected_lane,
+            "generation_strategy": "source_handoff_matrix",
+            "llm_request_count": 0,
+            "platform": probe.get("platform"),
+            "source_type": asset["source_type"],
+            "structural_fallbacks": [] if exact_match else ["handoff_mismatch"],
+            "top_warnings": [handoff_reason] if handoff_reason else [],
+            "stage_results": stage_results,
+            "top_option_preview": segment,
+            "signal_snapshot": {
+                "source_channel": asset["source_channel"],
+                "source_class": asset["source_class"],
+                "unit_kind": "long_form_segment",
+                "response_modes": response_modes,
+                "topic_tags": [probe.get("topic") or ""],
+                "core_claim": segment,
+                "supporting_claims": [str(probe.get("title") or "")],
+                "why_it_matters": route_reason,
+                "role_alignment": str(assessment.get("experience_summary") or ""),
+                "expected_handoff_lane": expected_lane,
+                "actual_handoff_lane": handoff_lane,
+                "primary_route": primary_route,
+                "lane_hint": lane_id,
+                "handoff_reason": handoff_reason,
+                "target_file": target_file,
+                "secondary_consumers": secondary_consumers,
+            },
+        },
+    }
 
 
 def _build_social_probe_signal(probe: dict[str, str]) -> dict[str, Any]:
@@ -1914,6 +2420,76 @@ def _default_social_experiment_record() -> dict[str, Any]:
     }
 
 
+def _default_source_handoff_experiment_record() -> dict[str, Any]:
+    default_stage_health = [
+        {
+            **stage,
+            "counts": {"pass": 0, "warn": 0, "fail": 0, "missing": 0},
+            "top_failure_reasons": [],
+        }
+        for stage in HANDOFF_STAGE_CATALOG
+    ]
+    return {
+        "id": SOURCE_HANDOFF_EXPERIMENT_ID,
+        "title": "Source Handoff Matrix",
+        "belongs_to_workspace": "brain",
+        "surface": "lab.buildLogs",
+        "status": "not_run",
+        "hypothesis": (
+            "Long-form source segments should land in the right product lane "
+            "before Brain, Persona, Posting, or PM starts consuming them."
+        ),
+        "goal": {
+            "metric": "handoff_mismatch_rate",
+            "target_lte": TARGET_HANDOFF_MISMATCH_RATE,
+            "unit": "percent",
+        },
+        "coverage": {
+            "lanes": [
+                {"id": "source_only", "label": "Source only"},
+                {"id": "brief_only", "label": "Brief only"},
+                {"id": "post_candidate", "label": "Post candidate"},
+                {"id": "persona_candidate", "label": "Persona candidate"},
+                {"id": "route_to_pm", "label": "Route to PM"},
+            ],
+            "response_modes": ["post_seed", "belief_evidence", "comment", "repost"],
+            "source_probes": len(SOURCE_HANDOFF_PROBES),
+        },
+        "stage_catalog": HANDOFF_STAGE_CATALOG,
+        "loop": [
+            {"id": "observe", "label": "Observe", "status": "ready"},
+            {"id": "tune", "label": "Tune", "status": "ready"},
+            {"id": "verify", "label": "Verify", "status": "waiting"},
+            {"id": "ship", "label": "Ship", "status": "waiting"},
+            {"id": "postmortem", "label": "Postmortem", "status": "waiting"},
+        ],
+        "current": {
+            "summary": "No source handoff matrix run recorded yet.",
+            "probe_count": len(SOURCE_HANDOFF_PROBES),
+            "structural_fallback_rate": None,
+            "legacy_fallback_rate": 0.0,
+            "provider_fallback_rate": 0.0,
+            "weak_output_rate": None,
+            "metric_cards": [
+                _metric_card("exact_match_rate", "Exact Match", None, "#34d399"),
+                _metric_card("handoff_mismatch_rate", "Mismatch", None, "#ef4444"),
+                _metric_card("persona_false_positive_rate", "Persona Overpush", None, "#f97316"),
+                _metric_card("persona_false_negative_rate", "Persona Miss", None, "#f59e0b"),
+                _metric_card("post_false_negative_rate", "Post Miss", None, "#38bdf8"),
+                _metric_card("pm_alignment_rate", "PM Alignment", None, "#a78bfa"),
+                _metric_card("source_guardrail_success_rate", "Source Guardrails", None, "#14b8a6"),
+            ],
+            "stage_breakdown": {},
+            "stage_health": default_stage_health,
+            "top_failure_modes": [],
+        },
+        "sample_runs": [],
+        "history": [],
+        "next_action": "Run the source handoff matrix to calibrate what should stay in source intelligence versus Persona, Posting, Briefs, and PM.",
+        "ship_target": "Brain",
+    }
+
+
 async def run_content_fallback_experiment() -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     stage_counts = {
@@ -2483,11 +3059,167 @@ async def run_social_response_matrix_experiment() -> dict[str, Any]:
     return record
 
 
+async def run_source_handoff_matrix_experiment() -> dict[str, Any]:
+    evaluations = [_evaluate_source_handoff_probe(probe) for probe in SOURCE_HANDOFF_PROBES]
+    results = [item["sample_run"] for item in evaluations]
+    probe_count = max(len(results), 1)
+    mismatches = [item for item in evaluations if not item["exact_match"]]
+    exact_match_count = probe_count - len(mismatches)
+    mismatch_rate = round((len(mismatches) / probe_count) * 100, 1)
+    exact_match_rate = round((exact_match_count / probe_count) * 100, 1)
+    persona_false_positive_rate = round(
+        (
+            sum(
+                1
+                for item in evaluations
+                if item["actual_handoff_lane"] == "persona_candidate" and item["expected_handoff_lane"] != "persona_candidate"
+            )
+            / probe_count
+        )
+        * 100,
+        1,
+    )
+    persona_false_negative_rate = round(
+        (
+            sum(
+                1
+                for item in evaluations
+                if item["expected_handoff_lane"] == "persona_candidate" and item["actual_handoff_lane"] != "persona_candidate"
+            )
+            / probe_count
+        )
+        * 100,
+        1,
+    )
+    post_false_negative_rate = round(
+        (
+            sum(
+                1
+                for item in evaluations
+                if item["expected_handoff_lane"] == "post_candidate" and item["actual_handoff_lane"] != "post_candidate"
+            )
+            / probe_count
+        )
+        * 100,
+        1,
+    )
+    pm_alignment_rate = round(
+        (
+            sum(
+                1
+                for item in evaluations
+                if item["expected_handoff_lane"] == "route_to_pm" and item["actual_handoff_lane"] == "route_to_pm"
+            )
+            / max(sum(1 for item in evaluations if item["expected_handoff_lane"] == "route_to_pm"), 1)
+        )
+        * 100,
+        1,
+    )
+    source_guardrail_success_rate = round(
+        (
+            sum(
+                1
+                for item in evaluations
+                if item["expected_handoff_lane"] == "source_only" and item["actual_handoff_lane"] == "source_only"
+            )
+            / max(sum(1 for item in evaluations if item["expected_handoff_lane"] == "source_only"), 1)
+        )
+        * 100,
+        1,
+    )
+
+    stage_counts = {stage["id"]: 0 for stage in HANDOFF_STAGE_CATALOG}
+    for item in results:
+        for stage in item.get("stage_results") or []:
+            if stage.get("status") != "pass":
+                stage_counts[str(stage["id"])] = stage_counts.get(str(stage["id"]), 0) + 1
+
+    stage_health = _build_handoff_stage_health(results)
+    passing = mismatch_rate <= TARGET_HANDOFF_MISMATCH_RATE
+    run_started_at = _now_iso()
+    top_failure_modes = [
+        key for key, value in sorted(stage_counts.items(), key=lambda item: item[1], reverse=True) if value > 0
+    ][:4]
+
+    run = {
+        "run_id": f"{SOURCE_HANDOFF_EXPERIMENT_ID}:{run_started_at}",
+        "started_at": run_started_at,
+        "probe_count": probe_count,
+        "structural_fallback_rate": mismatch_rate,
+        "legacy_fallback_rate": 0.0,
+        "provider_fallback_rate": 0.0,
+        "weak_output_rate": persona_false_negative_rate,
+        "exact_match_rate": exact_match_rate,
+        "handoff_mismatch_rate": mismatch_rate,
+        "persona_false_positive_rate": persona_false_positive_rate,
+        "persona_false_negative_rate": persona_false_negative_rate,
+        "post_false_negative_rate": post_false_negative_rate,
+        "pm_alignment_rate": pm_alignment_rate,
+        "source_guardrail_success_rate": source_guardrail_success_rate,
+        "stage_breakdown": stage_counts,
+        "stage_health": stage_health,
+        "top_failure_modes": top_failure_modes,
+        "sample_runs": results,
+        "status": "passing" if passing else "investigating",
+        "next_action": (
+            "Ship the tuned handoff policy back into Brain and write the postmortem."
+            if passing
+            else "Tune the handoff thresholds or exemplars, then rerun the source handoff matrix."
+        ),
+    }
+
+    record = _EXPERIMENT_CACHE.get(SOURCE_HANDOFF_EXPERIMENT_ID) or _default_source_handoff_experiment_record()
+    history = [run, *(record.get("history") or [])][:MAX_HISTORY]
+    record.update(
+        {
+            "status": run["status"],
+            "current": {
+                "summary": (
+                    f"Handoff exact-match rate is {exact_match_rate}% across {probe_count} labeled source probes. "
+                    f"Mismatch rate is {mismatch_rate}%, with source guardrails holding at {source_guardrail_success_rate}%."
+                ),
+                "probe_count": probe_count,
+                "structural_fallback_rate": mismatch_rate,
+                "legacy_fallback_rate": 0.0,
+                "provider_fallback_rate": 0.0,
+                "weak_output_rate": persona_false_negative_rate,
+                "metric_cards": [
+                    _metric_card("exact_match_rate", "Exact Match", exact_match_rate, "#34d399"),
+                    _metric_card("handoff_mismatch_rate", "Mismatch", mismatch_rate, "#ef4444"),
+                    _metric_card("persona_false_positive_rate", "Persona Overpush", persona_false_positive_rate, "#f97316"),
+                    _metric_card("persona_false_negative_rate", "Persona Miss", persona_false_negative_rate, "#f59e0b"),
+                    _metric_card("post_false_negative_rate", "Post Miss", post_false_negative_rate, "#38bdf8"),
+                    _metric_card("pm_alignment_rate", "PM Alignment", pm_alignment_rate, "#a78bfa"),
+                    _metric_card("source_guardrail_success_rate", "Source Guardrails", source_guardrail_success_rate, "#14b8a6"),
+                ],
+                "stage_breakdown": stage_counts,
+                "stage_health": stage_health,
+                "top_failure_modes": top_failure_modes,
+            },
+            "sample_runs": results,
+            "history": history,
+            "last_run_at": run_started_at,
+            "next_action": run["next_action"],
+        }
+    )
+    record["loop"] = [
+        {"id": "observe", "label": "Observe", "status": "done"},
+        {"id": "tune", "label": "Tune", "status": "active" if not passing else "done"},
+        {"id": "verify", "label": "Verify", "status": "active" if not passing else "done"},
+        {"id": "ship", "label": "Ship", "status": "ready" if passing else "waiting"},
+        {"id": "postmortem", "label": "Postmortem", "status": "ready" if passing else "waiting"},
+    ]
+    _EXPERIMENT_CACHE[SOURCE_HANDOFF_EXPERIMENT_ID] = record
+    return record
+
+
 async def run_lab_experiment(experiment_id: str) -> dict[str, Any]:
     if experiment_id == EXPERIMENT_ID:
         return await run_content_fallback_experiment()
     if experiment_id == SOCIAL_EXPERIMENT_ID:
         return await run_social_response_matrix_experiment()
+    if experiment_id == SOURCE_HANDOFF_EXPERIMENT_ID:
+        return await run_source_handoff_matrix_experiment()
     raise KeyError(experiment_id)
 
 
@@ -2495,6 +3227,7 @@ def list_lab_experiments() -> list[dict[str, Any]]:
     return [
         _EXPERIMENT_CACHE.get(EXPERIMENT_ID) or _default_experiment_record(),
         _EXPERIMENT_CACHE.get(SOCIAL_EXPERIMENT_ID) or _default_social_experiment_record(),
+        _EXPERIMENT_CACHE.get(SOURCE_HANDOFF_EXPERIMENT_ID) or _default_source_handoff_experiment_record(),
     ]
 
 
@@ -2503,4 +3236,6 @@ def get_lab_experiment(experiment_id: str) -> dict[str, Any] | None:
         return _EXPERIMENT_CACHE.get(EXPERIMENT_ID) or _default_experiment_record()
     if experiment_id == SOCIAL_EXPERIMENT_ID:
         return _EXPERIMENT_CACHE.get(SOCIAL_EXPERIMENT_ID) or _default_social_experiment_record()
+    if experiment_id == SOURCE_HANDOFF_EXPERIMENT_ID:
+        return _EXPERIMENT_CACHE.get(SOURCE_HANDOFF_EXPERIMENT_ID) or _default_source_handoff_experiment_record()
     return None

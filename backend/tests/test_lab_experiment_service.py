@@ -19,8 +19,15 @@ class LabExperimentServiceTests(unittest.TestCase):
 
     def test_default_experiment_is_available_before_run(self) -> None:
         experiments = lab_experiment_service.list_lab_experiments()
-        self.assertEqual(len(experiments), 2)
-        self.assertEqual({item["id"] for item in experiments}, {lab_experiment_service.EXPERIMENT_ID, lab_experiment_service.SOCIAL_EXPERIMENT_ID})
+        self.assertEqual(len(experiments), 3)
+        self.assertEqual(
+            {item["id"] for item in experiments},
+            {
+                lab_experiment_service.EXPERIMENT_ID,
+                lab_experiment_service.SOCIAL_EXPERIMENT_ID,
+                lab_experiment_service.SOURCE_HANDOFF_EXPERIMENT_ID,
+            },
+        )
         self.assertTrue(all(item["status"] == "not_run" for item in experiments))
 
     def test_run_content_fallback_experiment_summarizes_probe_results(self) -> None:
@@ -125,3 +132,27 @@ class LabExperimentServiceTests(unittest.TestCase):
                 "expression_quality_avg",
             }.issubset(metric_ids)
         )
+
+    def test_run_source_handoff_matrix_experiment_surfaces_expected_vs_actual_lanes(self) -> None:
+        record = asyncio.run(lab_experiment_service.run_source_handoff_matrix_experiment())
+
+        self.assertEqual(record["id"], lab_experiment_service.SOURCE_HANDOFF_EXPERIMENT_ID)
+        self.assertEqual(len(record["sample_runs"]), len(lab_experiment_service.SOURCE_HANDOFF_PROBES))
+        self.assertTrue(
+            {
+                "exact_match_rate",
+                "handoff_mismatch_rate",
+                "persona_false_positive_rate",
+                "persona_false_negative_rate",
+                "post_false_negative_rate",
+                "pm_alignment_rate",
+                "source_guardrail_success_rate",
+            }.issubset({card["id"] for card in record["current"]["metric_cards"]})
+        )
+        for item in record["sample_runs"]:
+            snapshot = item.get("signal_snapshot") or {}
+            self.assertIn("expected_handoff_lane", snapshot)
+            self.assertIn("actual_handoff_lane", snapshot)
+            self.assertIn("primary_route", snapshot)
+            stage_ids = {stage["id"] for stage in item["stage_results"]}
+            self.assertTrue({"source_contract", "route_classification", "handoff_decision"}.issubset(stage_ids))

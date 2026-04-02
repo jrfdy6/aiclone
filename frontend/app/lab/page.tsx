@@ -95,6 +95,13 @@ type LabExperiment = {
       supporting_claims?: string[];
       why_it_matters?: string;
       role_alignment?: string;
+      expected_handoff_lane?: string;
+      actual_handoff_lane?: string;
+      primary_route?: string;
+      lane_hint?: string;
+      handoff_reason?: string;
+      target_file?: string;
+      secondary_consumers?: string[];
     };
     matrix_rows?: {
       lane_id: string;
@@ -533,10 +540,37 @@ function ExperimentCard({
                       {item.signal_snapshot.source_channel && <InlineTone label={`Source ${humanizeKey(item.signal_snapshot.source_channel)}`} tone="#64748b" />}
                       {item.signal_snapshot.source_class && <InlineTone label={`Class ${humanizeKey(item.signal_snapshot.source_class)}`} tone="#475569" />}
                       {item.signal_snapshot.unit_kind && <InlineTone label={`Unit ${humanizeKey(item.signal_snapshot.unit_kind)}`} tone="#475569" />}
+                      {item.signal_snapshot.expected_handoff_lane && (
+                        <InlineTone label={`Expect ${humanizeKey(item.signal_snapshot.expected_handoff_lane)}`} tone="#f59e0b" />
+                      )}
+                      {item.signal_snapshot.actual_handoff_lane && (
+                        <InlineTone
+                          label={`Actual ${humanizeKey(item.signal_snapshot.actual_handoff_lane)}`}
+                          tone={
+                            item.signal_snapshot.expected_handoff_lane === item.signal_snapshot.actual_handoff_lane
+                              ? '#22c55e'
+                              : '#ef4444'
+                          }
+                        />
+                      )}
+                      {item.signal_snapshot.primary_route && (
+                        <InlineTone label={`Route ${humanizeKey(item.signal_snapshot.primary_route)}`} tone="#38bdf8" />
+                      )}
+                      {item.signal_snapshot.lane_hint && (
+                        <InlineTone label={`Hint ${humanizeKey(item.signal_snapshot.lane_hint)}`} tone="#a78bfa" />
+                      )}
                       {(item.signal_snapshot.response_modes || []).map((mode) => (
                         <InlineTone key={`${item.topic}:${mode}`} label={humanizeKey(mode)} tone="#334155" />
                       ))}
+                      {(item.signal_snapshot.secondary_consumers || []).map((consumer) => (
+                        <InlineTone key={`${item.topic}:consumer:${consumer}`} label={`Feeds ${humanizeKey(consumer)}`} tone="#14b8a6" />
+                      ))}
                     </div>
+                  )}
+                  {item.signal_snapshot?.handoff_reason && (
+                    <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
+                      {item.signal_snapshot.handoff_reason}
+                    </p>
                   )}
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     {(item.structural_fallbacks?.length > 0 ? item.structural_fallbacks : ['no_structural_fallbacks']).map((value) => (
@@ -877,7 +911,7 @@ function groupStageResults(
     missing_fields?: string[];
   }[],
 ) {
-  const order = ['article', 'johnnie', 'synthesis', 'draft', 'evaluation'];
+  const order = ['source', 'article', 'classification', 'johnnie', 'synthesis', 'decision', 'draft', 'evaluation'];
   const groups = new Map<string, typeof stages>();
   for (const stage of stages) {
     const section = stage.section || 'evaluation';
