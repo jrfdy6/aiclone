@@ -194,6 +194,12 @@ type UnifiedBoardItem = {
   queueEntry?: ExecutionQueueEntry | null;
 };
 
+type BoardItemGuidance = {
+  summary: string;
+  userRole: string;
+  nextAction: string;
+};
+
 type StandupEntry = {
   id: string;
   owner: string;
@@ -1783,6 +1789,7 @@ function PMBoardPanel({
   const [dispatchingCardId, setDispatchingCardId] = useState<string | null>(null);
   const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
+  const [selectedBoardItem, setSelectedBoardItem] = useState<UnifiedBoardItem | null>(null);
   const boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[] = [
     { key: 'todo', label: 'Backlog', detail: 'pm card exists, not in execution yet' },
     { key: 'ready', label: 'Ready', detail: 'Jean-Claude can open SOP now' },
@@ -1811,6 +1818,19 @@ function PMBoardPanel({
     },
     [onDispatch],
   );
+
+  useEffect(() => {
+    if (!selectedBoardItem) {
+      return undefined;
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelectedBoardItem(null);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [selectedBoardItem]);
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1937,12 +1957,22 @@ function PMBoardPanel({
                   return (
                     <article
                       key={`${column.key}-${item.id}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedBoardItem(item)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedBoardItem(item);
+                        }
+                      }}
                       style={{
                         borderRadius: '10px',
                         border: `1px solid ${theme.border}`,
                         backgroundColor: theme.background,
                         boxShadow: `inset 0 3px 0 0 ${theme.accent}`,
                         padding: '10px',
+                        cursor: 'pointer',
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
@@ -1967,7 +1997,10 @@ function PMBoardPanel({
                       {column.key === 'ready' && item.queueEntry ? (
                         <button
                           type="button"
-                          onClick={() => handleDispatch(item.queueEntry as ExecutionQueueEntry)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDispatch(item.queueEntry as ExecutionQueueEntry);
+                          }}
                           disabled={dispatchingCardId === item.cardId}
                           style={{
                             marginTop: '10px',
@@ -1993,6 +2026,148 @@ function PMBoardPanel({
           ))}
         </div>
       </section>
+      {selectedBoardItem ? (
+        <div
+          onClick={() => setSelectedBoardItem(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 80,
+            backgroundColor: 'rgba(2, 6, 23, 0.78)',
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '28px',
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: 'min(920px, 100%)',
+              maxHeight: 'min(88vh, 920px)',
+              overflowY: 'auto',
+              borderRadius: '22px',
+              border: '1px solid #1f2937',
+              backgroundColor: '#0b1324',
+              boxShadow: '0 24px 80px rgba(15, 23, 42, 0.55)',
+              padding: '18px',
+            }}
+          >
+            {(() => {
+              const theme = workspaceBoardTheme(selectedBoardItem.workspaceKey);
+              const guidance = boardItemGuidance(selectedBoardItem);
+              return (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '14px' }}>
+                    <div>
+                      <p style={{ color: '#94a3b8', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>PM Card Detail</p>
+                      <h3 style={{ color: 'white', fontSize: '28px', lineHeight: 1.2, margin: 0 }}>{selectedBoardItem.title}</h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBoardItem(null)}
+                      style={{
+                        borderRadius: '999px',
+                        border: '1px solid #1f2937',
+                        backgroundColor: '#111827',
+                        color: '#cbd5e1',
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                    <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent, border: `1px solid ${theme.border}` }}>
+                      {meetingLabelForWorkspace(selectedBoardItem.workspaceKey)}
+                    </span>
+                    <span style={{ padding: '6px 12px', borderRadius: '999px', backgroundColor: '#111827', color: '#e2e8f0', border: '1px solid #1f2937' }}>
+                      Lane: {boardColumns.find((column) => column.key === selectedBoardItem.lane)?.label ?? selectedBoardItem.lane}
+                    </span>
+                    {statusBadge(selectedBoardItem.pmStatus)}
+                    {selectedBoardItem.executionState ? statusBadge(selectedBoardItem.executionState) : null}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 0.95fr', gap: '14px' }}>
+                    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
+                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>What This Card Means</p>
+                      <p style={{ color: '#e2e8f0', fontSize: '15px', lineHeight: 1.6, margin: '0 0 14px' }}>{guidance.summary}</p>
+
+                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Your Role</p>
+                      <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, margin: '0 0 14px' }}>{guidance.userRole}</p>
+
+                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Next Best Action</p>
+                      <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, margin: 0 }}>{guidance.nextAction}</p>
+                    </section>
+
+                    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
+                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Card Metadata</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#cbd5f5', fontSize: '13px' }}>
+                        <div>Source: {selectedBoardItem.source ?? 'manual'}</div>
+                        <div>PM status: {selectedBoardItem.pmStatus}</div>
+                        <div>Execution state: {selectedBoardItem.executionState ?? 'not in execution yet'}</div>
+                        <div>Updated: {selectedBoardItem.updatedAt ? formatTimestamp(new Date(selectedBoardItem.updatedAt)) : '-'}</div>
+                        <div>Due: {selectedBoardItem.dueAt ? formatTimestamp(new Date(selectedBoardItem.dueAt)) : '-'}</div>
+                        <div>Manager: {displayManagerAgent(selectedBoardItem.workspaceKey, selectedBoardItem.managerAgent)}</div>
+                        <div>Target: {displayTargetAgent(selectedBoardItem.workspaceKey, selectedBoardItem.targetAgent)}</div>
+                        {selectedBoardItem.workspaceAgent ? <div>Workspace agent: {displayWorkspaceAgent(selectedBoardItem.workspaceKey, selectedBoardItem.workspaceAgent)}</div> : null}
+                        {selectedBoardItem.executionMode ? <div>Execution mode: {selectedBoardItem.executionMode}</div> : null}
+                      </div>
+                    </section>
+                  </div>
+
+                  {selectedBoardItem.reason ? (
+                    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px', marginTop: '14px' }}>
+                      <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Why This Card Exists</p>
+                      <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{selectedBoardItem.reason}</p>
+                    </section>
+                  ) : null}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+                    {selectedBoardItem.lane === 'ready' && selectedBoardItem.queueEntry ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDispatch(selectedBoardItem.queueEntry as ExecutionQueueEntry)}
+                        disabled={dispatchingCardId === selectedBoardItem.cardId}
+                        style={{
+                          borderRadius: '999px',
+                          border: `1px solid ${theme.border}`,
+                          backgroundColor: dispatchingCardId === selectedBoardItem.cardId ? '#0f172a' : '#0f3d37',
+                          color: '#d1fae5',
+                          padding: '10px 14px',
+                          cursor: dispatchingCardId === selectedBoardItem.cardId ? 'wait' : 'pointer',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {dispatchingCardId === selectedBoardItem.cardId ? 'Queueing...' : 'Open SOP'}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBoardItem(null)}
+                      style={{
+                        borderRadius: '999px',
+                        border: '1px solid #1f2937',
+                        backgroundColor: '#111827',
+                        color: '#cbd5e1',
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -5117,6 +5292,59 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
   });
 
   return lanes;
+}
+
+function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
+  switch (item.lane) {
+    case 'todo':
+      return {
+        summary: 'This card is recognized work on the PM board, but it has not entered the execution loop yet.',
+        userRole: 'Decide whether this should stay as backlog, be clarified, or be moved into execution.',
+        nextAction: 'If this is mature enough to execute, move it toward Ready by giving it a clear owner and execution path.',
+      };
+    case 'ready':
+      return {
+        summary: 'This card is execution-ready. Jean-Claude has enough structure to open the SOP and start the lane.',
+        userRole: 'Pressure-test whether the work is framed correctly before the system opens the lane.',
+        nextAction: 'Use Open SOP if the card is clear and you want the system to start work now.',
+      };
+    case 'queued':
+      return {
+        summary: 'Jean-Claude has already opened the lane. The work is staged and waiting for pickup or handoff.',
+        userRole: 'Mostly observe. Step in only if this queue state is lingering too long.',
+        nextAction: 'Let the runner pick it up, or intervene if the queued state starts aging.',
+      };
+    case 'running':
+      return {
+        summary: 'The work is actively being executed, either directly by Jean-Claude or by a delegated workspace agent.',
+        userRole: 'Watch progress and check for drift, but do not interrupt unless the lane is stuck or the goal changed.',
+        nextAction: 'Review the execution context and wait for a result to return into Review.',
+      };
+    case 'review':
+      return {
+        summary: 'A result came back from execution. The system is waiting for a closure judgment, not more speculation.',
+        userRole: 'Decide whether the result is good enough to close, needs another pass, or should be blocked and rerouted.',
+        nextAction: 'Use the returned context to close the card or send it back into execution with clearer direction.',
+      };
+    case 'failed':
+      return {
+        summary: 'The execution lane hit a blocker, error, or required manager intervention and fell out of the happy path.',
+        userRole: 'Resolve ambiguity, missing context, or ownership problems so the card can move again.',
+        nextAction: 'Clarify the blockage, then reroute it back to Jean-Claude or the correct workspace lane.',
+      };
+    case 'done':
+      return {
+        summary: 'This card is closed. It stays here as traceable history, not as active work.',
+        userRole: 'Use it for reference, proof, or context when you want to understand what already got finished.',
+        nextAction: 'No action is required unless you are reopening or learning from the completed lane.',
+      };
+    default:
+      return {
+        summary: 'This card is part of the PM and execution system.',
+        userRole: 'Understand the current state before you change anything.',
+        nextAction: 'Use the lane and ownership context to decide the next step.',
+      };
+  }
 }
 
 function findStandupPrepForRoom(
