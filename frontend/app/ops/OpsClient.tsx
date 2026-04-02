@@ -172,6 +172,28 @@ type ExecutionQueueEntry = {
   last_transition_at?: string | null;
 };
 
+type UnifiedBoardLaneKey = 'todo' | 'ready' | 'queued' | 'running' | 'review' | 'failed' | 'done';
+
+type UnifiedBoardItem = {
+  id: string;
+  cardId: string;
+  title: string;
+  workspaceKey: string;
+  lane: UnifiedBoardLaneKey;
+  pmStatus: string;
+  executionState?: string | null;
+  managerAgent?: string | null;
+  targetAgent?: string | null;
+  workspaceAgent?: string | null;
+  executionMode?: string | null;
+  reason?: string | null;
+  source?: string | null;
+  owner?: string | null;
+  updatedAt?: string | null;
+  dueAt?: string | null;
+  queueEntry?: ExecutionQueueEntry | null;
+};
+
 type StandupEntry = {
   id: string;
   owner: string;
@@ -1719,6 +1741,7 @@ function PMBoardPanel({
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
   const executionBuckets = useMemo(() => groupExecutionQueue(executionQueue), [executionQueue]);
+  const unifiedBoard = useMemo(() => buildUnifiedOpsBoard(cards, executionQueue), [cards, executionQueue]);
   const activeCards = useMemo(() => cards.filter((card) => normalizeStatus(card.status) !== 'done'), [cards]);
   const recommendationItems = useMemo(
     () =>
@@ -1738,11 +1761,14 @@ function PMBoardPanel({
   const [dispatchingCardId, setDispatchingCardId] = useState<string | null>(null);
   const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
-  const columns: { key: keyof typeof buckets; label: string }[] = [
-    { key: 'todo', label: 'To Do' },
-    { key: 'in_progress', label: 'In Progress' },
-    { key: 'review', label: 'Review' },
-    { key: 'done', label: 'Done' },
+  const boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[] = [
+    { key: 'todo', label: 'Backlog', detail: 'pm card exists, not in execution yet' },
+    { key: 'ready', label: 'Ready', detail: 'Jean-Claude can open SOP now' },
+    { key: 'queued', label: 'Queued', detail: 'opened and waiting on pickup' },
+    { key: 'running', label: 'Running', detail: 'actively being worked' },
+    { key: 'review', label: 'Review', detail: 'result returned, waiting on judgment' },
+    { key: 'failed', label: 'Blocked', detail: 'needs intervention or reroute' },
+    { key: 'done', label: 'Done', detail: 'closed and kept for history' },
   ];
 
   const handleDispatch = useCallback(
@@ -1840,107 +1866,90 @@ function PMBoardPanel({
       </section>
       <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
         <div style={{ marginBottom: '12px' }}>
-          <p style={{ color: '#22c55e', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Codex Queue</p>
-          <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Jean-Claude execution queue</h3>
-          <p style={{ color: '#94a3b8' }}>Standup-created PM cards become execution-ready here. Jean-Claude owns the SOP and delegation flow, then either executes directly in the executive lane or hands work to the workspace agent.</p>
+          <p style={{ color: '#22c55e', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Operational Board</p>
+          <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>One board for PM + execution</h3>
+          <p style={{ color: '#94a3b8' }}>This merges backlog cards and the Jean-Claude execution queue into one flow. Workspace color carries the lane identity, while the card badges still tell you the PM and execution state.</p>
         </div>
         {queueError && <SectionAlert message={`${TELEMETRY_LABELS.executionQueue}: ${queueError}`} />}
         {dispatchError && <SectionAlert message={dispatchError} />}
         {dispatchFeedback && <SectionAlert message={dispatchFeedback} />}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-          <MiniMeta label="Ready" value={`${executionBuckets.ready.length}`} detail="awaiting Jean-Claude SOP" />
-          <MiniMeta label="Queued" value={`${executionBuckets.queued.length}`} detail="staged for Jean-Claude pickup" />
-          <MiniMeta label="Running" value={`${executionBuckets.running.length}`} detail="active workspace execution" />
-          <MiniMeta label="Review" value={`${executionBuckets.review.length}`} detail="result written back" />
-          <MiniMeta label="Failed" value={`${executionBuckets.failed.length}`} detail="needs intervention" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+          {boardColumns.map((column) => (
+            <MiniMeta key={`board-meta-${column.key}`} label={column.label} value={`${unifiedBoard[column.key].length}`} detail={column.detail} />
+          ))}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginTop: '14px' }}>
-          {([
-            { key: 'ready', label: 'Ready for Jean-Claude' },
-            { key: 'queued', label: 'Queued' },
-            { key: 'running', label: 'Running' },
-            { key: 'review', label: 'Review' },
-          ] as const).map((column) => (
+          {boardColumns.map((column) => (
             <div key={column.key} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px', minHeight: '220px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
                 <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{column.label}</p>
-                <span style={{ color: '#64748b', fontSize: '12px' }}>{executionBuckets[column.key].length}</span>
+                <span style={{ color: '#64748b', fontSize: '12px' }}>{unifiedBoard[column.key].length}</span>
               </div>
+              <p style={{ color: '#64748b', fontSize: '12px', margin: '0 0 12px' }}>{column.detail}</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {executionBuckets[column.key].length === 0 && <p style={{ color: '#475569', fontSize: '13px' }}>Nothing in this lane yet.</p>}
-                {executionBuckets[column.key].map((entry) => (
-                  <article key={`${column.key}-${entry.card_id}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                      <p style={{ color: 'white', fontWeight: 600, margin: 0 }}>{entry.title}</p>
-                      {statusBadge(entry.execution_state)}
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
-                      <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
-                      <span>Manager: {displayManagerAgent(entry.workspace_key, entry.manager_agent)}</span>
-                      <span>Target: {displayTargetAgent(entry.workspace_key, entry.target_agent)}</span>
-                      <span>{entry.pm_status}</span>
-                    </div>
-                    {entry.reason && <p style={{ color: '#cbd5f5', fontSize: '13px', margin: '0 0 10px' }}>{entry.reason}</p>}
-                    <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <span>Lane: {entry.lane}</span>
-                      <span>Mode: {entry.execution_mode}</span>
-                      {entry.workspace_agent && <span>Workspace agent: {displayWorkspaceAgent(entry.workspace_key, entry.workspace_agent)}</span>}
-                      <span>Updated: {entry.last_transition_at ? formatTimestamp(new Date(entry.last_transition_at)) : '-'}</span>
-                    </div>
-                    {column.key === 'ready' && (
-                      <button
-                        type="button"
-                        onClick={() => handleDispatch(entry)}
-                        disabled={dispatchingCardId === entry.card_id}
-                        style={{
-                          marginTop: '12px',
-                          width: '100%',
-                          borderRadius: '999px',
-                          border: '1px solid #0f766e',
-                          backgroundColor: dispatchingCardId === entry.card_id ? '#0f172a' : '#0f3d37',
-                          color: '#d1fae5',
-                          padding: '10px 12px',
-                          cursor: dispatchingCardId === entry.card_id ? 'wait' : 'pointer',
-                          fontWeight: 600,
-                        }}
-                      >
-                        {dispatchingCardId === entry.card_id ? 'Queueing...' : `Open SOP via ${entry.manager_agent}`}
-                      </button>
-                    )}
-                  </article>
-                ))}
+                {unifiedBoard[column.key].length === 0 && <p style={{ color: '#475569', fontSize: '13px' }}>Nothing in this lane yet.</p>}
+                {unifiedBoard[column.key].map((item) => {
+                  const theme = workspaceBoardTheme(item.workspaceKey);
+                  return (
+                    <article
+                      key={`${column.key}-${item.id}`}
+                      style={{
+                        borderRadius: '12px',
+                        border: `1px solid ${theme.border}`,
+                        backgroundColor: theme.background,
+                        boxShadow: `inset 0 3px 0 0 ${theme.accent}`,
+                        padding: '12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                        <p style={{ color: 'white', fontWeight: 600, margin: 0 }}>{item.title}</p>
+                        {statusBadge(item.executionState ?? item.pmStatus)}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px', color: '#cbd5e1', marginBottom: '8px' }}>
+                        <span style={{ padding: '4px 10px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent }}>
+                          {meetingLabelForWorkspace(item.workspaceKey)}
+                        </span>
+                        {item.executionState && statusBadge(item.pmStatus)}
+                        {!item.executionState && item.owner ? <span>{item.owner}</span> : null}
+                      </div>
+                      {item.reason && <p style={{ color: '#e2e8f0', fontSize: '13px', margin: '0 0 10px' }}>{item.reason}</p>}
+                      <div style={{ color: '#94a3b8', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span>Source: {item.source ?? 'manual'}</span>
+                        {item.queueEntry ? <span>Manager: {displayManagerAgent(item.workspaceKey, item.managerAgent)}</span> : null}
+                        {item.queueEntry ? <span>Target: {displayTargetAgent(item.workspaceKey, item.targetAgent)}</span> : null}
+                        {item.workspaceAgent ? <span>Workspace agent: {displayWorkspaceAgent(item.workspaceKey, item.workspaceAgent)}</span> : null}
+                        {item.executionMode ? <span>Mode: {item.executionMode}</span> : null}
+                        <span>Updated: {item.updatedAt ? formatTimestamp(new Date(item.updatedAt)) : '-'}</span>
+                        <span>Due: {item.dueAt ? formatTimestamp(new Date(item.dueAt)) : '-'}</span>
+                      </div>
+                      {column.key === 'ready' && item.queueEntry ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDispatch(item.queueEntry as ExecutionQueueEntry)}
+                          disabled={dispatchingCardId === item.cardId}
+                          style={{
+                            marginTop: '12px',
+                            width: '100%',
+                            borderRadius: '999px',
+                            border: `1px solid ${theme.border}`,
+                            backgroundColor: dispatchingCardId === item.cardId ? '#0f172a' : '#0f3d37',
+                            color: '#d1fae5',
+                            padding: '10px 12px',
+                            cursor: dispatchingCardId === item.cardId ? 'wait' : 'pointer',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {dispatchingCardId === item.cardId ? 'Queueing...' : `Open SOP via ${item.managerAgent ?? 'Jean-Claude'}`}
+                        </button>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
             </div>
           ))}
         </div>
       </section>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
-        {columns.map((column) => (
-          <div key={column.key} style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px', minHeight: '260px' }}>
-            <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <p style={{ color: 'white', fontWeight: 700 }}>{column.label}</p>
-              <span style={{ color: '#64748b', fontSize: '12px' }}>{buckets[column.key].length}</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {buckets[column.key].length === 0 && <p style={{ color: '#475569', fontSize: '13px' }}>Nothing in this lane yet.</p>}
-              {buckets[column.key].map((card) => (
-                <article key={card.id} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px' }}>
-                  <p style={{ color: 'white', fontWeight: 600, marginBottom: '8px' }}>{card.title}</p>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>
-                    <span>{card.owner ?? 'Unassigned'}</span>
-                    <span>{meetingLabelForWorkspace(workspaceKeyFromCard(card))}</span>
-                  </div>
-                  <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <span>Source: {card.source ?? 'manual'}</span>
-                    <span>Updated: {card.updated_at ? formatTimestamp(new Date(card.updated_at)) : '-'}</span>
-                    <span>Due: {card.due_at ? formatTimestamp(new Date(card.due_at)) : '-'}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
     </section>
   );
 }
@@ -4876,6 +4885,25 @@ function meetingLabelForWorkspace(workspaceKey: string) {
   }
 }
 
+const WORKSPACE_BOARD_THEME: Record<string, { accent: string; background: string; border: string }> = {
+  shared_ops: { accent: '#f59e0b', background: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.28)' },
+  'linkedin-os': { accent: '#38bdf8', background: 'rgba(56, 189, 248, 0.08)', border: 'rgba(56, 189, 248, 0.28)' },
+  'fusion-os': { accent: '#34d399', background: 'rgba(52, 211, 153, 0.08)', border: 'rgba(52, 211, 153, 0.28)' },
+  easyoutfitapp: { accent: '#fb7185', background: 'rgba(251, 113, 133, 0.08)', border: 'rgba(251, 113, 133, 0.28)' },
+  'ai-swag-store': { accent: '#facc15', background: 'rgba(250, 204, 21, 0.08)', border: 'rgba(250, 204, 21, 0.28)' },
+  agc: { accent: '#c084fc', background: 'rgba(192, 132, 252, 0.08)', border: 'rgba(192, 132, 252, 0.28)' },
+};
+
+function workspaceBoardTheme(workspaceKey: string) {
+  return (
+    WORKSPACE_BOARD_THEME[workspaceKey] ?? {
+      accent: '#94a3b8',
+      background: 'rgba(148, 163, 184, 0.08)',
+      border: 'rgba(148, 163, 184, 0.22)',
+    }
+  );
+}
+
 const WORKSPACE_RUNTIME_DISPLAY: Record<string, { targetAgent: string; workspaceAgent: string | null; legacyAliases: string[] }> = {
   'shared_ops': { targetAgent: 'Jean-Claude', workspaceAgent: null, legacyAliases: [] },
   'linkedin-os': { targetAgent: 'Jean-Claude', workspaceAgent: null, legacyAliases: [] },
@@ -4972,6 +5000,80 @@ function buildPmLaneSummary(cards: PMCard[]) {
     sharedOps: byWorkspace.shared_ops ?? 0,
     workspaceLanes: workspaceKeys.filter((key) => key !== 'shared_ops').length,
   };
+}
+
+function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEntry[]) {
+  const byCardId = new Map(cards.map((card) => [card.id, card]));
+  const seen = new Set<string>();
+  const lanes: Record<UnifiedBoardLaneKey, UnifiedBoardItem[]> = {
+    todo: [],
+    ready: [],
+    queued: [],
+    running: [],
+    review: [],
+    failed: [],
+    done: [],
+  };
+
+  executionQueue.forEach((entry) => {
+    const card = byCardId.get(entry.card_id);
+    const lane = normalizeExecutionState(entry.execution_state);
+    lanes[lane].push({
+      id: `execution-${entry.card_id}`,
+      cardId: entry.card_id,
+      title: entry.title,
+      workspaceKey: entry.workspace_key ?? 'shared_ops',
+      lane,
+      pmStatus: entry.pm_status,
+      executionState: entry.execution_state,
+      managerAgent: entry.manager_agent,
+      targetAgent: entry.target_agent,
+      workspaceAgent: entry.workspace_agent,
+      executionMode: entry.execution_mode,
+      reason: entry.reason,
+      source: entry.source ?? card?.source ?? null,
+      owner: card?.owner ?? null,
+      updatedAt: entry.last_transition_at ?? card?.updated_at ?? card?.created_at ?? null,
+      dueAt: card?.due_at ?? null,
+      queueEntry: entry,
+    });
+    seen.add(entry.card_id);
+  });
+
+  cards.forEach((card) => {
+    if (seen.has(card.id)) {
+      return;
+    }
+    const normalized = normalizeStatus(card.status);
+    const lane: UnifiedBoardLaneKey =
+      normalized === 'in_progress' ? 'running' : normalized === 'review' ? 'review' : normalized === 'done' ? 'done' : 'todo';
+    lanes[lane].push({
+      id: `card-${card.id}`,
+      cardId: card.id,
+      title: card.title,
+      workspaceKey: workspaceKeyFromCard(card),
+      lane,
+      pmStatus: card.status,
+      source: card.source ?? null,
+      owner: card.owner ?? null,
+      updatedAt: card.updated_at ?? card.created_at ?? null,
+      dueAt: card.due_at ?? null,
+      queueEntry: null,
+    });
+  });
+
+  const sortItems = (items: UnifiedBoardItem[]) =>
+    items.sort((left, right) => {
+      const leftTime = left.updatedAt ? new Date(left.updatedAt).getTime() : 0;
+      const rightTime = right.updatedAt ? new Date(right.updatedAt).getTime() : 0;
+      return rightTime - leftTime;
+    });
+
+  (Object.keys(lanes) as UnifiedBoardLaneKey[]).forEach((key) => {
+    sortItems(lanes[key]);
+  });
+
+  return lanes;
 }
 
 function findStandupPrepForRoom(
