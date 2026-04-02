@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
@@ -52,24 +53,24 @@ async def list_execution_queue(
 
 
 @router.post("/cards/{card_id}/dispatch", response_model=PMCardDispatchResult)
-async def dispatch_card(card_id: str, payload: PMCardDispatchRequest):
-    result = pm_card_service.dispatch_card(card_id, payload)
+async def dispatch_card(card_id: UUID, payload: PMCardDispatchRequest):
+    result = pm_card_service.dispatch_card(str(card_id), payload)
     if not result:
         raise HTTPException(status_code=404, detail="PM card not found")
     return result
 
 
 @router.post("/cards/{card_id}/actions", response_model=PMCardActionResult)
-async def act_on_card(card_id: str, payload: PMCardActionRequest):
-    result = pm_card_service.act_on_card(card_id, payload)
+async def act_on_card(card_id: UUID, payload: PMCardActionRequest):
+    result = pm_card_service.act_on_card(str(card_id), payload)
     if not result:
         raise HTTPException(status_code=404, detail="PM card not found")
     return result
 
 
 @router.patch("/cards/{card_id}", response_model=PMCard)
-async def update_card(card_id: str, payload: PMCardUpdate):
-    card = pm_card_service.update_card(card_id, payload)
+async def update_card(card_id: UUID, payload: PMCardUpdate):
+    card = pm_card_service.update_card(str(card_id), payload)
     if not card:
         raise HTTPException(status_code=404, detail="PM card not found")
     return card
