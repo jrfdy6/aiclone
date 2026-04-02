@@ -228,6 +228,25 @@ type StandupRecordProvenance = {
   description: string;
 };
 
+type StandupParticipantBuckets = {
+  observed: string[];
+  inferred: string[];
+  merged: string[];
+};
+
+type LinkedStandupCard = {
+  card: PMCard;
+  queueEntry: ExecutionQueueEntry | null;
+  boardItem: UnifiedBoardItem;
+  guidance: BoardItemGuidance;
+};
+
+type MeetingHistoryItem = {
+  label: string;
+  detail: string;
+  tone?: string;
+};
+
 type MeetingRoomHealth = {
   key: string;
   label: string;
@@ -1315,6 +1334,24 @@ export default function OpsClient({
     [loadTelemetry],
   );
 
+  const updatePmCard = useCallback(
+    async (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => {
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        throw new Error(`${response.status} ${response.statusText}: ${text}`);
+      }
+      const result = (await response.json()) as PMCard;
+      await loadTelemetry();
+      return result;
+    },
+    [loadTelemetry],
+  );
+
   useEffect(() => {
     loadTelemetry();
     const interval = setInterval(loadTelemetry, 60_000);
@@ -1474,6 +1511,8 @@ export default function OpsClient({
           error={sectionErrors.standups}
           onPromote={promoteStandup}
           onOpenArtifactPath={openArtifactPath}
+          onDispatchPmCard={dispatchPmCard}
+          onUpdatePmCard={updatePmCard}
         />
       )}
       {activePanel === 'workspace' && (
@@ -2211,6 +2250,8 @@ function StandupsPanel({
   error,
   onPromote,
   onOpenArtifactPath,
+  onDispatchPmCard,
+  onUpdatePmCard,
 }: {
   entries: StandupEntry[];
   pmCards: PMCard[];
@@ -2224,6 +2265,8 @@ function StandupsPanel({
     chronicleEntry: ChronicleEntry | null,
   ) => Promise<StandupPromotionResult>;
   onOpenArtifactPath: (path: string) => void;
+  onDispatchPmCard: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
+  onUpdatePmCard: (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => Promise<PMCard>;
 }) {
   const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
   const latestChronicle = executiveFeed.chronicleEntries[executiveFeed.chronicleEntries.length - 1] ?? executiveFeed.chronicleEntries[0] ?? null;
@@ -2381,9 +2424,13 @@ function StandupsPanel({
         {meetingView === 'list' && (
           <MeetingReaderView
             entries={meetingOps.recentStandups}
+            pmCards={pmCards}
+            executionQueue={executionQueue}
             selectedMeetingId={selectedMeetingId}
             onSelectMeeting={setSelectedMeetingId}
             onOpenArtifactPath={onOpenArtifactPath}
+            onDispatchPmCard={onDispatchPmCard}
+            onUpdatePmCard={onUpdatePmCard}
           />
         )}
         {meetingView === 'weekly' && <MeetingWeeklyView entries={meetingOps.recentStandups} />}
@@ -2516,38 +2563,101 @@ function StandupsPanel({
 
 function MeetingReaderView({
   entries,
+  pmCards,
+  executionQueue,
   selectedMeetingId,
   onSelectMeeting,
   onOpenArtifactPath,
+  onDispatchPmCard,
+  onUpdatePmCard,
 }: {
   entries: StandupEntry[];
+  pmCards: PMCard[];
+  executionQueue: ExecutionQueueEntry[];
   selectedMeetingId: string | null;
   onSelectMeeting: (id: string) => void;
   onOpenArtifactPath: (path: string) => void;
+  onDispatchPmCard: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
+  onUpdatePmCard: (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => Promise<PMCard>;
 }) {
+  const [activeTab, setActiveTab] = useState<'conversation' | 'evidence' | 'outcomes' | 'raw'>('conversation');
+  const [actioningCardId, setActioningCardId] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const selectedEntry = entries.find((entry) => entry.id === selectedMeetingId) ?? entries[0] ?? null;
+
+  useEffect(() => {
+    setActionFeedback(null);
+    setActionError(null);
+  }, [selectedMeetingId]);
 
   if (!selectedEntry) {
     return <EmptyPanel message="No standup transcripts recorded yet." compact />;
   }
 
   const room = standupRoom(selectedEntry);
-  const participants = standupParticipants(selectedEntry);
   const discussion = standupDiscussion(selectedEntry);
   const agenda = extractStandupList(selectedEntry.payload, 'agenda');
   const decisions = extractStandupList(selectedEntry.payload, 'decisions');
   const owners = extractStandupList(selectedEntry.payload, 'owners');
   const artifactDeltas = extractStandupList(selectedEntry.payload, 'artifact_deltas');
   const provenance = standupRecordProvenance(selectedEntry);
+  const participantBuckets = standupParticipantBuckets(selectedEntry);
   const payload = selectedEntry.payload ?? {};
   const rawSource = typeof selectedEntry.source === 'string' && selectedEntry.source.trim() ? selectedEntry.source.trim() : 'unknown';
   const prepId = typeof payload.prep_id === 'string' && payload.prep_id.trim() ? payload.prep_id.trim() : null;
   const sourcePaths = Array.isArray(payload.source_paths)
     ? payload.source_paths.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
+  const recommendationPath = typeof payload.recommendation_path === 'string' && payload.recommendation_path.trim() ? payload.recommendation_path.trim() : null;
   const conversationPath = typeof selectedEntry.conversation_path === 'string' && selectedEntry.conversation_path.trim()
     ? selectedEntry.conversation_path.trim()
     : null;
+  const linkedStandupCards = buildLinkedStandupCards(selectedEntry, pmCards, executionQueue);
+  const inferenceNotes = buildStandupInferenceNotes(selectedEntry, participantBuckets);
+  const historyItems = buildStandupHistoryItems(selectedEntry, linkedStandupCards);
+  const rawRecord = JSON.stringify(
+    {
+      id: selectedEntry.id,
+      owner: selectedEntry.owner,
+      workspace_key: selectedEntry.workspace_key,
+      status: selectedEntry.status,
+      source: selectedEntry.source,
+      conversation_path: selectedEntry.conversation_path,
+      blockers: selectedEntry.blockers,
+      commitments: selectedEntry.commitments,
+      needs: selectedEntry.needs,
+      payload: selectedEntry.payload ?? {},
+      created_at: selectedEntry.created_at,
+    },
+    null,
+    2,
+  );
+
+  const handleLinkedCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked', item: LinkedStandupCard) => {
+    try {
+      setActioningCardId(item.card.id);
+      setActionError(null);
+      setActionFeedback(null);
+      if (action === 'dispatch') {
+        await onDispatchPmCard(item.card.id, item.queueEntry?.target_agent || displayTargetAgent(item.boardItem.workspaceKey, item.boardItem.targetAgent));
+        setActionFeedback(`Opened SOP for ${item.card.title}.`);
+        return;
+      }
+      await onUpdatePmCard(item.card.id, buildStandupCardActionPatch(action, item));
+      setActionFeedback(
+        action === 'approve'
+          ? `Closed ${item.card.title}.`
+          : action === 'return'
+            ? `Returned ${item.card.title} to Jean-Claude.`
+            : `Marked ${item.card.title} as blocked and rerouted it to Jean-Claude.`,
+      );
+    } catch (error) {
+      setActionError(toErrorMessage(error));
+    } finally {
+      setActioningCardId(null);
+    }
+  };
 
   return (
     <div
@@ -2568,7 +2678,7 @@ function MeetingReaderView({
             const active = entry.id === selectedEntry.id;
             const entryRoom = standupRoom(entry);
             const entryDiscussion = standupDiscussion(entry);
-            const entryParticipants = standupParticipants(entry);
+            const entryParticipants = standupParticipantBuckets(entry);
             const entryProvenance = standupRecordProvenance(entry);
             return (
               <button
@@ -2596,7 +2706,7 @@ function MeetingReaderView({
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', color: '#64748b', fontSize: '11px' }}>
                   <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
                   <span>{entryDiscussion.length} rounds</span>
-                  <span>{entryParticipants.length} attendees</span>
+                  <span>{entryParticipants.merged.length} attendees</span>
                   {entryRoom ? <span>{entryRoom.key}</span> : null}
                 </div>
                 <span
@@ -2654,204 +2764,297 @@ function MeetingReaderView({
           </div>
         </div>
 
-        <section
-          style={{
-            borderRadius: '16px',
-            border: `1px solid ${provenance.border}`,
-            backgroundColor: provenance.background,
-            padding: '14px',
-            marginBottom: '12px',
-          }}
-        >
-          <p style={{ color: provenance.tone, letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Meeting Provenance</p>
-          <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{provenance.description}</p>
-          <div style={{ display: 'grid', gap: '6px', marginTop: '12px' }}>
-            <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
-              <span style={{ color: '#94a3b8' }}>Stored source:</span>{' '}
-              <code style={{ color: 'white', fontSize: '12px' }}>{rawSource}</code>
-            </p>
-            {prepId ? (
-              <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
-                <span style={{ color: '#94a3b8' }}>Prep packet:</span>{' '}
-                <code style={{ color: 'white', fontSize: '12px' }}>{prepId}</code>
-              </p>
-            ) : null}
-            {conversationPath ? (
-              <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
-                <span style={{ color: '#94a3b8' }}>Conversation artifact:</span>{' '}
-                <button
-                  type="button"
-                  onClick={() => onOpenArtifactPath(conversationPath)}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    padding: 0,
-                    color: '#f8fafc',
-                    fontSize: '12px',
-                    fontFamily: 'monospace',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    textUnderlineOffset: '2px',
-                  }}
-                  title={conversationPath}
-                >
-                  {summarizePathForDisplay(conversationPath)}
-                </button>
-              </p>
-            ) : null}
-            {sourcePaths.length > 0 ? (
-              <div style={{ display: 'grid', gap: '6px' }}>
-                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Supporting sources:</p>
-                <div style={{ display: 'grid', gap: '4px' }}>
-                  {sourcePaths.slice(0, 6).map((path) => (
+        {actionError && <SectionAlert message={`Meeting reader action: ${actionError}`} />}
+        {actionFeedback && (
+          <div style={{ borderRadius: '14px', border: '1px solid rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '12px 14px', color: '#bbf7d0', fontSize: '13px', marginBottom: '12px' }}>
+            {actionFeedback}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          {([
+            ['conversation', 'Conversation'],
+            ['evidence', 'Evidence'],
+            ['outcomes', 'Outcomes'],
+            ['raw', 'Raw'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActiveTab(key)}
+              style={{
+                borderRadius: '999px',
+                border: activeTab === key ? '1px solid rgba(251,191,36,0.45)' : '1px solid #334155',
+                backgroundColor: activeTab === key ? 'rgba(251,191,36,0.12)' : '#0f172a',
+                color: activeTab === key ? '#f8fafc' : '#94a3b8',
+                padding: '8px 14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'conversation' && (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Topic</p>
+                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>
+                  {standupSummary(selectedEntry)}
+                  {agenda.length > 0 ? ` ${agenda[0]}` : ''}
+                </p>
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Attendee Snapshot</p>
+                <div style={{ display: 'grid', gap: '6px', color: '#e2e8f0', fontSize: '13px' }}>
+                  <span>{participantBuckets.observed.length} observed attendee{participantBuckets.observed.length === 1 ? '' : 's'}</span>
+                  <span>{participantBuckets.inferred.length} inferred from room defaults</span>
+                  <span>{participantBuckets.merged.length} shown in the meeting reader</span>
+                </div>
+              </section>
+            </div>
+
+            {discussion.length > 0
+              ? discussion.map((round, index) => {
+                  const speaker = typeof round.speaker === 'string' && round.speaker.trim() ? round.speaker.trim() : 'Unknown';
+                  const note = typeof round.note === 'string' && round.note.trim() ? round.note.trim() : 'No note captured.';
+                  const focus = typeof round.focus === 'string' && round.focus.trim() ? round.focus.trim().replace(/[_-]+/g, ' ') : null;
+                  const roundNumber = typeof round.round === 'number' ? round.round : index + 1;
+                  return (
+                    <section key={`${selectedEntry.id}-round-${roundNumber}-${speaker}-${index}`} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                        <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: 0 }}>{`Round ${roundNumber}: ${speaker}`}</p>
+                        {focus ? <span style={{ color: '#94a3b8', fontSize: '12px' }}>{focus}</span> : null}
+                      </div>
+                      <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>{note}</p>
+                    </section>
+                  );
+                })
+              : (
+                <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                  <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Conversation</p>
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No structured discussion rounds were captured for this meeting yet.</p>
+                </section>
+              )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Decisions</p>
+                {decisions.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No decisions captured.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {decisions.map((item) => (
+                      <p key={`${selectedEntry.id}-decision-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                        - {item}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Commitments</p>
+                {selectedEntry.commitments.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No commitments captured.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {selectedEntry.commitments.map((item) => (
+                      <p key={`${selectedEntry.id}-commitment-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                        - {item}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Blockers</p>
+                {selectedEntry.blockers.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No blockers captured.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {selectedEntry.blockers.map((item) => (
+                      <p key={`${selectedEntry.id}-blocker-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                        - {item}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Cross-Team Needs</p>
+                {selectedEntry.needs.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No cross-team needs captured.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {selectedEntry.needs.map((item) => (
+                      <p key={`${selectedEntry.id}-need-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                        - {item}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            {(owners.length > 0 || artifactDeltas.length > 0) && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                  <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Owners</p>
+                  {owners.length === 0 ? (
+                    <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No owners captured.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      {owners.map((item) => (
+                        <p key={`${selectedEntry.id}-owner-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                          - {item}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                  <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Artifact Deltas</p>
+                  {artifactDeltas.length === 0 ? (
+                    <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No artifact deltas captured.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      {artifactDeltas.map((item) => (
+                        <p key={`${selectedEntry.id}-artifact-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                          - {item}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'evidence' && (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <section
+              style={{
+                borderRadius: '16px',
+                border: `1px solid ${provenance.border}`,
+                backgroundColor: provenance.background,
+                padding: '14px',
+              }}
+            >
+              <p style={{ color: provenance.tone, letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Meeting Provenance</p>
+              <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{provenance.description}</p>
+              <div style={{ display: 'grid', gap: '6px', marginTop: '12px' }}>
+                <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
+                  <span style={{ color: '#94a3b8' }}>Stored source:</span>{' '}
+                  <code style={{ color: 'white', fontSize: '12px' }}>{rawSource}</code>
+                </p>
+                {prepId ? (
+                  <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Prep packet:</span>{' '}
+                    <code style={{ color: 'white', fontSize: '12px' }}>{prepId}</code>
+                  </p>
+                ) : null}
+                {recommendationPath ? (
+                  <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Recommendation packet:</span>{' '}
                     <button
-                      key={`${selectedEntry.id}-source-path-${path}`}
                       type="button"
-                      onClick={() => onOpenArtifactPath(path)}
+                      onClick={() => onOpenArtifactPath(recommendationPath)}
                       style={{
                         border: 'none',
                         background: 'transparent',
                         padding: 0,
-                        textAlign: 'left',
-                        color: '#cbd5f5',
+                        color: '#f8fafc',
                         fontSize: '12px',
                         fontFamily: 'monospace',
                         cursor: 'pointer',
                         textDecoration: 'underline',
                         textUnderlineOffset: '2px',
                       }}
-                      title={path}
+                      title={recommendationPath}
                     >
-                      {summarizePathForDisplay(path)}
+                      {summarizePathForDisplay(recommendationPath)}
                     </button>
-                  ))}
-                  {sourcePaths.length > 6 ? (
-                    <p style={{ color: '#94a3b8', fontSize: '11px', margin: 0 }}>
-                      +{sourcePaths.length - 6} more source path{sourcePaths.length - 6 === 1 ? '' : 's'} stored on this record
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        <div style={{ display: 'grid', gap: '12px' }}>
-          <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-            <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Attendees</p>
-            <div style={{ display: 'grid', gap: '6px' }}>
-              {participants.map((participant) => (
-                <p key={`${selectedEntry.id}-participant-${participant}`} style={{ color: '#e2e8f0', fontSize: '14px', margin: 0 }}>
-                  - {participant}
-                </p>
-              ))}
-            </div>
-          </section>
-
-          <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-            <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Topic</p>
-            <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>
-              {standupSummary(selectedEntry)}
-              {agenda.length > 0 ? ` ${agenda[0]}` : ''}
-            </p>
-          </section>
-
-          {discussion.length > 0
-            ? discussion.map((round, index) => {
-                const speaker = typeof round.speaker === 'string' && round.speaker.trim() ? round.speaker.trim() : 'Unknown';
-                const note = typeof round.note === 'string' && round.note.trim() ? round.note.trim() : 'No note captured.';
-                const focus = typeof round.focus === 'string' && round.focus.trim() ? round.focus.trim().replace(/[_-]+/g, ' ') : null;
-                const roundNumber = typeof round.round === 'number' ? round.round : index + 1;
-                return (
-                  <section key={`${selectedEntry.id}-round-${roundNumber}-${speaker}-${index}`} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                      <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: 0 }}>{`Round ${roundNumber}: ${speaker}`}</p>
-                      {focus ? <span style={{ color: '#94a3b8', fontSize: '12px' }}>{focus}</span> : null}
+                  </p>
+                ) : null}
+                {conversationPath ? (
+                  <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Conversation artifact:</span>{' '}
+                    <button
+                      type="button"
+                      onClick={() => onOpenArtifactPath(conversationPath)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        padding: 0,
+                        color: '#f8fafc',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        textUnderlineOffset: '2px',
+                      }}
+                      title={conversationPath}
+                    >
+                      {summarizePathForDisplay(conversationPath)}
+                    </button>
+                  </p>
+                ) : null}
+                {sourcePaths.length > 0 ? (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Supporting sources:</p>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      {sourcePaths.slice(0, 6).map((path) => (
+                        <button
+                          key={`${selectedEntry.id}-source-path-${path}`}
+                          type="button"
+                          onClick={() => onOpenArtifactPath(path)}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            padding: 0,
+                            textAlign: 'left',
+                            color: '#cbd5f5',
+                            fontSize: '12px',
+                            fontFamily: 'monospace',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            textUnderlineOffset: '2px',
+                          }}
+                          title={path}
+                        >
+                          {summarizePathForDisplay(path)}
+                        </button>
+                      ))}
+                      {sourcePaths.length > 6 ? (
+                        <p style={{ color: '#94a3b8', fontSize: '11px', margin: 0 }}>
+                          +{sourcePaths.length - 6} more source path{sourcePaths.length - 6 === 1 ? '' : 's'} stored on this record
+                        </p>
+                      ) : null}
                     </div>
-                    <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>{note}</p>
-                  </section>
-                );
-              })
-            : (
-              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Conversation</p>
-                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No structured discussion rounds were captured for this meeting yet.</p>
-              </section>
-            )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Decisions</p>
-              {decisions.length === 0 ? (
-                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No decisions captured.</p>
-              ) : (
-                <div style={{ display: 'grid', gap: '6px' }}>
-                  {decisions.map((item) => (
-                    <p key={`${selectedEntry.id}-decision-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                      - {item}
-                    </p>
-                  ))}
-                </div>
-              )}
+                  </div>
+                ) : null}
+              </div>
             </section>
 
-            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Commitments</p>
-              {selectedEntry.commitments.length === 0 ? (
-                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No commitments captured.</p>
-              ) : (
-                <div style={{ display: 'grid', gap: '6px' }}>
-                  {selectedEntry.commitments.map((item) => (
-                    <p key={`${selectedEntry.id}-commitment-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                      - {item}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Blockers</p>
-              {selectedEntry.blockers.length === 0 ? (
-                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No blockers captured.</p>
-              ) : (
-                <div style={{ display: 'grid', gap: '6px' }}>
-                  {selectedEntry.blockers.map((item) => (
-                    <p key={`${selectedEntry.id}-blocker-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                      - {item}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Cross-Team Needs</p>
-              {selectedEntry.needs.length === 0 ? (
-                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No cross-team needs captured.</p>
-              ) : (
-                <div style={{ display: 'grid', gap: '6px' }}>
-                  {selectedEntry.needs.map((item) => (
-                    <p key={`${selectedEntry.id}-need-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                      - {item}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-
-          {owners.length > 0 || artifactDeltas.length > 0 ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Owners</p>
-                {owners.length === 0 ? (
-                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No owners captured.</p>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Observed Attendees</p>
+                {participantBuckets.observed.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No attendees were explicitly stored on the record.</p>
                 ) : (
                   <div style={{ display: 'grid', gap: '6px' }}>
-                    {owners.map((item) => (
-                      <p key={`${selectedEntry.id}-owner-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                        - {item}
+                    {participantBuckets.observed.map((participant) => (
+                      <p key={`${selectedEntry.id}-observed-${participant}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                        - {participant}
                       </p>
                     ))}
                   </div>
@@ -2859,25 +3062,520 @@ function MeetingReaderView({
               </section>
 
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Artifact Deltas</p>
-                {artifactDeltas.length === 0 ? (
-                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No artifact deltas captured.</p>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Inferred From Room Defaults</p>
+                {participantBuckets.inferred.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No default-room attendees were added on top of the stored record.</p>
                 ) : (
                   <div style={{ display: 'grid', gap: '6px' }}>
-                    {artifactDeltas.map((item) => (
-                      <p key={`${selectedEntry.id}-artifact-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
-                        - {item}
+                    {participantBuckets.inferred.map((participant) => (
+                      <p key={`${selectedEntry.id}-inferred-${participant}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                        - {participant}
                       </p>
                     ))}
                   </div>
                 )}
               </section>
             </div>
-          ) : null}
-        </div>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Inference Disclosure</p>
+              {inferenceNotes.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No additional inference rules were detected for this meeting record.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {inferenceNotes.map((item) => (
+                    <p key={`${selectedEntry.id}-inference-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                      - {item}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Record History</p>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {historyItems.map((item) => (
+                  <div key={`${selectedEntry.id}-history-${item.label}-${item.detail}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '12px' }}>
+                    <p style={{ color: item.tone ?? '#f8fafc', fontSize: '13px', fontWeight: 700, margin: '0 0 4px' }}>{item.label}</p>
+                    <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{item.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'outcomes' && (
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Chain Start</p>
+                <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{prepId ? 'Prep packet' : rawSource}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{prepId ? summarize(prepId, 48) : summarize(standupSummary(selectedEntry), 88)}</p>
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Standup Record</p>
+                <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{selectedEntry.status ?? 'completed'}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{selectedEntry.created_at ? formatTimestamp(new Date(selectedEntry.created_at)) : 'No timestamp'}</p>
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>PM Links</p>
+                <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{linkedStandupCards.length}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>linked card{linkedStandupCards.length === 1 ? '' : 's'} from this meeting</p>
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Execution State</p>
+                <p style={{ color: 'white', fontWeight: 700, margin: '0 0 4px' }}>{summarizeLinkedExecutionStates(linkedStandupCards)}</p>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>current downstream state for meeting-created work</p>
+              </section>
+            </div>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Meeting-To-Work Chain</p>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                  1. {prepId ? `Prep packet ${prepId}` : `Stored source ${rawSource}`} shaped the meeting input.
+                </p>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                  2. The standup record was written as `{selectedEntry.status ?? 'completed'}` on {selectedEntry.created_at ? formatTimestamp(new Date(selectedEntry.created_at)) : 'an unknown date'}.
+                </p>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                  3. {linkedStandupCards.length} linked PM card{linkedStandupCards.length === 1 ? '' : 's'} currently carry the work out of this meeting.
+                </p>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                  4. Current downstream execution mix: {summarizeLinkedExecutionStates(linkedStandupCards)}.
+                </p>
+              </div>
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Linked PM Cards</p>
+              {linkedStandupCards.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No PM cards are currently linked to this standup.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  {linkedStandupCards.map((item) => {
+                    const theme = workspaceBoardTheme(item.boardItem.workspaceKey);
+                    const latestExecutionResult = item.card.payload?.latest_execution_result as Record<string, unknown> | undefined;
+                    const latestExecutionSummary = typeof latestExecutionResult?.summary === 'string' && latestExecutionResult.summary.trim()
+                      ? latestExecutionResult.summary.trim()
+                      : null;
+                    return (
+                      <article
+                        key={`${selectedEntry.id}-linked-card-${item.card.id}`}
+                        style={{
+                          borderRadius: '14px',
+                          border: `1px solid ${theme.border}`,
+                          backgroundColor: theme.background,
+                          padding: '14px',
+                          display: 'grid',
+                          gap: '10px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                          <div>
+                            <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: '0 0 6px' }}>{item.card.title}</p>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', color: '#cbd5f5', fontSize: '12px' }}>
+                              <span>{meetingLabelForWorkspace(item.boardItem.workspaceKey)}</span>
+                              <span>PM: {item.card.status}</span>
+                              <span>Lane: {item.boardItem.lane}</span>
+                              <span>Updated: {item.card.updated_at ? formatTimestamp(new Date(item.card.updated_at)) : '-'}</span>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            {statusBadge(item.boardItem.lane)}
+                            {statusBadge(item.card.status)}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gap: '6px', color: '#e2e8f0', fontSize: '13px' }}>
+                          <span>Manager: {displayManagerAgent(item.boardItem.workspaceKey, item.boardItem.managerAgent)}</span>
+                          <span>Target: {displayTargetAgent(item.boardItem.workspaceKey, item.boardItem.targetAgent)}</span>
+                          {item.boardItem.workspaceAgent ? <span>Workspace agent: {displayWorkspaceAgent(item.boardItem.workspaceKey, item.boardItem.workspaceAgent)}</span> : null}
+                        </div>
+
+                        <div style={{ display: 'grid', gap: '6px' }}>
+                          <p style={{ color: '#f8fafc', fontSize: '13px', margin: 0 }}>{item.guidance.summary}</p>
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{item.guidance.nextAction}</p>
+                          {latestExecutionSummary ? <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>Latest result: {summarize(latestExecutionSummary, 180)}</p> : null}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {(item.boardItem.lane === 'ready' || item.boardItem.lane === 'todo') && (
+                            <button
+                              type="button"
+                              disabled={actioningCardId === item.card.id}
+                              onClick={() => void handleLinkedCardAction('dispatch', item)}
+                              style={meetingActionButtonStyle('primary', actioningCardId === item.card.id)}
+                            >
+                              {actioningCardId === item.card.id ? 'Opening…' : 'Open SOP'}
+                            </button>
+                          )}
+                          {item.boardItem.lane === 'review' && (
+                            <button
+                              type="button"
+                              disabled={actioningCardId === item.card.id}
+                              onClick={() => void handleLinkedCardAction('approve', item)}
+                              style={meetingActionButtonStyle('success', actioningCardId === item.card.id)}
+                            >
+                              {actioningCardId === item.card.id ? 'Closing…' : 'Approve and close'}
+                            </button>
+                          )}
+                          {['review', 'queued', 'running', 'failed'].includes(item.boardItem.lane) && (
+                            <button
+                              type="button"
+                              disabled={actioningCardId === item.card.id}
+                              onClick={() => void handleLinkedCardAction('return', item)}
+                              style={meetingActionButtonStyle('secondary', actioningCardId === item.card.id)}
+                            >
+                              {actioningCardId === item.card.id ? 'Returning…' : 'Return to Jean-Claude'}
+                            </button>
+                          )}
+                          {['review', 'queued', 'running', 'failed'].includes(item.boardItem.lane) && (
+                            <button
+                              type="button"
+                              disabled={actioningCardId === item.card.id}
+                              onClick={() => void handleLinkedCardAction('blocked', item)}
+                              style={meetingActionButtonStyle('danger', actioningCardId === item.card.id)}
+                            >
+                              {actioningCardId === item.card.id ? 'Routing…' : 'Mark blocked'}
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'raw' && (
+          <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+            <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Stored Standup Payload</p>
+            <pre
+              style={{
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                color: '#e2e8f0',
+                fontSize: '12px',
+                lineHeight: 1.6,
+                margin: 0,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+              }}
+            >
+              {rawRecord}
+            </pre>
+          </section>
+        )}
       </section>
     </div>
   );
+}
+
+function standupParticipantBuckets(entry: StandupEntry): StandupParticipantBuckets {
+  const payload = entry.payload ?? {};
+  const observed = Array.isArray(payload.participants)
+    ? payload.participants
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => item.trim())
+    : [];
+  const roomParticipants = standupRoom(entry)?.participants ?? [];
+  const inferred = roomParticipants.filter(
+    (participant) => observed.findIndex((candidate) => candidate.toLowerCase() === participant.toLowerCase()) === -1,
+  );
+  const merged = [...observed, ...inferred].filter(
+    (participant, index, all) => all.findIndex((candidate) => candidate.toLowerCase() === participant.toLowerCase()) === index,
+  );
+
+  if (merged.length === 0 && entry.owner) {
+    return { observed: [entry.owner], inferred: [], merged: [entry.owner] };
+  }
+
+  return {
+    observed,
+    inferred,
+    merged,
+  };
+}
+
+function buildLinkedStandupCards(entry: StandupEntry, pmCards: PMCard[], executionQueue: ExecutionQueueEntry[]): LinkedStandupCard[] {
+  const executionByCardId = new Map(executionQueue.map((queueEntry) => [queueEntry.card_id, queueEntry]));
+  return linkedCardsForStandup(entry, pmCards)
+    .sort((left, right) => {
+      const leftDone = (left.status ?? '').toLowerCase() === 'done' ? 1 : 0;
+      const rightDone = (right.status ?? '').toLowerCase() === 'done' ? 1 : 0;
+      if (leftDone !== rightDone) {
+        return leftDone - rightDone;
+      }
+      const leftTime = left.updated_at ? new Date(left.updated_at).getTime() : 0;
+      const rightTime = right.updated_at ? new Date(right.updated_at).getTime() : 0;
+      return rightTime - leftTime;
+    })
+    .map((card) => {
+      const queueEntry = executionByCardId.get(card.id) ?? null;
+      const boardItem = buildMeetingBoardItem(card, queueEntry);
+      return {
+        card,
+        queueEntry,
+        boardItem,
+        guidance: boardItemGuidance(boardItem),
+      };
+    });
+}
+
+function buildMeetingBoardItem(card: PMCard, queueEntry: ExecutionQueueEntry | null): UnifiedBoardItem {
+  const normalizedStatus = normalizeStatus(card.status ?? 'todo');
+  const lane: UnifiedBoardLaneKey = queueEntry
+    ? normalizeExecutionState(queueEntry.execution_state)
+    : normalizedStatus === 'in_progress'
+      ? 'running'
+      : normalizedStatus === 'review'
+        ? 'review'
+        : normalizedStatus === 'done'
+          ? 'done'
+          : 'todo';
+  return {
+    id: `meeting-card-${card.id}`,
+    cardId: card.id,
+    title: card.title,
+    workspaceKey: workspaceKeyFromCard(card),
+    lane,
+    pmStatus: card.status ?? 'todo',
+    executionState: queueEntry?.execution_state ?? null,
+    managerAgent: queueEntry?.manager_agent ?? null,
+    targetAgent: queueEntry?.target_agent ?? null,
+    workspaceAgent: queueEntry?.workspace_agent ?? null,
+    executionMode: queueEntry?.execution_mode ?? null,
+    reason: queueEntry?.reason ?? (card.payload?.reason as string | undefined) ?? null,
+    source: queueEntry?.source ?? card.source ?? null,
+    owner: card.owner ?? null,
+    updatedAt: queueEntry?.last_transition_at ?? card.updated_at ?? card.created_at ?? null,
+    dueAt: card.due_at ?? null,
+    queueEntry,
+  };
+}
+
+function buildStandupInferenceNotes(entry: StandupEntry, participants: StandupParticipantBuckets): string[] {
+  const payload = entry.payload ?? {};
+  const source = (entry.source ?? '').toLowerCase();
+  const notes: string[] = [];
+  if (source === 'standup_prep' || (typeof payload.prep_id === 'string' && payload.prep_id.trim().length > 0)) {
+    notes.push('Discussion rounds were synthesized from a standup prep packet before the final meeting record was written.');
+  }
+  if (source === 'brain_triage') {
+    notes.push('Agenda, summary, and participants were shaped from routed Brain signal rather than a literal meeting capture.');
+  }
+  if (participants.inferred.length > 0) {
+    notes.push('The attendee list includes room-default participants that were not explicitly stored on the meeting payload itself.');
+  }
+  if (extractStandupList(entry.payload, 'owners').length > 0 && (source === 'standup_prep' || source === 'brain_triage')) {
+    notes.push('Owners were derived from the workspace and standup contract, not necessarily spoken verbatim in the room.');
+  }
+  if (Array.isArray(payload.source_paths) && payload.source_paths.length > 0) {
+    notes.push('Supporting source paths are context files attached to the record. They are useful evidence, but they do not prove each file was quoted directly during the meeting.');
+  }
+  return notes;
+}
+
+function buildStandupHistoryItems(entry: StandupEntry, linkedCards: LinkedStandupCard[]): MeetingHistoryItem[] {
+  const payload = entry.payload ?? {};
+  const items: MeetingHistoryItem[] = [];
+  if (entry.created_at) {
+    items.push({
+      label: 'Created',
+      detail: `Standup record stored on ${formatTimestamp(new Date(entry.created_at))} with status \`${entry.status ?? 'completed'}\`.`,
+      tone: '#e2e8f0',
+    });
+  }
+  if (typeof payload.prep_id === 'string' && payload.prep_id.trim()) {
+    items.push({
+      label: 'Promoted From Prep',
+      detail: `This record was promoted from prep packet \`${payload.prep_id}\`.`,
+      tone: '#fbbf24',
+    });
+  }
+  if (typeof payload.recommendation_path === 'string' && payload.recommendation_path.trim()) {
+    items.push({
+      label: 'Recommendation Packet Attached',
+      detail: `A recommendation packet was attached at ${summarizePathForDisplay(payload.recommendation_path)} before or during promotion.`,
+      tone: '#38bdf8',
+    });
+  }
+  if (linkedCards.length > 0) {
+    const statusCounts = linkedCards.reduce<Record<string, number>>((acc, item) => {
+      const key = item.boardItem.lane;
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+    const latestCard = [...linkedCards].sort((left, right) => {
+      const leftTime = left.card.updated_at ? new Date(left.card.updated_at).getTime() : 0;
+      const rightTime = right.card.updated_at ? new Date(right.card.updated_at).getTime() : 0;
+      return rightTime - leftTime;
+    })[0];
+    items.push({
+      label: 'Linked Cards Updated',
+      detail: `${linkedCards.length} linked PM card${linkedCards.length === 1 ? '' : 's'} currently sit in ${Object.entries(statusCounts)
+        .map(([status, count]) => `${status}=${count}`)
+        .join(', ')}. Latest linked update: ${latestCard?.card.updated_at ? formatTimestamp(new Date(latestCard.card.updated_at)) : 'unknown'}.`,
+      tone: '#38bdf8',
+    });
+  }
+  const postSyncDispatch = payload.post_sync_dispatch;
+  if (postSyncDispatch && typeof postSyncDispatch === 'object') {
+    const postSync = postSyncDispatch as Record<string, unknown>;
+    const linkedCount = Array.isArray(postSync.linked_card_ids) ? postSync.linked_card_ids.length : 0;
+    const createdCount = Array.isArray(postSync.created_card_ids) ? postSync.created_card_ids.length : 0;
+    items.push({
+      label: 'Post-Sync Dispatch',
+      detail: `Ran ${postSync.ran_at ? formatTimestamp(new Date(String(postSync.ran_at))) : 'at an unknown time'} with status \`${String(postSync.status || 'unknown')}\`, linking ${linkedCount} card${linkedCount === 1 ? '' : 's'} and creating ${createdCount} new card${createdCount === 1 ? '' : 's'}.`,
+      tone: String(postSync.status || '') === 'ok' ? '#22c55e' : '#fbbf24',
+    });
+  }
+  const latestExecution = linkedCards
+    .map((item) => ({
+      title: item.card.title,
+      result: item.card.payload?.latest_execution_result as Record<string, unknown> | undefined,
+      updatedAt: item.card.updated_at,
+    }))
+    .filter((item) => item.result && item.updatedAt)
+    .sort((left, right) => new Date(String(right.updatedAt)).getTime() - new Date(String(left.updatedAt)).getTime())[0];
+  if (latestExecution?.result) {
+    items.push({
+      label: 'Latest Execution Result',
+      detail: `The most recent result write-back came from \`${latestExecution.title}\` with status \`${String(latestExecution.result.status || 'unknown')}\`.`,
+      tone: String(latestExecution.result.status || '') === 'done' ? '#22c55e' : '#fbbf24',
+    });
+  }
+  return items;
+}
+
+function summarizeLinkedExecutionStates(items: LinkedStandupCard[]) {
+  if (items.length === 0) {
+    return 'No linked work yet';
+  }
+  const counts = items.reduce<Record<string, number>>((acc, item) => {
+    acc[item.boardItem.lane] = (acc[item.boardItem.lane] ?? 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts)
+    .map(([lane, count]) => `${lane}=${count}`)
+    .join(' · ');
+}
+
+function buildStandupCardActionPatch(
+  action: 'approve' | 'return' | 'blocked',
+  item: LinkedStandupCard,
+): { status: string; payload: Record<string, unknown> } {
+  const payload = { ...(item.card.payload ?? {}) } as Record<string, unknown>;
+  const currentExecution = payload.execution && typeof payload.execution === 'object' ? { ...(payload.execution as Record<string, unknown>) } : {};
+  const history = Array.isArray(currentExecution.history) ? [...(currentExecution.history as Array<Record<string, unknown>>)] : [];
+  const now = new Date().toISOString();
+  let nextStatus = item.card.status ?? 'review';
+  let nextState = item.queueEntry?.execution_state ?? 'review';
+  let nextTarget = String(currentExecution.target_agent || item.queueEntry?.target_agent || 'Jean-Claude');
+  let nextAssignedRunner = String(currentExecution.assigned_runner || item.queueEntry?.assigned_runner || 'codex');
+  let nextExecutionMode = String(currentExecution.execution_mode || item.queueEntry?.execution_mode || 'direct');
+  let managerAttentionRequired = Boolean(currentExecution.manager_attention_required);
+  let reason = String(currentExecution.reason || item.queueEntry?.reason || payload.reason || '').trim();
+
+  if (action === 'approve') {
+    nextStatus = 'done';
+    nextState = 'done';
+    managerAttentionRequired = false;
+  }
+
+  if (action === 'return') {
+    nextStatus = 'todo';
+    nextState = 'queued';
+    nextTarget = 'Jean-Claude';
+    nextAssignedRunner = 'jean-claude';
+    nextExecutionMode = 'direct';
+    managerAttentionRequired = false;
+    reason = reason || 'Returned to Jean-Claude from the standup reader for another pass.';
+  }
+
+  if (action === 'blocked') {
+    nextStatus = 'blocked';
+    nextState = 'queued';
+    nextTarget = 'Jean-Claude';
+    nextAssignedRunner = 'jean-claude';
+    nextExecutionMode = 'direct';
+    managerAttentionRequired = true;
+    reason = 'Marked blocked during standup review. Jean-Claude needs a closure decision.';
+  }
+
+  history.push({
+    event: action === 'approve' ? 'manual_approve' : action === 'return' ? 'manual_return' : 'manual_blocked',
+    state: nextState,
+    requested_by: 'Neo',
+    at: now,
+  });
+
+  payload.execution = {
+    ...currentExecution,
+    lane: String(currentExecution.lane || item.queueEntry?.lane || 'codex'),
+    state: nextState,
+    manager_agent: String(currentExecution.manager_agent || item.queueEntry?.manager_agent || 'Jean-Claude'),
+    target_agent: nextTarget,
+    workspace_agent: currentExecution.workspace_agent ?? item.queueEntry?.workspace_agent ?? null,
+    execution_mode: nextExecutionMode,
+    requested_by: 'Neo',
+    assigned_runner: nextAssignedRunner,
+    queued_at: action === 'approve' ? currentExecution.queued_at ?? item.queueEntry?.queued_at ?? null : now,
+    last_transition_at: now,
+    manager_attention_required: managerAttentionRequired,
+    returned_from_agent: action === 'blocked' ? String(currentExecution.target_agent || item.queueEntry?.target_agent || '') || null : currentExecution.returned_from_agent ?? null,
+    reason,
+    history: history.slice(-12),
+  };
+
+  const latestExecutionResult =
+    payload.latest_execution_result && typeof payload.latest_execution_result === 'object'
+      ? { ...(payload.latest_execution_result as Record<string, unknown>) }
+      : null;
+  if (latestExecutionResult) {
+    latestExecutionResult.review_resolution = action;
+    latestExecutionResult.reviewed_at = now;
+    payload.latest_execution_result = latestExecutionResult;
+  }
+
+  payload.latest_manual_review = {
+    action,
+    reviewed_at: now,
+    reviewed_by: 'Neo',
+    from_lane: item.boardItem.lane,
+  };
+
+  return {
+    status: nextStatus,
+    payload,
+  };
+}
+
+function meetingActionButtonStyle(tone: 'primary' | 'secondary' | 'success' | 'danger', disabled: boolean) {
+  const palette =
+    tone === 'primary'
+      ? { background: '#38bdf8', border: 'rgba(56,189,248,0.35)', color: '#04111f' }
+      : tone === 'success'
+        ? { background: '#22c55e', border: 'rgba(34,197,94,0.35)', color: '#04110a' }
+        : tone === 'danger'
+          ? { background: '#ef4444', border: 'rgba(239,68,68,0.35)', color: '#fff1f2' }
+          : { background: '#0f172a', border: '#334155', color: '#e2e8f0' };
+  return {
+    padding: '8px 12px',
+    borderRadius: '999px',
+    border: `1px solid ${palette.border}`,
+    backgroundColor: disabled ? '#0f172a' : palette.background,
+    color: disabled ? '#64748b' : palette.color,
+    fontWeight: 700,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+  };
 }
 
 function MeetingListView({ entries }: { entries: StandupEntry[] }) {
@@ -6010,14 +6708,7 @@ function extractStandupList(payload: Record<string, unknown> | undefined, key: s
 }
 
 function standupParticipants(entry: StandupEntry) {
-  const payload = entry.payload ?? {};
-  const payloadParticipants = Array.isArray(payload.participants)
-    ? payload.participants.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
-    : [];
-  const roomParticipants = standupRoom(entry)?.participants ?? [];
-  const combined = [...payloadParticipants, ...roomParticipants];
-  const unique = combined.filter((item, index) => combined.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
-  return unique.length ? unique : [entry.owner];
+  return standupParticipantBuckets(entry).merged;
 }
 
 function standupRecordProvenance(entry: StandupEntry): StandupRecordProvenance {
