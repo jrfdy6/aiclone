@@ -20,6 +20,12 @@ MEDIA_CHANNEL_HINTS = {
 
 MEDIA_TOPIC_HINTS = {"transcript", "youtube", "podcast", "audio", "video"}
 MEDIA_EXT_HINTS = {".mp3", ".wav", ".m4a", ".mp4", ".webm", ".mov", ".vtt"}
+EXTRACTION_PLACEHOLDER_PREFIXES = (
+    "no clear lessons extracted yet.",
+    "no strong anecdote extracted yet.",
+    "no strong quote extracted yet.",
+    "what build implications matter, what persona implications matter, and what should be emphasized?",
+)
 HARVEST_CONTRAST_TERMS = (" not ", " but ", " because ", " however ", " instead ", " rather than ", " matters ")
 HARVEST_WORLDVIEW_TERMS = (
     " ai ",
@@ -126,6 +132,17 @@ def _list_strings(value: Any, limit: int = 12) -> list[str]:
     return cleaned
 
 
+def _is_extraction_placeholder(value: str) -> bool:
+    lowered = _clean_text(value).lower().rstrip(".")
+    if not lowered:
+        return False
+    return any(lowered == prefix.rstrip(".") for prefix in EXTRACTION_PLACEHOLDER_PREFIXES)
+
+
+def _extraction_strings(value: Any, limit: int = 12) -> list[str]:
+    return [item for item in _list_strings(value, limit=limit) if not _is_extraction_placeholder(item)]
+
+
 def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
     if not raw.startswith("---"):
         return {}, raw
@@ -164,7 +181,7 @@ def _section_bullets(section: str, limit: int = 8) -> list[str]:
             continue
         value = _clean_text(cleaned[2:])
         lowered = value.lower()
-        if not value or lowered in seen:
+        if not value or lowered in seen or _is_extraction_placeholder(value):
             continue
         seen.add(lowered)
         items.append(value)
@@ -525,10 +542,10 @@ def _build_ingestion_assets(ingestions_root: Path, repo_root: Path) -> list[dict
         source_url = _clean_text(meta.get("source_url"))
         summary = _clean_text(meta.get("summary")) or _first_meaningful_line(body)
         structured_summary = _clean_text(meta.get("structured_summary")) or _first_meaningful_line(_extract_section(body, "Summary"))
-        lessons = _list_strings(meta.get("lessons_learned"), 8) or _section_bullets(_extract_section(body, "Lessons Learned"), limit=8)
-        anecdotes = _list_strings(meta.get("key_anecdotes"), 6) or _section_bullets(_extract_section(body, "Key Anecdotes"), limit=6)
-        quotes = _list_strings(meta.get("reusable_quotes"), 8) or _section_bullets(_extract_section(body, "Reusable Quotes"), limit=8)
-        open_questions = _list_strings(meta.get("open_questions"), 6) or _section_bullets(_extract_section(body, "Open Questions"), limit=6)
+        lessons = _extraction_strings(meta.get("lessons_learned"), 8) or _section_bullets(_extract_section(body, "Lessons Learned"), limit=8)
+        anecdotes = _extraction_strings(meta.get("key_anecdotes"), 6) or _section_bullets(_extract_section(body, "Key Anecdotes"), limit=6)
+        quotes = _extraction_strings(meta.get("reusable_quotes"), 8) or _section_bullets(_extract_section(body, "Reusable Quotes"), limit=8)
+        open_questions = _extraction_strings(meta.get("open_questions"), 6) or _section_bullets(_extract_section(body, "Open Questions"), limit=6)
         quality_flags = _list_strings(meta.get("extraction_quality_flags"), 12) or _summary_quality_flags(summary, structured_summary, lessons, anecdotes, quotes)
         clean_document = _extract_section(body, "Clean Transcript / Document") or body
         deep_harvest_fragments = _build_deep_harvest_fragments(
