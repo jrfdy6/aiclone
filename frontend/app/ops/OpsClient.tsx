@@ -2200,6 +2200,17 @@ function StandupsPanel({
   const [promotingKey, setPromotingKey] = useState<string | null>(null);
   const [promotionFeedback, setPromotionFeedback] = useState<string | null>(null);
   const [promotionError, setPromotionError] = useState<string | null>(null);
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (meetingOps.recentStandups.length === 0) {
+      setSelectedMeetingId(null);
+      return;
+    }
+    if (!selectedMeetingId || !meetingOps.recentStandups.some((entry) => entry.id === selectedMeetingId)) {
+      setSelectedMeetingId(meetingOps.recentStandups[0].id);
+    }
+  }, [meetingOps.recentStandups, selectedMeetingId]);
 
   const handlePromote = useCallback(
     async (room: (typeof STANDUP_ROOMS)[number], prep: StandupPrepPacket) => {
@@ -2310,8 +2321,8 @@ function StandupsPanel({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>
           <div>
             <p style={{ color: '#c084fc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Meeting History</p>
-            <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>List, weekly, and monthly views</h3>
-            <p style={{ color: '#94a3b8' }}>Practical visibility only. No staged conference-room gimmicks.</p>
+            <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Reader, weekly, and monthly views</h3>
+            <p style={{ color: '#94a3b8' }}>Use Reader when you want the actual meeting card, not just a transcript dump.</p>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {(['list', 'weekly', 'monthly'] as const).map((view) => (
@@ -2330,12 +2341,14 @@ function StandupsPanel({
                   textTransform: 'capitalize',
                 }}
               >
-                {view}
+                {view === 'list' ? 'reader' : view}
               </button>
             ))}
           </div>
         </div>
-        {meetingView === 'list' && <MeetingListView entries={meetingOps.recentStandups} />}
+        {meetingView === 'list' && (
+          <MeetingReaderView entries={meetingOps.recentStandups} selectedMeetingId={selectedMeetingId} onSelectMeeting={setSelectedMeetingId} />
+        )}
         {meetingView === 'weekly' && <MeetingWeeklyView entries={meetingOps.recentStandups} />}
         {meetingView === 'monthly' && <MeetingMonthlyView entries={meetingOps.recentStandups} />}
       </section>
@@ -2354,7 +2367,22 @@ function StandupsPanel({
           const cardStatus = prep ? 'prepared' : roomHealth?.status ?? (liveEntry ? liveEntry.status ?? 'recorded' : room.workspaceKey === 'shared_ops' ? 'ready' : 'planned');
 
           return (
-            <article key={room.key} style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '18px' }}>
+            <article
+              key={room.key}
+              onClick={() => {
+                if (liveEntry) {
+                  setMeetingView('list');
+                  setSelectedMeetingId(liveEntry.id);
+                }
+              }}
+              style={{
+                borderRadius: '18px',
+                border: '1px solid #1f2937',
+                backgroundColor: '#0b1324',
+                padding: '18px',
+                cursor: liveEntry ? 'pointer' : 'default',
+              }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
                 <div>
                   <h3 style={{ fontSize: '20px', color: 'white', margin: 0 }}>{room.label}</h3>
@@ -2383,7 +2411,10 @@ function StandupsPanel({
                     Promotion will create the standup record and seed PM cards from the current prep packet.
                   </div>
                   <button
-                    onClick={() => handlePromote(room, prep)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handlePromote(room, prep);
+                    }}
                     disabled={promotingKey === room.key}
                     style={{
                       padding: '8px 14px',
@@ -2397,6 +2428,11 @@ function StandupsPanel({
                   >
                     {promotingKey === room.key ? 'Creating…' : `Create ${room.label}`}
                   </button>
+                </div>
+              )}
+              {liveEntry && (
+                <div style={{ color: '#38bdf8', fontSize: '12px', marginBottom: '12px' }}>
+                  Open meeting reader
                 </div>
               )}
               <PanelList title="Captured PM Snapshot" items={pmSnapshotLines} emptyLabel="No PM snapshot captured yet." />
@@ -2438,6 +2474,245 @@ function StandupsPanel({
         ))}
       </div>
     </section>
+  );
+}
+
+function MeetingReaderView({
+  entries,
+  selectedMeetingId,
+  onSelectMeeting,
+}: {
+  entries: StandupEntry[];
+  selectedMeetingId: string | null;
+  onSelectMeeting: (id: string) => void;
+}) {
+  const selectedEntry = entries.find((entry) => entry.id === selectedMeetingId) ?? entries[0] ?? null;
+
+  if (!selectedEntry) {
+    return <EmptyPanel message="No standup transcripts recorded yet." compact />;
+  }
+
+  const room = standupRoom(selectedEntry);
+  const participants = standupParticipants(selectedEntry);
+  const discussion = standupDiscussion(selectedEntry);
+  const agenda = extractStandupList(selectedEntry.payload, 'agenda');
+  const decisions = extractStandupList(selectedEntry.payload, 'decisions');
+  const owners = extractStandupList(selectedEntry.payload, 'owners');
+  const artifactDeltas = extractStandupList(selectedEntry.payload, 'artifact_deltas');
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(250px, 0.78fr) minmax(0, 2.2fr)',
+        gap: '14px',
+        alignItems: 'start',
+      }}
+    >
+      <aside style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px', minHeight: '620px' }}>
+        <div style={{ marginBottom: '12px' }}>
+          <p style={{ color: '#94a3b8', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Agent Meetings</p>
+          <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>Recent sessions</p>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {entries.map((entry) => {
+            const active = entry.id === selectedEntry.id;
+            const entryRoom = standupRoom(entry);
+            return (
+              <button
+                key={`reader-${entry.id}`}
+                type="button"
+                onClick={() => onSelectMeeting(entry.id)}
+                style={{
+                  textAlign: 'left',
+                  borderRadius: '14px',
+                  border: active ? '1px solid rgba(251,191,36,0.45)' : '1px solid #1f2937',
+                  backgroundColor: active ? 'rgba(251,191,36,0.12)' : '#08101f',
+                  padding: '12px',
+                  cursor: 'pointer',
+                  display: 'grid',
+                  gap: '6px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+                  <p style={{ color: 'white', fontWeight: 700, fontSize: '13px', margin: 0 }}>{standupLabel(entry)}</p>
+                  {statusBadge(entry.status ?? 'completed')}
+                </div>
+                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                  {entry.created_at ? formatTimestamp(new Date(entry.created_at)) : '-'}
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', color: '#64748b', fontSize: '11px' }}>
+                  <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
+                  <span>{discussion.length} rounds</span>
+                  {entryRoom ? <span>{entryRoom.participants.length} attendees</span> : null}
+                </div>
+                <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.45, margin: 0 }}>{summarize(standupSummary(entry), 84)}</p>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+
+      <section style={{ borderRadius: '22px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '18px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start', marginBottom: '14px' }}>
+          <div>
+            <p style={{ color: '#fbbf24', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Conversation</p>
+            <h3 style={{ color: 'white', fontSize: '28px', lineHeight: 1.2, margin: 0 }}>{standupLabel(selectedEntry)}</h3>
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '6px 0 0' }}>
+              {meetingLabelForWorkspace(selectedEntry.workspace_key ?? 'shared_ops')} · {selectedEntry.created_at ? formatTimestamp(new Date(selectedEntry.created_at)) : '-'}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {statusBadge(selectedEntry.status ?? 'completed')}
+            {room ? (
+              <span style={{ borderRadius: '999px', border: '1px solid #334155', padding: '6px 10px', color: '#cbd5f5', fontSize: '12px' }}>
+                {room.key}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: '12px' }}>
+          <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+            <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Attendees</p>
+            <div style={{ display: 'grid', gap: '6px' }}>
+              {participants.map((participant) => (
+                <p key={`${selectedEntry.id}-participant-${participant}`} style={{ color: '#e2e8f0', fontSize: '14px', margin: 0 }}>
+                  - {participant}
+                </p>
+              ))}
+            </div>
+          </section>
+
+          <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+            <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Topic</p>
+            <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>
+              {standupSummary(selectedEntry)}
+              {agenda.length > 0 ? ` ${agenda[0]}` : ''}
+            </p>
+          </section>
+
+          {discussion.length > 0
+            ? discussion.map((round, index) => {
+                const speaker = typeof round.speaker === 'string' && round.speaker.trim() ? round.speaker.trim() : 'Unknown';
+                const note = typeof round.note === 'string' && round.note.trim() ? round.note.trim() : 'No note captured.';
+                const focus = typeof round.focus === 'string' && round.focus.trim() ? round.focus.trim().replace(/[_-]+/g, ' ') : null;
+                const roundNumber = typeof round.round === 'number' ? round.round : index + 1;
+                return (
+                  <section key={`${selectedEntry.id}-round-${roundNumber}-${speaker}-${index}`} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                      <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: 0 }}>{`Round ${roundNumber}: ${speaker}`}</p>
+                      {focus ? <span style={{ color: '#94a3b8', fontSize: '12px' }}>{focus}</span> : null}
+                    </div>
+                    <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>{note}</p>
+                  </section>
+                );
+              })
+            : (
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Conversation</p>
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No structured discussion rounds were captured for this meeting yet.</p>
+              </section>
+            )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Decisions</p>
+              {decisions.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No decisions captured.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {decisions.map((item) => (
+                    <p key={`${selectedEntry.id}-decision-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                      - {item}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Commitments</p>
+              {selectedEntry.commitments.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No commitments captured.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {selectedEntry.commitments.map((item) => (
+                    <p key={`${selectedEntry.id}-commitment-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                      - {item}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Blockers</p>
+              {selectedEntry.blockers.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No blockers captured.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {selectedEntry.blockers.map((item) => (
+                    <p key={`${selectedEntry.id}-blocker-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                      - {item}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Cross-Team Needs</p>
+              {selectedEntry.needs.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No cross-team needs captured.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {selectedEntry.needs.map((item) => (
+                    <p key={`${selectedEntry.id}-need-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                      - {item}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+
+          {owners.length > 0 || artifactDeltas.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Owners</p>
+                {owners.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No owners captured.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {owners.map((item) => (
+                      <p key={`${selectedEntry.id}-owner-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                        - {item}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Artifact Deltas</p>
+                {artifactDeltas.length === 0 ? (
+                  <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No artifact deltas captured.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {artifactDeltas.map((item) => (
+                      <p key={`${selectedEntry.id}-artifact-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                        - {item}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -5570,6 +5845,17 @@ function extractStandupList(payload: Record<string, unknown> | undefined, key: s
   return Array.isArray(items) ? items.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
 }
 
+function standupParticipants(entry: StandupEntry) {
+  const payload = entry.payload ?? {};
+  const payloadParticipants = Array.isArray(payload.participants)
+    ? payload.participants.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+    : [];
+  const roomParticipants = standupRoom(entry)?.participants ?? [];
+  const combined = [...payloadParticipants, ...roomParticipants];
+  const unique = combined.filter((item, index) => combined.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
+  return unique.length ? unique : [entry.owner];
+}
+
 function extractPmSnapshotLines(snapshot: unknown) {
   if (!snapshot || typeof snapshot !== 'object') {
     return [];
@@ -6368,6 +6654,10 @@ function standupKind(entry: StandupEntry) {
 function standupLabel(entry: StandupEntry) {
   const room = STANDUP_ROOMS.find((candidate) => candidate.key === standupKind(entry) && candidate.workspaceKey === entry.workspace_key);
   return room?.label ?? standupKind(entry);
+}
+
+function standupRoom(entry: StandupEntry) {
+  return STANDUP_ROOMS.find((candidate) => candidate.key === standupKind(entry) && candidate.workspaceKey === (entry.workspace_key ?? 'shared_ops')) ?? null;
 }
 
 function standupSummary(entry: StandupEntry) {
