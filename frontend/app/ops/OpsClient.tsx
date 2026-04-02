@@ -220,6 +220,14 @@ type StandupPromotionResult = {
   existing_cards: PMCard[];
 };
 
+type StandupRecordProvenance = {
+  label: string;
+  tone: string;
+  background: string;
+  border: string;
+  description: string;
+};
+
 type MeetingRoomHealth = {
   key: string;
   label: string;
@@ -2499,6 +2507,7 @@ function MeetingReaderView({
   const decisions = extractStandupList(selectedEntry.payload, 'decisions');
   const owners = extractStandupList(selectedEntry.payload, 'owners');
   const artifactDeltas = extractStandupList(selectedEntry.payload, 'artifact_deltas');
+  const provenance = standupRecordProvenance(selectedEntry);
 
   return (
     <div
@@ -2518,6 +2527,9 @@ function MeetingReaderView({
           {entries.map((entry) => {
             const active = entry.id === selectedEntry.id;
             const entryRoom = standupRoom(entry);
+            const entryDiscussion = standupDiscussion(entry);
+            const entryParticipants = standupParticipants(entry);
+            const entryProvenance = standupRecordProvenance(entry);
             return (
               <button
                 key={`reader-${entry.id}`}
@@ -2543,9 +2555,26 @@ function MeetingReaderView({
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', color: '#64748b', fontSize: '11px' }}>
                   <span>{meetingLabelForWorkspace(entry.workspace_key ?? 'shared_ops')}</span>
-                  <span>{discussion.length} rounds</span>
-                  {entryRoom ? <span>{entryRoom.participants.length} attendees</span> : null}
+                  <span>{entryDiscussion.length} rounds</span>
+                  <span>{entryParticipants.length} attendees</span>
+                  {entryRoom ? <span>{entryRoom.key}</span> : null}
                 </div>
+                <span
+                  style={{
+                    width: 'fit-content',
+                    borderRadius: '999px',
+                    border: `1px solid ${entryProvenance.border}`,
+                    backgroundColor: entryProvenance.background,
+                    color: entryProvenance.tone,
+                    padding: '4px 8px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {entryProvenance.label}
+                </span>
                 <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.45, margin: 0 }}>{summarize(standupSummary(entry), 84)}</p>
               </button>
             );
@@ -2569,8 +2598,34 @@ function MeetingReaderView({
                 {room.key}
               </span>
             ) : null}
+            <span
+              style={{
+                borderRadius: '999px',
+                border: `1px solid ${provenance.border}`,
+                backgroundColor: provenance.background,
+                color: provenance.tone,
+                padding: '6px 10px',
+                fontSize: '12px',
+                fontWeight: 700,
+              }}
+            >
+              {provenance.label}
+            </span>
           </div>
         </div>
+
+        <section
+          style={{
+            borderRadius: '16px',
+            border: `1px solid ${provenance.border}`,
+            backgroundColor: provenance.background,
+            padding: '14px',
+            marginBottom: '12px',
+          }}
+        >
+          <p style={{ color: provenance.tone, letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Meeting Provenance</p>
+          <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{provenance.description}</p>
+        </section>
 
         <div style={{ display: 'grid', gap: '12px' }}>
           <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
@@ -5854,6 +5909,68 @@ function standupParticipants(entry: StandupEntry) {
   const combined = [...payloadParticipants, ...roomParticipants];
   const unique = combined.filter((item, index) => combined.findIndex((candidate) => candidate.toLowerCase() === item.toLowerCase()) === index);
   return unique.length ? unique : [entry.owner];
+}
+
+function standupRecordProvenance(entry: StandupEntry): StandupRecordProvenance {
+  const payload = entry.payload ?? {};
+  const source = (entry.source ?? '').toLowerCase();
+  const conversationPath = (entry.conversation_path ?? '').toLowerCase();
+  const hasPrepId = typeof payload.prep_id === 'string' && payload.prep_id.trim().length > 0;
+  const hasDiscussion = standupDiscussion(entry).length > 0;
+  const hasSourcePaths = Array.isArray(payload.source_paths) && payload.source_paths.length > 0;
+  const transcriptLikeSource =
+    ['transcript', 'meeting_watchdog', 'meeting_transcript', 'room_capture'].some((token) => source.includes(token)) ||
+    conversationPath.includes('/transcripts/') ||
+    conversationPath.endsWith('.vtt') ||
+    conversationPath.endsWith('.srt');
+
+  if (source === 'standup_prep' || hasPrepId) {
+    return {
+      label: 'Generated from standup prep',
+      tone: '#fbbf24',
+      background: 'rgba(251, 191, 36, 0.10)',
+      border: 'rgba(251, 191, 36, 0.30)',
+      description: 'This meeting record was promoted from a prep packet. It is operationally useful, but the attendees and dialogue may be system-shaped rather than a literal transcript.',
+    };
+  }
+
+  if (source === 'brain_triage') {
+    return {
+      label: 'Hybrid record',
+      tone: '#38bdf8',
+      background: 'rgba(56, 189, 248, 0.10)',
+      border: 'rgba(56, 189, 248, 0.30)',
+      description: 'This record came from routed Brain signal and was structured into a standup shape. It reflects real signal, but not necessarily a verbatim meeting.',
+    };
+  }
+
+  if (transcriptLikeSource && hasDiscussion) {
+    return {
+      label: 'Transcript-backed',
+      tone: '#22c55e',
+      background: 'rgba(34, 197, 94, 0.10)',
+      border: 'rgba(34, 197, 94, 0.30)',
+      description: 'This record points to transcript-like meeting evidence and stored discussion rounds, so it is the closest thing here to what was actually said in the room.',
+    };
+  }
+
+  if (hasDiscussion || hasSourcePaths || conversationPath) {
+    return {
+      label: 'Hybrid record',
+      tone: '#38bdf8',
+      background: 'rgba(56, 189, 248, 0.10)',
+      border: 'rgba(56, 189, 248, 0.30)',
+      description: 'This record mixes captured context with operator or system shaping. Treat it as a useful recap, not a word-for-word transcript.',
+    };
+  }
+
+  return {
+    label: 'Sparse record',
+    tone: '#94a3b8',
+    background: 'rgba(148, 163, 184, 0.08)',
+    border: 'rgba(148, 163, 184, 0.22)',
+    description: 'Only minimal meeting metadata is stored here, so this should be treated as a placeholder record rather than reliable meeting evidence.',
+  };
 }
 
 function extractPmSnapshotLines(snapshot: unknown) {
