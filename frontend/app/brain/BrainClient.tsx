@@ -68,6 +68,8 @@ type BriefSourceIntelligenceCandidate = {
   related_persona_context?: BriefReactionPersonaContextEntry[];
 };
 
+type BriefConsumerLane = 'source_only' | 'brief_only' | 'persona_candidate' | 'post_candidate' | 'route_to_pm';
+
 type BriefSourceIntelligenceReviewItem = {
   trait?: string | null;
   belief_relation?: string | null;
@@ -1780,6 +1782,7 @@ function DailyBriefsPanel({
                 Daily Briefs are for fast system awareness: what happened, what changed, and what deserves attention now. Persona is the separate curation surface where you decide what should become durable identity, worldview, or canon.
               </p>
             </div>
+            <BriefLaneLegendPanel />
             <BriefSystemChainPanel brief={selected} overlay={selectedSourceIntelligence} streamCount={streamItems.length} />
             {selectedSourceIntelligence && <BriefSourceIntelligencePanel overlay={selectedSourceIntelligence} />}
             {streamItems.length > 0 && <BriefStreamPanel brief={selected} items={streamItems} onRefresh={onRefresh} />}
@@ -1803,6 +1806,34 @@ function DailyBriefsPanel({
           <p style={{ color: '#475569' }}>Select a brief to read the saved markdown.</p>
         )}
       </div>
+    </section>
+  );
+}
+
+function BriefLaneLegendPanel() {
+  const lanes: BriefConsumerLane[] = ['source_only', 'brief_only', 'persona_candidate', 'post_candidate', 'route_to_pm'];
+  return (
+    <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+      <div style={{ marginBottom: '12px' }}>
+        <p style={{ color: '#22c55e', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Handoff Lanes</p>
+        <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+          The source system can feed multiple downstream consumers, but each consumer has a different job. These lane labels tell you whether an item should stay awareness-only, become persona work, turn into public expression, or earn explicit operational routing.
+        </p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+        {lanes.map((lane) => {
+          const definition = briefConsumerLaneDefinition(lane);
+          return (
+            <div key={lane} style={{ borderRadius: '12px', border: `1px solid ${definition.tone}33`, backgroundColor: `${definition.tone}10`, padding: '12px' }}>
+              <p style={{ color: definition.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>{definition.label}</p>
+              <p style={{ color: '#dbe7ff', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{definition.description}</p>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.5, margin: '10px 0 0' }}>
+        The live cards below only show promoted candidates. Source-only and brief-only signals can still appear in the saved brief or upstream counts without becoming Persona or PM work.
+      </p>
     </section>
   );
 }
@@ -1894,6 +1925,9 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, maxWidth: '760px' }}>
             This is the current shared source and planning overlay. It can point toward posting, planning, or persona implications, but it is not itself a second persona queue.
           </p>
+          <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.5, margin: '8px 0 0' }}>
+            Each highlighted item now carries a downstream lane label so the brief can show what it is nominating without pretending to do the persona decision itself.
+          </p>
         </div>
         <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right' }}>
           <div>{overlay.generated_at ? formatTimestamp(new Date(overlay.generated_at)) : 'No live timestamp'}</div>
@@ -1914,16 +1948,19 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           title="What deserves a post"
           description={mediaSeeds[0] ? compactBriefCandidate(mediaSeeds[0]) : 'No strong media-derived post seed has surfaced yet.'}
           tone="#38bdf8"
+          lane="post_candidate"
         />
         <PriorityFocusCard
           title="What may affect persona"
           description={beliefEvidence[0] ? compactBriefCandidate(beliefEvidence[0]) : 'No strong persona-relevant belief signal is visible right now.'}
           tone="#22c55e"
+          lane="persona_candidate"
         />
         <PriorityFocusCard
           title="What may need persona curation"
           description={reviewItems[0] ? compactReviewItem(reviewItems[0]) : 'No persona handoff item is at the top of the queue right now.'}
           tone="#818cf8"
+          lane="persona_candidate"
         />
       </div>
 
@@ -1961,6 +1998,7 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
               <div key={`${item.trait ?? 'review'}-${index}`} style={{ borderRadius: '10px', border: '1px solid #1f2937', padding: '10px', backgroundColor: '#030712' }}>
                 <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.5, marginBottom: '6px' }}>{item.trait ?? 'Untitled review item'}</p>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <InlineBadge label={briefConsumerLaneDefinition('persona_candidate').label} tone={briefConsumerLaneDefinition('persona_candidate').tone} />
                   <InlineBadge label={humanizeBeliefRelation(item.belief_relation ?? null)} tone="#22c55e" />
                   <InlineBadge label={humanizeReviewSource(item.review_source ?? null)} tone="#64748b" />
                   {item.target_file && <InlineBadge label={item.target_file} tone="#818cf8" />}
@@ -2076,7 +2114,7 @@ function BriefStreamPanel({
         <div>
           <p style={{ color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Brief Stream</p>
           <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-            Read the source cards, react here, and let those reactions feed Persona. This keeps Briefs as the reading surface and Persona as the canon surface.
+            Read the source cards, react here, and let those reactions feed Persona. The lane labels tell you whether the card is mainly a post candidate, a persona candidate, or a signal that only deserves awareness unless you explicitly route it further.
           </p>
         </div>
         <InlineBadge label={`${items.length} source card${items.length === 1 ? '' : 's'}`} tone="#38bdf8" />
@@ -2085,6 +2123,9 @@ function BriefStreamPanel({
       <div style={{ display: 'grid', gap: '12px' }}>
         {items.map((item) => {
           const isActive = item.item_key === activeItem?.item_key;
+          const consumerLanes = briefConsumerLanesForCandidate(item);
+          const primaryLane = consumerLanes[0] ?? 'brief_only';
+          const primaryLaneDefinition = briefConsumerLaneDefinition(primaryLane);
           const relatedContext = item.related_persona_context ?? [];
           const existingReactions = item.existing_reactions ?? [];
           return (
@@ -2103,6 +2144,10 @@ function BriefStreamPanel({
                 <div style={{ minWidth: 0 }}>
                   <h3 style={{ color: 'white', fontSize: '16px', margin: '0 0 6px', lineHeight: 1.45 }}>{item.title || 'Untitled source'}</h3>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {consumerLanes.map((lane) => {
+                      const definition = briefConsumerLaneDefinition(lane);
+                      return <InlineBadge key={`${item.item_key || item.title}-${lane}`} label={definition.label} tone={definition.tone} />;
+                    })}
                     {item.section && <InlineBadge label={humanizeSnakeCase(item.section)} tone="#818cf8" />}
                     {item.priority_lane && <InlineBadge label={humanizeSnakeCase(item.priority_lane)} tone="#22c55e" />}
                     {item.source_kind && <InlineBadge label={humanizeSnakeCase(item.source_kind)} tone="#64748b" />}
@@ -2162,6 +2207,9 @@ function BriefStreamPanel({
                 </div>
               </div>
 
+              <p style={{ color: primaryLaneDefinition.tone, fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                {briefConsumerLaneGuidance(primaryLane)}
+              </p>
               {item.summary && <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.summary}</p>}
               {item.hook && <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>Hook: {item.hook}</p>}
               {item.route_reason && <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>Why it matters: {item.route_reason}</p>}
@@ -2210,8 +2258,12 @@ function BriefStreamPanel({
                 <div style={{ display: 'grid', gap: '8px' }}>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     <InlineBadge label={`Saving as ${humanizeResponseKind(reactionKind)}`} tone="#38bdf8" />
+                    <InlineBadge label={`Source role ${primaryLaneDefinition.label}`} tone={primaryLaneDefinition.tone} />
                     {item.target_file && <InlineBadge label={`Persona target ${humanizeTargetFileLabel(item.target_file)}`} tone="#64748b" />}
                   </div>
+                  <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                    Saving a reaction here creates a Persona handoff. It does not automatically change the underlying source role of this card, which is currently <span style={{ color: primaryLaneDefinition.tone }}>{primaryLaneDefinition.label.toLowerCase()}</span>.
+                  </p>
                   <textarea
                     value={reactionText}
                     onChange={(event) => {
@@ -2272,10 +2324,24 @@ function BriefOverlayBlock({ title, items, emptyLabel }: { title: string; items:
   );
 }
 
-function PriorityFocusCard({ title, description, tone }: { title: string; description: string; tone: string }) {
+function PriorityFocusCard({
+  title,
+  description,
+  tone,
+  lane,
+}: {
+  title: string;
+  description: string;
+  tone: string;
+  lane?: BriefConsumerLane;
+}) {
+  const laneDefinition = lane ? briefConsumerLaneDefinition(lane) : null;
   return (
     <div style={{ borderRadius: '12px', border: `1px solid ${tone}33`, backgroundColor: `${tone}10`, padding: '12px' }}>
-      <p style={{ color: tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>{title}</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', marginBottom: '8px', flexWrap: 'wrap' }}>
+        <p style={{ color: tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>{title}</p>
+        {laneDefinition && <InlineBadge label={laneDefinition.label} tone={laneDefinition.tone} />}
+      </div>
       <p style={{ color: '#dbe7ff', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{description}</p>
     </div>
   );
@@ -6066,15 +6132,105 @@ function humanizeSnakeCase(value: string | null | undefined) {
     .join(' ');
 }
 
+function briefConsumerLaneDefinition(lane: BriefConsumerLane) {
+  if (lane === 'source_only') {
+    return {
+      label: 'Source only',
+      tone: '#64748b',
+      description: 'Captured upstream signal. Keep it in source intelligence unless it earns a stronger promotion.',
+    };
+  }
+  if (lane === 'brief_only') {
+    return {
+      label: 'Brief only',
+      tone: '#38bdf8',
+      description: 'Useful cycle awareness. Mention it in the brief, but do not treat it as persona or PM by default.',
+    };
+  }
+  if (lane === 'persona_candidate') {
+    return {
+      label: 'Persona candidate',
+      tone: '#22c55e',
+      description: 'Potential durable identity, worldview, or canon signal. Judge it in Persona before preserving it.',
+    };
+  }
+  if (lane === 'post_candidate') {
+    return {
+      label: 'Post candidate',
+      tone: '#f59e0b',
+      description: 'Expression-ready material for comments, reposts, or post seeds. Public output is the main consumer.',
+    };
+  }
+  return {
+    label: 'Route to PM',
+    tone: '#fb7185',
+    description: 'Worth explicit operational routing after judgment. Do not treat it as PM work automatically.',
+  };
+}
+
+function briefConsumerLaneGuidance(lane: BriefConsumerLane) {
+  if (lane === 'source_only') {
+    return 'Keep this upstream for now. It is a source artifact, not yet a brief, persona, or PM commitment.';
+  }
+  if (lane === 'brief_only') {
+    return 'This belongs in situational awareness first. It helps the daily brief, but it does not deserve persona or PM by default.';
+  }
+  if (lane === 'persona_candidate') {
+    return 'This may reveal durable truth about Johnnie. Use Persona to decide whether it becomes identity, worldview, or canon.';
+  }
+  if (lane === 'post_candidate') {
+    return 'This is mainly an expression opportunity. Use posting or commentary first unless your reaction exposes durable persona truth.';
+  }
+  return 'This looks operationally meaningful, but it still needs explicit routing. Let judgment happen before it becomes executable work.';
+}
+
+function briefConsumerLanesForCandidate(item: BriefSourceIntelligenceCandidate): BriefConsumerLane[] {
+  const lanes: BriefConsumerLane[] = [];
+  const section = (item.section || '').trim();
+  const responseModes = (item.response_modes ?? []).map((value) => value.trim()).filter(Boolean);
+  const pmSignalText = [item.route_reason, item.summary, item.priority_lane, item.target_file]
+    .map((value) => value?.toLowerCase?.() || '')
+    .join(' ');
+  const hasExplicitPMSignal = /(pm|execution|dispatch|backlog|standup|queue|workflow|ops)/.test(pmSignalText);
+
+  if (section === 'belief_evidence') {
+    lanes.push('persona_candidate');
+  }
+  if (section === 'post_seed') {
+    lanes.push('post_candidate');
+  }
+
+  if (responseModes.some((mode) => mode === 'belief_evidence')) {
+    lanes.push('persona_candidate');
+  }
+  if (responseModes.some((mode) => mode === 'post_seed' || mode === 'comment' || mode === 'repost')) {
+    lanes.push('post_candidate');
+  }
+  if (hasExplicitPMSignal) {
+    lanes.push('route_to_pm');
+  }
+
+  if (lanes.length === 0) {
+    lanes.push('brief_only');
+  }
+
+  return Array.from(new Set(lanes));
+}
+
 function compactBriefCandidate(item: BriefSourceIntelligenceCandidate) {
   const title = item.title?.trim() || 'Untitled candidate';
-  const parts = [item.priority_lane?.trim(), item.target_file?.trim(), item.route_reason?.trim()].filter(Boolean);
+  const primaryLane = briefConsumerLanesForCandidate(item)[0] ?? 'brief_only';
+  const parts = [briefConsumerLaneDefinition(primaryLane).label, item.priority_lane?.trim(), item.target_file?.trim(), item.route_reason?.trim()].filter(Boolean);
   return parts.length > 0 ? `${title} · ${parts.join(' · ')}` : title;
 }
 
 function compactReviewItem(item: BriefSourceIntelligenceReviewItem) {
   const trait = item.trait?.trim() || 'Untitled review item';
-  const parts = [item.belief_relation ? humanizeBeliefRelation(item.belief_relation) : null, humanizeReviewSource(item.review_source ?? null)].filter(Boolean);
+  const parts = [
+    briefConsumerLaneDefinition('persona_candidate').label,
+    item.belief_relation ? humanizeBeliefRelation(item.belief_relation) : null,
+    humanizeReviewSource(item.review_source ?? null),
+  ].filter(Boolean);
   return parts.length > 0 ? `${trait} · ${parts.join(' · ')}` : trait;
 }
 
