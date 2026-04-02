@@ -129,6 +129,7 @@ type Automation = {
   cron: string;
   status: string;
   channel: string;
+  metrics?: Record<string, string>;
   source?: string;
   runtime?: string | null;
   last_status?: string;
@@ -136,6 +137,20 @@ type Automation = {
   workspace_key?: string | null;
   last_run_at?: string;
   next_run_at?: string;
+};
+
+type AutomationRun = {
+  id: string;
+  automation_id: string;
+  automation_name: string;
+  status: string;
+  run_at?: string | null;
+  finished_at?: string | null;
+  action_required?: boolean;
+  owner_agent?: string | null;
+  scope?: string;
+  workspace_key?: string | null;
+  metadata?: Record<string, unknown>;
 };
 
 type PMCard = {
@@ -245,6 +260,14 @@ type MeetingHistoryItem = {
   label: string;
   detail: string;
   tone?: string;
+};
+
+type MissionActivityRow = {
+  key: string;
+  stream: string;
+  activity: string;
+  status: string;
+  lastSeen?: Date;
 };
 
 type MeetingRoomHealth = {
@@ -860,7 +883,12 @@ type TelemetryErrors = {
 };
 
 type LogsResponse = { logs?: SystemLog[] } | SystemLog[];
-type AutomationsResponse = { data?: Automation[] } | { automations?: Automation[] } | Automation[] | null | undefined;
+type AutomationsResponse =
+  | { data?: Automation[]; runs?: AutomationRun[] }
+  | { automations?: Automation[]; runs?: AutomationRun[] }
+  | Automation[]
+  | null
+  | undefined;
 
 const TELEMETRY_LABELS: Record<keyof TelemetryErrors, string> = {
   metrics: 'Compliance metrics',
@@ -1096,6 +1124,7 @@ export default function OpsClient({
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [automations, setAutomations] = useState<Automation[]>([]);
+  const [automationRuns, setAutomationRuns] = useState<AutomationRun[]>([]);
   const [pmCards, setPmCards] = useState<PMCard[]>([]);
   const [executionQueue, setExecutionQueue] = useState<ExecutionQueueEntry[]>([]);
   const [standups, setStandups] = useState<StandupEntry[]>([]);
@@ -1248,6 +1277,7 @@ export default function OpsClient({
 
     if (automationsResp.status === 'fulfilled') {
       setAutomations(normalizeAutomations(automationsResp.value));
+      setAutomationRuns(normalizeAutomationRuns(automationsResp.value));
       updateSectionError('automations', null);
     } else {
       updateSectionError('automations', toErrorMessage(automationsResp.reason));
@@ -1424,6 +1454,17 @@ export default function OpsClient({
     });
   }, [logs]);
 
+  const activityRows = useMemo(
+    () =>
+      buildMissionActivityRows({
+        executionQueue,
+        automations,
+        automationRuns,
+        sessions: sessionRows,
+      }),
+    [executionQueue, automations, automationRuns, sessionRows],
+  );
+
   const selectedWorkspace = useMemo(
     () => effectiveWorkspaceFiles.find((file) => file.path === selectedWorkspacePath) ?? effectiveWorkspaceFiles[0] ?? null,
     [effectiveWorkspaceFiles, selectedWorkspacePath],
@@ -1504,7 +1545,7 @@ export default function OpsClient({
           metricsError={sectionErrors.metrics}
           models={modelRows}
           modelsError={sectionErrors.health}
-          sessions={sessionRows}
+          activityRows={activityRows}
           sessionsError={sectionErrors.logs}
           cronJobs={automations}
           cronError={sectionErrors.automations}
@@ -1572,7 +1613,7 @@ function MissionControlView({
   metricsError,
   models,
   modelsError,
-  sessions,
+  activityRows,
   sessionsError,
   cronJobs,
   cronError,
@@ -1586,7 +1627,7 @@ function MissionControlView({
   metricsError: string | null;
   models: { name: string; status: string; version: string; datastore: string }[];
   modelsError: string | null;
-  sessions: { component: string; lastMessage: string; lastTimestamp?: Date }[];
+  activityRows: MissionActivityRow[];
   sessionsError: string | null;
   cronJobs: Automation[];
   cronError: string | null;
@@ -1601,7 +1642,7 @@ function MissionControlView({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <HeroCard metrics={metrics} sessions={sessions.length} cronCount={cronJobs.length} />
+      <HeroCard metrics={metrics} sessions={activityRows.length} cronCount={cronJobs.length} />
       {metricsError && <SectionAlert message={`${TELEMETRY_LABELS.metrics}: ${metricsError}`} />}
       <StatusTable
         title="Models"
@@ -1615,11 +1656,11 @@ function MissionControlView({
       {brainHealthError && <SectionAlert message={`${TELEMETRY_LABELS.brainHealth}: ${brainHealthError}`} />}
       <StatusTable
         title="Active Streams"
-        subtitle="Latest events per component"
-        headers={['Component', 'Last Event', 'Last Seen']}
-        rows={sessions.map((session) => [session.component, session.lastMessage || '-', session.lastTimestamp ? formatTimestamp(session.lastTimestamp) : '-'])}
+        subtitle="Execution lanes, automation runs, and live backlog signals"
+        headers={['Stream', 'Activity', 'Status', 'Last Seen']}
+        rows={activityRows.map((row) => [row.stream, row.activity, statusBadge(row.status), row.lastSeen ? formatTimestamp(row.lastSeen) : '-'])}
       />
-      {sessionsError && <SectionAlert message={`${TELEMETRY_LABELS.logs}: ${sessionsError}`} />}
+      {sessionsError && activityRows.length === 0 && <SectionAlert message={`${TELEMETRY_LABELS.logs}: ${sessionsError}`} />}
       <CronTable cronJobs={cronJobs} />
       {cronError && <SectionAlert message={`${TELEMETRY_LABELS.automations}: ${cronError}`} />}
     </div>
@@ -1630,7 +1671,7 @@ function HeroCard({ metrics, sessions, cronCount }: { metrics: ComplianceMetrics
   const cards = [
     { label: 'Approvals', value: metrics?.approvals_last_24h ?? 0, detail: 'Last 24h', tone: '#fbbf24' },
     { label: 'Prospects Ready', value: metrics?.prospects_with_email ?? 0, detail: 'Email staged', tone: '#38bdf8' },
-    { label: 'Log Streams', value: sessions, detail: 'Active emitters', tone: '#4ade80' },
+    { label: 'Active Streams', value: sessions, detail: 'Runtime activity', tone: '#4ade80' },
     { label: 'Cron Runs', value: cronCount, detail: 'Isolated jobs', tone: '#f472b6' },
   ];
   return (
@@ -6670,7 +6711,35 @@ function CronTable({ cronJobs }: { cronJobs: Automation[] }) {
             ) : (
               cronJobs.map((job) => (
                 <tr key={job.id}>
-                  <td style={{ padding: '10px 0', color: '#e2e8f0', fontWeight: 600 }}>{job.name}</td>
+                  <td style={{ padding: '10px 0', color: '#e2e8f0', fontWeight: 600 }}>
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      <span>{job.name}</span>
+                      {(() => {
+                        const pendingBackfill = Number(job.metrics?.pending_transcript_backfill ?? 0);
+                        if (job.id !== 'youtube_watchlist_auto_ingest' || !Number.isFinite(pendingBackfill) || pendingBackfill <= 0) {
+                          return null;
+                        }
+                        return (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              width: 'fit-content',
+                              borderRadius: '999px',
+                              border: '1px solid rgba(245, 158, 11, 0.35)',
+                              backgroundColor: 'rgba(120, 53, 15, 0.35)',
+                              color: '#fbbf24',
+                              fontSize: '11px',
+                              fontWeight: 500,
+                              padding: '2px 8px',
+                            }}
+                          >
+                            {pendingBackfill} pending transcript{pendingBackfill === 1 ? '' : 's'}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </td>
                   <td style={{ padding: '10px 0', color: '#94a3b8' }}>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span>{job.schedule}</span>
@@ -8178,11 +8247,68 @@ function normalizeExecutionState(state: string) {
   return 'ready';
 }
 
+function normalizeAutomationRunStatus(status?: string | null) {
+  const normalized = (status ?? '').toLowerCase();
+  if (normalized === 'success') return 'ok';
+  if (normalized === 'error') return 'blocked';
+  return normalized || 'unknown';
+}
+
 function humanizeStatusLabel(status?: string | null) {
   if (!status) {
     return 'unknown';
   }
   return status.replace(/[_-]+/g, ' ');
+}
+
+function dedupeStrings(values: string[]) {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  values.forEach((value) => {
+    const cleaned = value.trim();
+    if (!cleaned || seen.has(cleaned)) return;
+    seen.add(cleaned);
+    ordered.push(cleaned);
+  });
+  return ordered;
+}
+
+function formatList(values: string[]) {
+  if (!values.length) return '';
+  if (values.length === 1) return values[0];
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`;
+}
+
+function activityTimestampForQueue(entry: ExecutionQueueEntry) {
+  const raw = entry.last_transition_at || entry.queued_at;
+  if (!raw) return undefined;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function runTimestamp(run: AutomationRun) {
+  const raw = run.finished_at || run.run_at;
+  if (!raw) return undefined;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function extractAutomationRunSummary(run: AutomationRun) {
+  const metadata = run.metadata ?? {};
+  const value = metadata.summary;
+  return typeof value === 'string' ? summarize(value, 140) : '';
+}
+
+function workspaceShortLabel(workspaceKey?: string | null) {
+  if (!workspaceKey || workspaceKey === 'shared_ops') {
+    return 'Shared Ops';
+  }
+  const hub = WORKSPACE_HUBS.find((item) => item.id === workspaceKey);
+  if (hub) {
+    return hub.shortLabel;
+  }
+  return workspaceKey.replace(/[_-]+/g, ' ');
 }
 
 function isHeldPmLayerStatus(
@@ -8510,6 +8636,162 @@ function normalizeAutomations(payload: AutomationsResponse): Automation[] {
     if (Array.isArray(maybeAutomations)) return maybeAutomations;
   }
   return [];
+}
+
+function normalizeAutomationRuns(payload: AutomationsResponse): AutomationRun[] {
+  if (!payload || Array.isArray(payload) || typeof payload !== 'object') return [];
+  const maybeRuns = (payload as { runs?: AutomationRun[] }).runs;
+  return Array.isArray(maybeRuns) ? maybeRuns : [];
+}
+
+function buildMissionActivityRows({
+  executionQueue,
+  automations,
+  automationRuns,
+  sessions,
+}: {
+  executionQueue: ExecutionQueueEntry[];
+  automations: Automation[];
+  automationRuns: AutomationRun[];
+  sessions: { component: string; lastMessage: string; lastTimestamp?: Date }[];
+}): MissionActivityRow[] {
+  const prioritized: Array<MissionActivityRow & { sortTime: number; priority: number }> = [];
+  const pushRow = (row: MissionActivityRow, priority: number) => {
+    prioritized.push({
+      ...row,
+      sortTime: row.lastSeen?.getTime() ?? 0,
+      priority,
+    });
+  };
+
+  const executionBuckets = {
+    failed: executionQueue.filter((entry) => normalizeExecutionState(entry.execution_state) === 'failed'),
+    review: executionQueue.filter((entry) => normalizeExecutionState(entry.execution_state) === 'review'),
+    running: executionQueue.filter((entry) => normalizeExecutionState(entry.execution_state) === 'running'),
+    queued: executionQueue.filter((entry) => normalizeExecutionState(entry.execution_state) === 'queued'),
+    ready: executionQueue.filter((entry) => normalizeExecutionState(entry.execution_state) === 'ready'),
+  };
+
+  const summarizeQueueBucket = (entries: ExecutionQueueEntry[], state: string, stream: string, priority: number) => {
+    if (!entries.length) return;
+    const ordered = [...entries].sort((left, right) => {
+      const leftTime = activityTimestampForQueue(left)?.getTime() ?? 0;
+      const rightTime = activityTimestampForQueue(right)?.getTime() ?? 0;
+      return rightTime - leftTime;
+    });
+    const latest = ordered[0];
+    const workspaces = dedupeStrings(ordered.map((entry) => workspaceShortLabel(entry.workspace_key)));
+    const workspaceSummary = workspaces.length ? ` across ${formatList(workspaces)}` : '';
+    let activity = '';
+    if (state === 'running') {
+      activity = `${ordered.length} live execution lane${ordered.length === 1 ? '' : 's'}${workspaceSummary}. Latest: ${summarize(latest.title, 88)}.`;
+    } else if (state === 'review') {
+      activity = `${ordered.length} card${ordered.length === 1 ? '' : 's'} waiting on review${workspaceSummary}. Latest return: ${summarize(latest.title, 88)}.`;
+    } else if (state === 'failed') {
+      activity = `${ordered.length} execution lane${ordered.length === 1 ? '' : 's'} blocked${workspaceSummary}. Latest blocker: ${summarize(latest.title, 88)}.`;
+    } else if (state === 'queued') {
+      activity = `${ordered.length} card${ordered.length === 1 ? '' : 's'} already opened and waiting for pickup${workspaceSummary}. Latest: ${summarize(latest.title, 88)}.`;
+    } else {
+      activity = `${ordered.length} card${ordered.length === 1 ? '' : 's'} ready for Jean-Claude${workspaceSummary}. Latest: ${summarize(latest.title, 88)}.`;
+    }
+    pushRow(
+      {
+        key: `queue-${state}`,
+        stream,
+        activity,
+        status: state === 'failed' ? 'blocked' : state,
+        lastSeen: activityTimestampForQueue(latest),
+      },
+      priority,
+    );
+  };
+
+  summarizeQueueBucket(executionBuckets.failed, 'failed', 'Execution blockers', 500);
+  summarizeQueueBucket(executionBuckets.running, 'running', 'Execution lanes', 470);
+  summarizeQueueBucket(executionBuckets.review, 'review', 'Review queue', 450);
+  summarizeQueueBucket(executionBuckets.queued, 'queued', 'Delegated queue', 430);
+  summarizeQueueBucket(executionBuckets.ready, 'ready', 'Jean-Claude queue', 410);
+
+  const youtubeAutomation = automations.find((item) => item.id === 'youtube_watchlist_auto_ingest') ?? null;
+  const pendingBackfill = Number(youtubeAutomation?.metrics?.pending_transcript_backfill ?? 0);
+  if (youtubeAutomation && Number.isFinite(pendingBackfill) && pendingBackfill > 0) {
+    const transcriptionReady = youtubeAutomation.metrics?.transcription_runtime_ready === 'true';
+    pushRow(
+      {
+        key: 'youtube-pending-transcripts',
+        stream: 'YouTube transcript backlog',
+        activity: transcriptionReady
+          ? `${pendingBackfill} transcript${pendingBackfill === 1 ? '' : 's'} waiting to be written back into the richer media pipeline.`
+          : `${pendingBackfill} transcript${pendingBackfill === 1 ? '' : 's'} waiting because the local transcription runtime is not ready yet.`,
+        status: transcriptionReady ? 'review' : 'warning',
+        lastSeen: youtubeAutomation.last_run_at ? new Date(youtubeAutomation.last_run_at) : undefined,
+      },
+      480,
+    );
+  }
+
+  const latestRunByAutomation = new Map<string, AutomationRun>();
+  [...automationRuns]
+    .sort((left, right) => {
+      const leftTime = runTimestamp(left)?.getTime() ?? 0;
+      const rightTime = runTimestamp(right)?.getTime() ?? 0;
+      return rightTime - leftTime;
+    })
+    .forEach((run) => {
+      if (!run.automation_id || latestRunByAutomation.has(run.automation_id)) return;
+      latestRunByAutomation.set(run.automation_id, run);
+    });
+
+  const recentCutoff = Date.now() - 6 * 60 * 60 * 1000;
+  Array.from(latestRunByAutomation.values()).forEach((run) => {
+    const timestamp = runTimestamp(run);
+    const summary = extractAutomationRunSummary(run);
+    const idleSummary = /found no queued pm cards|no queued cards|nothing to dispatch|no work/i.test(summary);
+    if (!run.action_required && idleSummary) {
+      return;
+    }
+    if (!run.action_required && timestamp && timestamp.getTime() < recentCutoff) {
+      return;
+    }
+    if (!summary && !run.action_required) {
+      return;
+    }
+    pushRow(
+      {
+        key: `automation-run-${run.automation_id}`,
+        stream: run.automation_name || humanizeStatusLabel(run.automation_id),
+        activity: summary || `${humanizeStatusLabel(run.status)} run completed.`,
+        status: run.action_required ? 'warning' : normalizeAutomationRunStatus(run.status),
+        lastSeen: timestamp,
+      },
+      run.action_required ? 460 : 300,
+    );
+  });
+
+  if (!prioritized.length) {
+    sessions.slice(0, 8).forEach((session, index) => {
+      pushRow(
+        {
+          key: `session-${session.component}-${index}`,
+          stream: session.component,
+          activity: session.lastMessage || '-',
+          status: 'active',
+          lastSeen: session.lastTimestamp,
+        },
+        100,
+      );
+    });
+  }
+
+  return prioritized
+    .sort((left, right) => {
+      if (right.priority !== left.priority) {
+        return right.priority - left.priority;
+      }
+      return right.sortTime - left.sortTime;
+    })
+    .slice(0, 10)
+    .map(({ sortTime: _sortTime, priority: _priority, ...row }) => row);
 }
 
 function toErrorMessage(err: unknown): string {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import types
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +59,33 @@ class AutomationRegistryTests(unittest.TestCase):
         self.assertEqual(youtube_automation.channel, "brain/youtube-watchlist")
         self.assertIn("openclaw", youtube_automation.metrics.get("framework", ""))
         self.assertIn("ollama -> gemini flash -> openai", youtube_automation.metrics.get("cheap_task_defaults", ""))
+
+    def test_augments_youtube_watchlist_with_pending_transcript_runtime_metrics(self) -> None:
+        runtime_status = {
+            "runtime": {
+                "yt_dlp": True,
+                "whisper": False,
+                "can_transcribe": False,
+                "whisper_model": "base",
+            },
+            "pending_transcript_backfill": 3,
+            "pending_transcript_assets": [],
+        }
+
+        fake_module = types.ModuleType("app.services.youtube_watchlist_service")
+        fake_module.youtube_watchlist_runtime_status = lambda: runtime_status
+
+        with patch.dict(sys.modules, {"app.services.youtube_watchlist_service": fake_module}):
+            automations = list_automations()
+
+        youtube_automation = next((item for item in automations if item.id == "youtube_watchlist_auto_ingest"), None)
+        self.assertIsNotNone(youtube_automation)
+        assert youtube_automation is not None
+        self.assertEqual(youtube_automation.metrics.get("pending_transcript_backfill"), "3")
+        self.assertEqual(youtube_automation.metrics.get("transcription_runtime_ready"), "false")
+        self.assertEqual(youtube_automation.metrics.get("caption_runtime_available"), "true")
+        self.assertEqual(youtube_automation.metrics.get("whisper_runtime_available"), "false")
+        self.assertEqual(youtube_automation.metrics.get("whisper_model"), "base")
 
     def test_prefers_openclaw_jobs_json_when_available(self) -> None:
         payload = {

@@ -388,6 +388,27 @@ def _local_launchd_automations() -> List[Automation]:
     ]
 
 
+def _augment_automation_runtime(automation: Automation) -> Automation:
+    if automation.id != "youtube_watchlist_auto_ingest":
+        return automation
+    try:
+        from app.services.youtube_watchlist_service import youtube_watchlist_runtime_status
+
+        runtime_status = youtube_watchlist_runtime_status()
+    except Exception:
+        return automation
+
+    runtime = runtime_status.get("runtime") if isinstance(runtime_status.get("runtime"), dict) else {}
+    pending_backfill = int(runtime_status.get("pending_transcript_backfill") or 0)
+    metrics = dict(automation.metrics)
+    metrics["pending_transcript_backfill"] = str(pending_backfill)
+    metrics["transcription_runtime_ready"] = "true" if bool(runtime.get("can_transcribe")) else "false"
+    metrics["caption_runtime_available"] = "true" if bool(runtime.get("yt_dlp")) else "false"
+    metrics["whisper_runtime_available"] = "true" if bool(runtime.get("whisper")) else "false"
+    metrics["whisper_model"] = str(runtime.get("whisper_model") or metrics.get("whisper_model") or "")
+    return automation.model_copy(update={"metrics": metrics})
+
+
 def _load_openclaw_jobs() -> List[dict[str, Any]]:
     if not OPENCLAW_JOBS_PATH.exists():
         return []
@@ -627,6 +648,7 @@ def list_automations() -> List[Automation]:
         automations = _static_automations()
         existing_ids = {item.id for item in automations}
         automations.extend(item for item in launchd_items if item.id not in existing_ids)
+        automations = [_augment_automation_runtime(item) for item in automations]
         automations.sort(key=lambda item: item.name.lower())
         return automations
 
@@ -635,5 +657,6 @@ def list_automations() -> List[Automation]:
     automations.extend(item for item in static_items if item.id in STATIC_FALLBACK_IDS)
     existing_ids = {item.id for item in automations}
     automations.extend(item for item in launchd_items if item.id not in existing_ids)
+    automations = [_augment_automation_runtime(item) for item in automations]
     automations.sort(key=lambda item: item.name.lower())
     return automations

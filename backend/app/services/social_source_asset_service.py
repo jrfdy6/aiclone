@@ -110,6 +110,44 @@ def _clean_text(value: Any) -> str:
     return " ".join(str(value).replace("\xa0", " ").split()).strip()
 
 
+def _transcript_note_kind(meta: dict[str, Any], body: str, path: Path) -> str:
+    title = _clean_text(meta.get("title"))
+    source = _clean_text(meta.get("source"))
+    tags = " ".join(_list_strings(meta.get("tags"), 12))
+    fingerprint = f"{title} {source} {tags} {path.name}".lower()
+    body_lower = body.lower()
+
+    if "persona interview" in fingerprint:
+        return "persona_interview"
+    if "voice proof" in fingerprint or "guided voice/proof" in body_lower or "phrase boundaries" in body_lower:
+        return "voice_proof"
+    if "external reference" in fingerprint or "reference batch" in fingerprint:
+        return "external_reference_batch"
+    if "bootcamp" in fingerprint or "episode" in fingerprint:
+        return "program_episode"
+    return "manual_transcript_note"
+
+
+def _transcript_note_persona_use_mode(note_kind: str) -> str:
+    if note_kind == "persona_interview":
+        return "voice_and_experience"
+    if note_kind == "voice_proof":
+        return "voice_guidance_only"
+    if note_kind == "external_reference_batch":
+        return "reference_only"
+    if note_kind == "program_episode":
+        return "operating_context"
+    return "manual_context"
+
+
+def _transcript_note_voice_priority(note_kind: str) -> str:
+    if note_kind in {"persona_interview", "voice_proof"}:
+        return "high"
+    if note_kind in {"external_reference_batch", "program_episode"}:
+        return "medium"
+    return "low"
+
+
 def _list_strings(value: Any, limit: int = 12) -> list[str]:
     if isinstance(value, list):
         items = value
@@ -472,6 +510,9 @@ def _build_transcript_note_assets(transcripts_root: Path, repo_root: Path) -> li
             continue
         raw = path.read_text(encoding="utf-8")
         meta, body = _parse_frontmatter(raw)
+        note_kind = _transcript_note_kind(meta, body, path)
+        persona_use_mode = _transcript_note_persona_use_mode(note_kind)
+        voice_priority = _transcript_note_voice_priority(note_kind)
         summary = _first_bullet(_extract_section(body, "Summary")) or _first_meaningful_line(body)
         structured_summary = summary
         lessons: list[str] = []
@@ -509,6 +550,7 @@ def _build_transcript_note_assets(transcripts_root: Path, repo_root: Path) -> li
             "feed_ready": False,
             "segmentation_ready": False,
             "origin": "transcript_library",
+            "origin_detail": note_kind,
             "word_count": None,
             "summary_origin": "transcript_note",
             "structured_summary": structured_summary,
@@ -519,6 +561,9 @@ def _build_transcript_note_assets(transcripts_root: Path, repo_root: Path) -> li
             "clean_word_count": None,
             "sentence_count": len(_sentence_candidates(clean_document)),
             "quality_flags": _summary_quality_flags(summary, structured_summary, lessons, anecdotes, quotes),
+            "transcript_note_kind": note_kind,
+            "persona_use_mode": persona_use_mode,
+            "voice_signal_priority": voice_priority,
             "deep_harvest_fragments": deep_harvest_fragments,
             "deep_harvest_counts": _deep_harvest_counts(deep_harvest_fragments),
         }

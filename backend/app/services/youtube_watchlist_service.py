@@ -727,6 +727,28 @@ def build_youtube_watchlist_payload(workspace_root: Path | None = None) -> dict[
     }
 
 
+def youtube_watchlist_runtime_status() -> dict[str, Any]:
+    pending_transcript_assets = _pending_youtube_transcript_assets(repo_root=_repo_root())
+    runtime = _transcription_runtime()
+    return {
+        "runtime": {
+            **runtime,
+            "can_transcribe": _can_transcribe(),
+            "whisper_model": WHISPER_MODEL_NAME,
+        },
+        "pending_transcript_backfill": len(pending_transcript_assets),
+        "pending_transcript_assets": [
+            {
+                "asset_id": _clean_text(item.get("asset_id")),
+                "title": _clean_text(item.get("title")),
+                "source_url": _clean_text(item.get("source_url")),
+                "source_path": _clean_text(item.get("source_path")),
+            }
+            for item in pending_transcript_assets[:12]
+        ],
+    }
+
+
 def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
     return {
         "job_id": job.get("job_id"),

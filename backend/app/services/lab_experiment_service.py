@@ -1537,6 +1537,8 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
     target_file_counts = _bucket_counts([str(item.get("target_file") or "unknown") for item in candidates])
     origin_counts = _bucket_counts([str(item.get("origin") or "unknown") for item in assets])
     summary_origin_counts = _bucket_counts([str(item.get("summary_origin") or "unknown") for item in assets])
+    transcript_note_kind_counts = _bucket_counts([str(item.get("transcript_note_kind") or "unknown") for item in assets if str(item.get("origin") or "") == "transcript_library"])
+    persona_use_mode_counts = _bucket_counts([str(item.get("persona_use_mode") or "unknown") for item in assets if str(item.get("origin") or "") == "transcript_library"])
     quality_flags = [_summary_quality_flags(asset) for asset in assets]
     issue_counts = _bucket_counts([flag for flags in quality_flags for flag in flags], empty_label="none")
     fragment_type_counts = _bucket_counts([str(item.get("primary_type") or "unknown") for item in fragments])
@@ -1601,8 +1603,12 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
                 "source_path": str(asset.get("source_path") or ""),
                 "source_url": str(asset.get("source_url") or ""),
                 "origin": str(asset.get("origin") or "unknown"),
+                "origin_detail": str(asset.get("origin_detail") or ""),
                 "summary": str(asset.get("summary") or ""),
                 "summary_origin": str(asset.get("summary_origin") or "unknown"),
+                "transcript_note_kind": str(asset.get("transcript_note_kind") or ""),
+                "persona_use_mode": str(asset.get("persona_use_mode") or ""),
+                "voice_signal_priority": str(asset.get("voice_signal_priority") or ""),
                 "structured_summary": str(asset.get("structured_summary") or ""),
                 "lessons_learned": [str(item) for item in (asset.get("lessons_learned") or []) if str(item).strip()],
                 "key_anecdotes": [str(item) for item in (asset.get("key_anecdotes") or []) if str(item).strip()],
@@ -1669,6 +1675,8 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "target_file_counts": target_file_counts,
             "origin_counts": origin_counts,
             "summary_origin_counts": summary_origin_counts,
+            "transcript_note_kind_counts": transcript_note_kind_counts,
+            "persona_use_mode_counts": persona_use_mode_counts,
             "issue_counts": issue_counts,
             "fragment_type_counts": fragment_type_counts,
             "fragment_lane_counts": fragment_lane_counts,

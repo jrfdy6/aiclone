@@ -232,6 +232,8 @@ type LabExperiment = {
       target_file_counts: Record<string, number>;
       origin_counts?: Record<string, number>;
       summary_origin_counts: Record<string, number>;
+      transcript_note_kind_counts?: Record<string, number>;
+      persona_use_mode_counts?: Record<string, number>;
       issue_counts: Record<string, number>;
       fragment_type_counts: Record<string, number>;
       fragment_lane_counts: Record<string, number>;
@@ -288,8 +290,12 @@ type LabExperiment = {
       source_path?: string;
       source_url?: string;
       origin?: string;
+      origin_detail?: string;
       summary?: string;
       summary_origin?: string;
+      transcript_note_kind?: string;
+      persona_use_mode?: string;
+      voice_signal_priority?: string;
       structured_summary?: string;
       lessons_learned?: string[];
       key_anecdotes?: string[];
@@ -1086,6 +1092,8 @@ function LiveSourceAuditSection({
   const [targetFilter, setTargetFilter] = useState('all');
   const [issueFilter, setIssueFilter] = useState('all');
   const [summaryOriginFilter, setSummaryOriginFilter] = useState('all');
+  const [transcriptNoteKindFilter, setTranscriptNoteKindFilter] = useState('all');
+  const [personaUseModeFilter, setPersonaUseModeFilter] = useState('all');
   const [fragmentTypeFilter, setFragmentTypeFilter] = useState('all');
   const [fragmentLaneFilter, setFragmentLaneFilter] = useState('all');
   const [fragmentSectionFilter, setFragmentSectionFilter] = useState('all');
@@ -1098,6 +1106,8 @@ function LiveSourceAuditSection({
     setTargetFilter('all');
     setIssueFilter('all');
     setSummaryOriginFilter('all');
+    setTranscriptNoteKindFilter('all');
+    setPersonaUseModeFilter('all');
     setFragmentTypeFilter('all');
     setFragmentLaneFilter('all');
     setFragmentSectionFilter('all');
@@ -1124,10 +1134,12 @@ function LiveSourceAuditSection({
       if (originFilter !== 'all' && asset.origin !== originFilter) return false;
       if (channelFilter !== 'all' && asset.source_channel !== channelFilter) return false;
       if (summaryOriginFilter !== 'all' && asset.summary_origin !== summaryOriginFilter) return false;
+      if (transcriptNoteKindFilter !== 'all' && asset.transcript_note_kind !== transcriptNoteKindFilter) return false;
+      if (personaUseModeFilter !== 'all' && asset.persona_use_mode !== personaUseModeFilter) return false;
       if (issueFilter !== 'all' && !(asset.quality_flags || []).includes(issueFilter)) return false;
       return true;
     });
-  }, [assetSamples, originFilter, channelFilter, summaryOriginFilter, issueFilter]);
+  }, [assetSamples, originFilter, channelFilter, summaryOriginFilter, transcriptNoteKindFilter, personaUseModeFilter, issueFilter]);
 
   const filteredFragmentSamples = useMemo(() => {
     return fragmentSamples.filter((fragment) => {
@@ -1173,6 +1185,14 @@ function LiveSourceAuditSection({
   const summaryOriginOptions = useMemo(
     () => Object.entries(audit.slice_counts.summary_origin_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
     [audit.slice_counts.summary_origin_counts],
+  );
+  const transcriptNoteKindOptions = useMemo(
+    () => Object.entries(audit.slice_counts.transcript_note_kind_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.transcript_note_kind_counts],
+  );
+  const personaUseModeOptions = useMemo(
+    () => Object.entries(audit.slice_counts.persona_use_mode_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.persona_use_mode_counts],
   );
   const fragmentTypeOptions = useMemo(
     () => Object.entries(audit.slice_counts.fragment_type_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
@@ -1269,6 +1289,8 @@ function LiveSourceAuditSection({
         <FilterChipGroup label="Primary Routes" options={routeOptions} activeValue={routeFilter} onChange={setRouteFilter} tone="#a78bfa" />
         <FilterChipGroup label="Target Files" options={targetOptions} activeValue={targetFilter} onChange={setTargetFilter} tone="#64748b" />
         <FilterChipGroup label="Summary Origins" options={summaryOriginOptions} activeValue={summaryOriginFilter} onChange={setSummaryOriginFilter} tone="#14b8a6" />
+        <FilterChipGroup label="Transcript Note Kinds" options={transcriptNoteKindOptions} activeValue={transcriptNoteKindFilter} onChange={setTranscriptNoteKindFilter} tone="#f97316" />
+        <FilterChipGroup label="Persona Use" options={personaUseModeOptions} activeValue={personaUseModeFilter} onChange={setPersonaUseModeFilter} tone="#22c55e" />
         <FilterChipGroup label="Quality Issues" options={issueOptions} activeValue={issueFilter} onChange={setIssueFilter} tone="#ef4444" />
         <FilterChipGroup label="Fragment Types" options={fragmentTypeOptions} activeValue={fragmentTypeFilter} onChange={setFragmentTypeFilter} tone="#f59e0b" />
         <FilterChipGroup label="Fragment Lanes" options={fragmentLaneOptions} activeValue={fragmentLaneFilter} onChange={setFragmentLaneFilter} tone="#22c55e" />
@@ -1365,6 +1387,9 @@ function LiveSourceAuditSection({
                   <p style={{ color: 'white', fontSize: '13px', fontWeight: 600 }}>{asset.title}</p>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     {asset.origin && <InlineTone label={humanizeKey(asset.origin)} tone="#f97316" />}
+                    {asset.transcript_note_kind && asset.transcript_note_kind !== 'unknown' && <InlineTone label={humanizeKey(asset.transcript_note_kind)} tone="#fb7185" />}
+                    {asset.persona_use_mode && asset.persona_use_mode !== 'unknown' && <InlineTone label={humanizeKey(asset.persona_use_mode)} tone="#22c55e" />}
+                    {asset.voice_signal_priority && asset.voice_signal_priority !== 'unknown' && <InlineTone label={`Voice ${humanizeKey(asset.voice_signal_priority)}`} tone="#a78bfa" />}
                     {asset.source_channel && <InlineTone label={humanizeKey(asset.source_channel)} tone="#64748b" />}
                     {asset.summary_origin && <InlineTone label={`Summary ${humanizeKey(asset.summary_origin)}`} tone="#38bdf8" />}
                   </div>
