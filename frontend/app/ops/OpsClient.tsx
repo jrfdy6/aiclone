@@ -1369,6 +1369,27 @@ export default function OpsClient({
     () => effectiveDocEntries.find((entry) => entry.path === selectedDocPath) ?? effectiveDocEntries[0] ?? null,
     [effectiveDocEntries, selectedDocPath],
   );
+  const openArtifactPath = useCallback(
+    (sourcePath: string) => {
+      const docMatch =
+        effectiveDocEntries.find((entry) => entry.path === sourcePath) ??
+        findDocBySourcePath(effectiveDocEntries, sourcePath);
+      if (docMatch) {
+        setSelectedDocPath(docMatch.path);
+        setActivePanel('docs');
+        return;
+      }
+
+      const workspaceMatch =
+        effectiveWorkspaceFiles.find((file) => file.path === sourcePath) ??
+        findWorkspaceFileBySourcePath(effectiveWorkspaceFiles, sourcePath);
+      if (workspaceMatch) {
+        setSelectedWorkspacePath(workspaceMatch.path);
+        setActivePanel('workspace');
+      }
+    },
+    [effectiveDocEntries, effectiveWorkspaceFiles],
+  );
 
   const tabs = [
     { key: 'mission', label: 'Mission Control', active: activePanel === 'mission', onSelect: () => selectPanel('mission') },
@@ -1452,6 +1473,7 @@ export default function OpsClient({
           executiveFeed={executiveFeed}
           error={sectionErrors.standups}
           onPromote={promoteStandup}
+          onOpenArtifactPath={openArtifactPath}
         />
       )}
       {activePanel === 'workspace' && (
@@ -2188,6 +2210,7 @@ function StandupsPanel({
   executiveFeed,
   error,
   onPromote,
+  onOpenArtifactPath,
 }: {
   entries: StandupEntry[];
   pmCards: PMCard[];
@@ -2200,6 +2223,7 @@ function StandupsPanel({
     recommendationPacket: PMRecommendationPacket | null,
     chronicleEntry: ChronicleEntry | null,
   ) => Promise<StandupPromotionResult>;
+  onOpenArtifactPath: (path: string) => void;
 }) {
   const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
   const latestChronicle = executiveFeed.chronicleEntries[executiveFeed.chronicleEntries.length - 1] ?? executiveFeed.chronicleEntries[0] ?? null;
@@ -2355,7 +2379,12 @@ function StandupsPanel({
           </div>
         </div>
         {meetingView === 'list' && (
-          <MeetingReaderView entries={meetingOps.recentStandups} selectedMeetingId={selectedMeetingId} onSelectMeeting={setSelectedMeetingId} />
+          <MeetingReaderView
+            entries={meetingOps.recentStandups}
+            selectedMeetingId={selectedMeetingId}
+            onSelectMeeting={setSelectedMeetingId}
+            onOpenArtifactPath={onOpenArtifactPath}
+          />
         )}
         {meetingView === 'weekly' && <MeetingWeeklyView entries={meetingOps.recentStandups} />}
         {meetingView === 'monthly' && <MeetingMonthlyView entries={meetingOps.recentStandups} />}
@@ -2489,10 +2518,12 @@ function MeetingReaderView({
   entries,
   selectedMeetingId,
   onSelectMeeting,
+  onOpenArtifactPath,
 }: {
   entries: StandupEntry[];
   selectedMeetingId: string | null;
   onSelectMeeting: (id: string) => void;
+  onOpenArtifactPath: (path: string) => void;
 }) {
   const selectedEntry = entries.find((entry) => entry.id === selectedMeetingId) ?? entries[0] ?? null;
 
@@ -2645,9 +2676,24 @@ function MeetingReaderView({
             {conversationPath ? (
               <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
                 <span style={{ color: '#94a3b8' }}>Conversation artifact:</span>{' '}
-                <code title={conversationPath} style={{ color: 'white', fontSize: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => onOpenArtifactPath(conversationPath)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    padding: 0,
+                    color: '#f8fafc',
+                    fontSize: '12px',
+                    fontFamily: 'monospace',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    textUnderlineOffset: '2px',
+                  }}
+                  title={conversationPath}
+                >
                   {summarizePathForDisplay(conversationPath)}
-                </code>
+                </button>
               </p>
             ) : null}
           </div>
@@ -6027,6 +6073,10 @@ function findWorkspaceFile(files: WorkspaceFile[], suffix: string) {
 
 function findWorkspaceFileBySourcePath(files: WorkspaceFile[], sourcePath: string) {
   return files.find((file) => file.path.endsWith(sourcePath)) ?? null;
+}
+
+function findDocBySourcePath(docs: DocReference[], sourcePath: string) {
+  return docs.find((doc) => doc.path === sourcePath || doc.path.endsWith(sourcePath)) ?? null;
 }
 
 function normalizeLensText(value: unknown) {
