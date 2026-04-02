@@ -2508,6 +2508,12 @@ function MeetingReaderView({
   const owners = extractStandupList(selectedEntry.payload, 'owners');
   const artifactDeltas = extractStandupList(selectedEntry.payload, 'artifact_deltas');
   const provenance = standupRecordProvenance(selectedEntry);
+  const payload = selectedEntry.payload ?? {};
+  const rawSource = typeof selectedEntry.source === 'string' && selectedEntry.source.trim() ? selectedEntry.source.trim() : 'unknown';
+  const prepId = typeof payload.prep_id === 'string' && payload.prep_id.trim() ? payload.prep_id.trim() : null;
+  const conversationPath = typeof selectedEntry.conversation_path === 'string' && selectedEntry.conversation_path.trim()
+    ? selectedEntry.conversation_path.trim()
+    : null;
 
   return (
     <div
@@ -2625,6 +2631,26 @@ function MeetingReaderView({
         >
           <p style={{ color: provenance.tone, letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Meeting Provenance</p>
           <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{provenance.description}</p>
+          <div style={{ display: 'grid', gap: '6px', marginTop: '12px' }}>
+            <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
+              <span style={{ color: '#94a3b8' }}>Stored source:</span>{' '}
+              <code style={{ color: 'white', fontSize: '12px' }}>{rawSource}</code>
+            </p>
+            {prepId ? (
+              <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
+                <span style={{ color: '#94a3b8' }}>Prep packet:</span>{' '}
+                <code style={{ color: 'white', fontSize: '12px' }}>{prepId}</code>
+              </p>
+            ) : null}
+            {conversationPath ? (
+              <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
+                <span style={{ color: '#94a3b8' }}>Conversation artifact:</span>{' '}
+                <code title={conversationPath} style={{ color: 'white', fontSize: '12px' }}>
+                  {summarizePathForDisplay(conversationPath)}
+                </code>
+              </p>
+            ) : null}
+          </div>
         </section>
 
         <div style={{ display: 'grid', gap: '12px' }}>
@@ -5971,6 +5997,14 @@ function standupRecordProvenance(entry: StandupEntry): StandupRecordProvenance {
     border: 'rgba(148, 163, 184, 0.22)',
     description: 'Only minimal meeting metadata is stored here, so this should be treated as a placeholder record rather than reliable meeting evidence.',
   };
+}
+
+function summarizePathForDisplay(path: string) {
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length <= 3) {
+    return path;
+  }
+  return `.../${parts.slice(-3).join('/')}`;
 }
 
 function extractPmSnapshotLines(snapshot: unknown) {
