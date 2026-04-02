@@ -1758,6 +1758,28 @@ function PMBoardPanel({
   const laneSummary = useMemo(() => buildPmLaneSummary(activeCards), [activeCards]);
   const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
   const meetingOps = useMemo(() => buildMeetingOps(STANDUP_ROOMS, standups, cards, executionQueue), [standups, cards, executionQueue]);
+  const healthyRoomCount = useMemo(() => meetingOps.rooms.filter((room) => room.status === 'ok').length, [meetingOps]);
+  const latestMeetingAt = useMemo(() => {
+    const timestamps = meetingOps.rooms
+      .map((room) => room.latestEntry?.created_at)
+      .filter((value): value is string => Boolean(value))
+      .map((value) => new Date(value).getTime())
+      .filter((value) => Number.isFinite(value));
+    if (timestamps.length === 0) {
+      return null;
+    }
+    return new Date(Math.max(...timestamps));
+  }, [meetingOps]);
+  const compactOverview = [
+    { label: 'Active', value: `${activeCards.length}`, detail: 'open PM cards' },
+    { label: 'Closed', value: `${buckets.done.length}`, detail: 'resolved history' },
+    { label: 'Standup Queue', value: `${recommendationItems.length}`, detail: 'pending promotion' },
+    { label: 'Ready', value: `${executionBuckets.ready.length}`, detail: 'Jean-Claude can open now' },
+    { label: 'Running', value: `${executionBuckets.running.length}`, detail: 'live execution' },
+    { label: 'Workspaces', value: `${laneSummary.workspaceLanes}`, detail: 'active lane buckets' },
+    { label: 'Healthy Rooms', value: `${healthyRoomCount}/${meetingOps.rooms.length}`, detail: latestMeetingAt ? formatTimestamp(latestMeetingAt) : 'no transcript yet' },
+    { label: 'Automations', value: `${automationCounts.total}`, detail: `${automationCounts.launchd} launchd jobs` },
+  ];
   const [dispatchingCardId, setDispatchingCardId] = useState<string | null>(null);
   const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
@@ -1794,133 +1816,153 @@ function PMBoardPanel({
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div>
         <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>PM Board</p>
-        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Execution truth</h2>
-        <p style={{ color: '#94a3b8' }}>Standups feed this board. Live PM cards remain the source of truth, and standup-generated recommendations stage the next work before it is formally created.</p>
+        <h2 style={{ fontSize: '28px', margin: '4px 0', color: 'white' }}>Execution truth</h2>
+        <p style={{ color: '#94a3b8', maxWidth: '980px' }}>Standups feed this board. The board stays visible first; meeting detail and recommendation detail stay nearby but collapsed until you need them.</p>
       </div>
       {error && <SectionAlert message={`${TELEMETRY_LABELS.pmCards}: ${error}`} />}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
-        <MiniMeta label="Active Cards" value={`${activeCards.length}`} detail="todo + in progress + review" />
-        <MiniMeta label="Closed" value={`${buckets.done.length}`} detail="resolved cards still visible in PM history" />
-        <MiniMeta label="Standup Queue" value={`${recommendationItems.length}`} detail="recommendations waiting for promotion" />
-        <MiniMeta label="Codex Ready" value={`${executionBuckets.ready.length}`} detail="cards Jean-Claude can queue now" />
-        <MiniMeta label="Running" value={`${executionBuckets.running.length}`} detail="active workspace execution" />
-        <MiniMeta label="Shared Ops" value={`${laneSummary.sharedOps}`} detail="executive / operations scope" />
-        <MiniMeta label="Workspace Lanes" value={`${laneSummary.workspaceLanes}`} detail="distinct workspace buckets touched" />
-        <MiniMeta label="Automation Jobs" value={`${automationCounts.total}`} detail="visible in Ops right now" />
-        <MiniMeta label="Launchd Loop" value={`${automationCounts.launchd}`} detail="local runners and maintenance jobs" />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        {compactOverview.map((item) => (
+          <div key={`overview-${item.label}`} style={{ borderRadius: '999px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '8px 12px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{item.label}</span>
+            <span style={{ color: '#e2e8f0', fontSize: '16px', fontWeight: 700 }}>{item.value}</span>
+            <span style={{ color: '#475569', fontSize: '12px' }}>{item.detail}</span>
+          </div>
+        ))}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-        {STANDUP_ROOMS.map((room) => {
-          const roomHealth = meetingOps.byRoomKey[room.key];
-          const itemCount = laneSummary.byWorkspace[room.workspaceKey] ?? 0;
-          const recommendationCount = recommendationItems.filter((item) => item.workspaceKey === room.workspaceKey).length;
-          const latestMeetingLabel = roomHealth?.latestEntry?.created_at
-            ? formatTimestamp(new Date(roomHealth.latestEntry.created_at))
-            : roomHealth?.status === 'planned'
-              ? 'Not scheduled yet'
-              : 'No transcript yet';
-          const roomStatus =
-            recommendationCount > 0 && (!roomHealth || roomHealth.status === 'planned')
-              ? 'active'
-              : roomHealth?.status ?? 'planned';
-          return (
-            <article key={room.key} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-                <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{room.label}</p>
-                {statusBadge(roomStatus)}
-              </div>
-              <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: '0 0 10px' }}>{room.description}</p>
-              <p style={{ color: '#cbd5f5', fontSize: '13px', margin: '0 0 10px' }}>{roomHealth?.reason ?? 'Reserved lane. No meeting transcript expected yet.'}</p>
-              <div style={{ display: 'flex', gap: '10px', color: '#cbd5f5', fontSize: '12px', flexWrap: 'wrap' }}>
-                <span>PM cards: {itemCount}</span>
-                <span>Pending PM: {recommendationCount}</span>
-                <span>Latest: {latestMeetingLabel}</span>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
-        <div style={{ marginBottom: '12px' }}>
-          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Standup Queue</p>
-          <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Recommendations waiting for board promotion</h3>
-          <p style={{ color: '#94a3b8' }}>These are the first cards being proposed by the standup loop before they become formal PM entries.</p>
+      <details style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '12px 14px' }}>
+        <summary style={{ cursor: 'pointer', color: 'white', fontWeight: 700, listStyle: 'none' }}>
+          Meeting lanes and standup context
+          <span style={{ color: '#64748b', fontWeight: 400, marginLeft: '10px', fontSize: '13px' }}>
+            {healthyRoomCount}/{meetingOps.rooms.length} healthy · {recommendationItems.length} pending recommendations
+          </span>
+        </summary>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', marginTop: '12px' }}>
+          {STANDUP_ROOMS.map((room) => {
+            const roomHealth = meetingOps.byRoomKey[room.key];
+            const itemCount = laneSummary.byWorkspace[room.workspaceKey] ?? 0;
+            const recommendationCount = recommendationItems.filter((item) => item.workspaceKey === room.workspaceKey).length;
+            const latestMeetingLabel = roomHealth?.latestEntry?.created_at
+              ? formatTimestamp(new Date(roomHealth.latestEntry.created_at))
+              : roomHealth?.status === 'planned'
+                ? 'Not scheduled yet'
+                : 'No transcript yet';
+            const roomStatus =
+              recommendationCount > 0 && (!roomHealth || roomHealth.status === 'planned')
+                ? 'active'
+                : roomHealth?.status ?? 'planned';
+            return (
+              <article key={room.key} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                  <p style={{ color: 'white', fontWeight: 700, margin: 0, fontSize: '14px' }}>{room.label}</p>
+                  {statusBadge(roomStatus)}
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', color: '#94a3b8', fontSize: '12px' }}>
+                  <span>PM {itemCount}</span>
+                  <span>Pending {recommendationCount}</span>
+                  <span>{latestMeetingLabel}</span>
+                </div>
+              </article>
+            );
+          })}
         </div>
-        <div style={{ display: 'grid', gap: '12px' }}>
-          {recommendationItems.length === 0 && <EmptyPanel message="No standup-generated PM recommendations yet." compact />}
-          {recommendationItems.map((item, index) => (
-            <article key={`${item.packetId}-${index}`} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                <p style={{ color: 'white', fontWeight: 600, margin: 0 }}>{item.title}</p>
-                {statusBadge(item.status)}
-              </div>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
-                <span>{meetingLabelForWorkspace(item.workspaceKey)}</span>
-                <span>{item.ownerAgent}</span>
-                <span>{item.createdAt ? formatTimestamp(new Date(item.createdAt)) : 'Pending promotion'}</span>
-              </div>
-              <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.reason}</p>
-            </article>
-          ))}
+        <div style={{ display: 'grid', gap: '10px', marginTop: '12px' }}>
+          {recommendationItems.length === 0 ? (
+            <EmptyPanel message="No standup-generated PM recommendations yet." compact />
+          ) : (
+            recommendationItems.map((item, index) => (
+              <article key={`${item.packetId}-${index}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                  <p style={{ color: 'white', fontWeight: 600, margin: 0 }}>{item.title}</p>
+                  {statusBadge(item.status)}
+                </div>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '12px', color: '#94a3b8', marginBottom: '6px' }}>
+                  <span>{meetingLabelForWorkspace(item.workspaceKey)}</span>
+                  <span>{item.ownerAgent}</span>
+                  <span>{item.createdAt ? formatTimestamp(new Date(item.createdAt)) : 'Pending promotion'}</span>
+                </div>
+                <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.reason}</p>
+              </article>
+            ))
+          )}
         </div>
-      </section>
-      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '16px' }}>
-        <div style={{ marginBottom: '12px' }}>
+      </details>
+      <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '14px' }}>
+        <div style={{ marginBottom: '10px' }}>
           <p style={{ color: '#22c55e', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Operational Board</p>
-          <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>One board for PM + execution</h3>
-          <p style={{ color: '#94a3b8' }}>This merges backlog cards and the Jean-Claude execution queue into one flow. Workspace color carries the lane identity, while the card badges still tell you the PM and execution state.</p>
+          <h3 style={{ fontSize: '20px', color: 'white', margin: '4px 0' }}>One board for PM + execution</h3>
+          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Single-row board. Columns stay on one line and scroll internally only if a lane gets long.</p>
         </div>
         {queueError && <SectionAlert message={`${TELEMETRY_LABELS.executionQueue}: ${queueError}`} />}
         {dispatchError && <SectionAlert message={dispatchError} />}
         {dispatchFeedback && <SectionAlert message={dispatchFeedback} />}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {boardColumns.map((column) => (
-            <MiniMeta key={`board-meta-${column.key}`} label={column.label} value={`${unifiedBoard[column.key].length}`} detail={column.detail} />
+            <div key={`board-meta-${column.key}`} style={{ borderRadius: '999px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '7px 11px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+              <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{column.label}</span>
+              <span style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 700 }}>{unifiedBoard[column.key].length}</span>
+            </div>
           ))}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginTop: '14px' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${boardColumns.length}, minmax(0, 1fr))`,
+            gap: '10px',
+            marginTop: '12px',
+            alignItems: 'start',
+          }}
+        >
           {boardColumns.map((column) => (
-            <div key={column.key} style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '14px', minHeight: '220px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
-                <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{column.label}</p>
-                <span style={{ color: '#64748b', fontSize: '12px' }}>{unifiedBoard[column.key].length}</span>
+            <div
+              key={column.key}
+              style={{
+                borderRadius: '14px',
+                border: '1px solid #1f2937',
+                backgroundColor: '#050b19',
+                padding: '12px',
+                height: 'clamp(360px, calc(100vh - 360px), 560px)',
+                overflowY: 'auto',
+                minWidth: 0,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                <p style={{ color: 'white', fontWeight: 700, margin: 0, fontSize: '14px' }}>{column.label}</p>
+                <span style={{ color: '#64748b', fontSize: '11px' }}>{unifiedBoard[column.key].length}</span>
               </div>
-              <p style={{ color: '#64748b', fontSize: '12px', margin: '0 0 12px' }}>{column.detail}</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {unifiedBoard[column.key].length === 0 && <p style={{ color: '#475569', fontSize: '13px' }}>Nothing in this lane yet.</p>}
+              <p style={{ color: '#64748b', fontSize: '11px', margin: '0 0 10px' }}>{column.detail}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {unifiedBoard[column.key].length === 0 && <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this lane yet.</p>}
                 {unifiedBoard[column.key].map((item) => {
                   const theme = workspaceBoardTheme(item.workspaceKey);
                   return (
                     <article
                       key={`${column.key}-${item.id}`}
                       style={{
-                        borderRadius: '12px',
+                        borderRadius: '10px',
                         border: `1px solid ${theme.border}`,
                         backgroundColor: theme.background,
                         boxShadow: `inset 0 3px 0 0 ${theme.accent}`,
-                        padding: '12px',
+                        padding: '10px',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                        <p style={{ color: 'white', fontWeight: 600, margin: 0 }}>{item.title}</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+                        <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{item.title}</p>
                         {statusBadge(item.executionState ?? item.pmStatus)}
                       </div>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px', color: '#cbd5e1', marginBottom: '8px' }}>
-                        <span style={{ padding: '4px 10px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent }}>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '11px', color: '#cbd5e1', marginBottom: '6px' }}>
+                        <span style={{ padding: '3px 8px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent }}>
                           {meetingLabelForWorkspace(item.workspaceKey)}
                         </span>
                         {item.executionState && statusBadge(item.pmStatus)}
                         {!item.executionState && item.owner ? <span>{item.owner}</span> : null}
                       </div>
-                      {item.reason && <p style={{ color: '#e2e8f0', fontSize: '13px', margin: '0 0 10px' }}>{item.reason}</p>}
-                      <div style={{ color: '#94a3b8', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <span>Source: {item.source ?? 'manual'}</span>
+                      {item.reason && <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.45, margin: '0 0 8px' }}>{item.reason}</p>}
+                      <div style={{ color: '#94a3b8', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                         {item.queueEntry ? <span>Manager: {displayManagerAgent(item.workspaceKey, item.managerAgent)}</span> : null}
                         {item.queueEntry ? <span>Target: {displayTargetAgent(item.workspaceKey, item.targetAgent)}</span> : null}
-                        {item.workspaceAgent ? <span>Workspace agent: {displayWorkspaceAgent(item.workspaceKey, item.workspaceAgent)}</span> : null}
+                        {item.workspaceAgent ? <span>Agent: {displayWorkspaceAgent(item.workspaceKey, item.workspaceAgent)}</span> : null}
                         {item.executionMode ? <span>Mode: {item.executionMode}</span> : null}
                         <span>Updated: {item.updatedAt ? formatTimestamp(new Date(item.updatedAt)) : '-'}</span>
-                        <span>Due: {item.dueAt ? formatTimestamp(new Date(item.dueAt)) : '-'}</span>
                       </div>
                       {column.key === 'ready' && item.queueEntry ? (
                         <button
@@ -1928,18 +1970,19 @@ function PMBoardPanel({
                           onClick={() => handleDispatch(item.queueEntry as ExecutionQueueEntry)}
                           disabled={dispatchingCardId === item.cardId}
                           style={{
-                            marginTop: '12px',
+                            marginTop: '10px',
                             width: '100%',
                             borderRadius: '999px',
                             border: `1px solid ${theme.border}`,
                             backgroundColor: dispatchingCardId === item.cardId ? '#0f172a' : '#0f3d37',
                             color: '#d1fae5',
-                            padding: '10px 12px',
+                            padding: '8px 10px',
                             cursor: dispatchingCardId === item.cardId ? 'wait' : 'pointer',
                             fontWeight: 600,
+                            fontSize: '12px',
                           }}
                         >
-                          {dispatchingCardId === item.cardId ? 'Queueing...' : `Open SOP via ${item.managerAgent ?? 'Jean-Claude'}`}
+                          {dispatchingCardId === item.cardId ? 'Queueing...' : 'Open SOP'}
                         </button>
                       ) : null}
                     </article>
