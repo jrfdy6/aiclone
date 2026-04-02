@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -21,16 +22,63 @@ from app.services.social_source_asset_service import build_source_asset_inventor
 from app.services.workspace_snapshot_store import get_snapshot_payload, list_snapshot_payloads, upsert_snapshot
 
 
+TRANSCRIPT_LIBRARY_SKIP_NAMES = {"README.md", "TEMPLATE.md", "INDEX.md"}
+
+
+def _count_matching_files(path: Path, pattern: str, *, exclude_names: set[str] | None = None) -> int:
+    if not path.exists() or not path.is_dir():
+        return 0
+    excluded = exclude_names or set()
+    return sum(1 for item in path.rglob(pattern) if item.is_file() and item.name not in excluded)
+
+
+def _workspace_root_score(path: Path) -> tuple[int, int]:
+    score = 0
+    if (path / "workspaces" / "linkedin-content-os").exists():
+        score += 100
+    if (path / "backend" / "workspaces" / "linkedin-content-os").exists():
+        score += 60
+    score += _count_matching_files(path / "knowledge" / "ingestions", "normalized.md") * 20
+    score += _count_matching_files(
+        path / "knowledge" / "aiclone" / "transcripts",
+        "*.md",
+        exclude_names=TRANSCRIPT_LIBRARY_SKIP_NAMES,
+    ) * 8
+    return score, -len(path.parts)
+
+
+def _external_workspace_roots() -> list[Path]:
+    configured = os.environ.get("OPENCLAW_WORKSPACE_ROOT")
+    candidates = [configured, "/Users/neo/.openclaw/workspace"]
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate).expanduser()
+        if path in seen:
+            continue
+        seen.add(path)
+        roots.append(path)
+    return roots
+
+
 def resolve_workspace_root() -> Path:
     current = Path(__file__).resolve()
-    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/app/backend"), Path("/")]
+    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, *_external_workspace_roots(), Path("/app"), Path("/app/backend"), Path("/")]
     seen: set[Path] = set()
+    best_root: Path | None = None
+    best_score = (-1, 0)
     for parent in candidates:
         if parent in seen:
             continue
         seen.add(parent)
-        if (parent / "workspaces" / "linkedin-content-os").exists() or (parent / "backend" / "workspaces" / "linkedin-content-os").exists():
-            return parent
+        score = _workspace_root_score(parent)
+        if score > best_score:
+            best_root = parent
+            best_score = score
+    if best_root is not None and best_score[0] > 0:
+        return best_root
     return current.parents[3]
 
 
@@ -39,7 +87,7 @@ ROOT = resolve_workspace_root()
 
 def _candidate_roots() -> list[Path]:
     current = Path(__file__).resolve()
-    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, ROOT, Path("/app"), Path("/app/backend"), Path("/")]
+    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, *_external_workspace_roots(), ROOT, Path("/app"), Path("/app/backend"), Path("/")]
     ordered: list[Path] = []
     seen: set[Path] = set()
     for candidate in candidates:
@@ -57,6 +105,30 @@ def _find_dir(*relative_patterns: str) -> Path | None:
             if candidate.exists() and candidate.is_dir():
                 return candidate
     return None
+
+
+def _find_richest_dir(*relative_patterns: str, pattern: str, exclude_names: set[str] | None = None) -> Path | None:
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for base in _candidate_roots():
+        for relative_pattern in relative_patterns:
+            candidate = base / relative_pattern
+            if not candidate.exists() or not candidate.is_dir():
+                continue
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            candidates.append(resolved)
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda item: (
+            _count_matching_files(item, pattern, exclude_names=exclude_names),
+            -len(item.parts),
+        ),
+    )
 
 
 def _find_file(*relative_patterns: str) -> Path | None:
@@ -631,14 +703,19 @@ def _parse_social_feed_markdown(path: Path) -> dict[str, Any] | None:
 
 
 def _ingestions_root() -> Path:
-    direct = _find_dir("backend/knowledge/ingestions", "knowledge/ingestions")
+    direct = _find_richest_dir("knowledge/ingestions", "backend/knowledge/ingestions", pattern="normalized.md")
     if direct:
         return direct
     return ROOT / "knowledge" / "ingestions"
 
 
 def _transcripts_root() -> Path:
-    direct = _find_dir("backend/knowledge/aiclone/transcripts", "knowledge/aiclone/transcripts")
+    direct = _find_richest_dir(
+        "knowledge/aiclone/transcripts",
+        "backend/knowledge/aiclone/transcripts",
+        pattern="*.md",
+        exclude_names=TRANSCRIPT_LIBRARY_SKIP_NAMES,
+    )
     if direct:
         return direct
     return ROOT / "knowledge" / "aiclone" / "transcripts"

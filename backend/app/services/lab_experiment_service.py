@@ -1407,6 +1407,53 @@ def _summary_quality_flags(asset: dict[str, Any]) -> list[str]:
     return flags
 
 
+def _quality_metrics_for_assets(assets: list[dict[str, Any]]) -> dict[str, float]:
+    asset_count = len(assets)
+    quality_flags = [_summary_quality_flags(asset) for asset in assets]
+    summary_ready = sum(1 for asset in assets if str(asset.get("summary") or "").strip())
+    structured_summary_ready = sum(1 for asset in assets if str(asset.get("structured_summary") or "").strip())
+    lessons_ready = sum(1 for asset in assets if asset.get("lessons_learned"))
+    anecdotes_ready = sum(1 for asset in assets if asset.get("key_anecdotes"))
+    quotes_ready = sum(1 for asset in assets if asset.get("reusable_quotes"))
+    noisy_summary_count = sum(1 for flags in quality_flags if "summary_needs_cleanup" in flags)
+    package_ready_count = sum(
+        1
+        for asset in assets
+        if str(asset.get("structured_summary") or "").strip()
+        and any(asset.get(key) for key in ("lessons_learned", "key_anecdotes", "reusable_quotes"))
+    )
+    return {
+        "summary_coverage_rate": _audit_rate(summary_ready, asset_count),
+        "structured_summary_rate": _audit_rate(structured_summary_ready, asset_count),
+        "lesson_coverage_rate": _audit_rate(lessons_ready, asset_count),
+        "anecdote_coverage_rate": _audit_rate(anecdotes_ready, asset_count),
+        "quote_coverage_rate": _audit_rate(quotes_ready, asset_count),
+        "noisy_summary_rate": _audit_rate(noisy_summary_count, asset_count),
+        "package_readiness_rate": _audit_rate(package_ready_count, asset_count),
+    }
+
+
+def _origin_breakdown_for_assets(assets: list[dict[str, Any]]) -> dict[str, Any]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for asset in assets:
+        origin = str(asset.get("origin") or "unknown")
+        grouped.setdefault(origin, []).append(asset)
+
+    breakdown: dict[str, Any] = {}
+    for origin, items in sorted(grouped.items(), key=lambda entry: (-len(entry[1]), entry[0])):
+        issue_counts = _bucket_counts(
+            [flag for asset in items for flag in _summary_quality_flags(asset)],
+            empty_label="none",
+        )
+        breakdown[origin] = {
+            "asset_count": len(items),
+            "quality_metrics": _quality_metrics_for_assets(items),
+            "issue_counts": issue_counts,
+            "deep_harvest_fragments": sum(int((asset.get("deep_harvest_counts") or {}).get("total") or 0) for asset in items),
+        }
+    return breakdown
+
+
 def _load_live_source_payloads() -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
     source_assets_payload: dict[str, Any] | None = None
     long_form_routes_payload: dict[str, Any] | None = None
@@ -1462,6 +1509,11 @@ def _load_live_source_payloads() -> tuple[dict[str, Any] | None, dict[str, Any] 
 def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets: int = 10) -> dict[str, Any]:
     source_assets_payload, long_form_routes_payload, source = _load_live_source_payloads()
     assets = list((source_assets_payload or {}).get("items") or [])
+    asset_origin_by_path = {
+        str(asset.get("source_path") or ""): str(asset.get("origin") or "unknown")
+        for asset in assets
+        if str(asset.get("source_path") or "").strip()
+    }
     candidates = list((long_form_routes_payload or {}).get("candidates") or [])
     fragments = [
         {
@@ -1470,6 +1522,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "asset_source_path": str(asset.get("source_path") or ""),
             "asset_source_channel": str(asset.get("source_channel") or ""),
             "asset_source_type": str(asset.get("source_type") or ""),
+            "asset_origin": str(asset.get("origin") or "unknown"),
         }
         for asset in assets
         for fragment in (asset.get("deep_harvest_fragments") or [])
@@ -1482,25 +1535,15 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
     handoff_lane_counts = dict((long_form_routes_payload or {}).get("handoff_lane_counts") or {})
     primary_route_counts = dict((long_form_routes_payload or {}).get("primary_route_counts") or {})
     target_file_counts = _bucket_counts([str(item.get("target_file") or "unknown") for item in candidates])
+    origin_counts = _bucket_counts([str(item.get("origin") or "unknown") for item in assets])
     summary_origin_counts = _bucket_counts([str(item.get("summary_origin") or "unknown") for item in assets])
     quality_flags = [_summary_quality_flags(asset) for asset in assets]
     issue_counts = _bucket_counts([flag for flags in quality_flags for flag in flags], empty_label="none")
     fragment_type_counts = _bucket_counts([str(item.get("primary_type") or "unknown") for item in fragments])
     fragment_lane_counts = _bucket_counts([str(item.get("likely_handoff_lane") or "unknown") for item in fragments])
     fragment_source_section_counts = _bucket_counts([str(item.get("source_section") or "unknown") for item in fragments])
-
-    summary_ready = sum(1 for asset in assets if str(asset.get("summary") or "").strip())
-    structured_summary_ready = sum(1 for asset in assets if str(asset.get("structured_summary") or "").strip())
-    lessons_ready = sum(1 for asset in assets if asset.get("lessons_learned"))
-    anecdotes_ready = sum(1 for asset in assets if asset.get("key_anecdotes"))
-    quotes_ready = sum(1 for asset in assets if asset.get("reusable_quotes"))
-    noisy_summary_count = sum(1 for flags in quality_flags if "summary_needs_cleanup" in flags)
-    package_ready_count = sum(
-        1
-        for asset in assets
-        if str(asset.get("structured_summary") or "").strip()
-        and any(asset.get(key) for key in ("lessons_learned", "key_anecdotes", "reusable_quotes"))
-    )
+    quality_metrics = _quality_metrics_for_assets(assets)
+    origin_breakdown = _origin_breakdown_for_assets(assets)
     total_fragments = len(fragments)
     persona_fragment_count = sum(1 for item in fragments if item.get("likely_handoff_lane") == "persona_candidate")
     canon_fragment_count = sum(1 for item in fragments if "canon_candidate" in (item.get("labels") or []))
@@ -1530,6 +1573,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
                     "unit_kind": "live_source_sample",
                     "response_modes": candidate.get("response_modes") or [],
                     "topic_tags": [str(candidate.get("lane_hint") or "")],
+                    "source_origin": asset_origin_by_path.get(str(candidate.get("source_path") or ""), "unknown"),
                     "core_claim": segment,
                     "supporting_claims": [title],
                     "why_it_matters": str(candidate.get("route_reason") or ""),
@@ -1556,6 +1600,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
                 "source_type": str(asset.get("source_type") or ""),
                 "source_path": str(asset.get("source_path") or ""),
                 "source_url": str(asset.get("source_url") or ""),
+                "origin": str(asset.get("origin") or "unknown"),
                 "summary": str(asset.get("summary") or ""),
                 "summary_origin": str(asset.get("summary_origin") or "unknown"),
                 "structured_summary": str(asset.get("structured_summary") or ""),
@@ -1584,6 +1629,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "asset_title": str(fragment.get("asset_title") or "Untitled asset"),
             "asset_source_path": str(fragment.get("asset_source_path") or ""),
             "asset_source_channel": str(fragment.get("asset_source_channel") or ""),
+            "asset_origin": str(fragment.get("asset_origin") or "unknown"),
         }
         for fragment in sorted(
             fragments,
@@ -1607,15 +1653,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
         "asset_count": asset_count,
         "candidate_count": candidate_count,
         "segments_total": int((long_form_routes_payload or {}).get("segments_total") or candidate_count),
-        "quality_metrics": {
-            "summary_coverage_rate": _audit_rate(summary_ready, asset_count),
-            "structured_summary_rate": _audit_rate(structured_summary_ready, asset_count),
-            "lesson_coverage_rate": _audit_rate(lessons_ready, asset_count),
-            "anecdote_coverage_rate": _audit_rate(anecdotes_ready, asset_count),
-            "quote_coverage_rate": _audit_rate(quotes_ready, asset_count),
-            "noisy_summary_rate": _audit_rate(noisy_summary_count, asset_count),
-            "package_readiness_rate": _audit_rate(package_ready_count, asset_count),
-        },
+        "quality_metrics": quality_metrics,
         "deep_harvest_metrics": {
             "total_fragments": total_fragments,
             "average_fragments_per_asset": round(total_fragments / asset_count, 1) if asset_count else 0.0,
@@ -1629,12 +1667,14 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "primary_route_counts": primary_route_counts,
             "channel_counts": channel_counts,
             "target_file_counts": target_file_counts,
+            "origin_counts": origin_counts,
             "summary_origin_counts": summary_origin_counts,
             "issue_counts": issue_counts,
             "fragment_type_counts": fragment_type_counts,
             "fragment_lane_counts": fragment_lane_counts,
             "fragment_source_section_counts": fragment_source_section_counts,
         },
+        "origin_breakdown": origin_breakdown,
         "top_issues": top_issues,
         "candidate_samples": candidate_samples,
         "asset_samples": asset_samples,

@@ -149,11 +149,28 @@ class LabExperimentServiceTests(unittest.TestCase):
                 "noisy_summary_rate": 33.3,
                 "package_readiness_rate": 66.7,
             },
+            "origin_breakdown": {
+                "media_pipeline": {
+                    "asset_count": 2,
+                    "quality_metrics": {
+                        "summary_coverage_rate": 100.0,
+                        "structured_summary_rate": 100.0,
+                        "lesson_coverage_rate": 100.0,
+                        "anecdote_coverage_rate": 50.0,
+                        "quote_coverage_rate": 50.0,
+                        "noisy_summary_rate": 0.0,
+                        "package_readiness_rate": 100.0,
+                    },
+                    "issue_counts": {"quotes_missing": 1},
+                    "deep_harvest_fragments": 16,
+                }
+            },
             "slice_counts": {
                 "handoff_lane_counts": {"brief_only": 2, "persona_candidate": 2},
                 "primary_route_counts": {"belief_evidence": 3, "post_seed": 1},
                 "channel_counts": {"youtube": 3},
                 "target_file_counts": {"identity/claims.md": 3, "history/story_bank.md": 1},
+                "origin_counts": {"media_pipeline": 2, "transcript_library": 1},
                 "summary_origin_counts": {"derived_transcript": 2, "provided": 1},
                 "issue_counts": {"summary_needs_cleanup": 1, "anecdotes_missing": 2},
             },
@@ -202,6 +219,7 @@ class LabExperimentServiceTests(unittest.TestCase):
         self.assertEqual(record["current"]["metric_cards"][0]["value"], 100.0)
         self.assertEqual(record["live_audit"]["source"], "runtime_corpus")
         self.assertEqual(record["live_audit"]["asset_count"], 3)
+        self.assertEqual(record["live_audit"]["origin_breakdown"]["media_pipeline"]["asset_count"], 2)
         self.assertEqual(record["live_samples"][0]["signal_snapshot"]["actual_handoff_lane"], "persona_candidate")
         self.assertTrue(
             {
@@ -222,3 +240,76 @@ class LabExperimentServiceTests(unittest.TestCase):
             self.assertEqual(snapshot.get("expected_handoff_lane"), snapshot.get("actual_handoff_lane"))
             stage_ids = {stage["id"] for stage in item["stage_results"]}
             self.assertTrue({"source_contract", "route_classification", "handoff_decision"}.issubset(stage_ids))
+
+    def test_build_live_source_handoff_audit_breaks_metrics_out_by_origin(self) -> None:
+        source_assets_payload = {
+            "items": [
+                {
+                    "title": "Operator Judgment",
+                    "origin": "media_pipeline",
+                    "source_channel": "youtube",
+                    "source_type": "transcript",
+                    "source_path": "knowledge/ingestions/2026/04/operator-judgment/normalized.md",
+                    "source_url": "https://example.com/operator-judgment",
+                    "summary": "Workflow clarity matters more than tool abundance because operator judgment earns trust.",
+                    "structured_summary": "Workflow clarity matters more than tool abundance because operator judgment earns trust.",
+                    "summary_origin": "derived_transcript",
+                    "lessons_learned": ["Workflow clarity matters more than tool abundance because operator judgment earns trust."],
+                    "key_anecdotes": ["A customer relaxed the second a human answered the phone."],
+                    "reusable_quotes": ["Trust and clarity beat persuasion."],
+                    "quality_flags": [],
+                    "deep_harvest_fragments": [],
+                    "deep_harvest_counts": {"total": 0},
+                },
+                {
+                    "title": "Bootcamp Notes",
+                    "origin": "transcript_library",
+                    "source_channel": "manual",
+                    "source_type": "transcript_note",
+                    "source_path": "knowledge/aiclone/transcripts/bootcamp.md",
+                    "source_url": "",
+                    "summary": "Bedrock notes",
+                    "structured_summary": "Bedrock notes",
+                    "summary_origin": "transcript_note",
+                    "lessons_learned": [],
+                    "key_anecdotes": [],
+                    "reusable_quotes": [],
+                    "quality_flags": ["lessons_missing", "anecdotes_missing", "quotes_missing"],
+                    "deep_harvest_fragments": [],
+                    "deep_harvest_counts": {"total": 0},
+                },
+            ],
+            "counts": {"by_channel": {"youtube": 1, "manual": 1}},
+        }
+        long_form_routes_payload = {
+            "candidates": [
+                {
+                    "title": "Operator Judgment",
+                    "segment": "Workflow clarity matters more than tool abundance because operator judgment earns trust.",
+                    "source_channel": "youtube",
+                    "source_path": "knowledge/ingestions/2026/04/operator-judgment/normalized.md",
+                    "source_url": "https://example.com/operator-judgment",
+                    "handoff_lane": "persona_candidate",
+                    "primary_route": "belief_evidence",
+                    "lane_hint": "ai",
+                    "target_file": "identity/claims.md",
+                    "secondary_consumers": ["brief"],
+                }
+            ],
+            "handoff_lane_counts": {"persona_candidate": 1},
+            "primary_route_counts": {"belief_evidence": 1},
+        }
+
+        with patch.object(
+            lab_experiment_service,
+            "_load_live_source_payloads",
+            return_value=(source_assets_payload, long_form_routes_payload, "runtime_corpus"),
+        ):
+            audit = lab_experiment_service._build_live_source_handoff_audit(limit_candidates=4, limit_assets=4)
+
+        self.assertEqual(audit["slice_counts"]["origin_counts"]["media_pipeline"], 1)
+        self.assertEqual(audit["slice_counts"]["origin_counts"]["transcript_library"], 1)
+        self.assertEqual(audit["origin_breakdown"]["media_pipeline"]["quality_metrics"]["quote_coverage_rate"], 100.0)
+        self.assertEqual(audit["origin_breakdown"]["transcript_library"]["quality_metrics"]["quote_coverage_rate"], 0.0)
+        self.assertEqual(audit["candidate_samples"][0]["signal_snapshot"]["source_origin"], "media_pipeline")
+        self.assertEqual(audit["asset_samples"][1]["origin"], "transcript_library")
