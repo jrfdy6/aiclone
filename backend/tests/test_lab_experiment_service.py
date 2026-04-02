@@ -134,12 +134,75 @@ class LabExperimentServiceTests(unittest.TestCase):
         )
 
     def test_run_source_handoff_matrix_experiment_surfaces_expected_vs_actual_lanes(self) -> None:
-        record = asyncio.run(lab_experiment_service.run_source_handoff_matrix_experiment())
+        fake_audit = {
+            "source": "runtime_corpus",
+            "generated_at": "2026-04-02T00:00:00Z",
+            "asset_count": 3,
+            "candidate_count": 4,
+            "segments_total": 4,
+            "quality_metrics": {
+                "summary_coverage_rate": 100.0,
+                "structured_summary_rate": 66.7,
+                "lesson_coverage_rate": 66.7,
+                "anecdote_coverage_rate": 33.3,
+                "quote_coverage_rate": 66.7,
+                "noisy_summary_rate": 33.3,
+                "package_readiness_rate": 66.7,
+            },
+            "slice_counts": {
+                "handoff_lane_counts": {"brief_only": 2, "persona_candidate": 2},
+                "primary_route_counts": {"belief_evidence": 3, "post_seed": 1},
+                "channel_counts": {"youtube": 3},
+                "target_file_counts": {"identity/claims.md": 3, "history/story_bank.md": 1},
+                "summary_origin_counts": {"derived_transcript": 2, "provided": 1},
+                "issue_counts": {"summary_needs_cleanup": 1, "anecdotes_missing": 2},
+            },
+            "top_issues": [{"id": "summary_needs_cleanup", "label": "summary needs cleanup", "count": 1}],
+            "candidate_samples": [
+                {
+                    "topic": "Operator Judgment",
+                    "audience": "live_source_sample",
+                    "generation_strategy": "source_handoff_live_sample",
+                    "llm_request_count": 0,
+                    "platform": "youtube",
+                    "source_type": "long_form_segment",
+                    "structural_fallbacks": [],
+                    "top_warnings": ["persona-worthy worldview evidence"],
+                    "stage_results": [],
+                    "top_option_preview": "Workflow clarity matters more than tool abundance because operator judgment earns trust.",
+                    "signal_snapshot": {
+                        "source_channel": "youtube",
+                        "actual_handoff_lane": "persona_candidate",
+                        "primary_route": "comment",
+                        "target_file": "identity/claims.md",
+                    },
+                }
+            ],
+            "asset_samples": [
+                {
+                    "title": "Operator Judgment",
+                    "source_channel": "youtube",
+                    "summary": "Workflow clarity matters more than tool abundance because operator judgment earns trust.",
+                    "structured_summary": "Workflow clarity matters more than tool abundance because operator judgment earns trust.",
+                    "summary_origin": "derived_transcript",
+                    "lessons_learned": ["Workflow clarity matters more than tool abundance because operator judgment earns trust."],
+                    "key_anecdotes": ["When my team called the customer, they were relieved a human answered the phone."],
+                    "reusable_quotes": ["Use your tokens on meaningful work instead of noisy busywork."],
+                    "quality_flags": [],
+                }
+            ],
+        }
+
+        with patch.object(lab_experiment_service, "_build_live_source_handoff_audit", return_value=fake_audit):
+            record = asyncio.run(lab_experiment_service.run_source_handoff_matrix_experiment())
 
         self.assertEqual(record["id"], lab_experiment_service.SOURCE_HANDOFF_EXPERIMENT_ID)
         self.assertEqual(len(record["sample_runs"]), len(lab_experiment_service.SOURCE_HANDOFF_PROBES))
         self.assertEqual(record["current"]["metric_cards"][0]["id"], "exact_match_rate")
         self.assertEqual(record["current"]["metric_cards"][0]["value"], 100.0)
+        self.assertEqual(record["live_audit"]["source"], "runtime_corpus")
+        self.assertEqual(record["live_audit"]["asset_count"], 3)
+        self.assertEqual(record["live_samples"][0]["signal_snapshot"]["actual_handoff_lane"], "persona_candidate")
         self.assertTrue(
             {
                 "exact_match_rate",

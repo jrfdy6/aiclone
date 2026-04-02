@@ -184,6 +184,90 @@ type LabExperiment = {
       source_url?: string;
     };
   }[];
+  live_audit?: {
+    source: string;
+    generated_at?: string | null;
+    asset_count: number;
+    candidate_count: number;
+    segments_total: number;
+    quality_metrics: {
+      summary_coverage_rate: number;
+      structured_summary_rate: number;
+      lesson_coverage_rate: number;
+      anecdote_coverage_rate: number;
+      quote_coverage_rate: number;
+      noisy_summary_rate: number;
+      package_readiness_rate: number;
+    };
+    slice_counts: {
+      handoff_lane_counts: Record<string, number>;
+      primary_route_counts: Record<string, number>;
+      channel_counts: Record<string, number>;
+      target_file_counts: Record<string, number>;
+      summary_origin_counts: Record<string, number>;
+      issue_counts: Record<string, number>;
+    };
+    top_issues: { id: string; label: string; count: number }[];
+    candidate_samples: {
+      topic: string;
+      audience: string;
+      generation_strategy: string;
+      llm_request_count?: number | null;
+      platform?: string;
+      source_type?: string;
+      structural_fallbacks: string[];
+      top_warnings: string[];
+      stage_results: {
+        id: string;
+        label: string;
+        section?: string;
+        status: string;
+        reason: string;
+        detail: string;
+        score?: number | null;
+        evidence?: string[];
+        missing_fields?: string[];
+      }[];
+      top_option_preview: string;
+      signal_snapshot?: {
+        source_channel?: string;
+        source_class?: string;
+        unit_kind?: string;
+        response_modes?: string[];
+        topic_tags?: string[];
+        core_claim?: string;
+        supporting_claims?: string[];
+        why_it_matters?: string;
+        role_alignment?: string;
+        actual_handoff_lane?: string;
+        primary_route?: string;
+        lane_hint?: string;
+        handoff_reason?: string;
+        target_file?: string;
+        secondary_consumers?: string[];
+        source_path?: string;
+        source_url?: string;
+      };
+    }[];
+    asset_samples: {
+      title: string;
+      source_channel?: string;
+      source_type?: string;
+      source_path?: string;
+      source_url?: string;
+      summary?: string;
+      summary_origin?: string;
+      structured_summary?: string;
+      lessons_learned?: string[];
+      key_anecdotes?: string[];
+      reusable_quotes?: string[];
+      open_questions?: string[];
+      quality_flags?: string[];
+      word_count?: number | null;
+      clean_word_count?: number | null;
+      sentence_count?: number | null;
+    }[];
+  };
   history: {
     run_id: string;
     started_at: string;
@@ -861,7 +945,9 @@ function ExperimentCard({
             </div>
           )}
 
-          {experiment.live_samples && experiment.live_samples.length > 0 && (
+          {experiment.live_audit && <LiveSourceAuditSection audit={experiment.live_audit} expanded={expanded} />}
+
+          {!experiment.live_audit && experiment.live_samples && experiment.live_samples.length > 0 && (
             <div style={{ marginTop: '16px', display: 'grid', gap: '10px' }}>
               <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Recent Live Source Samples</p>
               {experiment.live_samples.slice(0, expanded ? 5 : 3).map((item) => (
@@ -909,6 +995,274 @@ function PrototypeStat({ label, value, tone = '#34d399' }: { label: string; valu
     <div style={{ flex: 1, borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#071814', padding: '12px' }}>
       <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</p>
       <p style={{ color: tone, fontSize: '22px', fontWeight: 600 }}>{value}</p>
+    </div>
+  );
+}
+
+function LiveSourceAuditSection({
+  audit,
+  expanded = false,
+}: {
+  audit: NonNullable<LabExperiment['live_audit']>;
+  expanded?: boolean;
+}) {
+  const [laneFilter, setLaneFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
+  const [routeFilter, setRouteFilter] = useState('all');
+  const [targetFilter, setTargetFilter] = useState('all');
+  const [issueFilter, setIssueFilter] = useState('all');
+  const [summaryOriginFilter, setSummaryOriginFilter] = useState('all');
+
+  useEffect(() => {
+    setLaneFilter('all');
+    setChannelFilter('all');
+    setRouteFilter('all');
+    setTargetFilter('all');
+    setIssueFilter('all');
+    setSummaryOriginFilter('all');
+  }, [audit.generated_at, audit.source]);
+
+  const candidateSamples = audit.candidate_samples ?? [];
+  const assetSamples = audit.asset_samples ?? [];
+
+  const filteredCandidateSamples = useMemo(() => {
+    return candidateSamples.filter((item) => {
+      const snapshot = item.signal_snapshot ?? {};
+      if (laneFilter !== 'all' && snapshot.actual_handoff_lane !== laneFilter) return false;
+      if (channelFilter !== 'all' && snapshot.source_channel !== channelFilter) return false;
+      if (routeFilter !== 'all' && snapshot.primary_route !== routeFilter) return false;
+      if (targetFilter !== 'all' && snapshot.target_file !== targetFilter) return false;
+      return true;
+    });
+  }, [candidateSamples, laneFilter, channelFilter, routeFilter, targetFilter]);
+
+  const filteredAssetSamples = useMemo(() => {
+    return assetSamples.filter((asset) => {
+      if (channelFilter !== 'all' && asset.source_channel !== channelFilter) return false;
+      if (summaryOriginFilter !== 'all' && asset.summary_origin !== summaryOriginFilter) return false;
+      if (issueFilter !== 'all' && !(asset.quality_flags || []).includes(issueFilter)) return false;
+      return true;
+    });
+  }, [assetSamples, channelFilter, summaryOriginFilter, issueFilter]);
+
+  const handoffOptions = useMemo(
+    () => Object.entries(audit.slice_counts.handoff_lane_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.handoff_lane_counts],
+  );
+  const channelOptions = useMemo(
+    () => Object.entries(audit.slice_counts.channel_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.channel_counts],
+  );
+  const routeOptions = useMemo(
+    () => Object.entries(audit.slice_counts.primary_route_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.primary_route_counts],
+  );
+  const targetOptions = useMemo(
+    () =>
+      Object.entries(audit.slice_counts.target_file_counts || {}).map(([value, count]) => ({
+        value,
+        label: value,
+        count,
+      })),
+    [audit.slice_counts.target_file_counts],
+  );
+  const issueOptions = useMemo(
+    () => Object.entries(audit.slice_counts.issue_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.issue_counts],
+  );
+  const summaryOriginOptions = useMemo(
+    () => Object.entries(audit.slice_counts.summary_origin_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.summary_origin_counts],
+  );
+
+  return (
+    <div style={{ marginTop: '16px', display: 'grid', gap: '12px' }}>
+      <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+          <div>
+            <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Live Source Audit</p>
+            <p style={{ color: 'white', fontSize: '16px', fontWeight: 600, marginTop: '4px' }}>Real corpus slices, filters, and extraction quality</p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <InlineTone label={`Source ${humanizeKey(audit.source)}`} tone="#14b8a6" />
+            <InlineTone label={`Assets ${audit.asset_count}`} tone="#38bdf8" />
+            <InlineTone label={`Candidates ${audit.candidate_count}`} tone="#a78bfa" />
+            <InlineTone label={`Segments ${audit.segments_total}`} tone="#64748b" />
+            {audit.generated_at && <InlineTone label={`Generated ${formatTimestamp(new Date(audit.generated_at))}`} tone="#64748b" />}
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+          <PrototypeStat label="Summary" value={`${audit.quality_metrics.summary_coverage_rate}%`} tone="#22c55e" />
+          <PrototypeStat label="Structured" value={`${audit.quality_metrics.structured_summary_rate}%`} tone="#34d399" />
+          <PrototypeStat label="Lessons" value={`${audit.quality_metrics.lesson_coverage_rate}%`} tone="#38bdf8" />
+          <PrototypeStat label="Anecdotes" value={`${audit.quality_metrics.anecdote_coverage_rate}%`} tone="#a78bfa" />
+          <PrototypeStat label="Quotes" value={`${audit.quality_metrics.quote_coverage_rate}%`} tone="#f59e0b" />
+          <PrototypeStat label="Ready" value={`${audit.quality_metrics.package_readiness_rate}%`} tone="#14b8a6" />
+          <PrototypeStat label="Noisy Summary" value={`${audit.quality_metrics.noisy_summary_rate}%`} tone="#ef4444" />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: '10px' }}>
+        <FilterChipGroup label="Handoff Lanes" options={handoffOptions} activeValue={laneFilter} onChange={setLaneFilter} tone="#22c55e" />
+        <FilterChipGroup label="Channels" options={channelOptions} activeValue={channelFilter} onChange={setChannelFilter} tone="#38bdf8" />
+        <FilterChipGroup label="Primary Routes" options={routeOptions} activeValue={routeFilter} onChange={setRouteFilter} tone="#a78bfa" />
+        <FilterChipGroup label="Target Files" options={targetOptions} activeValue={targetFilter} onChange={setTargetFilter} tone="#64748b" />
+        <FilterChipGroup label="Summary Origins" options={summaryOriginOptions} activeValue={summaryOriginFilter} onChange={setSummaryOriginFilter} tone="#14b8a6" />
+        <FilterChipGroup label="Quality Issues" options={issueOptions} activeValue={issueFilter} onChange={setIssueFilter} tone="#ef4444" />
+      </div>
+
+      {audit.top_issues?.length > 0 && (
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {audit.top_issues.map((issue) => (
+            <InlineTone key={issue.id} label={`${humanizeKey(issue.label)} ${issue.count}`} tone="#f59e0b" />
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: expanded ? 'minmax(0, 1fr)' : 'repeat(auto-fit, minmax(340px, 1fr))', gap: '12px' }}>
+        <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+            <p style={{ color: 'white', fontWeight: 600 }}>Filtered Candidate Slices</p>
+            <InlineTone label={`${filteredCandidateSamples.length} of ${candidateSamples.length}`} tone="#38bdf8" />
+          </div>
+          <div style={{ display: 'grid', gap: '10px', maxHeight: expanded ? 'unset' : '560px', overflowY: 'auto' }}>
+            {filteredCandidateSamples.length === 0 && <p style={{ color: '#64748b', fontSize: '13px' }}>No live candidate slices match the current filters.</p>}
+            {filteredCandidateSamples.slice(0, expanded ? 12 : 6).map((item) => {
+              const snapshot = item.signal_snapshot ?? {};
+              return (
+                <div key={`candidate:${item.topic}:${item.top_option_preview}`} style={{ borderRadius: '10px', border: '1px solid #1f2937', padding: '12px', backgroundColor: '#0b1120' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                    <p style={{ color: 'white', fontSize: '13px', fontWeight: 600 }}>{item.topic}</p>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {snapshot.actual_handoff_lane && <InlineTone label={humanizeKey(snapshot.actual_handoff_lane)} tone="#22c55e" />}
+                      {snapshot.primary_route && <InlineTone label={humanizeKey(snapshot.primary_route)} tone="#38bdf8" />}
+                    </div>
+                  </div>
+                  <p style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: '8px' }}>{item.top_option_preview}</p>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    {snapshot.source_channel && <InlineTone label={`Source ${humanizeKey(snapshot.source_channel)}`} tone="#64748b" />}
+                    {snapshot.lane_hint && <InlineTone label={`Hint ${humanizeKey(snapshot.lane_hint)}`} tone="#a78bfa" />}
+                    {snapshot.target_file && <InlineTone label={snapshot.target_file} tone="#334155" />}
+                    {(snapshot.secondary_consumers || []).map((consumer) => (
+                      <InlineTone key={`${item.topic}:${consumer}`} label={`Feeds ${humanizeKey(consumer)}`} tone="#14b8a6" />
+                    ))}
+                  </div>
+                  {snapshot.handoff_reason && <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '6px' }}>{snapshot.handoff_reason}</p>}
+                  {snapshot.source_path && <p style={{ color: '#64748b', fontSize: '11px' }}>{snapshot.source_path}</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+            <p style={{ color: 'white', fontWeight: 600 }}>Asset Extraction Quality</p>
+            <InlineTone label={`${filteredAssetSamples.length} of ${assetSamples.length}`} tone="#14b8a6" />
+          </div>
+          <div style={{ display: 'grid', gap: '10px', maxHeight: expanded ? 'unset' : '560px', overflowY: 'auto' }}>
+            {filteredAssetSamples.length === 0 && <p style={{ color: '#64748b', fontSize: '13px' }}>No ingested assets match the current quality filters.</p>}
+            {filteredAssetSamples.slice(0, expanded ? 12 : 6).map((asset) => (
+              <div key={`asset:${asset.title}:${asset.source_path}`} style={{ borderRadius: '10px', border: '1px solid #1f2937', padding: '12px', backgroundColor: '#0b1120' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                  <p style={{ color: 'white', fontSize: '13px', fontWeight: 600 }}>{asset.title}</p>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {asset.source_channel && <InlineTone label={humanizeKey(asset.source_channel)} tone="#64748b" />}
+                    {asset.summary_origin && <InlineTone label={`Summary ${humanizeKey(asset.summary_origin)}`} tone="#38bdf8" />}
+                  </div>
+                </div>
+                {asset.summary && <p style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: '6px' }}>Summary: {asset.summary}</p>}
+                {asset.structured_summary && asset.structured_summary !== asset.summary && (
+                  <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '6px' }}>Structured: {asset.structured_summary}</p>
+                )}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  {(asset.quality_flags || []).map((flag) => (
+                    <InlineTone key={`${asset.title}:${flag}`} label={humanizeKey(flag)} tone={flag === 'summary_needs_cleanup' ? '#ef4444' : '#f59e0b'} />
+                  ))}
+                  {typeof asset.word_count === 'number' && <InlineTone label={`Raw ${asset.word_count}w`} tone="#334155" />}
+                  {typeof asset.clean_word_count === 'number' && <InlineTone label={`Clean ${asset.clean_word_count}w`} tone="#475569" />}
+                  {typeof asset.sentence_count === 'number' && <InlineTone label={`Sentences ${asset.sentence_count}`} tone="#475569" />}
+                </div>
+                {(asset.lessons_learned?.length || asset.key_anecdotes?.length || asset.reusable_quotes?.length) ? (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {asset.lessons_learned && asset.lessons_learned.length > 0 && (
+                      <p style={{ color: '#94a3b8', fontSize: '12px' }}>Lessons: {asset.lessons_learned.slice(0, 2).join(' | ')}</p>
+                    )}
+                    {asset.key_anecdotes && asset.key_anecdotes.length > 0 && (
+                      <p style={{ color: '#94a3b8', fontSize: '12px' }}>Anecdotes: {asset.key_anecdotes.slice(0, 2).join(' | ')}</p>
+                    )}
+                    {asset.reusable_quotes && asset.reusable_quotes.length > 0 && (
+                      <p style={{ color: '#94a3b8', fontSize: '12px' }}>Quotes: {asset.reusable_quotes.slice(0, 2).join(' | ')}</p>
+                    )}
+                    {asset.open_questions && asset.open_questions.length > 0 && (
+                      <p style={{ color: '#64748b', fontSize: '12px' }}>Open questions: {asset.open_questions.slice(0, 2).join(' | ')}</p>
+                    )}
+                  </div>
+                ) : (
+                  <p style={{ color: '#64748b', fontSize: '12px' }}>No structured lessons, anecdotes, or quotes extracted yet.</p>
+                )}
+                {asset.source_path && <p style={{ color: '#64748b', fontSize: '11px', marginTop: '6px' }}>{asset.source_path}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterChipGroup({
+  label,
+  options,
+  activeValue,
+  onChange,
+  tone,
+}: {
+  label: string;
+  options: { value: string; label: string; count: number }[];
+  activeValue: string;
+  onChange: (value: string) => void;
+  tone: string;
+}) {
+  if (!options.length) {
+    return null;
+  }
+  return (
+    <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '12px', backgroundColor: '#020617' }}>
+      <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '8px' }}>{label}</p>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => onChange('all')}
+          style={{
+            borderRadius: '999px',
+            border: `1px solid ${activeValue === 'all' ? `${tone}66` : '#334155'}`,
+            backgroundColor: activeValue === 'all' ? `${tone}22` : '#020617',
+            color: 'white',
+            padding: '6px 10px',
+            fontSize: '12px',
+            cursor: 'pointer',
+          }}
+        >
+          All
+        </button>
+        {options.map((option) => (
+          <button
+            key={`${label}:${option.value}`}
+            onClick={() => onChange(option.value)}
+            style={{
+              borderRadius: '999px',
+              border: `1px solid ${activeValue === option.value ? `${tone}66` : '#334155'}`,
+              backgroundColor: activeValue === option.value ? `${tone}22` : '#020617',
+              color: 'white',
+              padding: '6px 10px',
+              fontSize: '12px',
+              cursor: 'pointer',
+            }}
+          >
+            {option.label} {option.count}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

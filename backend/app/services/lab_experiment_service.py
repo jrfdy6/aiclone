@@ -8,7 +8,10 @@ from typing import Any, Dict, List
 
 from app.routes import content_generation
 from app.services import social_long_form_signal_service as long_form_signal_service
+from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.social_signal_utils import build_variants, normalize_saved_signal
+from app.services.workspace_snapshot_service import ROOT as WORKSPACE_ROOT
+from app.services.workspace_snapshot_service import _ingestions_root, _transcripts_root, workspace_snapshot_service
 
 EXPERIMENT_ID = "content-fallback-observatory"
 SOCIAL_EXPERIMENT_ID = "article-response-matrix"
@@ -1370,22 +1373,125 @@ def _build_social_probe_signal(probe: dict[str, str]) -> dict[str, Any]:
     )
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+def _audit_rate(count: int, total: int) -> float:
+    if total <= 0:
+        return 0.0
+    return round((count / total) * 100, 1)
 
 
-def _build_live_source_handoff_samples(limit: int = 5) -> list[dict[str, Any]]:
-    summary = long_form_signal_service.build_long_form_route_summary(
-        repo_root=_repo_root(),
-        max_assets=12,
-        max_segments_per_asset=2,
+def _bucket_counts(values: list[str], *, empty_label: str = "unknown") -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = str(value or empty_label)
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
+def _summary_quality_flags(asset: dict[str, Any]) -> list[str]:
+    existing = [str(item) for item in (asset.get("quality_flags") or []) if str(item).strip()]
+    if existing:
+        return existing
+    flags: list[str] = []
+    summary = str(asset.get("summary") or "").strip()
+    structured_summary = str(asset.get("structured_summary") or "").strip()
+    if not summary or len(summary.split()) < 7 or "http" in summary.lower() or "<00:" in summary:
+        flags.append("summary_needs_cleanup")
+    if not structured_summary:
+        flags.append("structured_summary_missing")
+    if not (asset.get("lessons_learned") or []):
+        flags.append("lessons_missing")
+    if not (asset.get("key_anecdotes") or []):
+        flags.append("anecdotes_missing")
+    if not (asset.get("reusable_quotes") or []):
+        flags.append("quotes_missing")
+    return flags
+
+
+def _load_live_source_payloads() -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
+    source_assets_payload: dict[str, Any] | None = None
+    long_form_routes_payload: dict[str, Any] | None = None
+    source = "empty"
+
+    try:
+        persisted_snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(
+            persisted_only=True,
+            include_workspace_files=False,
+            include_doc_entries=False,
+        )
+    except Exception:
+        persisted_snapshot = {}
+
+    if isinstance(persisted_snapshot, dict):
+        source_assets_payload = persisted_snapshot.get("source_assets") if isinstance(persisted_snapshot.get("source_assets"), dict) else None
+        long_form_routes_payload = persisted_snapshot.get("long_form_routes") if isinstance(persisted_snapshot.get("long_form_routes"), dict) else None
+        if source_assets_payload or long_form_routes_payload:
+            source = "persisted_snapshot"
+
+    try:
+        runtime_source_assets = build_source_asset_inventory(
+            transcripts_root=_transcripts_root(),
+            ingestions_root=_ingestions_root(),
+            repo_root=WORKSPACE_ROOT,
+        )
+    except Exception:
+        runtime_source_assets = None
+
+    if runtime_source_assets and (runtime_source_assets.get("items") or []):
+        source_assets_payload = runtime_source_assets
+        source = "runtime_corpus"
+
+    try:
+        runtime_routes = long_form_signal_service.build_long_form_route_summary(
+            repo_root=WORKSPACE_ROOT,
+            source_assets=source_assets_payload,
+            transcripts_root=_transcripts_root(),
+            ingestions_root=_ingestions_root(),
+            max_assets=24,
+            max_segments_per_asset=2,
+        )
+    except Exception:
+        runtime_routes = None
+
+    if runtime_routes and (runtime_routes.get("candidates") or runtime_routes.get("assets_considered")):
+        long_form_routes_payload = runtime_routes
+        source = "runtime_corpus"
+
+    return source_assets_payload, long_form_routes_payload, source
+
+
+def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets: int = 10) -> dict[str, Any]:
+    source_assets_payload, long_form_routes_payload, source = _load_live_source_payloads()
+    assets = list((source_assets_payload or {}).get("items") or [])
+    candidates = list((long_form_routes_payload or {}).get("candidates") or [])
+
+    asset_count = len(assets)
+    candidate_count = len(candidates)
+    channel_counts = dict(((source_assets_payload or {}).get("counts") or {}).get("by_channel") or {})
+    handoff_lane_counts = dict((long_form_routes_payload or {}).get("handoff_lane_counts") or {})
+    primary_route_counts = dict((long_form_routes_payload or {}).get("primary_route_counts") or {})
+    target_file_counts = _bucket_counts([str(item.get("target_file") or "unknown") for item in candidates])
+    summary_origin_counts = _bucket_counts([str(item.get("summary_origin") or "unknown") for item in assets])
+    quality_flags = [_summary_quality_flags(asset) for asset in assets]
+    issue_counts = _bucket_counts([flag for flags in quality_flags for flag in flags], empty_label="none")
+
+    summary_ready = sum(1 for asset in assets if str(asset.get("summary") or "").strip())
+    structured_summary_ready = sum(1 for asset in assets if str(asset.get("structured_summary") or "").strip())
+    lessons_ready = sum(1 for asset in assets if asset.get("lessons_learned"))
+    anecdotes_ready = sum(1 for asset in assets if asset.get("key_anecdotes"))
+    quotes_ready = sum(1 for asset in assets if asset.get("reusable_quotes"))
+    noisy_summary_count = sum(1 for flags in quality_flags if "summary_needs_cleanup" in flags)
+    package_ready_count = sum(
+        1
+        for asset in assets
+        if str(asset.get("structured_summary") or "").strip()
+        and any(asset.get(key) for key in ("lessons_learned", "key_anecdotes", "reusable_quotes"))
     )
-    samples: list[dict[str, Any]] = []
-    for candidate in (summary.get("candidates") or [])[:limit]:
+
+    candidate_samples: list[dict[str, Any]] = []
+    for candidate in candidates[:limit_candidates]:
         title = str(candidate.get("title") or "Untitled candidate")
         segment = str(candidate.get("segment") or "").strip()
-        handoff_lane = str(candidate.get("handoff_lane") or "")
-        samples.append(
+        candidate_samples.append(
             {
                 "topic": title,
                 "audience": "live_source_sample",
@@ -1407,7 +1513,7 @@ def _build_live_source_handoff_samples(limit: int = 5) -> list[dict[str, Any]]:
                     "supporting_claims": [title],
                     "why_it_matters": str(candidate.get("route_reason") or ""),
                     "role_alignment": str(candidate.get("belief_summary") or ""),
-                    "actual_handoff_lane": handoff_lane,
+                    "actual_handoff_lane": str(candidate.get("handoff_lane") or ""),
                     "primary_route": str(candidate.get("primary_route") or ""),
                     "lane_hint": str(candidate.get("lane_hint") or ""),
                     "handoff_reason": str(candidate.get("handoff_reason") or ""),
@@ -1418,7 +1524,71 @@ def _build_live_source_handoff_samples(limit: int = 5) -> list[dict[str, Any]]:
                 },
             }
         )
-    return samples
+
+    asset_samples: list[dict[str, Any]] = []
+    for asset in assets[:limit_assets]:
+        asset_samples.append(
+            {
+                "title": str(asset.get("title") or "Untitled asset"),
+                "source_channel": str(asset.get("source_channel") or ""),
+                "source_type": str(asset.get("source_type") or ""),
+                "source_path": str(asset.get("source_path") or ""),
+                "source_url": str(asset.get("source_url") or ""),
+                "summary": str(asset.get("summary") or ""),
+                "summary_origin": str(asset.get("summary_origin") or "unknown"),
+                "structured_summary": str(asset.get("structured_summary") or ""),
+                "lessons_learned": [str(item) for item in (asset.get("lessons_learned") or []) if str(item).strip()],
+                "key_anecdotes": [str(item) for item in (asset.get("key_anecdotes") or []) if str(item).strip()],
+                "reusable_quotes": [str(item) for item in (asset.get("reusable_quotes") or []) if str(item).strip()],
+                "open_questions": [str(item) for item in (asset.get("open_questions") or []) if str(item).strip()],
+                "quality_flags": _summary_quality_flags(asset),
+                "word_count": asset.get("word_count"),
+                "clean_word_count": asset.get("clean_word_count"),
+                "sentence_count": asset.get("sentence_count"),
+            }
+        )
+
+    top_issues = [
+        {
+            "id": issue,
+            "label": issue.replace("_", " "),
+            "count": count,
+        }
+        for issue, count in list(issue_counts.items())[:6]
+        if issue != "none"
+    ]
+
+    return {
+        "source": source,
+        "generated_at": _now_iso(),
+        "asset_count": asset_count,
+        "candidate_count": candidate_count,
+        "segments_total": int((long_form_routes_payload or {}).get("segments_total") or candidate_count),
+        "quality_metrics": {
+            "summary_coverage_rate": _audit_rate(summary_ready, asset_count),
+            "structured_summary_rate": _audit_rate(structured_summary_ready, asset_count),
+            "lesson_coverage_rate": _audit_rate(lessons_ready, asset_count),
+            "anecdote_coverage_rate": _audit_rate(anecdotes_ready, asset_count),
+            "quote_coverage_rate": _audit_rate(quotes_ready, asset_count),
+            "noisy_summary_rate": _audit_rate(noisy_summary_count, asset_count),
+            "package_readiness_rate": _audit_rate(package_ready_count, asset_count),
+        },
+        "slice_counts": {
+            "handoff_lane_counts": handoff_lane_counts,
+            "primary_route_counts": primary_route_counts,
+            "channel_counts": channel_counts,
+            "target_file_counts": target_file_counts,
+            "summary_origin_counts": summary_origin_counts,
+            "issue_counts": issue_counts,
+        },
+        "top_issues": top_issues,
+        "candidate_samples": candidate_samples,
+        "asset_samples": asset_samples,
+    }
+
+
+def _build_live_source_handoff_samples(limit: int = 5) -> list[dict[str, Any]]:
+    return (_build_live_source_handoff_audit(limit_candidates=limit).get("candidate_samples") or [])[:limit]
 
 
 def _round_score(value: float | None) -> float | None:
@@ -2537,6 +2707,33 @@ def _default_source_handoff_experiment_record() -> dict[str, Any]:
         },
         "sample_runs": [],
         "live_samples": [],
+        "live_audit": {
+            "source": "empty",
+            "generated_at": None,
+            "asset_count": 0,
+            "candidate_count": 0,
+            "segments_total": 0,
+            "quality_metrics": {
+                "summary_coverage_rate": 0.0,
+                "structured_summary_rate": 0.0,
+                "lesson_coverage_rate": 0.0,
+                "anecdote_coverage_rate": 0.0,
+                "quote_coverage_rate": 0.0,
+                "noisy_summary_rate": 0.0,
+                "package_readiness_rate": 0.0,
+            },
+            "slice_counts": {
+                "handoff_lane_counts": {},
+                "primary_route_counts": {},
+                "channel_counts": {},
+                "target_file_counts": {},
+                "summary_origin_counts": {},
+                "issue_counts": {},
+            },
+            "top_issues": [],
+            "candidate_samples": [],
+            "asset_samples": [],
+        },
         "history": [],
         "next_action": "Run the source handoff matrix to calibrate what should stay in source intelligence versus Persona, Posting, Briefs, and PM.",
         "ship_target": "Brain",
@@ -3115,7 +3312,8 @@ async def run_social_response_matrix_experiment() -> dict[str, Any]:
 async def run_source_handoff_matrix_experiment() -> dict[str, Any]:
     evaluations = [_evaluate_source_handoff_probe(probe) for probe in SOURCE_HANDOFF_PROBES]
     results = [item["sample_run"] for item in evaluations]
-    live_samples = _build_live_source_handoff_samples()
+    live_audit = _build_live_source_handoff_audit()
+    live_samples = live_audit.get("candidate_samples") or []
     probe_count = max(len(results), 1)
     mismatches = [item for item in evaluations if not item["exact_match"]]
     exact_match_count = probe_count - len(mismatches)
@@ -3252,6 +3450,7 @@ async def run_source_handoff_matrix_experiment() -> dict[str, Any]:
             },
             "sample_runs": results,
             "live_samples": live_samples,
+            "live_audit": live_audit,
             "history": history,
             "last_run_at": run_started_at,
             "next_action": run["next_action"],
