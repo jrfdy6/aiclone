@@ -61,6 +61,7 @@ async def ingest_long_form(payload: BrainLongFormIngestRequest):
         "message": "Long-form source registered in Brain",
         **result,
         "source_assets": snapshot.get("source_assets"),
+        "content_reservoir": snapshot.get("content_reservoir"),
         "long_form_routes": snapshot.get("long_form_routes"),
         "persona_review_summary": snapshot.get("persona_review_summary"),
     }

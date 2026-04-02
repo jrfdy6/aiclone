@@ -4243,6 +4243,11 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
             "topic_anchor_preview": topic_anchor_preview,
             "core_chunk_preview": core_chunk_preview,
             "proof_anchor_preview": proof_anchor_preview,
+            "content_reservoir_preview": [
+                str(item.get("chunk") or "")[:220]
+                for item in (content_context.content_reservoir_chunks or [])[:6]
+            ],
+            "content_reservoir_count": len(content_context.content_reservoir_chunks or []),
             "fallback_trace": fallback_trace,
             "provider_fallback_used": _provider_trace_indicates_fallback(provider_trace),
             "llm_request_count": len(provider_trace),

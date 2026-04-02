@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services import persona_delta_service
+from app.services.content_reservoir_service import build_content_reservoir_payload
 from app.services.social_feed_builder_service import (
     build_feed as build_social_feed_runtime_payload,
     discover_linkedin_workspace_root,
@@ -301,6 +302,7 @@ SNAPSHOT_FEEDBACK_SUMMARY = "feedback_summary"
 SNAPSHOT_SOURCE_ASSETS = "source_assets"
 SNAPSHOT_PERSONA_REVIEW_SUMMARY = "persona_review_summary"
 SNAPSHOT_LONG_FORM_ROUTES = "long_form_routes"
+SNAPSHOT_CONTENT_RESERVOIR = "content_reservoir"
 
 
 def _load_module(module_name: str, script_path: Path) -> Any | None:
@@ -818,6 +820,17 @@ def _current_long_form_routes_payload() -> dict[str, Any] | None:
     return persisted if persisted and _snapshot_is_usable(SNAPSHOT_LONG_FORM_ROUTES, persisted) else None
 
 
+def _build_content_reservoir_payload() -> dict[str, Any] | None:
+    source_assets_payload = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+    if not source_assets_payload:
+        source_assets_payload = _build_source_assets_payload()
+    try:
+        payload = build_content_reservoir_payload(source_assets=source_assets_payload)
+    except Exception:
+        return None
+    return payload if _snapshot_is_usable(SNAPSHOT_CONTENT_RESERVOIR, payload or {}) else None
+
+
 def _load_feedback_summary_payload() -> dict[str, Any] | None:
     linkedin_root = _discover_linkedin_root()
     try:
@@ -1105,6 +1118,8 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
         return _build_persona_review_summary_payload()
     if snapshot_type == SNAPSHOT_LONG_FORM_ROUTES:
         return _build_long_form_routes_payload()
+    if snapshot_type == SNAPSHOT_CONTENT_RESERVOIR:
+        return _build_content_reservoir_payload()
     return None
 
 
@@ -1150,6 +1165,8 @@ def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
         return isinstance(payload.get("counts"), dict) and isinstance(payload.get("recent"), list)
     if snapshot_type == SNAPSHOT_LONG_FORM_ROUTES:
         return isinstance(payload.get("route_counts"), dict) and isinstance(payload.get("candidates"), list)
+    if snapshot_type == SNAPSHOT_CONTENT_RESERVOIR:
+        return isinstance(payload.get("counts"), dict) and isinstance(payload.get("items"), list)
     return True
 
 
@@ -1240,6 +1257,33 @@ def _source_assets_count(payload: dict[str, Any] | None) -> int:
             return int(total)
     items = payload.get("items")
     return len(items) if isinstance(items, list) else 0
+
+
+def _content_reservoir_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
+    counts = payload.get("counts") or {}
+    items = payload.get("items") or []
+    if not isinstance(counts, dict):
+        counts = {}
+    if not isinstance(items, list):
+        items = []
+
+    item_signature: list[tuple[str, str, str, str]] = []
+    for item in items[:20]:
+        if not isinstance(item, dict):
+            continue
+        item_signature.append(
+            (
+                str(item.get("reservoir_id") or ""),
+                str(item.get("reservoir_lane") or ""),
+                str(item.get("source_path") or ""),
+                str(item.get("text") or ""),
+            )
+        )
+
+    return (
+        tuple(sorted((str(key), int(value)) for key, value in counts.items() if isinstance(value, (int, float)))),
+        tuple(item_signature),
+    )
 
 
 def _persona_review_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
@@ -1391,6 +1435,21 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
         if persisted and _snapshot_is_usable(snapshot_type, persisted):
             return persisted
         return None
+    if snapshot_type == SNAPSHOT_CONTENT_RESERVOIR:
+        runtime = _runtime_snapshot_payload(snapshot_type)
+        if runtime:
+            runtime_count = _source_assets_count(runtime)
+            persisted_count = _source_assets_count(persisted)
+            if persisted and _snapshot_is_usable(snapshot_type, persisted) and runtime_count == 0 and persisted_count > 0:
+                return persisted
+            if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
+            if _content_reservoir_signature(persisted) != _content_reservoir_signature(runtime):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
+            return runtime
+        if persisted and _snapshot_is_usable(snapshot_type, persisted):
+            return persisted
+        return None
     if persisted and _snapshot_is_usable(snapshot_type, persisted):
         return persisted
     payload = _runtime_snapshot_payload(snapshot_type)
@@ -1419,6 +1478,14 @@ class WorkspaceSnapshotService:
         source_assets = _runtime_snapshot_payload(SNAPSHOT_SOURCE_ASSETS)
         if source_assets:
             refreshed[SNAPSHOT_SOURCE_ASSETS] = _persist_snapshot(SNAPSHOT_SOURCE_ASSETS, source_assets, "refresh")
+
+        content_reservoir = _runtime_snapshot_payload(SNAPSHOT_CONTENT_RESERVOIR)
+        if content_reservoir:
+            refreshed[SNAPSHOT_CONTENT_RESERVOIR] = _persist_snapshot(
+                SNAPSHOT_CONTENT_RESERVOIR,
+                content_reservoir,
+                "refresh",
+            )
 
         long_form_routes = _runtime_snapshot_payload(SNAPSHOT_LONG_FORM_ROUTES)
         if long_form_routes:
@@ -1455,6 +1522,7 @@ class WorkspaceSnapshotService:
         )
 
         source_assets = load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+        content_reservoir = load_snapshot(SNAPSHOT_CONTENT_RESERVOIR)
         long_form_routes = load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
         weekly_plan = load_snapshot(SNAPSHOT_WEEKLY_PLAN)
         weekly_plan = _augment_weekly_plan_payload(weekly_plan, long_form_routes)
@@ -1470,6 +1538,7 @@ class WorkspaceSnapshotService:
             "social_feed": social_feed,
             "feedback_summary": feedback_summary,
             "source_assets": source_assets,
+            "content_reservoir": content_reservoir,
             "persona_review_summary": persona_review_summary,
             "long_form_routes": long_form_routes,
             "refresh_status": social_feed_refresh_service.get_status(),

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 from typing import Any
 
@@ -10,6 +10,7 @@ from app.services.persona_bundle_context_service import (
     retrieve_bundle_persona_chunks,
 )
 from app.services.retrieval import retrieve_similar, retrieve_weighted
+from app.services.workspace_snapshot_store import get_snapshot_payload
 
 
 LEGACY_PERSONA_SOURCES = (
@@ -127,6 +128,7 @@ class ContentGenerationContext:
     story_beats: list[str]
     disallowed_moves: list[str]
     persona_context_summary: str | None
+    content_reservoir_chunks: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
@@ -405,6 +407,103 @@ def retrieve_legacy_support_chunks(
         if items:
             return items
     return []
+
+
+def _load_content_reservoir_payload() -> dict[str, Any] | None:
+    payload = get_snapshot_payload("linkedin-content-os", "content_reservoir")
+    if isinstance(payload, dict):
+        return payload
+    try:
+        from app.services.workspace_snapshot_service import workspace_snapshot_service
+
+        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(
+            include_workspace_files=False,
+            include_doc_entries=False,
+        )
+    except Exception:
+        return None
+    payload = snapshot.get("content_reservoir") if isinstance(snapshot, dict) else None
+    return payload if isinstance(payload, dict) else None
+
+
+def _hydrate_content_reservoir_item(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = item.get("metadata")
+    hydrated_metadata = metadata if isinstance(metadata, dict) else {}
+    return {
+        "source_id": item.get("reservoir_id") or item.get("asset_id"),
+        "source_file_id": item.get("asset_id"),
+        "chunk_index": None,
+        "chunk": str(item.get("chunk") or item.get("text") or ""),
+        "similarity_score": float(item.get("content_priority") or 0.0),
+        "weighted_score": float(item.get("content_priority") or 0.0),
+        "persona_tag": str(item.get("persona_tag") or hydrated_metadata.get("persona_tag") or "PHILOSOPHY"),
+        "metadata": hydrated_metadata,
+    }
+
+
+def _content_reservoir_lane_bonus(lane: str) -> int:
+    return {
+        "canon_bridge": 8,
+        "proof_point": 6,
+        "story_bank": 5,
+        "voice_guidance": 4,
+        "post_seed": 3,
+    }.get(lane, 0)
+
+
+def retrieve_content_reservoir_chunks(
+    *,
+    topic: str,
+    audience: str,
+    category: str,
+    top_k: int = 8,
+) -> list[dict[str, Any]]:
+    payload = _load_content_reservoir_payload()
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or not items:
+        return []
+
+    focus_terms = _focus_terms(topic, audience)
+    ranked: list[tuple[int, int, dict[str, Any]]] = []
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        hydrated = _hydrate_content_reservoir_item(raw_item)
+        chunk = str(hydrated.get("chunk") or "")
+        if not chunk:
+            continue
+        primary_text, use_when_text = _split_use_when_text(chunk)
+        focus_score = (_chunk_focus_score(primary_text, focus_terms, topic) * 3) + _chunk_focus_score(use_when_text, focus_terms, topic)
+        compatibility_score = _domain_compatibility_score(hydrated, topic=topic, audience=audience)
+        metadata = _item_metadata(hydrated)
+        memory_role = str(metadata.get("memory_role") or "")
+        reservoir_lane = str(raw_item.get("reservoir_lane") or metadata.get("content_reservoir_lane") or "")
+        score = int(raw_item.get("score") or 0)
+        priority = int(raw_item.get("content_priority") or 0)
+
+        composite = priority + (focus_score * 5) + (compatibility_score * 4) + _content_reservoir_lane_bonus(reservoir_lane)
+        if category == "personal" and memory_role == "story":
+            composite += 6
+        if category == "value" and memory_role == "proof":
+            composite += 4
+        if category == "sales" and reservoir_lane in {"proof_point", "post_seed"}:
+            composite += 3
+
+        if composite <= 0:
+            continue
+        ranked.append((composite, score, hydrated))
+
+    curated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, _, item in sorted(ranked, key=lambda entry: (entry[0], entry[1]), reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= top_k:
+            break
+    return curated
 
 
 def retrieve_curated_example_chunks(
@@ -1057,8 +1156,26 @@ def build_content_generation_context(
         query_embedding=persona_embedding,
         top_k=6,
     )
+    content_reservoir_chunks: list[dict[str, Any]] = []
     retrieved_persona_chunks = []
-    if normalized_source_mode in {"selected_source", "recent_signals"}:
+    if normalized_source_mode == "recent_signals":
+        content_reservoir_chunks = retrieve_content_reservoir_chunks(
+            topic=topic,
+            audience=audience,
+            category=category,
+            top_k=8,
+        )
+        if content_reservoir_chunks:
+            retrieved_persona_chunks = content_reservoir_chunks
+        else:
+            retrieved_persona_chunks = retrieve_weighted(
+                user_id=user_id,
+                query_embedding=persona_embedding,
+                category=category,
+                channel=content_type,
+                top_k=8,
+            )
+    elif normalized_source_mode == "selected_source":
         retrieved_persona_chunks = retrieve_weighted(
             user_id=user_id,
             query_embedding=persona_embedding,
@@ -1128,6 +1245,7 @@ def build_content_generation_context(
         "[content_context] "
         f"bundle={len(bundle_persona_chunks)} "
         f"legacy={len(legacy_support_chunks)} "
+        f"reservoir={len(content_reservoir_chunks)} "
         f"retrieved={len(retrieved_persona_chunks)} "
         f"curated={len(persona_chunks)} "
         f"core={len(core_chunks)} "
@@ -1222,4 +1340,5 @@ def build_content_generation_context(
             persona_chunks=persona_chunks,
             topic=topic,
         ),
+        content_reservoir_chunks=content_reservoir_chunks,
     )

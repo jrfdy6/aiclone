@@ -87,6 +87,106 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
 
         weighted_mock.assert_called_once()
 
+    def test_recent_signals_mode_prefers_content_reservoir_over_weighted_retrieval(self) -> None:
+        core_chunk = {
+            "chunk": "Workflow clarity matters because operator trust breaks when review disappears.",
+            "metadata": {
+                "bundle_path": "identity/claims.md",
+                "memory_role": "core",
+                "domain_tags": ["ai_systems", "operator_workflows", "identity_core"],
+                "audience_tags": ["tech_ai", "entrepreneurs"],
+                "proof_strength": "medium",
+                "artifact_backed": False,
+                "claim_type": "mission",
+            },
+        }
+        reservoir_chunk = {
+            "chunk": "AI systems fail when the human review layer disappears. Use when: you need a source-backed lesson.",
+            "persona_tag": "PHILOSOPHY",
+            "metadata": {
+                "memory_role": "proof",
+                "domain_tags": ["ai_systems", "operator_workflows"],
+                "audience_tags": ["tech_ai", "entrepreneurs"],
+                "proof_strength": "medium",
+                "artifact_backed": True,
+                "claim_type": "operational",
+            },
+        }
+
+        with (
+            patch("app.services.content_generation_context_service.embed_text", return_value=[0.1, 0.2]),
+            patch("app.services.content_generation_context_service.load_bundle_persona_chunks", return_value=[core_chunk]),
+            patch("app.services.content_generation_context_service.retrieve_bundle_persona_chunks", return_value=[core_chunk]),
+            patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[reservoir_chunk]),
+            patch("app.services.content_generation_context_service.retrieve_weighted", return_value=[]) as weighted_mock,
+        ):
+            context = build_content_generation_context(
+                user_id="johnnie_fields",
+                topic="agent orchestration",
+                context="Blend recent source material into the post.",
+                content_type="linkedin_post",
+                category="value",
+                tone="expert_direct",
+                audience="tech_ai",
+                source_mode="recent_signals",
+            )
+
+        self.assertEqual(len(context.content_reservoir_chunks), 1)
+        self.assertIn("AI systems fail when the human review layer disappears.", context.content_reservoir_chunks[0]["chunk"])
+        weighted_mock.assert_not_called()
+
+    def test_recent_signals_mode_falls_back_to_weighted_when_reservoir_is_empty(self) -> None:
+        core_chunk = {
+            "chunk": "Workflow clarity matters because operator trust breaks when review disappears.",
+            "metadata": {
+                "bundle_path": "identity/claims.md",
+                "memory_role": "core",
+                "domain_tags": ["ai_systems", "operator_workflows", "identity_core"],
+                "audience_tags": ["tech_ai", "entrepreneurs"],
+                "proof_strength": "medium",
+                "artifact_backed": False,
+                "claim_type": "mission",
+            },
+        }
+        weighted_chunk = {
+            "chunk": "Prompting alone breaks when the workflow has no operator handoff.",
+            "persona_tag": "PHILOSOPHY",
+            "metadata": {
+                "memory_role": "ambient",
+                "domain_tags": ["ai_systems", "operator_workflows"],
+                "audience_tags": ["tech_ai"],
+                "proof_strength": "weak",
+                "artifact_backed": False,
+            },
+        }
+
+        with (
+            patch("app.services.content_generation_context_service.embed_text", return_value=[0.1, 0.2]),
+            patch("app.services.content_generation_context_service.load_bundle_persona_chunks", return_value=[core_chunk]),
+            patch("app.services.content_generation_context_service.retrieve_bundle_persona_chunks", return_value=[core_chunk]),
+            patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_weighted", return_value=[weighted_chunk]) as weighted_mock,
+        ):
+            context = build_content_generation_context(
+                user_id="johnnie_fields",
+                topic="agent orchestration",
+                context="Blend recent source material into the post.",
+                content_type="linkedin_post",
+                category="value",
+                tone="expert_direct",
+                audience="tech_ai",
+                source_mode="recent_signals",
+            )
+
+        self.assertEqual(context.content_reservoir_chunks, [])
+        weighted_mock.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
