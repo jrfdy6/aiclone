@@ -92,6 +92,12 @@ source: user interview
 
 ## Summary
 - Johnnie explains how lived operator experience shapes trust.
+
+## Key Requirements / Directives
+1. Prefer lived operator stories over generic credentialing.
+
+## Notes
+- Typical disagreement setup: `I understand where they're coming from, but...`
 """,
                 encoding="utf-8",
             )
@@ -101,7 +107,27 @@ title: 2026-03-30 user-provided-voice-proof-draft
 source: voice memo
 ---
 
-Guided voice/proof notes with phrase boundaries and cadence examples.
+# User-Provided Voice and Proof Draft
+
+## Simulated Transcript Themes
+
+### Builder vs talker in AI
+- Core line: There are people talking about AI and people building with it.
+- Operating lesson: Real understanding comes from building, failing, debugging, and tightening.
+- Voice markers:
+  - Here’s where it breaks.
+
+## Lived Proof Scenes
+
+### Admissions family scene
+- A family arrived frustrated and exhausted by previous school conversations.
+- Johnnie stopped pitching and started translating their actual situation back to them.
+- The breakthrough was trust and clarity, not persuasion.
+
+## Phrase Boundaries
+
+### Strong yes
+- That’s the part people miss.
 """,
                 encoding="utf-8",
             )
@@ -119,10 +145,15 @@ Guided voice/proof notes with phrase boundaries and cadence examples.
             self.assertEqual(interview["transcript_note_kind"], "persona_interview")
             self.assertEqual(interview["persona_use_mode"], "voice_and_experience")
             self.assertEqual(interview["voice_signal_priority"], "high")
+            self.assertTrue(interview["lessons_learned"])
+            self.assertIn("I understand where they're coming from, but...", interview["reusable_quotes"])
 
             self.assertEqual(voice_proof["transcript_note_kind"], "voice_proof")
             self.assertEqual(voice_proof["persona_use_mode"], "voice_guidance_only")
             self.assertEqual(voice_proof["voice_signal_priority"], "high")
+            self.assertTrue(voice_proof["lessons_learned"])
+            self.assertTrue(voice_proof["key_anecdotes"])
+            self.assertIn("That’s the part people miss.", voice_proof["reusable_quotes"])
 
 
 if __name__ == "__main__":

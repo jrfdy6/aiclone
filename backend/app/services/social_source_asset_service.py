@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import yaml
@@ -102,6 +102,8 @@ HARVEST_PROMO_PREFIXES = (
 )
 HARVEST_URL_PATTERN = re.compile(r"https?://\S+")
 HARVEST_SPLIT_PATTERN = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])")
+MARKDOWN_LIST_ITEM_PATTERN = re.compile(r"^(?:[-*]\s+(?:\[[ xX]\]\s+)??|\d+\.\s+)(.+)$")
+INLINE_CODE_PATTERN = re.compile(r"`([^`]{2,120})`")
 
 
 def _clean_text(value: Any) -> str:
@@ -160,6 +162,21 @@ def _list_strings(value: Any, limit: int = 12) -> list[str]:
     seen: set[str] = set()
     for item in items:
         text = _clean_text(item)
+        lowered = text.lower()
+        if not text or lowered in seen:
+            continue
+        seen.add(lowered)
+        cleaned.append(text)
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def _dedupe_strings(values: list[str], *, limit: int = 12) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = _clean_text(value)
         lowered = text.lower()
         if not text or lowered in seen:
             continue
@@ -251,6 +268,180 @@ def _summary_quality_flags(summary: str, structured_summary: str, lessons: list[
     if not quotes:
         flags.append("quotes_missing")
     return flags
+
+
+def _split_labeled_content(text: str) -> tuple[str | None, str]:
+    cleaned = _clean_text(text)
+    if ":" not in cleaned:
+        return None, cleaned
+    label, remainder = cleaned.split(":", 1)
+    clean_label = _clean_text(label)
+    clean_remainder = _clean_text(remainder)
+    if not clean_label or not clean_remainder:
+        return None, cleaned
+    if len(clean_label.split()) > 5:
+        return None, cleaned
+    return clean_label.lower(), clean_remainder
+
+
+def _parse_markdown_note_items(body: str) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    headings: dict[int, str] = {2: "", 3: "", 4: ""}
+    for raw_line in body.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#### "):
+            headings[4] = _clean_text(stripped[5:])
+            continue
+        if stripped.startswith("### "):
+            headings[3] = _clean_text(stripped[4:])
+            headings[4] = ""
+            continue
+        if stripped.startswith("## "):
+            headings[2] = _clean_text(stripped[3:])
+            headings[3] = ""
+            headings[4] = ""
+            continue
+
+        match = MARKDOWN_LIST_ITEM_PATTERN.match(stripped)
+        if not match:
+            continue
+        item_text = _clean_text(match.group(1))
+        label, content = _split_labeled_content(item_text)
+        path_parts = [headings[level] for level in (2, 3, 4) if headings[level]]
+        items.append(
+            {
+                "path": " / ".join(path_parts),
+                "text": item_text,
+                "content": content,
+                "label": label or "",
+            }
+        )
+    return items
+
+
+def _note_item_path_mentions(item: dict[str, str], *needles: str) -> bool:
+    path = item.get("path", "").lower()
+    label = item.get("label", "").lower()
+    return any(needle in path or needle in label for needle in needles)
+
+
+def _note_item_text_corpus(items: list[dict[str, str]], body: str) -> str:
+    values = [item.get("content", "") for item in items]
+    if values:
+        return "\n".join(_dedupe_strings(values, limit=240))
+    return body
+
+
+def _top_ranked_fragments(
+    candidates: list[str],
+    *,
+    limit: int,
+    predicate: Callable[[str], bool] | None = None,
+    minimum_score: int = 0,
+    max_words: int = 40,
+) -> list[str]:
+    ranked: list[tuple[int, int, str]] = []
+    for index, candidate in enumerate(candidates):
+        cleaned = _clean_text(candidate)
+        if not cleaned:
+            continue
+        if len(cleaned.split()) > max_words:
+            continue
+        if predicate and not predicate(cleaned):
+            continue
+        score = _score_fragment(cleaned)
+        if score < minimum_score:
+            continue
+        ranked.append((score, -index, cleaned))
+    ranked.sort(reverse=True)
+    return _dedupe_strings([text for _, _, text in ranked[:limit]], limit=limit)
+
+
+def _transcript_note_summary(items: list[dict[str, str]], body: str) -> str:
+    summary_items = [item.get("content", "") for item in items if _note_item_path_mentions(item, "summary")]
+    if summary_items:
+        return " ".join(_dedupe_strings(summary_items, limit=3))[:420]
+    return _first_meaningful_line(body)[:420]
+
+
+def _transcript_note_scene_summaries(items: list[dict[str, str]]) -> list[str]:
+    grouped: dict[str, list[str]] = {}
+    for item in items:
+        if not _note_item_path_mentions(item, "scene", "lived proof"):
+            continue
+        path = item.get("path", "")
+        grouped.setdefault(path, []).append(item.get("content", ""))
+    scenes = [" ".join(_dedupe_strings(values, limit=4)) for values in grouped.values() if values]
+    return _dedupe_strings(scenes, limit=6)
+
+
+def _transcript_note_inline_phrases(items: list[dict[str, str]]) -> list[str]:
+    phrases: list[str] = []
+    for item in items:
+        for source in (item.get("text", ""), item.get("content", "")):
+            phrases.extend(match.group(1) for match in INLINE_CODE_PATTERN.finditer(source))
+    return _dedupe_strings(phrases, limit=16)
+
+
+def _transcript_note_lessons(items: list[dict[str, str]], clean_document: str) -> list[str]:
+    explicit = [
+        item.get("content", "")
+        for item in items
+        if _note_item_path_mentions(item, "key requirements", "directives", "practical extraction")
+        or item.get("label") == "operating lesson"
+    ]
+    explicit.extend(
+        item.get("content", "")
+        for item in items
+        if _note_item_path_mentions(item, "notes")
+        and any(term in f" {item.get('content', '').lower()} " for term in HARVEST_LESSON_TERMS)
+    )
+    fallback = _top_ranked_fragments(
+        _sentence_candidates(clean_document),
+        limit=4,
+        predicate=lambda sentence: any(term in f" {sentence.lower()} " for term in HARVEST_LESSON_TERMS),
+        minimum_score=1,
+        max_words=34,
+    )
+    return _dedupe_strings(explicit + fallback, limit=8)
+
+
+def _transcript_note_anecdotes(items: list[dict[str, str]], clean_document: str) -> list[str]:
+    explicit = _transcript_note_scene_summaries(items)
+    fallback = _top_ranked_fragments(
+        _sentence_candidates(clean_document),
+        limit=3,
+        predicate=lambda sentence: any(term in f" {sentence.lower()} " for term in HARVEST_STORY_TERMS),
+        minimum_score=0,
+        max_words=42,
+    )
+    return _dedupe_strings(explicit + fallback, limit=6)
+
+
+def _transcript_note_quotes(items: list[dict[str, str]], clean_document: str) -> list[str]:
+    explicit = [
+        item.get("content", "")
+        for item in items
+        if _note_item_path_mentions(item, "voice markers", "phrase boundaries", "strong yes", "hard no")
+        or item.get("label") in {"core line", "typical disagreement setup", "stronger challenge turns"}
+    ]
+    explicit.extend(_transcript_note_inline_phrases(items))
+    fallback = _top_ranked_fragments(
+        _sentence_candidates(clean_document),
+        limit=4,
+        predicate=lambda sentence: any(term in f" {sentence.lower()} " for term in HARVEST_QUOTE_TERMS + HARVEST_CONTRAST_TERMS),
+        minimum_score=2,
+        max_words=24,
+    )
+    return _dedupe_strings(explicit + fallback, limit=8)
+
+
+def _transcript_note_open_questions(items: list[dict[str, str]], clean_document: str) -> list[str]:
+    explicit = [item.get("content", "") for item in items if _note_item_path_mentions(item, "follow-ups", "tasks")]
+    fallback = [sentence for sentence in _sentence_candidates(clean_document) if sentence.endswith("?")]
+    return _dedupe_strings(explicit + fallback, limit=6)
 
 
 def _bucket_counts(values: list[str], *, empty_label: str = "unknown") -> dict[str, int]:
@@ -513,13 +704,14 @@ def _build_transcript_note_assets(transcripts_root: Path, repo_root: Path) -> li
         note_kind = _transcript_note_kind(meta, body, path)
         persona_use_mode = _transcript_note_persona_use_mode(note_kind)
         voice_priority = _transcript_note_voice_priority(note_kind)
-        summary = _first_bullet(_extract_section(body, "Summary")) or _first_meaningful_line(body)
+        note_items = _parse_markdown_note_items(body)
+        clean_document = _note_item_text_corpus(note_items, body)
+        summary = _transcript_note_summary(note_items, body)
         structured_summary = summary
-        lessons: list[str] = []
-        anecdotes: list[str] = []
-        quotes: list[str] = []
-        open_questions: list[str] = []
-        clean_document = body
+        lessons = _transcript_note_lessons(note_items, clean_document)
+        anecdotes = _transcript_note_anecdotes(note_items, clean_document)
+        quotes = _transcript_note_quotes(note_items, clean_document)
+        open_questions = _transcript_note_open_questions(note_items, clean_document)
         deep_harvest_fragments = _build_deep_harvest_fragments(
             summary=summary,
             structured_summary=structured_summary,
@@ -558,7 +750,7 @@ def _build_transcript_note_assets(transcripts_root: Path, repo_root: Path) -> li
             "key_anecdotes": anecdotes,
             "reusable_quotes": quotes,
             "open_questions": open_questions,
-            "clean_word_count": None,
+            "clean_word_count": len(clean_document.split()) if clean_document else None,
             "sentence_count": len(_sentence_candidates(clean_document)),
             "quality_flags": _summary_quality_flags(summary, structured_summary, lessons, anecdotes, quotes),
             "transcript_note_kind": note_kind,
