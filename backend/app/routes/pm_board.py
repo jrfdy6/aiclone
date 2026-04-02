@@ -4,7 +4,16 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 
-from app.models import ExecutionQueueEntry, PMCard, PMCardCreate, PMCardDispatchRequest, PMCardDispatchResult, PMCardUpdate
+from app.models import (
+    ExecutionQueueEntry,
+    PMCard,
+    PMCardActionRequest,
+    PMCardActionResult,
+    PMCardCreate,
+    PMCardDispatchRequest,
+    PMCardDispatchResult,
+    PMCardUpdate,
+)
 from app.services import pm_card_service
 
 router = APIRouter(tags=["PM Board"], prefix="/api/pm")
@@ -45,6 +54,14 @@ async def list_execution_queue(
 @router.post("/cards/{card_id}/dispatch", response_model=PMCardDispatchResult)
 async def dispatch_card(card_id: str, payload: PMCardDispatchRequest):
     result = pm_card_service.dispatch_card(card_id, payload)
+    if not result:
+        raise HTTPException(status_code=404, detail="PM card not found")
+    return result
+
+
+@router.post("/cards/{card_id}/actions", response_model=PMCardActionResult)
+async def act_on_card(card_id: str, payload: PMCardActionRequest):
+    result = pm_card_service.act_on_card(card_id, payload)
     if not result:
         raise HTTPException(status_code=404, detail="PM card not found")
     return result

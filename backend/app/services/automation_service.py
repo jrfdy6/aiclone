@@ -109,7 +109,7 @@ def _static_automations() -> List[Automation]:
         Automation(
             id="daily_brief",
             name="Morning Daily Brief",
-            description="Generates the daily Markdown brief with priorities, cron summary, and AI Pulse news.",
+            description="Generates the daily Markdown brief with priorities, cron summary, and AI Pulse news, then syncs the saved markdown into the backend brief store so Brain and Ops read the same latest brief.",
             type="scheduled",
             status="active",
             schedule="Daily @ 07:30 ET",
@@ -126,7 +126,7 @@ def _static_automations() -> List[Automation]:
                 "Summarize priorities + pending actions",
                 "List cron successes/failures with timestamps",
                 "Curate AI Pulse news (OpenAI/Anthropic/Gemini)",
-                "Post Markdown into Brain ↦ Daily Briefs",
+                "Append Markdown into memory/daily-briefs.md and mirror it into /api/briefs/sync",
             ),
         ),
         Automation(

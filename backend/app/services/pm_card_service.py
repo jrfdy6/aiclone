@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import uuid4
 
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-from app.models import ExecutionQueueEntry, PMCard, PMCardCreate, PMCardDispatchRequest, PMCardDispatchResult, PMCardUpdate
+from app.models import (
+    ExecutionQueueEntry,
+    PMCard,
+    PMCardActionRequest,
+    PMCardActionResult,
+    PMCardCreate,
+    PMCardDispatchRequest,
+    PMCardDispatchResult,
+    PMCardUpdate,
+)
 from app.services.open_brain_db import get_pool
 from app.services.workspace_runtime_contract_service import execution_defaults_for_workspace as runtime_execution_defaults_for_workspace
 
@@ -290,6 +299,131 @@ def dispatch_card(card_id: str, payload: PMCardDispatchRequest) -> Optional[PMCa
     if updated is None:
         return None
     return PMCardDispatchResult(card=updated, queue_entry=build_execution_queue_entry(updated) or _fallback_execution_entry(updated))
+
+
+def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardActionResult]:
+    card = get_card(card_id)
+    if card is None:
+        return None
+
+    status, card_payload = build_card_action_update(
+        card,
+        action=payload.action,
+        requested_by=payload.requested_by,
+        reason=payload.reason,
+    )
+    updated = update_card(card_id, PMCardUpdate(status=status, payload=card_payload))
+    if updated is None:
+        return None
+    return PMCardActionResult(card=updated, queue_entry=build_execution_queue_entry(updated))
+
+
+def build_card_action_update(
+    card: PMCard,
+    *,
+    action: str,
+    requested_by: str = "Neo",
+    reason: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    payload = dict(card.payload or {})
+    current_execution = dict(_execution_payload(card) or {})
+    defaults = execution_defaults_for_workspace(_workspace_key_from_card(card))
+    queue_entry = build_execution_queue_entry(card)
+    now = datetime.now(timezone.utc).isoformat()
+    history = list(current_execution.get("history") or [])
+
+    next_status = card.status or "review"
+    next_state = str(current_execution.get("state") or (queue_entry.execution_state if queue_entry else "review"))
+    next_target = str(current_execution.get("target_agent") or (queue_entry.target_agent if queue_entry else defaults["target_agent"]))
+    next_assigned_runner = str(current_execution.get("assigned_runner") or (queue_entry.assigned_runner if queue_entry else "codex"))
+    next_execution_mode = str(current_execution.get("execution_mode") or (queue_entry.execution_mode if queue_entry else defaults["execution_mode"]))
+    manager_attention_required = bool(current_execution.get("manager_attention_required"))
+    effective_reason = str(
+        reason
+        or current_execution.get("reason")
+        or (queue_entry.reason if queue_entry else "")
+        or _payload_value(payload, "reason")
+        or ""
+    ).strip()
+
+    if action == "approve":
+        next_status = "done"
+        next_state = "done"
+        manager_attention_required = False
+    elif action == "return":
+        next_status = "todo"
+        next_state = "queued"
+        next_target = "Jean-Claude"
+        next_assigned_runner = "jean-claude"
+        next_execution_mode = "direct"
+        manager_attention_required = False
+        if not effective_reason:
+            effective_reason = "Returned to Jean-Claude for another pass."
+    elif action == "blocked":
+        next_status = "blocked"
+        next_state = "queued"
+        next_target = "Jean-Claude"
+        next_assigned_runner = "jean-claude"
+        next_execution_mode = "direct"
+        manager_attention_required = True
+        if not effective_reason:
+            effective_reason = "Marked blocked during manual review. Jean-Claude needs a closure decision."
+    else:
+        raise ValueError(f"Unsupported PM card action: {action}")
+
+    history.append(
+        {
+            "event": (
+                "manual_approve"
+                if action == "approve"
+                else "manual_return"
+                if action == "return"
+                else "manual_blocked"
+            ),
+            "state": next_state,
+            "requested_by": requested_by,
+            "at": now,
+        }
+    )
+
+    payload["execution"] = {
+        **defaults,
+        **current_execution,
+        "lane": str(current_execution.get("lane") or (queue_entry.lane if queue_entry else "codex")),
+        "state": next_state,
+        "manager_agent": str(current_execution.get("manager_agent") or (queue_entry.manager_agent if queue_entry else defaults["manager_agent"])),
+        "target_agent": next_target,
+        "workspace_agent": current_execution.get("workspace_agent") or (queue_entry.workspace_agent if queue_entry else defaults.get("workspace_agent")),
+        "execution_mode": next_execution_mode,
+        "requested_by": requested_by,
+        "assigned_runner": next_assigned_runner,
+        "queued_at": current_execution.get("queued_at") if action == "approve" else now,
+        "last_transition_at": now,
+        "manager_attention_required": manager_attention_required,
+        "returned_from_agent": (
+            str(current_execution.get("target_agent") or (queue_entry.target_agent if queue_entry else ""))
+            if action == "blocked"
+            else current_execution.get("returned_from_agent")
+        ),
+        "reason": effective_reason,
+        "history": history[-12:],
+    }
+
+    latest_execution_result = payload.get("latest_execution_result")
+    if isinstance(latest_execution_result, dict):
+        updated_result = dict(latest_execution_result)
+        updated_result["review_resolution"] = action
+        updated_result["reviewed_at"] = now
+        payload["latest_execution_result"] = updated_result
+
+    payload["latest_manual_review"] = {
+        "action": action,
+        "reviewed_at": now,
+        "reviewed_by": requested_by,
+        "from_lane": queue_entry.execution_state if queue_entry else (card.status or "todo"),
+    }
+
+    return next_status, payload
 
 
 def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:

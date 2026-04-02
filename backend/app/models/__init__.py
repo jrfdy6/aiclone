@@ -26,7 +26,16 @@ from .build_reviews import BuildReview, BuildReviewUpdate, BuildReviewUpsert
 from .daily_briefs import DailyBrief, DailyBriefSyncRequest
 from .open_brain import OpenBrainHealth, OpenBrainSearchHit, OpenBrainSearchRequest, OpenBrainSearchResponse
 from .persona import PersonaDelta, PersonaDeltaCreate, PersonaDeltaResolve, PersonaDeltaUpdate
-from .pm_board import ExecutionQueueEntry, PMCard, PMCardCreate, PMCardDispatchRequest, PMCardDispatchResult, PMCardUpdate
+from .pm_board import (
+    ExecutionQueueEntry,
+    PMCard,
+    PMCardActionRequest,
+    PMCardActionResult,
+    PMCardCreate,
+    PMCardDispatchRequest,
+    PMCardDispatchResult,
+    PMCardUpdate,
+)
 from .standups import (
     StandupCreate,
     StandupEntry,
@@ -80,6 +89,8 @@ __all__ = [
     "PersonaDeltaResolve",
     "PersonaDeltaUpdate",
     "PMCard",
+    "PMCardActionRequest",
+    "PMCardActionResult",
     "PMCardCreate",
     "PMCardDispatchRequest",
     "PMCardDispatchResult",

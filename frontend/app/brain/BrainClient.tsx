@@ -1774,6 +1774,7 @@ function DailyBriefsPanel({
               <h2 style={{ color: 'white', fontSize: '26px', marginBottom: '8px' }}>{selected.title}</h2>
               {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>}
             </div>
+            <BriefSystemChainPanel brief={selected} overlay={selectedSourceIntelligence} streamCount={streamItems.length} />
             {selectedSourceIntelligence && <BriefSourceIntelligencePanel overlay={selectedSourceIntelligence} />}
             {streamItems.length > 0 && <BriefStreamPanel brief={selected} items={streamItems} onRefresh={onRefresh} />}
             <div
@@ -1795,6 +1796,68 @@ function DailyBriefsPanel({
         ) : (
           <p style={{ color: '#475569' }}>Select a brief to read the saved markdown.</p>
         )}
+      </div>
+    </section>
+  );
+}
+
+function BriefSystemChainPanel({
+  brief,
+  overlay,
+  streamCount,
+}: {
+  brief: DailyBriefEntry;
+  overlay: BriefSourceIntelligence | null;
+  streamCount: number;
+}) {
+  const reviewCount = overlay?.top_review_items?.length ?? 0;
+  const syncOrigin =
+    typeof brief.metadata?.sync_origin === 'string' && brief.metadata.sync_origin.trim()
+      ? brief.metadata.sync_origin.trim()
+      : brief.source;
+  const cards = [
+    {
+      title: 'Saved Brief',
+      value: brief.brief_date,
+      detail: `Stored from ${humanizeSnakeCase(syncOrigin || 'workspace_markdown')}`,
+      tone: '#818cf8',
+    },
+    {
+      title: 'Live Overlay',
+      value: overlay?.generated_at ? formatTimestamp(new Date(overlay.generated_at)) : 'No live overlay',
+      detail: overlay ? 'Current shared source snapshot layered onto the latest saved brief.' : 'No source overlay attached to this brief.',
+      tone: '#38bdf8',
+    },
+    {
+      title: 'Brief Stream',
+      value: String(streamCount),
+      detail: 'Reaction-ready items flowing from the same brief/source system.',
+      tone: '#22c55e',
+    },
+    {
+      title: 'Persona Review',
+      value: String(reviewCount),
+      detail: 'Worldview or judgment items currently visible from the live source layer.',
+      tone: '#f59e0b',
+    },
+  ];
+
+  return (
+    <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+      <div style={{ marginBottom: '12px' }}>
+        <p style={{ color: '#a78bfa', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>Shared Intelligence Chain</p>
+        <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+          Saved Daily Briefs and Live Source Intelligence are two layers of the same flow: the brief is the saved narrative snapshot, and the overlay is the current upstream source system feeding the next review and routing decisions.
+        </p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+        {cards.map((card) => (
+          <div key={card.title} style={{ borderRadius: '12px', border: `1px solid ${card.tone}33`, backgroundColor: `${card.tone}10`, padding: '12px' }}>
+            <p style={{ color: card.tone, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>{card.title}</p>
+            <p style={{ color: 'white', fontSize: '15px', fontWeight: 700, margin: '0 0 6px' }}>{card.value}</p>
+            <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{card.detail}</p>
+          </div>
+        ))}
       </div>
     </section>
   );

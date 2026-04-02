@@ -274,6 +274,11 @@ type PMCardDispatchResult = {
   queue_entry: ExecutionQueueEntry;
 };
 
+type PMCardActionResult = {
+  card: PMCard;
+  queue_entry?: ExecutionQueueEntry | null;
+};
+
 type Panel = 'mission' | 'team' | 'pm' | 'standups' | 'workspace' | 'docs';
 
 const PANEL_HASH: Record<Panel, string> = {
@@ -1003,8 +1008,8 @@ const WORKSPACE_HUBS: Array<{
 }> = [
   {
     id: 'linkedin-os',
-    label: 'LinkedIn OS',
-    shortLabel: 'LinkedIn',
+    label: 'FEEZIE OS',
+    shortLabel: 'FEEZIE',
     status: 'live',
     accent: '#38bdf8',
     description: 'Posting execution system for signal intake, reaction loops, content generation, and persona-grounded visibility.',
@@ -1352,6 +1357,27 @@ export default function OpsClient({
     [loadTelemetry],
   );
 
+  const actOnPmCard = useCallback(
+    async (cardId: string, action: 'approve' | 'return' | 'blocked') => {
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          requested_by: 'Neo',
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        throw new Error(`${response.status} ${response.statusText}: ${text}`);
+      }
+      const result = (await response.json()) as PMCardActionResult;
+      await loadTelemetry();
+      return result;
+    },
+    [loadTelemetry],
+  );
+
   useEffect(() => {
     loadTelemetry();
     const interval = setInterval(loadTelemetry, 60_000);
@@ -1499,7 +1525,7 @@ export default function OpsClient({
           error={sectionErrors.pmCards}
           queueError={sectionErrors.executionQueue}
           onDispatch={dispatchPmCard}
-          onUpdatePmCard={updatePmCard}
+          onActOnPmCard={actOnPmCard}
           onOpenArtifactPath={openArtifactPath}
         />
       )}
@@ -1514,7 +1540,7 @@ export default function OpsClient({
           onPromote={promoteStandup}
           onOpenArtifactPath={openArtifactPath}
           onDispatchPmCard={dispatchPmCard}
-          onUpdatePmCard={updatePmCard}
+          onActOnPmCard={actOnPmCard}
         />
       )}
       {activePanel === 'workspace' && (
@@ -1806,7 +1832,7 @@ function PMBoardPanel({
   error,
   queueError,
   onDispatch,
-  onUpdatePmCard,
+  onActOnPmCard,
   onOpenArtifactPath,
 }: {
   cards: PMCard[];
@@ -1817,7 +1843,7 @@ function PMBoardPanel({
   error: string | null;
   queueError: string | null;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
-  onUpdatePmCard: (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => Promise<PMCard>;
+  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
   onOpenArtifactPath: (path: string) => void;
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
@@ -1851,6 +1877,17 @@ function PMBoardPanel({
     }
     return new Date(Math.max(...timestamps));
   }, [meetingOps]);
+  const missingRoomCount = useMemo(() => meetingOps.rooms.filter((room) => room.status === 'missing').length, [meetingOps]);
+  const staleLaneCount = meetingOps.staleReadyCount + meetingOps.staleReviewCount + meetingOps.staleRunningCount;
+  const opsSummaryTone = staleLaneCount > 0 || missingRoomCount > 0 ? '#f59e0b' : executionBuckets.running.length > 0 ? '#22c55e' : '#38bdf8';
+  const opsSummaryBullets = [
+    `Board: ${activeCards.length} active card${activeCards.length === 1 ? '' : 's'}, ${executionBuckets.running.length} running, ${executionBuckets.review.length} waiting on review.`,
+    `Meetings: ${healthyRoomCount}/${meetingOps.rooms.length} healthy lanes, ${meetingOps.orphanStandupCount} orphan standup${meetingOps.orphanStandupCount === 1 ? '' : 's'}, ${missingRoomCount} missing room${missingRoomCount === 1 ? '' : 's'}.`,
+    `Automation: ${automationCounts.total} visible job${automationCounts.total === 1 ? '' : 's'}, ${automationCounts.launchd} launchd-driven, latest meeting ${latestMeetingAt ? formatTimestamp(latestMeetingAt) : 'not recorded yet'}.`,
+    staleLaneCount > 0
+      ? `Attention: ${meetingOps.staleReadyCount} stale ready, ${meetingOps.staleReviewCount} stale review, ${meetingOps.staleRunningCount} stale running lane${staleLaneCount === 1 ? '' : 's'}.`
+      : 'Attention: no stale ready/review/running execution lanes are currently visible.',
+  ];
   const compactOverview = [
     { label: 'Active', value: `${activeCards.length}`, detail: 'open PM cards' },
     { label: 'Closed', value: `${buckets.done.length}`, detail: 'resolved history' },
@@ -1943,6 +1980,16 @@ function PMBoardPanel({
           </div>
         ))}
       </div>
+      <section style={{ borderRadius: '16px', border: `1px solid ${opsSummaryTone}33`, backgroundColor: `${opsSummaryTone}10`, padding: '14px' }}>
+        <p style={{ color: opsSummaryTone, letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Daily Ops Summary</p>
+        <div style={{ display: 'grid', gap: '6px' }}>
+          {opsSummaryBullets.map((line) => (
+            <p key={line} style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+              {line}
+            </p>
+          ))}
+        </div>
+      </section>
       <details style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '12px 14px' }}>
         <summary style={{ cursor: 'pointer', color: 'white', fontWeight: 700, listStyle: 'none' }}>
           Meeting lanes and standup context
@@ -2129,7 +2176,7 @@ function PMBoardPanel({
           boardColumns={boardColumns}
           onClose={() => setSelectedBoardCardId(null)}
           onDispatch={onDispatch}
-          onUpdatePmCard={onUpdatePmCard}
+          onActOnPmCard={onActOnPmCard}
           onOpenArtifactPath={onOpenArtifactPath}
         />
       ) : null}
@@ -2144,7 +2191,7 @@ function PMCardDetailModal({
   boardColumns,
   onClose,
   onDispatch,
-  onUpdatePmCard,
+  onActOnPmCard,
   onOpenArtifactPath,
 }: {
   boardItem: UnifiedBoardItem;
@@ -2153,7 +2200,7 @@ function PMCardDetailModal({
   boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[];
   onClose: () => void;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
-  onUpdatePmCard: (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => Promise<PMCard>;
+  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
   onOpenArtifactPath: (path: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'outcomes' | 'raw'>('overview');
@@ -2223,6 +2270,38 @@ function PMCardDetailModal({
     null,
     2,
   );
+  const pmEventChainItems = [
+    {
+      label: 'Signal',
+      value: createdFromPrepId ? 'Prep packet' : rawSource,
+      detail: createdFromPrepId ? summarize(createdFromPrepId, 42) : summarize(rawSource, 72),
+      tone: '#38bdf8',
+    },
+    {
+      label: 'Standup',
+      value: linkedStandups.length > 0 ? `${linkedStandups.length} linked` : 'No linked meeting',
+      detail: linkedStandups[0] ? summarize(standupLabel(linkedStandups[0]), 54) : 'This card was not linked back to a standup record.',
+      tone: '#a78bfa',
+    },
+    {
+      label: 'PM',
+      value: pmStatusLabel,
+      detail: boardColumns.find((column) => column.key === boardItem.lane)?.label ?? boardItem.lane,
+      tone: '#f59e0b',
+    },
+    {
+      label: 'Execution',
+      value: executionStatusLabel ?? 'Not in execution',
+      detail: `${displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)} -> ${displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}`,
+      tone: '#22c55e',
+    },
+    {
+      label: 'Result',
+      value: latestExecutionResult ? humanizeStatusLabel(String(latestExecutionResult.status || 'unknown')) : 'No result yet',
+      detail: latestExecutionSummary ? summarize(latestExecutionSummary, 84) : 'Execution has not written back a result.',
+      tone: '#818cf8',
+    },
+  ];
 
   const handleCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked') => {
     try {
@@ -2234,15 +2313,7 @@ function PMCardDetailModal({
         setActionFeedback(`Opened SOP for ${card.title}.`);
         return;
       }
-      await onUpdatePmCard(
-        card.id,
-        buildStandupCardActionPatch(action, {
-          card,
-          queueEntry: boardItem.queueEntry ?? null,
-          boardItem,
-          guidance,
-        }),
-      );
+      await onActOnPmCard(card.id, action);
       setActionFeedback(
         action === 'approve'
           ? `Closed ${card.title}.`
@@ -2609,6 +2680,12 @@ function PMCardDetailModal({
               </section>
             </div>
 
+            <EventChainStrip
+              title="Shared Event Chain"
+              description="This is the common source-to-execution spine for the card, using the same lifecycle story the standup reader shows."
+              items={pmEventChainItems}
+            />
+
             <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
               <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Meeting-To-Work Chain</p>
               <div style={{ display: 'grid', gap: '8px' }}>
@@ -2720,7 +2797,7 @@ function StandupsPanel({
   onPromote,
   onOpenArtifactPath,
   onDispatchPmCard,
-  onUpdatePmCard,
+  onActOnPmCard,
 }: {
   entries: StandupEntry[];
   pmCards: PMCard[];
@@ -2735,7 +2812,7 @@ function StandupsPanel({
   ) => Promise<StandupPromotionResult>;
   onOpenArtifactPath: (path: string) => void;
   onDispatchPmCard: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
-  onUpdatePmCard: (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => Promise<PMCard>;
+  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
 }) {
   const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
   const latestChronicle = executiveFeed.chronicleEntries[executiveFeed.chronicleEntries.length - 1] ?? executiveFeed.chronicleEntries[0] ?? null;
@@ -2899,7 +2976,7 @@ function StandupsPanel({
             onSelectMeeting={setSelectedMeetingId}
             onOpenArtifactPath={onOpenArtifactPath}
             onDispatchPmCard={onDispatchPmCard}
-            onUpdatePmCard={onUpdatePmCard}
+            onActOnPmCard={onActOnPmCard}
           />
         )}
         {meetingView === 'weekly' && <MeetingWeeklyView entries={meetingOps.recentStandups} />}
@@ -3038,7 +3115,7 @@ function MeetingReaderView({
   onSelectMeeting,
   onOpenArtifactPath,
   onDispatchPmCard,
-  onUpdatePmCard,
+  onActOnPmCard,
 }: {
   entries: StandupEntry[];
   pmCards: PMCard[];
@@ -3047,7 +3124,7 @@ function MeetingReaderView({
   onSelectMeeting: (id: string) => void;
   onOpenArtifactPath: (path: string) => void;
   onDispatchPmCard: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
-  onUpdatePmCard: (cardId: string, patch: { status?: string; payload?: Record<string, unknown> }) => Promise<PMCard>;
+  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
 }) {
   const [activeTab, setActiveTab] = useState<'conversation' | 'evidence' | 'outcomes' | 'raw'>('conversation');
   const [actioningCardId, setActioningCardId] = useState<string | null>(null);
@@ -3102,6 +3179,42 @@ function MeetingReaderView({
     null,
     2,
   );
+  const standupEventChainItems = [
+    {
+      label: 'Source',
+      value: prepId ? 'Prep packet' : rawSource,
+      detail: prepId ? summarize(prepId, 42) : summarize(rawSource, 72),
+      tone: '#38bdf8',
+    },
+    {
+      label: 'Meeting',
+      value: selectedEntry.status ?? 'completed',
+      detail: selectedEntry.created_at ? formatTimestamp(new Date(selectedEntry.created_at)) : 'No timestamp stored',
+      tone: '#a78bfa',
+    },
+    {
+      label: 'PM',
+      value: `${linkedStandupCards.length} linked`,
+      detail: linkedStandupCards[0] ? summarize(linkedStandupCards[0].card.title, 72) : 'No PM card has been linked to this meeting yet.',
+      tone: '#f59e0b',
+    },
+    {
+      label: 'Execution',
+      value: summarizeLinkedExecutionStates(linkedStandupCards),
+      detail: linkedStandupCards.length > 0 ? 'Current downstream state of meeting-created work.' : 'Execution begins once linked PM cards are created.',
+      tone: '#22c55e',
+    },
+    {
+      label: 'Result',
+      value: linkedStandupCards.some((item) => item.boardItem.lane === 'done')
+        ? `${linkedStandupCards.filter((item) => item.boardItem.lane === 'done').length} closed`
+        : 'No closed results yet',
+      detail: linkedStandupCards.some((item) => item.boardItem.lane === 'review')
+        ? `${linkedStandupCards.filter((item) => item.boardItem.lane === 'review').length} waiting on review`
+        : 'No linked card is waiting on review right now.',
+      tone: '#818cf8',
+    },
+  ];
 
   const handleLinkedCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked', item: LinkedStandupCard) => {
     try {
@@ -3113,7 +3226,7 @@ function MeetingReaderView({
         setActionFeedback(`Opened SOP for ${item.card.title}.`);
         return;
       }
-      await onUpdatePmCard(item.card.id, buildStandupCardActionPatch(action, item));
+      await onActOnPmCard(item.card.id, action);
       setActionFeedback(
         action === 'approve'
           ? `Closed ${item.card.title}.`
@@ -4002,96 +4115,6 @@ function summarizeLinkedExecutionStates(items: LinkedStandupCard[]) {
     .join(' · ');
 }
 
-function buildStandupCardActionPatch(
-  action: 'approve' | 'return' | 'blocked',
-  item: LinkedStandupCard,
-): { status: string; payload: Record<string, unknown> } {
-  const payload = { ...(item.card.payload ?? {}) } as Record<string, unknown>;
-  const currentExecution = payload.execution && typeof payload.execution === 'object' ? { ...(payload.execution as Record<string, unknown>) } : {};
-  const history = Array.isArray(currentExecution.history) ? [...(currentExecution.history as Array<Record<string, unknown>>)] : [];
-  const now = new Date().toISOString();
-  let nextStatus = item.card.status ?? 'review';
-  let nextState = item.queueEntry?.execution_state ?? 'review';
-  let nextTarget = String(currentExecution.target_agent || item.queueEntry?.target_agent || 'Jean-Claude');
-  let nextAssignedRunner = String(currentExecution.assigned_runner || item.queueEntry?.assigned_runner || 'codex');
-  let nextExecutionMode = String(currentExecution.execution_mode || item.queueEntry?.execution_mode || 'direct');
-  let managerAttentionRequired = Boolean(currentExecution.manager_attention_required);
-  let reason = String(currentExecution.reason || item.queueEntry?.reason || payload.reason || '').trim();
-
-  if (action === 'approve') {
-    nextStatus = 'done';
-    nextState = 'done';
-    managerAttentionRequired = false;
-  }
-
-  if (action === 'return') {
-    nextStatus = 'todo';
-    nextState = 'queued';
-    nextTarget = 'Jean-Claude';
-    nextAssignedRunner = 'jean-claude';
-    nextExecutionMode = 'direct';
-    managerAttentionRequired = false;
-    reason = reason || 'Returned to Jean-Claude from the standup reader for another pass.';
-  }
-
-  if (action === 'blocked') {
-    nextStatus = 'blocked';
-    nextState = 'queued';
-    nextTarget = 'Jean-Claude';
-    nextAssignedRunner = 'jean-claude';
-    nextExecutionMode = 'direct';
-    managerAttentionRequired = true;
-    reason = 'Marked blocked during standup review. Jean-Claude needs a closure decision.';
-  }
-
-  history.push({
-    event: action === 'approve' ? 'manual_approve' : action === 'return' ? 'manual_return' : 'manual_blocked',
-    state: nextState,
-    requested_by: 'Neo',
-    at: now,
-  });
-
-  payload.execution = {
-    ...currentExecution,
-    lane: String(currentExecution.lane || item.queueEntry?.lane || 'codex'),
-    state: nextState,
-    manager_agent: String(currentExecution.manager_agent || item.queueEntry?.manager_agent || 'Jean-Claude'),
-    target_agent: nextTarget,
-    workspace_agent: currentExecution.workspace_agent ?? item.queueEntry?.workspace_agent ?? null,
-    execution_mode: nextExecutionMode,
-    requested_by: 'Neo',
-    assigned_runner: nextAssignedRunner,
-    queued_at: action === 'approve' ? currentExecution.queued_at ?? item.queueEntry?.queued_at ?? null : now,
-    last_transition_at: now,
-    manager_attention_required: managerAttentionRequired,
-    returned_from_agent: action === 'blocked' ? String(currentExecution.target_agent || item.queueEntry?.target_agent || '') || null : currentExecution.returned_from_agent ?? null,
-    reason,
-    history: history.slice(-12),
-  };
-
-  const latestExecutionResult =
-    payload.latest_execution_result && typeof payload.latest_execution_result === 'object'
-      ? { ...(payload.latest_execution_result as Record<string, unknown>) }
-      : null;
-  if (latestExecutionResult) {
-    latestExecutionResult.review_resolution = action;
-    latestExecutionResult.reviewed_at = now;
-    payload.latest_execution_result = latestExecutionResult;
-  }
-
-  payload.latest_manual_review = {
-    action,
-    reviewed_at: now,
-    reviewed_by: 'Neo',
-    from_lane: item.boardItem.lane,
-  };
-
-  return {
-    status: nextStatus,
-    payload,
-  };
-}
-
 function meetingActionButtonStyle(tone: 'primary' | 'secondary' | 'success' | 'danger', disabled: boolean) {
   const palette =
     tone === 'primary'
@@ -4275,7 +4298,7 @@ function WorkspaceHubPanel({
         <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspaces</p>
         <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Workspace Hub</h2>
         <p style={{ color: '#94a3b8', maxWidth: '820px' }}>
-          Each workspace gets its own operating system, agent, and principles. LinkedIn OS is live now. The others are scaffold slots so you can expand without collapsing everything into one project surface.
+          Each workspace gets its own operating system, agent, and principles. FEEZIE OS is live now. The others are scaffold slots so you can expand without collapsing everything into one project surface.
         </p>
       </div>
 
@@ -4405,7 +4428,7 @@ function WorkspaceHubPanel({
               <MiniMeta key={item.label} label={item.label} value={item.value} detail={item.detail} />
             ))}
           </div>
-          <Suspense fallback={<section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', color: '#94a3b8' }}>Loading LinkedIn OS workspace…</section>}>
+          <Suspense fallback={<section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', color: '#94a3b8' }}>Loading FEEZIE OS workspace…</section>}>
             <LinkedinWorkspaceSurface embedded />
           </Suspense>
         </section>
@@ -4424,7 +4447,7 @@ function WorkspaceHubPanel({
             <p style={{ color: activeWorkspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace Scaffold</p>
             <h3 style={{ fontSize: '26px', color: 'white', margin: '4px 0' }}>{activeWorkspace.label}</h3>
             <p style={{ color: '#94a3b8', maxWidth: '760px', lineHeight: 1.6 }}>
-              This workspace slot is reserved and modeled, but the dedicated UI and execution flow are not built yet. The agent and operating principles are now explicit so it can be developed as a separate system instead of being squeezed into LinkedIn OS.
+              This workspace slot is reserved and modeled, but the dedicated UI and execution flow are not built yet. The agent and operating principles are now explicit so it can be developed as a separate system instead of being squeezed into FEEZIE OS.
             </p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
@@ -4933,8 +4956,8 @@ function WorkspacePanel({
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div>
         <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace</p>
-        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>LinkedIn Strategy Workspace</h2>
-        <p style={{ color: '#94a3b8' }}>The Workspace tab now carries the LinkedIn OS strategy surface directly: positioning, weekly plan, reaction queue, and the raw LinkedIn workspace files underneath.</p>
+        <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>FEEZIE Strategy Workspace</h2>
+        <p style={{ color: '#94a3b8' }}>The Workspace tab now carries the FEEZIE OS strategy surface directly: positioning, weekly plan, reaction queue, and the raw workspace files underneath.</p>
       </div>
       <section
         style={{
@@ -4947,7 +4970,7 @@ function WorkspacePanel({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '18px' }}>
           <div>
-            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>LinkedIn OS</p>
+            <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>FEEZIE OS</p>
             <h3 style={{ fontSize: '30px', color: 'white', margin: '4px 0' }}>Strategy mission control</h3>
             <p style={{ color: '#d8b4fe', maxWidth: '760px', fontSize: '14px' }}>
               Persona truth, signal capture, weekly recommendations, and engagement moves for `linkedin-content-os` now live inside Workspaces instead of on a separate page.
@@ -6108,7 +6131,7 @@ function WorkspacePanel({
             {filteredPostSeeds.length === 0 && <EmptyPanel message={`No post seeds match the ${activeLensMeta.label} lens yet.`} />}
           </div>
           <div style={{ display: 'grid', gap: '8px' }}>
-            <MiniMeta label="Workspace Docs" value={`${docFiles.length}`} detail="LinkedIn OS runbooks and models" />
+            <MiniMeta label="Workspace Docs" value={`${docFiles.length}`} detail="FEEZIE OS runbooks and models" />
             <MiniMeta label="Backlog Items" value={`${backlogActive.length}`} detail="Active LinkedIn tasks" />
             <MiniMeta label="Draft Files" value={`${draftFiles.length}`} detail="Posts ready to refine" />
           </div>
@@ -6119,7 +6142,7 @@ function WorkspacePanel({
         <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
           <div style={{ marginBottom: '14px' }}>
             <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Backlog</p>
-            <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Active LinkedIn workspace tasks</h3>
+            <h3 style={{ fontSize: '22px', color: 'white', margin: '4px 0' }}>Active FEEZIE workspace tasks</h3>
           </div>
           <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
             {backlogActive.slice(0, 4).map((item) => (
@@ -6540,6 +6563,34 @@ function SectionAlert({ message }: { message: string }) {
   );
 }
 
+function EventChainStrip({
+  title,
+  description,
+  items,
+}: {
+  title: string;
+  description?: string;
+  items: Array<{ label: string; value: string; detail: string; tone?: string }>;
+}) {
+  return (
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+      <div style={{ marginBottom: '10px' }}>
+        <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>{title}</p>
+        {description ? <p style={{ color: '#64748b', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{description}</p> : null}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+        {items.map((item, index) => (
+          <div key={`${title}-${item.label}-${index}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '12px', position: 'relative' }}>
+            <p style={{ color: item.tone ?? '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>{item.label}</p>
+            <p style={{ color: 'white', fontSize: '14px', fontWeight: 700, margin: '0 0 6px' }}>{item.value}</p>
+            <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{item.detail}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function StatusTable({
   title,
   subtitle,
@@ -6764,7 +6815,7 @@ function meetingLabelForWorkspace(workspaceKey: string) {
     case 'shared_ops':
       return 'Executive / Operations';
     case 'linkedin-os':
-      return 'LinkedIn OS';
+      return 'FEEZIE OS';
     case 'fusion-os':
       return 'Fusion';
     case 'easyoutfitapp':

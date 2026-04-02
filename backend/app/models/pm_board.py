@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -72,3 +72,17 @@ class PMCardDispatchRequest(BaseModel):
 class PMCardDispatchResult(BaseModel):
     card: PMCard
     queue_entry: ExecutionQueueEntry
+
+
+PMCardActionType = Literal["approve", "return", "blocked"]
+
+
+class PMCardActionRequest(BaseModel):
+    action: PMCardActionType
+    requested_by: str = "Neo"
+    reason: Optional[str] = None
+
+
+class PMCardActionResult(BaseModel):
+    card: PMCard
+    queue_entry: Optional[ExecutionQueueEntry] = None

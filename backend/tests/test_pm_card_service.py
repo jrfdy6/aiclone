@@ -4,17 +4,28 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.models.pm_board import PMCard
+from app.models.pm_board import PMCard, PMCardActionRequest, PMCardDispatchRequest, PMCardUpdate
+from app.services import pm_card_service
 from app.services.pm_card_service import build_execution_queue_entry
 
 
 class PMCardServiceTests(unittest.TestCase):
+    def _apply_update(self, card: PMCard, patch: PMCardUpdate) -> PMCard:
+        return card.model_copy(
+            update={
+                "status": patch.status if patch.status is not None else card.status,
+                "payload": patch.payload if patch.payload is not None else card.payload,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+
     def test_closed_card_with_execution_payload_does_not_surface_in_queue(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
@@ -62,6 +73,224 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(entry.pm_status, "todo")
         self.assertEqual(entry.execution_state, "ready")
         self.assertEqual(entry.manager_agent, "Jean-Claude")
+
+    def test_dispatch_card_moves_ready_work_into_queued_execution(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="dispatch-card",
+            title="Dispatch me",
+            owner="Jean-Claude",
+            status="todo",
+            source="standup-prep:test",
+            link_type="standup",
+            link_id="standup-3",
+            payload={"workspace_key": "shared_ops"},
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "get_card", return_value=card),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.dispatch_card(
+                card.id,
+                PMCardDispatchRequest(target_agent="Jean-Claude", lane="codex", requested_by="Jean-Claude", execution_state="queued"),
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.queue_entry.execution_state, "queued")
+        self.assertEqual(result.queue_entry.target_agent, "Jean-Claude")
+        self.assertEqual((result.card.payload.get("execution") or {}).get("state"), "queued")
+
+    def test_act_on_card_approve_closes_review_lane(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="approve-card",
+            title="Review result",
+            owner="Jean-Claude",
+            status="review",
+            source="standup-prep:test",
+            link_type="standup",
+            link_id="standup-4",
+            payload={
+                "workspace_key": "shared_ops",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "queued_at": now.isoformat(),
+                    "last_transition_at": now.isoformat(),
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Looks ready to close.",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "get_card", return_value=card),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.act_on_card(card.id, PMCardActionRequest(action="approve", requested_by="Neo"))
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "done")
+        self.assertIsNone(result.queue_entry)
+        self.assertEqual((result.card.payload.get("latest_manual_review") or {}).get("action"), "approve")
+        self.assertEqual((result.card.payload.get("latest_execution_result") or {}).get("review_resolution"), "approve")
+
+    def test_act_on_card_return_reroutes_to_jean_claude(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="return-card",
+            title="Needs another pass",
+            owner="Jean-Claude",
+            status="review",
+            source="standup-prep:test",
+            link_type="standup",
+            link_id="standup-5",
+            payload={
+                "workspace_key": "fusion-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "workspace_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                    "assigned_runner": "codex",
+                    "queued_at": now.isoformat(),
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "get_card", return_value=card),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.act_on_card(card.id, PMCardActionRequest(action="return", requested_by="Neo"))
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "todo")
+        assert result.queue_entry is not None
+        self.assertEqual(result.queue_entry.execution_state, "queued")
+        self.assertEqual(result.queue_entry.target_agent, "Jean-Claude")
+        self.assertEqual((result.card.payload.get("latest_manual_review") or {}).get("action"), "return")
+
+    def test_act_on_card_blocked_sets_manager_attention_and_preserves_returned_agent(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="blocked-card",
+            title="Blocked work",
+            owner="Jean-Claude",
+            status="running",
+            source="standup-prep:test",
+            link_type="standup",
+            link_id="standup-6",
+            payload={
+                "workspace_key": "fusion-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "running",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "workspace_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                    "assigned_runner": "codex",
+                    "queued_at": now.isoformat(),
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "get_card", return_value=card),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.act_on_card(card.id, PMCardActionRequest(action="blocked", requested_by="Neo"))
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "blocked")
+        assert result.queue_entry is not None
+        self.assertEqual(result.queue_entry.execution_state, "queued")
+        self.assertEqual(result.queue_entry.target_agent, "Jean-Claude")
+        execution = result.card.payload.get("execution") or {}
+        self.assertTrue(execution.get("manager_attention_required"))
+        self.assertEqual(execution.get("returned_from_agent"), "Fusion Systems Operator")
+
+    def test_lifecycle_harness_ready_dispatch_review_close(self) -> None:
+        now = datetime.now(timezone.utc)
+        ready_card = PMCard(
+            id="lifecycle-card",
+            title="Lifecycle test",
+            owner="Jean-Claude",
+            status="todo",
+            source="standup-prep:test",
+            link_type="standup",
+            link_id="standup-7",
+            payload={"workspace_key": "shared_ops"},
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "get_card", return_value=ready_card),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(ready_card, patch)),
+        ):
+            dispatch_result = pm_card_service.dispatch_card(
+                ready_card.id,
+                PMCardDispatchRequest(target_agent="Jean-Claude", lane="codex", requested_by="Jean-Claude", execution_state="queued"),
+            )
+
+        self.assertIsNotNone(dispatch_result)
+        assert dispatch_result is not None
+        self.assertEqual(dispatch_result.queue_entry.execution_state, "queued")
+
+        review_card = dispatch_result.card.model_copy(
+            update={
+                "status": "review",
+                "payload": {
+                    **(dispatch_result.card.payload or {}),
+                    "latest_execution_result": {
+                        "status": "review",
+                        "summary": "Execution completed and is ready for manual closeout.",
+                    },
+                    "execution": {
+                        **((dispatch_result.card.payload or {}).get("execution") or {}),
+                        "state": "review",
+                    },
+                },
+            }
+        )
+
+        with (
+            patch.object(pm_card_service, "get_card", return_value=review_card),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(review_card, patch)),
+        ):
+            close_result = pm_card_service.act_on_card(
+                review_card.id,
+                PMCardActionRequest(action="approve", requested_by="Neo"),
+            )
+
+        self.assertIsNotNone(close_result)
+        assert close_result is not None
+        self.assertEqual(close_result.card.status, "done")
+        self.assertIsNone(close_result.queue_entry)
 
 
 if __name__ == "__main__":
