@@ -142,6 +142,48 @@ type LabExperiment = {
       context_snapshot?: Record<string, unknown>;
     }[];
   }[];
+  live_samples?: {
+    topic: string;
+    audience: string;
+    generation_strategy: string;
+    llm_request_count?: number | null;
+    platform?: string;
+    source_type?: string;
+    structural_fallbacks: string[];
+    top_warnings: string[];
+    stage_results: {
+      id: string;
+      label: string;
+      section?: string;
+      status: string;
+      reason: string;
+      detail: string;
+      score?: number | null;
+      evidence?: string[];
+      missing_fields?: string[];
+    }[];
+    top_option_preview: string;
+    signal_snapshot?: {
+      source_channel?: string;
+      source_class?: string;
+      unit_kind?: string;
+      response_modes?: string[];
+      topic_tags?: string[];
+      core_claim?: string;
+      supporting_claims?: string[];
+      why_it_matters?: string;
+      role_alignment?: string;
+      expected_handoff_lane?: string;
+      actual_handoff_lane?: string;
+      primary_route?: string;
+      lane_hint?: string;
+      handoff_reason?: string;
+      target_file?: string;
+      secondary_consumers?: string[];
+      source_path?: string;
+      source_url?: string;
+    };
+  }[];
   history: {
     run_id: string;
     started_at: string;
@@ -581,51 +623,55 @@ function ExperimentCard({
                     ))}
                   </div>
                   <div style={{ marginTop: '10px', display: 'grid', gap: '6px' }}>
-                    <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Stage Trace</p>
-                    {stageGroups.map((group) => (
-                      <div key={`${item.topic}:${group.section}`} style={{ display: 'grid', gap: '6px' }}>
-                        <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{humanizeKey(group.section)}</p>
-                        {group.items.map((stage) => (
-                          <div
-                            key={`${item.topic}:${stage.id}`}
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: expanded ? '180px 110px minmax(0, 1fr)' : '150px 92px minmax(0, 1fr)',
-                              gap: '10px',
-                              alignItems: 'start',
-                              borderRadius: '10px',
-                              border: '1px solid #1f2937',
-                              backgroundColor: '#0b1120',
-                              padding: '10px',
-                            }}
-                          >
-                            <div>
-                              <p style={{ color: 'white', fontSize: '12px', fontWeight: 600 }}>{stage.label}</p>
-                              {typeof stage.score === 'number' && <p style={{ color: '#64748b', fontSize: '11px' }}>Score {stage.score}</p>}
-                            </div>
-                            <InlineTone label={`${statusGlyph(stage.status)} ${humanizeKey(stage.status)}`} tone={statusTone(stage.status)} />
-                            <div>
-                              <p style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: '4px' }}>{humanizeKey(stage.reason)}</p>
-                              <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: expanded && ((stage.evidence?.length ?? 0) > 0 || (stage.missing_fields?.length ?? 0) > 0) ? '6px' : 0 }}>{stage.detail}</p>
-                              {expanded && (stage.evidence?.length ?? 0) > 0 && (
-                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: (stage.missing_fields?.length ?? 0) > 0 ? '6px' : 0 }}>
-                                  {stage.evidence?.map((evidence) => (
-                                    <InlineTone key={`${item.topic}:${stage.id}:${evidence}`} label={evidence} tone="#475569" />
-                                  ))}
+                    {stageGroups.length > 0 && (
+                      <>
+                        <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Stage Trace</p>
+                        {stageGroups.map((group) => (
+                          <div key={`${item.topic}:${group.section}`} style={{ display: 'grid', gap: '6px' }}>
+                            <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{humanizeKey(group.section)}</p>
+                            {group.items.map((stage) => (
+                              <div
+                                key={`${item.topic}:${stage.id}`}
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: expanded ? '180px 110px minmax(0, 1fr)' : '150px 92px minmax(0, 1fr)',
+                                  gap: '10px',
+                                  alignItems: 'start',
+                                  borderRadius: '10px',
+                                  border: '1px solid #1f2937',
+                                  backgroundColor: '#0b1120',
+                                  padding: '10px',
+                                }}
+                              >
+                                <div>
+                                  <p style={{ color: 'white', fontSize: '12px', fontWeight: 600 }}>{stage.label}</p>
+                                  {typeof stage.score === 'number' && <p style={{ color: '#64748b', fontSize: '11px' }}>Score {stage.score}</p>}
                                 </div>
-                              )}
-                              {expanded && (stage.missing_fields?.length ?? 0) > 0 && (
-                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                  {stage.missing_fields?.map((field) => (
-                                    <InlineTone key={`${item.topic}:${stage.id}:missing:${field}`} label={`Missing ${humanizeKey(field)}`} tone="#94a3b8" />
-                                  ))}
+                                <InlineTone label={`${statusGlyph(stage.status)} ${humanizeKey(stage.status)}`} tone={statusTone(stage.status)} />
+                                <div>
+                                  <p style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: '4px' }}>{humanizeKey(stage.reason)}</p>
+                                  <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: expanded && ((stage.evidence?.length ?? 0) > 0 || (stage.missing_fields?.length ?? 0) > 0) ? '6px' : 0 }}>{stage.detail}</p>
+                                  {expanded && (stage.evidence?.length ?? 0) > 0 && (
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: (stage.missing_fields?.length ?? 0) > 0 ? '6px' : 0 }}>
+                                      {stage.evidence?.map((evidence) => (
+                                        <InlineTone key={`${item.topic}:${stage.id}:${evidence}`} label={evidence} tone="#475569" />
+                                      ))}
+                                    </div>
+                                  )}
+                                  {expanded && (stage.missing_fields?.length ?? 0) > 0 && (
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                      {stage.missing_fields?.map((field) => (
+                                        <InlineTone key={`${item.topic}:${stage.id}:missing:${field}`} label={`Missing ${humanizeKey(field)}`} tone="#94a3b8" />
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
+                              </div>
+                            ))}
                           </div>
                         ))}
-                      </div>
-                    ))}
+                      </>
+                    )}
                   </div>
                   {item.matrix_rows && item.matrix_rows.length > 0 && (
                     <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
@@ -812,6 +858,44 @@ function ExperimentCard({
                   )}
                 </div>
               )})}
+            </div>
+          )}
+
+          {experiment.live_samples && experiment.live_samples.length > 0 && (
+            <div style={{ marginTop: '16px', display: 'grid', gap: '10px' }}>
+              <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Recent Live Source Samples</p>
+              {experiment.live_samples.slice(0, expanded ? 5 : 3).map((item) => (
+                <div key={`live:${item.topic}:${item.top_option_preview}`} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '12px', backgroundColor: '#020617' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                    <p style={{ color: 'white', fontWeight: 600 }}>{item.topic}</p>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <InlineTone label="Live sample" tone="#14b8a6" />
+                      {item.platform && <InlineTone label={humanizeKey(item.platform)} tone="#64748b" />}
+                      {item.signal_snapshot?.actual_handoff_lane && (
+                        <InlineTone label={`Actual ${humanizeKey(item.signal_snapshot.actual_handoff_lane)}`} tone="#22c55e" />
+                      )}
+                      {item.signal_snapshot?.primary_route && (
+                        <InlineTone label={`Route ${humanizeKey(item.signal_snapshot.primary_route)}`} tone="#38bdf8" />
+                      )}
+                    </div>
+                  </div>
+                  <p style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '8px' }}>{item.top_option_preview || 'No source sample returned.'}</p>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    {item.signal_snapshot?.source_channel && <InlineTone label={`Source ${humanizeKey(item.signal_snapshot.source_channel)}`} tone="#475569" />}
+                    {item.signal_snapshot?.lane_hint && <InlineTone label={`Hint ${humanizeKey(item.signal_snapshot.lane_hint)}`} tone="#a78bfa" />}
+                    {item.signal_snapshot?.target_file && <InlineTone label={`Target ${item.signal_snapshot.target_file}`} tone="#334155" />}
+                    {(item.signal_snapshot?.secondary_consumers || []).map((consumer) => (
+                      <InlineTone key={`live:${item.topic}:${consumer}`} label={`Feeds ${humanizeKey(consumer)}`} tone="#f59e0b" />
+                    ))}
+                  </div>
+                  {item.signal_snapshot?.handoff_reason && (
+                    <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{item.signal_snapshot.handoff_reason}</p>
+                  )}
+                  {item.signal_snapshot?.source_path && (
+                    <p style={{ color: '#64748b', fontSize: '11px' }}>{item.signal_snapshot.source_path}</p>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </>

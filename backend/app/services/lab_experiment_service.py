@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List
 
 from app.routes import content_generation
@@ -1369,6 +1370,57 @@ def _build_social_probe_signal(probe: dict[str, str]) -> dict[str, Any]:
     )
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _build_live_source_handoff_samples(limit: int = 5) -> list[dict[str, Any]]:
+    summary = long_form_signal_service.build_long_form_route_summary(
+        repo_root=_repo_root(),
+        max_assets=12,
+        max_segments_per_asset=2,
+    )
+    samples: list[dict[str, Any]] = []
+    for candidate in (summary.get("candidates") or [])[:limit]:
+        title = str(candidate.get("title") or "Untitled candidate")
+        segment = str(candidate.get("segment") or "").strip()
+        handoff_lane = str(candidate.get("handoff_lane") or "")
+        samples.append(
+            {
+                "topic": title,
+                "audience": "live_source_sample",
+                "generation_strategy": "source_handoff_live_sample",
+                "llm_request_count": 0,
+                "platform": candidate.get("source_channel"),
+                "source_type": "long_form_segment",
+                "structural_fallbacks": [],
+                "top_warnings": [str(candidate.get("handoff_reason") or "")] if str(candidate.get("handoff_reason") or "").strip() else [],
+                "stage_results": [],
+                "top_option_preview": segment or title,
+                "signal_snapshot": {
+                    "source_channel": candidate.get("source_channel"),
+                    "source_class": "long_form_media",
+                    "unit_kind": "live_source_sample",
+                    "response_modes": candidate.get("response_modes") or [],
+                    "topic_tags": [str(candidate.get("lane_hint") or "")],
+                    "core_claim": segment,
+                    "supporting_claims": [title],
+                    "why_it_matters": str(candidate.get("route_reason") or ""),
+                    "role_alignment": str(candidate.get("belief_summary") or ""),
+                    "actual_handoff_lane": handoff_lane,
+                    "primary_route": str(candidate.get("primary_route") or ""),
+                    "lane_hint": str(candidate.get("lane_hint") or ""),
+                    "handoff_reason": str(candidate.get("handoff_reason") or ""),
+                    "target_file": str(candidate.get("target_file") or ""),
+                    "secondary_consumers": candidate.get("secondary_consumers") or [],
+                    "source_path": str(candidate.get("source_path") or ""),
+                    "source_url": str(candidate.get("source_url") or ""),
+                },
+            }
+        )
+    return samples
+
+
 def _round_score(value: float | None) -> float | None:
     if value is None:
         return None
@@ -2484,6 +2536,7 @@ def _default_source_handoff_experiment_record() -> dict[str, Any]:
             "top_failure_modes": [],
         },
         "sample_runs": [],
+        "live_samples": [],
         "history": [],
         "next_action": "Run the source handoff matrix to calibrate what should stay in source intelligence versus Persona, Posting, Briefs, and PM.",
         "ship_target": "Brain",
@@ -3062,6 +3115,7 @@ async def run_social_response_matrix_experiment() -> dict[str, Any]:
 async def run_source_handoff_matrix_experiment() -> dict[str, Any]:
     evaluations = [_evaluate_source_handoff_probe(probe) for probe in SOURCE_HANDOFF_PROBES]
     results = [item["sample_run"] for item in evaluations]
+    live_samples = _build_live_source_handoff_samples()
     probe_count = max(len(results), 1)
     mismatches = [item for item in evaluations if not item["exact_match"]]
     exact_match_count = probe_count - len(mismatches)
@@ -3197,6 +3251,7 @@ async def run_source_handoff_matrix_experiment() -> dict[str, Any]:
                 "top_failure_modes": top_failure_modes,
             },
             "sample_runs": results,
+            "live_samples": live_samples,
             "history": history,
             "last_run_at": run_started_at,
             "next_action": run["next_action"],
