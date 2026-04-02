@@ -2542,6 +2542,9 @@ function MeetingReaderView({
   const payload = selectedEntry.payload ?? {};
   const rawSource = typeof selectedEntry.source === 'string' && selectedEntry.source.trim() ? selectedEntry.source.trim() : 'unknown';
   const prepId = typeof payload.prep_id === 'string' && payload.prep_id.trim() ? payload.prep_id.trim() : null;
+  const sourcePaths = Array.isArray(payload.source_paths)
+    ? payload.source_paths.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
   const conversationPath = typeof selectedEntry.conversation_path === 'string' && selectedEntry.conversation_path.trim()
     ? selectedEntry.conversation_path.trim()
     : null;
@@ -2695,6 +2698,40 @@ function MeetingReaderView({
                   {summarizePathForDisplay(conversationPath)}
                 </button>
               </p>
+            ) : null}
+            {sourcePaths.length > 0 ? (
+              <div style={{ display: 'grid', gap: '6px' }}>
+                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Supporting sources:</p>
+                <div style={{ display: 'grid', gap: '4px' }}>
+                  {sourcePaths.slice(0, 6).map((path) => (
+                    <button
+                      key={`${selectedEntry.id}-source-path-${path}`}
+                      type="button"
+                      onClick={() => onOpenArtifactPath(path)}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        padding: 0,
+                        textAlign: 'left',
+                        color: '#cbd5f5',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        textUnderlineOffset: '2px',
+                      }}
+                      title={path}
+                    >
+                      {summarizePathForDisplay(path)}
+                    </button>
+                  ))}
+                  {sourcePaths.length > 6 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '11px', margin: 0 }}>
+                      +{sourcePaths.length - 6} more source path{sourcePaths.length - 6 === 1 ? '' : 's'} stored on this record
+                    </p>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
           </div>
         </section>
