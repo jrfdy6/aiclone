@@ -481,6 +481,9 @@ def _long_form_plan_candidate(candidate: dict[str, Any], *, source_kind: str) ->
         "target_file": str(candidate.get("target_file") or ""),
         "route_reason": route_reason,
         "response_modes": list(candidate.get("response_modes") or []),
+        "handoff_lane": str(candidate.get("handoff_lane") or ""),
+        "handoff_reason": str(candidate.get("handoff_reason") or ""),
+        "secondary_consumers": list(candidate.get("secondary_consumers") or []),
     }
 
 
@@ -497,35 +500,50 @@ def _augment_weekly_plan_payload(payload: dict[str, Any] | None, long_form_route
     media_post_seeds = [
         _long_form_plan_candidate(candidate, source_kind="long_form_post_seed")
         for candidate in candidates
-        if isinstance(candidate, dict) and str(candidate.get("primary_route") or "") == "post_seed"
+        if isinstance(candidate, dict) and str(candidate.get("handoff_lane") or "") == "post_candidate"
+    ][:6]
+    brief_awareness_candidates = [
+        _long_form_plan_candidate(candidate, source_kind="long_form_brief_awareness")
+        for candidate in candidates
+        if isinstance(candidate, dict) and str(candidate.get("handoff_lane") or "") == "brief_only"
     ][:6]
     belief_evidence_candidates = [
         _long_form_plan_candidate(candidate, source_kind="long_form_belief_evidence")
         for candidate in candidates
-        if isinstance(candidate, dict) and str(candidate.get("primary_route") or "") == "belief_evidence"
+        if isinstance(candidate, dict) and str(candidate.get("handoff_lane") or "") == "persona_candidate"
+    ][:6]
+    operational_route_candidates = [
+        _long_form_plan_candidate(candidate, source_kind="long_form_route_to_pm")
+        for candidate in candidates
+        if isinstance(candidate, dict) and str(candidate.get("handoff_lane") or "") == "route_to_pm"
     ][:6]
 
     counts = payload.get("source_counts")
     counts_dict = dict(counts) if isinstance(counts, dict) else {}
     counts_dict["media"] = len(media_post_seeds)
+    counts_dict["brief_only"] = len(brief_awareness_candidates)
     counts_dict["belief_evidence"] = len(belief_evidence_candidates)
+    counts_dict["route_to_pm"] = len(operational_route_candidates)
 
     augmented = dict(payload)
     base_generated_at = payload.get("generated_at")
     route_generated_at = long_form_routes.get("generated_at")
-    has_route_overlay = bool(media_post_seeds or belief_evidence_candidates)
+    has_route_overlay = bool(media_post_seeds or brief_awareness_candidates or belief_evidence_candidates or operational_route_candidates)
     if has_route_overlay:
         augmented["base_generated_at"] = base_generated_at
         augmented["generated_at"] = route_generated_at or base_generated_at
     augmented["source_counts"] = counts_dict
     augmented["media_post_seeds"] = media_post_seeds
+    augmented["brief_awareness_candidates"] = brief_awareness_candidates
     augmented["belief_evidence_candidates"] = belief_evidence_candidates
+    augmented["operational_route_candidates"] = operational_route_candidates
     augmented["media_summary"] = {
         "generated_at": route_generated_at,
         "assets_considered": int(long_form_routes.get("assets_considered") or 0),
         "segments_total": int(long_form_routes.get("segments_total") or 0),
         "route_counts": long_form_routes.get("route_counts") or {},
         "primary_route_counts": long_form_routes.get("primary_route_counts") or {},
+        "handoff_lane_counts": long_form_routes.get("handoff_lane_counts") or {},
     }
     return augmented
 
@@ -1092,15 +1110,21 @@ def _source_assets_signature(payload: dict[str, Any]) -> list[tuple[str, str, st
 
 def _weekly_plan_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
     recommendations = payload.get("recommendations") or []
+    brief_awareness_candidates = payload.get("brief_awareness_candidates") or []
     media_post_seeds = payload.get("media_post_seeds") or []
     belief_evidence_candidates = payload.get("belief_evidence_candidates") or []
+    operational_route_candidates = payload.get("operational_route_candidates") or []
     source_counts = payload.get("source_counts") or {}
     if not isinstance(recommendations, list):
         recommendations = []
+    if not isinstance(brief_awareness_candidates, list):
+        brief_awareness_candidates = []
     if not isinstance(media_post_seeds, list):
         media_post_seeds = []
     if not isinstance(belief_evidence_candidates, list):
         belief_evidence_candidates = []
+    if not isinstance(operational_route_candidates, list):
+        operational_route_candidates = []
     if not isinstance(source_counts, dict):
         source_counts = {}
 
@@ -1114,6 +1138,7 @@ def _weekly_plan_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
                     str(item.get("title") or ""),
                     str(item.get("source_path") or ""),
                     str(item.get("priority_lane") or ""),
+                    str(item.get("handoff_lane") or ""),
                 )
             )
         return tuple(signature)
@@ -1121,8 +1146,10 @@ def _weekly_plan_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
     return (
         tuple(sorted((str(key), int(value)) for key, value in source_counts.items() if isinstance(value, (int, float)))),
         _candidate_signature(recommendations),
+        _candidate_signature(brief_awareness_candidates),
         _candidate_signature(media_post_seeds),
         _candidate_signature(belief_evidence_candidates),
+        _candidate_signature(operational_route_candidates),
     )
 
 

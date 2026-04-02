@@ -188,6 +188,8 @@ def _normalize_candidate_items(items: Any, *, limit: int = 3) -> list[dict[str, 
             "priority_lane": str(item.get("priority_lane") or ""),
             "source_kind": str(item.get("source_kind") or ""),
             "route_reason": str(item.get("route_reason") or ""),
+            "handoff_lane": str(item.get("handoff_lane") or ""),
+            "handoff_reason": str(item.get("handoff_reason") or ""),
             "target_file": str(item.get("target_file") or ""),
             "source_url": str(item.get("source_url") or ""),
             "source_path": str(item.get("source_path") or ""),
@@ -196,6 +198,11 @@ def _normalize_candidate_items(items: Any, *, limit: int = 3) -> list[dict[str, 
             "response_modes": [
                 str(value).strip()
                 for value in (item.get("response_modes") or [])
+                if str(value).strip()
+            ],
+            "secondary_consumers": [
+                str(value).strip()
+                for value in (item.get("secondary_consumers") or [])
                 if str(value).strip()
             ],
         }
@@ -235,7 +242,9 @@ def _build_source_intelligence_overlay() -> dict[str, Any] | None:
         media_summary = {}
 
     media_post_seeds = weekly_plan.get("media_post_seeds") if isinstance(weekly_plan, dict) else []
+    brief_awareness_candidates = weekly_plan.get("brief_awareness_candidates") if isinstance(weekly_plan, dict) else []
     belief_evidence_candidates = weekly_plan.get("belief_evidence_candidates") if isinstance(weekly_plan, dict) else []
+    operational_route_candidates = weekly_plan.get("operational_route_candidates") if isinstance(weekly_plan, dict) else []
     source_counts = weekly_plan.get("source_counts") if isinstance(weekly_plan, dict) else {}
     source_asset_counts = source_assets.get("counts") if isinstance(source_assets, dict) else {}
     belief_relation_counts = persona_review_summary.get("belief_relation_counts") if isinstance(persona_review_summary, dict) else {}
@@ -267,9 +276,13 @@ def _build_source_intelligence_overlay() -> dict[str, Any] | None:
         "primary_route_counts": primary_route_counts if isinstance(primary_route_counts, dict) else {},
         "belief_relation_counts": belief_relation_counts,
         "media_post_seed_count": len(media_post_seeds) if isinstance(media_post_seeds, list) else 0,
+        "brief_awareness_count": len(brief_awareness_candidates) if isinstance(brief_awareness_candidates, list) else 0,
         "belief_evidence_candidate_count": len(belief_evidence_candidates) if isinstance(belief_evidence_candidates, list) else 0,
+        "pm_route_candidate_count": len(operational_route_candidates) if isinstance(operational_route_candidates, list) else 0,
+        "top_brief_awareness": _normalize_candidate_items(brief_awareness_candidates),
         "top_media_post_seeds": _normalize_candidate_items(media_post_seeds),
         "top_belief_evidence": _normalize_candidate_items(belief_evidence_candidates),
+        "top_pm_route_candidates": _normalize_candidate_items(operational_route_candidates),
         "top_review_items": [
             {
                 "trait": str(item.get("trait") or ""),
@@ -285,7 +298,9 @@ def _build_source_intelligence_overlay() -> dict[str, Any] | None:
     has_signal = any(
         [
             overlay["media_post_seed_count"],
+            overlay["brief_awareness_count"],
             overlay["belief_evidence_candidate_count"],
+            overlay["pm_route_candidate_count"],
             bool(overlay["route_counts"]),
             bool(overlay["belief_relation_counts"]),
         ]

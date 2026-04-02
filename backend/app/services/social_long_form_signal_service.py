@@ -107,6 +107,20 @@ DIRECT_REACTION_TERMS = (
     "replace",
     "more likely",
 )
+PM_ROUTE_TERMS = (
+    "system",
+    "process",
+    "workflow",
+    "ownership",
+    "handoff",
+    "execution",
+    "queue",
+    "dispatch",
+    "review",
+    "backlog",
+    "standup",
+    "operational",
+)
 REACTION_DISCOURAGED_PREFIXES = (
     "the ",
     "that's ",
@@ -804,6 +818,69 @@ def _classify_routes(
     return ordered, primary, reason, score
 
 
+def _handoff_lane_for_candidate(
+    *,
+    segment: str,
+    lane_hint: str,
+    target_file: str,
+    assessment: dict[str, str],
+    response_modes: list[str],
+    primary_route: str,
+    route_reason: str,
+    route_score: int,
+    weak_source_fragment: bool,
+    manual_reference_source: bool,
+    lived_proof_context: bool,
+    high_value_non_lived: bool,
+) -> tuple[str, str, list[str]]:
+    lowered = f" {_clean_text(segment).lower()} "
+    route_reason_lowered = f" {_clean_text(route_reason).lower()} "
+
+    source_only = weak_source_fragment or (
+        manual_reference_source
+        and not lived_proof_context
+        and not high_value_non_lived
+        and " source intelligence " in route_reason_lowered
+    )
+    if source_only:
+        return (
+            "source_only",
+            "segment depends on missing lived context or strategic reference framing and should stay upstream until stronger proof appears",
+            [],
+        )
+
+    operational_pressure = any(term in lowered for term in PM_ROUTE_TERMS) or lane_hint == "program-leadership"
+    if operational_pressure and route_score >= 15 and _clean_text(assessment.get("stance")) in {"counter", "nuance", "translate"}:
+        return (
+            "route_to_pm",
+            "segment carries operational pressure and should be reviewed for execution routing before it turns into persona or posting work",
+            ["brief"],
+        )
+
+    if primary_route == "belief_evidence":
+        secondary = ["brief"]
+        if any(mode in {"comment", "repost", "post_seed"} for mode in response_modes):
+            secondary.append("posting")
+        return (
+            "persona_candidate",
+            "segment reads like durable worldview, voice, or identity evidence and should be judged in Persona",
+            secondary,
+        )
+
+    if primary_route == "post_seed" and any(mode in {"comment", "repost"} for mode in response_modes):
+        return (
+            "post_candidate",
+            "segment is strong enough for public expression and is better treated as posting fuel than canon",
+            ["brief"],
+        )
+
+    return (
+        "brief_only",
+        "segment is awareness-worthy for the current cycle but not strong enough yet for persona or public expression",
+        ["brief"],
+    )
+
+
 def _review_key(asset: dict[str, Any], segment: str, target_file: str) -> str:
     source = "|".join(
         [
@@ -923,6 +1000,23 @@ def extract_long_form_candidates(
                 "assessment": assessment,
                 "asset": asset,
             }
+            handoff_lane, handoff_reason, secondary_consumers = _handoff_lane_for_candidate(
+                segment=segment,
+                lane_hint=lane_id,
+                target_file=target_file,
+                assessment=assessment,
+                response_modes=response_modes,
+                primary_route=primary_route,
+                route_reason=route_reason,
+                route_score=route_score,
+                weak_source_fragment=weak_source_fragment,
+                manual_reference_source=manual_reference_source,
+                lived_proof_context=lived_proof_context,
+                high_value_non_lived=high_value_non_lived,
+            )
+            candidate["handoff_lane"] = handoff_lane
+            candidate["handoff_reason"] = handoff_reason
+            candidate["secondary_consumers"] = secondary_consumers
             candidates.append(candidate)
             asset_candidates.append(candidate)
 
@@ -941,11 +1035,13 @@ def extract_long_form_candidates(
     candidates.sort(key=lambda item: (-int(item["route_score"]), item["title"].lower(), item["segment_index"]))
     route_counts = {mode: 0 for mode in ("comment", "repost", "post_seed", "belief_evidence")}
     primary_route_counts = {mode: 0 for mode in ("comment", "repost", "post_seed", "belief_evidence")}
+    handoff_lane_counts = {lane: 0 for lane in ("source_only", "brief_only", "post_candidate", "persona_candidate", "route_to_pm")}
     lane_counts: dict[str, int] = {}
     for candidate in candidates:
         lane = str(candidate["lane_hint"])
         lane_counts[lane] = lane_counts.get(lane, 0) + 1
         primary_route_counts[str(candidate["primary_route"])] += 1
+        handoff_lane_counts[str(candidate.get("handoff_lane") or "brief_only")] = handoff_lane_counts.get(str(candidate.get("handoff_lane") or "brief_only"), 0) + 1
         for mode in candidate["response_modes"]:
             route_counts[str(mode)] += 1
 
@@ -956,6 +1052,7 @@ def extract_long_form_candidates(
         "skipped_no_segments": skipped_no_segments,
         "route_counts": route_counts,
         "primary_route_counts": primary_route_counts,
+        "handoff_lane_counts": handoff_lane_counts,
         "lane_counts": lane_counts,
         "by_channel": by_channel,
         "assets": assets,
@@ -987,6 +1084,7 @@ def build_long_form_route_summary(
         "skipped_no_segments": extracted["skipped_no_segments"],
         "route_counts": extracted["route_counts"],
         "primary_route_counts": extracted["primary_route_counts"],
+        "handoff_lane_counts": extracted["handoff_lane_counts"],
         "lane_counts": extracted["lane_counts"],
         "by_channel": extracted["by_channel"],
         "assets": extracted["assets"],
@@ -1010,6 +1108,9 @@ def build_long_form_route_summary(
                 "primary_route": item["primary_route"],
                 "route_reason": item["route_reason"],
                 "route_score": item["route_score"],
+                "handoff_lane": item.get("handoff_lane", ""),
+                "handoff_reason": item.get("handoff_reason", ""),
+                "secondary_consumers": item.get("secondary_consumers") or [],
             }
             for item in extracted["candidates"][:12]
         ],

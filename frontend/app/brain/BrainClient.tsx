@@ -57,6 +57,8 @@ type BriefSourceIntelligenceCandidate = {
   priority_lane?: string | null;
   source_kind?: string | null;
   route_reason?: string | null;
+  handoff_lane?: string | null;
+  handoff_reason?: string | null;
   target_file?: string | null;
   source_url?: string | null;
   source_path?: string | null;
@@ -64,6 +66,7 @@ type BriefSourceIntelligenceCandidate = {
   hook?: string | null;
   section?: string | null;
   response_modes?: string[];
+  secondary_consumers?: string[];
   existing_reactions?: BriefReactionEntry[];
   related_persona_context?: BriefReactionPersonaContextEntry[];
 };
@@ -113,9 +116,13 @@ type BriefSourceIntelligence = {
   primary_route_counts?: Record<string, number>;
   belief_relation_counts?: Record<string, number>;
   media_post_seed_count?: number;
+  brief_awareness_count?: number;
   belief_evidence_candidate_count?: number;
+  pm_route_candidate_count?: number;
+  top_brief_awareness?: BriefSourceIntelligenceCandidate[];
   top_media_post_seeds?: BriefSourceIntelligenceCandidate[];
   top_belief_evidence?: BriefSourceIntelligenceCandidate[];
+  top_pm_route_candidates?: BriefSourceIntelligenceCandidate[];
   brief_stream?: BriefSourceIntelligenceCandidate[];
   top_review_items?: BriefSourceIntelligenceReviewItem[];
 };
@@ -1905,8 +1912,10 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
   const assetCounts = overlay.source_asset_counts ?? {};
   const routeCounts = overlay.route_counts ?? {};
   const relationCounts = overlay.belief_relation_counts ?? {};
+  const briefAwareness = overlay.top_brief_awareness ?? [];
   const mediaSeeds = overlay.top_media_post_seeds ?? [];
   const beliefEvidence = overlay.top_belief_evidence ?? [];
+  const pmRouteCandidates = overlay.top_pm_route_candidates ?? [];
   const reviewItems = overlay.top_review_items ?? [];
 
   return (
@@ -1936,14 +1945,22 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
       </div>
 
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <InlineBadge label={`brief ${numberMeta(overlay.brief_awareness_count)}`} tone="#38bdf8" />
         <InlineBadge label={`media ${numberMeta(sourceCounts.media)}`} tone="#38bdf8" />
         <InlineBadge label={`belief ${numberMeta(sourceCounts.belief_evidence)}`} tone="#22c55e" />
+        <InlineBadge label={`pm ${numberMeta(overlay.pm_route_candidate_count)}`} tone="#fb7185" />
         <InlineBadge label={`assets ${numberMeta(assetCounts.total)}`} tone="#818cf8" />
         <InlineBadge label={`segments ${numberMeta(routeCounts.post_seed)}/${numberMeta(routeCounts.belief_evidence)}`} tone="#f59e0b" />
         <InlineBadge label={`relations ${Object.keys(relationCounts).length}`} tone="#64748b" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+        <PriorityFocusCard
+          title="What matters now"
+          description={briefAwareness[0] ? compactBriefCandidate(briefAwareness[0]) : 'No awareness-only source signal is leading the brief right now.'}
+          tone="#38bdf8"
+          lane="brief_only"
+        />
         <PriorityFocusCard
           title="What deserves a post"
           description={mediaSeeds[0] ? compactBriefCandidate(mediaSeeds[0]) : 'No strong media-derived post seed has surfaced yet.'}
@@ -1955,6 +1972,12 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           description={beliefEvidence[0] ? compactBriefCandidate(beliefEvidence[0]) : 'No strong persona-relevant belief signal is visible right now.'}
           tone="#22c55e"
           lane="persona_candidate"
+        />
+        <PriorityFocusCard
+          title="What may need routing"
+          description={pmRouteCandidates[0] ? compactBriefCandidate(pmRouteCandidates[0]) : 'No operational route candidate is surfacing from the source layer right now.'}
+          tone="#fb7185"
+          lane="route_to_pm"
         />
         <PriorityFocusCard
           title="What may need persona curation"
@@ -1976,6 +1999,11 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           emptyLabel="No relation counts yet."
         />
         <BriefOverlayBlock
+          title="Brief Awareness"
+          items={briefAwareness.map((item) => compactBriefCandidate(item))}
+          emptyLabel="No awareness-only source highlights yet."
+        />
+        <BriefOverlayBlock
           title="Top Media Seeds"
           items={mediaSeeds.map((item) => compactBriefCandidate(item))}
           emptyLabel="No live media seeds yet."
@@ -1984,6 +2012,11 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           title="Signals With Persona Implications"
           items={beliefEvidence.map((item) => compactBriefCandidate(item))}
           emptyLabel="No live persona-relevant signals yet."
+        />
+        <BriefOverlayBlock
+          title="Operational Route Candidates"
+          items={pmRouteCandidates.map((item) => compactBriefCandidate(item))}
+          emptyLabel="No operational route candidates yet."
         />
       </div>
 
@@ -6185,6 +6218,10 @@ function briefConsumerLaneGuidance(lane: BriefConsumerLane) {
 }
 
 function briefConsumerLanesForCandidate(item: BriefSourceIntelligenceCandidate): BriefConsumerLane[] {
+  const explicitLane = (item.handoff_lane || '').trim() as BriefConsumerLane | '';
+  if (explicitLane === 'source_only' || explicitLane === 'brief_only' || explicitLane === 'persona_candidate' || explicitLane === 'post_candidate' || explicitLane === 'route_to_pm') {
+    return [explicitLane];
+  }
   const lanes: BriefConsumerLane[] = [];
   const section = (item.section || '').trim();
   const responseModes = (item.response_modes ?? []).map((value) => value.trim()).filter(Boolean);
@@ -6220,7 +6257,13 @@ function briefConsumerLanesForCandidate(item: BriefSourceIntelligenceCandidate):
 function compactBriefCandidate(item: BriefSourceIntelligenceCandidate) {
   const title = item.title?.trim() || 'Untitled candidate';
   const primaryLane = briefConsumerLanesForCandidate(item)[0] ?? 'brief_only';
-  const parts = [briefConsumerLaneDefinition(primaryLane).label, item.priority_lane?.trim(), item.target_file?.trim(), item.route_reason?.trim()].filter(Boolean);
+  const parts = [
+    briefConsumerLaneDefinition(primaryLane).label,
+    item.priority_lane?.trim(),
+    item.target_file?.trim(),
+    item.handoff_reason?.trim(),
+    item.route_reason?.trim(),
+  ].filter(Boolean);
   return parts.length > 0 ? `${title} · ${parts.join(' · ')}` : title;
 }
 

@@ -680,7 +680,8 @@ class SocialPersonaReviewService:
         candidates = [
             item
             for item in extracted.get("candidates") or []
-            if _clean_text(item.get("primary_route")) == "belief_evidence"
+            if _clean_text(item.get("handoff_lane")) == "persona_candidate"
+            or (_clean_text(item.get("handoff_lane")) == "" and _clean_text(item.get("primary_route")) == "belief_evidence")
         ]
         inventory_asset_ids: set[str] = {
             _clean_text(item.get("asset_id"))
@@ -716,6 +717,11 @@ class SocialPersonaReviewService:
             for item in (extracted.get("candidates") or [])
             if _clean_text(item.get("candidate_id"))
         }
+        extracted_candidate_handoff_lanes: dict[str, str] = {
+            _clean_text(item.get("candidate_id")): _clean_text(item.get("handoff_lane"))
+            for item in (extracted.get("candidates") or [])
+            if _clean_text(item.get("candidate_id"))
+        }
         extracted_asset_ids: set[str] = {
             _clean_text(item.get("asset_id"))
             for item in (extracted.get("assets") or [])
@@ -740,6 +746,9 @@ class SocialPersonaReviewService:
             metadata["primary_route"] = _clean_text(candidate.get("primary_route"))
             metadata["route_reason"] = _clean_text(candidate.get("route_reason"))
             metadata["route_score"] = int(candidate.get("route_score") or 0)
+            metadata["handoff_lane"] = _clean_text(candidate.get("handoff_lane"))
+            metadata["handoff_reason"] = _clean_text(candidate.get("handoff_reason"))
+            metadata["secondary_consumers"] = list(candidate.get("secondary_consumers") or [])
             metadata["source_context_excerpt"] = _clean_text(candidate.get("source_context_excerpt"))
             metadata["source_context_before"] = [
                 str(item)
@@ -804,6 +813,9 @@ class SocialPersonaReviewService:
             if legacy_primary_route and legacy_primary_route != "belief_evidence":
                 stale_reason = "legacy segment route is no longer canon-eligible and should stay outside the brain review queue"
                 sync_state = "stale_route_downgrade"
+            elif extracted_candidate_handoff_lanes.get(review_key) and extracted_candidate_handoff_lanes.get(review_key) != "persona_candidate":
+                stale_reason = "segment no longer qualifies for persona review under the current handoff policy"
+                sync_state = "stale_handoff_downgrade"
             elif extracted_candidate_routes.get(review_key) and extracted_candidate_routes.get(review_key) != "belief_evidence":
                 stale_reason = "segment no longer qualifies for persona-canon review and should stay outside the brain review queue"
                 sync_state = "stale_route_downgrade"

@@ -650,13 +650,25 @@ Faculty groups have slammed the measure and colleges are watching it closely.
             "weekly_plan": {
                 "generated_at": "2026-03-28T12:00:00+00:00",
                 "base_generated_at": "2026-03-27 19:21",
-                "source_counts": {"drafts": 1, "media": 3, "belief_evidence": 2},
+                "source_counts": {"drafts": 1, "media": 3, "brief_only": 1, "belief_evidence": 2, "route_to_pm": 0},
+                "brief_awareness_candidates": [
+                    {
+                        "title": "Awareness item one",
+                        "priority_lane": "program-leadership",
+                        "source_kind": "long_form_brief_awareness",
+                        "route_reason": "Useful situational awareness without strong posting pressure",
+                        "handoff_lane": "brief_only",
+                        "handoff_reason": "cycle awareness",
+                    }
+                ],
                 "media_post_seeds": [
                     {
                         "title": "Media seed one",
                         "priority_lane": "ai",
                         "source_kind": "long_form_post_seed",
                         "route_reason": "Strong original-post angle",
+                        "handoff_lane": "post_candidate",
+                        "handoff_reason": "public expression",
                     }
                 ],
                 "belief_evidence_candidates": [
@@ -665,6 +677,8 @@ Faculty groups have slammed the measure and colleges are watching it closely.
                         "priority_lane": "ai",
                         "source_kind": "long_form_belief_evidence",
                         "route_reason": "Durable worldview evidence",
+                        "handoff_lane": "persona_candidate",
+                        "handoff_reason": "durable worldview evidence",
                         "target_file": "identity/claims.md",
                     }
                 ],
@@ -703,9 +717,12 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         overlay = latest.metadata.get("source_intelligence") or {}
         self.assertTrue(latest.metadata.get("source_intelligence_live"))
         self.assertEqual(overlay.get("media_post_seed_count"), 1)
+        self.assertEqual(overlay.get("brief_awareness_count"), 1)
         self.assertEqual(overlay.get("belief_evidence_candidate_count"), 1)
         self.assertEqual((overlay.get("belief_relation_counts") or {}).get("qualified_agreement"), 3)
+        self.assertEqual(((overlay.get("top_brief_awareness") or [{}])[0]).get("handoff_lane"), "brief_only")
         self.assertEqual(((overlay.get("top_media_post_seeds") or [{}])[0]).get("title"), "Media seed one")
+        self.assertEqual(((overlay.get("top_media_post_seeds") or [{}])[0]).get("handoff_lane"), "post_candidate")
         self.assertFalse(older.metadata.get("source_intelligence_live"))
         self.assertIsNone(older.metadata.get("source_intelligence"))
 
@@ -1104,10 +1121,11 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         }
         long_form_routes = {
             "generated_at": "2026-03-28T01:30:00+00:00",
-            "assets_considered": 2,
+            "assets_considered": 3,
             "segments_total": 3,
             "route_counts": {"comment": 0, "repost": 0, "post_seed": 2, "belief_evidence": 1},
             "primary_route_counts": {"comment": 0, "repost": 0, "post_seed": 2, "belief_evidence": 1},
+            "handoff_lane_counts": {"source_only": 0, "brief_only": 1, "post_candidate": 1, "persona_candidate": 1, "route_to_pm": 0},
             "candidates": [
                 {
                     "title": "Route source",
@@ -1119,8 +1137,25 @@ Faculty groups have slammed the measure and colleges are watching it closely.
                     "source_path": "knowledge/ingestions/example/normalized.md",
                     "source_url": "https://example.com/source",
                     "target_file": "identity/VOICE_PATTERNS.md",
-                    "response_modes": ["post_seed", "belief_evidence"],
+                    "response_modes": ["comment", "post_seed"],
+                    "handoff_lane": "post_candidate",
+                    "handoff_reason": "expression-ready",
                     "belief_summary": "people, process, and culture as the main levers of leadership",
+                },
+                {
+                    "title": "Awareness source",
+                    "segment": "A new transcript landed overnight and needs human eyes before promotion.",
+                    "primary_route": "post_seed",
+                    "route_reason": "segment is useful situational awareness for the current cycle",
+                    "route_score": 8,
+                    "lane_hint": "program-leadership",
+                    "source_path": "knowledge/ingestions/example/normalized.md",
+                    "source_url": "https://example.com/awareness",
+                    "target_file": "identity/claims.md",
+                    "response_modes": ["post_seed"],
+                    "handoff_lane": "brief_only",
+                    "handoff_reason": "cycle awareness",
+                    "belief_summary": "",
                 },
                 {
                     "title": "Route source",
@@ -1133,6 +1168,8 @@ Faculty groups have slammed the measure and colleges are watching it closely.
                     "source_url": "https://example.com/source",
                     "target_file": "identity/claims.md",
                     "response_modes": ["post_seed", "belief_evidence"],
+                    "handoff_lane": "persona_candidate",
+                    "handoff_reason": "durable worldview evidence",
                     "belief_summary": "an AI practitioner, not just a passive user",
                 },
             ],
@@ -1143,12 +1180,15 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertEqual(augmented.get("generated_at"), "2026-03-28T01:30:00+00:00")
         self.assertEqual(augmented.get("base_generated_at"), "2026-03-28T00:00:00+00:00")
         self.assertEqual(augmented.get("source_counts", {}).get("media"), 1)
+        self.assertEqual(augmented.get("source_counts", {}).get("brief_only"), 1)
         self.assertEqual(augmented.get("source_counts", {}).get("belief_evidence"), 1)
         self.assertEqual(len(augmented.get("media_post_seeds") or []), 1)
+        self.assertEqual(len(augmented.get("brief_awareness_candidates") or []), 1)
         self.assertEqual(len(augmented.get("belief_evidence_candidates") or []), 1)
         self.assertEqual((augmented.get("media_post_seeds") or [{}])[0].get("source_kind"), "long_form_post_seed")
+        self.assertEqual((augmented.get("brief_awareness_candidates") or [{}])[0].get("source_kind"), "long_form_brief_awareness")
         self.assertEqual((augmented.get("belief_evidence_candidates") or [{}])[0].get("source_kind"), "long_form_belief_evidence")
-        self.assertEqual((augmented.get("media_summary") or {}).get("assets_considered"), 2)
+        self.assertEqual((augmented.get("media_summary") or {}).get("assets_considered"), 3)
         self.assertEqual((augmented.get("media_summary") or {}).get("generated_at"), "2026-03-28T01:30:00+00:00")
 
     def test_weekly_plan_snapshot_refreshes_when_runtime_media_routes_change(self) -> None:
@@ -1221,6 +1261,7 @@ Faculty groups have slammed the measure and colleges are watching it closely.
             "segments_total": 6,
             "route_counts": {"comment": 1, "repost": 0, "post_seed": 6, "belief_evidence": 6},
             "primary_route_counts": {"comment": 1, "repost": 0, "post_seed": 3, "belief_evidence": 2},
+            "handoff_lane_counts": {"source_only": 0, "brief_only": 0, "post_candidate": 1, "persona_candidate": 1, "route_to_pm": 0},
             "candidates": [
                 {
                     "title": "Route source",
@@ -1232,7 +1273,9 @@ Faculty groups have slammed the measure and colleges are watching it closely.
                     "source_path": "knowledge/ingestions/example/normalized.md",
                     "source_url": "https://example.com/source",
                     "target_file": "identity/VOICE_PATTERNS.md",
-                    "response_modes": ["post_seed", "belief_evidence"],
+                    "response_modes": ["comment", "post_seed"],
+                    "handoff_lane": "post_candidate",
+                    "handoff_reason": "expression-ready",
                     "belief_summary": "people, process, and culture as the main levers of leadership",
                 },
                 {
@@ -1246,6 +1289,8 @@ Faculty groups have slammed the measure and colleges are watching it closely.
                     "source_url": "https://example.com/source",
                     "target_file": "identity/claims.md",
                     "response_modes": ["post_seed", "belief_evidence"],
+                    "handoff_lane": "persona_candidate",
+                    "handoff_reason": "durable worldview evidence",
                     "belief_summary": "an AI practitioner, not just a passive user",
                 },
             ],
@@ -2054,6 +2099,69 @@ If you're a scheduling tool, don't facilitate bookings, store the history of eve
 
         self.assertEqual((annotated.metadata or {}).get("queue_stage"), "draft")
         self.assertFalse(persona_queue_module.is_brain_pending_review(annotated.status, annotated.metadata))
+
+    def test_long_form_persona_review_sync_resolves_handoff_downgraded_segments(self) -> None:
+        stale_delta = PersonaDelta(
+            id="handoff-downgrade-delta",
+            persona_target="feeze.core",
+            trait="Workflow clarity should force an ops review before canon.",
+            notes="Old persona-oriented review",
+            status="draft",
+            metadata={
+                "review_key": "handoff-review-key",
+                "review_source": "long_form_media.segment",
+                "source_asset_id": "handoff-asset",
+                "primary_route": "belief_evidence",
+            },
+            created_at=datetime.now(timezone.utc),
+        )
+
+        extracted = {
+            "assets_considered": 1,
+            "skipped_no_segments": 0,
+            "considered_asset_ids": ["handoff-asset"],
+            "assets": [{"asset_id": "handoff-asset"}],
+            "candidates": [
+                {
+                    "candidate_id": "handoff-review-key",
+                    "asset_id": "handoff-asset",
+                    "primary_route": "belief_evidence",
+                    "handoff_lane": "route_to_pm",
+                }
+            ],
+        }
+
+        update_calls = []
+
+        def fake_update_delta(delta_id, payload):
+            update_calls.append((delta_id, payload))
+            return stale_delta
+
+        with patch.object(
+            social_persona_review_module,
+            "extract_long_form_candidates",
+            return_value=extracted,
+        ), patch.object(social_persona_review_module.persona_delta_service, "list_deltas", return_value=[stale_delta]), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "get_delta_by_review_key",
+            return_value=None,
+        ), patch.object(social_persona_review_module.persona_delta_service, "create_delta"), patch.object(
+            social_persona_review_module.persona_delta_service,
+            "update_delta",
+            side_effect=fake_update_delta,
+        ):
+            result = social_persona_review_module.social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=Path(self.temp_dir.name),
+                source_assets={"items": [{"asset_id": "handoff-asset"}]},
+                max_assets=12,
+                max_segments_per_asset=2,
+            )
+
+        self.assertEqual(result.get("resolved_stale"), 1)
+        self.assertEqual(len(update_calls), 1)
+        self.assertEqual(update_calls[0][0], "handoff-downgrade-delta")
+        self.assertEqual(update_calls[0][1].status, "resolved")
+        self.assertEqual(update_calls[0][1].metadata.get("sync_state"), "stale_handoff_downgrade")
 
     def test_long_form_persona_review_sync_refreshes_existing_draft_metadata(self) -> None:
         inventory = build_source_asset_inventory(
