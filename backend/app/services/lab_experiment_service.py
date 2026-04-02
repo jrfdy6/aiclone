@@ -1463,6 +1463,18 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
     source_assets_payload, long_form_routes_payload, source = _load_live_source_payloads()
     assets = list((source_assets_payload or {}).get("items") or [])
     candidates = list((long_form_routes_payload or {}).get("candidates") or [])
+    fragments = [
+        {
+            **fragment,
+            "asset_title": str(asset.get("title") or "Untitled asset"),
+            "asset_source_path": str(asset.get("source_path") or ""),
+            "asset_source_channel": str(asset.get("source_channel") or ""),
+            "asset_source_type": str(asset.get("source_type") or ""),
+        }
+        for asset in assets
+        for fragment in (asset.get("deep_harvest_fragments") or [])
+        if isinstance(fragment, dict)
+    ]
 
     asset_count = len(assets)
     candidate_count = len(candidates)
@@ -1473,6 +1485,9 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
     summary_origin_counts = _bucket_counts([str(item.get("summary_origin") or "unknown") for item in assets])
     quality_flags = [_summary_quality_flags(asset) for asset in assets]
     issue_counts = _bucket_counts([flag for flags in quality_flags for flag in flags], empty_label="none")
+    fragment_type_counts = _bucket_counts([str(item.get("primary_type") or "unknown") for item in fragments])
+    fragment_lane_counts = _bucket_counts([str(item.get("likely_handoff_lane") or "unknown") for item in fragments])
+    fragment_source_section_counts = _bucket_counts([str(item.get("source_section") or "unknown") for item in fragments])
 
     summary_ready = sum(1 for asset in assets if str(asset.get("summary") or "").strip())
     structured_summary_ready = sum(1 for asset in assets if str(asset.get("structured_summary") or "").strip())
@@ -1486,6 +1501,11 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
         if str(asset.get("structured_summary") or "").strip()
         and any(asset.get(key) for key in ("lessons_learned", "key_anecdotes", "reusable_quotes"))
     )
+    total_fragments = len(fragments)
+    persona_fragment_count = sum(1 for item in fragments if item.get("likely_handoff_lane") == "persona_candidate")
+    canon_fragment_count = sum(1 for item in fragments if "canon_candidate" in (item.get("labels") or []))
+    post_fragment_count = sum(1 for item in fragments if item.get("likely_handoff_lane") == "post_candidate")
+    pm_fragment_count = sum(1 for item in fragments if item.get("likely_handoff_lane") == "route_to_pm")
 
     candidate_samples: list[dict[str, Any]] = []
     for candidate in candidates[:limit_candidates]:
@@ -1502,6 +1522,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
                 "structural_fallbacks": [],
                 "top_warnings": [str(candidate.get("handoff_reason") or "")] if str(candidate.get("handoff_reason") or "").strip() else [],
                 "stage_results": [],
+                "segment_text": segment or title,
                 "top_option_preview": segment or title,
                 "signal_snapshot": {
                     "source_channel": candidate.get("source_channel"),
@@ -1521,6 +1542,7 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
                     "secondary_consumers": candidate.get("secondary_consumers") or [],
                     "source_path": str(candidate.get("source_path") or ""),
                     "source_url": str(candidate.get("source_url") or ""),
+                    "segment_text": segment or title,
                 },
             }
         )
@@ -1545,8 +1567,29 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
                 "word_count": asset.get("word_count"),
                 "clean_word_count": asset.get("clean_word_count"),
                 "sentence_count": asset.get("sentence_count"),
+                "deep_harvest_counts": asset.get("deep_harvest_counts") or {},
+                "top_fragments": list((asset.get("deep_harvest_fragments") or [])[:6]),
             }
         )
+
+    fragment_samples = [
+        {
+            "text": str(fragment.get("text") or ""),
+            "primary_type": str(fragment.get("primary_type") or "unknown"),
+            "labels": [str(item) for item in (fragment.get("labels") or []) if str(item).strip()],
+            "score": int(fragment.get("score") or 0),
+            "word_count": int(fragment.get("word_count") or 0),
+            "likely_handoff_lane": str(fragment.get("likely_handoff_lane") or "unknown"),
+            "source_section": str(fragment.get("source_section") or "unknown"),
+            "asset_title": str(fragment.get("asset_title") or "Untitled asset"),
+            "asset_source_path": str(fragment.get("asset_source_path") or ""),
+            "asset_source_channel": str(fragment.get("asset_source_channel") or ""),
+        }
+        for fragment in sorted(
+            fragments,
+            key=lambda item: (-int(item.get("score") or 0), str(item.get("primary_type") or ""), str(item.get("text") or "").lower()),
+        )[:24]
+    ]
 
     top_issues = [
         {
@@ -1573,6 +1616,14 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "noisy_summary_rate": _audit_rate(noisy_summary_count, asset_count),
             "package_readiness_rate": _audit_rate(package_ready_count, asset_count),
         },
+        "deep_harvest_metrics": {
+            "total_fragments": total_fragments,
+            "average_fragments_per_asset": round(total_fragments / asset_count, 1) if asset_count else 0.0,
+            "persona_candidate_rate": _audit_rate(persona_fragment_count, total_fragments),
+            "canon_candidate_rate": _audit_rate(canon_fragment_count, total_fragments),
+            "post_candidate_rate": _audit_rate(post_fragment_count, total_fragments),
+            "route_to_pm_rate": _audit_rate(pm_fragment_count, total_fragments),
+        },
         "slice_counts": {
             "handoff_lane_counts": handoff_lane_counts,
             "primary_route_counts": primary_route_counts,
@@ -1580,10 +1631,14 @@ def _build_live_source_handoff_audit(*, limit_candidates: int = 12, limit_assets
             "target_file_counts": target_file_counts,
             "summary_origin_counts": summary_origin_counts,
             "issue_counts": issue_counts,
+            "fragment_type_counts": fragment_type_counts,
+            "fragment_lane_counts": fragment_lane_counts,
+            "fragment_source_section_counts": fragment_source_section_counts,
         },
         "top_issues": top_issues,
         "candidate_samples": candidate_samples,
         "asset_samples": asset_samples,
+        "fragment_samples": fragment_samples,
     }
 
 
@@ -2722,6 +2777,14 @@ def _default_source_handoff_experiment_record() -> dict[str, Any]:
                 "noisy_summary_rate": 0.0,
                 "package_readiness_rate": 0.0,
             },
+            "deep_harvest_metrics": {
+                "total_fragments": 0,
+                "average_fragments_per_asset": 0.0,
+                "persona_candidate_rate": 0.0,
+                "canon_candidate_rate": 0.0,
+                "post_candidate_rate": 0.0,
+                "route_to_pm_rate": 0.0,
+            },
             "slice_counts": {
                 "handoff_lane_counts": {},
                 "primary_route_counts": {},
@@ -2729,10 +2792,14 @@ def _default_source_handoff_experiment_record() -> dict[str, Any]:
                 "target_file_counts": {},
                 "summary_origin_counts": {},
                 "issue_counts": {},
+                "fragment_type_counts": {},
+                "fragment_lane_counts": {},
+                "fragment_source_section_counts": {},
             },
             "top_issues": [],
             "candidate_samples": [],
             "asset_samples": [],
+            "fragment_samples": [],
         },
         "history": [],
         "next_action": "Run the source handoff matrix to calibrate what should stay in source intelligence versus Persona, Posting, Briefs, and PM.",

@@ -144,6 +144,7 @@ type LabExperiment = {
   }[];
   live_samples?: {
     topic: string;
+    segment_text?: string;
     audience: string;
     generation_strategy: string;
     llm_request_count?: number | null;
@@ -199,6 +200,14 @@ type LabExperiment = {
       noisy_summary_rate: number;
       package_readiness_rate: number;
     };
+    deep_harvest_metrics: {
+      total_fragments: number;
+      average_fragments_per_asset: number;
+      persona_candidate_rate: number;
+      canon_candidate_rate: number;
+      post_candidate_rate: number;
+      route_to_pm_rate: number;
+    };
     slice_counts: {
       handoff_lane_counts: Record<string, number>;
       primary_route_counts: Record<string, number>;
@@ -206,6 +215,9 @@ type LabExperiment = {
       target_file_counts: Record<string, number>;
       summary_origin_counts: Record<string, number>;
       issue_counts: Record<string, number>;
+      fragment_type_counts: Record<string, number>;
+      fragment_lane_counts: Record<string, number>;
+      fragment_source_section_counts: Record<string, number>;
     };
     top_issues: { id: string; label: string; count: number }[];
     candidate_samples: {
@@ -228,6 +240,7 @@ type LabExperiment = {
         evidence?: string[];
         missing_fields?: string[];
       }[];
+      segment_text?: string;
       top_option_preview: string;
       signal_snapshot?: {
         source_channel?: string;
@@ -266,6 +279,35 @@ type LabExperiment = {
       word_count?: number | null;
       clean_word_count?: number | null;
       sentence_count?: number | null;
+      deep_harvest_counts?: {
+        total?: number;
+        by_type?: Record<string, number>;
+        by_handoff_lane?: Record<string, number>;
+        by_source_section?: Record<string, number>;
+        canon_candidate_count?: number;
+        persona_candidate_count?: number;
+        post_candidate_count?: number;
+      };
+      top_fragments?: {
+        text?: string;
+        primary_type?: string;
+        labels?: string[];
+        source_section?: string;
+        score?: number;
+        likely_handoff_lane?: string;
+      }[];
+    }[];
+    fragment_samples: {
+      text: string;
+      primary_type: string;
+      labels: string[];
+      score: number;
+      word_count: number;
+      likely_handoff_lane: string;
+      source_section: string;
+      asset_title: string;
+      asset_source_path?: string;
+      asset_source_channel?: string;
     }[];
   };
   history: {
@@ -1012,6 +1054,9 @@ function LiveSourceAuditSection({
   const [targetFilter, setTargetFilter] = useState('all');
   const [issueFilter, setIssueFilter] = useState('all');
   const [summaryOriginFilter, setSummaryOriginFilter] = useState('all');
+  const [fragmentTypeFilter, setFragmentTypeFilter] = useState('all');
+  const [fragmentLaneFilter, setFragmentLaneFilter] = useState('all');
+  const [fragmentSectionFilter, setFragmentSectionFilter] = useState('all');
 
   useEffect(() => {
     setLaneFilter('all');
@@ -1020,10 +1065,14 @@ function LiveSourceAuditSection({
     setTargetFilter('all');
     setIssueFilter('all');
     setSummaryOriginFilter('all');
+    setFragmentTypeFilter('all');
+    setFragmentLaneFilter('all');
+    setFragmentSectionFilter('all');
   }, [audit.generated_at, audit.source]);
 
   const candidateSamples = audit.candidate_samples ?? [];
   const assetSamples = audit.asset_samples ?? [];
+  const fragmentSamples = audit.fragment_samples ?? [];
 
   const filteredCandidateSamples = useMemo(() => {
     return candidateSamples.filter((item) => {
@@ -1044,6 +1093,17 @@ function LiveSourceAuditSection({
       return true;
     });
   }, [assetSamples, channelFilter, summaryOriginFilter, issueFilter]);
+
+  const filteredFragmentSamples = useMemo(() => {
+    return fragmentSamples.filter((fragment) => {
+      if (channelFilter !== 'all' && fragment.asset_source_channel !== channelFilter) return false;
+      if (fragmentTypeFilter !== 'all' && fragment.primary_type !== fragmentTypeFilter) return false;
+      if (fragmentLaneFilter !== 'all' && fragment.likely_handoff_lane !== fragmentLaneFilter) return false;
+      if (fragmentSectionFilter !== 'all' && fragment.source_section !== fragmentSectionFilter) return false;
+      if (issueFilter !== 'all' && !fragment.labels.includes(issueFilter)) return false;
+      return true;
+    });
+  }, [fragmentSamples, channelFilter, fragmentTypeFilter, fragmentLaneFilter, fragmentSectionFilter, issueFilter]);
 
   const handoffOptions = useMemo(
     () => Object.entries(audit.slice_counts.handoff_lane_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
@@ -1074,6 +1134,18 @@ function LiveSourceAuditSection({
     () => Object.entries(audit.slice_counts.summary_origin_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
     [audit.slice_counts.summary_origin_counts],
   );
+  const fragmentTypeOptions = useMemo(
+    () => Object.entries(audit.slice_counts.fragment_type_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.fragment_type_counts],
+  );
+  const fragmentLaneOptions = useMemo(
+    () => Object.entries(audit.slice_counts.fragment_lane_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.fragment_lane_counts],
+  );
+  const fragmentSectionOptions = useMemo(
+    () => Object.entries(audit.slice_counts.fragment_source_section_counts || {}).map(([value, count]) => ({ value, label: humanizeKey(value), count })),
+    [audit.slice_counts.fragment_source_section_counts],
+  );
 
   return (
     <div style={{ marginTop: '16px', display: 'grid', gap: '12px' }}>
@@ -1102,6 +1174,25 @@ function LiveSourceAuditSection({
         </div>
       </div>
 
+      <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+          <div>
+            <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Deep Harvest</p>
+            <p style={{ color: 'white', fontSize: '16px', fontWeight: 600, marginTop: '4px' }}>Many fragments per asset, typed before Persona or canon promotion</p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <InlineTone label={`Fragments ${audit.deep_harvest_metrics.total_fragments}`} tone="#f59e0b" />
+            <InlineTone label={`Avg ${audit.deep_harvest_metrics.average_fragments_per_asset}/asset`} tone="#64748b" />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+          <PrototypeStat label="Persona Ready" value={`${audit.deep_harvest_metrics.persona_candidate_rate}%`} tone="#22c55e" />
+          <PrototypeStat label="Canon Signal" value={`${audit.deep_harvest_metrics.canon_candidate_rate}%`} tone="#a78bfa" />
+          <PrototypeStat label="Post Ready" value={`${audit.deep_harvest_metrics.post_candidate_rate}%`} tone="#38bdf8" />
+          <PrototypeStat label="PM Ready" value={`${audit.deep_harvest_metrics.route_to_pm_rate}%`} tone="#ef4444" />
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gap: '10px' }}>
         <FilterChipGroup label="Handoff Lanes" options={handoffOptions} activeValue={laneFilter} onChange={setLaneFilter} tone="#22c55e" />
         <FilterChipGroup label="Channels" options={channelOptions} activeValue={channelFilter} onChange={setChannelFilter} tone="#38bdf8" />
@@ -1109,6 +1200,9 @@ function LiveSourceAuditSection({
         <FilterChipGroup label="Target Files" options={targetOptions} activeValue={targetFilter} onChange={setTargetFilter} tone="#64748b" />
         <FilterChipGroup label="Summary Origins" options={summaryOriginOptions} activeValue={summaryOriginFilter} onChange={setSummaryOriginFilter} tone="#14b8a6" />
         <FilterChipGroup label="Quality Issues" options={issueOptions} activeValue={issueFilter} onChange={setIssueFilter} tone="#ef4444" />
+        <FilterChipGroup label="Fragment Types" options={fragmentTypeOptions} activeValue={fragmentTypeFilter} onChange={setFragmentTypeFilter} tone="#f59e0b" />
+        <FilterChipGroup label="Fragment Lanes" options={fragmentLaneOptions} activeValue={fragmentLaneFilter} onChange={setFragmentLaneFilter} tone="#22c55e" />
+        <FilterChipGroup label="Fragment Sections" options={fragmentSectionOptions} activeValue={fragmentSectionFilter} onChange={setFragmentSectionFilter} tone="#64748b" />
       </div>
 
       {audit.top_issues?.length > 0 && (
@@ -1120,6 +1214,38 @@ function LiveSourceAuditSection({
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: expanded ? 'minmax(0, 1fr)' : 'repeat(auto-fit, minmax(340px, 1fr))', gap: '12px' }}>
+        <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+            <p style={{ color: 'white', fontWeight: 600 }}>Deep Harvest Fragments</p>
+            <InlineTone label={`${filteredFragmentSamples.length} of ${fragmentSamples.length}`} tone="#f59e0b" />
+          </div>
+          <div style={{ display: 'grid', gap: '10px', maxHeight: expanded ? 'unset' : '560px', overflowY: 'auto' }}>
+            {filteredFragmentSamples.length === 0 && <p style={{ color: '#64748b', fontSize: '13px' }}>No harvested fragments match the current filters.</p>}
+            {filteredFragmentSamples.slice(0, expanded ? 18 : 8).map((fragment, index) => (
+              <div key={`fragment:${fragment.asset_title}:${index}:${fragment.text}`} style={{ borderRadius: '10px', border: '1px solid #1f2937', padding: '12px', backgroundColor: '#0b1120' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                  <p style={{ color: 'white', fontSize: '13px', fontWeight: 600 }}>{fragment.asset_title}</p>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <InlineTone label={humanizeKey(fragment.primary_type)} tone="#f59e0b" />
+                    <InlineTone label={humanizeKey(fragment.likely_handoff_lane)} tone="#22c55e" />
+                  </div>
+                </div>
+                <p style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: '8px' }}>{fragment.text}</p>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                  {fragment.asset_source_channel && <InlineTone label={humanizeKey(fragment.asset_source_channel)} tone="#64748b" />}
+                  {fragment.source_section && <InlineTone label={humanizeKey(fragment.source_section)} tone="#334155" />}
+                  <InlineTone label={`Score ${fragment.score}`} tone="#a78bfa" />
+                  <InlineTone label={`${fragment.word_count} words`} tone="#475569" />
+                  {fragment.labels.filter((label) => label !== fragment.primary_type).slice(0, 4).map((label) => (
+                    <InlineTone key={`${fragment.asset_title}:${fragment.text}:${label}`} label={humanizeKey(label)} tone="#14b8a6" />
+                  ))}
+                </div>
+                {fragment.asset_source_path && <p style={{ color: '#64748b', fontSize: '11px' }}>{fragment.asset_source_path}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
             <p style={{ color: 'white', fontWeight: 600 }}>Filtered Candidate Slices</p>
@@ -1182,6 +1308,10 @@ function LiveSourceAuditSection({
                   {typeof asset.word_count === 'number' && <InlineTone label={`Raw ${asset.word_count}w`} tone="#334155" />}
                   {typeof asset.clean_word_count === 'number' && <InlineTone label={`Clean ${asset.clean_word_count}w`} tone="#475569" />}
                   {typeof asset.sentence_count === 'number' && <InlineTone label={`Sentences ${asset.sentence_count}`} tone="#475569" />}
+                  {typeof asset.deep_harvest_counts?.total === 'number' && <InlineTone label={`Harvest ${asset.deep_harvest_counts.total}`} tone="#14b8a6" />}
+                  {typeof asset.deep_harvest_counts?.canon_candidate_count === 'number' && asset.deep_harvest_counts.canon_candidate_count > 0 && (
+                    <InlineTone label={`Canon ${asset.deep_harvest_counts.canon_candidate_count}`} tone="#a78bfa" />
+                  )}
                 </div>
                 {(asset.lessons_learned?.length || asset.key_anecdotes?.length || asset.reusable_quotes?.length) ? (
                   <div style={{ display: 'grid', gap: '6px' }}>
@@ -1200,6 +1330,20 @@ function LiveSourceAuditSection({
                   </div>
                 ) : (
                   <p style={{ color: '#64748b', fontSize: '12px' }}>No structured lessons, anecdotes, or quotes extracted yet.</p>
+                )}
+                {asset.top_fragments && asset.top_fragments.length > 0 && (
+                  <div style={{ display: 'grid', gap: '6px', marginTop: '8px' }}>
+                    {asset.top_fragments.slice(0, 3).map((fragment, index) => (
+                      <div key={`${asset.title}:top-fragment:${index}:${fragment.text}`} style={{ borderRadius: '8px', border: '1px solid #1e293b', padding: '8px', backgroundColor: '#0f172a' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                          {fragment.primary_type && <InlineTone label={humanizeKey(fragment.primary_type)} tone="#f59e0b" />}
+                          {fragment.likely_handoff_lane && <InlineTone label={humanizeKey(fragment.likely_handoff_lane)} tone="#22c55e" />}
+                          {typeof fragment.score === 'number' && <InlineTone label={`Score ${fragment.score}`} tone="#475569" />}
+                        </div>
+                        {fragment.text && <p style={{ color: '#cbd5e1', fontSize: '12px' }}>{fragment.text}</p>}
+                      </div>
+                    ))}
+                  </div>
                 )}
                 {asset.source_path && <p style={{ color: '#64748b', fontSize: '11px', marginTop: '6px' }}>{asset.source_path}</p>}
               </div>
