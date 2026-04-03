@@ -22,6 +22,7 @@ from app.services.content_generation_context_service import (
     ContentGenerationContext,
     build_content_generation_context,
 )
+from app.services.generated_fragment_promotion_service import promote_generated_fragment
 from app.services.persona_bundle_context_service import retrieve_bundle_persona_chunks
 from app.services.retrieval import retrieve_similar, retrieve_weighted
 
@@ -300,6 +301,46 @@ class ContentGenerationResponse(BaseModel):
     persona_context: Optional[str] = None
     examples_used: List[str] = []
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ContentReservoirSupportItem(BaseModel):
+    source_id: str | None = None
+    asset_id: str | None = None
+    reservoir_lane: str | None = None
+    primary_type: str | None = None
+    score: int | None = None
+    title: str | None = None
+    text: str | None = None
+    source_path: str | None = None
+    source_url: str | None = None
+
+
+class GeneratedFragmentPromotionRequest(BaseModel):
+    user_id: str = Field(..., description="User ID for attribution")
+    fragment_text: str = Field(..., description="Selected generated fragment")
+    option_text: str = Field(..., description="Full generated option text")
+    option_index: int | None = Field(default=None, description="0-based option index")
+    topic: str = Field(..., description="Generation topic")
+    audience: str = Field(..., description="Generation audience")
+    category: str = Field(..., description="Generation category")
+    content_type: str = Field("linkedin_post", description="Generation content type")
+    source_mode: str = Field("persona_only", description="Generation source mode")
+    support_items: list[ContentReservoirSupportItem] = Field(default_factory=list)
+    option_brief: Dict[str, Any] | None = Field(default=None, description="Optional framing brief for the chosen option")
+    published: bool = Field(default=False, description="Whether the fragment came from a published post")
+
+
+class GeneratedFragmentPromotionResponse(BaseModel):
+    success: bool
+    duplicate: bool = False
+    delta_id: str
+    route_key: str
+    route_reason: str
+    target_file: str
+    target_label: str
+    written_files: list[str] = Field(default_factory=list)
+    delta: Dict[str, Any] = Field(default_factory=dict)
+    message: str
 
 
 @dataclass
@@ -4248,6 +4289,20 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
                 for item in (content_context.content_reservoir_chunks or [])[:6]
             ],
             "content_reservoir_count": len(content_context.content_reservoir_chunks or []),
+            "content_reservoir_support": [
+                {
+                    "source_id": str(item.get("source_id") or ""),
+                    "asset_id": str(item.get("source_file_id") or ""),
+                    "reservoir_lane": str((item.get("metadata") or {}).get("content_reservoir_lane") or ""),
+                    "primary_type": str((item.get("metadata") or {}).get("claim_type") or ""),
+                    "score": int((item.get("weighted_score") or item.get("similarity_score") or 0)),
+                    "title": str((item.get("metadata") or {}).get("file_name") or ""),
+                    "text": str(item.get("chunk") or "")[:400],
+                    "source_path": str((item.get("metadata") or {}).get("source_path") or ""),
+                    "source_url": str((item.get("metadata") or {}).get("source_url") or ""),
+                }
+                for item in (content_context.content_reservoir_chunks or [])[:8]
+            ],
             "fallback_trace": fallback_trace,
             "provider_fallback_used": _provider_trace_indicates_fallback(provider_trace),
             "llm_request_count": len(provider_trace),
@@ -4294,6 +4349,32 @@ async def generate_content(req: ContentGenerationRequest):
     except Exception as e:
         print(f"Content generation error: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Content generation failed: {str(e)}")
+
+
+@router.post("/promote-fragment", response_model=GeneratedFragmentPromotionResponse)
+async def promote_content_fragment(req: GeneratedFragmentPromotionRequest):
+    try:
+        return GeneratedFragmentPromotionResponse(
+            **promote_generated_fragment(
+                user_id=req.user_id,
+                fragment_text=req.fragment_text,
+                option_text=req.option_text,
+                option_index=req.option_index,
+                topic=req.topic,
+                audience=req.audience,
+                category=req.category,
+                content_type=req.content_type,
+                source_mode=req.source_mode,
+                support_items=[item.model_dump(exclude_none=True) for item in req.support_items],
+                option_brief=req.option_brief,
+                published=req.published,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"Content fragment promotion error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Content fragment promotion failed: {str(exc)}") from exc
 
 
 @router.post("/quick-generate")

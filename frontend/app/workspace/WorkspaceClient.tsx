@@ -5,6 +5,14 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { apiFetch, apiGet, apiPost } from '@/lib/api-client';
+import {
+  ContentReservoirSupportItem,
+  GeneratedContentResponse,
+  GeneratedFragmentPromotionResponse,
+  GeneratedOptionBrief,
+  humanizeBrainTargetLabel,
+  splitPromotableFragments,
+} from '@/app/workspace/generatedFragmentUtils';
 
 type FeedLensId =
   | 'admissions'
@@ -140,14 +148,6 @@ type FeedRefreshStatus = {
   last_run?: string | null;
   started_at?: string | null;
   error?: string | null;
-};
-
-type GeneratedContentResponse = {
-  success?: boolean;
-  options?: string[];
-  diagnostics?: {
-    llm_provider_trace?: { provider?: string; actual_model?: string; status?: string }[];
-  };
 };
 
 type ContentItem = {
@@ -480,8 +480,12 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const [sourceMode, setSourceMode] = useState<ContentSourceMode>('persona_only');
   const [generating, setGenerating] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<string[]>([]);
+  const [generatedOptionBriefs, setGeneratedOptionBriefs] = useState<GeneratedOptionBrief[]>([]);
+  const [generatedSupportItems, setGeneratedSupportItems] = useState<ContentReservoirSupportItem[]>([]);
   const [generatorError, setGeneratorError] = useState<string | null>(null);
   const [providerTrace, setProviderTrace] = useState<string | null>(null);
+  const [brainPromotionStatus, setBrainPromotionStatus] = useState<string | null>(null);
+  const [promotingFragmentKey, setPromotingFragmentKey] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   const feedItems = useMemo(() => [...manualFeedItems, ...(snapshot?.social_feed?.items ?? [])], [manualFeedItems, snapshot?.social_feed?.items]);
@@ -593,8 +597,12 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
       setAudience(mapAudienceFromLane(nextLens));
       setShowGenerator(true);
       setGeneratedContent([]);
+      setGeneratedOptionBriefs([]);
+      setGeneratedSupportItems([]);
       setGeneratorError(null);
       setProviderTrace(null);
+      setBrainPromotionStatus(null);
+      setPromotingFragmentKey(null);
       setCopyStatus(null);
     },
     [resolveFeedLens],
@@ -681,6 +689,8 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const generateContent = useCallback(async () => {
     setGenerating(true);
     setGeneratorError(null);
+    setGeneratedOptionBriefs([]);
+    setGeneratedSupportItems([]);
     try {
       const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
       const topicToSend = sourceAttached
@@ -702,10 +712,13 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
       });
       const options = Array.isArray(response.options) ? response.options.filter((option) => typeof option === 'string' && option.trim()) : [];
       setGeneratedContent(options);
+      setGeneratedOptionBriefs(Array.isArray(response.diagnostics?.planned_option_briefs) ? response.diagnostics.planned_option_briefs : []);
+      setGeneratedSupportItems(Array.isArray(response.diagnostics?.content_reservoir_support) ? response.diagnostics.content_reservoir_support : []);
       const trace = (response.diagnostics?.llm_provider_trace ?? [])
         .map((item) => [item.provider, item.actual_model, item.status].filter(Boolean).join(' · '))
         .join(' → ');
       setProviderTrace(trace || null);
+      setBrainPromotionStatus(null);
       if (options.length === 0) {
         setGeneratorError('No options were returned.');
       }
@@ -715,6 +728,37 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
       setGenerating(false);
     }
   }, [activeCategory, audience, context, generatorType, querySeed.hook, querySeed.routeReason, querySeed.summary, resolveFeedLens, selectedSignal, sourceMode, topic]);
+
+  const promoteGeneratedFragment = useCallback(
+    async (fragmentText: string, optionText: string, optionIndex: number) => {
+      const fragmentKey = `${optionIndex}:${fragmentText}`;
+      setPromotingFragmentKey(fragmentKey);
+      setBrainPromotionStatus(`Saving "${fragmentText.slice(0, 48)}..." to Brain...`);
+      try {
+        const response = await apiPost<GeneratedFragmentPromotionResponse>('/api/content-generation/promote-fragment', {
+          user_id: 'johnnie_fields',
+          fragment_text: fragmentText,
+          option_text: optionText,
+          option_index: optionIndex,
+          topic: topic || selectedSignal?.title || 'operator insight',
+          audience,
+          category: activeCategory,
+          content_type: generatorType,
+          source_mode: sourceMode,
+          support_items: generatedSupportItems,
+          option_brief: generatedOptionBriefs[optionIndex] ?? null,
+        });
+        setBrainPromotionStatus(
+          response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
+        );
+      } catch (error) {
+        setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+      } finally {
+        setPromotingFragmentKey(null);
+      }
+    },
+    [activeCategory, audience, generatedOptionBriefs, generatedSupportItems, generatorType, selectedSignal?.title, sourceMode, topic],
+  );
 
   const saveGeneratedContent = useCallback(
     (content: string, index: number) => {
@@ -1005,6 +1049,11 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
               </button>
               {providerTrace && <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '12px' }}>Model trace: {providerTrace}</p>}
               {generatorError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{generatorError}</p>}
+              {brainPromotionStatus && (
+                <p style={{ color: brainPromotionLooksErrored(brainPromotionStatus) ? '#f87171' : '#34d399', fontSize: '12px', marginTop: '12px' }}>
+                  {brainPromotionStatus}
+                </p>
+              )}
 
               {generatedContent.length > 0 && (
                 <div style={{ marginTop: '24px' }}>
@@ -1013,6 +1062,25 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                     {generatedContent.map((content, index) => (
                       <div key={`generated-${index}`} style={generatedOptionStyle}>
                         <pre style={generatedOptionTextStyle}>{content}</pre>
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                          <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Click any strong sentence to teach Brain immediately.</p>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {splitPromotableFragments(content).map((fragment) => {
+                              const fragmentKey = `${index}:${fragment}`;
+                              const isSaving = promotingFragmentKey === fragmentKey;
+                              return (
+                                <button
+                                  key={fragmentKey}
+                                  onClick={() => void promoteGeneratedFragment(fragment, content, index)}
+                                  disabled={isSaving}
+                                  style={generatedFragmentActionStyle(isSaving)}
+                                >
+                                  {isSaving ? 'Saving…' : `Add to Brain: ${truncateGeneratedFragment(fragment)}`}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button onClick={() => saveGeneratedContent(content, index)} style={primaryActionStyle('#22c55e')}>
                             Save to Pipeline
@@ -1645,6 +1713,31 @@ const generatedOptionTextStyle = {
   maxHeight: '220px',
   overflow: 'auto',
 } as const;
+
+function generatedFragmentActionStyle(disabled: boolean) {
+  return {
+    borderRadius: '999px',
+    border: '1px solid #334155',
+    backgroundColor: disabled ? '#111827' : '#0b1220',
+    color: disabled ? '#64748b' : '#cbd5f5',
+    padding: '7px 10px',
+    fontSize: '11px',
+    fontWeight: 700,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    textAlign: 'left' as const,
+  };
+}
+
+function truncateGeneratedFragment(value: string) {
+  const normalized = value.trim();
+  if (normalized.length <= 70) return normalized;
+  return `${normalized.slice(0, 67)}...`;
+}
+
+function brainPromotionLooksErrored(value: string) {
+  const normalized = value.toLowerCase();
+  return normalized.includes('unable') || normalized.includes('failed') || normalized.includes('error');
+}
 
 const pipelineListStyle = {
   backgroundColor: '#1e293b',

@@ -5,18 +5,18 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { apiPost } from '@/lib/api-client';
+import {
+  ContentReservoirSupportItem,
+  GeneratedContentResponse,
+  GeneratedFragmentPromotionResponse,
+  GeneratedOptionBrief,
+  humanizeBrainTargetLabel,
+  splitPromotableFragments,
+} from '@/app/workspace/generatedFragmentUtils';
 
 type PostingMode = 'post' | 'comment';
 type ContentCategory = 'value' | 'sales' | 'personal';
 type ContentSourceMode = 'persona_only' | 'selected_source' | 'recent_signals';
-
-type GeneratedContentResponse = {
-  success?: boolean;
-  options?: string[];
-  diagnostics?: {
-    llm_provider_trace?: { provider?: string; actual_model?: string; status?: string }[];
-  };
-};
 
 type PreviewVariant = {
   comment?: string;
@@ -142,11 +142,15 @@ function PostingWorkspaceClient() {
   const [postLoading, setPostLoading] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [postOptions, setPostOptions] = useState<string[]>([]);
+  const [postOptionBriefs, setPostOptionBriefs] = useState<GeneratedOptionBrief[]>([]);
+  const [postSupportItems, setPostSupportItems] = useState<ContentReservoirSupportItem[]>([]);
   const [providerTrace, setProviderTrace] = useState<string | null>(null);
   const [commentLoading, setCommentLoading] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
   const [commentPreview, setCommentPreview] = useState<PreviewItem | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [brainPromotionStatus, setBrainPromotionStatus] = useState<string | null>(null);
+  const [promotingFragmentKey, setPromotingFragmentKey] = useState<string | null>(null);
   const [autoRunKey, setAutoRunKey] = useState<string | null>(null);
 
   const tabs = useMemo(() => postingWorkspaceTabs(), []);
@@ -163,12 +167,18 @@ function PostingWorkspaceClient() {
     setPostError(null);
     setCommentError(null);
     setProviderTrace(null);
+    setPostOptionBriefs([]);
+    setPostSupportItems([]);
     setCopyStatus(null);
+    setBrainPromotionStatus(null);
+    setPromotingFragmentKey(null);
   }, [initialQuery]);
 
   const handleGeneratePost = useCallback(async () => {
     setPostLoading(true);
     setPostError(null);
+    setPostOptionBriefs([]);
+    setPostSupportItems([]);
     try {
       const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
       const topicToSend = sourceAttached ? topic || initialQuery.title || 'operator insight' : topic || 'operator insight';
@@ -187,10 +197,13 @@ function PostingWorkspaceClient() {
       });
       const options = Array.isArray(response?.options) ? response.options.filter((option) => typeof option === 'string' && option.trim().length > 0) : [];
       setPostOptions(options);
+      setPostOptionBriefs(Array.isArray(response?.diagnostics?.planned_option_briefs) ? response.diagnostics.planned_option_briefs : []);
+      setPostSupportItems(Array.isArray(response?.diagnostics?.content_reservoir_support) ? response.diagnostics.content_reservoir_support : []);
       const trace = (response?.diagnostics?.llm_provider_trace ?? [])
         .map((item) => [item.provider, item.actual_model, item.status].filter(Boolean).join(' · '))
         .join(' → ');
       setProviderTrace(trace || null);
+      setBrainPromotionStatus(null);
       if (options.length === 0) {
         setPostError('No post options were returned.');
       }
@@ -200,6 +213,37 @@ function PostingWorkspaceClient() {
       setPostLoading(false);
     }
   }, [audience, category, context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, sourceMode, topic]);
+
+  const handlePromoteFragment = useCallback(
+    async (fragmentText: string, optionText: string, optionIndex: number) => {
+      const fragmentKey = `${optionIndex}:${fragmentText}`;
+      setPromotingFragmentKey(fragmentKey);
+      setBrainPromotionStatus(`Saving "${fragmentText.slice(0, 48)}..." to Brain...`);
+      try {
+        const response = await apiPost<GeneratedFragmentPromotionResponse>('/api/content-generation/promote-fragment', {
+          user_id: 'johnnie_fields',
+          fragment_text: fragmentText,
+          option_text: optionText,
+          option_index: optionIndex,
+          topic: topic || initialQuery.title || 'operator insight',
+          audience,
+          category,
+          content_type: 'linkedin_post',
+          source_mode: sourceMode,
+          support_items: postSupportItems,
+          option_brief: postOptionBriefs[optionIndex] ?? null,
+        });
+        setBrainPromotionStatus(
+          response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
+        );
+      } catch (error) {
+        setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+      } finally {
+        setPromotingFragmentKey(null);
+      }
+    },
+    [audience, category, initialQuery.title, postOptionBriefs, postSupportItems, sourceMode, topic],
+  );
 
   const handleGenerateComment = useCallback(async () => {
     setCommentLoading(true);
@@ -438,6 +482,11 @@ function PostingWorkspaceClient() {
               {providerTrace && <span style={{ color: '#94a3b8', fontSize: '12px' }}>Model trace: {providerTrace}</span>}
               {postError && <span style={{ color: '#f87171', fontSize: '12px' }}>{postError}</span>}
             </div>
+            {brainPromotionStatus && (
+              <p style={{ color: brainPromotionLooksErrored(brainPromotionStatus) ? '#f87171' : '#34d399', fontSize: '12px', margin: 0 }}>
+                {brainPromotionStatus}
+              </p>
+            )}
             <div style={{ display: 'grid', gap: '12px' }}>
               {postOptions.map((option, index) => (
                 <article key={`post-option-${index}`} style={resultCardStyle}>
@@ -448,6 +497,25 @@ function PostingWorkspaceClient() {
                     </button>
                   </div>
                   <p style={resultTextStyle}>{option}</p>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Click any strong sentence to teach Brain immediately.</p>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {splitPromotableFragments(option).map((fragment) => {
+                        const fragmentKey = `${index}:${fragment}`;
+                        const isSaving = promotingFragmentKey === fragmentKey;
+                        return (
+                          <button
+                            key={fragmentKey}
+                            onClick={() => void handlePromoteFragment(fragment, option, index)}
+                            disabled={isSaving}
+                            style={fragmentActionStyle(isSaving)}
+                          >
+                            {isSaving ? 'Saving…' : `Add to Brain: ${truncateFragment(fragment)}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </article>
               ))}
               {postOptions.length === 0 && <EmptyMessage message="No post options yet. Generate from this source card when you are ready." />}
@@ -555,11 +623,7 @@ function humanizeSnakeCase(value: string) {
 }
 
 function humanizeTargetFileLabel(targetFile: string) {
-  if (targetFile.includes('identity/claims')) return 'Claims';
-  if (targetFile.includes('history/story_bank')) return 'Story Bank';
-  if (targetFile.includes('identity/VOICE_PATTERNS')) return 'Voice Patterns';
-  if (targetFile.includes('history/initiatives')) return 'Initiatives';
-  return targetFile;
+  return humanizeBrainTargetLabel(targetFile);
 }
 
 function InlinePill({ label, tone }: { label: string; tone: string }) {
@@ -682,3 +746,28 @@ const resultTextStyle = {
   whiteSpace: 'pre-wrap' as const,
   margin: 0,
 };
+
+function fragmentActionStyle(disabled: boolean) {
+  return {
+    borderRadius: '999px',
+    border: '1px solid #334155',
+    backgroundColor: disabled ? '#111827' : '#0f172a',
+    color: disabled ? '#64748b' : '#cbd5f5',
+    padding: '7px 10px',
+    fontSize: '11px',
+    fontWeight: 700,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    textAlign: 'left' as const,
+  };
+}
+
+function truncateFragment(value: string) {
+  const normalized = value.trim();
+  if (normalized.length <= 70) return normalized;
+  return `${normalized.slice(0, 67)}...`;
+}
+
+function brainPromotionLooksErrored(value: string) {
+  const normalized = value.toLowerCase();
+  return normalized.includes('unable') || normalized.includes('failed') || normalized.includes('error');
+}
