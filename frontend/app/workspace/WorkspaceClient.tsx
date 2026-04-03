@@ -1280,30 +1280,6 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
             })}
           </div>
 
-          <div style={{ borderRadius: '14px', border: '1px solid #334155', backgroundColor: '#020617', padding: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <div>
-                <p style={{ color: '#64748b', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 6px' }}>{activeSourceLabel}</p>
-                <h3 style={{ color: 'white', fontSize: '18px', margin: '0 0 6px' }}>{activeSourceTitle}</h3>
-                {activeSourceSummary && (
-                  <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-                    {activeSourceSummary}
-                  </p>
-                )}
-              </div>
-              {activeSourceLink && (
-                <a href={activeSourceLink} target="_blank" rel="noreferrer" style={headerLinkStyle('#38bdf8')}>
-                  Open original post
-                </a>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-              <InlinePill label={`${stats.total} saved drafts`} tone="#38bdf8" />
-              <InlinePill label={`${snapshot?.weekly_plan?.recommendations?.length ?? 0} live recommendations`} tone="#fbbf24" />
-              <InlinePill label={`${snapshot?.reaction_queue?.counts?.comment_opportunities ?? 0} comment opportunities`} tone="#22c55e" />
-            </div>
-          </div>
-
           <button onClick={() => setShowGenerator((current) => !current)} style={generatorToggleStyle}>
             {showGenerator ? 'Hide Generator' : `+ Generate ${activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content`}
           </button>
@@ -1387,6 +1363,32 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                   {GROUNDING_MODE_OPTIONS.find((option) => option.value === groundingMode)?.hint}
                 </p>
               </div>
+              {topicSourceMode !== 'manual' && (
+                <div
+                  style={{
+                    marginBottom: '16px',
+                    borderRadius: '12px',
+                    border: '1px solid #334155',
+                    backgroundColor: '#020617',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div>
+                      <p style={{ color: '#64748b', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 6px' }}>{activeSourceLabel}</p>
+                      <h4 style={{ color: 'white', fontSize: '15px', margin: '0 0 4px' }}>{activeSourceTitle}</h4>
+                    </div>
+                    {activeSourceLink && (
+                      <a href={activeSourceLink} target="_blank" rel="noreferrer" style={headerLinkStyle('#38bdf8')}>
+                        Open source
+                      </a>
+                    )}
+                  </div>
+                  {activeSourceSummary && <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{activeSourceSummary}</p>}
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <button onClick={() => void generateContent()} disabled={generating || codexInFlight || codexActionLoading !== null} style={primaryActionStyle('#38bdf8')}>
@@ -1561,6 +1563,11 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
               <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '860px' }}>
                 This is the same shared feed going into Brain. Use it to react to Substack, YouTube, Reddit, RSS, and LinkedIn signals, then push the best ones into the pipeline.
               </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
+                <InlinePill label={`${stats.total} saved drafts`} tone="#38bdf8" />
+                <InlinePill label={`${snapshot?.weekly_plan?.recommendations?.length ?? 0} live recommendations`} tone="#fbbf24" />
+                <InlinePill label={`${snapshot?.reaction_queue?.counts?.comment_opportunities ?? 0} comment opportunities`} tone="#22c55e" />
+              </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
               <button onClick={() => void refreshSocialFeed()} disabled={refreshingFeed} style={primaryActionStyle('#22c55e')}>
