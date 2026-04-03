@@ -40,6 +40,15 @@ export type GeneratedFragmentPromotionResponse = {
   message?: string;
 };
 
+export type UndoGeneratedFragmentPromotionResponse = {
+  success?: boolean;
+  already_reverted?: boolean;
+  delta_id?: string;
+  removed_target_files?: string[];
+  preserved_target_files?: string[];
+  message?: string;
+};
+
 export function splitPromotableFragments(text: string): string[] {
   const normalized = text.replace(/\r\n/g, '\n').trim();
   if (!normalized) return [];

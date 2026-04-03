@@ -606,6 +606,151 @@ def _write_sectioned(path: Path, rel_path: str, items: list[dict[str, Any]]) -> 
     return added, len(items) - added
 
 
+def _story_bank_rows(path: Path) -> list[dict[str, str]]:
+    sections_text = _strip_frontmatter(path.read_text(encoding="utf-8")).splitlines()
+    existing: list[dict[str, str]] = []
+    title = ""
+    story_type = ""
+    use_when = ""
+    core_point = ""
+    for line in sections_text:
+        if line.startswith("## "):
+            if title:
+                existing.append({"title": title, "story_type": story_type, "use_when": use_when, "core_point": core_point})
+            title = line.replace("## ", "", 1).strip()
+            story_type = ""
+            use_when = ""
+            core_point = ""
+        elif line.startswith("- Story type:"):
+            story_type = line.replace("- Story type:", "", 1).strip()
+        elif line.startswith("- Use when:"):
+            use_when = line.replace("- Use when:", "", 1).strip()
+        elif line.startswith("- Core point:"):
+            core_point = line.replace("- Core point:", "", 1).strip()
+    if title:
+        existing.append({"title": title, "story_type": story_type, "use_when": use_when, "core_point": core_point})
+    return existing
+
+
+def _section_name_for_target(rel_path: str) -> str:
+    if rel_path == TARGET_VOICE:
+        return "Promoted Fragments"
+    if rel_path == TARGET_DECISION_PRINCIPLES:
+        return "Promoted Principles"
+    if rel_path == TARGET_CONTENT_PILLARS:
+        return "Promoted Pillars"
+    return "Promoted Notes"
+
+
+def _sectioned_note_for_item(item: dict[str, Any]) -> str:
+    content = _normalize_inline(str(item.get("content") or ""))
+    evidence = _normalize_inline(str(item.get("evidence") or ""))
+    if not content:
+        return ""
+    return content if not evidence else f"{content} (Evidence: {evidence})"
+
+
+def promotion_item_identity(item: dict[str, Any]) -> tuple[str, str]:
+    target_file = _normalize_inline(str(item.get("target_file") or item.get("targetFile") or ""))
+    if not target_file:
+        return "", ""
+    if target_file == TARGET_CLAIMS:
+        return target_file, _ensure_period(str(item.get("content") or "")).lower()
+    if target_file in {TARGET_STORIES, TARGET_INITIATIVES}:
+        return target_file, preferred_promotion_title(item).lower()
+    return target_file, _sectioned_note_for_item(item).lower()
+
+
+def _remove_claims(path: Path, items: list[dict[str, Any]]) -> tuple[int, int]:
+    rows = _read_existing_table_rows(path)
+    remove_keys = {
+        _ensure_period(str(item.get("content") or "")).lower()
+        for item in items
+        if _ensure_period(str(item.get("content") or ""))
+    }
+    kept = [row for row in rows if _normalize_inline(row["claim"]).lower() not in remove_keys]
+    removed = len(rows) - len(kept)
+    path.write_text(_frontmatter("Claims", TARGET_CLAIMS) + _render_claims(kept), encoding="utf-8")
+    return removed, len(items) - removed
+
+
+def _remove_story_bank(path: Path, items: list[dict[str, Any]]) -> tuple[int, int]:
+    existing = _story_bank_rows(path)
+    remove_titles = {
+        preferred_promotion_title(item).lower()
+        for item in items
+        if preferred_promotion_title(item)
+    }
+    kept = [entry for entry in existing if _normalize_inline(entry["title"]).lower() not in remove_titles]
+    removed = len(existing) - len(kept)
+    path.write_text(_frontmatter("Story Bank", TARGET_STORIES) + _render_story_bank(kept), encoding="utf-8")
+    return removed, len(items) - removed
+
+
+def _remove_initiatives(path: Path, items: list[dict[str, Any]]) -> tuple[int, int]:
+    lines = _strip_frontmatter(path.read_text(encoding="utf-8")).splitlines()
+    existing: list[dict[str, str]] = []
+    title = ""
+    status = ""
+    purpose = ""
+    value = ""
+    proof = ""
+    use_when = ""
+    for line in lines:
+        if line.startswith("## "):
+            if title:
+                existing.append({"title": title, "status": status, "purpose": purpose, "value": value, "proof": proof, "use_when": use_when})
+            title = line.replace("## ", "", 1).strip()
+            status = ""
+            purpose = ""
+            value = ""
+            proof = ""
+            use_when = ""
+        elif line.startswith("- Status:"):
+            status = line.replace("- Status:", "", 1).strip()
+        elif line.startswith("- Purpose:"):
+            purpose = line.replace("- Purpose:", "", 1).strip()
+        elif line.startswith("- Value to persona:"):
+            value = line.replace("- Value to persona:", "", 1).strip()
+        elif line.startswith("- Public-facing proof:"):
+            proof = line.replace("- Public-facing proof:", "", 1).strip()
+        elif line.startswith("- Use when:"):
+            use_when = line.replace("- Use when:", "", 1).strip()
+    if title:
+        existing.append({"title": title, "status": status, "purpose": purpose, "value": value, "proof": proof, "use_when": use_when})
+
+    remove_titles = {
+        preferred_promotion_title(item).lower()
+        for item in items
+        if preferred_promotion_title(item)
+    }
+    kept = [entry for entry in existing if _normalize_inline(entry["title"]).lower() not in remove_titles]
+    removed = len(existing) - len(kept)
+    path.write_text(_frontmatter("Initiatives", TARGET_INITIATIVES) + _render_initiatives(kept), encoding="utf-8")
+    return removed, len(items) - removed
+
+
+def _remove_sectioned(path: Path, rel_path: str, items: list[dict[str, Any]]) -> tuple[int, int]:
+    title, sections = _read_existing_sections(path)
+    section_name = _section_name_for_target(rel_path)
+    bucket = sections.setdefault(section_name, [])
+    remove_notes = {
+        _sectioned_note_for_item(item).lower()
+        for item in items
+        if _sectioned_note_for_item(item)
+    }
+    kept = [entry for entry in bucket if _normalize_inline(entry).lower() not in remove_notes]
+    removed = len(bucket) - len(kept)
+    sections[section_name] = kept
+    intro = {
+        TARGET_VOICE: "Reusable language patterns and stylistic constraints for public writing and responses.",
+        TARGET_DECISION_PRINCIPLES: "Operating principles that shape judgment, prioritization, and leadership decisions.",
+        TARGET_CONTENT_PILLARS: "Topics and recurring angles that should shape public-facing content.",
+    }.get(rel_path, "Canonical persona notes.")
+    path.write_text(_frontmatter(title, rel_path) + _render_sectioned_list(title, intro, sections), encoding="utf-8")
+    return removed, len(items) - removed
+
+
 def write_promotion_items_to_bundle(items: list[dict[str, Any]]) -> dict[str, Any]:
     ensure_persona_bundle_scaffold()
     bundle_root = resolve_persona_bundle_root()
@@ -636,6 +781,44 @@ def write_promotion_items_to_bundle(items: list[dict[str, Any]]) -> dict[str, An
         if added > 0:
             written_files.append(rel_path)
         file_results[rel_path] = {"added": added, "skipped": skipped}
+
+    return {
+        "bundle_root": str(bundle_root),
+        "written_files": written_files,
+        "file_results": file_results,
+    }
+
+
+def remove_promotion_items_from_bundle(items: list[dict[str, Any]]) -> dict[str, Any]:
+    ensure_persona_bundle_scaffold()
+    bundle_root = resolve_persona_bundle_root()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        target_file = _normalize_inline(str(item.get("target_file") or item.get("targetFile") or ""))
+        if not target_file:
+            continue
+        grouped.setdefault(target_file, []).append(item)
+
+    written_files: list[str] = []
+    file_results: dict[str, dict[str, int]] = {}
+    for rel_path, target_items in grouped.items():
+        full_path = bundle_root / rel_path
+        if not full_path.exists():
+            file_results[rel_path] = {"removed": 0, "skipped": len(target_items)}
+            continue
+
+        if rel_path == TARGET_CLAIMS:
+            removed, skipped = _remove_claims(full_path, target_items)
+        elif rel_path == TARGET_STORIES:
+            removed, skipped = _remove_story_bank(full_path, target_items)
+        elif rel_path == TARGET_INITIATIVES:
+            removed, skipped = _remove_initiatives(full_path, target_items)
+        else:
+            removed, skipped = _remove_sectioned(full_path, rel_path, target_items)
+
+        if removed > 0:
+            written_files.append(rel_path)
+        file_results[rel_path] = {"removed": removed, "skipped": skipped}
 
     return {
         "bundle_root": str(bundle_root),

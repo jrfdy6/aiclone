@@ -12,7 +12,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.models import PersonaDelta
-from app.services.generated_fragment_promotion_service import promote_generated_fragment
+from app.services.generated_fragment_promotion_service import promote_generated_fragment, undo_generated_fragment_promotion
 
 
 def _delta(*, status: str = "draft", metadata: dict | None = None, delta_id: str = "delta-1") -> PersonaDelta:
@@ -126,6 +126,53 @@ class GeneratedFragmentPromotionServiceTests(unittest.TestCase):
         self.assertEqual(result["delta_id"], "existing-delta")
         self.assertEqual(result["target_file"], "identity/VOICE_PATTERNS.md")
         create_delta_mock.assert_not_called()
+
+    def test_undo_generated_fragment_removes_canon_write(self) -> None:
+        committed = _delta(
+            status="committed",
+            metadata={
+                "review_source": "linkedin_workspace.generated_fragment",
+                "committed_promotion_items": [
+                    {
+                        "id": "delta-undo:item-1",
+                        "kind": "framework",
+                        "label": "Framework",
+                        "content": "Operator clarity beats dashboard sprawl.",
+                        "target_file": "identity/decision_principles.md",
+                    }
+                ],
+            },
+            delta_id="delta-undo",
+        )
+        reverted = _delta(
+            status="reverted",
+            metadata={
+                "review_source": "linkedin_workspace.generated_fragment",
+                "reverted_target_files": ["identity/decision_principles.md"],
+                "preserved_target_files": [],
+            },
+            delta_id="delta-undo",
+        )
+        with patch(
+            "app.services.generated_fragment_promotion_service.persona_delta_service.get_delta",
+            return_value=committed,
+        ), patch(
+            "app.services.generated_fragment_promotion_service.persona_delta_service.list_deltas",
+            return_value=[],
+        ), patch(
+            "app.services.generated_fragment_promotion_service.remove_promotion_items_from_bundle",
+            return_value={"written_files": ["identity/decision_principles.md"], "file_results": {}},
+        ) as remove_mock, patch(
+            "app.services.generated_fragment_promotion_service.persona_delta_service.update_delta",
+            return_value=reverted,
+        ):
+            result = undo_generated_fragment_promotion(delta_id="delta-undo")
+
+        self.assertTrue(result["success"])
+        self.assertFalse(result["already_reverted"])
+        self.assertEqual(result["delta_id"], "delta-undo")
+        self.assertEqual(result["removed_target_files"], ["identity/decision_principles.md"])
+        remove_mock.assert_called_once()
 
 
 if __name__ == "__main__":

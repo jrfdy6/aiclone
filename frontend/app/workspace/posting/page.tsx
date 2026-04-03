@@ -10,9 +10,10 @@ import {
   GeneratedContentResponse,
   GeneratedFragmentPromotionResponse,
   GeneratedOptionBrief,
+  UndoGeneratedFragmentPromotionResponse,
   humanizeBrainTargetLabel,
-  splitPromotableFragments,
 } from '@/app/workspace/generatedFragmentUtils';
+import PromotableInlineText from '@/app/workspace/PromotableInlineText';
 
 type PostingMode = 'post' | 'comment';
 type ContentCategory = 'value' | 'sales' | 'personal';
@@ -150,7 +151,7 @@ function PostingWorkspaceClient() {
   const [commentPreview, setCommentPreview] = useState<PreviewItem | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [brainPromotionStatus, setBrainPromotionStatus] = useState<string | null>(null);
-  const [promotingFragmentKey, setPromotingFragmentKey] = useState<string | null>(null);
+  const [, setPromotingFragmentKey] = useState<string | null>(null);
   const [autoRunKey, setAutoRunKey] = useState<string | null>(null);
 
   const tabs = useMemo(() => postingWorkspaceTabs(), []);
@@ -236,8 +237,10 @@ function PostingWorkspaceClient() {
         setBrainPromotionStatus(
           response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
         );
+        return { deltaId: response?.delta_id };
       } catch (error) {
         setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        throw error;
       } finally {
         setPromotingFragmentKey(null);
       }
@@ -278,14 +281,24 @@ function PostingWorkspaceClient() {
         setBrainPromotionStatus(
           response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
         );
+        return { deltaId: response?.delta_id };
       } catch (error) {
         setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        throw error;
       } finally {
         setPromotingFragmentKey(null);
       }
     },
     [audience, category, initialQuery.title, sourceMode, topic],
   );
+
+  const handleUndoPromotedFragment = useCallback(async (deltaId: string) => {
+    setBrainPromotionStatus('Removing from canon...');
+    const response = await apiPost<UndoGeneratedFragmentPromotionResponse>('/api/content-generation/undo-promoted-fragment', {
+      delta_id: deltaId,
+    });
+    setBrainPromotionStatus(response?.message || 'Removed from canon.');
+  }, []);
 
   const handleGenerateComment = useCallback(async () => {
     setCommentLoading(true);
@@ -538,26 +551,14 @@ function PostingWorkspaceClient() {
                       Copy
                     </button>
                   </div>
-                  <p style={resultTextStyle}>{option}</p>
-                  <div style={{ display: 'grid', gap: '8px' }}>
-                    <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Click any strong sentence to teach Brain immediately.</p>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                      {splitPromotableFragments(option).map((fragment) => {
-                        const fragmentKey = `${index}:${fragment}`;
-                        const isSaving = promotingFragmentKey === fragmentKey;
-                        return (
-                          <button
-                            key={fragmentKey}
-                            onClick={() => void handlePromoteFragment(fragment, option, index)}
-                            disabled={isSaving}
-                            style={fragmentActionStyle(isSaving)}
-                          >
-                            {isSaving ? 'Saving…' : `Add to Brain: ${truncateFragment(fragment)}`}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <PromotableInlineText
+                    text={option}
+                    textStyle={resultTextStyle}
+                    tone="#38bdf8"
+                    hoverHint="Canon"
+                    onCanon={(fragment) => handlePromoteFragment(fragment, option, index)}
+                    onUndo={handleUndoPromotedFragment}
+                  />
                 </article>
               ))}
               {postOptions.length === 0 && <EmptyMessage message="No post options yet. Generate from this source card when you are ready." />}
@@ -597,17 +598,17 @@ function PostingWorkspaceClient() {
                       Copy
                     </button>
                   </div>
-                  <p style={resultTextStyle}>{shortComment || commentDraft || 'No quick reply available.'}</p>
-                  <PromotableResultActions
-                    text={shortComment || commentDraft}
+                  <PromotableInlineText
+                    text={shortComment || commentDraft || 'No quick reply available.'}
+                    promotableText={shortComment || commentDraft}
+                    textStyle={resultTextStyle}
                     tone="#22c55e"
-                    promotingFragmentKey={promotingFragmentKey}
-                    promotionKeyPrefix="comment-preview:quick-reply"
-                    onPromote={(fragment, fullText, fragmentKey) =>
-                      void handlePromoteSurfaceFragment({
+                    hoverHint="Canon"
+                    onCanon={(fragment, fullText) =>
+                      handlePromoteSurfaceFragment({
                         fragmentText: fragment,
                         optionText: fullText,
-                        fragmentKey,
+                        fragmentKey: `comment-preview:quick-reply:${fragment}`,
                         topicValue: initialQuery.title || topic || 'operator insight',
                         supportItems: [
                           {
@@ -619,6 +620,7 @@ function PostingWorkspaceClient() {
                         ],
                       })
                     }
+                    onUndo={handleUndoPromotedFragment}
                   />
                 </article>
                 <article style={resultCardStyle}>
@@ -628,17 +630,17 @@ function PostingWorkspaceClient() {
                       Copy
                     </button>
                   </div>
-                  <p style={resultTextStyle}>{commentDraft || 'No suggested comment available.'}</p>
-                  <PromotableResultActions
-                    text={commentDraft}
+                  <PromotableInlineText
+                    text={commentDraft || 'No suggested comment available.'}
+                    promotableText={commentDraft}
+                    textStyle={resultTextStyle}
                     tone="#38bdf8"
-                    promotingFragmentKey={promotingFragmentKey}
-                    promotionKeyPrefix="comment-preview:suggested-comment"
-                    onPromote={(fragment, fullText, fragmentKey) =>
-                      void handlePromoteSurfaceFragment({
+                    hoverHint="Canon"
+                    onCanon={(fragment, fullText) =>
+                      handlePromoteSurfaceFragment({
                         fragmentText: fragment,
                         optionText: fullText,
-                        fragmentKey,
+                        fragmentKey: `comment-preview:suggested-comment:${fragment}`,
                         topicValue: initialQuery.title || topic || 'operator insight',
                         supportItems: [
                           {
@@ -650,6 +652,7 @@ function PostingWorkspaceClient() {
                         ],
                       })
                     }
+                    onUndo={handleUndoPromotedFragment}
                   />
                 </article>
                 <article style={resultCardStyle}>
@@ -659,17 +662,17 @@ function PostingWorkspaceClient() {
                       Copy
                     </button>
                   </div>
-                  <p style={resultTextStyle}>{repostDraft || 'No repost draft available.'}</p>
-                  <PromotableResultActions
-                    text={repostDraft}
+                  <PromotableInlineText
+                    text={repostDraft || 'No repost draft available.'}
+                    promotableText={repostDraft}
+                    textStyle={resultTextStyle}
                     tone="#f472b6"
-                    promotingFragmentKey={promotingFragmentKey}
-                    promotionKeyPrefix="comment-preview:suggested-repost"
-                    onPromote={(fragment, fullText, fragmentKey) =>
-                      void handlePromoteSurfaceFragment({
+                    hoverHint="Canon"
+                    onCanon={(fragment, fullText) =>
+                      handlePromoteSurfaceFragment({
                         fragmentText: fragment,
                         optionText: fullText,
-                        fragmentKey,
+                        fragmentKey: `comment-preview:suggested-repost:${fragment}`,
                         topicValue: initialQuery.title || topic || 'operator insight',
                         supportItems: [
                           {
@@ -681,6 +684,7 @@ function PostingWorkspaceClient() {
                         ],
                       })
                     }
+                    onUndo={handleUndoPromotedFragment}
                   />
                 </article>
               </div>
@@ -795,49 +799,6 @@ function EmptyMessage({ message }: { message: string }) {
   );
 }
 
-function PromotableResultActions({
-  text,
-  tone,
-  onPromote,
-  promotingFragmentKey,
-  promotionKeyPrefix,
-}: {
-  text: string;
-  tone: string;
-  onPromote: (fragment: string, fullText: string, fragmentKey: string) => void;
-  promotingFragmentKey?: string | null;
-  promotionKeyPrefix: string;
-}) {
-  const fragments = splitPromotableFragments(text);
-  if (fragments.length === 0) {
-    return null;
-  }
-  return (
-    <div style={{ display: 'grid', gap: '8px' }}>
-      <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Click any strong sentence to teach Brain immediately.</p>
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        {fragments.map((fragment) => {
-          const fragmentKey = `${promotionKeyPrefix}:${fragment}`;
-          const isSaving = promotingFragmentKey === fragmentKey;
-          return (
-            <button
-              key={fragmentKey}
-              onClick={() => onPromote(fragment, text, fragmentKey)}
-              disabled={isSaving}
-              style={{
-                ...fragmentActionStyle(isSaving),
-                border: `1px solid ${tone}55`,
-              }}
-            >
-              {isSaving ? 'Saving…' : `Add to Brain: ${truncateFragment(fragment)}`}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 const fieldStyle = {
   width: '100%',
   borderRadius: '10px',
@@ -897,26 +858,6 @@ const resultTextStyle = {
   whiteSpace: 'pre-wrap' as const,
   margin: 0,
 };
-
-function fragmentActionStyle(disabled: boolean) {
-  return {
-    borderRadius: '999px',
-    border: '1px solid #334155',
-    backgroundColor: disabled ? '#111827' : '#0f172a',
-    color: disabled ? '#64748b' : '#cbd5f5',
-    padding: '7px 10px',
-    fontSize: '11px',
-    fontWeight: 700,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    textAlign: 'left' as const,
-  };
-}
-
-function truncateFragment(value: string) {
-  const normalized = value.trim();
-  if (normalized.length <= 70) return normalized;
-  return `${normalized.slice(0, 67)}...`;
-}
 
 function brainPromotionLooksErrored(value: string) {
   const normalized = value.toLowerCase();

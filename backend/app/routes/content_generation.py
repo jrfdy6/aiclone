@@ -22,7 +22,7 @@ from app.services.content_generation_context_service import (
     ContentGenerationContext,
     build_content_generation_context,
 )
-from app.services.generated_fragment_promotion_service import promote_generated_fragment
+from app.services.generated_fragment_promotion_service import promote_generated_fragment, undo_generated_fragment_promotion
 from app.services.persona_bundle_context_service import retrieve_bundle_persona_chunks
 from app.services.retrieval import retrieve_similar, retrieve_weighted
 
@@ -340,6 +340,19 @@ class GeneratedFragmentPromotionResponse(BaseModel):
     target_label: str
     written_files: list[str] = Field(default_factory=list)
     delta: Dict[str, Any] = Field(default_factory=dict)
+    message: str
+
+
+class UndoGeneratedFragmentPromotionRequest(BaseModel):
+    delta_id: str = Field(..., description="Committed generated-fragment delta id")
+
+
+class UndoGeneratedFragmentPromotionResponse(BaseModel):
+    success: bool
+    already_reverted: bool = False
+    delta_id: str
+    removed_target_files: list[str] = Field(default_factory=list)
+    preserved_target_files: list[str] = Field(default_factory=list)
     message: str
 
 
@@ -4375,6 +4388,17 @@ async def promote_content_fragment(req: GeneratedFragmentPromotionRequest):
     except Exception as exc:
         print(f"Content fragment promotion error: {exc}", flush=True)
         raise HTTPException(status_code=500, detail=f"Content fragment promotion failed: {str(exc)}") from exc
+
+
+@router.post("/undo-promoted-fragment", response_model=UndoGeneratedFragmentPromotionResponse)
+async def undo_promoted_content_fragment(req: UndoGeneratedFragmentPromotionRequest):
+    try:
+        return UndoGeneratedFragmentPromotionResponse(**undo_generated_fragment_promotion(delta_id=req.delta_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"Content fragment undo error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Content fragment undo failed: {str(exc)}") from exc
 
 
 @router.post("/quick-generate")

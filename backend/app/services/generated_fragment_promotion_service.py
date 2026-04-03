@@ -14,8 +14,11 @@ from app.services.persona_bundle_writer import (
     TARGET_DECISION_PRINCIPLES,
     TARGET_STORIES,
     TARGET_VOICE,
+    promotion_item_identity,
+    remove_promotion_items_from_bundle,
 )
 from app.services.persona_promotion_service import promote_delta_to_canon
+from app.services.persona_promotion_utils import normalize_selected_promotion_items
 from app.services.persona_review_queue_service import annotate_for_brain_queue
 
 TARGET_WINS = "history/wins.md"
@@ -239,6 +242,29 @@ def _delta_trait(fragment_text: str, route: GeneratedFragmentRoute) -> str:
     return f"{prefix}: {fragment_text[:120]}"
 
 
+def _committed_items_for_delta(delta_id: str) -> list[dict[str, Any]]:
+    delta = persona_delta_service.get_delta(delta_id)
+    if delta is None:
+        return []
+    return [item for item in normalize_selected_promotion_items(delta) if isinstance(item, dict)]
+
+
+def _active_committed_identities(excluding_delta_id: str) -> set[tuple[str, str]]:
+    identities: set[tuple[str, str]] = set()
+    try:
+        committed_deltas = persona_delta_service.list_deltas(limit=1000, status="committed")
+    except Exception:
+        committed_deltas = []
+    for delta in committed_deltas:
+        if delta.id == excluding_delta_id:
+            continue
+        for item in normalize_selected_promotion_items(delta):
+            identity = promotion_item_identity(item)
+            if identity[0] and identity[1]:
+                identities.add(identity)
+    return identities
+
+
 def promote_generated_fragment(
     *,
     user_id: str,
@@ -365,4 +391,81 @@ def promote_generated_fragment(
         "delta": annotate_for_brain_queue(committed).model_dump(mode="json"),
         "written_files": (committed.metadata or {}).get("bundle_written_files") or [],
         "message": f'Saved to {route.target_label}.',
+    }
+
+
+def undo_generated_fragment_promotion(*, delta_id: str) -> dict[str, Any]:
+    delta = persona_delta_service.get_delta(delta_id)
+    if delta is None:
+        raise ValueError("Generated fragment promotion not found.")
+
+    metadata = delta.metadata if isinstance(delta.metadata, dict) else {}
+    if _clean_text(metadata.get("review_source")) != "linkedin_workspace.generated_fragment":
+        raise ValueError("Only generated-fragment canon writes can be undone here.")
+
+    if delta.status == "reverted" or _clean_text(metadata.get("promotion_state")) == "reverted":
+        return {
+            "success": True,
+            "already_reverted": True,
+            "delta_id": delta.id,
+            "removed_target_files": metadata.get("reverted_target_files") or [],
+            "preserved_target_files": metadata.get("preserved_target_files") or [],
+            "message": "This fragment was already removed from canon.",
+        }
+
+    committed_items = _committed_items_for_delta(delta.id)
+    if not committed_items:
+        raise ValueError("This generated fragment has no committed canon items to undo.")
+
+    active_identities = _active_committed_identities(delta.id)
+    removable_items: list[dict[str, Any]] = []
+    preserved_items: list[dict[str, Any]] = []
+    for item in committed_items:
+        identity = promotion_item_identity(item)
+        if not identity[0] or not identity[1]:
+            preserved_items.append(item)
+            continue
+        if identity in active_identities:
+            preserved_items.append(item)
+            continue
+        removable_items.append(item)
+
+    removal_result = remove_promotion_items_from_bundle(removable_items) if removable_items else {
+        "bundle_root": metadata.get("bundle_root"),
+        "written_files": [],
+        "file_results": {},
+    }
+    reverted_at = datetime.now(timezone.utc).isoformat()
+    updated = persona_delta_service.update_delta(
+        delta.id,
+        PersonaDeltaUpdate(
+            status="reverted",
+            metadata={
+                "promotion_state": "reverted",
+                "pending_promotion": False,
+                "reverted_at": reverted_at,
+                "reverted_item_count": len(removable_items),
+                "preserved_item_count": len(preserved_items),
+                "reverted_target_files": sorted({str(item.get("target_file") or item.get("targetFile") or "").strip() for item in removable_items if str(item.get("target_file") or item.get("targetFile") or "").strip()}),
+                "preserved_target_files": sorted({str(item.get("target_file") or item.get("targetFile") or "").strip() for item in preserved_items if str(item.get("target_file") or item.get("targetFile") or "").strip()}),
+                "reverted_promotion_items": removable_items,
+                "preserved_promotion_items": preserved_items,
+                "undo_bundle_written_files": removal_result.get("written_files") or [],
+                "undo_bundle_file_results": removal_result.get("file_results") or {},
+            },
+        ),
+    ) or delta
+
+    removed_target_files = (updated.metadata or {}).get("reverted_target_files") or []
+    preserved_target_files = (updated.metadata or {}).get("preserved_target_files") or []
+    message = "Removed from canon."
+    if preserved_items:
+        message = "Removed from canon where safe. Some duplicate-backed entries were preserved."
+    return {
+        "success": True,
+        "already_reverted": False,
+        "delta_id": updated.id,
+        "removed_target_files": removed_target_files,
+        "preserved_target_files": preserved_target_files,
+        "message": message,
     }

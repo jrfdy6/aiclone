@@ -10,9 +10,10 @@ import {
   GeneratedContentResponse,
   GeneratedFragmentPromotionResponse,
   GeneratedOptionBrief,
+  UndoGeneratedFragmentPromotionResponse,
   humanizeBrainTargetLabel,
-  splitPromotableFragments,
 } from '@/app/workspace/generatedFragmentUtils';
+import PromotableInlineText from '@/app/workspace/PromotableInlineText';
 
 type FeedLensId =
   | 'admissions'
@@ -485,7 +486,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const [generatorError, setGeneratorError] = useState<string | null>(null);
   const [providerTrace, setProviderTrace] = useState<string | null>(null);
   const [brainPromotionStatus, setBrainPromotionStatus] = useState<string | null>(null);
-  const [promotingFragmentKey, setPromotingFragmentKey] = useState<string | null>(null);
+  const [, setPromotingFragmentKey] = useState<string | null>(null);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   const feedItems = useMemo(() => [...manualFeedItems, ...(snapshot?.social_feed?.items ?? [])], [manualFeedItems, snapshot?.social_feed?.items]);
@@ -751,8 +752,10 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         setBrainPromotionStatus(
           response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
         );
+        return { deltaId: response?.delta_id };
       } catch (error) {
         setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        throw error;
       } finally {
         setPromotingFragmentKey(null);
       }
@@ -805,14 +808,24 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         setBrainPromotionStatus(
           response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
         );
+        return { deltaId: response?.delta_id };
       } catch (error) {
         setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        throw error;
       } finally {
         setPromotingFragmentKey(null);
       }
     },
     [],
   );
+
+  const undoWorkspaceFragment = useCallback(async (deltaId: string) => {
+    setBrainPromotionStatus('Removing from canon...');
+    const response = await apiPost<UndoGeneratedFragmentPromotionResponse>('/api/content-generation/undo-promoted-fragment', {
+      delta_id: deltaId,
+    });
+    setBrainPromotionStatus(response?.message || 'Removed from canon.');
+  }, []);
 
   const saveGeneratedContent = useCallback(
     (content: string, index: number) => {
@@ -1115,26 +1128,14 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                   <div style={{ display: 'grid', gap: '16px' }}>
                     {generatedContent.map((content, index) => (
                       <div key={`generated-${index}`} style={generatedOptionStyle}>
-                        <pre style={generatedOptionTextStyle}>{content}</pre>
-                        <div style={{ display: 'grid', gap: '8px' }}>
-                          <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Click any strong sentence to teach Brain immediately.</p>
-                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            {splitPromotableFragments(content).map((fragment) => {
-                              const fragmentKey = `${index}:${fragment}`;
-                              const isSaving = promotingFragmentKey === fragmentKey;
-                              return (
-                                <button
-                                  key={fragmentKey}
-                                  onClick={() => void promoteGeneratedFragment(fragment, content, index)}
-                                  disabled={isSaving}
-                                  style={generatedFragmentActionStyle(isSaving)}
-                                >
-                                  {isSaving ? 'Saving…' : `Add to Brain: ${truncateGeneratedFragment(fragment)}`}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
+                        <PromotableInlineText
+                          text={content}
+                          textStyle={generatedOptionTextStyle}
+                          tone="#38bdf8"
+                          hoverHint="Canon"
+                          onCanon={(fragment) => promoteGeneratedFragment(fragment, content, index)}
+                          onUndo={undoWorkspaceFragment}
+                        />
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button onClick={() => saveGeneratedContent(content, index)} style={primaryActionStyle('#22c55e')}>
                             Save to Pipeline
@@ -1187,18 +1188,16 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                     </div>
                     {expandedItem === item.id && (
                       <div style={expandedContentStyle}>
-                        <pre style={expandedContentTextStyle}>{item.content}</pre>
-                        <PromotableTextBlock
-                          title="Teach Brain from this draft"
+                        <PromotableInlineText
                           text={item.content}
-                          tone="#9ca3af"
-                          promotingFragmentKey={promotingFragmentKey}
-                          promotionKeyPrefix={`pipeline:${item.id}`}
-                          onPromote={(fragment, fullText, fragmentKey) =>
-                            void promoteWorkspaceFragment({
+                          textStyle={expandedContentTextStyle}
+                          tone="#94a3b8"
+                          hoverHint="Canon"
+                          onCanon={(fragment, fullText) =>
+                            promoteWorkspaceFragment({
                               fragmentText: fragment,
                               optionText: fullText,
-                              fragmentKey,
+                              fragmentKey: `pipeline:${item.id}:${fragment}`,
                               topicValue: item.title || topic || 'operator insight',
                               audienceValue: audience,
                               categoryValue: item.category,
@@ -1207,6 +1206,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                               supportItems: [{ title: item.title, text: fullText }],
                             })
                           }
+                          onUndo={undoWorkspaceFragment}
                         />
                       </div>
                     )}
@@ -1391,13 +1391,11 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                     promotableText={quickReply || commentDraft}
                     tone="#22c55e"
                     onCopy={() => void handleCopy(quickReply || commentDraft, 'Quick reply')}
-                    promotingFragmentKey={promotingFragmentKey}
-                    promotionKeyPrefix={`${item.id}:quick-reply`}
-                    onPromote={(fragment, fullText, fragmentKey) =>
-                      void promoteWorkspaceFragment({
+                    onCanon={(fragment, fullText) =>
+                      promoteWorkspaceFragment({
                         fragmentText: fragment,
                         optionText: fullText,
-                        fragmentKey,
+                        fragmentKey: `${item.id}:quick-reply:${fragment}`,
                         topicValue: item.title || topic || 'operator insight',
                         audienceValue: mapAudienceFromLane(selectedLens),
                         categoryValue: activeCategory,
@@ -1413,6 +1411,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                         ],
                       })
                     }
+                    onUndo={undoWorkspaceFragment}
                   />
                   <DraftBlock
                     title="Suggested comment"
@@ -1420,13 +1419,11 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                     promotableText={commentDraft}
                     tone="#38bdf8"
                     onCopy={() => void handleCopy(commentDraft, 'Suggested comment')}
-                    promotingFragmentKey={promotingFragmentKey}
-                    promotionKeyPrefix={`${item.id}:comment`}
-                    onPromote={(fragment, fullText, fragmentKey) =>
-                      void promoteWorkspaceFragment({
+                    onCanon={(fragment, fullText) =>
+                      promoteWorkspaceFragment({
                         fragmentText: fragment,
                         optionText: fullText,
-                        fragmentKey,
+                        fragmentKey: `${item.id}:comment:${fragment}`,
                         topicValue: item.title || topic || 'operator insight',
                         audienceValue: mapAudienceFromLane(selectedLens),
                         categoryValue: activeCategory,
@@ -1442,6 +1439,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                         ],
                       })
                     }
+                    onUndo={undoWorkspaceFragment}
                   />
                   <DraftBlock
                     title="Suggested repost"
@@ -1449,13 +1447,11 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                     promotableText={repostDraft}
                     tone="#f472b6"
                     onCopy={() => void handleCopy(repostDraft, 'Suggested repost')}
-                    promotingFragmentKey={promotingFragmentKey}
-                    promotionKeyPrefix={`${item.id}:repost`}
-                    onPromote={(fragment, fullText, fragmentKey) =>
-                      void promoteWorkspaceFragment({
+                    onCanon={(fragment, fullText) =>
+                      promoteWorkspaceFragment({
                         fragmentText: fragment,
                         optionText: fullText,
-                        fragmentKey,
+                        fragmentKey: `${item.id}:repost:${fragment}`,
                         topicValue: item.title || topic || 'operator insight',
                         audienceValue: mapAudienceFromLane(selectedLens),
                         categoryValue: activeCategory,
@@ -1471,6 +1467,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                         ],
                       })
                     }
+                    onUndo={undoWorkspaceFragment}
                   />
 
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1586,83 +1583,35 @@ function DraftBlock({
   promotableText,
   tone,
   onCopy,
-  onPromote,
-  promotingFragmentKey,
-  promotionKeyPrefix,
+  onCanon,
+  onUndo,
 }: {
   title: string;
   text: string;
   promotableText?: string;
   tone: string;
   onCopy: () => void;
-  onPromote?: (fragment: string, fullText: string, fragmentKey: string) => void;
-  promotingFragmentKey?: string | null;
-  promotionKeyPrefix?: string;
+  onCanon?: (fragment: string, fullText: string) => Promise<{ deltaId?: string } | void>;
+  onUndo?: (deltaId: string) => Promise<void>;
 }) {
-  const fragments = splitPromotableFragments(promotableText ?? '');
   return (
     <div style={{ display: 'grid', gap: '4px' }}>
       <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>{title}</p>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <p style={draftTextStyle}>{text}</p>
+        <div style={{ flex: 1 }}>
+          <PromotableInlineText
+            text={text}
+            promotableText={promotableText}
+            textStyle={draftTextStyle}
+            tone={tone}
+            hoverHint="Canon"
+            onCanon={(fragment, fullText) => (onCanon ? onCanon(fragment, fullText) : Promise.resolve())}
+            onUndo={onUndo}
+          />
+        </div>
         <button onClick={onCopy} style={secondaryActionStyle(tone)}>
           Copy
         </button>
-      </div>
-      {onPromote && fragments.length > 0 && promotionKeyPrefix && (
-        <PromotableTextBlock
-          title="Teach Brain from this draft"
-          text={promotableText ?? ''}
-          tone={tone}
-          promotingFragmentKey={promotingFragmentKey}
-          promotionKeyPrefix={promotionKeyPrefix}
-          onPromote={onPromote}
-        />
-      )}
-    </div>
-  );
-}
-
-function PromotableTextBlock({
-  title,
-  text,
-  tone,
-  onPromote,
-  promotingFragmentKey,
-  promotionKeyPrefix,
-}: {
-  title: string;
-  text: string;
-  tone: string;
-  onPromote: (fragment: string, fullText: string, fragmentKey: string) => void;
-  promotingFragmentKey?: string | null;
-  promotionKeyPrefix: string;
-}) {
-  const fragments = splitPromotableFragments(text);
-  if (fragments.length === 0) {
-    return null;
-  }
-  return (
-    <div style={{ display: 'grid', gap: '8px', marginTop: '8px' }}>
-      <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>{title}</p>
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        {fragments.map((fragment) => {
-          const fragmentKey = `${promotionKeyPrefix}:${fragment}`;
-          const isSaving = promotingFragmentKey === fragmentKey;
-          return (
-            <button
-              key={fragmentKey}
-              onClick={() => onPromote(fragment, text, fragmentKey)}
-              disabled={isSaving}
-              style={{
-                ...generatedFragmentActionStyle(isSaving),
-                border: `1px solid ${tone}55`,
-              }}
-            >
-              {isSaving ? 'Saving…' : `Add to Brain: ${truncateGeneratedFragment(fragment)}`}
-            </button>
-          );
-        })}
       </div>
     </div>
   );
@@ -1945,26 +1894,6 @@ const generatedOptionTextStyle = {
   maxHeight: '220px',
   overflow: 'auto',
 } as const;
-
-function generatedFragmentActionStyle(disabled: boolean) {
-  return {
-    borderRadius: '999px',
-    border: '1px solid #334155',
-    backgroundColor: disabled ? '#111827' : '#0b1220',
-    color: disabled ? '#64748b' : '#cbd5f5',
-    padding: '7px 10px',
-    fontSize: '11px',
-    fontWeight: 700,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    textAlign: 'left' as const,
-  };
-}
-
-function truncateGeneratedFragment(value: string) {
-  const normalized = value.trim();
-  if (normalized.length <= 70) return normalized;
-  return `${normalized.slice(0, 67)}...`;
-}
 
 function brainPromotionLooksErrored(value: string) {
   const normalized = value.toLowerCase();
