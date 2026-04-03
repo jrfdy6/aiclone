@@ -8,6 +8,7 @@ import { apiFetch, apiGet, apiPost } from '@/lib/api-client';
 import {
   ContentReservoirSupportItem,
   GeneratedContentResponse,
+  GeneratedFragmentPromotionResult,
   GeneratedFragmentPromotionResponse,
   GeneratedOptionBrief,
   UndoGeneratedFragmentPromotionResponse,
@@ -752,7 +753,10 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         setBrainPromotionStatus(
           response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
         );
-        return { deltaId: response?.delta_id };
+        return {
+          deltaId: response?.delta_id,
+          targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
+        } satisfies GeneratedFragmentPromotionResult;
       } catch (error) {
         setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
         throw error;
@@ -808,7 +812,10 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         setBrainPromotionStatus(
           response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
         );
-        return { deltaId: response?.delta_id };
+        return {
+          deltaId: response?.delta_id,
+          targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
+        } satisfies GeneratedFragmentPromotionResult;
       } catch (error) {
         setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
         throw error;
@@ -820,11 +827,11 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   );
 
   const undoWorkspaceFragment = useCallback(async (deltaId: string) => {
-    setBrainPromotionStatus('Removing from canon...');
+    setBrainPromotionStatus('Removing from Brain...');
     const response = await apiPost<UndoGeneratedFragmentPromotionResponse>('/api/content-generation/undo-promoted-fragment', {
       delta_id: deltaId,
     });
-    setBrainPromotionStatus(response?.message || 'Removed from canon.');
+    setBrainPromotionStatus(response?.message || 'Removed from Brain.');
   }, []);
 
   const saveGeneratedContent = useCallback(
@@ -1132,7 +1139,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                           text={content}
                           textStyle={generatedOptionTextStyle}
                           tone="#38bdf8"
-                          hoverHint="Canon"
+                          hoverHint="Keep"
                           onCanon={(fragment) => promoteGeneratedFragment(fragment, content, index)}
                           onUndo={undoWorkspaceFragment}
                         />
@@ -1192,7 +1199,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                           text={item.content}
                           textStyle={expandedContentTextStyle}
                           tone="#94a3b8"
-                          hoverHint="Canon"
+                          hoverHint="Keep"
                           onCanon={(fragment, fullText) =>
                             promoteWorkspaceFragment({
                               fragmentText: fragment,
@@ -1591,7 +1598,7 @@ function DraftBlock({
   promotableText?: string;
   tone: string;
   onCopy: () => void;
-  onCanon?: (fragment: string, fullText: string) => Promise<{ deltaId?: string } | void>;
+  onCanon?: (fragment: string, fullText: string) => Promise<GeneratedFragmentPromotionResult | void>;
   onUndo?: (deltaId: string) => Promise<void>;
 }) {
   return (
@@ -1604,7 +1611,7 @@ function DraftBlock({
             promotableText={promotableText}
             textStyle={draftTextStyle}
             tone={tone}
-            hoverHint="Canon"
+            hoverHint="Keep"
             onCanon={(fragment, fullText) => (onCanon ? onCanon(fragment, fullText) : Promise.resolve())}
             onUndo={onUndo}
           />

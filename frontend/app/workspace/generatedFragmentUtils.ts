@@ -40,6 +40,11 @@ export type GeneratedFragmentPromotionResponse = {
   message?: string;
 };
 
+export type GeneratedFragmentPromotionResult = {
+  deltaId?: string;
+  targetLabel?: string;
+};
+
 export type UndoGeneratedFragmentPromotionResponse = {
   success?: boolean;
   already_reverted?: boolean;

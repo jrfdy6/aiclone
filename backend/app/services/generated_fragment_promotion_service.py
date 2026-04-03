@@ -458,9 +458,9 @@ def undo_generated_fragment_promotion(*, delta_id: str) -> dict[str, Any]:
 
     removed_target_files = (updated.metadata or {}).get("reverted_target_files") or []
     preserved_target_files = (updated.metadata or {}).get("preserved_target_files") or []
-    message = "Removed from canon."
+    message = "Removed from Brain."
     if preserved_items:
-        message = "Removed from canon where safe. Some duplicate-backed entries were preserved."
+        message = "Removed from Brain where safe. Some duplicate-backed entries were preserved."
     return {
         "success": True,
         "already_reverted": False,

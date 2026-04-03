@@ -4,6 +4,7 @@ import { CSSProperties, useMemo, useRef, useState } from 'react';
 
 type CanonResult = {
   deltaId?: string;
+  targetLabel?: string;
 };
 
 type PromotableInlineTextProps = {
@@ -59,7 +60,7 @@ export default function PromotableInlineText({
   promotableText,
   textStyle,
   tone = '#38bdf8',
-  hoverHint = 'Canon',
+  hoverHint = 'Keep',
   onCanon,
   onUndo,
   onRemove,
@@ -69,7 +70,7 @@ export default function PromotableInlineText({
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [undoingKey, setUndoingKey] = useState<string | null>(null);
   const [dismissedKeys, setDismissedKeys] = useState<Record<string, true>>({});
-  const [savedByKey, setSavedByKey] = useState<Record<string, { deltaId?: string }>>({});
+  const [savedByKey, setSavedByKey] = useState<Record<string, { deltaId?: string; targetLabel?: string }>>({});
   const closeTimerRef = useRef<number | null>(null);
 
   const clearCloseTimer = () => {
@@ -99,7 +100,7 @@ export default function PromotableInlineText({
       const result = await onCanon(token.fragmentText, text);
       setSavedByKey((current) => ({
         ...current,
-        [token.key]: { deltaId: result?.deltaId },
+        [token.key]: { deltaId: result?.deltaId, targetLabel: result?.targetLabel },
       }));
       setActiveKey(token.key);
     } finally {
@@ -147,6 +148,7 @@ export default function PromotableInlineText({
         const isSaving = savingKey === token.key;
         const isUndoing = undoingKey === token.key;
         const isSaved = Boolean(savedByKey[token.key]);
+        const savedLabel = savedByKey[token.key]?.targetLabel?.trim() || 'Brain';
 
         return (
           <span
@@ -187,6 +189,16 @@ export default function PromotableInlineText({
               >
                 {isSaved ? (
                   <>
+                    <span
+                      style={{
+                        color: '#cbd5e1',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '0 4px 0 6px',
+                      }}
+                    >
+                      {`Saved to ${savedLabel}`}
+                    </span>
                     <button
                       onClick={() => void handleUndo(token)}
                       disabled={isUndoing}
@@ -210,11 +222,19 @@ export default function PromotableInlineText({
                     <button onClick={() => handleRemove(token)} style={overlayActionStyle('#94a3b8', false)}>
                       Remove
                     </button>
+                    <span
+                      style={{
+                        color: '#94a3b8',
+                        fontSize: '11px',
+                        maxWidth: '220px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {truncate(token.fragmentText)}
+                    </span>
                   </>
                 )}
-                <span style={{ color: '#94a3b8', fontSize: '11px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {truncate(token.fragmentText)}
-                </span>
               </span>
             )}
           </span>

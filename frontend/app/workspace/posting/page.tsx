@@ -8,6 +8,7 @@ import { apiPost } from '@/lib/api-client';
 import {
   ContentReservoirSupportItem,
   GeneratedContentResponse,
+  GeneratedFragmentPromotionResult,
   GeneratedFragmentPromotionResponse,
   GeneratedOptionBrief,
   UndoGeneratedFragmentPromotionResponse,
@@ -237,7 +238,10 @@ function PostingWorkspaceClient() {
         setBrainPromotionStatus(
           response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
         );
-        return { deltaId: response?.delta_id };
+        return {
+          deltaId: response?.delta_id,
+          targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
+        } satisfies GeneratedFragmentPromotionResult;
       } catch (error) {
         setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
         throw error;
@@ -281,7 +285,10 @@ function PostingWorkspaceClient() {
         setBrainPromotionStatus(
           response?.message || `Saved to ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
         );
-        return { deltaId: response?.delta_id };
+        return {
+          deltaId: response?.delta_id,
+          targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
+        } satisfies GeneratedFragmentPromotionResult;
       } catch (error) {
         setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
         throw error;
@@ -293,11 +300,11 @@ function PostingWorkspaceClient() {
   );
 
   const handleUndoPromotedFragment = useCallback(async (deltaId: string) => {
-    setBrainPromotionStatus('Removing from canon...');
+    setBrainPromotionStatus('Removing from Brain...');
     const response = await apiPost<UndoGeneratedFragmentPromotionResponse>('/api/content-generation/undo-promoted-fragment', {
       delta_id: deltaId,
     });
-    setBrainPromotionStatus(response?.message || 'Removed from canon.');
+    setBrainPromotionStatus(response?.message || 'Removed from Brain.');
   }, []);
 
   const handleGenerateComment = useCallback(async () => {
@@ -555,7 +562,7 @@ function PostingWorkspaceClient() {
                     text={option}
                     textStyle={resultTextStyle}
                     tone="#38bdf8"
-                    hoverHint="Canon"
+                    hoverHint="Keep"
                     onCanon={(fragment) => handlePromoteFragment(fragment, option, index)}
                     onUndo={handleUndoPromotedFragment}
                   />
@@ -603,7 +610,7 @@ function PostingWorkspaceClient() {
                     promotableText={shortComment || commentDraft}
                     textStyle={resultTextStyle}
                     tone="#22c55e"
-                    hoverHint="Canon"
+                    hoverHint="Keep"
                     onCanon={(fragment, fullText) =>
                       handlePromoteSurfaceFragment({
                         fragmentText: fragment,
@@ -635,7 +642,7 @@ function PostingWorkspaceClient() {
                     promotableText={commentDraft}
                     textStyle={resultTextStyle}
                     tone="#38bdf8"
-                    hoverHint="Canon"
+                    hoverHint="Keep"
                     onCanon={(fragment, fullText) =>
                       handlePromoteSurfaceFragment({
                         fragmentText: fragment,
@@ -667,7 +674,7 @@ function PostingWorkspaceClient() {
                     promotableText={repostDraft}
                     textStyle={resultTextStyle}
                     tone="#f472b6"
-                    hoverHint="Canon"
+                    hoverHint="Keep"
                     onCanon={(fragment, fullText) =>
                       handlePromoteSurfaceFragment({
                         fragmentText: fragment,
