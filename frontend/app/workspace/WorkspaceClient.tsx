@@ -642,11 +642,6 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
 
   useEffect(() => {
     if (selectedSignal) return;
-    if (feedItems.length > 0) {
-      setTopicSourceMode('selected_source');
-      setSelectedFeedId(feedItems[0].id);
-      return;
-    }
     if (querySeed.title || querySeed.summary || querySeed.hook) {
       setTopicSourceMode('selected_source');
       setTopic(querySeed.title || '');
@@ -1176,6 +1171,30 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const codexInFlight = Boolean(codexJobId) && !['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '');
   const codexTerminalCompleted = codexJobStatus === 'completed';
   const codexJobTone = codexJobStatusTone(codexJobStatus);
+  const activeSourceTitle =
+    topicSourceMode === 'selected_source'
+      ? selectedSignal?.title || querySeed.title || 'No source selected yet'
+      : topicSourceMode === 'suggested_angle'
+        ? topRecommendations[0]?.title || 'No suggested angle available yet'
+        : 'Manual topic mode';
+  const activeSourceSummary =
+    topicSourceMode === 'selected_source'
+      ? selectedSignal?.why_it_matters || selectedSignal?.summary || querySeed.summary || 'Pick a feed card to anchor this draft to a specific source.'
+      : topicSourceMode === 'suggested_angle'
+        ? topRecommendations[0]?.hook || topRecommendations[0]?.summary || 'Use the weekly plan to surface an angle when you do not want to start from a specific source.'
+        : 'This draft will use the topic and context you type, plus your selected grounding mode. Feed sources are optional until you explicitly attach one.';
+  const activeSourceLabel =
+    topicSourceMode === 'selected_source'
+      ? 'Selected feed source'
+      : topicSourceMode === 'suggested_angle'
+        ? 'Suggested angle'
+        : 'Manual topic';
+  const activeSourceLink =
+    topicSourceMode === 'selected_source'
+      ? selectedSignal?.source_url || querySeed.sourceUrl || ''
+      : topicSourceMode === 'suggested_angle'
+        ? topRecommendations[0]?.source_url || ''
+        : '';
 
   const content = (
     <section style={{ display: 'grid', gap: '20px' }}>
@@ -1264,16 +1283,16 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
           <div style={{ borderRadius: '14px', border: '1px solid #334155', backgroundColor: '#020617', padding: '14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
               <div>
-                <p style={{ color: '#64748b', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 6px' }}>Selected feed source</p>
-                <h3 style={{ color: 'white', fontSize: '18px', margin: '0 0 6px' }}>{selectedSignal?.title || querySeed.title || 'No signal selected yet'}</h3>
-                {(selectedSignal?.why_it_matters || selectedSignal?.summary || querySeed.summary) && (
+                <p style={{ color: '#64748b', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 6px' }}>{activeSourceLabel}</p>
+                <h3 style={{ color: 'white', fontSize: '18px', margin: '0 0 6px' }}>{activeSourceTitle}</h3>
+                {activeSourceSummary && (
                   <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-                    {selectedSignal?.why_it_matters || selectedSignal?.summary || querySeed.summary}
+                    {activeSourceSummary}
                   </p>
                 )}
               </div>
-              {selectedSignal?.source_url && (
-                <a href={selectedSignal.source_url} target="_blank" rel="noreferrer" style={headerLinkStyle('#38bdf8')}>
+              {activeSourceLink && (
+                <a href={activeSourceLink} target="_blank" rel="noreferrer" style={headerLinkStyle('#38bdf8')}>
                   Open original post
                 </a>
               )}
@@ -1468,9 +1487,12 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
 
           <div style={pipelineListStyle}>
             <div style={pipelineHeaderStyle}>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'white', margin: 0 }}>
-                {CHRIS_DO_911[activeCategory].icon} {activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content
-              </h3>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'white', margin: 0 }}>
+                  {CHRIS_DO_911[activeCategory].icon} {activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content
+                </h3>
+                <p style={{ fontSize: '12px', color: '#64748b', margin: '4px 0 0' }}>Saved drafts only. These are not automatically injected into new generations.</p>
+              </div>
               <span style={{ fontSize: '14px', color: '#6b7280' }}>{categoryItems.length} items</span>
             </div>
 
