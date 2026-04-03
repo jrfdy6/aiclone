@@ -6,6 +6,9 @@ import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { apiGet, apiPost } from '@/lib/api-client';
 import {
+  codexJobStatusHint,
+  codexJobStatusLabel,
+  codexJobStatusTone,
   ContentReservoirSupportItem,
   GeneratedContentResponse,
   GeneratedFragmentPromotionResult,
@@ -147,6 +150,7 @@ function PostingWorkspaceClient() {
   const [codexJobId, setCodexJobId] = useState<string | null>(null);
   const [codexJobStatus, setCodexJobStatus] = useState<string | null>(null);
   const [codexJobError, setCodexJobError] = useState<string | null>(null);
+  const [codexActionLoading, setCodexActionLoading] = useState<'cancel' | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
   const [postOptions, setPostOptions] = useState<string[]>([]);
   const [postOptionBriefs, setPostOptionBriefs] = useState<GeneratedOptionBrief[]>([]);
@@ -237,6 +241,7 @@ function PostingWorkspaceClient() {
     setPostLoading(false);
     setPostError(null);
     setCodexJobError(null);
+    setCodexActionLoading(null);
     setPostOptions([]);
     setPostOptionBriefs([]);
     setPostSupportItems([]);
@@ -273,6 +278,24 @@ function PostingWorkspaceClient() {
     }
   }, [audience, category, context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, sourceMode, topic]);
 
+  const cancelCodexJob = useCallback(async () => {
+    if (!codexJobId) return;
+    setCodexActionLoading('cancel');
+    setCodexJobError(null);
+    try {
+      const response = await apiPost<LocalCodexJobStatusResponse>(`/api/content-generation/codex-jobs/${codexJobId}/cancel`, {});
+      const nextStatus = response?.status || 'canceled';
+      setCodexJobStatus(nextStatus);
+      setCodexJobError(null);
+      setPostError(null);
+      setProviderTrace(`codex_terminal · ${nextStatus}`);
+    } catch (error) {
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to cancel the Codex run right now.');
+    } finally {
+      setCodexActionLoading(null);
+    }
+  }, [codexJobId]);
+
   useEffect(() => {
     if (!codexJobId || ['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '')) {
       return;
@@ -292,7 +315,7 @@ function PostingWorkspaceClient() {
         }
         if (nextStatus === 'failed' || nextStatus === 'canceled') {
           setCodexJobError(response?.error_message || 'Codex terminal generation failed.');
-          setPostError(response?.error_message || 'Codex terminal generation failed.');
+          setProviderTrace(`codex_terminal · ${nextStatus}`);
           return;
         }
         setProviderTrace(nextStatus === 'running' ? 'codex_terminal · running' : 'codex_terminal · queued');
@@ -476,6 +499,8 @@ function PostingWorkspaceClient() {
   const shortComment = previewVariant?.short_comment?.trim() || '';
   const repostDraft = previewVariant?.repost?.trim() || commentPreview?.repost_draft?.trim() || '';
   const codexInFlight = Boolean(codexJobId) && !['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '');
+  const codexTerminalCompleted = codexJobStatus === 'completed';
+  const codexJobTone = codexJobStatusTone(codexJobStatus);
 
   return (
     <RuntimePage module="ops" tabs={tabs} maxWidth="1420px">
@@ -635,20 +660,49 @@ function PostingWorkspaceClient() {
               <textarea value={context} onChange={(event) => setContext(event.target.value)} rows={8} style={textareaStyle} />
             </label>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => void handleGeneratePost()} disabled={postLoading || codexInFlight} style={primaryButtonStyle('#38bdf8')}>
+              <button onClick={() => void handleGeneratePost()} disabled={postLoading || codexInFlight || codexActionLoading !== null} style={primaryButtonStyle('#38bdf8')}>
                 {postLoading ? 'Generating…' : 'Generate post options'}
               </button>
-              <button onClick={() => void handleGeneratePostWithCodex()} disabled={postLoading || codexInFlight} style={primaryButtonStyle('#f97316')}>
+              <button onClick={() => void handleGeneratePostWithCodex()} disabled={postLoading || codexInFlight || codexActionLoading !== null} style={primaryButtonStyle('#f97316')}>
                 {codexInFlight ? 'Writing With Codex…' : 'Generate With Codex Terminal'}
               </button>
               {providerTrace && <span style={{ color: '#94a3b8', fontSize: '12px' }}>Model trace: {providerTrace}</span>}
               {postError && <span style={{ color: '#f87171', fontSize: '12px' }}>{postError}</span>}
               {codexJobStatus && (
-                <span style={{ color: codexJobStatus === 'completed' ? '#34d399' : codexJobStatus === 'failed' || codexJobStatus === 'canceled' ? '#f87171' : '#fbbf24', fontSize: '12px' }}>
-                  Codex terminal status: {codexJobStatus}
-                </span>
+                <div
+                  style={{
+                    width: '100%',
+                    borderRadius: '14px',
+                    border: `1px solid ${codexJobTone}33`,
+                    backgroundColor: '#07101f',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <span style={{ color: codexJobTone, fontSize: '12px', fontWeight: 700 }}>{codexJobStatusLabel(codexJobStatus)}</span>
+                      <span style={{ color: '#94a3b8', fontSize: '12px' }}>{codexJobStatusHint(codexJobStatus)}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {codexInFlight && (
+                        <button onClick={() => void cancelCodexJob()} disabled={codexActionLoading !== null} style={secondaryButtonStyle('#f97316')}>
+                          {codexActionLoading === 'cancel' ? 'Canceling…' : 'Cancel'}
+                        </button>
+                      )}
+                      {!codexInFlight && ['failed', 'canceled'].includes(codexJobStatus ?? '') && (
+                        <button onClick={() => void handleGeneratePostWithCodex()} disabled={codexActionLoading !== null || postLoading} style={secondaryButtonStyle('#f97316')}>
+                          Retry Codex Run
+                        </button>
+                      )}
+                      {codexTerminalCompleted && <InlinePill label="Generated with Codex Terminal" tone="#34d399" />}
+                    </div>
+                  </div>
+                  {codexJobError && <span style={{ color: '#fca5a5', fontSize: '12px' }}>{codexJobError}</span>}
+                </div>
               )}
-              {codexJobError && <span style={{ color: '#f87171', fontSize: '12px' }}>{codexJobError}</span>}
+              {!codexJobStatus && codexJobError && <span style={{ color: '#f87171', fontSize: '12px' }}>{codexJobError}</span>}
             </div>
             {brainPromotionStatus && (
               <p style={{ color: brainPromotionLooksErrored(brainPromotionStatus) ? '#f87171' : '#34d399', fontSize: '12px', margin: 0 }}>

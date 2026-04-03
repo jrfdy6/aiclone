@@ -6,6 +6,9 @@ import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { apiFetch, apiGet, apiPost } from '@/lib/api-client';
 import {
+  codexJobStatusHint,
+  codexJobStatusLabel,
+  codexJobStatusTone,
   ContentReservoirSupportItem,
   GeneratedContentResponse,
   GeneratedFragmentPromotionResult,
@@ -486,6 +489,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const [codexJobId, setCodexJobId] = useState<string | null>(null);
   const [codexJobStatus, setCodexJobStatus] = useState<string | null>(null);
   const [codexJobError, setCodexJobError] = useState<string | null>(null);
+  const [codexActionLoading, setCodexActionLoading] = useState<'cancel' | null>(null);
   const [generatedContent, setGeneratedContent] = useState<string[]>([]);
   const [generatedOptionBriefs, setGeneratedOptionBriefs] = useState<GeneratedOptionBrief[]>([]);
   const [generatedSupportItems, setGeneratedSupportItems] = useState<ContentReservoirSupportItem[]>([]);
@@ -752,6 +756,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     setGenerating(false);
     setGeneratorError(null);
     setCodexJobError(null);
+    setCodexActionLoading(null);
     setGeneratedContent([]);
     setGeneratedOptionBriefs([]);
     setGeneratedSupportItems([]);
@@ -791,6 +796,24 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     }
   }, [activeCategory, audience, context, generatorType, querySeed.hook, querySeed.routeReason, querySeed.summary, resolveFeedLens, selectedSignal, sourceMode, topic]);
 
+  const cancelCodexJob = useCallback(async () => {
+    if (!codexJobId) return;
+    setCodexActionLoading('cancel');
+    setCodexJobError(null);
+    try {
+      const response = await apiPost<LocalCodexJobStatusResponse>(`/api/content-generation/codex-jobs/${codexJobId}/cancel`, {});
+      const nextStatus = response?.status || 'canceled';
+      setCodexJobStatus(nextStatus);
+      setCodexJobError(null);
+      setGeneratorError(null);
+      setProviderTrace(`codex_terminal · ${nextStatus}`);
+    } catch (error) {
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to cancel the Codex run right now.');
+    } finally {
+      setCodexActionLoading(null);
+    }
+  }, [codexJobId]);
+
   useEffect(() => {
     if (!codexJobId || ['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '')) {
       return;
@@ -810,7 +833,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         }
         if (nextStatus === 'failed' || nextStatus === 'canceled') {
           setCodexJobError(response?.error_message || 'Codex terminal generation failed.');
-          setGeneratorError(response?.error_message || 'Codex terminal generation failed.');
+          setProviderTrace(`codex_terminal · ${nextStatus}`);
           return;
         }
         setProviderTrace(nextStatus === 'running' ? 'codex_terminal · running' : 'codex_terminal · queued');
@@ -1041,6 +1064,8 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
 
   const topRecommendations = (snapshot?.weekly_plan?.recommendations ?? []).slice(0, 3);
   const codexInFlight = Boolean(codexJobId) && !['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '');
+  const codexTerminalCompleted = codexJobStatus === 'completed';
+  const codexJobTone = codexJobStatusTone(codexJobStatus);
 
   const content = (
     <section style={{ display: 'grid', gap: '20px' }}>
@@ -1220,21 +1245,66 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
               </div>
 
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <button onClick={() => void generateContent()} disabled={generating || codexInFlight} style={primaryActionStyle('#38bdf8')}>
+                <button onClick={() => void generateContent()} disabled={generating || codexInFlight || codexActionLoading !== null} style={primaryActionStyle('#38bdf8')}>
                   {generating ? 'Generating…' : 'Generate Options'}
                 </button>
-                <button onClick={() => void generateContentWithCodex()} disabled={generating || codexInFlight} style={primaryActionStyle('#f97316')}>
+                <button onClick={() => void generateContentWithCodex()} disabled={generating || codexInFlight || codexActionLoading !== null} style={primaryActionStyle('#f97316')}>
                   {codexInFlight ? 'Writing With Codex…' : 'Generate With Codex Terminal'}
                 </button>
               </div>
               {providerTrace && <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '12px' }}>Model trace: {providerTrace}</p>}
               {generatorError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{generatorError}</p>}
               {codexJobStatus && (
-                <p style={{ color: codexJobStatus === 'completed' ? '#34d399' : codexJobStatus === 'failed' || codexJobStatus === 'canceled' ? '#f87171' : '#fbbf24', fontSize: '12px', marginTop: '12px' }}>
-                  Codex terminal status: {codexJobStatus}
-                </p>
+                <div
+                  style={{
+                    marginTop: '12px',
+                    borderRadius: '14px',
+                    border: `1px solid ${codexJobTone}33`,
+                    backgroundColor: '#07101f',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: codexJobTone, fontSize: '12px', fontWeight: 700, margin: 0 }}>{codexJobStatusLabel(codexJobStatus)}</p>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{codexJobStatusHint(codexJobStatus)}</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {codexInFlight && (
+                        <button onClick={() => void cancelCodexJob()} disabled={codexActionLoading !== null} style={secondaryActionStyle('#f97316')}>
+                          {codexActionLoading === 'cancel' ? 'Canceling…' : 'Cancel'}
+                        </button>
+                      )}
+                      {!codexInFlight && ['failed', 'canceled'].includes(codexJobStatus ?? '') && (
+                        <button onClick={() => void generateContentWithCodex()} disabled={codexActionLoading !== null || generating} style={secondaryActionStyle('#f97316')}>
+                          Retry Codex Run
+                        </button>
+                      )}
+                      {codexTerminalCompleted && (
+                        <span
+                          style={{
+                            borderRadius: '999px',
+                            border: '1px solid #1f3a28',
+                            backgroundColor: '#0a1f16',
+                            color: '#34d399',
+                            padding: '6px 10px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            letterSpacing: '0.04em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          Generated with Codex Terminal
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {codexJobError && <p style={{ color: '#fca5a5', fontSize: '12px', margin: 0 }}>{codexJobError}</p>}
+                </div>
               )}
-              {codexJobError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{codexJobError}</p>}
+              {!codexJobStatus && codexJobError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{codexJobError}</p>}
               {brainPromotionStatus && (
                 <p style={{ color: brainPromotionLooksErrored(brainPromotionStatus) ? '#f87171' : '#34d399', fontSize: '12px', marginTop: '12px' }}>
                   {brainPromotionStatus}

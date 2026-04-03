@@ -48,6 +48,56 @@ export type LocalCodexJobStatusResponse = {
   result?: GeneratedContentResponse | null;
 };
 
+export function codexJobStatusLabel(status?: string | null) {
+  switch ((status || '').trim().toLowerCase()) {
+    case 'pending':
+      return 'Queued on this Mac';
+    case 'claimed':
+      return 'Claimed by local worker';
+    case 'running':
+      return 'Writing with Codex Terminal';
+    case 'completed':
+      return 'Completed locally';
+    case 'failed':
+      return 'Codex run failed';
+    case 'canceled':
+      return 'Canceled locally';
+    default:
+      return 'Codex job active';
+  }
+}
+
+export function codexJobStatusHint(status?: string | null) {
+  switch ((status || '').trim().toLowerCase()) {
+    case 'pending':
+      return 'The request is queued and waiting for the local Codex bridge to pick it up.';
+    case 'claimed':
+      return 'The local worker picked up the request and is preparing the Codex run.';
+    case 'running':
+      return 'Codex Terminal is actively writing options from the FEEZIE context packet.';
+    case 'completed':
+      return 'These options came back from the local Codex Terminal path.';
+    case 'failed':
+      return 'The local Codex run exited without returning usable options.';
+    case 'canceled':
+      return 'This local Codex run was canceled before the result was accepted.';
+    default:
+      return 'The local Codex bridge is handling this request.';
+  }
+}
+
+export function codexJobStatusTone(status?: string | null) {
+  switch ((status || '').trim().toLowerCase()) {
+    case 'completed':
+      return '#34d399';
+    case 'failed':
+    case 'canceled':
+      return '#f87171';
+    default:
+      return '#fbbf24';
+  }
+}
+
 export type GeneratedFragmentPromotionResponse = {
   success?: boolean;
   duplicate?: boolean;
