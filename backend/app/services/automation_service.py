@@ -385,6 +385,37 @@ def _local_launchd_automations() -> List[Automation]:
             ),
             notes="Local-machine launchd automation. Each workspace agent stays inside its own lane and reports back through the shared PM card.",
         ),
+        Automation(
+            id="feezie_codex_bridge",
+            name="FEEZIE Codex Bridge",
+            description="Always-on local launchd worker that drains queued FEEZIE content-generation jobs and runs them through the Codex terminal on the Mac.",
+            type="daemon",
+            status="active",
+            schedule="Always on",
+            cron="launchd.keepalive",
+            channel="workspace/feezie-os",
+            isolation=True,
+            last_run_at=_dt(),
+            next_run_at=None,
+            last_status="success",
+            source=LOCAL_LAUNCHD_SOURCE,
+            runtime="launchd",
+            scope="workspace",
+            workspace_key="linkedin-content-os",
+            metrics={
+                "runtime": "local_launchd",
+                "script": "scripts/local_codex_bridge.py",
+                "wrapper": "scripts/run_local_codex_bridge.sh",
+                "launch_agent": "automations/launchd/com.neo.feezie_codex_bridge.plist",
+                "execution_mode": "codex exec keepalive worker",
+            },
+            instructions=_instructions(
+                "Poll the backend for pending Codex content-generation jobs",
+                "Run codex exec locally against the FEEZIE workspace prompt packet",
+                "Write completed options back into the shared generation surface",
+            ),
+            notes="Local-machine keepalive bridge for the secondary Generate With Codex Terminal button. It is not part of the normal API generation path.",
+        ),
     ]
 
 
