@@ -214,9 +214,9 @@ const CONTENT_TYPES: { value: ContentType; label: string; icon: string }[] = [
 ];
 
 const CONTENT_SOURCE_OPTIONS: { value: ContentSourceMode; label: string; hint: string }[] = [
-  { value: 'persona_only', label: 'Persona only', hint: 'Generate from Johnnie canon and your prompt, not from a live article.' },
-  { value: 'selected_source', label: 'Selected source', hint: 'Use the selected feed item as the source anchor for the draft.' },
-  { value: 'recent_signals', label: 'Recent signals', hint: 'Blend recent relevant source material into the draft.' },
+  { value: 'persona_only', label: 'Persona only', hint: 'Use Johnnie canon only, with no reservoir or live-source grounding layered in.' },
+  { value: 'selected_source', label: 'Persona + reservoir', hint: 'Keep persona active and pull in the ranked reservoir while the selected feed item shapes the draft topic and context.' },
+  { value: 'recent_signals', label: 'Persona + recent reservoir', hint: 'Keep persona active and pull only the newest reservoir support instead of the broader ranked pool.' },
 ];
 
 const POST_MODE_OPTIONS: { id: FeedLensId; label: string }[] = [
@@ -1230,7 +1230,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
               </div>
               <div style={{ display: 'grid', gap: '6px', marginBottom: '16px' }}>
                 <label style={fieldWrapStyle}>
-                  <span style={fieldLabelStyle}>Source basis</span>
+                  <span style={fieldLabelStyle}>Grounding mode</span>
                   <select value={sourceMode} onChange={(event) => setSourceMode(event.target.value as ContentSourceMode)} style={fieldStyle}>
                     {CONTENT_SOURCE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>

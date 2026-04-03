@@ -194,6 +194,7 @@ def _reservoir_entry(asset: dict[str, Any], fragment: dict[str, Any], lane: str,
     text = _clean_text(fragment.get("text"))
     primary_type = _clean_text(fragment.get("primary_type")) or "signal"
     source_section = _clean_text(fragment.get("source_section")) or "clean_document"
+    captured_at = _clean_text(asset.get("captured_at")) or _clean_text(asset.get("published_at")) or _clean_text(asset.get("updated_at"))
     labels = [str(item).strip() for item in (fragment.get("labels") or []) if str(item).strip()]
     label_set = set(labels)
     score = int(fragment.get("score") or 0)
@@ -224,6 +225,7 @@ def _reservoir_entry(asset: dict[str, Any], fragment: dict[str, Any], lane: str,
         "origin_detail": _clean_text(asset.get("origin_detail")),
         "source_url": _clean_text(asset.get("source_url")),
         "source_path": _clean_text(asset.get("source_path")),
+        "captured_at": captured_at,
         "summary": _clean_text(asset.get("structured_summary")) or _clean_text(asset.get("summary")),
         "persona_tag": persona_tag,
     }
@@ -237,6 +239,7 @@ def _reservoir_entry(asset: dict[str, Any], fragment: dict[str, Any], lane: str,
         "source_type": _clean_text(asset.get("source_type")),
         "origin": _clean_text(asset.get("origin")),
         "origin_detail": _clean_text(asset.get("origin_detail")),
+        "captured_at": captured_at,
         "summary": _clean_text(asset.get("summary")),
         "structured_summary": _clean_text(asset.get("structured_summary")),
         "text": text,

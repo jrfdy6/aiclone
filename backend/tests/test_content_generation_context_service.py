@@ -10,11 +10,14 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.content_generation_context_service import build_content_generation_context
+from app.services.content_generation_context_service import (
+    build_content_generation_context,
+    retrieve_content_reservoir_chunks,
+)
 
 
 class ContentGenerationContextSourceModeTests(unittest.TestCase):
-    def test_persona_only_mode_skips_recent_weighted_retrieval(self) -> None:
+    def test_persona_only_mode_skips_reservoir_retrieval(self) -> None:
         core_chunk = {
             "chunk": "Admissions is not just enrollment. It is translation.",
             "metadata": {
@@ -35,7 +38,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
-            patch("app.services.content_generation_context_service.retrieve_weighted", return_value=[]) as weighted_mock,
+            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[]) as reservoir_mock,
         ):
             context = build_content_generation_context(
                 user_id="johnnie_fields",
@@ -49,9 +52,9 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             )
 
         self.assertTrue(context.primary_claims)
-        weighted_mock.assert_not_called()
+        reservoir_mock.assert_not_called()
 
-    def test_selected_source_mode_allows_recent_weighted_retrieval(self) -> None:
+    def test_selected_source_mode_uses_ranked_content_reservoir_support(self) -> None:
         core_chunk = {
             "chunk": "Admissions is not just enrollment. It is translation.",
             "metadata": {
@@ -64,6 +67,20 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
                 "claim_type": "mission",
             },
         }
+        reservoir_chunk = {
+            "chunk": "The repeated questions usually tell you where the student journey is leaking trust.",
+            "persona_tag": "PHILOSOPHY",
+            "captured_at": "2026-04-02T20:00:00Z",
+            "metadata": {
+                "memory_role": "proof",
+                "domain_tags": ["education_admissions"],
+                "audience_tags": ["education_admissions"],
+                "proof_strength": "medium",
+                "artifact_backed": True,
+                "claim_type": "operational",
+                "captured_at": "2026-04-02T20:00:00Z",
+            },
+        }
 
         with (
             patch("app.services.content_generation_context_service.embed_text", return_value=[0.1, 0.2]),
@@ -72,9 +89,9 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
-            patch("app.services.content_generation_context_service.retrieve_weighted", return_value=[]) as weighted_mock,
+            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[reservoir_chunk]) as reservoir_mock,
         ):
-            build_content_generation_context(
+            context = build_content_generation_context(
                 user_id="johnnie_fields",
                 topic="family trust in admissions",
                 context="Use the selected school article as the anchor.",
@@ -85,7 +102,15 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
                 source_mode="selected_source",
             )
 
-        weighted_mock.assert_called_once()
+        self.assertEqual(len(context.content_reservoir_chunks), 1)
+        self.assertIn("student journey is leaking trust", context.content_reservoir_chunks[0]["chunk"])
+        reservoir_mock.assert_called_once_with(
+            topic="family trust in admissions",
+            audience="education_admissions",
+            category="value",
+            top_k=8,
+            strategy="ranked",
+        )
 
     def test_recent_signals_mode_prefers_content_reservoir_over_weighted_retrieval(self) -> None:
         core_chunk = {
@@ -120,8 +145,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
-            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[reservoir_chunk]),
-            patch("app.services.content_generation_context_service.retrieve_weighted", return_value=[]) as weighted_mock,
+            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[reservoir_chunk]) as reservoir_mock,
         ):
             context = build_content_generation_context(
                 user_id="johnnie_fields",
@@ -136,9 +160,15 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
 
         self.assertEqual(len(context.content_reservoir_chunks), 1)
         self.assertIn("AI systems fail when the human review layer disappears.", context.content_reservoir_chunks[0]["chunk"])
-        weighted_mock.assert_not_called()
+        reservoir_mock.assert_called_once_with(
+            topic="agent orchestration",
+            audience="tech_ai",
+            category="value",
+            top_k=8,
+            strategy="recent",
+        )
 
-    def test_recent_signals_mode_falls_back_to_weighted_when_reservoir_is_empty(self) -> None:
+    def test_recent_signals_mode_leaves_reservoir_empty_when_recent_slice_is_empty(self) -> None:
         core_chunk = {
             "chunk": "Workflow clarity matters because operator trust breaks when review disappears.",
             "metadata": {
@@ -151,18 +181,6 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
                 "claim_type": "mission",
             },
         }
-        weighted_chunk = {
-            "chunk": "Prompting alone breaks when the workflow has no operator handoff.",
-            "persona_tag": "PHILOSOPHY",
-            "metadata": {
-                "memory_role": "ambient",
-                "domain_tags": ["ai_systems", "operator_workflows"],
-                "audience_tags": ["tech_ai"],
-                "proof_strength": "weak",
-                "artifact_backed": False,
-            },
-        }
-
         with (
             patch("app.services.content_generation_context_service.embed_text", return_value=[0.1, 0.2]),
             patch("app.services.content_generation_context_service.load_bundle_persona_chunks", return_value=[core_chunk]),
@@ -170,8 +188,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
-            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[]),
-            patch("app.services.content_generation_context_service.retrieve_weighted", return_value=[weighted_chunk]) as weighted_mock,
+            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[]) as reservoir_mock,
         ):
             context = build_content_generation_context(
                 user_id="johnnie_fields",
@@ -185,7 +202,78 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             )
 
         self.assertEqual(context.content_reservoir_chunks, [])
-        weighted_mock.assert_called_once()
+        reservoir_mock.assert_called_once_with(
+            topic="agent orchestration",
+            audience="tech_ai",
+            category="value",
+            top_k=8,
+            strategy="recent",
+        )
+
+    def test_recent_reservoir_strategy_prefers_newer_captured_assets(self) -> None:
+        content_reservoir_payload = {
+            "items": [
+                {
+                    "asset_id": "asset-old",
+                    "text": "Older workflow lesson about operator review.",
+                    "chunk": "Older workflow lesson about operator review. Use when: you need a source-backed lesson.",
+                    "content_priority": 120,
+                    "score": 9,
+                    "reservoir_lane": "proof_point",
+                    "persona_tag": "PHILOSOPHY",
+                    "metadata": {
+                        "memory_role": "proof",
+                        "domain_tags": ["ai_systems", "operator_workflows"],
+                        "audience_tags": ["tech_ai"],
+                        "proof_strength": "medium",
+                        "artifact_backed": True,
+                        "claim_type": "operational",
+                    },
+                },
+                {
+                    "asset_id": "asset-new",
+                    "text": "Newer workflow lesson about operator review.",
+                    "chunk": "Newer workflow lesson about operator review. Use when: you need a source-backed lesson.",
+                    "content_priority": 40,
+                    "score": 6,
+                    "reservoir_lane": "proof_point",
+                    "persona_tag": "PHILOSOPHY",
+                    "metadata": {
+                        "memory_role": "proof",
+                        "domain_tags": ["ai_systems", "operator_workflows"],
+                        "audience_tags": ["tech_ai"],
+                        "proof_strength": "medium",
+                        "artifact_backed": True,
+                        "claim_type": "operational",
+                    },
+                },
+            ]
+        }
+        source_assets_payload = {
+            "items": [
+                {"asset_id": "asset-old", "captured_at": "2026-04-01T10:00:00Z"},
+                {"asset_id": "asset-new", "captured_at": "2026-04-03T10:00:00Z"},
+            ]
+        }
+
+        def snapshot_side_effect(workspace_key: str, snapshot_type: str):
+            self.assertEqual(workspace_key, "linkedin-content-os")
+            if snapshot_type == "content_reservoir":
+                return content_reservoir_payload
+            if snapshot_type == "source_assets":
+                return source_assets_payload
+            return None
+
+        with patch("app.services.content_generation_context_service.get_snapshot_payload", side_effect=snapshot_side_effect):
+            chunks = retrieve_content_reservoir_chunks(
+                topic="operator review",
+                audience="tech_ai",
+                category="value",
+                top_k=2,
+                strategy="recent",
+            )
+
+        self.assertEqual([item.get("source_file_id") for item in chunks], ["asset-new", "asset-old"])
 
 
 if __name__ == "__main__":

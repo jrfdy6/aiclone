@@ -9,7 +9,7 @@ from app.services.persona_bundle_context_service import (
     load_bundle_persona_chunks,
     retrieve_bundle_persona_chunks,
 )
-from app.services.retrieval import retrieve_similar, retrieve_weighted
+from app.services.retrieval import retrieve_similar
 from app.services.workspace_snapshot_store import get_snapshot_payload
 
 
@@ -426,9 +426,70 @@ def _load_content_reservoir_payload() -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _load_source_assets_payload() -> dict[str, Any] | None:
+    payload = get_snapshot_payload("linkedin-content-os", "source_assets")
+    if isinstance(payload, dict):
+        return payload
+    try:
+        from app.services.workspace_snapshot_service import workspace_snapshot_service
+
+        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(
+            include_workspace_files=False,
+            include_doc_entries=False,
+        )
+    except Exception:
+        return None
+    payload = snapshot.get("source_assets") if isinstance(snapshot, dict) else None
+    return payload if isinstance(payload, dict) else None
+
+
+def _source_asset_capture_map() -> dict[str, str]:
+    payload = _load_source_assets_payload()
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return {}
+    capture_map: dict[str, str] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        asset_id = " ".join(str(item.get("asset_id") or "").split()).strip()
+        if not asset_id:
+            continue
+        normalized_captured_at = ""
+        for field in ("captured_at", "published_at", "updated_at"):
+            value = " ".join(str(item.get(field) or "").split()).strip()
+            if value:
+                normalized_captured_at = value
+                break
+        if normalized_captured_at:
+            capture_map[asset_id] = normalized_captured_at
+    return capture_map
+
+
+def _content_reservoir_recency(raw_item: dict[str, Any], hydrated: dict[str, Any], capture_map: dict[str, str]) -> str:
+    metadata = _item_metadata(hydrated)
+    direct_fields = (
+        raw_item.get("captured_at"),
+        raw_item.get("published_at"),
+        raw_item.get("updated_at"),
+        metadata.get("captured_at"),
+        metadata.get("published_at"),
+        metadata.get("updated_at"),
+    )
+    for value in direct_fields:
+        normalized = " ".join(str(value or "").split()).strip()
+        if normalized:
+            return normalized
+    asset_id = " ".join(str(raw_item.get("asset_id") or hydrated.get("source_file_id") or "").split()).strip()
+    return capture_map.get(asset_id, "")
+
+
 def _hydrate_content_reservoir_item(item: dict[str, Any]) -> dict[str, Any]:
     metadata = item.get("metadata")
-    hydrated_metadata = metadata if isinstance(metadata, dict) else {}
+    hydrated_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    captured_at = " ".join(str(item.get("captured_at") or hydrated_metadata.get("captured_at") or "").split()).strip()
+    if captured_at:
+        hydrated_metadata["captured_at"] = captured_at
     return {
         "source_id": item.get("reservoir_id") or item.get("asset_id"),
         "source_file_id": item.get("asset_id"),
@@ -437,6 +498,7 @@ def _hydrate_content_reservoir_item(item: dict[str, Any]) -> dict[str, Any]:
         "similarity_score": float(item.get("content_priority") or 0.0),
         "weighted_score": float(item.get("content_priority") or 0.0),
         "persona_tag": str(item.get("persona_tag") or hydrated_metadata.get("persona_tag") or "PHILOSOPHY"),
+        "captured_at": captured_at,
         "metadata": hydrated_metadata,
     }
 
@@ -457,6 +519,7 @@ def retrieve_content_reservoir_chunks(
     audience: str,
     category: str,
     top_k: int = 8,
+    strategy: str = "ranked",
 ) -> list[dict[str, Any]]:
     payload = _load_content_reservoir_payload()
     items = payload.get("items") if isinstance(payload, dict) else None
@@ -464,11 +527,18 @@ def retrieve_content_reservoir_chunks(
         return []
 
     focus_terms = _focus_terms(topic, audience)
-    ranked: list[tuple[int, int, dict[str, Any]]] = []
+    recent_mode = " ".join((strategy or "ranked").lower().split()) == "recent"
+    capture_map = _source_asset_capture_map()
+    ranked: list[tuple[str, int, int, dict[str, Any]]] = []
     for raw_item in items:
         if not isinstance(raw_item, dict):
             continue
         hydrated = _hydrate_content_reservoir_item(raw_item)
+        recency = _content_reservoir_recency(raw_item, hydrated, capture_map)
+        if recency:
+            hydrated["captured_at"] = recency
+            hydrated_metadata = _item_metadata(hydrated)
+            hydrated_metadata["captured_at"] = recency
         chunk = str(hydrated.get("chunk") or "")
         if not chunk:
             continue
@@ -489,13 +559,24 @@ def retrieve_content_reservoir_chunks(
         if category == "sales" and reservoir_lane in {"proof_point", "post_seed"}:
             composite += 3
 
+        if recent_mode:
+            if focus_score <= 0 and compatibility_score <= 0 and composite <= 0:
+                continue
+            ranked.append((recency, composite, score, hydrated))
+            continue
+
         if composite <= 0:
             continue
-        ranked.append((composite, score, hydrated))
+        ranked.append((recency, composite, score, hydrated))
 
     curated: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for _, _, item in sorted(ranked, key=lambda entry: (entry[0], entry[1]), reverse=True):
+    sort_key = (
+        (lambda entry: (entry[0], entry[1], entry[2]))
+        if recent_mode
+        else (lambda entry: (entry[1], entry[2], entry[0]))
+    )
+    for _, _, _, item in sorted(ranked, key=sort_key, reverse=True):
         key = _normalized_chunk_key(item)
         if not key or key in seen:
             continue
@@ -1164,25 +1245,18 @@ def build_content_generation_context(
             audience=audience,
             category=category,
             top_k=8,
+            strategy="recent",
         )
-        if content_reservoir_chunks:
-            retrieved_persona_chunks = content_reservoir_chunks
-        else:
-            retrieved_persona_chunks = retrieve_weighted(
-                user_id=user_id,
-                query_embedding=persona_embedding,
-                category=category,
-                channel=content_type,
-                top_k=8,
-            )
+        retrieved_persona_chunks = content_reservoir_chunks
     elif normalized_source_mode == "selected_source":
-        retrieved_persona_chunks = retrieve_weighted(
-            user_id=user_id,
-            query_embedding=persona_embedding,
+        content_reservoir_chunks = retrieve_content_reservoir_chunks(
+            topic=topic,
+            audience=audience,
             category=category,
-            channel=content_type,
             top_k=8,
+            strategy="ranked",
         )
+        retrieved_persona_chunks = content_reservoir_chunks
     persona_chunks = curate_persona_prompt_chunks(
         bundle_chunks=bundle_persona_chunks,
         legacy_support_chunks=legacy_support_chunks,

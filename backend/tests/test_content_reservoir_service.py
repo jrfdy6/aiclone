@@ -19,6 +19,7 @@ class ContentReservoirServiceTests(unittest.TestCase):
                 {
                     "asset_id": "asset-1",
                     "title": "Operator Lessons From A Broken AI Workflow",
+                    "captured_at": "2026-04-02T19:00:00Z",
                     "source_path": "knowledge/ingestions/2026/04/asset-1/normalized.md",
                     "source_url": "https://example.com/operator-lessons",
                     "source_channel": "youtube",
@@ -83,8 +84,10 @@ class ContentReservoirServiceTests(unittest.TestCase):
 
         proof_point = by_text["AI systems fail when operators lose the review layer."]
         self.assertEqual(proof_point["reservoir_lane"], "proof_point")
+        self.assertEqual(proof_point["captured_at"], "2026-04-02T19:00:00Z")
         self.assertEqual(proof_point["metadata"]["memory_role"], "proof")
         self.assertEqual(proof_point["metadata"]["persona_tag"], "PHILOSOPHY")
+        self.assertEqual(proof_point["metadata"]["captured_at"], "2026-04-02T19:00:00Z")
 
         story_bank = by_text["The breakthrough was trust and clarity, not persuasion."]
         self.assertEqual(story_bank["reservoir_lane"], "story_bank")

@@ -72,9 +72,9 @@ const CATEGORY_OPTIONS: { value: ContentCategory; label: string }[] = [
 ];
 
 const CONTENT_SOURCE_OPTIONS: { value: ContentSourceMode; label: string; hint: string }[] = [
-  { value: 'persona_only', label: 'Persona only', hint: 'Generate from Johnnie canon and your prompt, not from a live source.' },
-  { value: 'selected_source', label: 'Selected source', hint: 'Use this source card as the main anchor for the draft.' },
-  { value: 'recent_signals', label: 'Recent signals', hint: 'Blend recent relevant source material into the draft.' },
+  { value: 'persona_only', label: 'Persona only', hint: 'Use Johnnie canon only, with no reservoir or live-source grounding layered in.' },
+  { value: 'selected_source', label: 'Persona + reservoir', hint: 'Keep persona active and pull in the ranked reservoir while this source card shapes the draft topic and context.' },
+  { value: 'recent_signals', label: 'Persona + recent reservoir', hint: 'Keep persona active and pull only the newest reservoir support instead of the broader ranked pool.' },
 ];
 
 function mapAudienceFromLane(lane: string) {
@@ -632,7 +632,7 @@ function PostingWorkspaceClient() {
                 </select>
               </label>
               <label style={{ display: 'grid', gap: '6px' }}>
-                <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Source basis</span>
+                <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Grounding mode</span>
                 <select value={sourceMode} onChange={(event) => setSourceMode(event.target.value as ContentSourceMode)} style={fieldStyle}>
                   {CONTENT_SOURCE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
