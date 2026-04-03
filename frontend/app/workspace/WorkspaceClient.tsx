@@ -37,6 +37,8 @@ type PostingAudience = 'general' | 'education_admissions' | 'tech_ai' | 'leaders
 type ContentCategory = 'value' | 'sales' | 'personal';
 type ContentType = 'cold_email' | 'linkedin_post' | 'linkedin_dm' | 'instagram_post';
 type ContentSourceMode = 'persona_only' | 'selected_source' | 'recent_signals';
+type GroundingMode = 'canon_only' | 'canon_reservoir' | 'canon_recent_reservoir';
+type TopicSourceMode = 'manual' | 'selected_source' | 'suggested_angle';
 
 type VariantEvaluation = {
   lane_distinctiveness?: number;
@@ -213,10 +215,16 @@ const CONTENT_TYPES: { value: ContentType; label: string; icon: string }[] = [
   { value: 'instagram_post', label: 'Instagram Post', icon: '📸' },
 ];
 
-const CONTENT_SOURCE_OPTIONS: { value: ContentSourceMode; label: string; hint: string }[] = [
-  { value: 'persona_only', label: 'Persona only', hint: 'Use Johnnie canon only, with no reservoir or live-source grounding layered in.' },
-  { value: 'selected_source', label: 'Persona + reservoir', hint: 'Keep persona active and pull in the ranked reservoir while the selected feed item shapes the draft topic and context.' },
-  { value: 'recent_signals', label: 'Persona + recent reservoir', hint: 'Keep persona active and pull only the newest reservoir support instead of the broader ranked pool.' },
+const GROUNDING_MODE_OPTIONS: { value: GroundingMode; label: string; hint: string }[] = [
+  { value: 'canon_reservoir', label: 'Canon + reservoir', hint: 'Default writing mode. Keep canon active and pull in the ranked reservoir of stories, proof, and reusable context.' },
+  { value: 'canon_recent_reservoir', label: 'Canon + recent reservoir', hint: 'Keep canon active but bias toward the newest reservoir support when you want a fresher angle.' },
+  { value: 'canon_only', label: 'Canon only', hint: 'Use Johnnie canon only, with no reservoir support layered in.' },
+];
+
+const TOPIC_SOURCE_OPTIONS: { value: TopicSourceMode; label: string; hint: string }[] = [
+  { value: 'manual', label: 'Manual topic', hint: 'Use the topic and context you typed here.' },
+  { value: 'selected_source', label: 'Selected source', hint: 'Use the selected feed source to shape the draft topic and context.' },
+  { value: 'suggested_angle', label: 'Suggested angle', hint: 'Use the top weekly recommendation when you want the system to surface a relevant direction for you.' },
 ];
 
 const POST_MODE_OPTIONS: { id: FeedLensId; label: string }[] = [
@@ -291,6 +299,12 @@ function mapAudienceFromLane(lane: string): PostingAudience {
 
 function buildFallbackText(parts: Array<string | undefined>) {
   return parts.map((part) => (part ?? '').trim()).filter(Boolean).join('\n\n');
+}
+
+function mapGroundingModeToSourceMode(mode: GroundingMode): ContentSourceMode {
+  if (mode === 'canon_only') return 'persona_only';
+  if (mode === 'canon_recent_reservoir') return 'recent_signals';
+  return 'selected_source';
 }
 
 function normalizeFeedLens(value?: string | null): FeedLensId | null {
@@ -484,7 +498,8 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const [topic, setTopic] = useState(querySeed.title || '');
   const [context, setContext] = useState(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]));
   const [audience, setAudience] = useState<PostingAudience>(mapAudienceFromLane(querySeed.priorityLane));
-  const [sourceMode, setSourceMode] = useState<ContentSourceMode>('persona_only');
+  const [groundingMode, setGroundingMode] = useState<GroundingMode>('canon_reservoir');
+  const [topicSourceMode, setTopicSourceMode] = useState<TopicSourceMode>(querySeed.title || querySeed.summary || querySeed.hook ? 'selected_source' : 'manual');
   const [generating, setGenerating] = useState(false);
   const [codexJobId, setCodexJobId] = useState<string | null>(null);
   const [codexJobStatus, setCodexJobStatus] = useState<string | null>(null);
@@ -547,6 +562,8 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     });
     return counts;
   }, [workspaceFiles]);
+  const topRecommendations = (snapshot?.weekly_plan?.recommendations ?? []).slice(0, 3);
+  const effectiveSourceMode = useMemo(() => mapGroundingModeToSourceMode(groundingMode), [groundingMode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -603,6 +620,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     (item: SocialFeedItem, lens?: FeedLensId) => {
       const nextLens = lens ?? resolveFeedLens(item);
       setSelectedFeedId(item.id);
+      setTopicSourceMode('selected_source');
       setTopic(item.title || '');
       setContext(buildPipelineContext(item, nextLens));
       setAudience(mapAudienceFromLane(nextLens));
@@ -625,15 +643,121 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   useEffect(() => {
     if (selectedSignal) return;
     if (feedItems.length > 0) {
+      setTopicSourceMode('selected_source');
       setSelectedFeedId(feedItems[0].id);
       return;
     }
     if (querySeed.title || querySeed.summary || querySeed.hook) {
+      setTopicSourceMode('selected_source');
       setTopic(querySeed.title || '');
       setContext(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]));
       setAudience(mapAudienceFromLane(querySeed.priorityLane));
     }
   }, [feedItems, querySeed, selectedSignal]);
+
+  useEffect(() => {
+    if (topicSourceMode !== 'selected_source') return;
+    if (topic.trim() || context.trim()) return;
+    if (selectedSignal) {
+      const nextLens = resolveFeedLens(selectedSignal);
+      setTopic(selectedSignal.title || '');
+      setContext(buildPipelineContext(selectedSignal, nextLens));
+      if (audience === 'general') {
+        setAudience(mapAudienceFromLane(nextLens));
+      }
+      return;
+    }
+    if (querySeed.title || querySeed.summary || querySeed.hook) {
+      setTopic(querySeed.title || '');
+      setContext(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]));
+      if (audience === 'general') {
+        setAudience(mapAudienceFromLane(querySeed.priorityLane));
+      }
+    }
+  }, [
+    audience,
+    context,
+    querySeed.hook,
+    querySeed.priorityLane,
+    querySeed.routeReason,
+    querySeed.summary,
+    querySeed.title,
+    resolveFeedLens,
+    selectedSignal,
+    topic,
+    topicSourceMode,
+  ]);
+
+  const handleTopicSourceModeChange = useCallback(
+    (nextMode: TopicSourceMode) => {
+      setTopicSourceMode(nextMode);
+      if (nextMode === 'selected_source') {
+        if (selectedSignal) {
+          const nextLens = resolveFeedLens(selectedSignal);
+          setTopic(selectedSignal.title || '');
+          setContext(buildPipelineContext(selectedSignal, nextLens));
+          setAudience(mapAudienceFromLane(nextLens));
+          return;
+        }
+        if (querySeed.title || querySeed.summary || querySeed.hook) {
+          setTopic(querySeed.title || '');
+          setContext(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]));
+          setAudience(mapAudienceFromLane(querySeed.priorityLane));
+        }
+        return;
+      }
+      if (nextMode === 'suggested_angle') {
+        const suggested = topRecommendations[0];
+        if (suggested) {
+          setTopic(suggested.title || '');
+          setContext(buildFallbackText([suggested.summary, suggested.hook]));
+          if (suggested.priority_lane) {
+            setAudience(mapAudienceFromLane(suggested.priority_lane));
+          }
+        }
+      }
+    },
+    [querySeed.hook, querySeed.priorityLane, querySeed.summary, querySeed.title, resolveFeedLens, selectedSignal, topRecommendations],
+  );
+
+  const resolveGenerationSeed = useCallback(() => {
+    if (topicSourceMode === 'selected_source') {
+      const selectedLens = selectedSignal ? resolveFeedLens(selectedSignal) : null;
+      const selectedTopic = selectedSignal?.title || querySeed.title;
+      const selectedContext =
+        (selectedSignal && selectedLens ? buildPipelineContext(selectedSignal, selectedLens) : '') ||
+        buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]);
+      return {
+        topicToSend: topic || selectedTopic || 'operator insight',
+        contextToSend: context || selectedContext || '',
+      };
+    }
+    if (topicSourceMode === 'suggested_angle') {
+      const suggested = topRecommendations[0];
+      return {
+        topicToSend: topic || suggested?.title || selectedSignal?.title || querySeed.title || 'operator insight',
+        contextToSend:
+          context ||
+          buildFallbackText([suggested?.summary, suggested?.hook]) ||
+          buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]),
+      };
+    }
+    return {
+      topicToSend: topic || 'operator insight',
+      contextToSend: context || '',
+    };
+  }, [
+    context,
+    querySeed.hook,
+    querySeed.routeReason,
+    querySeed.summary,
+    querySeed.title,
+    resolveFeedLens,
+    selectedSignal,
+    topRecommendations,
+    topic,
+    topicSourceMode,
+  ]);
 
   const waitForFeedRefresh = useCallback(async () => {
     for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -726,14 +850,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     setGeneratedOptionBriefs([]);
     setGeneratedSupportItems([]);
     try {
-      const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
-      const topicToSend = sourceAttached
-        ? topic || selectedSignal?.title || 'operator insight'
-        : topic || 'operator insight';
-      const contextToSend = sourceAttached
-        ? context ||
-          (selectedSignal ? buildPipelineContext(selectedSignal, resolveFeedLens(selectedSignal)) : buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]))
-        : context || '';
+      const { topicToSend, contextToSend } = resolveGenerationSeed();
       const response = await apiPost<GeneratedContentResponse>('/api/content-generation/generate', {
         user_id: 'johnnie_fields',
         topic: topicToSend,
@@ -742,7 +859,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         category: activeCategory,
         tone: 'expert_direct',
         audience,
-        source_mode: sourceMode,
+        source_mode: effectiveSourceMode,
       });
       applyGeneratedResponse(response);
     } catch (error) {
@@ -750,7 +867,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     } finally {
       setGenerating(false);
     }
-  }, [activeCategory, applyGeneratedResponse, audience, context, generatorType, querySeed.hook, querySeed.routeReason, querySeed.summary, resolveFeedLens, selectedSignal, sourceMode, topic]);
+  }, [activeCategory, applyGeneratedResponse, audience, effectiveSourceMode, generatorType, resolveGenerationSeed]);
 
   const generateContentWithCodex = useCallback(async () => {
     setGenerating(false);
@@ -762,14 +879,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     setGeneratedSupportItems([]);
     setProviderTrace('codex_terminal · queued');
     try {
-      const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
-      const topicToSend = sourceAttached
-        ? topic || selectedSignal?.title || 'operator insight'
-        : topic || 'operator insight';
-      const contextToSend = sourceAttached
-        ? context ||
-          (selectedSignal ? buildPipelineContext(selectedSignal, resolveFeedLens(selectedSignal)) : buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]))
-        : context || '';
+      const { topicToSend, contextToSend } = resolveGenerationSeed();
       const response = await apiPost<LocalCodexJobCreateResponse>('/api/content-generation/codex-jobs', {
         user_id: 'johnnie_fields',
         topic: topicToSend,
@@ -778,7 +888,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         category: activeCategory,
         tone: 'expert_direct',
         audience,
-        source_mode: sourceMode,
+        source_mode: effectiveSourceMode,
         workspace_slug: 'linkedin-content-os',
       });
       if (!response?.job_id) {
@@ -794,7 +904,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
       setCodexJobError(error instanceof Error ? error.message : 'Unable to queue Codex generation right now.');
       setProviderTrace(null);
     }
-  }, [activeCategory, audience, context, generatorType, querySeed.hook, querySeed.routeReason, querySeed.summary, resolveFeedLens, selectedSignal, sourceMode, topic]);
+  }, [activeCategory, audience, effectiveSourceMode, generatorType, resolveGenerationSeed]);
 
   const cancelCodexJob = useCallback(async () => {
     if (!codexJobId) return;
@@ -856,6 +966,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
 
   const promoteGeneratedFragment = useCallback(
     async (fragmentText: string, optionText: string, optionIndex: number) => {
+      const { topicToSend } = resolveGenerationSeed();
       const fragmentKey = `${optionIndex}:${fragmentText}`;
       setPromotingFragmentKey(fragmentKey);
       setBrainPromotionStatus(`Saving "${fragmentText.slice(0, 48)}..." to Brain...`);
@@ -865,11 +976,11 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
           fragment_text: fragmentText,
           option_text: optionText,
           option_index: optionIndex,
-          topic: topic || selectedSignal?.title || 'operator insight',
+          topic: topicToSend,
           audience,
           category: activeCategory,
           content_type: generatorType,
-          source_mode: sourceMode,
+          source_mode: effectiveSourceMode,
           support_items: generatedSupportItems,
           option_brief: generatedOptionBriefs[optionIndex] ?? null,
         });
@@ -887,7 +998,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         setPromotingFragmentKey(null);
       }
     },
-    [activeCategory, audience, generatedOptionBriefs, generatedSupportItems, generatorType, selectedSignal?.title, sourceMode, topic],
+    [activeCategory, audience, effectiveSourceMode, generatedOptionBriefs, generatedSupportItems, generatorType, resolveGenerationSeed],
   );
 
   const promoteWorkspaceFragment = useCallback(
@@ -1062,7 +1173,6 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     }
   }
 
-  const topRecommendations = (snapshot?.weekly_plan?.recommendations ?? []).slice(0, 3);
   const codexInFlight = Boolean(codexJobId) && !['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '');
   const codexTerminalCompleted = codexJobStatus === 'completed';
   const codexJobTone = codexJobStatusTone(codexJobStatus);
@@ -1228,19 +1338,34 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                   </select>
                 </label>
               </div>
-              <div style={{ display: 'grid', gap: '6px', marginBottom: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px', marginBottom: '16px' }}>
                 <label style={fieldWrapStyle}>
-                  <span style={fieldLabelStyle}>Grounding mode</span>
-                  <select value={sourceMode} onChange={(event) => setSourceMode(event.target.value as ContentSourceMode)} style={fieldStyle}>
-                    {CONTENT_SOURCE_OPTIONS.map((option) => (
+                  <span style={fieldLabelStyle}>Topic source</span>
+                  <select value={topicSourceMode} onChange={(event) => handleTopicSourceModeChange(event.target.value as TopicSourceMode)} style={fieldStyle}>
+                    {TOPIC_SOURCE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
                 </label>
+                <label style={fieldWrapStyle}>
+                  <span style={fieldLabelStyle}>Grounding mode</span>
+                  <select value={groundingMode} onChange={(event) => setGroundingMode(event.target.value as GroundingMode)} style={fieldStyle}>
+                    {GROUNDING_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'grid', gap: '6px', marginBottom: '16px' }}>
                 <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
-                  {CONTENT_SOURCE_OPTIONS.find((option) => option.value === sourceMode)?.hint}
+                  {TOPIC_SOURCE_OPTIONS.find((option) => option.value === topicSourceMode)?.hint}
+                </p>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                  {GROUNDING_MODE_OPTIONS.find((option) => option.value === groundingMode)?.hint}
                 </p>
               </div>
 

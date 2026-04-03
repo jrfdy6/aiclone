@@ -24,6 +24,8 @@ import PromotableInlineText from '@/app/workspace/PromotableInlineText';
 type PostingMode = 'post' | 'comment';
 type ContentCategory = 'value' | 'sales' | 'personal';
 type ContentSourceMode = 'persona_only' | 'selected_source' | 'recent_signals';
+type GroundingMode = 'canon_only' | 'canon_reservoir' | 'canon_recent_reservoir';
+type TopicSourceMode = 'manual' | 'source_card';
 
 type PreviewVariant = {
   comment?: string;
@@ -71,10 +73,15 @@ const CATEGORY_OPTIONS: { value: ContentCategory; label: string }[] = [
   { value: 'personal', label: 'Personal' },
 ];
 
-const CONTENT_SOURCE_OPTIONS: { value: ContentSourceMode; label: string; hint: string }[] = [
-  { value: 'persona_only', label: 'Persona only', hint: 'Use Johnnie canon only, with no reservoir or live-source grounding layered in.' },
-  { value: 'selected_source', label: 'Persona + reservoir', hint: 'Keep persona active and pull in the ranked reservoir while this source card shapes the draft topic and context.' },
-  { value: 'recent_signals', label: 'Persona + recent reservoir', hint: 'Keep persona active and pull only the newest reservoir support instead of the broader ranked pool.' },
+const GROUNDING_MODE_OPTIONS: { value: GroundingMode; label: string; hint: string }[] = [
+  { value: 'canon_reservoir', label: 'Canon + reservoir', hint: 'Default writing mode. Keep canon active and pull in the ranked reservoir of stories, proof, and reusable context.' },
+  { value: 'canon_recent_reservoir', label: 'Canon + recent reservoir', hint: 'Keep canon active but bias toward the newest reservoir support when you want a fresher angle.' },
+  { value: 'canon_only', label: 'Canon only', hint: 'Use Johnnie canon only, with no reservoir support layered in.' },
+];
+
+const TOPIC_SOURCE_OPTIONS: { value: TopicSourceMode; label: string; hint: string }[] = [
+  { value: 'source_card', label: 'Source card', hint: 'Use this source card to shape the topic and context before generation.' },
+  { value: 'manual', label: 'Manual topic', hint: 'Use the topic and context you typed here.' },
 ];
 
 function mapAudienceFromLane(lane: string) {
@@ -94,6 +101,12 @@ function normalizeCommentLane(lane: string) {
 
 function buildFallbackCommentText(parts: string[]) {
   return parts.map((part) => part.trim()).filter(Boolean).join('\n\n');
+}
+
+function mapGroundingModeToSourceMode(mode: GroundingMode): ContentSourceMode {
+  if (mode === 'canon_only') return 'persona_only';
+  if (mode === 'canon_recent_reservoir') return 'recent_signals';
+  return 'selected_source';
 }
 
 function copyToClipboard(text: string) {
@@ -141,8 +154,9 @@ function PostingWorkspaceClient() {
     buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason]),
   );
   const [audience, setAudience] = useState(mapAudienceFromLane(initialQuery.priorityLane));
-  const [sourceMode, setSourceMode] = useState<ContentSourceMode>(
-    initialQuery.title || initialQuery.sourceUrl || initialQuery.summary ? 'selected_source' : 'persona_only',
+  const [groundingMode, setGroundingMode] = useState<GroundingMode>('canon_reservoir');
+  const [topicSourceMode, setTopicSourceMode] = useState<TopicSourceMode>(
+    initialQuery.title || initialQuery.sourceUrl || initialQuery.summary ? 'source_card' : 'manual',
   );
   const [category, setCategory] = useState<ContentCategory>('value');
   const [commentLane, setCommentLane] = useState(normalizeCommentLane(initialQuery.priorityLane));
@@ -171,7 +185,8 @@ function PostingWorkspaceClient() {
     setTopic(initialQuery.title);
     setContext(buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason]));
     setAudience(mapAudienceFromLane(initialQuery.priorityLane));
-    setSourceMode(initialQuery.title || initialQuery.sourceUrl || initialQuery.summary ? 'selected_source' : 'persona_only');
+    setGroundingMode('canon_reservoir');
+    setTopicSourceMode(initialQuery.title || initialQuery.sourceUrl || initialQuery.summary ? 'source_card' : 'manual');
     setCommentLane(normalizeCommentLane(initialQuery.priorityLane));
     setPostOptions([]);
     setCommentPreview(null);
@@ -187,6 +202,33 @@ function PostingWorkspaceClient() {
     setBrainPromotionStatus(null);
     setPromotingFragmentKey(null);
   }, [initialQuery]);
+
+  const effectiveSourceMode = useMemo(() => mapGroundingModeToSourceMode(groundingMode), [groundingMode]);
+
+  const handleTopicSourceModeChange = useCallback(
+    (nextMode: TopicSourceMode) => {
+      setTopicSourceMode(nextMode);
+      if (nextMode === 'source_card') {
+        setTopic(initialQuery.title);
+        setContext(buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason]));
+        setAudience(mapAudienceFromLane(initialQuery.priorityLane));
+      }
+    },
+    [initialQuery.hook, initialQuery.priorityLane, initialQuery.routeReason, initialQuery.summary, initialQuery.title],
+  );
+
+  const resolvePostInputs = useCallback(() => {
+    if (topicSourceMode === 'source_card') {
+      return {
+        topicToSend: topic || initialQuery.title || 'operator insight',
+        contextToSend: context || buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason]),
+      };
+    }
+    return {
+      topicToSend: topic || 'operator insight',
+      contextToSend: context || '',
+    };
+  }, [context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, topic, topicSourceMode]);
 
   const applyGeneratedResponse = useCallback((response: GeneratedContentResponse) => {
     const options = Array.isArray(response?.options) ? response.options.filter((option) => typeof option === 'string' && option.trim().length > 0) : [];
@@ -214,11 +256,7 @@ function PostingWorkspaceClient() {
     setPostOptionBriefs([]);
     setPostSupportItems([]);
     try {
-      const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
-      const topicToSend = sourceAttached ? topic || initialQuery.title || 'operator insight' : topic || 'operator insight';
-      const contextToSend = sourceAttached
-        ? context || buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason])
-        : context || '';
+      const { topicToSend, contextToSend } = resolvePostInputs();
       const response = await apiPost<GeneratedContentResponse>('/api/content-generation/generate', {
         user_id: 'johnnie_fields',
         topic: topicToSend,
@@ -227,7 +265,7 @@ function PostingWorkspaceClient() {
         category,
         tone: 'expert_direct',
         audience,
-        source_mode: sourceMode,
+        source_mode: effectiveSourceMode,
       });
       applyGeneratedResponse(response);
     } catch (error) {
@@ -235,7 +273,7 @@ function PostingWorkspaceClient() {
     } finally {
       setPostLoading(false);
     }
-  }, [applyGeneratedResponse, audience, category, context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, sourceMode, topic]);
+  }, [applyGeneratedResponse, audience, category, effectiveSourceMode, resolvePostInputs]);
 
   const handleGeneratePostWithCodex = useCallback(async () => {
     setPostLoading(false);
@@ -247,11 +285,7 @@ function PostingWorkspaceClient() {
     setPostSupportItems([]);
     setProviderTrace('codex_terminal · queued');
     try {
-      const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
-      const topicToSend = sourceAttached ? topic || initialQuery.title || 'operator insight' : topic || 'operator insight';
-      const contextToSend = sourceAttached
-        ? context || buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason])
-        : context || '';
+      const { topicToSend, contextToSend } = resolvePostInputs();
       const response = await apiPost<LocalCodexJobCreateResponse>('/api/content-generation/codex-jobs', {
         user_id: 'johnnie_fields',
         topic: topicToSend,
@@ -260,7 +294,7 @@ function PostingWorkspaceClient() {
         category,
         tone: 'expert_direct',
         audience,
-        source_mode: sourceMode,
+        source_mode: effectiveSourceMode,
         workspace_slug: 'linkedin-content-os',
       });
       if (!response?.job_id) {
@@ -276,7 +310,7 @@ function PostingWorkspaceClient() {
       setCodexJobError(error instanceof Error ? error.message : 'Unable to queue Codex generation right now.');
       setProviderTrace(null);
     }
-  }, [audience, category, context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, sourceMode, topic]);
+  }, [audience, category, effectiveSourceMode, resolvePostInputs]);
 
   const cancelCodexJob = useCallback(async () => {
     if (!codexJobId) return;
@@ -337,6 +371,7 @@ function PostingWorkspaceClient() {
 
   const handlePromoteFragment = useCallback(
     async (fragmentText: string, optionText: string, optionIndex: number) => {
+      const { topicToSend } = resolvePostInputs();
       const fragmentKey = `${optionIndex}:${fragmentText}`;
       setPromotingFragmentKey(fragmentKey);
       setBrainPromotionStatus(`Saving "${fragmentText.slice(0, 48)}..." to Brain...`);
@@ -346,11 +381,11 @@ function PostingWorkspaceClient() {
           fragment_text: fragmentText,
           option_text: optionText,
           option_index: optionIndex,
-          topic: topic || initialQuery.title || 'operator insight',
+          topic: topicToSend,
           audience,
           category,
           content_type: 'linkedin_post',
-          source_mode: sourceMode,
+          source_mode: effectiveSourceMode,
           support_items: postSupportItems,
           option_brief: postOptionBriefs[optionIndex] ?? null,
         });
@@ -368,7 +403,7 @@ function PostingWorkspaceClient() {
         setPromotingFragmentKey(null);
       }
     },
-    [audience, category, initialQuery.title, postOptionBriefs, postSupportItems, sourceMode, topic],
+    [audience, category, effectiveSourceMode, postOptionBriefs, postSupportItems, resolvePostInputs],
   );
 
   const handlePromoteSurfaceFragment = useCallback(
@@ -397,7 +432,7 @@ function PostingWorkspaceClient() {
           audience,
           category,
           content_type: 'linkedin_post',
-          source_mode: sourceMode,
+          source_mode: effectiveSourceMode,
           support_items: supportItems,
           option_brief: null,
         });
@@ -415,7 +450,7 @@ function PostingWorkspaceClient() {
         setPromotingFragmentKey(null);
       }
     },
-    [audience, category, initialQuery.title, sourceMode, topic],
+    [audience, category, effectiveSourceMode, initialQuery.title, topic],
   );
 
   const handleUndoPromotedFragment = useCallback(async (deltaId: string) => {
@@ -620,7 +655,7 @@ function PostingWorkspaceClient() {
               <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Topic</span>
               <input value={topic} onChange={(event) => setTopic(event.target.value)} style={fieldStyle} />
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px' }}>
               <label style={{ display: 'grid', gap: '6px' }}>
                 <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Audience</span>
                 <select value={audience} onChange={(event) => setAudience(event.target.value)} style={fieldStyle}>
@@ -632,9 +667,19 @@ function PostingWorkspaceClient() {
                 </select>
               </label>
               <label style={{ display: 'grid', gap: '6px' }}>
+                <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Topic source</span>
+                <select value={topicSourceMode} onChange={(event) => handleTopicSourceModeChange(event.target.value as TopicSourceMode)} style={fieldStyle}>
+                  {TOPIC_SOURCE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: 'grid', gap: '6px' }}>
                 <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Grounding mode</span>
-                <select value={sourceMode} onChange={(event) => setSourceMode(event.target.value as ContentSourceMode)} style={fieldStyle}>
-                  {CONTENT_SOURCE_OPTIONS.map((option) => (
+                <select value={groundingMode} onChange={(event) => setGroundingMode(event.target.value as GroundingMode)} style={fieldStyle}>
+                  {GROUNDING_MODE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -652,9 +697,14 @@ function PostingWorkspaceClient() {
                 </select>
               </label>
             </div>
-            <p style={{ color: '#64748b', fontSize: '12px', margin: '-4px 0 0' }}>
-              {CONTENT_SOURCE_OPTIONS.find((option) => option.value === sourceMode)?.hint}
-            </p>
+            <div style={{ display: 'grid', gap: '4px', marginTop: '-4px' }}>
+              <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                {TOPIC_SOURCE_OPTIONS.find((option) => option.value === topicSourceMode)?.hint}
+              </p>
+              <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                {GROUNDING_MODE_OPTIONS.find((option) => option.value === groundingMode)?.hint}
+              </p>
+            </div>
             <label style={{ display: 'grid', gap: '6px' }}>
               <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Context</span>
               <textarea value={context} onChange={(event) => setContext(event.target.value)} rows={8} style={textareaStyle} />
