@@ -11,6 +11,8 @@ import {
   GeneratedFragmentPromotionResult,
   GeneratedFragmentPromotionResponse,
   GeneratedOptionBrief,
+  LocalCodexJobCreateResponse,
+  LocalCodexJobStatusResponse,
   UndoGeneratedFragmentPromotionResponse,
   humanizeBrainTargetLabel,
 } from '@/app/workspace/generatedFragmentUtils';
@@ -481,6 +483,9 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const [audience, setAudience] = useState<PostingAudience>(mapAudienceFromLane(querySeed.priorityLane));
   const [sourceMode, setSourceMode] = useState<ContentSourceMode>('persona_only');
   const [generating, setGenerating] = useState(false);
+  const [codexJobId, setCodexJobId] = useState<string | null>(null);
+  const [codexJobStatus, setCodexJobStatus] = useState<string | null>(null);
+  const [codexJobError, setCodexJobError] = useState<string | null>(null);
   const [generatedContent, setGeneratedContent] = useState<string[]>([]);
   const [generatedOptionBriefs, setGeneratedOptionBriefs] = useState<GeneratedOptionBrief[]>([]);
   const [generatedSupportItems, setGeneratedSupportItems] = useState<ContentReservoirSupportItem[]>([]);
@@ -602,6 +607,9 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
       setGeneratedOptionBriefs([]);
       setGeneratedSupportItems([]);
       setGeneratorError(null);
+      setCodexJobId(null);
+      setCodexJobStatus(null);
+      setCodexJobError(null);
       setProviderTrace(null);
       setBrainPromotionStatus(null);
       setPromotingFragmentKey(null);
@@ -688,9 +696,29 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     }
   }, [ingestPriority, ingestText, ingestTitle, ingestUrl, selectSignalForPipeline]);
 
+  const applyGeneratedResponse = useCallback((response: GeneratedContentResponse) => {
+    const options = Array.isArray(response.options) ? response.options.filter((option) => typeof option === 'string' && option.trim()) : [];
+    setGeneratedContent(options);
+    setGeneratedOptionBriefs(Array.isArray(response.diagnostics?.planned_option_briefs) ? response.diagnostics.planned_option_briefs : []);
+    setGeneratedSupportItems(Array.isArray(response.diagnostics?.content_reservoir_support) ? response.diagnostics.content_reservoir_support : []);
+    const trace = (response.diagnostics?.llm_provider_trace ?? [])
+      .map((item) => [item.provider, item.actual_model, item.status].filter(Boolean).join(' · '))
+      .join(' → ');
+    setProviderTrace(trace || null);
+    setBrainPromotionStatus(null);
+    if (options.length === 0) {
+      setGeneratorError('No options were returned.');
+      return;
+    }
+    setGeneratorError(null);
+  }, []);
+
   const generateContent = useCallback(async () => {
     setGenerating(true);
     setGeneratorError(null);
+    setCodexJobId(null);
+    setCodexJobStatus(null);
+    setCodexJobError(null);
     setGeneratedOptionBriefs([]);
     setGeneratedSupportItems([]);
     try {
@@ -712,24 +740,96 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         audience,
         source_mode: sourceMode,
       });
-      const options = Array.isArray(response.options) ? response.options.filter((option) => typeof option === 'string' && option.trim()) : [];
-      setGeneratedContent(options);
-      setGeneratedOptionBriefs(Array.isArray(response.diagnostics?.planned_option_briefs) ? response.diagnostics.planned_option_briefs : []);
-      setGeneratedSupportItems(Array.isArray(response.diagnostics?.content_reservoir_support) ? response.diagnostics.content_reservoir_support : []);
-      const trace = (response.diagnostics?.llm_provider_trace ?? [])
-        .map((item) => [item.provider, item.actual_model, item.status].filter(Boolean).join(' · '))
-        .join(' → ');
-      setProviderTrace(trace || null);
-      setBrainPromotionStatus(null);
-      if (options.length === 0) {
-        setGeneratorError('No options were returned.');
-      }
+      applyGeneratedResponse(response);
     } catch (error) {
       setGeneratorError(error instanceof Error ? error.message : 'Unable to generate content right now.');
     } finally {
       setGenerating(false);
     }
+  }, [activeCategory, applyGeneratedResponse, audience, context, generatorType, querySeed.hook, querySeed.routeReason, querySeed.summary, resolveFeedLens, selectedSignal, sourceMode, topic]);
+
+  const generateContentWithCodex = useCallback(async () => {
+    setGenerating(false);
+    setGeneratorError(null);
+    setCodexJobError(null);
+    setGeneratedContent([]);
+    setGeneratedOptionBriefs([]);
+    setGeneratedSupportItems([]);
+    setProviderTrace('codex_terminal · queued');
+    try {
+      const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
+      const topicToSend = sourceAttached
+        ? topic || selectedSignal?.title || 'operator insight'
+        : topic || 'operator insight';
+      const contextToSend = sourceAttached
+        ? context ||
+          (selectedSignal ? buildPipelineContext(selectedSignal, resolveFeedLens(selectedSignal)) : buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason]))
+        : context || '';
+      const response = await apiPost<LocalCodexJobCreateResponse>('/api/content-generation/codex-jobs', {
+        user_id: 'johnnie_fields',
+        topic: topicToSend,
+        context: contextToSend,
+        content_type: generatorType,
+        category: activeCategory,
+        tone: 'expert_direct',
+        audience,
+        source_mode: sourceMode,
+        workspace_slug: 'linkedin-content-os',
+      });
+      if (!response?.job_id) {
+        throw new Error(response?.message || 'Codex job did not return an id.');
+      }
+      setCodexJobId(response.job_id);
+      setCodexJobStatus(response.status || 'pending');
+      setCodexJobError(null);
+      setBrainPromotionStatus(null);
+    } catch (error) {
+      setCodexJobId(null);
+      setCodexJobStatus(null);
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to queue Codex generation right now.');
+      setProviderTrace(null);
+    }
   }, [activeCategory, audience, context, generatorType, querySeed.hook, querySeed.routeReason, querySeed.summary, resolveFeedLens, selectedSignal, sourceMode, topic]);
+
+  useEffect(() => {
+    if (!codexJobId || ['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '')) {
+      return;
+    }
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const response = await apiGet<LocalCodexJobStatusResponse>(`/api/content-generation/codex-jobs/${codexJobId}`);
+        if (cancelled) return;
+        const nextStatus = response?.status || 'pending';
+        setCodexJobStatus(nextStatus);
+        if (nextStatus === 'completed' && response.result) {
+          applyGeneratedResponse(response.result);
+          setCodexJobError(null);
+          return;
+        }
+        if (nextStatus === 'failed' || nextStatus === 'canceled') {
+          setCodexJobError(response?.error_message || 'Codex terminal generation failed.');
+          setGeneratorError(response?.error_message || 'Codex terminal generation failed.');
+          return;
+        }
+        setProviderTrace(nextStatus === 'running' ? 'codex_terminal · running' : 'codex_terminal · queued');
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : 'Unable to poll Codex job status right now.';
+        setCodexJobError(message);
+      }
+    };
+
+    void poll();
+    const intervalId = window.setInterval(() => {
+      void poll();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [applyGeneratedResponse, codexJobId, codexJobStatus]);
 
   const promoteGeneratedFragment = useCallback(
     async (fragmentText: string, optionText: string, optionIndex: number) => {
@@ -940,6 +1040,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   }
 
   const topRecommendations = (snapshot?.weekly_plan?.recommendations ?? []).slice(0, 3);
+  const codexInFlight = Boolean(codexJobId) && !['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '');
 
   const content = (
     <section style={{ display: 'grid', gap: '20px' }}>
@@ -1118,11 +1219,22 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                 </p>
               </div>
 
-              <button onClick={() => void generateContent()} disabled={generating} style={primaryActionStyle('#38bdf8')}>
-                {generating ? 'Generating…' : 'Generate Options'}
-              </button>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button onClick={() => void generateContent()} disabled={generating || codexInFlight} style={primaryActionStyle('#38bdf8')}>
+                  {generating ? 'Generating…' : 'Generate Options'}
+                </button>
+                <button onClick={() => void generateContentWithCodex()} disabled={generating || codexInFlight} style={primaryActionStyle('#f97316')}>
+                  {codexInFlight ? 'Writing With Codex…' : 'Generate With Codex Terminal'}
+                </button>
+              </div>
               {providerTrace && <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '12px' }}>Model trace: {providerTrace}</p>}
               {generatorError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{generatorError}</p>}
+              {codexJobStatus && (
+                <p style={{ color: codexJobStatus === 'completed' ? '#34d399' : codexJobStatus === 'failed' || codexJobStatus === 'canceled' ? '#f87171' : '#fbbf24', fontSize: '12px', marginTop: '12px' }}>
+                  Codex terminal status: {codexJobStatus}
+                </p>
+              )}
+              {codexJobError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{codexJobError}</p>}
               {brainPromotionStatus && (
                 <p style={{ color: brainPromotionLooksErrored(brainPromotionStatus) ? '#f87171' : '#34d399', fontSize: '12px', marginTop: '12px' }}>
                   {brainPromotionStatus}

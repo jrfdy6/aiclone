@@ -4,13 +4,15 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { apiPost } from '@/lib/api-client';
+import { apiGet, apiPost } from '@/lib/api-client';
 import {
   ContentReservoirSupportItem,
   GeneratedContentResponse,
   GeneratedFragmentPromotionResult,
   GeneratedFragmentPromotionResponse,
   GeneratedOptionBrief,
+  LocalCodexJobCreateResponse,
+  LocalCodexJobStatusResponse,
   UndoGeneratedFragmentPromotionResponse,
   humanizeBrainTargetLabel,
 } from '@/app/workspace/generatedFragmentUtils';
@@ -142,6 +144,9 @@ function PostingWorkspaceClient() {
   const [category, setCategory] = useState<ContentCategory>('value');
   const [commentLane, setCommentLane] = useState(normalizeCommentLane(initialQuery.priorityLane));
   const [postLoading, setPostLoading] = useState(false);
+  const [codexJobId, setCodexJobId] = useState<string | null>(null);
+  const [codexJobStatus, setCodexJobStatus] = useState<string | null>(null);
+  const [codexJobError, setCodexJobError] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
   const [postOptions, setPostOptions] = useState<string[]>([]);
   const [postOptionBriefs, setPostOptionBriefs] = useState<GeneratedOptionBrief[]>([]);
@@ -167,6 +172,9 @@ function PostingWorkspaceClient() {
     setPostOptions([]);
     setCommentPreview(null);
     setPostError(null);
+    setCodexJobId(null);
+    setCodexJobStatus(null);
+    setCodexJobError(null);
     setCommentError(null);
     setProviderTrace(null);
     setPostOptionBriefs([]);
@@ -176,9 +184,29 @@ function PostingWorkspaceClient() {
     setPromotingFragmentKey(null);
   }, [initialQuery]);
 
+  const applyGeneratedResponse = useCallback((response: GeneratedContentResponse) => {
+    const options = Array.isArray(response?.options) ? response.options.filter((option) => typeof option === 'string' && option.trim().length > 0) : [];
+    setPostOptions(options);
+    setPostOptionBriefs(Array.isArray(response?.diagnostics?.planned_option_briefs) ? response.diagnostics.planned_option_briefs : []);
+    setPostSupportItems(Array.isArray(response?.diagnostics?.content_reservoir_support) ? response.diagnostics.content_reservoir_support : []);
+    const trace = (response?.diagnostics?.llm_provider_trace ?? [])
+      .map((item) => [item.provider, item.actual_model, item.status].filter(Boolean).join(' · '))
+      .join(' → ');
+    setProviderTrace(trace || null);
+    setBrainPromotionStatus(null);
+    if (options.length === 0) {
+      setPostError('No post options were returned.');
+      return;
+    }
+    setPostError(null);
+  }, []);
+
   const handleGeneratePost = useCallback(async () => {
     setPostLoading(true);
     setPostError(null);
+    setCodexJobId(null);
+    setCodexJobStatus(null);
+    setCodexJobError(null);
     setPostOptionBriefs([]);
     setPostSupportItems([]);
     try {
@@ -197,24 +225,92 @@ function PostingWorkspaceClient() {
         audience,
         source_mode: sourceMode,
       });
-      const options = Array.isArray(response?.options) ? response.options.filter((option) => typeof option === 'string' && option.trim().length > 0) : [];
-      setPostOptions(options);
-      setPostOptionBriefs(Array.isArray(response?.diagnostics?.planned_option_briefs) ? response.diagnostics.planned_option_briefs : []);
-      setPostSupportItems(Array.isArray(response?.diagnostics?.content_reservoir_support) ? response.diagnostics.content_reservoir_support : []);
-      const trace = (response?.diagnostics?.llm_provider_trace ?? [])
-        .map((item) => [item.provider, item.actual_model, item.status].filter(Boolean).join(' · '))
-        .join(' → ');
-      setProviderTrace(trace || null);
-      setBrainPromotionStatus(null);
-      if (options.length === 0) {
-        setPostError('No post options were returned.');
-      }
+      applyGeneratedResponse(response);
     } catch (error) {
       setPostError(error instanceof Error ? error.message : 'Unable to generate post options right now.');
     } finally {
       setPostLoading(false);
     }
+  }, [applyGeneratedResponse, audience, category, context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, sourceMode, topic]);
+
+  const handleGeneratePostWithCodex = useCallback(async () => {
+    setPostLoading(false);
+    setPostError(null);
+    setCodexJobError(null);
+    setPostOptions([]);
+    setPostOptionBriefs([]);
+    setPostSupportItems([]);
+    setProviderTrace('codex_terminal · queued');
+    try {
+      const sourceAttached = sourceMode === 'selected_source' || sourceMode === 'recent_signals';
+      const topicToSend = sourceAttached ? topic || initialQuery.title || 'operator insight' : topic || 'operator insight';
+      const contextToSend = sourceAttached
+        ? context || buildFallbackCommentText([initialQuery.summary, initialQuery.hook, initialQuery.routeReason])
+        : context || '';
+      const response = await apiPost<LocalCodexJobCreateResponse>('/api/content-generation/codex-jobs', {
+        user_id: 'johnnie_fields',
+        topic: topicToSend,
+        context: contextToSend,
+        content_type: 'linkedin_post',
+        category,
+        tone: 'expert_direct',
+        audience,
+        source_mode: sourceMode,
+        workspace_slug: 'linkedin-content-os',
+      });
+      if (!response?.job_id) {
+        throw new Error(response?.message || 'Codex job did not return an id.');
+      }
+      setCodexJobId(response.job_id);
+      setCodexJobStatus(response.status || 'pending');
+      setCodexJobError(null);
+      setBrainPromotionStatus(null);
+    } catch (error) {
+      setCodexJobId(null);
+      setCodexJobStatus(null);
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to queue Codex generation right now.');
+      setProviderTrace(null);
+    }
   }, [audience, category, context, initialQuery.hook, initialQuery.routeReason, initialQuery.summary, initialQuery.title, sourceMode, topic]);
+
+  useEffect(() => {
+    if (!codexJobId || ['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '')) {
+      return;
+    }
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const response = await apiGet<LocalCodexJobStatusResponse>(`/api/content-generation/codex-jobs/${codexJobId}`);
+        if (cancelled) return;
+        const nextStatus = response?.status || 'pending';
+        setCodexJobStatus(nextStatus);
+        if (nextStatus === 'completed' && response.result) {
+          applyGeneratedResponse(response.result);
+          setCodexJobError(null);
+          return;
+        }
+        if (nextStatus === 'failed' || nextStatus === 'canceled') {
+          setCodexJobError(response?.error_message || 'Codex terminal generation failed.');
+          setPostError(response?.error_message || 'Codex terminal generation failed.');
+          return;
+        }
+        setProviderTrace(nextStatus === 'running' ? 'codex_terminal · running' : 'codex_terminal · queued');
+      } catch (error) {
+        if (cancelled) return;
+        setCodexJobError(error instanceof Error ? error.message : 'Unable to poll Codex job status right now.');
+      }
+    };
+
+    void poll();
+    const intervalId = window.setInterval(() => {
+      void poll();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [applyGeneratedResponse, codexJobId, codexJobStatus]);
 
   const handlePromoteFragment = useCallback(
     async (fragmentText: string, optionText: string, optionIndex: number) => {
@@ -379,6 +475,7 @@ function PostingWorkspaceClient() {
   const commentDraft = previewVariant?.comment?.trim() || commentPreview?.comment_draft?.trim() || '';
   const shortComment = previewVariant?.short_comment?.trim() || '';
   const repostDraft = previewVariant?.repost?.trim() || commentPreview?.repost_draft?.trim() || '';
+  const codexInFlight = Boolean(codexJobId) && !['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '');
 
   return (
     <RuntimePage module="ops" tabs={tabs} maxWidth="1420px">
@@ -538,11 +635,20 @@ function PostingWorkspaceClient() {
               <textarea value={context} onChange={(event) => setContext(event.target.value)} rows={8} style={textareaStyle} />
             </label>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => void handleGeneratePost()} disabled={postLoading} style={primaryButtonStyle('#38bdf8')}>
+              <button onClick={() => void handleGeneratePost()} disabled={postLoading || codexInFlight} style={primaryButtonStyle('#38bdf8')}>
                 {postLoading ? 'Generating…' : 'Generate post options'}
+              </button>
+              <button onClick={() => void handleGeneratePostWithCodex()} disabled={postLoading || codexInFlight} style={primaryButtonStyle('#f97316')}>
+                {codexInFlight ? 'Writing With Codex…' : 'Generate With Codex Terminal'}
               </button>
               {providerTrace && <span style={{ color: '#94a3b8', fontSize: '12px' }}>Model trace: {providerTrace}</span>}
               {postError && <span style={{ color: '#f87171', fontSize: '12px' }}>{postError}</span>}
+              {codexJobStatus && (
+                <span style={{ color: codexJobStatus === 'completed' ? '#34d399' : codexJobStatus === 'failed' || codexJobStatus === 'canceled' ? '#f87171' : '#fbbf24', fontSize: '12px' }}>
+                  Codex terminal status: {codexJobStatus}
+                </span>
+              )}
+              {codexJobError && <span style={{ color: '#f87171', fontSize: '12px' }}>{codexJobError}</span>}
             </div>
             {brainPromotionStatus && (
               <p style={{ color: brainPromotionLooksErrored(brainPromotionStatus) ? '#f87171' : '#34d399', fontSize: '12px', margin: 0 }}>

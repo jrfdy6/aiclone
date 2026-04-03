@@ -9,9 +9,10 @@ Generates content using:
 """
 
 from dataclasses import dataclass
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
+import hashlib
 import os
 import json
 import re
@@ -23,6 +24,14 @@ from app.services.content_generation_context_service import (
     build_content_generation_context,
 )
 from app.services.generated_fragment_promotion_service import promote_generated_fragment, undo_generated_fragment_promotion
+from app.services.local_codex_generation_service import (
+    cancel_codex_job,
+    claim_next_codex_job,
+    complete_codex_job,
+    create_codex_job,
+    fail_codex_job,
+    get_codex_job,
+)
 from app.services.persona_bundle_context_service import retrieve_bundle_persona_chunks
 from app.services.retrieval import retrieve_similar, retrieve_weighted
 
@@ -354,6 +363,59 @@ class UndoGeneratedFragmentPromotionResponse(BaseModel):
     removed_target_files: list[str] = Field(default_factory=list)
     preserved_target_files: list[str] = Field(default_factory=list)
     message: str
+
+
+class LocalCodexJobCreateRequest(ContentGenerationRequest):
+    workspace_slug: str = Field("linkedin-content-os", description="Workspace lane for the Codex job")
+
+
+class LocalCodexJobCreateResponse(BaseModel):
+    success: bool
+    job_id: str
+    status: str
+    message: str
+
+
+class LocalCodexJobStatusResponse(BaseModel):
+    success: bool
+    job_id: str
+    workspace_slug: str
+    status: str
+    requested_by: str | None = None
+    created_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_message: str | None = None
+    result: ContentGenerationResponse | None = None
+
+
+class LocalCodexJobClaimRequest(BaseModel):
+    worker_id: str = Field(..., description="Stable worker identity for the local Codex bridge")
+    workspace_slug: str | None = Field(default=None, description="Optional workspace filter")
+
+
+class LocalCodexJobClaimResponse(BaseModel):
+    success: bool
+    job_available: bool
+    job_id: str | None = None
+    status: str | None = None
+    workspace_slug: str | None = None
+    context_packet: Dict[str, Any] | None = None
+    request_payload: Dict[str, Any] | None = None
+
+
+class LocalCodexJobCompleteRequest(BaseModel):
+    worker_id: str = Field(..., description="Worker identity completing the job")
+    options: list[str] = Field(default_factory=list, description="Completed post options")
+    model: str | None = Field(default=None, description="Codex model used for the run")
+    raw_output: str | None = Field(default=None, description="Raw JSON/text returned by codex exec")
+    command_stdout: str | None = Field(default=None, description="Optional recent stdout from the local runner")
+    command_stderr: str | None = Field(default=None, description="Optional recent stderr from the local runner")
+
+
+class LocalCodexJobFailRequest(BaseModel):
+    worker_id: str = Field(..., description="Worker identity reporting the failure")
+    error_message: str = Field(..., description="Failure details")
 
 
 @dataclass
@@ -1167,6 +1229,262 @@ def _runtime_is_production() -> bool:
         or os.getenv("RAILWAY_ENVIRONMENT_ID")
         or os.getenv("K_SERVICE")
         or (os.getenv("NODE_ENV") or "").strip().lower() == "production"
+    )
+
+
+def _expected_local_codex_token() -> str:
+    return (os.getenv("LOCAL_CODEX_BRIDGE_TOKEN") or os.getenv("CRON_ACCESS_TOKEN") or "").strip()
+
+
+def _require_local_codex_token(x_local_codex_token: str | None) -> None:
+    expected = _expected_local_codex_token()
+    if expected:
+        if x_local_codex_token != expected:
+            raise HTTPException(status_code=401, detail="Invalid local Codex bridge token")
+        return
+    if _runtime_is_production():
+        raise HTTPException(status_code=503, detail="Local Codex bridge token is not configured")
+
+
+def _serialize_content_option_briefs(briefs: List[ContentOptionBrief]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "option_number": brief.option_number,
+            "framing_mode": brief.framing_mode,
+            "primary_claim": brief.primary_claim,
+            "proof_packet": brief.proof_packet,
+            "story_beat": brief.story_beat,
+        }
+        for brief in briefs
+    ]
+
+
+def _deserialize_content_option_briefs(items: List[Dict[str, Any]] | None) -> List[ContentOptionBrief]:
+    briefs: List[ContentOptionBrief] = []
+    for index, item in enumerate(items or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        briefs.append(
+            ContentOptionBrief(
+                option_number=int(item.get("option_number") or index),
+                framing_mode=str(item.get("framing_mode") or "operator_lesson"),
+                primary_claim=_ensure_sentence(str(item.get("primary_claim") or "")),
+                proof_packet=str(item.get("proof_packet") or ""),
+                story_beat=str(item.get("story_beat") or ""),
+            )
+        )
+    return briefs
+
+
+def _serialize_content_reservoir_support(content_context: ContentGenerationContext) -> List[Dict[str, Any]]:
+    return [
+        {
+            "source_id": str(item.get("source_id") or ""),
+            "asset_id": str(item.get("source_file_id") or ""),
+            "reservoir_lane": str((item.get("metadata") or {}).get("content_reservoir_lane") or ""),
+            "primary_type": str((item.get("metadata") or {}).get("claim_type") or ""),
+            "score": int((item.get("weighted_score") or item.get("similarity_score") or 0)),
+            "title": str((item.get("metadata") or {}).get("file_name") or ""),
+            "text": str(item.get("chunk") or "")[:400],
+            "source_path": str((item.get("metadata") or {}).get("source_path") or ""),
+            "source_url": str((item.get("metadata") or {}).get("source_url") or ""),
+        }
+        for item in (content_context.content_reservoir_chunks or [])[:8]
+    ]
+
+
+def _build_local_codex_idempotency_key(req: LocalCodexJobCreateRequest) -> str:
+    payload = {
+        "workspace_slug": req.workspace_slug,
+        "user_id": req.user_id,
+        "topic": req.topic,
+        "context": req.context or "",
+        "content_type": req.content_type,
+        "category": req.category,
+        "tone": req.tone,
+        "audience": req.audience,
+        "source_mode": req.source_mode,
+    }
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _trim_job_error(message: str | None) -> str | None:
+    normalized = " ".join((message or "").split()).strip()
+    if not normalized:
+        return None
+    return normalized[:1200]
+
+
+def _build_local_codex_context_packet(
+    *,
+    req: LocalCodexJobCreateRequest,
+    content_context: ContentGenerationContext,
+) -> Dict[str, Any]:
+    briefs = plan_content_option_briefs(
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        framing_modes=content_context.framing_modes,
+        option_count=3,
+    )
+    good_examples, _ = _split_example_references(content_context.example_chunks)
+    voice_directives = _extract_voice_directives(content_context.persona_chunks, limit=8)
+    approved_references = _extract_approved_reference_terms(
+        content_context.primary_claims,
+        content_context.proof_packets,
+        content_context.story_beats,
+    )
+    prompt = build_planned_writer_prompt(
+        topic=req.topic,
+        context=req.context or "",
+        audience=req.audience,
+        grounding_mode=content_context.grounding_mode,
+        grounding_reason=content_context.grounding_reason,
+        topic_anchor_chunks=content_context.topic_anchor_chunks,
+        proof_anchor_chunks=content_context.proof_anchor_chunks,
+        story_anchor_chunks=content_context.story_anchor_chunks,
+        briefs=briefs,
+        good_examples=good_examples,
+        voice_directives=voice_directives,
+        approved_references=approved_references,
+        disallowed_moves=content_context.disallowed_moves,
+    )
+    prompt += """
+
+FINAL RESPONSE CONTRACT:
+- Replace the earlier delimiter-based output instruction.
+- Do not use ---OPTION--- in the final answer.
+- Return only JSON.
+- Return an object with exactly one key: "options".
+- "options" must be an array of exactly 3 complete post drafts.
+- Each option must be a string.
+- No markdown fences.
+- No commentary outside the JSON object.
+- Do not edit files or attempt to save anything locally.
+"""
+    return {
+        "workspace_slug": req.workspace_slug,
+        "prompt": prompt.strip(),
+        "requested_model": os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.1-codex"),
+        "expected_option_count": 3,
+        "grounding_mode": content_context.grounding_mode,
+        "grounding_reason": content_context.grounding_reason,
+        "primary_claims": content_context.primary_claims,
+        "proof_packets": content_context.proof_packets,
+        "story_beats": content_context.story_beats,
+        "disallowed_moves": content_context.disallowed_moves,
+        "approved_references": approved_references,
+        "voice_directives": voice_directives,
+        "planned_option_briefs": _serialize_content_option_briefs(briefs),
+        "topic_anchor_preview": [
+            _render_anchor_chunk(item)[:220]
+            for item in content_context.topic_anchor_chunks[:4]
+        ],
+        "core_chunk_preview": [
+            _render_anchor_chunk(item)[:220]
+            for item in content_context.core_chunks[:4]
+        ],
+        "proof_anchor_preview": [
+            _render_anchor_chunk(item)[:220]
+            for item in content_context.proof_anchor_chunks[:4]
+        ],
+        "content_reservoir_preview": [
+            str(item.get("chunk") or "")[:220]
+            for item in (content_context.content_reservoir_chunks or [])[:6]
+        ],
+        "content_reservoir_count": len(content_context.content_reservoir_chunks or []),
+        "content_reservoir_support": _serialize_content_reservoir_support(content_context),
+        "persona_context_summary": content_context.persona_context_summary,
+        "examples_used": [c.get("metadata", {}).get("source", "")[:50] for c in content_context.example_chunks[:3]],
+    }
+
+
+def _build_local_codex_result_payload(
+    *,
+    job: Dict[str, Any],
+    options: List[str],
+    model: str | None,
+    raw_output: str | None,
+    command_stdout: str | None,
+    command_stderr: str | None,
+) -> Dict[str, Any]:
+    request_payload = job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {}
+    packet = job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}
+    briefs = _deserialize_content_option_briefs(packet.get("planned_option_briefs"))
+    trimmed_options = [option.strip() for option in options if isinstance(option, str) and option.strip()][:3]
+    if briefs:
+        taste_scores = [
+            score_option_taste(
+                option,
+                brief=briefs[index] if index < len(briefs) else None,
+                primary_claims=list(packet.get("primary_claims") or []),
+                proof_packets=list(packet.get("proof_packets") or []),
+                story_beats=list(packet.get("story_beats") or []),
+            )
+            for index, option in enumerate(trimmed_options)
+        ]
+        trimmed_options, briefs, taste_scores = _rank_options_by_taste(
+            options=trimmed_options,
+            briefs=briefs,
+            taste_scores=taste_scores,
+        )
+    else:
+        taste_scores = []
+    return {
+        "success": True,
+        "options": trimmed_options,
+        "persona_context": packet.get("persona_context_summary"),
+        "examples_used": list(packet.get("examples_used") or []),
+        "diagnostics": {
+            "grounding_mode": packet.get("grounding_mode"),
+            "generation_strategy": "codex_terminal",
+            "primary_claims": list(packet.get("primary_claims") or []),
+            "proof_packets": list(packet.get("proof_packets") or []),
+            "approved_references": list(packet.get("approved_references") or []),
+            "voice_directives": list(packet.get("voice_directives") or []),
+            "planned_option_briefs": _serialize_content_option_briefs(briefs),
+            "taste_scores": taste_scores,
+            "topic_anchor_preview": list(packet.get("topic_anchor_preview") or []),
+            "core_chunk_preview": list(packet.get("core_chunk_preview") or []),
+            "proof_anchor_preview": list(packet.get("proof_anchor_preview") or []),
+            "content_reservoir_preview": list(packet.get("content_reservoir_preview") or []),
+            "content_reservoir_count": int(packet.get("content_reservoir_count") or 0),
+            "content_reservoir_support": list(packet.get("content_reservoir_support") or []),
+            "llm_provider_trace": [
+                {
+                    "provider": "codex_terminal",
+                    "actual_model": model or str(packet.get("requested_model") or "gpt-5.1-codex"),
+                    "status": "success",
+                }
+            ],
+            "source_mode": request_payload.get("source_mode"),
+            "raw_codex_output_preview": (raw_output or "")[:800],
+            "runner_stdout_preview": (command_stdout or "")[-800:],
+            "runner_stderr_preview": (command_stderr or "")[-800:],
+        },
+    }
+
+
+def _build_local_codex_status_response(job: Dict[str, Any]) -> LocalCodexJobStatusResponse:
+    result_payload = job.get("result_payload")
+    result: ContentGenerationResponse | None = None
+    if isinstance(result_payload, dict):
+        try:
+            result = ContentGenerationResponse(**result_payload)
+        except Exception:
+            result = None
+    return LocalCodexJobStatusResponse(
+        success=True,
+        job_id=str(job.get("id") or ""),
+        workspace_slug=str(job.get("workspace_slug") or ""),
+        status=str(job.get("status") or "pending"),
+        requested_by=str(job.get("requested_by") or ""),
+        created_at=str(job.get("created_at") or ""),
+        started_at=str(job.get("started_at") or ""),
+        completed_at=str(job.get("completed_at") or ""),
+        error_message=_trim_job_error(job.get("error_message")),
+        result=result,
     )
 
 
@@ -4371,6 +4689,129 @@ def _rank_options_by_taste(
     ordered_briefs = [briefs[index] if index < len(briefs) else briefs[-1] for index in ordered_indices]
     ordered_tastes = [taste_scores[index] if index < len(taste_scores) else {} for index in ordered_indices]
     return ordered_options, ordered_briefs, ordered_tastes
+
+
+@router.post("/codex-jobs", response_model=LocalCodexJobCreateResponse)
+async def create_local_codex_job(req: LocalCodexJobCreateRequest):
+    try:
+        content_context: ContentGenerationContext = build_content_generation_context(
+            user_id=req.user_id,
+            topic=req.topic,
+            context=req.context,
+            content_type=req.content_type,
+            category=req.category,
+            tone=req.tone,
+            audience=req.audience,
+            source_mode=req.source_mode,
+        )
+        context_packet = _build_local_codex_context_packet(req=req, content_context=content_context)
+        job = create_codex_job(
+            workspace_slug=req.workspace_slug,
+            requested_by=req.user_id,
+            request_payload=req.model_dump(),
+            context_packet=context_packet,
+            idempotency_key=_build_local_codex_idempotency_key(req),
+        )
+        return LocalCodexJobCreateResponse(
+            success=True,
+            job_id=str(job.get("id") or ""),
+            status=str(job.get("status") or "pending"),
+            message="Queued for local Codex terminal generation.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"Local Codex job create error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Unable to queue local Codex job: {str(exc)}") from exc
+
+
+@router.post("/codex-jobs/claim-next", response_model=LocalCodexJobClaimResponse)
+async def claim_local_codex_job(
+    req: LocalCodexJobClaimRequest,
+    x_local_codex_token: str | None = Header(default=None, alias="X-Local-Codex-Token"),
+):
+    _require_local_codex_token(x_local_codex_token)
+    try:
+        job = claim_next_codex_job(worker_id=req.worker_id, workspace_slug=req.workspace_slug)
+        if not job:
+            return LocalCodexJobClaimResponse(success=True, job_available=False)
+        return LocalCodexJobClaimResponse(
+            success=True,
+            job_available=True,
+            job_id=str(job.get("id") or ""),
+            status=str(job.get("status") or "running"),
+            workspace_slug=str(job.get("workspace_slug") or ""),
+            context_packet=job.get("context_packet") if isinstance(job.get("context_packet"), dict) else None,
+            request_payload=job.get("request_payload") if isinstance(job.get("request_payload"), dict) else None,
+        )
+    except Exception as exc:
+        print(f"Local Codex job claim error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Unable to claim local Codex job: {str(exc)}") from exc
+
+
+@router.get("/codex-jobs/{job_id}", response_model=LocalCodexJobStatusResponse)
+async def get_local_codex_job(job_id: str):
+    job = get_codex_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Local Codex job not found")
+    return _build_local_codex_status_response(job)
+
+
+@router.post("/codex-jobs/{job_id}/complete", response_model=LocalCodexJobStatusResponse)
+async def complete_local_codex_job(
+    job_id: str,
+    req: LocalCodexJobCompleteRequest,
+    x_local_codex_token: str | None = Header(default=None, alias="X-Local-Codex-Token"),
+):
+    _require_local_codex_token(x_local_codex_token)
+    trimmed_options = [option.strip() for option in req.options if isinstance(option, str) and option.strip()][:3]
+    if len(trimmed_options) != 3:
+        raise HTTPException(status_code=400, detail="Codex completion must include exactly 3 non-empty options")
+    job = get_codex_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Local Codex job not found")
+    result_payload = _build_local_codex_result_payload(
+        job=job,
+        options=trimmed_options,
+        model=req.model,
+        raw_output=req.raw_output,
+        command_stdout=req.command_stdout,
+        command_stderr=req.command_stderr,
+    )
+    completed = complete_codex_job(
+        job_id=job_id,
+        worker_id=req.worker_id,
+        result_payload=result_payload,
+    )
+    return _build_local_codex_status_response(completed)
+
+
+@router.post("/codex-jobs/{job_id}/fail", response_model=LocalCodexJobStatusResponse)
+async def fail_local_codex_job(
+    job_id: str,
+    req: LocalCodexJobFailRequest,
+    x_local_codex_token: str | None = Header(default=None, alias="X-Local-Codex-Token"),
+):
+    _require_local_codex_token(x_local_codex_token)
+    try:
+        failed = fail_codex_job(
+            job_id=job_id,
+            worker_id=req.worker_id,
+            error_message=req.error_message,
+        )
+        return _build_local_codex_status_response(failed)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/codex-jobs/{job_id}/cancel", response_model=LocalCodexJobStatusResponse)
+async def cancel_local_codex_job(job_id: str):
+    try:
+        canceled = cancel_codex_job(job_id)
+        return _build_local_codex_status_response(canceled)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
 
 @router.post("/generate", response_model=ContentGenerationResponse)
 async def generate_content(req: ContentGenerationRequest):

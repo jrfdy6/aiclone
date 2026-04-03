@@ -28,6 +28,26 @@ export type GeneratedContentResponse = {
   };
 };
 
+export type LocalCodexJobCreateResponse = {
+  success?: boolean;
+  job_id?: string;
+  status?: string;
+  message?: string;
+};
+
+export type LocalCodexJobStatusResponse = {
+  success?: boolean;
+  job_id?: string;
+  workspace_slug?: string;
+  status?: string;
+  requested_by?: string;
+  created_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  error_message?: string | null;
+  result?: GeneratedContentResponse | null;
+};
+
 export type GeneratedFragmentPromotionResponse = {
   success?: boolean;
   duplicate?: boolean;
