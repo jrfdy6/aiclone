@@ -18,6 +18,7 @@ from typing import Any
 DEFAULT_API_BASE = os.getenv("AI_CLONE_API_BASE_URL", "http://127.0.0.1:8000/api/content-generation")
 DEFAULT_WORKSPACE_ROOT = os.getenv("LOCAL_CODEX_BRIDGE_WORKSPACE_ROOT", "/Users/neo/.openclaw/workspace")
 DEFAULT_MODEL = os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.1-codex")
+DEFAULT_REASONING_EFFORT = os.getenv("LOCAL_CODEX_BRIDGE_REASONING_EFFORT", "high")
 DEFAULT_POLL_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_POLL_SECONDS", "4"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LOCAL_CODEX_BRIDGE_TIMEOUT_SECONDS", "420"))
 
@@ -107,6 +108,7 @@ def _run_codex_job(
     *,
     workspace_root: Path,
     model: str,
+    reasoning_effort: str,
     prompt: str,
     expected_option_count: int,
     timeout_seconds: int,
@@ -120,6 +122,8 @@ def _run_codex_job(
         command = [
             "codex",
             "exec",
+            "-c",
+            f'model_reasoning_effort="{reasoning_effort}"',
             "--cd",
             str(workspace_root),
             "--sandbox",
@@ -165,7 +169,17 @@ def _run_codex_job(
         return options, raw_output, stdout[-4000:], stderr[-4000:]
 
 
-def run_once(*, api_base: str, token: str | None, worker_id: str, workspace_slug: str, workspace_root: Path, model: str, timeout_seconds: int) -> bool:
+def run_once(
+    *,
+    api_base: str,
+    token: str | None,
+    worker_id: str,
+    workspace_slug: str,
+    workspace_root: Path,
+    model: str,
+    reasoning_effort: str,
+    timeout_seconds: int,
+) -> bool:
     job = _claim_next_job(api_base=api_base, token=token, worker_id=worker_id, workspace_slug=workspace_slug)
     if not job:
         return False
@@ -190,6 +204,7 @@ def run_once(*, api_base: str, token: str | None, worker_id: str, workspace_slug
         options, raw_output, stdout, stderr = _run_codex_job(
             workspace_root=workspace_root,
             model=requested_model,
+            reasoning_effort=reasoning_effort,
             prompt=prompt,
             expected_option_count=expected_option_count,
             timeout_seconds=timeout_seconds,
@@ -230,6 +245,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workspace-slug", default="linkedin-content-os")
     parser.add_argument("--workspace-root", default=DEFAULT_WORKSPACE_ROOT)
     parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--reasoning-effort", default=DEFAULT_REASONING_EFFORT)
     parser.add_argument("--poll-seconds", type=float, default=DEFAULT_POLL_SECONDS)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--worker-id", default=f"{socket.gethostname()}-codex-bridge")
@@ -254,6 +270,7 @@ def main() -> int:
                 workspace_slug=args.workspace_slug,
                 workspace_root=workspace_root,
                 model=args.model,
+                reasoning_effort=args.reasoning_effort,
                 timeout_seconds=args.timeout_seconds,
             )
         except urllib.error.HTTPError as exc:
