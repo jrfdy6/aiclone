@@ -1171,7 +1171,7 @@ def _runtime_is_production() -> bool:
 
 
 def _parse_provider_order(value: str) -> List[str]:
-    allowed = {"openai", "gemini", "ollama"}
+    allowed = {"openai", "gemini", "ollama", "codex"}
     ordered: List[str] = []
     seen: set[str] = set()
     for raw in (value or "").split(","):
@@ -1202,6 +1202,8 @@ def _normalize_openai_base_url(url: str) -> str:
 def _provider_is_configured(name: str) -> bool:
     if name == "openai":
         return bool((os.getenv("OPENAI_API_KEY") or "").strip())
+    if name == "codex":
+        return bool((os.getenv("CONTENT_GENERATION_CODEX_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip())
     if name == "gemini":
         return bool((os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip())
     if name == "ollama":
@@ -1312,6 +1314,24 @@ def get_openai_client():
     for provider_name in _default_content_provider_order():
         if not _provider_is_configured(provider_name):
             continue
+        if provider_name == "codex":
+            codex_api_key = os.getenv("CONTENT_GENERATION_CODEX_API_KEY") or os.getenv("OPENAI_API_KEY")
+            codex_base_url = _normalize_openai_base_url(os.getenv("CONTENT_GENERATION_CODEX_BASE_URL", ""))
+            client_kwargs: Dict[str, Any] = {"api_key": codex_api_key}
+            if codex_base_url:
+                client_kwargs["base_url"] = codex_base_url
+            providers.append(
+                ContentLLMProvider(
+                    name="codex",
+                    client=openai.OpenAI(**client_kwargs),
+                    fast_model=os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.1-codex"),
+                    editor_model=os.getenv(
+                        "CONTENT_GENERATION_CODEX_EDITOR_MODEL",
+                        os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.1-codex"),
+                    ),
+                )
+            )
+            continue
         if provider_name == "openai":
             providers.append(
                 ContentLLMProvider(
@@ -1351,7 +1371,7 @@ def get_openai_client():
             )
     if not providers:
         raise ValueError(
-            "No content-generation providers configured. Set Ollama locally, or GEMINI_API_KEY / OPENAI_API_KEY."
+            "No content-generation providers configured. Set Ollama locally, or GEMINI_API_KEY / OPENAI_API_KEY / CONTENT_GENERATION_CODEX_API_KEY."
         )
     return ContentLLMRouterClient(providers)
 
