@@ -229,7 +229,7 @@ const TOPIC_SOURCE_OPTIONS: { value: TopicSourceMode; label: string; hint: strin
 
 const POST_MODE_OPTIONS: { id: FeedLensId; label: string }[] = [
   { id: 'entrepreneurship', label: 'Entrepreneurship' },
-  { id: 'current-role', label: 'Current Job' },
+  { id: 'current-role', label: 'Current Role' },
   { id: 'program-leadership', label: 'Program Leadership' },
   { id: 'enrollment-management', label: 'Enrollment' },
   { id: 'ai', label: 'AI' },
@@ -1290,6 +1290,9 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                     {activeSourceSummary}
                   </p>
                 )}
+                <p style={{ color: '#64748b', fontSize: '12px', margin: '8px 0 0' }}>
+                  This is the generator anchor. The feed below is where you change the response lens or swap sources.
+                </p>
               </div>
               {activeSourceLink && (
                 <a href={activeSourceLink} target="_blank" rel="noreferrer" style={headerLinkStyle('#38bdf8')}>
@@ -1559,7 +1562,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
               <p style={sectionLabelStyle('#22c55e')}>2 Feed of Sources</p>
               <h2 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Comment, repost, and train the feed</h2>
               <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '860px' }}>
-                This is the same shared feed going into Brain. Use it to react to Substack, YouTube, Reddit, RSS, and LinkedIn signals, then push the best ones into the pipeline.
+                This is the shared feed workbench. Choose a response lens for each source, react to it, and push the strongest items into the pipeline.
               </p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
@@ -1643,6 +1646,19 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                   {item.why_it_matters && <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.why_it_matters}</p>}
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    <span
+                      style={{
+                        alignSelf: 'center',
+                        color: '#64748b',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        letterSpacing: '0.12em',
+                        textTransform: 'uppercase',
+                        marginRight: '2px',
+                      }}
+                    >
+                      Response lens
+                    </span>
                     {POST_MODE_OPTIONS.map((mode) => (
                       <button
                         key={`${item.id}-${mode.id}`}
