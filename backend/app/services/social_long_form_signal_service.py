@@ -268,7 +268,8 @@ def _normalize_transcript_markup(text: str) -> str:
     cleaned = re.sub(r"\s*-->\s*", " ", cleaned)
     cleaned = _collapse_adjacent_repeated_runs(cleaned)
     cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
-    cleaned = re.sub(r"([,.;:!?])(?=\w)", r"\1 ", cleaned)
+    cleaned = re.sub(r"([,;:!?])(?=[A-Za-z\"'(])", r"\1 ", cleaned)
+    cleaned = re.sub(r"\.(?=[A-Za-z\"'(])", ". ", cleaned)
     return _clean_text(cleaned)
 
 
@@ -461,11 +462,11 @@ def _read_asset_content(asset: dict[str, Any], repo_root: Path) -> tuple[dict[st
 
 
 def _asset_has_segmentable_transcript(asset: dict[str, Any], meta: dict[str, Any], body: str) -> bool:
-    asset_text = " ".join(
+    asset_identity_text = " ".join(
         _clean_text(asset.get(key))
-        for key in ("title", "summary", "asset_id", "raw_path", "source_path")
+        for key in ("title", "asset_id", "raw_path", "source_path")
     ).lower()
-    if any(term in asset_text for term in NOISY_ASSET_TERMS):
+    if any(term in asset_identity_text for term in NOISY_ASSET_TERMS):
         return False
     source_type = _clean_text(asset.get("source_type") or meta.get("source_type")).lower()
     word_count = asset.get("word_count")
@@ -588,14 +589,46 @@ def _build_segment_context(segment: str, sentences: list[str], *, window: int = 
             "source_context_before": [],
             "source_context_after": [],
         }
-    before = [_clean_text(item) for item in sentences[max(0, index - window) : index] if _clean_text(item)]
-    after = [_clean_text(item) for item in sentences[index + 1 : index + 1 + window] if _clean_text(item)]
+    before = [
+        _clean_text(item)
+        for item in sentences[max(0, index - window) : index]
+        if _clean_text(item) and not _is_context_noise_sentence(item)
+    ]
+    after = [
+        _clean_text(item)
+        for item in sentences[index + 1 : index + 1 + window]
+        if _clean_text(item) and not _is_context_noise_sentence(item)
+    ]
     context_excerpt = " ".join(before + [cleaned_segment] + after).strip()
     return {
         "source_context_excerpt": context_excerpt or cleaned_segment,
         "source_context_before": before,
         "source_context_after": after,
     }
+
+
+def _is_context_noise_sentence(sentence: str) -> bool:
+    cleaned = _clean_text(sentence)
+    if not cleaned:
+        return True
+    lowered = f" {cleaned.lower()} "
+    if _is_boilerplate(cleaned, ""):
+        return True
+    if any(term in lowered for term in EVENT_META_TERMS):
+        return True
+    if any(re.search(pattern, lowered) for pattern in SELF_CREDENTIAL_PATTERNS):
+        return True
+    if any(re.search(pattern, lowered) for pattern in DEFINITION_PATTERNS):
+        return True
+    if any(re.search(pattern, lowered) for pattern in WEAK_CONTEXT_PATTERNS):
+        return True
+    if any(re.search(pattern, lowered) for pattern in HYPE_PATTERNS):
+        return True
+    if any(re.search(pattern, lowered) for pattern in META_GUIDANCE_PATTERNS):
+        return True
+    if lowered.strip() in {"transcript", "clean transcript / document"}:
+        return True
+    return False
 
 
 def _extract_segments(asset: dict[str, Any], body: str, max_segments: int) -> list[dict[str, Any]]:
@@ -820,6 +853,7 @@ def _classify_routes(
     source_context_excerpt: str = "",
 ) -> tuple[list[str], str, str, int]:
     score = _route_score(segment, assessment, target_file, worldview_score)
+    lowered = f" {_clean_text(segment).lower()} "
     words = len(segment.split())
     low_context_story = target_file == TARGET_STORIES and _is_low_context_story_fragment(segment, source_context_excerpt)
     belief_candidate = False if low_context_story else _is_belief_evidence_segment(segment, assessment, target_file, score)
@@ -840,7 +874,16 @@ def _classify_routes(
     if _is_repost_ready_segment(segment, score, target_file):
         routes.add("repost")
 
-    if "comment" in routes:
+    durable_belief_candidate = belief_candidate and (
+        target_file in {TARGET_STORIES, TARGET_VOICE}
+        or (score >= 8 and any(term in lowered for term in WORLDVIEW_TERMS + PROCESS_TERMS))
+        or any(re.search(pattern, lowered) for pattern in STRONG_PERSONA_PATTERNS)
+    )
+
+    if durable_belief_candidate:
+        primary = "belief_evidence"
+        reason = "segment reads like a durable worldview or language fragment that may be worth canon review"
+    elif "comment" in routes:
         primary = "comment"
         reason = "segment is compact and explicit enough for direct reaction"
     elif belief_candidate and (target_file == TARGET_VOICE or words <= 18 or score >= 8):
@@ -911,6 +954,11 @@ def _handoff_lane_for_candidate(
         lived_proof_context
         or target_file in {TARGET_STORIES, TARGET_VOICE}
         or any(re.search(pattern, lowered) for pattern in STRONG_PERSONA_PATTERNS)
+        or (
+            "belief_evidence" in response_modes
+            and route_score >= 8
+            and any(term in lowered for term in WORLDVIEW_TERMS + PROCESS_TERMS)
+        )
         or (
             any(term in lowered for term in (" trust ", " judgment ", " workflow clarity ", " principle ", " values "))
             and any(term in lowered for term in CONTRAST_TERMS)
@@ -989,15 +1037,45 @@ def extract_long_form_candidates(
         if item.get("source_class") == "long_form_media"
         and any(mode in {"belief_evidence", "post_seed"} for mode in (item.get("response_modes") or []))
     ]
+    items.sort(
+        key=lambda item: (
+            0
+            if (
+                _clean_text(item.get("source_type")).lower() == "transcript_note"
+                or _clean_text(item.get("source_channel")).lower() == "manual"
+            )
+            else 1,
+            1
+            if " pending transcript or notes " in f" {_clean_text(item.get('summary')).lower()} "
+            else 0,
+            0
+            if (
+                "brain_ingest" in {str(tag) for tag in (item.get("tags") or [])}
+                and not item.get("word_count")
+                and " pending transcript or notes " not in f" {_clean_text(item.get('summary')).lower()} "
+            )
+            else 1,
+            _clean_text(item.get("captured_at")) or "",
+            _clean_text(item.get("title")).lower(),
+        ),
+        reverse=True,
+    )
 
     candidates: list[dict[str, Any]] = []
     assets_considered = 0
     skipped_no_segments = 0
     by_channel: dict[str, int] = {}
     assets: list[dict[str, Any]] = []
+    considered_asset_ids: list[str] = []
+    segmented_assets = 0
 
-    for asset in items[:max_assets]:
+    for asset in items:
+        if segmented_assets >= max_assets:
+            break
         assets_considered += 1
+        asset_id = _clean_text(asset.get("asset_id"))
+        if asset_id:
+            considered_asset_ids.append(asset_id)
         channel = _clean_text(asset.get("source_channel")) or "unknown"
         by_channel[channel] = by_channel.get(channel, 0) + 1
         meta, body = _read_asset_content(asset, repo_root)
@@ -1095,7 +1173,7 @@ def extract_long_form_candidates(
 
         assets.append(
             {
-                "asset_id": _clean_text(asset.get("asset_id")),
+                "asset_id": asset_id,
                 "title": _clean_text(asset.get("title")) or "Untitled asset",
                 "source_channel": channel,
                 "source_path": _clean_text(asset.get("source_path")),
@@ -1104,6 +1182,7 @@ def extract_long_form_candidates(
                 "response_modes": list(dict.fromkeys(mode for item in asset_candidates for mode in item["response_modes"])),
             }
         )
+        segmented_assets += 1
 
     candidates.sort(key=lambda item: (-int(item["route_score"]), item["title"].lower(), item["segment_index"]))
     route_counts = {mode: 0 for mode in ("comment", "repost", "post_seed", "belief_evidence")}
@@ -1120,7 +1199,7 @@ def extract_long_form_candidates(
 
     return {
         "assets_considered": assets_considered,
-        "considered_asset_ids": [_clean_text(item.get("asset_id")) for item in items[:max_assets] if _clean_text(item.get("asset_id"))],
+        "considered_asset_ids": considered_asset_ids,
         "segments_total": len(candidates),
         "skipped_no_segments": skipped_no_segments,
         "route_counts": route_counts,

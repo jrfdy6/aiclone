@@ -52,6 +52,13 @@ async def ingest_long_form(payload: BrainLongFormIngestRequest):
             include_workspace_files=False,
             include_doc_entries=False,
         )
+        source_asset_count = int((((snapshot.get("source_assets") or {}).get("counts") or {}).get("total")) or 0)
+        if source_asset_count == 0:
+            snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(
+                persisted_only=False,
+                include_workspace_files=False,
+                include_doc_entries=False,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:

@@ -661,11 +661,16 @@ def _normalize_signal(signal: dict[str, Any], watchlist: dict[str, Any]) -> dict
 
 def build_feed(workspace_root: Path | None = None) -> dict[str, Any]:
     resolved_root = workspace_root or discover_linkedin_workspace_root()
+    explicit_workspace_root = workspace_root is not None
     watchlist = _load_watchlist(resolved_root)
     signals = _read_saved_signals(resolved_root)
     existing_feed = _load_existing_feed(resolved_root)
-    persisted_feed = _load_persisted_feed()
-    alternate_feeds = _load_alternate_feeds(resolved_root)
+    persisted_feed = None if explicit_workspace_root else _load_persisted_feed()
+    if explicit_workspace_root:
+        matches = _workspace_root_matches()
+        alternate_feeds = _load_alternate_feeds(resolved_root) if resolved_root.resolve() in matches else []
+    else:
+        alternate_feeds = _load_alternate_feeds(resolved_root)
     if signals:
         items = [_normalize_signal(signal, watchlist) for signal in signals]
         items = _preserve_existing_real_items(items, existing_feed, persisted_feed, *alternate_feeds)

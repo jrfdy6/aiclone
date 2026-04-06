@@ -775,6 +775,12 @@ class SocialPersonaReviewService:
 
             existing_delta = existing_review_keys.get(review_key) or persona_delta_service.get_delta_by_review_key(review_key)
             if existing_delta:
+                existing_metadata = existing_delta.metadata if isinstance(existing_delta.metadata, dict) else {}
+                existing_review_key = _clean_text(existing_metadata.get("review_key"))
+                if existing_review_key and existing_review_key != review_key:
+                    skipped_existing += 1
+                    continue
+            if existing_delta:
                 skipped_existing += 1
                 if _needs_existing_refresh(existing_delta, notes=notes, metadata=metadata, trait=trait):
                     update = PersonaDeltaUpdate(
@@ -813,12 +819,12 @@ class SocialPersonaReviewService:
             if legacy_primary_route and legacy_primary_route != "belief_evidence":
                 stale_reason = "legacy segment route is no longer canon-eligible and should stay outside the brain review queue"
                 sync_state = "stale_route_downgrade"
-            elif extracted_candidate_handoff_lanes.get(review_key) and extracted_candidate_handoff_lanes.get(review_key) != "persona_candidate":
-                stale_reason = "segment no longer qualifies for persona review under the current handoff policy"
-                sync_state = "stale_handoff_downgrade"
             elif extracted_candidate_routes.get(review_key) and extracted_candidate_routes.get(review_key) != "belief_evidence":
                 stale_reason = "segment no longer qualifies for persona-canon review and should stay outside the brain review queue"
                 sync_state = "stale_route_downgrade"
+            elif extracted_candidate_handoff_lanes.get(review_key) and extracted_candidate_handoff_lanes.get(review_key) != "persona_candidate":
+                stale_reason = "segment no longer qualifies for persona review under the current handoff policy"
+                sync_state = "stale_handoff_downgrade"
             elif source_asset_id and source_asset_id not in inventory_asset_ids:
                 stale_reason = "source asset no longer present in current long-form inventory"
                 sync_state = "stale_source_asset"

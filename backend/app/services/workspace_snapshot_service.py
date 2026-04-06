@@ -571,25 +571,36 @@ def _augment_weekly_plan_payload(payload: dict[str, Any] | None, long_form_route
     if not isinstance(candidates, list):
         return payload
 
+    def _candidate_lane(candidate: dict[str, Any]) -> str:
+        handoff_lane = str(candidate.get("handoff_lane") or "").strip()
+        if handoff_lane:
+            return handoff_lane
+        primary_route = str(candidate.get("primary_route") or "").strip()
+        if primary_route == "post_seed":
+            return "post_candidate"
+        if primary_route == "belief_evidence":
+            return "persona_candidate"
+        return primary_route
+
     media_post_seeds = [
         _long_form_plan_candidate(candidate, source_kind="long_form_post_seed")
         for candidate in candidates
-        if isinstance(candidate, dict) and str(candidate.get("handoff_lane") or "") == "post_candidate"
+        if isinstance(candidate, dict) and _candidate_lane(candidate) == "post_candidate"
     ][:6]
     brief_awareness_candidates = [
         _long_form_plan_candidate(candidate, source_kind="long_form_brief_awareness")
         for candidate in candidates
-        if isinstance(candidate, dict) and str(candidate.get("handoff_lane") or "") == "brief_only"
+        if isinstance(candidate, dict) and _candidate_lane(candidate) == "brief_only"
     ][:6]
     belief_evidence_candidates = [
         _long_form_plan_candidate(candidate, source_kind="long_form_belief_evidence")
         for candidate in candidates
-        if isinstance(candidate, dict) and str(candidate.get("handoff_lane") or "") == "persona_candidate"
+        if isinstance(candidate, dict) and _candidate_lane(candidate) == "persona_candidate"
     ][:6]
     operational_route_candidates = [
         _long_form_plan_candidate(candidate, source_kind="long_form_route_to_pm")
         for candidate in candidates
-        if isinstance(candidate, dict) and str(candidate.get("handoff_lane") or "") == "route_to_pm"
+        if isinstance(candidate, dict) and _candidate_lane(candidate) == "route_to_pm"
     ][:6]
 
     counts = payload.get("source_counts")
@@ -1521,15 +1532,21 @@ class WorkspaceSnapshotService:
             else _load_snapshot(snapshot_type)
         )
 
-        source_assets = load_snapshot(SNAPSHOT_SOURCE_ASSETS)
-        content_reservoir = load_snapshot(SNAPSHOT_CONTENT_RESERVOIR)
-        long_form_routes = load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
-        weekly_plan = load_snapshot(SNAPSHOT_WEEKLY_PLAN)
+        def safe_load_snapshot(snapshot_type: str) -> dict[str, Any] | list[Any] | None:
+            try:
+                return load_snapshot(snapshot_type)
+            except KeyError:
+                return None
+
+        source_assets = safe_load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+        content_reservoir = safe_load_snapshot(SNAPSHOT_CONTENT_RESERVOIR)
+        long_form_routes = safe_load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
+        weekly_plan = safe_load_snapshot(SNAPSHOT_WEEKLY_PLAN)
         weekly_plan = _augment_weekly_plan_payload(weekly_plan, long_form_routes)
-        persona_review_summary = load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
-        reaction_queue = load_snapshot(SNAPSHOT_REACTION_QUEUE)
-        social_feed = load_snapshot(SNAPSHOT_SOCIAL_FEED)
-        feedback_summary = load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
+        persona_review_summary = safe_load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
+        reaction_queue = safe_load_snapshot(SNAPSHOT_REACTION_QUEUE)
+        social_feed = safe_load_snapshot(SNAPSHOT_SOCIAL_FEED)
+        feedback_summary = safe_load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
         return {
             "workspace_files": _load_workspace_files() if include_workspace_files else [],
             "doc_entries": _load_doc_entries() if include_doc_entries else [],

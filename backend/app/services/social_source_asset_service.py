@@ -944,6 +944,7 @@ def build_source_asset_inventory(*, transcripts_root: Path, ingestions_root: Pat
     items = sorted(
         deduped.values(),
         key=lambda asset: (
+            0 if "brain_ingest" in {str(tag) for tag in (asset.get("tags") or [])} else 1,
             _clean_text(asset.get("captured_at")) or "",
             _clean_text(asset.get("title")).lower(),
         ),

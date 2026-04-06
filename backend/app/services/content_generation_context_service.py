@@ -9,7 +9,7 @@ from app.services.persona_bundle_context_service import (
     load_bundle_persona_chunks,
     retrieve_bundle_persona_chunks,
 )
-from app.services.retrieval import retrieve_similar
+from app.services.retrieval import retrieve_similar, retrieve_weighted
 from app.services.workspace_snapshot_store import get_snapshot_payload
 
 
