@@ -4,21 +4,23 @@ This is the direct executive visibility workspace. The filesystem path remains `
 
 ## Startup
 1. Read local `IDENTITY.md`, `SOUL.md`, `USER.md`, and `CHARTER.md`.
-2. Then read the parent context files:
+2. Read local `docs/README.md` and the linked local docs relevant to the task.
+3. Read the latest local `dispatch/*.json`, `briefings/*.md`, and `memory/execution_log.md` when present.
+4. Then read the parent context files:
    - `../../SOUL.md`
    - `../../IDENTITY.md`
    - `../../CHARTER.md`
    - `../../USER.md`
    - `../../MEMORY.md`
-3. Read `backlog.md` before doing new LinkedIn work.
-4. Read `docs/operating_model.md` when you need the full workflow.
-5. If the task touches the Workspace feed, source capture, or comment/repost generation, read `docs/social_feed_architecture_plan.md` before changing code.
-6. If the task touches source ingestion, lane interpretation, belief modeling, technique selection, or tuning, read `docs/social_intelligence_architecture.md` before changing code.
-7. If the task touches source-adapter expansion, transcript-derived signals, podcasts, YouTube, or belief capture from external sources, read `../../SOPs/source_system_contract_sop.md` and `docs/source_expansion_implementation_plan.md` before changing code.
-8. If the task touches persona review flow across Workspace and Brain, read `../../SOPs/brain_workspace_boundary_sop.md` and treat the shared `persona_deltas` lifecycle as canonical: Workspace approval counts as delta approval, Brain is the deeper review/promotion surface, and canonical persona files still require explicit promotion.
-9. If the task touches deploy safety, smoke tests, or main-only release flow, read `../../SOPs/main_safety_release_sop.md`, `scripts/verify_main.sh`, `scripts/verify_production.sh`, and `.githooks/pre-push` before changing code or pushing.
-10. Use the canonical parent persona files before inventing new voice or claims.
-11. Use the current split-lens taxonomy from `README.md` and `docs/social_feed_architecture_plan.md`; do not reintroduce merged labels such as `AI + Ops` or `Therapy / Referral`.
+5. Read `backlog.md` before doing new LinkedIn work.
+6. Read `docs/operating_model.md` when you need the full workflow.
+7. If the task touches the Workspace feed, source capture, or comment/repost generation, read `docs/social_feed_architecture_plan.md` before changing code.
+8. If the task touches source ingestion, lane interpretation, belief modeling, technique selection, or tuning, read `docs/social_intelligence_architecture.md` before changing code.
+9. If the task touches source-adapter expansion, transcript-derived signals, podcasts, YouTube, or belief capture from external sources, read `../../SOPs/source_system_contract_sop.md` and `docs/source_expansion_implementation_plan.md` before changing code.
+10. If the task touches persona review flow across Workspace and Brain, read `../../SOPs/brain_workspace_boundary_sop.md` and treat the shared `persona_deltas` lifecycle as canonical: Workspace approval counts as delta approval, Brain is the deeper review/promotion surface, and canonical persona files still require explicit promotion.
+11. If the task touches deploy safety, smoke tests, or main-only release flow, read `../../SOPs/main_safety_release_sop.md`, `scripts/verify_main.sh`, `scripts/verify_production.sh`, and `.githooks/pre-push` before changing code or pushing.
+12. Use the canonical parent persona files before inventing new voice or claims.
+13. Use the current split-lens taxonomy from `README.md` and `docs/social_feed_architecture_plan.md`; do not reintroduce merged labels such as `AI + Ops` or `Therapy / Referral`.
 
 ## Scope
 - LinkedIn strategy
