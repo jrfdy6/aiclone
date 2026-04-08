@@ -1,19 +1,22 @@
-# Snapshot for 2026-04-01
+# Snapshot for April 8, 2026
 
 ### Snapshot
-- All updates have successfully synchronized, with no significant blockers reported at this time.
-- No current blockers identified; context flow is stable.
+- QMD memory retrieval is grounded again: the `memory-dir-main` alias now resolves correctly and direct searches return results instead of falling back off the managed index.
+- Dream Cycle inputs now resolve to concrete files: today's daily log, the latest memory health report, heartbeat diagnostics, and recent knowledge ingestions can all be read without wildcard or directory-read failures.
+- Shared-ops and FEEZIE execution moved forward this morning, but PM board sync remains partially blocked by the offline/unavailable PM API reflected in today's execution logs.
 
 ### Automation Health
-- Progress Pulse execution completed with successful grounding in Codex handoff dynamics.
+- Context Guard now estimates active session transcript size instead of summing markdown file bytes, so the repeated 172k-184k Discord alerts should stop unless a real session grows that large.
+- Gateway heartbeat is configured on `openai/gpt-4o-mini` and the gateway restarted cleanly at 06:42 EDT, but `heartbeat-state.json` is still stale from April 5 until the next in-window heartbeat runs after 08:00 EDT.
+- Latest manual QMD verification shows `memory-main`, `memory-dir-main`, and `knowledge-main` present and searchable; the earlier `memory_health_2026-04-08.md` WARN about QMD being pending is now stale.
 
 ### Findings
-- AI Clone processes are functioning but require ongoing monitoring to maintain context integrity.
-- Backup created on 2026-03-30 at 10:00 UTC with size 2.35 GB; status: clean.
+- The prior Dream Cycle failure was caused by trying to read `memory_health_*.md` literally and by treating `knowledge/` as a file; both paths are now hardened.
+- A fresh knowledge ingest about AI data-center power constraints landed overnight and is still `pending_segmentation`, so it is available as raw memory but not yet promoted into cleaner downstream artifacts.
+- Manual `openclaw agent` invocation is not a reliable validation harness for write flows in this environment: the non-elevated path lost the gateway socket and the elevated path completed but explicitly refused to make real file writes.
 
 ### Actions
-- Jean-Claude to resolve the promotion boundary and unblock any SOP in the workflow.
-
-## Brain Triage Memory Sync — 2026-04-01 10:13 EDT
-
-- `linkedin-os`: The reason why I think that this could be personal to me is because that's what the project I am working on is designing. It is a AI clone. It is a second brain. It is a platform for me to absorb information that is personal to me right now, I am tuning my AI clone project to understand the if I agree with it if I disagree with it if it's a useful source, is it something that should be part of my memory or you know didn't like the way that they said that thing and I think that's powerful because
+- Watch the first heartbeat run after 08:00 EDT and confirm Discord summaries include fresh timestamps instead of the April 5 heartbeat state.
+- Let Progress Pulse and Oracle Ledger run again and confirm `gateway.err.log` stays free of new `Collection not found: memory-dir-main` errors.
+- Regenerate `memory/reports/memory_health_2026-04-08.md` or supersede it with the repaired QMD alias check so the written health report matches reality.
+- Review and route the latest AI infrastructure knowledge ingest once segmentation completes.

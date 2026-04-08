@@ -84,6 +84,8 @@ def resolve_workspace_root() -> Path:
 
 
 ROOT = resolve_workspace_root()
+OPERATOR_STORY_SIGNALS_PATH = ROOT / "memory" / "reports" / "operator_story_signals_latest.json"
+CONTENT_SAFE_OPERATOR_LESSONS_PATH = ROOT / "memory" / "reports" / "content_safe_operator_lessons_latest.json"
 
 
 def _candidate_roots() -> list[Path]:
@@ -303,6 +305,8 @@ SNAPSHOT_SOURCE_ASSETS = "source_assets"
 SNAPSHOT_PERSONA_REVIEW_SUMMARY = "persona_review_summary"
 SNAPSHOT_LONG_FORM_ROUTES = "long_form_routes"
 SNAPSHOT_CONTENT_RESERVOIR = "content_reservoir"
+SNAPSHOT_OPERATOR_STORY_SIGNALS = "operator_story_signals"
+SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS = "content_safe_operator_lessons"
 
 
 def _load_module(module_name: str, script_path: Path) -> Any | None:
@@ -419,6 +423,16 @@ def _read_text(path: Path) -> str | None:
     if not path.exists():
         return None
     return path.read_text(encoding="utf-8")
+
+
+def _load_operator_story_signals_payload() -> dict[str, Any] | None:
+    payload = _load_json(OPERATOR_STORY_SIGNALS_PATH)
+    return payload if _snapshot_is_usable(SNAPSHOT_OPERATOR_STORY_SIGNALS, payload or {}) else None
+
+
+def _load_content_safe_operator_lessons_payload() -> dict[str, Any] | None:
+    payload = _load_json(CONTENT_SAFE_OPERATOR_LESSONS_PATH)
+    return payload if _snapshot_is_usable(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS, payload or {}) else None
 
 
 def _extract_markdown_section(text: str, heading: str) -> str:
@@ -1131,6 +1145,10 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
         return _build_long_form_routes_payload()
     if snapshot_type == SNAPSHOT_CONTENT_RESERVOIR:
         return _build_content_reservoir_payload()
+    if snapshot_type == SNAPSHOT_OPERATOR_STORY_SIGNALS:
+        return _load_operator_story_signals_payload()
+    if snapshot_type == SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS:
+        return _load_content_safe_operator_lessons_payload()
     return None
 
 
@@ -1178,6 +1196,10 @@ def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
         return isinstance(payload.get("route_counts"), dict) and isinstance(payload.get("candidates"), list)
     if snapshot_type == SNAPSHOT_CONTENT_RESERVOIR:
         return isinstance(payload.get("counts"), dict) and isinstance(payload.get("items"), list)
+    if snapshot_type == SNAPSHOT_OPERATOR_STORY_SIGNALS:
+        return isinstance(payload.get("counts"), dict) and isinstance(payload.get("signals"), list)
+    if snapshot_type == SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS:
+        return isinstance(payload.get("counts"), dict) and isinstance(payload.get("lessons"), list)
     return True
 
 
@@ -1294,6 +1316,60 @@ def _content_reservoir_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
     return (
         tuple(sorted((str(key), int(value)) for key, value in counts.items() if isinstance(value, (int, float)))),
         tuple(item_signature),
+    )
+
+
+def _operator_story_signals_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
+    counts = payload.get("counts") or {}
+    signals = payload.get("signals") or []
+    if not isinstance(counts, dict):
+        counts = {}
+    if not isinstance(signals, list):
+        signals = []
+
+    signal_signature: list[tuple[str, str, str, str]] = []
+    for item in signals[:20]:
+        if not isinstance(item, dict):
+            continue
+        signal_signature.append(
+            (
+                str(item.get("id") or ""),
+                str(item.get("route") or ""),
+                str(item.get("source_kind") or ""),
+                str(item.get("claim") or ""),
+            )
+        )
+
+    return (
+        tuple(sorted((str(key), int(value)) for key, value in counts.items() if isinstance(value, (int, float)))),
+        tuple(signal_signature),
+    )
+
+
+def _content_safe_operator_lessons_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
+    counts = payload.get("counts") or {}
+    lessons = payload.get("lessons") or []
+    if not isinstance(counts, dict):
+        counts = {}
+    if not isinstance(lessons, list):
+        lessons = []
+
+    lesson_signature: list[tuple[str, str, str, str]] = []
+    for item in lessons[:20]:
+        if not isinstance(item, dict):
+            continue
+        lesson_signature.append(
+            (
+                str(item.get("id") or ""),
+                str(item.get("safe_angle") or ""),
+                str(item.get("workspace_scope") or ""),
+                str(item.get("macro_thesis") or ""),
+            )
+        )
+
+    return (
+        tuple(sorted((str(key), int(value)) for key, value in counts.items() if isinstance(value, (int, float)))),
+        tuple(lesson_signature),
     )
 
 
@@ -1461,6 +1537,28 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
         if persisted and _snapshot_is_usable(snapshot_type, persisted):
             return persisted
         return None
+    if snapshot_type == SNAPSHOT_OPERATOR_STORY_SIGNALS:
+        runtime = _runtime_snapshot_payload(snapshot_type)
+        if runtime:
+            if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
+            if _operator_story_signals_signature(persisted) != _operator_story_signals_signature(runtime):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
+            return runtime
+        if persisted and _snapshot_is_usable(snapshot_type, persisted):
+            return persisted
+        return None
+    if snapshot_type == SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS:
+        runtime = _runtime_snapshot_payload(snapshot_type)
+        if runtime:
+            if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
+            if _content_safe_operator_lessons_signature(persisted) != _content_safe_operator_lessons_signature(runtime):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
+            return runtime
+        if persisted and _snapshot_is_usable(snapshot_type, persisted):
+            return persisted
+        return None
     if persisted and _snapshot_is_usable(snapshot_type, persisted):
         return persisted
     payload = _runtime_snapshot_payload(snapshot_type)
@@ -1507,6 +1605,22 @@ class WorkspaceSnapshotService:
         if weekly_plan:
             refreshed[SNAPSHOT_WEEKLY_PLAN] = _persist_snapshot(SNAPSHOT_WEEKLY_PLAN, weekly_plan, "refresh")
 
+        operator_story_signals = _runtime_snapshot_payload(SNAPSHOT_OPERATOR_STORY_SIGNALS)
+        if operator_story_signals:
+            refreshed[SNAPSHOT_OPERATOR_STORY_SIGNALS] = _persist_snapshot(
+                SNAPSHOT_OPERATOR_STORY_SIGNALS,
+                operator_story_signals,
+                "refresh",
+            )
+
+        content_safe_operator_lessons = _runtime_snapshot_payload(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
+        if content_safe_operator_lessons:
+            refreshed[SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS] = _persist_snapshot(
+                SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS,
+                content_safe_operator_lessons,
+                "refresh",
+            )
+
         for snapshot_type in (
             SNAPSHOT_PERSONA_REVIEW_SUMMARY,
             SNAPSHOT_REACTION_QUEUE,
@@ -1547,6 +1661,8 @@ class WorkspaceSnapshotService:
         reaction_queue = safe_load_snapshot(SNAPSHOT_REACTION_QUEUE)
         social_feed = safe_load_snapshot(SNAPSHOT_SOCIAL_FEED)
         feedback_summary = safe_load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
+        operator_story_signals = safe_load_snapshot(SNAPSHOT_OPERATOR_STORY_SIGNALS)
+        content_safe_operator_lessons = safe_load_snapshot(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
         return {
             "workspace_files": _load_workspace_files() if include_workspace_files else [],
             "doc_entries": _load_doc_entries() if include_doc_entries else [],
@@ -1556,6 +1672,8 @@ class WorkspaceSnapshotService:
             "feedback_summary": feedback_summary,
             "source_assets": source_assets,
             "content_reservoir": content_reservoir,
+            "operator_story_signals": operator_story_signals,
+            "content_safe_operator_lessons": content_safe_operator_lessons,
             "persona_review_summary": persona_review_summary,
             "long_form_routes": long_form_routes,
             "refresh_status": social_feed_refresh_service.get_status(),

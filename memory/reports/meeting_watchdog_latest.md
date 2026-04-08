@@ -1,34 +1,33 @@
 # Meeting Watchdog Report
 
-- Generated: `2026-04-01T22:33:28Z`
+- Generated: `2026-04-08T23:38:03Z`
 - Missing: `0`
-- Stale: `0`
-- Thin: `0`
+- Stale: `5`
+- Thin: `1`
 
 ## Rooms
-- `Executive Standup` — `ok`
-  - Reason: Transcript is fresh enough and includes a real discussion.
-  - Latest: `2026-04-01T02:09:18.601864Z`
+- `Executive Standup` — `thin`
+  - Reason: Transcript exists but does not yet satisfy the three-round, non-trivial standard.
+  - Latest: `2026-04-04T20:09:54.029697Z`
+- `Operations Standup` — `stale`
+  - Reason: Latest transcript is older than the 36h freshness window.
+  - Latest: `2026-04-04T01:55:03.865502Z`
   - Rounds: `4`
-- `Operations Standup` — `ok`
-  - Reason: Transcript is fresh enough and includes a real discussion.
-  - Latest: `2026-03-31T22:17:18.082940Z`
-  - Rounds: `3`
-- `Weekly Review` — `ok`
-  - Reason: Transcript is fresh enough and includes a real discussion.
+- `Weekly Review` — `stale`
+  - Reason: Latest transcript is older than the 192h freshness window.
   - Latest: `2026-03-31T22:17:18.056477Z`
   - Rounds: `4`
-- `Saturday Vision Sync` — `ok`
-  - Reason: Transcript is fresh enough and includes a real discussion.
+- `Saturday Vision Sync` — `stale`
+  - Reason: Latest transcript is older than the 192h freshness window.
   - Latest: `2026-03-31T22:17:18.078954Z`
   - Rounds: `4`
-- `FEEZIE OS Standup` — `ok`
-  - Reason: Transcript is fresh enough and includes a real discussion.
-  - Latest: `2026-04-01T02:43:13.576458Z`
+- `FEEZIE OS Standup` — `stale`
+  - Reason: Latest transcript is older than the 36h freshness window.
+  - Latest: `2026-04-04T01:55:03.832307Z`
   - Rounds: `4`
-- `Fusion Standup` — `ok`
-  - Reason: Transcript is fresh enough and includes a real discussion.
-  - Latest: `2026-03-31T22:24:59.617092Z`
+- `Fusion Standup` — `stale`
+  - Reason: Latest transcript is older than the 72h freshness window.
+  - Latest: `2026-04-04T01:55:03.876434Z`
   - Rounds: `3`
 - `EasyOutfitApp Standup` — `planned`
   - Reason: This lane is not required yet.

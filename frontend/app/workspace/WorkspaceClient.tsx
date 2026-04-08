@@ -839,40 +839,14 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const generateContent = useCallback(async () => {
     setGenerating(true);
     setGeneratorError(null);
-    setCodexJobId(null);
-    setCodexJobStatus(null);
-    setCodexJobError(null);
-    setGeneratedOptionBriefs([]);
-    setGeneratedSupportItems([]);
-    try {
-      const { topicToSend, contextToSend } = resolveGenerationSeed();
-      const response = await apiPost<GeneratedContentResponse>('/api/content-generation/generate', {
-        user_id: 'johnnie_fields',
-        topic: topicToSend,
-        context: contextToSend,
-        content_type: generatorType,
-        category: activeCategory,
-        tone: 'expert_direct',
-        audience,
-        source_mode: effectiveSourceMode,
-      });
-      applyGeneratedResponse(response);
-    } catch (error) {
-      setGeneratorError(error instanceof Error ? error.message : 'Unable to generate content right now.');
-    } finally {
-      setGenerating(false);
-    }
-  }, [activeCategory, applyGeneratedResponse, audience, effectiveSourceMode, generatorType, resolveGenerationSeed]);
-
-  const generateContentWithCodex = useCallback(async () => {
-    setGenerating(false);
-    setGeneratorError(null);
     setCodexJobError(null);
     setCodexActionLoading(null);
+    setCodexJobId(null);
+    setCodexJobStatus(null);
     setGeneratedContent([]);
     setGeneratedOptionBriefs([]);
     setGeneratedSupportItems([]);
-    setProviderTrace('codex_terminal · queued');
+    setProviderTrace('local_worker · queued');
     try {
       const { topicToSend, contextToSend } = resolveGenerationSeed();
       const response = await apiPost<LocalCodexJobCreateResponse>('/api/content-generation/codex-jobs', {
@@ -887,7 +861,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         workspace_slug: 'linkedin-content-os',
       });
       if (!response?.job_id) {
-        throw new Error(response?.message || 'Codex job did not return an id.');
+        throw new Error(response?.message || 'Local job did not return an id.');
       }
       setCodexJobId(response.job_id);
       setCodexJobStatus(response.status || 'pending');
@@ -896,10 +870,16 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to queue Codex generation right now.');
+      setGeneratorError(error instanceof Error ? error.message : 'Unable to queue local generation right now.');
       setProviderTrace(null);
+    } finally {
+      setGenerating(false);
     }
   }, [activeCategory, audience, effectiveSourceMode, generatorType, resolveGenerationSeed]);
+
+  const generateContentWithCodex = useCallback(async () => {
+    await generateContent();
+  }, [generateContent]);
 
   const cancelCodexJob = useCallback(async () => {
     if (!codexJobId) return;
@@ -911,9 +891,9 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
       setCodexJobStatus(nextStatus);
       setCodexJobError(null);
       setGeneratorError(null);
-      setProviderTrace(`codex_terminal · ${nextStatus}`);
+      setProviderTrace(`local_worker · ${nextStatus}`);
     } catch (error) {
-      setCodexJobError(error instanceof Error ? error.message : 'Unable to cancel the Codex run right now.');
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to cancel the local run right now.');
     } finally {
       setCodexActionLoading(null);
     }
@@ -937,14 +917,14 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
           return;
         }
         if (nextStatus === 'failed' || nextStatus === 'canceled') {
-          setCodexJobError(response?.error_message || 'Codex terminal generation failed.');
-          setProviderTrace(`codex_terminal · ${nextStatus}`);
+          setCodexJobError(response?.error_message || 'Local generation failed.');
+          setProviderTrace(`local_worker · ${nextStatus}`);
           return;
         }
-        setProviderTrace(nextStatus === 'running' ? 'codex_terminal · running' : 'codex_terminal · queued');
+        setProviderTrace(nextStatus === 'running' ? 'local_worker · running' : 'local_worker · queued');
       } catch (error) {
         if (cancelled) return;
-        const message = error instanceof Error ? error.message : 'Unable to poll Codex job status right now.';
+        const message = error instanceof Error ? error.message : 'Unable to poll local job status right now.';
         setCodexJobError(message);
       }
     };
@@ -1169,8 +1149,9 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   }
 
   const codexInFlight = Boolean(codexJobId) && !['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '');
-  const codexTerminalCompleted = codexJobStatus === 'completed';
+  const localJobCompleted = codexJobStatus === 'completed';
   const codexJobTone = codexJobStatusTone(codexJobStatus);
+  const usedCodexTerminal = (providerTrace ?? '').includes('codex_terminal');
   const activeSourceTitle =
     topicSourceMode === 'selected_source'
       ? selectedSignal?.title || querySeed.title || 'No source selected yet'
@@ -1393,10 +1374,10 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
 
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <button onClick={() => void generateContent()} disabled={generating || codexInFlight || codexActionLoading !== null} style={primaryActionStyle('#38bdf8')}>
-                  {generating ? 'Generating…' : 'Generate Options'}
+                  {generating ? 'Queueing…' : 'Generate Options'}
                 </button>
                 <button onClick={() => void generateContentWithCodex()} disabled={generating || codexInFlight || codexActionLoading !== null} style={primaryActionStyle('#f97316')}>
-                  {codexInFlight ? 'Writing With Codex…' : 'Generate With Codex Terminal'}
+                  {codexInFlight ? 'Running on This Mac…' : 'Queue on This Mac'}
                 </button>
               </div>
               {providerTrace && <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '12px' }}>Model trace: {providerTrace}</p>}
@@ -1426,10 +1407,10 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                       )}
                       {!codexInFlight && ['failed', 'canceled'].includes(codexJobStatus ?? '') && (
                         <button onClick={() => void generateContentWithCodex()} disabled={codexActionLoading !== null || generating} style={secondaryActionStyle('#f97316')}>
-                          Retry Codex Run
+                          Retry Local Run
                         </button>
                       )}
-                      {codexTerminalCompleted && (
+                      {localJobCompleted && (
                         <span
                           style={{
                             borderRadius: '999px',
@@ -1443,7 +1424,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                             textTransform: 'uppercase',
                           }}
                         >
-                          Generated with Codex Terminal
+                          {usedCodexTerminal ? 'Escalated to Codex Terminal' : 'Completed on This Mac'}
                         </span>
                       )}
                     </div>

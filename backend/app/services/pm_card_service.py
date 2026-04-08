@@ -18,6 +18,7 @@ from app.models import (
     PMCardUpdate,
 )
 from app.services.open_brain_db import get_pool
+from app.services.trigger_identity_service import build_pm_trigger_key
 from app.services.workspace_runtime_contract_service import execution_defaults_for_workspace as runtime_execution_defaults_for_workspace
 
 
@@ -60,6 +61,18 @@ def list_cards(
 
 
 def create_card(payload: PMCardCreate) -> PMCard:
+    normalized_payload = _normalize_card_create_payload(payload)
+    trigger_key = _payload_value(normalized_payload.payload, "trigger_key")
+    if trigger_key:
+        existing = find_active_card_by_trigger_key(trigger_key)
+        if existing is not None:
+            existing_payload = dict(existing.payload or {})
+            existing_payload["last_triggered_at"] = datetime.now(timezone.utc).isoformat()
+            existing_payload["trigger_replays"] = int(existing_payload.get("trigger_replays") or 0) + 1
+            existing_payload["latest_trigger_origin"] = _payload_value(normalized_payload.payload, "trigger_origin")
+            updated = update_card(existing.id, PMCardUpdate(payload=existing_payload))
+            return updated or existing
+
     pool = get_pool()
     card_id = str(uuid4())
     with pool.connection() as conn:
@@ -72,14 +85,14 @@ def create_card(payload: PMCardCreate) -> PMCard:
                 """,
                 (
                     card_id,
-                    payload.title,
-                    payload.owner,
-                    payload.status or "todo",
-                    payload.source,
-                    payload.link_type,
-                    payload.link_id,
-                    payload.due_at,
-                    Json(payload.payload or {}),
+                    normalized_payload.title,
+                    normalized_payload.owner,
+                    normalized_payload.status or "todo",
+                    normalized_payload.source,
+                    normalized_payload.link_type,
+                    normalized_payload.link_id,
+                    normalized_payload.due_at,
+                    Json(normalized_payload.payload or {}),
                 ),
             )
             row = cur.fetchone()
@@ -219,6 +232,25 @@ def find_active_card_by_title(title: str, workspace_key: str) -> Optional[PMCard
     return _row_to_card(row) if row else None
 
 
+def find_active_card_by_trigger_key(trigger_key: str) -> Optional[PMCard]:
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, title, owner, status, source, link_type, link_id, due_at, payload, created_at, updated_at
+                FROM pm_cards
+                WHERE payload->>'trigger_key' = %s
+                  AND LOWER(COALESCE(status, 'todo')) NOT IN ('done', 'closed', 'cancelled')
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (trigger_key,),
+            )
+            row = cur.fetchone()
+    return _row_to_card(row) if row else None
+
+
 def list_execution_queue(
     limit: int = 100,
     target_agent: Optional[str] = None,
@@ -290,6 +322,12 @@ def dispatch_card(card_id: str, payload: PMCardDispatchRequest) -> Optional[PMCa
             or "Queued from PM board for Codex execution.",
             "queued_at": current_execution.get("queued_at") or now.isoformat(),
             "last_transition_at": now.isoformat(),
+            "execution_packet_path": None,
+            "executor_status": None,
+            "executor_worker_id": None,
+            "executor_started_at": None,
+            "executor_finished_at": None,
+            "executor_last_error": None,
             "history": history[-12:],
         }
     )
@@ -400,6 +438,12 @@ def build_card_action_update(
         "queued_at": current_execution.get("queued_at") if action == "approve" else now,
         "last_transition_at": now,
         "manager_attention_required": manager_attention_required,
+        "execution_packet_path": None if action in {"return", "blocked"} else current_execution.get("execution_packet_path"),
+        "executor_status": None if action in {"return", "blocked"} else current_execution.get("executor_status"),
+        "executor_worker_id": None if action in {"return", "blocked"} else current_execution.get("executor_worker_id"),
+        "executor_started_at": None if action in {"return", "blocked"} else current_execution.get("executor_started_at"),
+        "executor_finished_at": None if action in {"return", "blocked"} else current_execution.get("executor_finished_at"),
+        "executor_last_error": None if action in {"return", "blocked"} else current_execution.get("executor_last_error"),
         "returned_from_agent": (
             str(current_execution.get("target_agent") or (queue_entry.target_agent if queue_entry else ""))
             if action == "blocked"
@@ -454,6 +498,15 @@ def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
     else:
         effective_execution = _merge_execution_defaults(effective_execution, defaults)
 
+    latest_execution_result = payload.get("latest_execution_result")
+    latest_result = latest_execution_result if isinstance(latest_execution_result, dict) else {}
+    latest_result_artifacts = latest_result.get("artifacts")
+    artifact_items = (
+        [str(item).strip() for item in latest_result_artifacts if isinstance(item, str) and str(item).strip()]
+        if isinstance(latest_result_artifacts, list)
+        else []
+    )
+
     return ExecutionQueueEntry(
         card_id=card.id,
         title=card.title,
@@ -470,6 +523,23 @@ def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
         reason=_optional_str(effective_execution.get("reason")),
         source=card.source,
         link_type=card.link_type,
+        front_door_agent=_optional_str(payload.get("front_door_agent")),
+        trigger_key=_optional_str(payload.get("trigger_key")),
+        manager_attention_required=bool(effective_execution.get("manager_attention_required")),
+        executor_status=_optional_str(effective_execution.get("executor_status")),
+        executor_worker_id=_optional_str(effective_execution.get("executor_worker_id")),
+        execution_packet_path=(
+            _optional_str(effective_execution.get("execution_packet_path"))
+            or _optional_str(effective_execution.get("workspace_agent_packet_path"))
+        ),
+        sop_path=_optional_str(effective_execution.get("sop_path")),
+        briefing_path=(
+            _optional_str(effective_execution.get("briefing_path"))
+            or _optional_str(effective_execution.get("workspace_agent_briefing_path"))
+        ),
+        latest_result_status=_optional_str(latest_result.get("status")),
+        latest_result_summary=_optional_str(latest_result.get("summary")),
+        latest_result_artifacts=artifact_items,
         queued_at=_parse_datetime(effective_execution.get("queued_at")),
         last_transition_at=_parse_datetime(effective_execution.get("last_transition_at")) or card.updated_at,
     )
@@ -590,6 +660,57 @@ def _fallback_execution_entry(card: PMCard) -> ExecutionQueueEntry:
         reason="Queued from PM board for Codex execution.",
         source=card.source,
         link_type=card.link_type,
+        front_door_agent=_payload_value(card.payload or {}, "front_door_agent"),
+        trigger_key=_payload_value(card.payload or {}, "trigger_key"),
         queued_at=card.updated_at,
         last_transition_at=card.updated_at,
     )
+
+
+def _normalize_card_create_payload(payload: PMCardCreate) -> PMCardCreate:
+    card_payload = dict(payload.payload or {})
+    execution = dict(card_payload.get("execution") or {})
+    source = str(payload.source or "").strip() or None
+    workspace_key = _payload_value(card_payload, "workspace_key") or "shared_ops"
+    card_payload["workspace_key"] = workspace_key
+
+    if _is_human_front_door_payload(source, card_payload):
+        card_payload["front_door_agent"] = "Neo"
+        card_payload["source_agent"] = "Neo"
+        card_payload["requested_by"] = "Neo"
+        if not execution.get("requested_by"):
+            execution["requested_by"] = "Neo"
+
+    if execution:
+        card_payload["execution"] = execution
+
+    trigger_key = _payload_value(card_payload, "trigger_key")
+    if not trigger_key and _is_human_front_door_payload(source, card_payload):
+        card_payload["trigger_key"] = _build_trigger_key(
+            title=payload.title,
+            workspace_key=workspace_key,
+            source=source,
+            payload=card_payload,
+        )
+        card_payload["last_triggered_at"] = datetime.now(timezone.utc).isoformat()
+        card_payload["trigger_replays"] = int(card_payload.get("trigger_replays") or 0)
+
+    owner = payload.owner or ("Neo" if card_payload.get("front_door_agent") == "Neo" else payload.owner)
+    return payload.model_copy(update={"owner": owner, "payload": card_payload, "source": source})
+
+
+def _is_human_front_door_payload(source: str | None, payload: dict[str, Any]) -> bool:
+    front_door_agent = _payload_value(payload, "front_door_agent")
+    source_agent = _payload_value(payload, "source_agent")
+    trigger_origin = _payload_value(payload, "trigger_origin")
+    normalized_source = str(source or "").strip().lower()
+    return bool(
+        front_door_agent == "Neo"
+        or source_agent == "Neo"
+        or trigger_origin == "openclaw_thin_trigger"
+        or normalized_source.startswith("openclaw:")
+    )
+
+
+def _build_trigger_key(*, title: str, workspace_key: str, source: str | None, payload: dict[str, Any]) -> str:
+    return build_pm_trigger_key(title=title, workspace_key=workspace_key, source=source, payload=payload)

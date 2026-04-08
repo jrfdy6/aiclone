@@ -4,7 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
 
 from app.models import (
     BrainCanonicalMemorySyncStatusRequest,
+    BrainContentSafeOperatorLessonsSyncRequest,
     BrainLongFormIngestRequest,
+    BrainOperatorStorySignalsSyncRequest,
     BrainPersonaReviewRequest,
     BrainPersonaRerouteRequest,
     BrainSystemRouteRequest,
@@ -222,6 +224,51 @@ async def publish_brain_memory_sync_status(payload: BrainCanonicalMemorySyncStat
 
     return {
         "message": "Brain canonical-memory sync status stored.",
+        "snapshot": snapshot,
+    }
+
+
+@router.post("/operator-story-signals/sync")
+async def publish_operator_story_signals(payload: BrainOperatorStorySignalsSyncRequest):
+    try:
+        snapshot = upsert_snapshot(
+            payload.workspace_key,
+            "operator_story_signals",
+            payload.model_dump(),
+            metadata={
+                "source": payload.source,
+                "payload_generated_at": payload.generated_at,
+                "signal_count": payload.signal_count,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "message": "Operator story signals stored.",
+        "snapshot": snapshot,
+    }
+
+
+@router.post("/content-safe-operator-lessons/sync")
+async def publish_content_safe_operator_lessons(payload: BrainContentSafeOperatorLessonsSyncRequest):
+    try:
+        snapshot = upsert_snapshot(
+            payload.workspace_key,
+            "content_safe_operator_lessons",
+            payload.model_dump(),
+            metadata={
+                "source": payload.source,
+                "payload_generated_at": payload.generated_at,
+                "lesson_count": payload.lesson_count,
+                "source_snapshot_type": payload.source_snapshot_type,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "message": "Content-safe operator lessons stored.",
         "snapshot": snapshot,
     }
 

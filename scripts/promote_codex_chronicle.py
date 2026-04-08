@@ -66,6 +66,7 @@ def main() -> int:
     prep = json.loads(prep_path.read_text(encoding="utf-8"))
     promotions = prep.get("memory_promotions") or []
     pm_updates = prep.get("pm_updates") or []
+    pm_updates_blocked_reason = prep.get("pm_updates_blocked_reason")
     timestamp = datetime.now().astimezone()
     daily_path = MEMORY_ROOT / f"{timestamp:%Y-%m-%d}.md"
 
@@ -83,7 +84,13 @@ def main() -> int:
 
     promotion_lines.extend(["", "### PM Recommendation Candidates"])
     if not pm_updates:
-        promotion_lines.append("- None.")
+        if pm_updates_blocked_reason:
+            reason_label = {
+                "pm_snapshot_unavailable": "Blocked: PM snapshot unavailable during prep.",
+            }.get(pm_updates_blocked_reason, f"Blocked: {pm_updates_blocked_reason}")
+            promotion_lines.append(f"- None. ({reason_label})")
+        else:
+            promotion_lines.append("- None.")
     else:
         for item in pm_updates:
             promotion_lines.append(f"- `{item.get('workspace_key')}`: {item.get('title')}")
@@ -110,7 +117,7 @@ def main() -> int:
             learnings_written = len(learnings)
 
     recommendation_path: Path | None = None
-    if args.write_pm_recommendations and pm_updates:
+    if args.write_pm_recommendations and pm_updates and not pm_updates_blocked_reason:
         recommendation_path = MEMORY_ROOT / "pm-recommendations" / f"{timestamp.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}.json"
         _write_json(
             recommendation_path,
@@ -130,6 +137,8 @@ def main() -> int:
         print(f"Appended {learnings_written} learning entries to {MEMORY_ROOT / 'LEARNINGS.md'}")
     if recommendation_path is not None:
         print(f"PM recommendations: {recommendation_path}")
+    elif args.write_pm_recommendations and pm_updates_blocked_reason:
+        print(f"Skipped PM recommendation write: {pm_updates_blocked_reason}")
     return 0
 
 

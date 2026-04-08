@@ -6,6 +6,8 @@ It is not canon.
 It does not replace the root workspace identity.
 It exists so the Fusion lane can think with more depth without bloating `IDENTITY.md` or leaking assumptions into other workspaces.
 
+When the task is about the recurring PM -> packet -> execution -> write-back loop, start with [`execution_lane.md`](/Users/neo/.openclaw/workspace/workspaces/fusion-os/docs/execution_lane.md) before drilling into research or messaging docs.
+
 ## What This Folder Is For
 
 - Turn research into usable operating context

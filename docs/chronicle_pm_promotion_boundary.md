@@ -123,6 +123,7 @@ That script now:
 - normalizes weak PM candidate titles
 - rejects advisory phrasing
 - rejects duplicates when the same title already exists on the active PM board
+- requires a live PM snapshot before emitting promotion candidates, and records a `pm_updates_blocked_reason` when the board is unreachable
 
 ## Executive Rule
 
@@ -132,3 +133,18 @@ When the system is unsure:
 - do not force it onto the PM board
 
 The PM board should stay smaller, cleaner, and more trustworthy than the total volume of Chronicle signal.
+
+## Promotion Writer Guardrails
+
+`scripts/promote_codex_chronicle.py` reads the prep output and now refuses to write PM recommendation files when `pm_updates_blocked_reason` is set. Instead, the daily log notes that recommendations were blocked (e.g., “PM snapshot unavailable during prep”). Chronicle entries still land in memory so nothing is lost, but PM remains untouched until the board is reachable again.
+
+## Autonomous Execution Checklist
+
+Before letting the Chronicle → standup → PM path run without a human in the loop, confirm these four conditions:
+
+1. **Builder health** — `python3 scripts/build_standup_prep.py --standup-kind <kind> --workspace-key <workspace>` must either show a live PM snapshot or explicitly set `pm_updates_blocked_reason`. A blocked prep means recommendations remain advisory-only.
+2. **Candidate hygiene** — Inspect the generated `memory/standup-prep/<kind>/<stamp>.json` and ensure every entry in `pm_updates` passed `_pm_candidate_gate` (action-shaped title, no advisory prefix, no duplicate on the active board).
+3. **Writer behavior** — Run `python3 scripts/promote_codex_chronicle.py --prep-json <path> --workspace-key <workspace> --write-pm-recommendations`. When the prep was blocked, the command must print `Skipped PM recommendation write: <reason>`; otherwise it should emit the recommendations file path.
+4. **Result logging** — After a successful run, capture the decision through `scripts/runners/write_execution_result.py` so the daily log, workspace execution log, and PM card all reflect the automation’s state.
+
+If any checklist item fails, leave the system in recommendation-only mode, fix the blocker (usually PM API access), and rerun the builder + promotion flow before touching the PM board.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -16,6 +17,88 @@ from app.services import lab_experiment_service
 class LabExperimentServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         lab_experiment_service._EXPERIMENT_CACHE.clear()
+
+    def _fake_pipeline_audit(self) -> dict[str, object]:
+        return {
+            "generated_at": "2026-04-06T00:00:00Z",
+            "request": {
+                "topic": "workflow clarity",
+                "context": "Use the operator systems angle.",
+                "content_type": "linkedin_post",
+                "category": "value",
+                "tone": "expert_direct",
+                "audience": "tech_ai",
+            },
+            "phases": {
+                "persona_bundle": {"total": 300, "by_domain_tag": {"ai": 40, "ops": 20}},
+                "source_assets": {
+                    "persisted": {"item_count": 23},
+                    "runtime": {"item_count": 38},
+                },
+                "content_reservoir": {
+                    "persisted": {"item_count": 121},
+                    "runtime": {"item_count": 171},
+                },
+                "source_modes": {
+                    "persona_only": {
+                        "grounding_mode": "proof_ready",
+                        "grounding_reason": "Canon-led baseline.",
+                        "primary_claims": ["Canon claim."],
+                        "curated_persona_chunk_count": 8,
+                        "content_reservoir_chunk_count": 0,
+                        "retrieval_support_count": 0,
+                        "canonical_bundle_count": 8,
+                        "reservoir_candidate_count": 0,
+                        "reservoir_candidate_memory_roles": {},
+                        "example_count": 0,
+                    },
+                    "selected_source": {
+                        "grounding_mode": "proof_ready",
+                        "grounding_reason": "Source-backed context reached the packet.",
+                        "primary_claims": ["Source claim."],
+                        "curated_persona_chunk_count": 9,
+                        "content_reservoir_chunk_count": 2,
+                        "retrieval_support_count": 2,
+                        "canonical_bundle_count": 7,
+                        "reservoir_candidate_count": 8,
+                        "reservoir_candidate_memory_roles": {"proof": 2, "ambient": 1},
+                        "example_count": 1,
+                    },
+                    "recent_signals": {
+                        "grounding_mode": "proof_ready",
+                        "grounding_reason": "Recent signals still collapse to canon.",
+                        "primary_claims": ["Canon claim."],
+                        "curated_persona_chunk_count": 9,
+                        "content_reservoir_chunk_count": 2,
+                        "retrieval_support_count": 2,
+                        "canonical_bundle_count": 7,
+                        "reservoir_candidate_count": 8,
+                        "reservoir_candidate_memory_roles": {"proof": 1, "ambient": 3},
+                        "example_count": 1,
+                    },
+                },
+            },
+            "issues": [
+                {
+                    "severity": "high",
+                    "phase": "source_assets",
+                    "summary": "Persisted source assets are lagging runtime inputs.",
+                    "details": {"persisted_count": 23, "runtime_count": 38},
+                },
+                {
+                    "severity": "high",
+                    "phase": "content_reservoir",
+                    "summary": "Persisted content reservoir is lagging runtime inputs.",
+                    "details": {"persisted_count": 121, "runtime_count": 171},
+                },
+                {
+                    "severity": "medium",
+                    "phase": "source_mode_effect",
+                    "summary": "recent_signals is landing on the same primary claims as persona_only.",
+                    "details": {"mode": "recent_signals"},
+                },
+            ],
+        }
 
     def test_default_experiment_is_available_before_run(self) -> None:
         experiments = lab_experiment_service.list_lab_experiments()
@@ -51,6 +134,10 @@ class LabExperimentServiceTests(unittest.TestCase):
             lab_experiment_service.content_generation,
             "run_content_generation",
             new=AsyncMock(return_value=fake_response),
+        ), patch.object(
+            lab_experiment_service,
+            "build_content_generation_pipeline_audit",
+            return_value=self._fake_pipeline_audit(),
         ):
             record = asyncio.run(lab_experiment_service.run_content_fallback_experiment())
 
@@ -58,6 +145,21 @@ class LabExperimentServiceTests(unittest.TestCase):
         self.assertGreater(record["current"]["structural_fallback_rate"], 0.0)
         self.assertIn("recovered_missing_planned_options", record["current"]["top_failure_modes"])
         self.assertIn("provider_failover", record["current"]["top_failure_modes"])
+        self.assertEqual(record["pipeline_audit"]["issue_count"], 3)
+        self.assertEqual(record["pipeline_audit"]["snapshot_drift_count"], 2)
+        self.assertEqual(record["pipeline_audit"]["source_mode_collapse_count"], 1)
+        self.assertEqual(record["golden_evaluation"]["total"], len(lab_experiment_service.CONTENT_PROBES))
+        self.assertTrue(all("golden_benchmark" in item for item in record["sample_runs"]))
+        self.assertTrue(
+            {
+                "golden_publishable_rate",
+                "golden_close_rate",
+                "golden_fail_rate",
+                "golden_score_avg",
+                "golden_score_floor",
+                "golden_hard_fail_count",
+            }.issubset({card["id"] for card in record["golden_evaluation"]["metric_cards"]})
+        )
         self.assertEqual(len(record["history"]), 1)
 
     def test_run_content_fallback_experiment_captures_probe_errors(self) -> None:
@@ -65,6 +167,10 @@ class LabExperimentServiceTests(unittest.TestCase):
             lab_experiment_service.content_generation,
             "run_content_generation",
             new=AsyncMock(side_effect=RuntimeError("critic payload malformed")),
+        ), patch.object(
+            lab_experiment_service,
+            "build_content_generation_pipeline_audit",
+            return_value=self._fake_pipeline_audit(),
         ):
             record = asyncio.run(lab_experiment_service.run_content_fallback_experiment())
 
@@ -72,6 +178,147 @@ class LabExperimentServiceTests(unittest.TestCase):
         self.assertIn("probe_errors", record["current"]["top_failure_modes"])
         self.assertEqual(record["current"]["stage_breakdown"]["probe_errors"], len(lab_experiment_service.CONTENT_PROBES))
         self.assertTrue(all("probe_error" in item["structural_fallbacks"] for item in record["sample_runs"]))
+        self.assertEqual(record["pipeline_audit"]["issue_count"], 3)
+        self.assertEqual(record["golden_evaluation"]["fail_count"], len(lab_experiment_service.CONTENT_PROBES))
+
+    def test_lab_provider_lane_sets_and_restores_stability_env(self) -> None:
+        with patch.dict(os.environ, {"CONTENT_GENERATION_PROVIDER_ORDER": "gemini", "CONTENT_GENERATION_STABILITY_MODE": "custom"}):
+            with lab_experiment_service._lab_provider_lane():
+                self.assertEqual(os.environ.get("CONTENT_GENERATION_PROVIDER_ORDER"), "openai")
+                self.assertEqual(os.environ.get("CONTENT_GENERATION_STABILITY_MODE"), "benchmark")
+
+            self.assertEqual(os.environ.get("CONTENT_GENERATION_PROVIDER_ORDER"), "gemini")
+            self.assertEqual(os.environ.get("CONTENT_GENERATION_STABILITY_MODE"), "custom")
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CONTENT_GENERATION_PROVIDER_ORDER", None)
+            os.environ.pop("CONTENT_GENERATION_STABILITY_MODE", None)
+
+            with lab_experiment_service._lab_provider_lane():
+                self.assertEqual(os.environ.get("CONTENT_GENERATION_PROVIDER_ORDER"), "openai")
+                self.assertEqual(os.environ.get("CONTENT_GENERATION_STABILITY_MODE"), "benchmark")
+
+            self.assertNotIn("CONTENT_GENERATION_PROVIDER_ORDER", os.environ)
+            self.assertNotIn("CONTENT_GENERATION_STABILITY_MODE", os.environ)
+
+    def test_evaluate_content_golden_benchmark_marks_publishable_when_contract_is_met(self) -> None:
+        diagnostics = {
+            "grounding_mode": "proof_ready",
+            "primary_claims": ["If the workflow is unclear, AI just scales confusion."],
+            "proof_packets": [
+                "AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through structured lanes."
+            ],
+            "planned_option_briefs": [
+                {
+                    "option_number": 1,
+                    "framing_mode": "operator_lesson",
+                    "primary_claim": "If the workflow is unclear, AI just scales confusion.",
+                    "proof_packet": "AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through structured lanes.",
+                    "story_beat": "",
+                }
+            ],
+        }
+        row = lab_experiment_service._evaluate_content_golden_benchmark(
+            probe={
+                "topic": "workflow clarity",
+                "audience": "tech_ai",
+                "category": "value",
+                "tone": "expert_direct",
+            },
+            diagnostics=diagnostics,
+            top_option=(
+                "If the workflow is unclear, AI just scales confusion.\n\n"
+                "AI Clone / Brain System made the handoff visible.\n\n"
+                "One routed workspace snapshot now keeps context alive.\n\n"
+                "Shared state keeps context alive across the handoff."
+            ),
+            top_warnings=[],
+        )
+
+        self.assertEqual(row["status"], "publishable")
+        self.assertTrue(row["required_checks_passed"])
+        self.assertGreaterEqual(row["score"], row["minimum_score"])
+
+    def test_evaluate_content_golden_benchmark_accepts_proof_shaped_operator_opening(self) -> None:
+        diagnostics = {
+            "grounding_mode": "proof_ready",
+            "primary_claims": ["If the workflow is unclear, AI just scales confusion."],
+            "proof_packets": [
+                "AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through structured lanes."
+            ],
+            "planned_option_briefs": [
+                {
+                    "option_number": 1,
+                    "framing_mode": "operator_lesson",
+                    "primary_claim": "If the workflow is unclear, AI just scales confusion.",
+                    "proof_packet": "AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through structured lanes.",
+                    "story_beat": "",
+                }
+            ],
+        }
+
+        row = lab_experiment_service._evaluate_content_golden_benchmark(
+            probe={
+                "topic": "workflow clarity",
+                "audience": "tech_ai",
+                "category": "value",
+                "tone": "expert_direct",
+            },
+            diagnostics=diagnostics,
+            top_option=(
+                "One routed workspace snapshot now keeps context alive.\n\n"
+                "AI Clone / Brain System made the handoff visible.\n\n"
+                "Content generation now reads canon through typed lanes.\n\n"
+                "That is the operating model."
+            ),
+            top_warnings=[],
+        )
+
+        self.assertEqual(row["status"], "publishable")
+        claim_check = next(check for check in row["checks"] if check["id"] == "claim_led")
+        self.assertEqual(claim_check["status"], "pass")
+
+    def test_evaluate_content_golden_benchmark_accepts_education_policy_anchor_variants(self) -> None:
+        diagnostics = {
+            "grounding_mode": "proof_ready",
+            "primary_claims": ["Admissions is not just enrollment; it is translation."],
+            "proof_packets": [
+                "Fusion Academy Dashboard Transformation -> Daily, weekly, and quarterly metrics were unified so outreach and execution became clearer for school teams."
+            ],
+            "planned_option_briefs": [
+                {
+                    "option_number": 1,
+                    "framing_mode": "operator_lesson",
+                    "primary_claim": "Admissions is not just enrollment; it is translation.",
+                    "proof_packet": "Fusion Academy Dashboard Transformation -> Daily, weekly, and quarterly metrics were unified so outreach and execution became clearer for school teams.",
+                    "story_beat": "",
+                }
+            ],
+        }
+
+        row = lab_experiment_service._evaluate_content_golden_benchmark(
+            probe={
+                "topic": "Kentucky Senate passes bill making it easier to cut faculty",
+                "audience": "education_admissions",
+                "category": "value",
+                "tone": "expert_direct",
+            },
+            diagnostics=diagnostics,
+            top_option=(
+                "Admissions is not just enrollment; it is translation.\n\n"
+                "Policy shocks land with families first.\n\n"
+                "If faculty cuts keep stacking up, trust gets harder to hold with educators and school communities.\n\n"
+                "The Fusion Academy Dashboard Transformation made the next action easier to see."
+            ),
+            top_warnings=[],
+        )
+
+        anchor_check = next(check for check in row["checks"] if check["id"] == "anchor_contract")
+        self.assertEqual(anchor_check["status"], "pass")
+
+    def test_warning_matches_prefix_ignores_genericity_one(self) -> None:
+        self.assertFalse(lab_experiment_service._warning_matches_prefix(["genericity:1"], ["genericity:"]))
+        self.assertTrue(lab_experiment_service._warning_matches_prefix(["genericity:2"], ["genericity:"]))
 
     def test_run_social_response_matrix_experiment_covers_all_lanes(self) -> None:
         record = asyncio.run(lab_experiment_service.run_social_response_matrix_experiment())

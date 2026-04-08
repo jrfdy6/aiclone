@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
@@ -183,6 +183,17 @@ type ExecutionQueueEntry = {
   reason?: string | null;
   source?: string | null;
   link_type?: string | null;
+  front_door_agent?: string | null;
+  trigger_key?: string | null;
+  manager_attention_required?: boolean;
+  executor_status?: string | null;
+  executor_worker_id?: string | null;
+  execution_packet_path?: string | null;
+  sop_path?: string | null;
+  briefing_path?: string | null;
+  latest_result_status?: string | null;
+  latest_result_summary?: string | null;
+  latest_result_artifacts?: string[];
   queued_at?: string | null;
   last_transition_at?: string | null;
 };
@@ -1549,6 +1560,10 @@ export default function OpsClient({
           sessionsError={sectionErrors.logs}
           cronJobs={automations}
           cronError={sectionErrors.automations}
+          executionQueue={executionQueue}
+          queueError={sectionErrors.executionQueue}
+          automations={automations}
+          automationRuns={automationRuns}
           brainMetrics={brainMetrics}
           brainError={sectionErrors.brain}
           brainHealth={brainHealth}
@@ -1617,6 +1632,10 @@ function MissionControlView({
   sessionsError,
   cronJobs,
   cronError,
+  executionQueue,
+  queueError,
+  automations,
+  automationRuns,
   brainMetrics,
   brainError,
   brainHealth,
@@ -1631,6 +1650,10 @@ function MissionControlView({
   sessionsError: string | null;
   cronJobs: Automation[];
   cronError: string | null;
+  executionQueue: ExecutionQueueEntry[];
+  queueError: string | null;
+  automations: Automation[];
+  automationRuns: AutomationRun[];
   brainMetrics: OpenBrainTelemetry | null;
   brainError: string | null;
   brainHealth: OpenBrainHealth | null;
@@ -1643,6 +1666,7 @@ function MissionControlView({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <HeroCard metrics={metrics} sessions={activityRows.length} cronCount={cronJobs.length} />
+      <LocalWorkerHealthPanel executionQueue={executionQueue} automations={automations} automationRuns={automationRuns} />
       {metricsError && <SectionAlert message={`${TELEMETRY_LABELS.metrics}: ${metricsError}`} />}
       <StatusTable
         title="Models"
@@ -1660,6 +1684,7 @@ function MissionControlView({
         headers={['Stream', 'Activity', 'Status', 'Last Seen']}
         rows={activityRows.map((row) => [row.stream, row.activity, statusBadge(row.status), row.lastSeen ? formatTimestamp(row.lastSeen) : '-'])}
       />
+      {queueError && <SectionAlert message={`${TELEMETRY_LABELS.executionQueue}: ${queueError}`} />}
       {sessionsError && activityRows.length === 0 && <SectionAlert message={`${TELEMETRY_LABELS.logs}: ${sessionsError}`} />}
       <CronTable cronJobs={cronJobs} />
       {cronError && <SectionAlert message={`${TELEMETRY_LABELS.automations}: ${cronError}`} />}
@@ -1707,6 +1732,165 @@ function HeroCard({ metrics, sessions, cronCount }: { metrics: ComplianceMetrics
     </section>
   );
 }
+
+function LocalWorkerHealthPanel({
+  executionQueue,
+  automations,
+  automationRuns,
+}: {
+  executionQueue: ExecutionQueueEntry[];
+  automations: Automation[];
+  automationRuns: AutomationRun[];
+}) {
+  const localWorkerIds = [
+    'feezie_codex_bridge',
+    'jean_claude_execution_dispatch',
+    'workspace_agent_dispatch',
+    'codex_workspace_execution',
+    'codex_chronicle_sync',
+  ];
+  const workerAutomations = localWorkerIds
+    .map((id) => automations.find((item) => item.id === id))
+    .filter((item): item is Automation => Boolean(item));
+  const healthyWorkers = workerAutomations.filter((item) => {
+    const runtime = String(item.runtime ?? '').toLowerCase();
+    const status = String(item.status ?? '').toLowerCase();
+    const lastStatus = String(item.last_status ?? '').toLowerCase();
+    return runtime.includes('active') || status === 'active' || lastStatus === 'ok';
+  }).length;
+
+  const claimedEntries = executionQueue.filter((entry) => String(entry.executor_status ?? '').toLowerCase() === 'running');
+  const failedEntries = [...executionQueue]
+    .filter((entry) => {
+      const executorStatus = String(entry.executor_status ?? '').toLowerCase();
+      const executionState = normalizeExecutionState(entry.execution_state);
+      return executorStatus === 'failed' || executionState === 'failed';
+    })
+    .sort((left, right) => {
+      const leftTime = activityTimestampForQueue(left)?.getTime() ?? 0;
+      const rightTime = activityTimestampForQueue(right)?.getTime() ?? 0;
+      return rightTime - leftTime;
+    });
+  const staleRunningEntries = executionQueue.filter((entry) => {
+    const state = normalizeExecutionState(entry.execution_state);
+    const timestamp = activityTimestampForQueue(entry);
+    return Boolean(timestamp) && ['queued', 'running'].includes(state) && Date.now() - (timestamp?.getTime() ?? 0) > 24 * 60 * 60 * 1000;
+  });
+  const latestCodexCompletion = [...automationRuns]
+    .filter((run) => run.automation_id === 'codex_workspace_execution' && normalizeAutomationRunStatus(run.status) === 'ok')
+    .sort((left, right) => (runTimestamp(right)?.getTime() ?? 0) - (runTimestamp(left)?.getTime() ?? 0))[0];
+
+  const summaryCards = [
+    {
+      label: 'Launchd workers',
+      value: workerAutomations.length ? `${healthyWorkers}/${workerAutomations.length}` : '0',
+      detail: workerAutomations.length ? 'healthy / expected' : 'no local workers reported',
+      tone: healthyWorkers === workerAutomations.length && workerAutomations.length ? '#4ade80' : '#fbbf24',
+    },
+    {
+      label: 'Claims in flight',
+      value: String(claimedEntries.length),
+      detail: claimedEntries.length ? summarize(claimedEntries[0]?.title ?? '', 38) : 'no cards currently claimed',
+      tone: claimedEntries.length ? '#38bdf8' : '#94a3b8',
+    },
+    {
+      label: 'Stale active lanes',
+      value: String(staleRunningEntries.length),
+      detail: staleRunningEntries.length ? summarize(staleRunningEntries[0]?.title ?? '', 38) : 'no stale queued/running cards',
+      tone: staleRunningEntries.length ? '#f87171' : '#4ade80',
+    },
+    {
+      label: 'Last Codex completion',
+      value: latestCodexCompletion?.finished_at ? formatTimestamp(new Date(latestCodexCompletion.finished_at)) : '-',
+      detail: latestCodexCompletion ? summarize(extractAutomationRunSummary(latestCodexCompletion) || 'latest execution completed', 44) : 'no successful run mirrored yet',
+      tone: latestCodexCompletion ? '#c084fc' : '#94a3b8',
+    },
+  ];
+
+  return (
+    <section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#08111f', padding: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '16px' }}>
+        <div>
+          <p style={{ color: '#22c55e', letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase' }}>Local workers</p>
+          <h3 style={{ color: 'white', fontSize: '22px', margin: '4px 0' }}>Launchd and Codex health</h3>
+          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Thin Railway control plane, local launchd executors, and the latest Codex write-back signal.</p>
+        </div>
+        <div style={{ color: '#94a3b8', fontSize: '12px', textAlign: 'right' }}>
+          <p>{failedEntries.length ? `${failedEntries.length} failed lane${failedEntries.length === 1 ? '' : 's'} need attention` : 'No failed execution lanes reported'}</p>
+          <p>{workerAutomations.length ? `${workerAutomations.length} local automation${workerAutomations.length === 1 ? '' : 's'} mirrored` : 'Waiting for local automation mirror data'}</p>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+        {summaryCards.map((card) => (
+          <div key={card.label} style={{ padding: '14px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
+            <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{card.label}</p>
+            <p style={{ color: card.tone, fontSize: '20px', fontWeight: 700, margin: '6px 0' }}>{card.value}</p>
+            <p style={{ color: '#64748b', fontSize: '12px' }}>{card.detail}</p>
+          </div>
+        ))}
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={opsHealthHeaderStyle}>Worker</th>
+              <th style={opsHealthHeaderStyle}>Runtime</th>
+              <th style={opsHealthHeaderStyle}>Latest signal</th>
+              <th style={opsHealthHeaderStyle}>Last run</th>
+            </tr>
+          </thead>
+          <tbody>
+            {workerAutomations.map((item) => (
+              <tr key={item.id}>
+                <td style={opsHealthCellStyle}>
+                  <div style={{ color: 'white', fontWeight: 600 }}>{item.name}</div>
+                  <div style={{ color: '#64748b', fontSize: '12px' }}>{item.id}</div>
+                </td>
+                <td style={opsHealthCellStyle}>{statusBadge(String(item.runtime ?? item.status ?? 'unknown'))}</td>
+                <td style={opsHealthCellStyle}>{item.last_status ? humanizeStatusLabel(item.last_status) : '-'}</td>
+                <td style={opsHealthCellStyle}>{item.last_run_at ? formatTimestamp(new Date(item.last_run_at)) : '-'}</td>
+              </tr>
+            ))}
+            {!workerAutomations.length && (
+              <tr>
+                <td colSpan={4} style={{ ...opsHealthCellStyle, color: '#64748b' }}>
+                  Local worker automations have not been mirrored into Ops yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {failedEntries.length > 0 && (
+        <div style={{ marginTop: '14px', padding: '14px 16px', borderRadius: '14px', border: '1px solid rgba(248,113,113,0.35)', backgroundColor: 'rgba(127,29,29,0.24)' }}>
+          <p style={{ color: '#fca5a5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '6px' }}>Latest failure</p>
+          <p style={{ color: 'white', fontWeight: 600 }}>{failedEntries[0].title}</p>
+          <p style={{ color: '#fecaca', fontSize: '13px' }}>
+            {failedEntries[0].workspace_key} · {failedEntries[0].executor_status ?? failedEntries[0].execution_state}
+            {failedEntries[0].last_transition_at ? ` · ${formatTimestamp(new Date(failedEntries[0].last_transition_at))}` : ''}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const opsHealthHeaderStyle: CSSProperties = {
+  textAlign: 'left',
+  fontSize: '11px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  color: '#64748b',
+  padding: '0 0 10px',
+};
+
+const opsHealthCellStyle: CSSProperties = {
+  padding: '10px 0',
+  borderTop: '1px solid rgba(30, 41, 59, 0.7)',
+  color: '#cbd5f5',
+  fontSize: '13px',
+  verticalAlign: 'top',
+};
 
 function OpenBrainPanel({ metrics, health }: { metrics: OpenBrainTelemetry | null; health: OpenBrainHealth | null }) {
   const storageLabel = health?.storage_backend === 'pgvector' ? 'Native vector mode' : health?.storage_backend === 'jsonb' ? 'JSON fallback' : 'Unknown';
@@ -2170,10 +2354,13 @@ function PMBoardPanel({
                       </div>
                       {item.reason && <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.45, margin: '0 0 8px' }}>{item.reason}</p>}
                       <div style={{ color: '#94a3b8', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        {item.queueEntry?.front_door_agent ? <span>Intake: {item.queueEntry.front_door_agent}</span> : null}
                         {item.queueEntry ? <span>Manager: {displayManagerAgent(item.workspaceKey, item.managerAgent)}</span> : null}
                         {item.queueEntry ? <span>Target: {displayTargetAgent(item.workspaceKey, item.targetAgent)}</span> : null}
                         {item.workspaceAgent ? <span>Agent: {displayWorkspaceAgent(item.workspaceKey, item.workspaceAgent)}</span> : null}
                         {item.executionMode ? <span>Mode: {item.executionMode}</span> : null}
+                        {item.queueEntry?.executor_status ? <span>Executor: {humanizeStatusLabel(item.queueEntry.executor_status)}</span> : null}
+                        {item.queueEntry?.manager_attention_required ? <span>Manager attention: required</span> : null}
                         <span>Updated: {item.updatedAt ? formatTimestamp(new Date(item.updatedAt)) : '-'}</span>
                       </div>
                       {column.key === 'ready' && item.queueEntry ? (
@@ -2272,6 +2459,19 @@ function PMCardDetailModal({
     payload.latest_manual_review && typeof payload.latest_manual_review === 'object'
       ? (payload.latest_manual_review as Record<string, unknown>)
       : null;
+  const executionPacketPath =
+    typeof boardItem.queueEntry?.execution_packet_path === 'string' && boardItem.queueEntry.execution_packet_path.trim()
+      ? boardItem.queueEntry.execution_packet_path.trim()
+      : null;
+  const sopArtifactPath =
+    typeof boardItem.queueEntry?.sop_path === 'string' && boardItem.queueEntry.sop_path.trim() ? boardItem.queueEntry.sop_path.trim() : null;
+  const briefingArtifactPath =
+    typeof boardItem.queueEntry?.briefing_path === 'string' && boardItem.queueEntry.briefing_path.trim()
+      ? boardItem.queueEntry.briefing_path.trim()
+      : null;
+  const latestExecutionArtifacts = Array.isArray(boardItem.queueEntry?.latest_result_artifacts)
+    ? boardItem.queueEntry?.latest_result_artifacts.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
   const linkedConversationPaths = Array.from(
     new Set(
       linkedStandups
@@ -2491,12 +2691,16 @@ function PMCardDetailModal({
                   <div>Source: {rawSource}</div>
                   <div>PM status: {pmStatusLabel}</div>
                   <div>Execution state: {executionStatusLabel ?? 'not in execution yet'}</div>
+                  {boardItem.queueEntry?.front_door_agent ? <div>Front door: {boardItem.queueEntry.front_door_agent}</div> : null}
                   <div>Updated: {boardItem.updatedAt ? formatTimestamp(new Date(boardItem.updatedAt)) : '-'}</div>
                   <div>Due: {boardItem.dueAt ? formatTimestamp(new Date(boardItem.dueAt)) : '-'}</div>
                   <div>Manager: {displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)}</div>
                   <div>Target: {displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}</div>
                   {boardItem.workspaceAgent ? <div>Workspace agent: {displayWorkspaceAgent(boardItem.workspaceKey, boardItem.workspaceAgent)}</div> : null}
                   {boardItem.executionMode ? <div>Execution mode: {boardItem.executionMode}</div> : null}
+                  {boardItem.queueEntry?.executor_status ? <div>Codex executor: {humanizeStatusLabel(boardItem.queueEntry.executor_status)}</div> : null}
+                  {boardItem.queueEntry?.executor_worker_id ? <div>Executor worker: {boardItem.queueEntry.executor_worker_id}</div> : null}
+                  {boardItem.queueEntry?.manager_attention_required ? <div>Manager attention: required</div> : null}
                 </div>
               </section>
             </div>
@@ -2564,6 +2768,7 @@ function PMCardDetailModal({
               <div style={{ display: 'grid', gap: '6px', color: '#cbd5f5', fontSize: '13px' }}>
                 <div>Source: {rawSource}</div>
                 <div>Link type: {linkType}</div>
+                {boardItem.queueEntry?.trigger_key ? <div>Trigger key: {boardItem.queueEntry.trigger_key}</div> : null}
                 {linkId ? <div>Link id: {linkId}</div> : null}
                 {createdFromStandupId ? <div>Created from standup: {createdFromStandupId}</div> : null}
                 {createdFromPrepId ? <div>Created from prep: {createdFromPrepId}</div> : null}
@@ -2591,6 +2796,46 @@ function PMCardDetailModal({
                   </div>
                 ) : null}
               </div>
+            </section>
+
+            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Execution Artifacts</p>
+              {!executionPacketPath && !sopArtifactPath && !briefingArtifactPath && latestExecutionArtifacts.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No execution artifact paths are attached to this card yet.</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  {[
+                    ['Execution packet', executionPacketPath],
+                    ['SOP', sopArtifactPath],
+                    ['Briefing', briefingArtifactPath],
+                    ...latestExecutionArtifacts.map((path, index) => [`Result artifact ${index + 1}`, path] as const),
+                  ].map(([label, path]) =>
+                    path ? (
+                      <div key={`${card.id}-${label}-${path}`}>
+                        <span style={{ color: '#94a3b8', fontSize: '12px' }}>{label}: </span>
+                        <button
+                          type="button"
+                          onClick={() => onOpenArtifactPath(path)}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            padding: 0,
+                            color: '#f8fafc',
+                            fontSize: '12px',
+                            fontFamily: 'monospace',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            textUnderlineOffset: '2px',
+                          }}
+                          title={path}
+                        >
+                          {summarizePathForDisplay(path)}
+                        </button>
+                      </div>
+                    ) : null,
+                  )}
+                </div>
+              )}
             </section>
 
             <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>

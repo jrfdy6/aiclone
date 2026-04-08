@@ -4085,7 +4085,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertTrue(payload.get("success"))
         self.assertIn("workflow clarity", (payload.get("persona_context") or "").lower())
         self.assertIn(
-            "Teams fail when they chase tools before workflow clarity.\n\nBundle-first option.",
+            "Teams fail when they chase tools before workflow clarity.\n\nThe workflow still has to hold.",
             payload.get("options") or [],
         )
         diagnostics = payload.get("diagnostics") or {}
@@ -4236,9 +4236,14 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertGreaterEqual(len(context_pack.primary_claims), 1)
         self.assertEqual(
             context_pack.primary_claims[0],
+            "AI helps when the workflow is coordinated, not improvised.",
+        )
+        self.assertEqual(
+            context_pack.raw_primary_claims[0],
             "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
         )
         self.assertGreaterEqual(len(context_pack.proof_packets), 1)
+        self.assertTrue(all("daily briefs" not in item.lower() for item in context_pack.proof_packets))
         self.assertEqual(len(context_pack.example_chunks), 2)
         self.assertEqual(
             context_pack.example_chunks[0].get("metadata", {}).get("bundle_path"),
@@ -4776,7 +4781,10 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
         self.assertEqual(len(finalized), 1)
         self.assertNotIn("It just isn't.", finalized[0])
-        self.assertIn("explicit handoffs", finalized[0].lower())
+        self.assertTrue(
+            "clear handoffs" in finalized[0].lower()
+            or "handoff explicit" in finalized[0].lower()
+        )
 
     def test_default_content_provider_order_prefers_ollama_locally_and_gemini_in_production(self) -> None:
         with patch.dict(content_generation_module.os.environ, {}, clear=True):
@@ -5422,7 +5430,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
         self.assertTrue(finalized)
         self.assertIn("Prompting alone is not an AI strategy.", finalized[0])
-        self.assertIn("Brain, Ops, planner, and briefs now share the same routed workspace state.", finalized[0])
+        self.assertIn("Operator context has to travel.", finalized[0])
 
     def test_finalize_planned_options_drops_generic_closer_lines(self) -> None:
         brief = content_generation_module.ContentOptionBrief(
@@ -5442,7 +5450,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         )
 
         self.assertTrue(finalized)
-        self.assertIn("shared workspace state", finalized[0].lower())
+        self.assertIn("shared state keeps context alive across the handoff.", finalized[0].lower())
         self.assertNotIn("breaking down silos", finalized[0].lower())
         self.assertNotIn("let's keep pushing", finalized[0].lower())
 
@@ -5465,7 +5473,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
         self.assertTrue(finalized)
         self.assertTrue(finalized[0].startswith("Prompting alone is not the strategy."))
-        self.assertIn("shared workspace state", finalized[0].lower())
+        self.assertIn("shared state keeps context alive across the handoff.", finalized[0].lower())
 
     def test_finalize_planned_options_inserts_contrast_and_punch_line_when_missing(self) -> None:
         brief = content_generation_module.ContentOptionBrief(
@@ -5485,7 +5493,8 @@ generated_at: "2026-03-28T00:00:00+00:00"
         )
 
         self.assertTrue(finalized)
-        self.assertRegex(finalized[0].lower(), r"not (?:isolated prompting|prompting in isolation)")
+        self.assertIn("ai only helps when the workflow is coordinated.", finalized[0].lower())
+        self.assertIn("shared state keeps context alive across the handoff.", finalized[0].lower())
         self.assertGreaterEqual(finalized[0].count("\n\n"), 2)
 
     def test_finalize_planned_options_rewrites_soft_operator_closer(self) -> None:
@@ -5506,13 +5515,13 @@ generated_at: "2026-03-28T00:00:00+00:00"
         )
 
         self.assertTrue(finalized)
-        self.assertIn("now it runs on explicit handoffs", finalized[0].lower())
+        self.assertIn("shared state keeps context alive across the handoff.", finalized[0].lower())
         self.assertNotIn("tangible impact", finalized[0].lower())
         self.assertNotIn("everything's interconnected", finalized[0].lower())
         self.assertNotIn("\n\nNow, we rely on", finalized[0])
         self.assertRegex(
             finalized[0].rstrip(),
-            r"(That is the operating model\.|Isolated prompting is a thing of the past\.)$",
+            r"(The workflow has to carry the load\.|Isolated prompting is a thing of the past\.)$",
         )
 
     def test_finalize_planned_options_compresses_abstract_operator_middle_and_drops_label_tail(self) -> None:
@@ -5556,9 +5565,8 @@ generated_at: "2026-03-28T00:00:00+00:00"
         )
 
         self.assertTrue(finalized)
-        self.assertIn("Now Brain, Ops, daily briefs, planner, and long-form routing run on the same system.", finalized[0])
-        self.assertIn("Now it runs on explicit handoffs, shared workspace state, and proof-aware prompts.", finalized[0])
-        self.assertRegex(finalized[0].rstrip(), r"(Not isolated prompts\.|The operating model is the strategy\.)$")
+        self.assertIn("Now it runs on clear handoffs, context survives the handoff, and prompts tied to proof.", finalized[0])
+        self.assertRegex(finalized[0].rstrip(), r"Not isolated prompts\.$")
         self.assertNotIn("unified approach", finalized[0].lower())
         self.assertNotIn("it's not just about", finalized[0].lower())
 
@@ -5603,7 +5611,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         )
 
         self.assertTrue(finalized)
-        self.assertIn("operator context travels", finalized[0].lower())
+        self.assertIn("context survives the handoff.", finalized[0].lower())
         self.assertNotIn("For effective AI", finalized[0])
         self.assertNotIn("interconnected", finalized[0].lower())
         self.assertNotIn("Wins:", finalized[0])
@@ -5652,7 +5660,7 @@ generated_at: "2026-03-28T00:00:00+00:00"
         self.assertNotIn("That's not a viable AI strategy.", finalized[0])
         self.assertNotIn("It's all about", finalized[0])
         self.assertNotIn("better outcomes", finalized[0].lower())
-        self.assertIn("Johnnie treats prompting plus agent orchestration", finalized[0])
+        self.assertIn("Johnnie treats prompting plus coordinated workflow", finalized[0])
         self.assertRegex(finalized[0].rstrip(), r"Isolated prompting is a thing of the past\.$")
 
     def test_parse_content_options_strips_markdown_option_headings(self) -> None:
@@ -5774,7 +5782,570 @@ generated_at: "2026-03-28T00:00:00+00:00"
         scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
         self.assertNotIn("soft_operator_pronoun", scored.get("warnings", []))
         self.assertNotIn("we’ve unified", finalized[0].lower())
-        self.assertIn("now run on one routed workspace snapshot", finalized[0].lower())
+        self.assertIn("context survives the handoff.", finalized[0].lower())
+
+    def test_finalize_planned_options_rewrites_seamless_operator_setup_sentence(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="If the workflow is unclear, AI just scales confusion.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Isolation stifles progress.\n\nAI Clone / Brain System made the handoff visible.\n\nWith this setup, context flows seamlessly, enhancing content generation and decision-making."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        lowered = finalized[0].lower()
+        self.assertNotIn("seamlessly", lowered)
+        self.assertNotIn("enhancing content generation", lowered)
+        self.assertIn("context survives the handoff.", lowered)
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("taste_negative", scored.get("warnings", []))
+
+    def test_finalize_planned_options_compresses_internal_operator_catalog_lines(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nUnified Brain, Ops, daily briefs, planner, persona review, and long-form routing around one routed workspace snapshot so operator context travels across the system instead of living in isolated tools.\n\nBrain, Ops, daily briefs, planner, persona review, and long-form routing now run on one routed workspace snapshot."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        lowered = finalized[0].lower()
+        self.assertNotIn("brain, ops, daily briefs", lowered)
+        self.assertIn("context survives the handoff.", lowered)
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("taste_negative", scored.get("warnings", []))
+
+    def test_finalize_planned_options_drops_operator_catalog_essential_sentence(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="Agent orchestration proof -> Daily briefs, long-form routing, proof-aware prompts, shared workspace state, and explicit handoffs now anchor the workflow.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not the strategy.\n\nIt’s just noise without context.\n\nDaily briefs, long-form routing, and proof-aware prompts are now essential to our content generation."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        lowered = finalized[0].lower()
+        self.assertNotIn("are now essential", lowered)
+        self.assertIn("shared state keeps context alive across the handoff.", lowered)
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("genericity:2", scored.get("warnings", []))
+
+    def test_finalize_planned_options_restores_named_reference_specificity_for_operator_copy(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="If the workflow is unclear, AI just scales confusion.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Unified systems drive real results.\n\nOne routed workspace snapshot now keeps context alive. Previously, we struggled with malformed JSON and weak schema discipline. Now, stricter output handling is embedded in the architecture."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        lowered = finalized[0].lower()
+        self.assertIn("context survives the handoff.", lowered)
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("named_reference_missing", scored.get("warnings", []))
+
+    def test_finalize_planned_options_replaces_unified_approach_opening_with_claim(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="If the workflow is unclear, AI just scales confusion.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "A unified approach is essential for maintaining operator context across systems.\n\nAI Clone / Brain System made the handoff visible.\n\nOne routed workspace snapshot now keeps context alive. No more fragmented tools. Content generation now reads canon through typed lanes, ensuring everything flows smoothly."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        self.assertTrue(finalized[0].startswith("If the workflow is unclear, AI just scales confusion."))
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("taste_negative", scored.get("warnings", []))
+        self.assertNotIn("claim_not_leading", scored.get("warnings", []))
+
+    def test_rank_options_by_taste_prefers_topic_aligned_ai_adoption_option(self) -> None:
+        generic_brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> shared workspace state and explicit handoffs make operator context visible.",
+            story_beat="",
+        )
+        adoption_brief = content_generation_module.ContentOptionBrief(
+            option_number=2,
+            framing_mode="operator_lesson",
+            primary_claim="AI adoption gets real when the workflow gets easier for the operator.",
+            proof_packet="Fusion Academy Dashboard Transformation -> people adopted the dashboard because clear next actions made the workflow easier to use.",
+            story_beat="",
+        )
+
+        ordered_options, ordered_briefs, _ = content_generation_module._rank_options_by_taste(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nShared state keeps context alive across the handoff.\n\nThat is the operating model.",
+                "AI adoption gets real when the workflow gets easier for the operator.\n\nPeople adopt what makes their life easier, not what leadership tells them to use.\n\nThe Fusion Academy Dashboard Transformation made the next action clear.",
+            ],
+            briefs=[generic_brief, adoption_brief],
+            taste_scores=[{"overall": 92}, {"overall": 89}],
+            topic="AI adoption",
+            audience="tech_ai",
+        )
+
+        self.assertIn("AI adoption gets real", ordered_options[0])
+        self.assertEqual(ordered_briefs[0].primary_claim, adoption_brief.primary_claim)
+
+    def test_rank_options_by_taste_penalizes_education_option_that_drops_policy_signal(self) -> None:
+        drifted_brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Admissions is not just enrollment; it is translation.",
+            proof_packet="Fusion Academy Market Development -> Coffee and Convo events help families understand the process.",
+            story_beat="",
+        )
+        policy_brief = content_generation_module.ContentOptionBrief(
+            option_number=2,
+            framing_mode="operator_lesson",
+            primary_claim="Admissions is not just enrollment; it is translation.",
+            proof_packet="Fusion Academy Dashboard Transformation -> the policy signal was translated into clearer next actions for school teams and families.",
+            story_beat="",
+        )
+
+        ordered_options, _, _ = content_generation_module._rank_options_by_taste(
+            options=[
+                "Admissions isn’t just enrollment; it’s translation.\n\nCoffee and Convo events make the family experience feel more personal.",
+                "Admissions isn’t just enrollment; it’s translation.\n\nWhen faculty-cut bills hit, school teams need language families can trust.\n\nThe dashboard made the next action clear.",
+            ],
+            briefs=[drifted_brief, policy_brief],
+            taste_scores=[{"overall": 92}, {"overall": 89}],
+            topic="Kentucky Senate passes bill making it easier to cut faculty",
+            audience="education_admissions",
+        )
+
+        self.assertIn("faculty-cut bills", ordered_options[0].lower())
+
+    def test_rank_options_by_taste_prefers_thesis_led_agent_orchestration_option(self) -> None:
+        proof_led_brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="One routed workspace snapshot now keeps context alive.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+        thesis_led_brief = content_generation_module.ContentOptionBrief(
+            option_number=2,
+            framing_mode="contrarian_reframe",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        ordered_options, ordered_briefs, _ = content_generation_module._rank_options_by_taste(
+            options=[
+                "One routed workspace snapshot now keeps context alive.\n\nAI Clone / Brain System made the handoff visible.\n\nShared state keeps context alive across the handoff.",
+                "Prompting alone is not an AI strategy.\n\nAI Clone / Brain System made the handoff visible.\n\nOne routed workspace snapshot now keeps context alive.",
+            ],
+            briefs=[proof_led_brief, thesis_led_brief],
+            taste_scores=[{"overall": 93}, {"overall": 90}],
+            topic="agent orchestration",
+            audience="tech_ai",
+        )
+
+        self.assertIn("prompting alone is not an ai strategy", ordered_options[0].lower())
+        self.assertEqual(ordered_briefs[0].primary_claim, thesis_led_brief.primary_claim)
+
+    def test_score_option_taste_flags_internal_public_leak_and_proof_overload(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=3,
+            framing_mode="operator_lesson",
+            primary_claim="We finally stopped sending raw context to the writer.",
+            proof_packet="Content generation now reads persona through typed core, proof, story, and example lanes; applies domain gates; and enforces approved proof packets before final drafts; meetings rose by more than 20%; referrals rose by more than 50%.",
+            story_beat="",
+            public_lane="build_in_public",
+        )
+
+        scored = content_generation_module.score_option_taste(
+            "We finally stopped sending persona soup to the writer.\n\nContent generation now reads persona through typed core, proof, story, and example lanes, applies domain gates, and enforces approved proof packets before final drafts; meetings rose by more than 20%, referrals rose by more than 50%, and leadership engagement increased.",
+            brief=brief,
+        )
+
+        self.assertIn("internal_public_leak", scored.get("warnings", []))
+        self.assertIn("proof_overloaded", scored.get("warnings", []))
+
+    def test_score_option_taste_flags_operator_catalog_public_leak(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="AI does not create the edge by itself. Clear operating context does.",
+            proof_packet="Workflow clarity proof -> clearer handoffs and clearer proof rules made the workflow more reliable.",
+            story_beat="",
+            public_lane="operator_lesson",
+        )
+
+        scored = content_generation_module.score_option_taste(
+            "Unified Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot.",
+            brief=brief,
+        )
+
+        self.assertIn("internal_public_leak", scored.get("warnings", []))
+
+    def test_rank_options_by_taste_prefers_public_safe_option_over_internal_jargon(self) -> None:
+        internal_brief = content_generation_module.ContentOptionBrief(
+            option_number=3,
+            framing_mode="operator_lesson",
+            primary_claim="We finally stopped sending raw context to the writer.",
+            proof_packet="Content generation now reads persona through typed core, proof, story, and example lanes; applies domain gates; and enforces approved proof packets before final drafts.",
+            story_beat="",
+            public_lane="build_in_public",
+        )
+        public_brief = content_generation_module.ContentOptionBrief(
+            option_number=2,
+            framing_mode="operator_lesson",
+            primary_claim="We stopped making the writer do infrastructure work.",
+            proof_packet="The workflow now blocks weak drafts before they ship and leaves tone work for the final pass.",
+            story_beat="",
+            public_lane="build_in_public",
+        )
+
+        ordered_options, ordered_briefs, _ = content_generation_module._rank_options_by_taste(
+            options=[
+                "We finally stopped sending persona soup to the writer.\n\nContent generation now reads persona through typed core, proof, story, and example lanes, applies domain gates, and enforces approved proof packets before final drafts.",
+                "We stopped making the writer do infrastructure work.\n\nThe workflow now blocks weak drafts before they ship, so editing can stay focused on tone and judgment.\n\nThat is what the build taught us.",
+            ],
+            briefs=[internal_brief, public_brief],
+            taste_scores=[{"overall": 95}, {"overall": 90}],
+            topic="workflow clarity",
+            audience="tech_ai",
+        )
+
+        self.assertIn("infrastructure work", ordered_options[0].lower())
+        self.assertEqual(ordered_briefs[0].primary_claim, public_brief.primary_claim)
+
+    def test_build_planned_writer_prompt_adds_education_policy_guardrail(self) -> None:
+        prompt = content_generation_module.build_planned_writer_prompt(
+            topic="Kentucky Senate passes bill making it easier to cut faculty",
+            context="",
+            audience="education_admissions",
+            grounding_mode="proof_ready",
+            grounding_reason="proof ready",
+            topic_anchor_chunks=[],
+            proof_anchor_chunks=[],
+            story_anchor_chunks=[],
+            briefs=[
+                content_generation_module.ContentOptionBrief(
+                    option_number=1,
+                    framing_mode="operator_lesson",
+                    primary_claim="Admissions is not just enrollment; it is translation.",
+                    proof_packet="Fusion Academy Dashboard Transformation -> clearer next actions for school teams.",
+                    story_beat="",
+                )
+            ],
+            good_examples=[],
+            voice_directives=[],
+            approved_references=[],
+            disallowed_moves=[],
+        )
+
+        self.assertIn("Keep the policy / school / faculty signal visible.", prompt)
+
+    def test_build_planned_writer_prompt_bans_third_person_persona_framing_and_internal_shorthand(self) -> None:
+        prompt = content_generation_module.build_planned_writer_prompt(
+            topic="AI is not making every market meaner",
+            context="Use the operator systems angle.",
+            audience="tech_ai",
+            grounding_mode="proof_ready",
+            grounding_reason="proof ready",
+            topic_anchor_chunks=[],
+            proof_anchor_chunks=[],
+            story_anchor_chunks=[],
+            briefs=[
+                content_generation_module.ContentOptionBrief(
+                    option_number=1,
+                    framing_mode="contrarian_reframe",
+                    primary_claim="AI is not making every market meaner.",
+                    proof_packet="Fusion Academy Dashboard Transformation -> territory coordination improved once outreach became clearer.",
+                    story_beat="",
+                    public_lane="market_insight",
+                )
+            ],
+            good_examples=[],
+            voice_directives=[],
+            approved_references=[],
+            disallowed_moves=[],
+        )
+
+        self.assertIn("Never write about the author in third person", prompt)
+        self.assertIn("Do not use public-facing shorthand like `shared workspace state`", prompt)
+        self.assertIn("keep the opener on that claim", prompt.lower())
+
+    def test_focus_terms_support_leadership_management_alias(self) -> None:
+        route_terms = content_generation_module._focus_terms("change management", "leadership_management")
+        service_terms = content_context_service_module._focus_terms("change management", "leadership_management")
+
+        self.assertIn("people", route_terms)
+        self.assertIn("behavior", route_terms)
+        self.assertIn("leadership", service_terms)
+        self.assertIn("change", service_terms)
+
+    def test_content_generation_benchmark_stability_mode_lowers_temperatures(self) -> None:
+        with patch.dict("os.environ", {"CONTENT_GENERATION_STABILITY_MODE": "benchmark"}, clear=False):
+            self.assertEqual(content_generation_module._writer_temperature("tech_ai"), 0.2)
+            self.assertEqual(content_generation_module._writer_temperature("education_admissions"), 0.28)
+            self.assertEqual(content_generation_module._critic_temperature(), 0.15)
+            self.assertEqual(content_generation_module._refinement_temperature(), 0.12)
+            self.assertEqual(content_generation_module._final_editor_temperature(), 0.12)
+            self.assertEqual(content_generation_module._proof_enforcement_temperature(), 0.1)
+            self.assertEqual(content_generation_module._legacy_generation_temperature("tech_ai"), 0.25)
+            self.assertEqual(content_generation_module._legacy_generation_temperature("education_admissions"), 0.35)
+
+        with patch.dict("os.environ", {}, clear=False):
+            content_generation_module.os.environ.pop("CONTENT_GENERATION_STABILITY_MODE", None)
+            self.assertEqual(content_generation_module._writer_temperature("tech_ai"), 0.55)
+            self.assertEqual(content_generation_module._writer_temperature("education_admissions"), 0.72)
+            self.assertEqual(content_generation_module._critic_temperature(), 0.25)
+            self.assertEqual(content_generation_module._refinement_temperature(), 0.35)
+            self.assertEqual(content_generation_module._final_editor_temperature(), 0.35)
+            self.assertEqual(content_generation_module._proof_enforcement_temperature(), 0.2)
+            self.assertEqual(content_generation_module._legacy_generation_temperature("tech_ai"), 0.68)
+            self.assertEqual(content_generation_module._legacy_generation_temperature("education_admissions"), 0.85)
+
+    def test_finalize_planned_options_warning_mode_keeps_claim_led_opening(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="warning",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="AI adoption proof -> shared workspace state, typed retrieval, and explicit handoffs now anchor the workflow instead of isolated prompting.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.\n\nOperator context has to travel.\n\nWithout that, it breaks."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        first_line = finalized[0].splitlines()[0].strip().lower()
+        self.assertIn("prompting plus agent orchestration", first_line)
+        scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
+        self.assertNotIn("claim_not_leading", scored.get("warnings", []))
+
+    def test_score_option_taste_accepts_prompting_alone_contrarian_opener_for_agent_orchestration(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        scored = content_generation_module.score_option_taste(
+            "Prompting alone is not the strategy.\n\nShared state keeps context alive across the handoff.\n\nAI Clone / Brain System made the handoff visible.",
+            brief=brief,
+        )
+
+        self.assertNotIn("claim_not_leading", scored.get("warnings", []))
+        self.assertIn("claim_led_opening", scored.get("strengths", []))
+
+    def test_clean_generic_sentences_drops_cohesive_system_filler(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        cleaned = content_generation_module._clean_generic_sentences(
+            "Prompting alone is not the strategy.\n\nShared state keeps context alive across the handoff. This shift fundamentally changes our approach to AI, creating a cohesive system that operates in concert rather than in isolation.",
+            brief,
+        )
+
+        lowered = cleaned.lower()
+        self.assertIn("shared state keeps context alive across the handoff.", lowered)
+        self.assertNotIn("cohesive system", lowered)
+        self.assertNotIn("operates in concert", lowered)
+
+    def test_ensure_paragraph_cadence_dedupes_and_splits_benchmark_agent_orchestration_output(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        with patch.dict("os.environ", {"CONTENT_GENERATION_STABILITY_MODE": "benchmark"}, clear=False):
+            revised = content_generation_module._ensure_paragraph_cadence(
+                "Prompting alone is not the strategy. Shared state keeps context alive across the handoff. Shared state keeps context alive across the handoff.",
+                brief,
+            )
+
+        self.assertEqual(
+            revised,
+            "Prompting alone is not the strategy.\n\nShared state keeps context alive across the handoff.",
+        )
+
+    def test_finalize_planned_options_rewrites_generic_named_reference_sentence(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="Prompting alone is not an AI strategy.",
+            proof_packet="AI Clone / Brain System -> Brain, Ops, daily briefs, planner, persona review, and long-form routing now run against one routed workspace snapshot; content generation reads canon through typed lanes.",
+            story_beat="",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Prompting alone is not an AI strategy.\n\nThe AI Clone / Brain System illustrates this clearly.\n\nOne routed workspace snapshot now keeps context alive."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        lowered = finalized[0].lower()
+        self.assertIn("ai clone / brain system made the handoff visible.", lowered)
+        self.assertNotIn("illustrates this clearly", lowered)
+
+    def test_option_named_reference_specificity_rejects_routed_workspace_snapshot_fragment(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="operator_lesson",
+            primary_claim="Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+            proof_packet="Agent orchestration proof -> one routed workspace snapshot now keeps context alive across the handoff instead of isolated prompting.",
+            story_beat="",
+        )
+
+        self.assertFalse(
+            content_generation_module._option_has_named_reference_specificity(
+                "One routed workspace snapshot now keeps context alive.\n\nIsolated prompting just doesn't cut it anymore.",
+                brief,
+            )
+        )
+
+    def test_sanitize_public_output_drops_meta_scaffold_and_dedupes_bridge(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="AI is not making every market meaner.",
+            proof_packet="Agent orchestration proof -> shared workspace state and explicit handoffs matter more than isolated prompting.",
+            story_beat="",
+            public_lane="market_insight",
+        )
+
+        sanitized = content_generation_module._sanitize_public_output(
+            "The key insight is that AI is not uniformly intensifying competition everywhere.\n\nAI isn't making every market meaner.\n\nNot prompting in isolation.\n\nShared state keeps context alive across the handoff.\n\nShared state keeps context alive across the handoff.",
+            brief,
+        )
+
+        lowered = sanitized.lower()
+        self.assertNotIn("the key insight is that", lowered)
+        self.assertNotIn("shared state keeps context alive across the handoff.", lowered)
+        self.assertEqual(sanitized.strip(), "AI isn't making every market meaner.")
+
+    def test_finalize_planned_options_rewrites_third_person_persona_opening(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="AI is not making every market meaner.",
+            proof_packet="Fusion Academy Dashboard Transformation -> territory coordination improved once outreach became clearer.",
+            story_beat="",
+            public_lane="market_insight",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "Johnnie is building at the intersection of education, AI systems, entrepreneurship, and style.\n\nThe same tooling lands very differently when the operating playbook is clear."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        lowered = finalized[0].lower()
+        self.assertFalse(lowered.startswith("johnnie is"))
+        self.assertIn("ai is not making every market meaner.", lowered)
+
+    def test_score_option_taste_flags_persona_bio_opening(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="AI is not making every market meaner.",
+            proof_packet="Fusion Academy Dashboard Transformation -> territory coordination improved once outreach became clearer.",
+            story_beat="",
+            public_lane="market_insight",
+        )
+
+        scored = content_generation_module.score_option_taste(
+            "Johnnie is building at the intersection of education, AI systems, entrepreneurship, and style.\n\nThe same tooling lands very differently when the operating playbook is clear.",
+            brief=brief,
+        )
+
+        self.assertIn("persona_bio_opening", scored.get("warnings", []))
+
+    def test_topic_alignment_penalizes_market_topic_that_opens_on_prompting(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="AI is not making every market meaner.",
+            proof_packet="Fusion Academy Dashboard Transformation -> territory coordination improved once outreach became clearer.",
+            story_beat="",
+            public_lane="market_insight",
+        )
+
+        score = content_generation_module._topic_alignment_score(
+            option="Prompting alone is not the strategy.\n\nThe workflow only holds when ownership is clear.",
+            brief=brief,
+            topic="AI is not making every market meaner",
+            audience="tech_ai",
+        )
+
+        self.assertLess(score, 0)
+
+    def test_contrast_line_rewrites_isolated_tools_fragment(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="warning",
+            primary_claim="If the workflow is unclear, AI just scales confusion.",
+            proof_packet="Wins -> operator context travels across the system instead of living in isolated tools.",
+            story_beat="",
+            public_lane="build_in_public",
+        )
+
+        self.assertEqual(content_generation_module._contrast_line_from_brief(brief), "Not fragmented tools.")
 
     def test_finalize_planned_options_adds_contrast_line_for_dashboard_proof(self) -> None:
         brief = content_generation_module.ContentOptionBrief(
@@ -5795,7 +6366,31 @@ generated_at: "2026-03-28T00:00:00+00:00"
 
         scored = content_generation_module.score_option_taste(finalized[0], brief=brief)
         self.assertNotIn("low_contrast", scored.get("warnings", []))
-        self.assertIn("Not more reporting. Clearer action.", finalized[0])
+        self.assertIn("Visibility should change the next move.", finalized[0])
+
+    def test_finalize_planned_options_market_lane_drops_stock_operator_house_lines(self) -> None:
+        brief = content_generation_module.ContentOptionBrief(
+            option_number=1,
+            framing_mode="contrarian_reframe",
+            primary_claim="AI is not making every market meaner.",
+            proof_packet="Fusion Academy Dashboard Transformation -> territory coordination improved once outreach became clearer.",
+            story_beat="",
+            public_lane="market_insight",
+        )
+
+        finalized = content_generation_module.finalize_planned_options(
+            options=[
+                "The key insight is that AI is not uniformly intensifying competition everywhere.\n\nai is not making every market meaner.\n\nNot more reporting.\n\nClearer action.\n\nTeams with clear buyer ownership get more out of the same tooling.\n\nThat is the operating model."
+            ],
+            briefs=[brief],
+            grounding_mode="proof_ready",
+        )
+
+        lowered = finalized[0].lower()
+        self.assertNotIn("not more reporting.", lowered)
+        self.assertNotIn("clearer action.", lowered)
+        self.assertNotIn("that is the operating model.", lowered)
+        self.assertIn("AI is not making every market meaner.", finalized[0])
 
     def test_social_belief_engine_load_persona_truth_includes_committed_claim_overlay(self) -> None:
         belief_engine_module.load_persona_truth.cache_clear()

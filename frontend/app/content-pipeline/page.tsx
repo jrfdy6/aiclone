@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { apiFetch, getApiUrl } from '@/lib/api-client';
+import { apiFetch } from '@/lib/api-client';
 import NavHeader from '@/components/NavHeader';
-
-const API_URL = getApiUrl();
 
 // Chris Do 911 Framework
 const CHRIS_DO_911 = {
@@ -72,6 +70,23 @@ type ContentItem = {
   tags?: string[];
 };
 
+type LocalCodexJobCreateResponse = {
+  success?: boolean;
+  job_id?: string;
+  status?: string;
+  message?: string;
+};
+
+type LocalCodexJobStatusResponse = {
+  success?: boolean;
+  status?: string;
+  error_message?: string;
+  result?: {
+    success?: boolean;
+    options?: string[];
+  };
+};
+
 const CONTENT_TYPES: { value: ContentType; label: string; icon: string }[] = [
   { value: 'cold_email', label: 'Cold Email', icon: '📧' },
   { value: 'linkedin_post', label: 'LinkedIn Post', icon: '📝' },
@@ -134,8 +149,7 @@ export default function ContentPipelinePage() {
     setGenerating(true);
     
     try {
-      // Call AI-powered content generation API
-      const res = await apiFetch('/api/content-generation/generate', {
+      const createRes = await apiFetch('/api/content-generation/codex-jobs', {
         method: 'POST',
         body: JSON.stringify({
           user_id: 'johnnie_fields', // TODO: Get from auth
@@ -146,17 +160,31 @@ export default function ContentPipelinePage() {
           pacer_elements: selectedPacer.map(p => p.charAt(0).toUpperCase() + p.slice(1)),
           tone: 'expert_direct',
           audience: audience,
+          source_mode: 'persona_only',
+          workspace_slug: 'linkedin-content-os',
         }),
       });
-      
-      const response = await res.json();
-      console.log('API Response:', response);
-      
-      if (response?.success && response?.options && response.options.length > 0) {
-        setGeneratedContent(response.options);
+
+      const createResponse = (await createRes.json()) as LocalCodexJobCreateResponse;
+      if (!createResponse?.job_id) {
+        throw new Error(createResponse?.message || 'Codex job did not return an id.');
+      }
+
+      let response: LocalCodexJobStatusResponse | null = null;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        const statusRes = await apiFetch(`/api/content-generation/codex-jobs/${createResponse.job_id}`);
+        response = (await statusRes.json()) as LocalCodexJobStatusResponse;
+        if (response?.status === 'completed' || response?.status === 'failed' || response?.status === 'canceled') {
+          break;
+        }
+      }
+
+      if (response?.status === 'completed' && response?.result?.success && Array.isArray(response.result.options) && response.result.options.length > 0) {
+        setGeneratedContent(response.result.options);
+      } else if (response?.error_message) {
+        throw new Error(response.error_message);
       } else {
-        console.log('API returned no options, using templates');
-        // Fallback to templates if API fails
         const templates = getTemplates(activeCategory, generatorType, { topic, context, pacer: selectedPacer });
         setGeneratedContent(templates);
       }

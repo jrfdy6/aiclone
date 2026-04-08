@@ -51,6 +51,28 @@ That is the preferred pattern because `launchd` is more durable for:
 - transcript generation
 - jobs that can take hours on the local machine
 
+## Thin Trigger Pattern
+If a human can start a workflow from the Railway UI, OpenClaw should not click the frontend.
+
+OpenClaw should call the same backend contract directly, then let the existing watcher or `launchd` worker handle execution.
+
+Canonical examples:
+- content generation trigger:
+  `python3 /Users/neo/.openclaw/workspace/scripts/enqueue_content_generation_job.py --topic "workflow clarity" --context "Use the operator angle." --wait --include-artifacts`
+- coding / PM trigger:
+  `python3 /Users/neo/.openclaw/workspace/scripts/enqueue_pm_execution_card.py --workspace-key fusion-os --title "Wire the next delegated coding lane" --reason "OpenClaw queued this task without using the UI." --instruction "Use the PM card as the source of truth."`
+
+This keeps the trigger cheap:
+- OpenClaw only spends tokens deciding when to enqueue work
+- the Railway backend stays the thin trigger/status layer
+- the local watcher or `launchd` worker does the heavy execution
+
+Do not make OpenClaw depend on:
+- DOM selectors
+- browser login state
+- page layout
+- UI hydration timing
+
 ## Current Pattern
 The current canonical example is the YouTube watchlist worker:
 - runner: [youtube_watchlist_auto_ingest.py](/Users/neo/.openclaw/workspace/automations/youtube_watchlist_auto_ingest.py)

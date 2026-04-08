@@ -1,5 +1,5 @@
 # LinkedIn Weekly Plan
-Generated: 2026-04-01T21:22:18+00:00
+Generated: 2026-04-08T22:03:45+00:00
 
 ## Positioning Model
 - Lead as a practical operator whose lived work creates trustworthy public signal.
@@ -10,31 +10,10 @@ Generated: 2026-04-01T21:22:18+00:00
 ## This Week's Priority Lanes
 - AI systems and operator clarity
 - Admissions, outreach, and trust
+- ai
 
 ## Recommended Posts
-### 1. The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy?
-- Source: market_signal
-- Category: value
-- Role alignment: ai_intrapreneur
-- Risk level: low
-- Publish posture: owner_review_required
-- Priority lane: AI systems and operator clarity
-- Hook: The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy?
-- Why now: AI product, tech strategy, and operator-judgment signals from a high-signal weekly tech show
-- Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-27__rss__hard-fork__efb4bd27-b1f9-4cbd-b39f-01ae8de65cbf.md
-
-### 2. Higher ed groups urge GSA to rescind anti-DEI certification proposal
-- Source: market_signal
-- Category: value
-- Role alignment: role_anchored
-- Risk level: low
-- Publish posture: owner_review_required
-- Priority lane: Admissions, outreach, and trust
-- Hook: Higher ed groups urge GSA to rescind anti-DEI certification proposal
-- Why now: Higher-ed operations, enrollment shifts, and student-journey execution signals
-- Source file: workspaces/linkedin-content-os/research/market_signals/2026-04-01__rss__admissions-ops__https-www-highereddive-com-news-higher-ed-groups-urge-gsa-rescind-anti-dei-certi.md
-
-### 3. A man used AI to call 3,000 Irish bartenders to track the cost of Guinness. Now pubs are lowering their prices to compete
+### 1. A man used AI to call 3,000 Irish bartenders to track the cost of Guinness. Now pubs are lowering their prices to compete
 - Source: draft
 - Category: value
 - Role alignment: ai_intrapreneur
@@ -45,7 +24,7 @@ Generated: 2026-04-01T21:22:18+00:00
 - Why now: Draft already exists and is waiting for owner review.
 - Source file: workspaces/linkedin-content-os/drafts/2026-04-01_a-man-used-ai-to-call-3-000-irish-bartenders-to-track-the-cost-of-guinness-now-pubs-are-lowering-their-prices-to-compete.md
 
-### 4. Admissions teams are a content goldmine
+### 2. Admissions teams are a content goldmine
 - Source: draft
 - Category: value
 - Role alignment: role_anchored
@@ -56,7 +35,7 @@ Generated: 2026-04-01T21:22:18+00:00
 - Why now: Draft already exists and is waiting for owner review.
 - Source file: workspaces/linkedin-content-os/drafts/2026-04-01_admissions-teams-are-a-content-goldmine.md
 
-### 5. AI agents fail from lack of context, not lack of smarts
+### 3. AI agents fail from lack of context, not lack of smarts
 - Source: draft
 - Category: value
 - Role alignment: ai_intrapreneur
@@ -67,16 +46,58 @@ Generated: 2026-04-01T21:22:18+00:00
 - Why now: Draft already exists and is waiting for owner review.
 - Source file: workspaces/linkedin-content-os/drafts/2026-04-01_ai-agents-fail-from-lack-of-context-not-lack-of-smarts.md
 
+### 4. AI will not replace higher education, but it can augment it
+- Source: draft
+- Category: value
+- Role alignment: ai_intrapreneur
+- Risk level: low
+- Publish posture: owner_review_required
+- Priority lane: AI systems and operator clarity
+- Hook: - Source URL: https://www.linkedin.com/posts/esther-harclerode-a209792b_do-i-think-ai-will-replace-higher-education-activity-7386912557204185088-pkpo
+- Why now: Draft already exists and is waiting for owner review.
+- Source file: workspaces/linkedin-content-os/drafts/2026-04-01_ai-will-not-replace-higher-education-but-it-can-augment-it.md
+
+### 5. Cheap models, better systems
+- Source: draft
+- Category: value
+- Role alignment: role_anchored
+- Risk level: low
+- Publish posture: owner_review_required
+- Priority lane: ai
+- Hook: - Queue item: `FEEZIE-001`
+- Why now: Draft already exists and is waiting for owner review.
+- Source file: workspaces/linkedin-content-os/drafts/feezie-001_cheap-models-better-systems.md
+
 ## Market Signals
-### More colleges get delay on submitting new admissions data
+### Portland Community College reaches tentative deal with striking faculty
 - Source: market_signal
-- Theme: More colleges get delay on submitting new admissions data
+- Theme: Portland Community College reaches tentative deal with striking faculty
 - Priority lane: Admissions, outreach, and trust
 - Role alignment: role_anchored
-- What the market is saying: A federal judge gave members of two higher education groups until April 14 before they must submit data on their applicants and admits by race and sex.
-- Language patterns: More colleges get delay on submitting new admissions data
-- Hook candidates: More colleges get delay on submitting new admissions data
-- Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__admissions-ops__https-www-highereddive-com-news-delay-acts-survey-aau-aicum-816266.md
+- What the market is saying: The Oregon institution previously reached an agreement with its staff union, which declared a strike with faculty on March 11.
+- Language patterns: Portland Community College reaches tentative deal with striking faculty
+- Hook candidates: Portland Community College reaches tentative deal with striking faculty
+- Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__admissions-ops__https-www-highereddive-com-news-portland-community-college-reaches-tentative-dea.md
+
+### Penn must turn over Jewish employee records to EEOC, judge rules
+- Source: market_signal
+- Theme: Penn must turn over Jewish employee records to EEOC, judge rules
+- Priority lane: Admissions, outreach, and trust
+- Role alignment: role_anchored
+- What the market is saying: The agency has requested extensive data — including employee contact information and survey responses — as part of a federal antisemitism probe.
+- Language patterns: Penn must turn over Jewish employee records to EEOC, judge rules
+- Hook candidates: Penn must turn over Jewish employee records to EEOC, judge rules
+- Source file: workspaces/linkedin-content-os/research/market_signals/2026-04-01__rss__admissions-ops__https-www-highereddive-com-news-penn-must-turn-over-jewish-employee-records-to-e.md
+
+### What can financial metrics actually tell college leaders about their programs?
+- Source: market_signal
+- Theme: What can financial metrics actually tell college leaders about their programs?
+- Priority lane: Admissions, outreach, and trust
+- Role alignment: role_anchored
+- What the market is saying: Measuring the costs and revenues of academic offerings isn't straightforward, but those accounting decisions have big implications in an era of austerity.
+- Language patterns: What can financial metrics actually tell college leaders about their programs?
+- Hook candidates: What can financial metrics actually tell college leaders about their programs?
+- Source file: workspaces/linkedin-content-os/research/market_signals/2026-04-02__rss__admissions-ops__https-www-highereddive-com-news-college-program-cost-revenue-efficiency-metrics-.md
 
 ### A man used AI to call 3,000 Irish bartenders to track the cost of Guinness. Now pubs are lowering their prices to compete
 - Source: market_signal
@@ -98,16 +119,6 @@ Generated: 2026-04-01T21:22:18+00:00
 - Hook candidates: Thousands lose their jobs in deep cuts at tech giant Oracle
 - Source file: workspaces/linkedin-content-os/research/market_signals/2026-04-01__reddit__artificialinteligence__1s9i3mr.md
 
-### Portland Community College reaches tentative deal with striking faculty
-- Source: market_signal
-- Theme: Portland Community College reaches tentative deal with striking faculty
-- Priority lane: Admissions, outreach, and trust
-- Role alignment: role_anchored
-- What the market is saying: The Oregon institution previously reached an agreement with its staff union, which declared a strike with faculty on March 11.
-- Language patterns: Portland Community College reaches tentative deal with striking faculty
-- Hook candidates: Portland Community College reaches tentative deal with striking faculty
-- Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__admissions-ops__https-www-highereddive-com-news-portland-community-college-reaches-tentative-dea.md
-
 ### The Shape of the Thing
 - Source: market_signal
 - Theme: The Shape of the Thing
@@ -127,16 +138,6 @@ Generated: 2026-04-01T21:22:18+00:00
 - Language patterns: Claude Dispatch and the Power of Interfaces
 - Hook candidates: Claude Dispatch and the Power of Interfaces
 - Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-claude-dispatch-and-the-power-of.md
-
-### ‘A.I.-Washing’ Layoffs? + Why L.L.M.s Can’t Write Well + Tokenmaxxing
-- Source: market_signal
-- Theme: ‘A.I.-Washing’ Layoffs? + Why L.L.M.s Can’t Write Well + Tokenmaxxing
-- Priority lane: AI systems and operator clarity
-- Role alignment: ai_intrapreneur
-- What the market is saying: This week, we start by talking about the new wave of tech layoffs at Atlassian and Block, as well as reports that Meta plans to cut up to 20 percent of its work force. This raises the question of whether A.I. job loss has truly begun, or if there are other factors at play. Then, we’re joined by the writer Jasmine Su...
-- Language patterns: ‘A.I.-Washing’ Layoffs? + Why L.L.M.s Can’t Write Well + Tokenmaxxing
-- Hook candidates: ‘A.I.-Washing’ Layoffs? + Why L.L.M.s Can’t Write Well + Tokenmaxxing
-- Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-20__rss__hard-fork__4873f2a4-b3b5-4786-89d2-f919072f7104.md
 
 ### Admissions teams are a content goldmine
 - Source: market_signal
@@ -168,36 +169,36 @@ Generated: 2026-04-01T21:22:18+00:00
 - Hook candidates: AI agents fail not because models are weak but because enterprise context is missing.
 - Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-agents-fail-from-lack-of-context-not-lack-of-smarts.md
 
-### The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy?
+### More colleges get delay on submitting new admissions data
 - Source: market_signal
-- Theme: The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy?
-- Priority lane: AI systems and operator clarity
-- Role alignment: ai_intrapreneur
-- What the market is saying: The “Hard Fork” team is off this week, taking a much-needed break. While we’re away, we wanted to draw your attention to a recent episode of “The Ezra Klein Show.” In this conversation, Ezra speaks with Jack Clark, a co-founder of Anthropic, about how he is using A.I. agents; how the technology is leading to meaning...
-- Language patterns: The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy?
-- Hook candidates: The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy?
-- Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-27__rss__hard-fork__efb4bd27-b1f9-4cbd-b39f-01ae8de65cbf.md
-
-### Higher ed groups urge GSA to rescind anti-DEI certification proposal
-- Source: market_signal
-- Theme: Higher ed groups urge GSA to rescind anti-DEI certification proposal
+- Theme: More colleges get delay on submitting new admissions data
 - Priority lane: Admissions, outreach, and trust
 - Role alignment: role_anchored
-- What the market is saying: The General Services Administration proposed new certification requirements for federal funding recipients like colleges, raising alarms in the sector.
-- Language patterns: Higher ed groups urge GSA to rescind anti-DEI certification proposal
-- Hook candidates: Higher ed groups urge GSA to rescind anti-DEI certification proposal
-- Source file: workspaces/linkedin-content-os/research/market_signals/2026-04-01__rss__admissions-ops__https-www-highereddive-com-news-higher-ed-groups-urge-gsa-rescind-anti-dei-certi.md
+- What the market is saying: A federal judge gave members of two higher education groups until April 14 before they must submit data on their applicants and admits by race and sex.
+- Language patterns: More colleges get delay on submitting new admissions data
+- Hook candidates: More colleges get delay on submitting new admissions data
+- Source file: workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__admissions-ops__https-www-highereddive-com-news-delay-acts-survey-aau-aicum-816266.md
+
+### Indiana public colleges to cut or merge about 580 programs due to state law
+- Source: market_signal
+- Theme: Indiana public colleges to cut or merge about 580 programs due to state law
+- Priority lane: Admissions, outreach, and trust
+- Role alignment: role_anchored
+- What the market is saying: A new statute took effect last year that seeks to cull academic offerings that produce low numbers of graduates.
+- Language patterns: Indiana public colleges to cut or merge about 580 programs due to state law
+- Hook candidates: Indiana public colleges to cut or merge about 580 programs due to state law
+- Source file: workspaces/linkedin-content-os/research/market_signals/2026-04-03__rss__admissions-ops__https-www-highereddive-com-news-indiana-public-colleges-to-cut-or-merge-about-58.md
 
 ## Research Feed
-- `workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__admissions-ops__https-www-highereddive-com-news-delay-acts-survey-aau-aicum-816266.md`
+- `workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__admissions-ops__https-www-highereddive-com-news-portland-community-college-reaches-tentative-dea.md`
+- `workspaces/linkedin-content-os/research/market_signals/2026-04-01__rss__admissions-ops__https-www-highereddive-com-news-penn-must-turn-over-jewish-employee-records-to-e.md`
+- `workspaces/linkedin-content-os/research/market_signals/2026-04-02__rss__admissions-ops__https-www-highereddive-com-news-college-program-cost-revenue-efficiency-metrics-.md`
 - `workspaces/linkedin-content-os/research/market_signals/2026-03-31__reddit__artificialinteligence__1s8prqq.md`
 - `workspaces/linkedin-content-os/research/market_signals/2026-04-01__reddit__artificialinteligence__1s9i3mr.md`
-- `workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__admissions-ops__https-www-highereddive-com-news-portland-community-college-reaches-tentative-dea.md`
 - `workspaces/linkedin-content-os/research/market_signals/2026-03-12__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-the-shape-of-the-thing.md`
 - `workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-claude-dispatch-and-the-power-of.md`
-- `workspaces/linkedin-content-os/research/market_signals/2026-03-20__rss__hard-fork__4873f2a4-b3b5-4786-89d2-f919072f7104.md`
 - `workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__admissions-teams-are-a-content-goldmine.md`
 - `workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-will-not-replace-higher-education-but-it-can-augment-it.md`
 - `workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-agents-fail-from-lack-of-context-not-lack-of-smarts.md`
-- `workspaces/linkedin-content-os/research/market_signals/2026-03-27__rss__hard-fork__efb4bd27-b1f9-4cbd-b39f-01ae8de65cbf.md`
-- `workspaces/linkedin-content-os/research/market_signals/2026-04-01__rss__admissions-ops__https-www-highereddive-com-news-higher-ed-groups-urge-gsa-rescind-anti-dei-certi.md`
+- `workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__admissions-ops__https-www-highereddive-com-news-delay-acts-survey-aau-aicum-816266.md`
+- `workspaces/linkedin-content-os/research/market_signals/2026-04-03__rss__admissions-ops__https-www-highereddive-com-news-indiana-public-colleges-to-cut-or-merge-about-58.md`

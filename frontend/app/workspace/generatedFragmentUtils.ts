@@ -46,6 +46,7 @@ export type LocalCodexJobStatusResponse = {
   completed_at?: string;
   error_message?: string | null;
   result?: GeneratedContentResponse | null;
+  artifact_count?: number;
 };
 
 export function codexJobStatusLabel(status?: string | null) {
@@ -55,34 +56,34 @@ export function codexJobStatusLabel(status?: string | null) {
     case 'claimed':
       return 'Claimed by local worker';
     case 'running':
-      return 'Writing with Codex Terminal';
+      return 'Local worker running';
     case 'completed':
       return 'Completed locally';
     case 'failed':
-      return 'Codex run failed';
+      return 'Local run failed';
     case 'canceled':
       return 'Canceled locally';
     default:
-      return 'Codex job active';
+      return 'Local job active';
   }
 }
 
 export function codexJobStatusHint(status?: string | null) {
   switch ((status || '').trim().toLowerCase()) {
     case 'pending':
-      return 'The request is queued and waiting for the local Codex bridge to pick it up.';
+      return 'The request is queued and waiting for the launchd worker to pick it up.';
     case 'claimed':
-      return 'The local worker picked up the request and is preparing the Codex run.';
+      return 'The local worker picked up the request and is preparing the local generation pass.';
     case 'running':
-      return 'Codex Terminal is actively writing options from the FEEZIE context packet.';
+      return 'The local worker is generating options. It will only escalate to Codex Terminal if the local quality gate fails.';
     case 'completed':
-      return 'These options came back from the local Codex Terminal path.';
+      return 'The local worker completed this job and wrote the result back to the workspace.';
     case 'failed':
-      return 'The local Codex run exited without returning usable options.';
+      return 'The local worker exited without returning a usable result.';
     case 'canceled':
-      return 'This local Codex run was canceled before the result was accepted.';
+      return 'This local run was canceled before the result was accepted.';
     default:
-      return 'The local Codex bridge is handling this request.';
+      return 'The local launchd worker is handling this request.';
   }
 }
 

@@ -1,21 +1,21 @@
-# Neo Runner Contract
+# Neo Intake Contract
 
 Shared implementation schema:
 - `/Users/neo/.openclaw/workspace/docs/codex_runner_schema.md`
-
-Current MVP launcher:
-- `/Users/neo/.openclaw/workspace/scripts/runners/run_neo.sh`
 
 `Neo` is the top-level operator over the AI project.
 
 He is not the routine reviewer of every workspace.
 He is the executive operator and decision layer above execution management.
 
-This file now describes a legacy transitional runner path that was useful while the PM-board plumbing was being established.
+This file now describes the intake/orchestration contract that replaced the legacy Neo runner path used while the PM-board plumbing was being established.
 The preferred live model is:
 - `Neo` in executive standups
 - `Jean-Claude` as execution manager
 - workspace agents as lane executors
+
+There is no active Neo launchd executor in the live hierarchy.
+Neo remains the intake and orchestration layer; execution moves through Jean-Claude and then into the correct workspace lane.
 
 ## 1. Role
 
@@ -30,55 +30,47 @@ He does not replace `Yoda` as the strategic conscience.
 
 ## 2. Initial Mission
 
-The first `Neo` runner was used to establish the PM-board-backed execution plumbing.
+The first `Neo` runner was only a transitional bridge while the PM-board-backed execution plumbing was being established.
 
-It should not remain the primary long-term executor.
+That runner no longer exists in the live hierarchy.
 
 ## 3. Scope
 
-In the MVP, `Neo` is responsible for:
-- reading the PM execution queue
-- claiming one queued card at a time
-- writing a clear execution packet
-- appending a Chronicle event
-- moving the card from `queued` to `running`
+`Neo` is responsible for:
+- receiving direct user/OpenClaw intake
+- preserving intent and priorities at the front door
+- routing work to `Jean-Claude`
+- staying available for new cross-system requests instead of getting trapped in a single execution lane
 
-He is not yet responsible for:
-- actually completing the underlying task automatically
-- closing the PM card
-- replacing the future workspace-specific subagents
+He is not responsible for:
+- directly claiming the PM execution queue
+- opening the bounded execution packet himself
+- replacing `Jean-Claude` as execution manager
+- replacing workspace-specific agents as lane executors
 
 ## 4. Operating Rules
 
-- `Neo` consumes work only from the PM board execution queue.
-- If a task is not on the board, `Neo` should not invent it.
-- `Neo` should preserve the same PM card as the source of truth.
-- `Neo` should write execution artifacts that a future Codex worker can consume directly.
+- `Neo` is the intake layer, not the long-running executor.
+- If a task should become real work, `Neo` routes it into the PM board under `Jean-Claude`.
+- The PM card remains the source of truth after intake.
+- Workspace execution must stay under `Jean-Claude` and then the workspace agent for that lane when delegated.
 
 ## 5. Required Outputs
 
-Every run should produce:
-- a runner input bundle
-- an execution packet
-- a markdown pickup memo
-- a Chronicle append
-- a runner ledger entry
+Every Neo-originated intake should preserve:
+- the original user intent
+- the workspace target
+- the PM card link once work is created
+- the front-door identity marker showing the work came through Neo
 
-When execution work is completed or reaches a meaningful checkpoint, Neo-side workers should also use:
-- `/Users/neo/.openclaw/workspace/scripts/runners/write_execution_result.py`
-
-That result write-back must:
-- update the same PM card
-- append Chronicle
-- write durable learnings/state into canonical memory
-- preserve outcomes and follow-ups for standups and OpenClaw brain jobs
+Execution artifacts, Chronicle appends, and PM state mutations are produced by the downstream execution layer, not by Neo directly.
 
 ## 6. PM Rules
 
-When `Neo` picks up a task:
-- keep the card
-- move `payload.execution.state` to `running`
-- move PM status to `in_progress`
-- preserve queue history on the same card
+When `Neo` routes a task:
+- preserve the same PM card as the source of truth
+- mark Neo as the front-door/intake identity when appropriate
+- keep `Jean-Claude` as execution manager
+- keep workspace-agent execution inside the workspace lane when delegated
 
-That is the contract that lets the PM board remain the execution truth.
+That is the contract that lets the PM board remain the execution truth without turning Neo into the executor.

@@ -31,11 +31,15 @@ class AutomationRegistryTests(unittest.TestCase):
         automations = list_automations()
         expected_ids = {
             "brain_canonical_memory_sync",
+            "codex_chronicle_sync",
+            "operator_story_signals",
+            "content_safe_operator_lessons",
             "meeting_watchdog",
             "post_sync_dispatch",
             "accountability_sweep",
             "jean_claude_execution_dispatch",
             "workspace_agent_dispatch",
+            "codex_workspace_execution",
             "feezie_codex_bridge",
         }
 
@@ -56,6 +60,13 @@ class AutomationRegistryTests(unittest.TestCase):
         self.assertEqual(codex_bridge.runtime, "launchd")
         self.assertEqual(codex_bridge.schedule, "Always on")
         self.assertEqual(codex_bridge.workspace_key, "linkedin-content-os")
+
+        codex_executor = next((item for item in automations if item.id == "codex_workspace_execution"), None)
+        self.assertIsNotNone(codex_executor)
+        assert codex_executor is not None
+        self.assertEqual(codex_executor.runtime, "launchd")
+        self.assertEqual(codex_executor.owner_agent, None)
+        self.assertEqual(codex_executor.cron, "*/5 * * * *")
 
     def test_includes_local_youtube_watchlist_auto_ingest(self) -> None:
         automations = list_automations()

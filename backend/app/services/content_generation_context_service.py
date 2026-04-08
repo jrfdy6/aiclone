@@ -1,10 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 import re
 from typing import Any
 
 from app.services.embedders import embed_text
+from app.services.firestore_client import get_firestore_client
+from app.services.content_release_policy_service import (
+    build_content_release_policy,
+    build_public_safe_primary_claims,
+    build_public_safe_proof_packets,
+    build_public_safe_story_beats,
+    render_policy_approved_primary_claims,
+    render_policy_approved_proof_packets,
+    render_policy_approved_story_beats,
+)
 from app.services.persona_bundle_context_service import (
     load_bundle_persona_chunks,
     retrieve_bundle_persona_chunks,
@@ -50,9 +61,16 @@ STOPWORDS = {
     "what",
     "with",
 }
+SNAPSHOT_STORE_ENV_KEYS = (
+    "OPEN_BRAIN_DATABASE_URL",
+    "BRAIN_VECTOR_DATABASE_URL",
+    "DATABASE_URL",
+    "DATABASE_PUBLIC_URL",
+)
 AUDIENCE_FOCUS_TERMS = {
     "tech_ai": {"ai", "agent", "agents", "automation", "operator", "operators", "workflow", "workflows", "prompt", "prompting", "system", "systems", "shipping", "builder", "builders"},
     "leadership": {"leadership", "leaders", "manager", "managers", "team", "teams", "coaching", "culture", "clarity", "decision", "decisions"},
+    "leadership_management": {"leadership", "leaders", "manager", "managers", "team", "teams", "coaching", "culture", "clarity", "decision", "decisions", "people", "behavior", "change", "adoption"},
     "education_admissions": {"education", "admissions", "enrollment", "families", "students", "referral", "school", "schools", "trust"},
     "fashion": {"fashion", "style", "closet", "wardrobe", "outfit", "confidence"},
     "neurodivergent": {"neurodivergent", "learning", "students", "families", "support", "fit"},
@@ -61,9 +79,12 @@ AUDIENCE_FOCUS_TERMS = {
 TOPIC_FOCUS_BOOSTS = {
     "workflow clarity": {"workflow", "clarity", "process", "processes", "handoff", "handoffs", "alignment", "operator", "system", "systems", "brain", "ops", "planner", "briefs", "snapshot", "routing"},
     "agent orchestration": {"agent", "agents", "orchestration", "workflow", "workflows", "automation", "prompting", "handoff", "handoffs", "operator", "system", "systems", "brain", "ops", "planner", "briefs", "snapshot", "routing"},
+    "ai adoption": {"ai", "adoption", "adopt", "useful", "usage", "workflow", "constraints", "constraint", "operator", "operators", "system", "systems", "handoff", "handoffs", "shared", "state", "behavior"},
+    "change management": {"change", "management", "leadership", "leaders", "people", "behavior", "adoption", "adopt", "coaching", "clarity", "execution", "priority", "priorities", "dashboard", "team", "teams"},
 }
 STRICT_AUDIENCE_ANCHOR_TERMS = {
     "tech_ai": {"ai", "agent", "agents", "automation", "brain", "briefs", "handoff", "handoffs", "operator", "ops", "orchestration", "planner", "prompt", "prompting", "routing", "system", "systems", "workflow", "workflows"},
+    "leadership_management": {"leadership", "leaders", "people", "behavior", "change", "team", "teams", "coaching", "adoption", "execution", "clarity"},
 }
 PROOF_KEYWORDS = {
     "built",
@@ -92,6 +113,7 @@ PROOF_KEYWORDS = {
 AUDIENCE_DOMAIN_PRIORITY = {
     "tech_ai": {"ai_systems", "operator_workflows", "content_strategy", "identity_core"},
     "leadership": {"leadership", "systems_operations", "operator_workflows", "identity_core"},
+    "leadership_management": {"leadership", "systems_operations", "operator_workflows", "identity_core"},
     "education_admissions": {"education_admissions", "neurodivergent_advocacy", "identity_core"},
     "fashion": {"fashion_identity", "content_strategy", "identity_core"},
     "neurodivergent": {"neurodivergent_advocacy", "education_admissions", "identity_core"},
@@ -128,7 +150,15 @@ class ContentGenerationContext:
     story_beats: list[str]
     disallowed_moves: list[str]
     persona_context_summary: str | None
+    raw_primary_claims: list[str] = field(default_factory=list)
+    public_safe_primary_claims: list[dict[str, Any]] = field(default_factory=list)
+    raw_story_beats: list[str] = field(default_factory=list)
+    public_safe_story_beats: list[dict[str, Any]] = field(default_factory=list)
+    raw_proof_packets: list[str] = field(default_factory=list)
+    public_safe_proof_packets: list[dict[str, Any]] = field(default_factory=list)
+    content_release_policy: dict[str, Any] = field(default_factory=dict)
     content_reservoir_chunks: list[dict[str, Any]] = field(default_factory=list)
+    audit: dict[str, Any] = field(default_factory=dict)
 
 
 def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
@@ -169,6 +199,21 @@ def _append_unique(
         destination.append(_with_prompt_section(item, section))
         if len(destination) >= limit:
             return
+
+
+def _append_quota(
+    destination: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    *,
+    quota: int,
+    top_k: int,
+    seen: set[str],
+    section: str,
+) -> None:
+    if quota <= 0 or len(destination) >= top_k:
+        return
+    limit = min(top_k, len(destination) + quota)
+    _append_unique(destination, candidates, limit=limit, seen=seen, section=section)
 
 
 def _focus_terms(topic: str, audience: str) -> set[str]:
@@ -258,7 +303,10 @@ def _hydrate_support_chunk(item: dict[str, Any], *, source_lane: str) -> dict[st
     memory_role = _infer_support_memory_role(item)
     metadata.setdefault("memory_role", memory_role)
     metadata.setdefault("usage_modes", _infer_support_usage_modes(memory_role))
-    metadata.setdefault("source_lane", source_lane)
+    original_source_lane = str(metadata.get("source_lane") or "").strip()
+    if original_source_lane and original_source_lane != source_lane:
+        metadata.setdefault("origin_source_lane", original_source_lane)
+    metadata["source_lane"] = source_lane
     metadata.setdefault("proof_strength", "weak")
     metadata.setdefault("artifact_backed", False)
     hydrated["metadata"] = metadata
@@ -342,12 +390,65 @@ def filter_persona_chunks_for_domain(
     return filtered
 
 
+def _retrieval_support_fallback_allowed(item: dict[str, Any], *, topic: str, audience: str) -> bool:
+    metadata = _item_metadata(item)
+    if str(metadata.get("source_lane") or "") != "retrieval_support":
+        return False
+    if str(metadata.get("memory_role") or "") not in {"proof", "story"}:
+        return False
+    compatibility_score = _domain_compatibility_score(item, topic=topic, audience=audience)
+    artifact_backed = bool(metadata.get("artifact_backed"))
+    proof_strength = str(metadata.get("proof_strength") or "").lower()
+    if audience == "tech_ai":
+        return compatibility_score >= 4 and (artifact_backed or proof_strength in {"strong", "medium"})
+    return compatibility_score >= 3
+
+
+def _restore_retrieval_support_chunks(
+    persona_chunks: list[dict[str, Any]],
+    *,
+    retrieved_chunks: list[dict[str, Any]],
+    topic: str,
+    audience: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    if any(str(_item_metadata(item).get("source_lane") or "") == "retrieval_support" for item in persona_chunks):
+        return persona_chunks
+
+    hydrated_retrieved = [_hydrate_support_chunk(item, source_lane="retrieval_support") for item in retrieved_chunks]
+    promoted = [
+        item
+        for item in hydrated_retrieved
+        if _retrieval_support_fallback_allowed(item, topic=topic, audience=audience)
+    ][:2]
+    if not promoted:
+        return persona_chunks
+
+    core_prefix: list[dict[str, Any]] = []
+    remainder = list(persona_chunks)
+    while remainder and str(_item_metadata(remainder[0]).get("memory_role") or "") == "core":
+        core_prefix.append(remainder.pop(0))
+
+    seen: set[str] = set()
+    restored: list[dict[str, Any]] = []
+    for item in core_prefix + promoted + remainder:
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        restored.append(item)
+        if len(restored) >= top_k:
+            break
+    return restored
+
+
 def curate_persona_prompt_chunks(
     *,
     bundle_chunks: list[dict[str, Any]],
     legacy_support_chunks: list[dict[str, Any]],
     retrieved_chunks: list[dict[str, Any]],
     top_k: int = 9,
+    prioritize_retrieval: bool = False,
 ) -> list[dict[str, Any]]:
     hydrated_bundle_chunks = [_hydrate_bundle_chunk(item) for item in bundle_chunks]
     hydrated_legacy_chunks = [_hydrate_support_chunk(item, source_lane="legacy_support") for item in legacy_support_chunks]
@@ -379,15 +480,36 @@ def curate_persona_prompt_chunks(
         for item in hydrated_retrieved_chunks
         if _source_name(item) not in LEGACY_PERSONA_SOURCES and item.get("persona_tag") != "LINKEDIN_EXAMPLES"
     ]
+    retrieval_priority_chunks = [
+        item
+        for item in retrieval_support_chunks
+        if str(_item_metadata(item).get("memory_role") or "") in {"proof", "story"}
+    ]
+    retrieval_secondary_chunks = [
+        item
+        for item in retrieval_support_chunks
+        if str(_item_metadata(item).get("memory_role") or "") not in {"proof", "story"}
+    ]
 
     curated: list[dict[str, Any]] = []
     seen: set[str] = set()
-    _append_unique(curated, core_chunks, limit=min(top_k, 4), seen=seen, section=PROMPT_SECTION_CORE)
-    _append_unique(curated, proof_chunks, limit=min(top_k, 7), seen=seen, section=PROMPT_SECTION_SUPPORT)
-    _append_unique(curated, story_chunks, limit=min(top_k, 8), seen=seen, section=PROMPT_SECTION_SUPPORT)
-    _append_unique(curated, ambient_bundle_chunks, limit=min(top_k, 9), seen=seen, section=PROMPT_SECTION_SUPPORT)
-    _append_unique(curated, legacy_chunks, limit=min(top_k, 9), seen=seen, section=PROMPT_SECTION_LEGACY)
-    _append_unique(curated, retrieval_support_chunks, limit=top_k, seen=seen, section=PROMPT_SECTION_RETRIEVAL)
+    _append_quota(curated, core_chunks, quota=min(4, top_k), top_k=top_k, seen=seen, section=PROMPT_SECTION_CORE)
+    if prioritize_retrieval:
+        _append_quota(curated, retrieval_priority_chunks, quota=2, top_k=top_k, seen=seen, section=PROMPT_SECTION_RETRIEVAL)
+        _append_quota(curated, proof_chunks, quota=2, top_k=top_k, seen=seen, section=PROMPT_SECTION_SUPPORT)
+        _append_quota(curated, story_chunks, quota=1, top_k=top_k, seen=seen, section=PROMPT_SECTION_SUPPORT)
+        _append_unique(curated, retrieval_priority_chunks, limit=top_k, seen=seen, section=PROMPT_SECTION_RETRIEVAL)
+        _append_unique(curated, retrieval_secondary_chunks, limit=top_k, seen=seen, section=PROMPT_SECTION_RETRIEVAL)
+        _append_unique(curated, proof_chunks, limit=top_k, seen=seen, section=PROMPT_SECTION_SUPPORT)
+        _append_unique(curated, story_chunks, limit=top_k, seen=seen, section=PROMPT_SECTION_SUPPORT)
+        _append_unique(curated, ambient_bundle_chunks, limit=top_k, seen=seen, section=PROMPT_SECTION_SUPPORT)
+        _append_unique(curated, legacy_chunks, limit=top_k, seen=seen, section=PROMPT_SECTION_LEGACY)
+    else:
+        _append_unique(curated, proof_chunks, limit=min(top_k, 7), seen=seen, section=PROMPT_SECTION_SUPPORT)
+        _append_unique(curated, story_chunks, limit=min(top_k, 8), seen=seen, section=PROMPT_SECTION_SUPPORT)
+        _append_unique(curated, ambient_bundle_chunks, limit=min(top_k, 9), seen=seen, section=PROMPT_SECTION_SUPPORT)
+        _append_unique(curated, legacy_chunks, limit=min(top_k, 9), seen=seen, section=PROMPT_SECTION_LEGACY)
+        _append_unique(curated, retrieval_support_chunks, limit=top_k, seen=seen, section=PROMPT_SECTION_RETRIEVAL)
     return curated[:top_k]
 
 
@@ -409,8 +531,20 @@ def retrieve_legacy_support_chunks(
     return []
 
 
-def _load_content_reservoir_payload() -> dict[str, Any] | None:
+def _load_content_reservoir_payload(*, allow_runtime_rebuild: bool = True) -> dict[str, Any] | None:
     payload = get_snapshot_payload("linkedin-content-os", "content_reservoir")
+    if isinstance(payload, dict) and not allow_runtime_rebuild:
+        return payload
+    if not allow_runtime_rebuild:
+        return None
+    try:
+        from app.services.workspace_snapshot_service import SNAPSHOT_CONTENT_RESERVOIR, _load_snapshot
+
+        refreshed = _load_snapshot(SNAPSHOT_CONTENT_RESERVOIR)
+        if isinstance(refreshed, dict):
+            return refreshed
+    except Exception:
+        pass
     if isinstance(payload, dict):
         return payload
     try:
@@ -426,8 +560,20 @@ def _load_content_reservoir_payload() -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _load_source_assets_payload() -> dict[str, Any] | None:
+def _load_source_assets_payload(*, allow_runtime_rebuild: bool = True) -> dict[str, Any] | None:
     payload = get_snapshot_payload("linkedin-content-os", "source_assets")
+    if isinstance(payload, dict) and not allow_runtime_rebuild:
+        return payload
+    if not allow_runtime_rebuild:
+        return None
+    try:
+        from app.services.workspace_snapshot_service import SNAPSHOT_SOURCE_ASSETS, _load_snapshot
+
+        refreshed = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+        if isinstance(refreshed, dict):
+            return refreshed
+    except Exception:
+        pass
     if isinstance(payload, dict):
         return payload
     try:
@@ -443,8 +589,8 @@ def _load_source_assets_payload() -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _source_asset_capture_map() -> dict[str, str]:
-    payload = _load_source_assets_payload()
+def _source_asset_capture_map(*, allow_runtime_rebuild: bool = True) -> dict[str, str]:
+    payload = _load_source_assets_payload(allow_runtime_rebuild=allow_runtime_rebuild)
     items = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(items, list):
         return {}
@@ -520,15 +666,16 @@ def retrieve_content_reservoir_chunks(
     category: str,
     top_k: int = 8,
     strategy: str = "ranked",
+    allow_runtime_rebuild: bool = True,
 ) -> list[dict[str, Any]]:
-    payload = _load_content_reservoir_payload()
+    payload = _load_content_reservoir_payload(allow_runtime_rebuild=allow_runtime_rebuild)
     items = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(items, list) or not items:
         return []
 
     focus_terms = _focus_terms(topic, audience)
     recent_mode = " ".join((strategy or "ranked").lower().split()) == "recent"
-    capture_map = _source_asset_capture_map()
+    capture_map = _source_asset_capture_map(allow_runtime_rebuild=allow_runtime_rebuild)
     ranked: list[tuple[str, int, int, dict[str, Any]]] = []
     for raw_item in items:
         if not isinstance(raw_item, dict):
@@ -711,6 +858,134 @@ def _dedupe_texts(items: list[str], *, limit: int) -> list[str]:
     return unique
 
 
+def _legacy_embedding_store_available() -> bool:
+    try:
+        return get_firestore_client() is not None
+    except Exception:
+        return False
+
+
+def _snapshot_store_configured() -> bool:
+    return any(bool(os.getenv(key)) for key in SNAPSHOT_STORE_ENV_KEYS)
+
+
+def _count_values(values: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = " ".join(str(value or "").split()).strip() or "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _count_chunk_metadata(items: list[dict[str, Any]], key: str) -> dict[str, int]:
+    values: list[str] = []
+    for item in items:
+        metadata = _item_metadata(item)
+        raw_value = metadata.get(key)
+        if isinstance(raw_value, list):
+            values.extend(str(value) for value in raw_value if str(value).strip())
+            continue
+        values.append(str(raw_value or ""))
+    return _count_values(values)
+
+
+def _rounded_float(value: Any) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(numeric, 4)
+
+
+def _serialize_context_chunk(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = _item_metadata(item)
+    return {
+        "chunk": " ".join(str(item.get("chunk") or "").split()).strip()[:500],
+        "source_id": str(item.get("source_id") or ""),
+        "source_file_id": str(item.get("source_file_id") or ""),
+        "persona_tag": str(item.get("persona_tag") or ""),
+        "source_kind": str(metadata.get("source_kind") or ""),
+        "source_lane": str(metadata.get("source_lane") or ""),
+        "source": str(metadata.get("source") or ""),
+        "file_name": str(metadata.get("file_name") or ""),
+        "bundle_path": str(metadata.get("bundle_path") or ""),
+        "memory_role": str(metadata.get("memory_role") or ""),
+        "proof_kind": str(metadata.get("proof_kind") or ""),
+        "proof_strength": str(metadata.get("proof_strength") or ""),
+        "claim_type": str(metadata.get("claim_type") or ""),
+        "artifact_backed": bool(metadata.get("artifact_backed")),
+        "usage_modes": [str(value) for value in (metadata.get("usage_modes") or []) if str(value).strip()],
+        "domain_tags": [str(value) for value in (metadata.get("domain_tags") or []) if str(value).strip()],
+        "audience_tags": [str(value) for value in (metadata.get("audience_tags") or []) if str(value).strip()],
+        "content_reservoir_lane": str(metadata.get("content_reservoir_lane") or ""),
+        "content_reservoir_reason": str(metadata.get("content_reservoir_reason") or ""),
+        "captured_at": str(item.get("captured_at") or metadata.get("captured_at") or ""),
+        "similarity_score": _rounded_float(item.get("similarity_score")),
+        "weighted_score": _rounded_float(item.get("weighted_score")),
+    }
+
+
+def _serialize_chunk_group(items: list[dict[str, Any]], *, limit: int) -> dict[str, Any]:
+    return {
+        "count": len(items),
+        "counts_by_memory_role": _count_chunk_metadata(items, "memory_role"),
+        "counts_by_source_kind": _count_chunk_metadata(items, "source_kind"),
+        "counts_by_source_lane": _count_chunk_metadata(items, "source_lane"),
+        "counts_by_proof_strength": _count_chunk_metadata(items, "proof_strength"),
+        "items": [_serialize_context_chunk(item) for item in items[:limit]],
+    }
+
+
+def _snapshot_payload_summary(snapshot_type: str) -> dict[str, Any]:
+    payload = get_snapshot_payload("linkedin-content-os", snapshot_type)
+    items = payload.get("items") if isinstance(payload, dict) else None
+    counts = payload.get("counts") if isinstance(payload, dict) and isinstance(payload.get("counts"), dict) else {}
+    available = isinstance(payload, dict)
+    return {
+        "available": available,
+        "status": "available" if available else "missing_persisted_snapshot",
+        "generated_at": str((payload or {}).get("generated_at") or ""),
+        "item_count": len(items) if isinstance(items, list) else 0,
+        "counts": counts,
+    }
+
+
+def _runtime_snapshot_payload_summary(snapshot_type: str) -> dict[str, Any]:
+    try:
+        if snapshot_type == "source_assets":
+            from app.services.workspace_snapshot_service import _build_source_assets_payload
+
+            payload = _build_source_assets_payload()
+        elif snapshot_type == "content_reservoir":
+            from app.services.content_reservoir_service import build_content_reservoir_payload
+            from app.services.workspace_snapshot_service import _build_source_assets_payload
+
+            source_assets_payload = _build_source_assets_payload()
+            payload = build_content_reservoir_payload(source_assets=source_assets_payload)
+        else:
+            payload = None
+    except Exception as exc:
+        return {
+            "available": False,
+            "status": "runtime_builder_error",
+            "generated_at": "",
+            "item_count": 0,
+            "counts": {},
+            "error": str(exc),
+        }
+
+    items = payload.get("items") if isinstance(payload, dict) else None
+    counts = payload.get("counts") if isinstance(payload, dict) and isinstance(payload.get("counts"), dict) else {}
+    available = isinstance(payload, dict)
+    return {
+        "available": available,
+        "status": "available" if available else "runtime_builder_unavailable",
+        "generated_at": str((payload or {}).get("generated_at") or ""),
+        "item_count": len(items) if isinstance(items, list) else 0,
+        "counts": counts,
+    }
+
+
 def _split_sentences(text: str) -> list[str]:
     normalized = " ".join((text or "").split()).strip()
     if not normalized:
@@ -781,7 +1056,12 @@ def _extract_label_from_chunk(chunk: str) -> str:
 def _extract_claim_text_from_chunk(chunk: str) -> str:
     primary_text, _ = _split_use_when_text(chunk)
     cleaned = re.split(r"\b(?:Value|Proof|Evidence|Public-facing proof):", primary_text, maxsplit=1, flags=re.IGNORECASE)[0]
-    cleaned = re.sub(r"^(?:Guardrails|Wins?|Core Tone|Sentence Rhythm|Strategic Framing Preferences|Recognition And Heat|Signature Openers|Signature Pivots|Anti-Patterns):\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"^(?:Guardrails|Wins?|Core Tone|Sentence Rhythm|Strategic Framing Preferences|Recognition And Heat|Signature Openers|Signature Pivots|Anti-Patterns|Reusable Phrases):\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     sentences = _split_sentences(cleaned)
     if not sentences:
         return ""
@@ -866,6 +1146,46 @@ def _claim_candidate_score(
     return score
 
 
+def _claim_text_is_too_thin(text: str) -> bool:
+    tokens = re.findall(r"[a-z0-9]+", (text or "").lower())
+    if len(tokens) <= 2:
+        return True
+    verbs = {
+        "am",
+        "are",
+        "be",
+        "becomes",
+        "build",
+        "builds",
+        "can",
+        "changes",
+        "creates",
+        "fail",
+        "fails",
+        "forces",
+        "gets",
+        "gives",
+        "is",
+        "keeps",
+        "lets",
+        "makes",
+        "means",
+        "moves",
+        "reads",
+        "requires",
+        "scales",
+        "should",
+        "stays",
+        "turns",
+        "use",
+        "uses",
+        "works",
+    }
+    if len(tokens) < 5 and not any(token in verbs for token in tokens):
+        return True
+    return False
+
+
 def _extract_primary_claims(
     *,
     core_topic_chunks: list[dict[str, Any]],
@@ -874,18 +1194,29 @@ def _extract_primary_claims(
     grounding_mode: str,
     topic: str = "",
     audience: str = "general",
+    source_mode: str = "persona_only",
 ) -> list[str]:
     ranked: list[tuple[int, str]] = []
     focus_terms = _focus_terms(topic, audience)
-    ordered_groups = [(core_topic_chunks, 16), (topic_anchor_chunks, 10)]
-    if grounding_mode == "proof_ready":
-        ordered_groups.append((proof_anchor_chunks, 6))
+    if source_mode == "persona_only":
+        ordered_groups = [(core_topic_chunks, 16), (topic_anchor_chunks, 10)]
+        if grounding_mode == "proof_ready":
+            ordered_groups.append((proof_anchor_chunks, 6))
+        else:
+            ordered_groups.append((proof_anchor_chunks, 5))
     else:
-        ordered_groups.append((proof_anchor_chunks, 5))
+        ordered_groups = [(proof_anchor_chunks, 16), (topic_anchor_chunks, 12), (core_topic_chunks, 8)]
     for source_chunks, source_priority in ordered_groups:
         for item in source_chunks:
+            metadata = _item_metadata(item)
+            if str(metadata.get("claim_type") or "").lower() == "voice":
+                continue
             text = _extract_claim_text_from_chunk(str(item.get("chunk") or ""))
             if not text:
+                continue
+            if _claim_text_is_instructional(text):
+                continue
+            if _claim_text_is_too_thin(text):
                 continue
             ranked.append(
                 (
@@ -904,6 +1235,38 @@ def _extract_primary_claims(
     for _, text in sorted(ranked, key=lambda entry: entry[0], reverse=True):
         candidates.append(text)
     return _dedupe_texts(candidates, limit=3)
+
+
+def _claim_text_is_instructional(text: str) -> bool:
+    normalized = " ".join((text or "").split()).strip()
+    if not normalized:
+        return True
+    lowered = normalized.lower()
+    if lowered.startswith("keep ") and "grounded in lived experience" in lowered and "credible" in lowered:
+        return False
+    instructional_starts = (
+        "avoid ",
+        "do not ",
+        "don't ",
+        "never ",
+        "use ",
+        "keep ",
+        "start ",
+        "end ",
+        "lead ",
+        "sound like ",
+        "let ",
+        "tie ",
+        "preserve ",
+        "prefer ",
+        "skip ",
+        "write ",
+        "return ",
+        "replace ",
+    )
+    if lowered.startswith(instructional_starts):
+        return True
+    return lowered.startswith(("core tone:", "guardrails:", "anti-patterns:", "avoid patterns:"))
 
 
 def _proof_packet_evidence_text(packet: str) -> str:
@@ -998,6 +1361,22 @@ def _build_disallowed_moves(*, audience: str, grounding_mode: str) -> list[str]:
     if grounding_mode == "principle_only":
         moves.append("Do not use named metrics, case studies, employers, or systems unless they appear directly in the approved primary claims.")
     return moves
+
+
+def _content_reservoir_snapshot_summary() -> dict[str, Any]:
+    return _snapshot_payload_summary("content_reservoir")
+
+
+def _source_assets_snapshot_summary() -> dict[str, Any]:
+    return _snapshot_payload_summary("source_assets")
+
+
+def _runtime_content_reservoir_snapshot_summary() -> dict[str, Any]:
+    return _runtime_snapshot_payload_summary("content_reservoir")
+
+
+def _runtime_source_assets_snapshot_summary() -> dict[str, Any]:
+    return _runtime_snapshot_payload_summary("source_assets")
 
 
 def select_topic_anchor_chunks(
@@ -1205,6 +1584,8 @@ def build_content_generation_context(
     tone: str,
     audience: str,
     source_mode: str = "persona_only",
+    include_audit: bool = False,
+    allow_snapshot_rebuild: bool = True,
 ) -> ContentGenerationContext:
     del tone
 
@@ -1246,6 +1627,7 @@ def build_content_generation_context(
             category=category,
             top_k=8,
             strategy="recent",
+            allow_runtime_rebuild=allow_snapshot_rebuild,
         )
         retrieved_persona_chunks = content_reservoir_chunks
     elif normalized_source_mode == "selected_source":
@@ -1255,6 +1637,7 @@ def build_content_generation_context(
             category=category,
             top_k=8,
             strategy="ranked",
+            allow_runtime_rebuild=allow_snapshot_rebuild,
         )
         retrieved_persona_chunks = content_reservoir_chunks
     persona_chunks = curate_persona_prompt_chunks(
@@ -1262,12 +1645,21 @@ def build_content_generation_context(
         legacy_support_chunks=legacy_support_chunks,
         retrieved_chunks=retrieved_persona_chunks,
         top_k=9,
+        prioritize_retrieval=normalized_source_mode != "persona_only",
     )
     persona_chunks = filter_persona_chunks_for_domain(
         persona_chunks,
         topic=topic,
         audience=audience,
     )
+    if normalized_source_mode != "persona_only":
+        persona_chunks = _restore_retrieval_support_chunks(
+            persona_chunks,
+            retrieved_chunks=retrieved_persona_chunks,
+            topic=topic,
+            audience=audience,
+            top_k=9,
+        )
     core_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "core"]
     proof_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "proof"]
     story_chunks = [item for item in persona_chunks if str(_item_metadata(item).get("memory_role") or "") == "story"]
@@ -1303,7 +1695,10 @@ def build_content_generation_context(
         audience=audience,
         limit=3,
     )
-    core_topic_chunks = _merge_unique_chunks(canonical_core_topic_chunks, core_topic_chunks, limit=4)
+    if normalized_source_mode == "persona_only":
+        core_topic_chunks = _merge_unique_chunks(canonical_core_topic_chunks, core_topic_chunks, limit=4)
+    else:
+        core_topic_chunks = _merge_unique_chunks(core_topic_chunks, canonical_core_topic_chunks, limit=4)
     canonical_proof_anchor_chunks = select_proof_anchor_chunks(
         [
             item
@@ -1314,7 +1709,10 @@ def build_content_generation_context(
         audience=audience,
         limit=4,
     )
-    proof_anchor_chunks = _merge_unique_chunks(canonical_proof_anchor_chunks, proof_anchor_chunks, limit=4)
+    if normalized_source_mode == "persona_only":
+        proof_anchor_chunks = _merge_unique_chunks(canonical_proof_anchor_chunks, proof_anchor_chunks, limit=4)
+    else:
+        proof_anchor_chunks = _merge_unique_chunks(proof_anchor_chunks, canonical_proof_anchor_chunks, limit=4)
     print(
         "[content_context] "
         f"bundle={len(bundle_persona_chunks)} "
@@ -1376,20 +1774,167 @@ def build_content_generation_context(
         proof_anchor_chunks=proof_anchor_chunks,
         story_anchor_chunks=story_anchor_chunks,
     )
-    primary_claims = _extract_primary_claims(
+    raw_primary_claims = _extract_primary_claims(
         core_topic_chunks=core_topic_chunks,
         topic_anchor_chunks=topic_anchor_chunks,
         proof_anchor_chunks=proof_anchor_chunks,
         grounding_mode=grounding_mode,
         topic=topic,
         audience=audience,
+        source_mode=normalized_source_mode,
     )
-    proof_packets = _extract_proof_packets(proof_anchor_chunks)
-    story_beats = _extract_story_beats(story_anchor_chunks)
+    content_release_policy = build_content_release_policy(
+        content_type=content_type,
+        audience=audience,
+    )
+    public_safe_primary_claims = build_public_safe_primary_claims(
+        raw_primary_claims=raw_primary_claims,
+        content_type=content_type,
+        topic=topic,
+        audience=audience,
+    )
+    primary_claims = (
+        render_policy_approved_primary_claims(
+            public_safe_primary_claims=public_safe_primary_claims,
+            content_type=content_type,
+        )
+        if content_type == "linkedin_post"
+        else raw_primary_claims
+    )
+    raw_proof_packets = _extract_proof_packets(proof_anchor_chunks)
+    public_safe_proof_packets = build_public_safe_proof_packets(
+        proof_anchor_chunks=proof_anchor_chunks,
+        raw_proof_packets=raw_proof_packets,
+        content_type=content_type,
+        topic=topic,
+        audience=audience,
+    )
+    proof_packets = (
+        render_policy_approved_proof_packets(
+            public_safe_proof_packets=public_safe_proof_packets,
+            content_type=content_type,
+        )
+        if content_type == "linkedin_post"
+        else raw_proof_packets
+    )
+    raw_story_beats = _extract_story_beats(story_anchor_chunks)
+    public_safe_story_beats = build_public_safe_story_beats(
+        raw_story_beats=raw_story_beats,
+        content_type=content_type,
+        topic=topic,
+        audience=audience,
+    )
+    story_beats = (
+        render_policy_approved_story_beats(
+            public_safe_story_beats=public_safe_story_beats,
+            content_type=content_type,
+        )
+        if content_type == "linkedin_post"
+        else raw_story_beats
+    )
     disallowed_moves = _build_disallowed_moves(
         audience=audience,
         grounding_mode=grounding_mode,
     )
+    persona_context_summary = _build_persona_context_summary(
+        primary_claims=primary_claims,
+        proof_packets=proof_packets,
+        persona_chunks=persona_chunks,
+        topic=topic,
+    )
+    audit: dict[str, Any] = {}
+    if include_audit:
+        legacy_store_available = _legacy_embedding_store_available()
+        snapshot_store_configured = _snapshot_store_configured()
+        source_assets_summary = _source_assets_snapshot_summary()
+        content_reservoir_summary = _content_reservoir_snapshot_summary()
+        runtime_source_assets_summary = _runtime_source_assets_snapshot_summary()
+        runtime_content_reservoir_summary = _runtime_content_reservoir_snapshot_summary()
+        audit = {
+            "request": {
+                "user_id": user_id,
+                "topic": topic,
+                "context": context_text,
+                "content_type": content_type,
+                "category": category,
+                "audience": audience,
+                "source_mode": normalized_source_mode,
+            },
+            "queries": {
+                "persona_query": persona_query,
+                "examples_query": examples_query,
+                "context_for_query": context_for_query,
+            },
+            "snapshot_inputs": {
+                "source_assets": source_assets_summary,
+                "content_reservoir": content_reservoir_summary,
+            },
+            "runtime_snapshot_inputs": {
+                "source_assets": runtime_source_assets_summary,
+                "content_reservoir": runtime_content_reservoir_summary,
+            },
+            "environment": {
+                "snapshot_store_configured": snapshot_store_configured,
+                "legacy_embedding_store_available": legacy_store_available,
+                "legacy_embedding_store_status": "available" if legacy_store_available else "firestore_unavailable",
+            },
+            "retrieval": {
+                "canonical_bundle_filtered": _serialize_chunk_group(canonical_bundle_chunks, limit=12),
+                "bundle_candidates": _serialize_chunk_group(bundle_persona_chunks, limit=10),
+                "legacy_support_candidates": _serialize_chunk_group(legacy_support_chunks, limit=6),
+                "content_reservoir_candidates": _serialize_chunk_group(content_reservoir_chunks, limit=8),
+                "curated_persona_chunks": _serialize_chunk_group(persona_chunks, limit=12),
+                "core_chunks": _serialize_chunk_group(core_chunks, limit=8),
+                "proof_chunks": _serialize_chunk_group(proof_chunks, limit=8),
+                "story_chunks": _serialize_chunk_group(story_chunks, limit=8),
+                "ambient_chunks": _serialize_chunk_group(ambient_chunks, limit=8),
+                "topic_anchor_chunks": _serialize_chunk_group(topic_anchor_chunks, limit=4),
+                "proof_anchor_chunks": _serialize_chunk_group(proof_anchor_chunks, limit=4),
+                "story_anchor_chunks": _serialize_chunk_group(story_anchor_chunks, limit=3),
+                "example_chunks": _serialize_chunk_group(example_chunks, limit=3),
+            },
+            "selection": {
+                "grounding_mode": grounding_mode,
+                "grounding_reason": grounding_reason,
+                "framing_modes": framing_modes,
+                "raw_primary_claims": raw_primary_claims,
+                "primary_claims": primary_claims,
+                "public_safe_primary_claims": public_safe_primary_claims,
+                "raw_proof_packets": raw_proof_packets,
+                "proof_packets": proof_packets,
+                "public_safe_proof_packets": public_safe_proof_packets,
+                "content_release_policy": content_release_policy,
+                "raw_story_beats": raw_story_beats,
+                "story_beats": story_beats,
+                "public_safe_story_beats": public_safe_story_beats,
+                "persona_context_summary": persona_context_summary,
+                "disallowed_moves": disallowed_moves,
+            },
+            "warnings": [
+                *([] if legacy_store_available else ["Legacy Firestore retrieval is unavailable in this runtime."]),
+                *([] if snapshot_store_configured else ["Open Brain snapshot store is not configured in this runtime."]),
+                *(
+                    []
+                    if source_assets_summary.get("available")
+                    else ["Persisted source_assets snapshot is unavailable in this runtime."]
+                ),
+                *(
+                    []
+                    if content_reservoir_summary.get("available")
+                    else ["Persisted content_reservoir snapshot is unavailable in this runtime."]
+                ),
+                *(
+                    []
+                    if runtime_source_assets_summary.get("available")
+                    else ["Runtime source_assets builder is unavailable in this runtime."]
+                ),
+                *(
+                    []
+                    if runtime_content_reservoir_summary.get("available")
+                    else ["Runtime content_reservoir builder is unavailable in this runtime."]
+                ),
+            ],
+        }
 
     return ContentGenerationContext(
         persona_chunks=persona_chunks,
@@ -1408,11 +1953,14 @@ def build_content_generation_context(
         proof_packets=proof_packets,
         story_beats=story_beats,
         disallowed_moves=disallowed_moves,
-        persona_context_summary=_build_persona_context_summary(
-            primary_claims=primary_claims,
-            proof_packets=proof_packets,
-            persona_chunks=persona_chunks,
-            topic=topic,
-        ),
+        persona_context_summary=persona_context_summary,
+        raw_primary_claims=raw_primary_claims,
+        public_safe_primary_claims=public_safe_primary_claims,
+        raw_story_beats=raw_story_beats,
+        public_safe_story_beats=public_safe_story_beats,
+        raw_proof_packets=raw_proof_packets,
+        public_safe_proof_packets=public_safe_proof_packets,
+        content_release_policy=content_release_policy,
         content_reservoir_chunks=content_reservoir_chunks,
+        audit=audit,
     )

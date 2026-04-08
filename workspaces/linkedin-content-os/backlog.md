@@ -6,6 +6,10 @@
 - `LNK-002` Seed the content backlog from canonical persona and lived work.
 - `LNK-005` Create the first draft queue with explicit owner approval gating.
 
+## Evidence Artifacts
+
+- `docs/backlog_seed_status_2026-04-08.md` — maps each queue item (FEEZIE-001..012) to its canonical persona anchors, drafts, and pending owner actions so accountability sweeps can verify backlog truth quickly.
+
 ## Active
 
 ### LNK-001 - Define the operating model

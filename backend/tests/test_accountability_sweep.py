@@ -114,8 +114,21 @@ class AccountabilitySweepTests(unittest.TestCase):
                 "status": "todo",
                 "source": MODULE.FOLLOWUP_SOURCE,
                 "payload": {
+                    "rerouted_card_ids": ["rerouted-1"],
                     "execution": {
                         "state": "ready",
+                        "target_agent": "Jean-Claude",
+                    }
+                },
+            },
+            {
+                "id": "rerouted-1",
+                "title": "Recovered lane",
+                "status": "review",
+                "source": "standup:test",
+                "payload": {
+                    "execution": {
+                        "state": "review",
                         "target_agent": "Jean-Claude",
                     }
                 },
@@ -147,6 +160,60 @@ class AccountabilitySweepTests(unittest.TestCase):
         self.assertEqual(len(patched), 1)
         self.assertEqual(report["executive_followup_card"]["action"], "closed")
         self.assertEqual(report["executive_followup_card"]["status"], "done")
+
+    def test_live_sweep_keeps_followup_open_until_tracked_cards_reach_review_or_done(self) -> None:
+        cards = [
+            {
+                "id": "followup-1",
+                "title": MODULE.FOLLOWUP_TITLE,
+                "status": "todo",
+                "source": MODULE.FOLLOWUP_SOURCE,
+                "payload": {
+                    "rerouted_card_ids": ["rerouted-1"],
+                    "execution": {
+                        "state": "ready",
+                        "target_agent": "Jean-Claude",
+                    }
+                },
+            },
+            {
+                "id": "rerouted-1",
+                "title": "Still in flight",
+                "status": "todo",
+                "source": "standup:test",
+                "payload": {
+                    "execution": {
+                        "state": "queued",
+                        "target_agent": "Jean-Claude",
+                    }
+                },
+            },
+        ]
+        patched: list[tuple[str, dict]] = []
+
+        def fake_fetch_json(url: str, *, method: str = "GET", payload: dict | None = None):
+            if method == "GET" and url.endswith("/api/pm/execution-queue?limit=200"):
+                return []
+            if method == "GET" and url.endswith("/api/pm/cards?limit=400"):
+                return cards
+            if method == "PATCH":
+                patched.append((url, payload or {}))
+                raise AssertionError("follow-up should stay open until tracked cards are healthy")
+            raise AssertionError(f"Unexpected call: {method} {url}")
+
+        report = MODULE.build_report(
+            "https://example.test",
+            ready_age_minutes=90,
+            review_age_hours=24,
+            sync_live=True,
+            fetch_json=fake_fetch_json,
+        )
+
+        self.assertEqual(report["stale_review_count"], 0)
+        self.assertEqual(report["stale_running_count"], 0)
+        self.assertEqual(patched, [])
+        self.assertEqual(report["executive_followup_card"]["action"], "tracked")
+        self.assertEqual(report["executive_followup_card"]["pending_card_ids"], ["rerouted-1"])
 
 
 if __name__ == "__main__":

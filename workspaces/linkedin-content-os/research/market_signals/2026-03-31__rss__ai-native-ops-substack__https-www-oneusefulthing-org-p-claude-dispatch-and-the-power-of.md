@@ -1,7 +1,7 @@
 ---
 kind: market_signal
 title: Claude Dispatch and the Power of Interfaces
-created_at: '2026-04-01T21:21:58.217714+00:00'
+created_at: '2026-04-08T22:03:34.806669+00:00'
 published_at: '2026-03-31T22:34:37+00:00'
 source_platform: substack
 source_type: article

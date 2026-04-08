@@ -85,6 +85,31 @@ type LabExperiment = {
       missing_fields?: string[];
     }[];
     top_option_preview: string;
+    golden_benchmark?: {
+      id: string;
+      label: string;
+      topic: string;
+      audience: string;
+      description?: string;
+      status: string;
+      score: number;
+      minimum_score: number;
+      required_checks_total: number;
+      required_checks_passed_count: number;
+      required_checks_passed: boolean;
+      anchor_hits?: number;
+      anchor_group_total?: number;
+      top_warnings: string[];
+      summary: string;
+      checks: {
+        id: string;
+        label: string;
+        status: string;
+        detail: string;
+        weight: number;
+        required: boolean;
+      }[];
+    };
     signal_snapshot?: {
       source_channel?: string;
       source_class?: string;
@@ -353,6 +378,103 @@ type LabExperiment = {
       asset_voice_signal_priority?: string;
     }[];
   };
+  pipeline_audit?: {
+    generated_at?: string | null;
+    request?: {
+      topic?: string;
+      context?: string;
+      content_type?: string;
+      category?: string;
+      tone?: string;
+      audience?: string;
+    };
+    issue_count: number;
+    high_issue_count: number;
+    snapshot_drift_count: number;
+    source_mode_collapse_count: number;
+    retrieval_reach_count: number;
+    issue_counts: Record<string, number>;
+    issues: {
+      severity: string;
+      phase: string;
+      summary: string;
+      details?: Record<string, unknown>;
+    }[];
+    phase_health: {
+      id: string;
+      label: string;
+      description: string;
+      status: string;
+      issue_count: number;
+      issue_counts: Record<string, number>;
+      top_issue_summaries: string[];
+      detail_lines: string[];
+    }[];
+    source_modes: {
+      id: string;
+      label: string;
+      grounding_mode?: string | null;
+      grounding_reason?: string | null;
+      retrieval_support_count: number;
+      canonical_bundle_count: number;
+      reservoir_candidate_count: number;
+      content_reservoir_chunk_count: number;
+      example_count: number;
+      primary_claims: string[];
+    }[];
+    snapshot_cards: {
+      id: string;
+      label: string;
+      value: number;
+      tone: string;
+    }[];
+  };
+  golden_evaluation?: {
+    generated_at?: string;
+    total: number;
+    publishable_count: number;
+    close_count: number;
+    fail_count: number;
+    missing_count?: number;
+    publishable_rate: number;
+    close_rate: number;
+    fail_rate: number;
+    average_score: number;
+    floor_score: number;
+    hard_fail_count: number;
+    summary: string;
+    metric_cards: {
+      id: string;
+      label: string;
+      value: number | null;
+      tone: string;
+    }[];
+    rows: {
+      id: string;
+      label: string;
+      topic: string;
+      audience: string;
+      description?: string;
+      status: string;
+      score: number;
+      minimum_score: number;
+      required_checks_total: number;
+      required_checks_passed_count: number;
+      required_checks_passed: boolean;
+      anchor_hits?: number;
+      anchor_group_total?: number;
+      top_warnings: string[];
+      summary: string;
+      checks: {
+        id: string;
+        label: string;
+        status: string;
+        detail: string;
+        weight: number;
+        required: boolean;
+      }[];
+    }[];
+  };
   history: {
     run_id: string;
     started_at: string;
@@ -372,7 +494,7 @@ export default function LabPage() {
   const [activeExperimentId, setActiveExperimentId] = useState<string | null>(null);
   const [runningExperimentId, setRunningExperimentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('foundry');
+  const [activeTab, setActiveTab] = useState<Tab>('buildLogs');
 
   useEffect(() => {
     let cancelled = false;
@@ -727,6 +849,9 @@ function ExperimentCard({
             </div>
           </div>
 
+          {experiment.pipeline_audit && <ContentPipelineAuditSection audit={experiment.pipeline_audit} expanded={expanded} />}
+          {experiment.golden_evaluation && <GoldenContentEvalSection evaluation={experiment.golden_evaluation} expanded={expanded} />}
+
           {experiment.sample_runs?.length > 0 && (
             <div style={{ marginTop: '16px', display: 'grid', gap: '10px' }}>
               <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Latest Probe Runs</p>
@@ -745,6 +870,22 @@ function ExperimentCard({
                       )}
                     </div>
                   </div>
+                  {item.golden_benchmark && (
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                      <InlineTone
+                        label={`Golden ${humanizeKey(item.golden_benchmark.status)}`}
+                        tone={goldenTone(item.golden_benchmark.status)}
+                      />
+                      <InlineTone
+                        label={`Score ${item.golden_benchmark.score}/${item.golden_benchmark.minimum_score}`}
+                        tone="#38bdf8"
+                      />
+                      <InlineTone
+                        label={`Required ${item.golden_benchmark.required_checks_passed_count}/${item.golden_benchmark.required_checks_total}`}
+                        tone={item.golden_benchmark.required_checks_passed ? '#22c55e' : '#ef4444'}
+                      />
+                    </div>
+                  )}
                   <p style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '8px' }}>{item.top_option_preview || 'No option preview returned.'}</p>
                   {item.signal_snapshot && (
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
@@ -1090,6 +1231,210 @@ function PrototypeStat({
     <div style={{ flex: 1, borderRadius: '12px', border: '1px solid #1f2937', backgroundColor: '#071814', padding: compact ? '10px' : '12px' }}>
       <p style={{ color: '#94a3b8', fontSize: compact ? '10px' : '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</p>
       <p style={{ color: tone, fontSize: compact ? '18px' : '22px', fontWeight: 600 }}>{value}</p>
+    </div>
+  );
+}
+
+function ContentPipelineAuditSection({
+  audit,
+  expanded = false,
+}: {
+  audit: NonNullable<LabExperiment['pipeline_audit']>;
+  expanded?: boolean;
+}) {
+  return (
+    <div style={{ marginTop: '16px', display: 'grid', gap: '12px' }}>
+      <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+          <div>
+            <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Upstream Pipeline Audit</p>
+            <p style={{ color: 'white', fontSize: '16px', fontWeight: 600, marginTop: '4px' }}>Start-of-pipeline visibility for the content observatory</p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <InlineTone label={`Issues ${audit.issue_count}`} tone="#ef4444" />
+            <InlineTone label={`High ${audit.high_issue_count}`} tone="#f97316" />
+            <InlineTone label={`Snapshot Drift ${audit.snapshot_drift_count}`} tone="#f59e0b" />
+            <InlineTone label={`Mode Collapse ${audit.source_mode_collapse_count}`} tone="#fbbf24" />
+            <InlineTone label={`Retrieval Reach ${audit.retrieval_reach_count}/2`} tone="#14b8a6" />
+            {audit.generated_at && <InlineTone label={`Generated ${formatTimestamp(new Date(audit.generated_at))}`} tone="#64748b" />}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+          {audit.request?.topic && <InlineTone label={`Topic ${audit.request.topic}`} tone="#38bdf8" />}
+          {audit.request?.audience && <InlineTone label={`Audience ${humanizeKey(audit.request.audience)}`} tone="#a78bfa" />}
+          {audit.request?.tone && <InlineTone label={`Tone ${humanizeKey(audit.request.tone)}`} tone="#14b8a6" />}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+          {audit.snapshot_cards.map((card) => (
+            <PrototypeStat key={card.id} label={card.label} value={card.value} tone={card.tone} />
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: expanded ? 'repeat(auto-fit, minmax(260px, 1fr))' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        {audit.phase_health.map((phase) => (
+          <div key={phase.id} style={{ borderRadius: '12px', border: `1px solid ${statusTone(phase.status)}55`, padding: '14px', backgroundColor: '#020617' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>
+              <div>
+                <p style={{ color: 'white', fontWeight: 600 }}>{phase.label}</p>
+                <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>{phase.description}</p>
+              </div>
+              <InlineTone label={`${statusGlyph(phase.status)} ${humanizeKey(phase.status)}`} tone={statusTone(phase.status)} />
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <InlineTone label={`Issues ${phase.issue_count}`} tone="#64748b" />
+              {Object.entries(phase.issue_counts || {}).map(([severity, count]) => (
+                <InlineTone key={`${phase.id}:${severity}`} label={`${humanizeKey(severity)} ${count}`} tone={severity === 'high' ? '#ef4444' : '#f59e0b'} />
+              ))}
+            </div>
+            <div style={{ display: 'grid', gap: '4px' }}>
+              {phase.detail_lines.slice(0, expanded ? 4 : 2).map((line) => (
+                <p key={`${phase.id}:${line}`} style={{ color: '#cbd5e1', fontSize: '12px' }}>{line}</p>
+              ))}
+              {phase.top_issue_summaries.slice(0, expanded ? 3 : 1).map((summary) => (
+                <p key={`${phase.id}:issue:${summary}`} style={{ color: '#fbbf24', fontSize: '12px' }}>{summary}</p>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: expanded ? 'repeat(auto-fit, minmax(280px, 1fr))' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+        {audit.source_modes.map((mode) => (
+          <div key={mode.id} style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <p style={{ color: 'white', fontWeight: 600 }}>{mode.label}</p>
+              {mode.grounding_mode && <InlineTone label={humanizeKey(mode.grounding_mode)} tone="#38bdf8" />}
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <InlineTone label={`Retrieval ${mode.retrieval_support_count}`} tone="#14b8a6" />
+              <InlineTone label={`Canon ${mode.canonical_bundle_count}`} tone="#64748b" />
+              <InlineTone label={`Reservoir ${mode.reservoir_candidate_count}`} tone="#a78bfa" />
+              <InlineTone label={`Curated Reservoir ${mode.content_reservoir_chunk_count}`} tone="#f59e0b" />
+              <InlineTone label={`Examples ${mode.example_count}`} tone="#334155" />
+            </div>
+            {mode.grounding_reason && <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '8px' }}>{mode.grounding_reason}</p>}
+            <div style={{ display: 'grid', gap: '6px' }}>
+              {mode.primary_claims.length === 0 && <p style={{ color: '#64748b', fontSize: '12px' }}>No primary claims returned.</p>}
+              {mode.primary_claims.map((claim) => (
+                <p key={`${mode.id}:${claim}`} style={{ color: '#cbd5e1', fontSize: '12px' }}>{claim}</p>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {audit.issues.length > 0 && (
+        <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+            <p style={{ color: 'white', fontWeight: 600 }}>Top Pipeline Issues</p>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {Object.entries(audit.issue_counts || {}).map(([phase, count]) => (
+                <InlineTone key={`issue-count:${phase}`} label={`${humanizeKey(phase)} ${count}`} tone="#64748b" />
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gap: '8px' }}>
+            {audit.issues.slice(0, expanded ? 8 : 4).map((issue, index) => (
+              <div key={`${issue.phase}:${issue.summary}:${index}`} style={{ borderRadius: '10px', border: '1px solid #1e293b', padding: '10px', backgroundColor: '#0b1120' }}>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                  <InlineTone label={humanizeKey(issue.phase)} tone="#38bdf8" />
+                  <InlineTone label={humanizeKey(issue.severity)} tone={issue.severity === 'high' ? '#ef4444' : '#f59e0b'} />
+                </div>
+                <p style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: expanded && issue.details ? '6px' : 0 }}>{issue.summary}</p>
+                {expanded && issue.details && Object.keys(issue.details).length > 0 && (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {Object.entries(issue.details).slice(0, 6).map(([key, value]) => (
+                      <InlineTone key={`${issue.phase}:${key}`} label={`${humanizeKey(key)} ${Array.isArray(value) ? value.length : String(value)}`} tone="#475569" />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GoldenContentEvalSection({
+  evaluation,
+  expanded = false,
+}: {
+  evaluation: NonNullable<LabExperiment['golden_evaluation']>;
+  expanded?: boolean;
+}) {
+  return (
+    <div style={{ marginTop: '16px', display: 'grid', gap: '12px' }}>
+      <div style={{ borderRadius: '12px', border: '1px solid #1f2937', padding: '14px', backgroundColor: '#020617' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+          <div>
+            <p style={{ color: '#94a3b8', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Golden Content Eval</p>
+            <p style={{ color: 'white', fontSize: '16px', fontWeight: 600, marginTop: '4px' }}>Fixed benchmark contracts for publishable content</p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <InlineTone label={`Benchmarks ${evaluation.total}`} tone="#64748b" />
+            <InlineTone label={`Publishable ${evaluation.publishable_count}`} tone="#22c55e" />
+            <InlineTone label={`Close ${evaluation.close_count}`} tone="#f59e0b" />
+            <InlineTone label={`Fail ${evaluation.fail_count}`} tone="#ef4444" />
+            {evaluation.generated_at && <InlineTone label={`Generated ${formatTimestamp(new Date(evaluation.generated_at))}`} tone="#64748b" />}
+          </div>
+        </div>
+        <p style={{ color: '#cbd5e1', fontSize: '13px', marginBottom: '12px' }}>{evaluation.summary}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+          {evaluation.metric_cards.map((card) => (
+            <PrototypeStat key={card.id} label={card.label} value={formatMetric(card.id, card.value)} tone={card.tone} />
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: expanded ? 'repeat(auto-fit, minmax(280px, 1fr))' : 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+        {evaluation.rows.slice(0, expanded ? evaluation.rows.length : 3).map((row) => (
+          <div key={row.id} style={{ borderRadius: '12px', border: `1px solid ${goldenTone(row.status)}55`, padding: '14px', backgroundColor: '#020617' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <div>
+                <p style={{ color: 'white', fontWeight: 600 }}>{row.label}</p>
+                <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>{row.description || row.topic}</p>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <InlineTone label={humanizeKey(row.audience)} tone="#64748b" />
+                <InlineTone label={humanizeKey(row.status)} tone={goldenTone(row.status)} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              <InlineTone label={`Score ${row.score}/${row.minimum_score}`} tone="#38bdf8" />
+              <InlineTone
+                label={`Required ${row.required_checks_passed_count}/${row.required_checks_total}`}
+                tone={row.required_checks_passed ? '#22c55e' : '#ef4444'}
+              />
+              {typeof row.anchor_group_total === 'number' && row.anchor_group_total > 0 && (
+                <InlineTone label={`Anchors ${row.anchor_hits ?? 0}/${row.anchor_group_total}`} tone="#a78bfa" />
+              )}
+            </div>
+            <p style={{ color: '#cbd5e1', fontSize: '12px', marginBottom: '8px' }}>{row.summary}</p>
+            <div style={{ display: 'grid', gap: '6px' }}>
+              {row.checks.slice(0, expanded ? row.checks.length : 4).map((check) => (
+                <div key={`${row.id}:${check.id}`} style={{ borderRadius: '10px', border: '1px solid #1e293b', padding: '8px', backgroundColor: '#0b1120' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <InlineTone label={check.label} tone="#38bdf8" />
+                      {check.required && <InlineTone label="Required" tone="#f59e0b" />}
+                    </div>
+                    <InlineTone label={humanizeKey(check.status)} tone={statusTone(check.status)} />
+                  </div>
+                  <p style={{ color: '#94a3b8', fontSize: '12px' }}>{check.detail}</p>
+                </div>
+              ))}
+            </div>
+            {row.top_warnings?.length > 0 && (
+              <p style={{ color: '#fbbf24', fontSize: '12px', marginTop: '8px' }}>
+                Warnings: {row.top_warnings.map(humanizeKey).join(', ')}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1686,6 +2031,14 @@ function phaseTone(status: string) {
 function statusTone(status: string) {
   if (status === 'pass') return '#22c55e';
   if (status === 'warn') return '#f59e0b';
+  if (status === 'fail') return '#ef4444';
+  if (status === 'missing') return '#94a3b8';
+  return '#64748b';
+}
+
+function goldenTone(status: string) {
+  if (status === 'publishable') return '#22c55e';
+  if (status === 'close') return '#f59e0b';
   if (status === 'fail') return '#ef4444';
   if (status === 'missing') return '#94a3b8';
   return '#64748b';

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Any, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from psycopg import Connection
 from psycopg.rows import dict_row
@@ -28,6 +29,18 @@ def _get_conninfo() -> Optional[str]:
         if value:
             return value
     return None
+
+
+def _ensure_connect_timeout(conninfo: str, timeout_seconds: int = 3) -> str:
+    normalized = (conninfo or "").strip()
+    if not normalized or "connect_timeout=" in normalized:
+        return normalized
+    if "://" in normalized:
+        parts = urlsplit(normalized)
+        query_pairs = parse_qsl(parts.query, keep_blank_values=True)
+        query_pairs.append(("connect_timeout", str(timeout_seconds)))
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query_pairs), parts.fragment))
+    return f"{normalized} connect_timeout={timeout_seconds}"
 
 
 _BASE_SCHEMA_STATEMENTS = (
@@ -423,6 +436,7 @@ def get_pool() -> ConnectionPool:
         conninfo = _get_conninfo()
         if not conninfo:
             raise RuntimeError("Open brain database url is not configured")
+        conninfo = _ensure_connect_timeout(conninfo)
 
         min_size = int(os.getenv("OPEN_BRAIN_POOL_MIN", "1"))
         max_size = int(os.getenv("OPEN_BRAIN_POOL_MAX", "5"))
