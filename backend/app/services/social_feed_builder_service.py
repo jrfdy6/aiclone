@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from app.services.social_signal_archive_service import load_market_signal_archive_records
 from app.services.workspace_snapshot_store import get_snapshot_payload
 from app.services.social_signal_utils import (
     build_variants,
@@ -185,11 +186,9 @@ def _load_watchlist(workspace_root: Path) -> dict[str, Any]:
 
 def _read_saved_signals(workspace_root: Path) -> list[dict[str, Any]]:
     research_root = workspace_root / "research" / "market_signals"
-    if not research_root.exists():
-        return []
+    signals_by_id: dict[str, dict[str, Any]] = {}
 
-    signals: list[dict[str, Any]] = []
-    for path in sorted(research_root.glob("*.md")):
+    for path in sorted(research_root.glob("*.md")) if research_root.exists() else []:
         if path.name.upper() == "README.MD":
             continue
         text = path.read_text(encoding="utf-8")
@@ -201,8 +200,38 @@ def _read_saved_signals(workspace_root: Path) -> list[dict[str, Any]]:
         meta["body_text"] = body_text
         if _is_placeholder_signal(meta):
             continue
-        signals.append(meta)
-    return signals
+        signals_by_id[path.stem] = meta
+
+    for record in load_market_signal_archive_records(workspace_root):
+        if not isinstance(record, dict):
+            continue
+        signal_id = _clean_text(record.get("id"))
+        if not signal_id or signal_id in signals_by_id:
+            continue
+        archived = dict(record)
+        runtime_source_path = _clean_text(record.get("source_path"))
+        archive_source_path = _clean_text(record.get("archive_markdown_path"))
+        runtime_path = workspace_root / runtime_source_path if runtime_source_path else None
+        archived["id"] = signal_id
+        archived["body_text"] = str(record.get("body_text") or "").strip()
+        archived["source_path"] = (
+            runtime_source_path
+            if runtime_path is not None and runtime_path.exists()
+            else archive_source_path or runtime_source_path
+        )
+        archived["runtime_source_path"] = runtime_source_path
+        archived["archive_source_path"] = archive_source_path
+        if _is_placeholder_signal(archived):
+            continue
+        signals_by_id[signal_id] = archived
+
+    return sorted(
+        signals_by_id.values(),
+        key=lambda item: (
+            _clean_text(item.get("published_at") or item.get("created_at")),
+            _clean_text(item.get("id")),
+        ),
+    )
 
 
 def _load_existing_feed(workspace_root: Path) -> dict[str, Any] | None:

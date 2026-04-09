@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +23,12 @@ def resolve_workspace_root() -> Path:
 
 
 WORKSPACE_ROOT = resolve_workspace_root()
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.social_signal_archive_service import sync_market_signal_archive_entry
+
 RESEARCH_ROOT = WORKSPACE_ROOT / "workspaces" / "linkedin-content-os" / "research" / "market_signals"
 
 
@@ -61,6 +68,7 @@ def write_signal(title: str, summary: str, body: str, metadata: dict[str, str]) 
     frontmatter += "---\n\n"
     content = frontmatter + "# Source\n\n" + body.strip() + "\n"
     path.write_text(content, encoding="utf-8")
+    sync_market_signal_archive_entry(path, WORKSPACE_ROOT / "workspaces" / "linkedin-content-os")
     return path
 
 

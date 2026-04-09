@@ -51,6 +51,8 @@ workspaces/*/memory/execution_log.md
 workspaces/linkedin-content-os/plans/weekly_plan.md
 workspaces/linkedin-content-os/plans/reaction_queue.md
 workspaces/linkedin-content-os/plans/social_feed.md
+workspaces/linkedin-content-os/research/market_signals/*.md
+!workspaces/linkedin-content-os/research/market_signals/README.md
 frontend/app/brain/workspaceSnapshot.ts
 frontend/legacy/content-pipeline/workspaceSnapshot.ts
 

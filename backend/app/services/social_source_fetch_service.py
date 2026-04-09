@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 import yaml
 
+from app.services.social_signal_archive_service import sync_market_signal_archive_entry
 from app.services.social_feed_builder_service import discover_linkedin_workspace_root
 
 LOGGER = logging.getLogger(__name__)
@@ -196,6 +197,7 @@ def _write_signal(path: Path, entry: dict[str, Any], body: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     frontmatter = yaml.dump(entry, sort_keys=False, allow_unicode=False)
     path.write_text(f"---\n{frontmatter}---\n\n{body.strip()}\n", encoding="utf-8")
+    sync_market_signal_archive_entry(path, path.parents[2])
     return path
 
 

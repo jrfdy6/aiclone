@@ -24,6 +24,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.social_feed_preview_service import social_feed_preview_service
+from app.services.social_signal_archive_service import sync_market_signal_archive_entry
 from app.services.social_signal_utils import normalize_manual_signal
 
 RESEARCH_ROOT = WORKSPACE_ROOT / "workspaces" / "linkedin-content-os" / "research" / "market_signals"
@@ -74,6 +75,7 @@ def write_signal(signal: dict[str, object], metadata: dict[str, str]) -> Path:
     body = str(signal.get("raw_text") or "").strip()
     content = frontmatter + "# Source\n\n" + body + "\n"
     path.write_text(content, encoding="utf-8")
+    sync_market_signal_archive_entry(path, WORKSPACE_ROOT / "workspaces" / "linkedin-content-os")
     return path
 
 

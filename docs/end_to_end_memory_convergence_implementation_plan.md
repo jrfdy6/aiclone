@@ -339,13 +339,13 @@ Keep maximum memory effectiveness while making the repository clean enough to wo
 ### Defer Until After Verification
 
 - broader untracking of workspace research or core memory files
-- untracking raw `research/market_signals/*.md` before a compensating archive or manifest lane exists
 - path migrations
 - replacing markdown durable memory with a different store
 
 ### Additional Safeguard
 
 - keep milestone or daily snapshot docs that summarize hashes and key excerpts of core canonical memory files
+- preserve LinkedIn research durability with a tracked `research/market_signal_archive/<YYYY-MM>.jsonl` + `.md` lane before untracking runtime `research/market_signals/*.md`
 - rely on workspace backups for full local runtime state
 
 ### Exit Criteria
