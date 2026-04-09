@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from durable_memory_context import build_durable_memory_context
+
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
@@ -837,10 +839,42 @@ def _build_markdown(prep: dict[str, Any]) -> str:
     else:
         for item in entries:
             lines.append(f"- {item.get('summary')}")
+    lines.extend(["", "## Durable Memory Recall"])
+    durable_memory = (prep.get("durable_memory_context") or {}).get("results") or []
+    if not durable_memory:
+        lines.append("- None.")
+    else:
+        for item in durable_memory:
+            title = str(item.get("title") or "Untitled").strip()
+            excerpt = str(item.get("excerpt") or "").strip()
+            path_str = str(item.get("path") or "").strip()
+            if excerpt:
+                lines.append(f"- `{title}` ({path_str}): {excerpt}")
+            else:
+                lines.append(f"- `{title}` ({path_str})")
     lines.extend(["", "## Source Paths"])
     for item in prep.get("source_paths") or []:
         lines.append(f"- `{item}`")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _durable_memory_hints(
+    workspace_key: str,
+    workspace_display_name: str,
+    chronicle_entries: list[dict[str, Any]],
+) -> list[str]:
+    hints: list[str] = [workspace_key, workspace_display_name]
+    for entry in chronicle_entries:
+        for field in (
+            entry.get("summary"),
+            *(entry.get("decisions") or [])[:1],
+            *(entry.get("memory_promotions") or [])[:1],
+            *(entry.get("learning_updates") or [])[:1],
+            *(entry.get("pm_candidates") or [])[:1],
+        ):
+            if isinstance(field, str) and field.strip():
+                hints.append(field)
+    return hints
 
 
 def main() -> int:
@@ -875,6 +909,10 @@ def main() -> int:
     pm_snapshot = _build_pm_snapshot(pm_context, args.workspace_key, workspace_label)
     automation_context = _load_automation_context(imports)
     workspace_context = _workspace_context(args.workspace_key, registry)
+    durable_memory_context = build_durable_memory_context(
+        args.workspace_key,
+        _durable_memory_hints(args.workspace_key, workspace_display_name, chronicle_entries),
+    )
     memory_context = {
         "persistent_state_tail": _tail_text(MEMORY_ROOT / "persistent_state.md"),
         "cron_prune_tail": _tail_text(MEMORY_ROOT / "cron-prune.md"),
@@ -959,6 +997,10 @@ def main() -> int:
         summary_parts.append("PM board is unavailable from this runtime, so the meeting stays recommendation-only.")
     if chronicle_entries:
         summary_parts.append(f"Chronicle contributes {len(chronicle_entries)} recent high-signal chunk(s).")
+    if durable_memory_context.get("available"):
+        summary_parts.append(
+            f"Durable memory retrieval surfaced {durable_memory_context.get('result_count', 0)} older markdown artifact(s)."
+        )
     if mismatch_count == 0 and action_required == 0:
         summary_parts.append("Automation layer is currently clean.")
     if args.workspace_key != "shared_ops":
@@ -997,6 +1039,7 @@ def main() -> int:
         "commitments": commitments,
         "needs": needs,
         "chronicle_entries": chronicle_entries,
+        "durable_memory_context": durable_memory_context,
         "memory_context": memory_context,
         "workspace_context": workspace_context,
         "strategy_context": strategy_context,
@@ -1019,6 +1062,7 @@ def main() -> int:
             "payload": {
                 "prep_json_path": str(json_path),
                 "chronicle_path": str(CODEX_CHRONICLE_PATH),
+                "durable_memory_context": durable_memory_context,
                 "agenda": agenda,
                 "artifact_deltas": artifact_deltas,
                 "pm_snapshot": pm_snapshot,
@@ -1032,6 +1076,7 @@ def main() -> int:
             str(MEMORY_ROOT / "daily-briefs.md"),
             *( [str(INFERRED_BRIEF_PATH)] if INFERRED_BRIEF_PATH.exists() else [] ),
             *([strategy_context["charter_path"]] if strategy_context.get("charter_path") else []),
+            *durable_memory_context.get("source_paths", []),
             *workspace_context.get("source_paths", []),
         ],
     }

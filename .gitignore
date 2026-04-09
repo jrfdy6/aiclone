@@ -40,6 +40,16 @@ downloads/audio/*.wav
 node_modules/@next/swc-darwin-x64/next-swc.darwin-x64.node
 secrets/
 memory/filing_sync_state.json
+memory/runner-results/
+memory/runner-memos/
+memory/standup-prep/
+memory/reports/*latest.*
+memory/reports/*verification*.md
+workspaces/*/briefings/20*.md
+workspaces/*/memory/execution_log.md
+workspaces/linkedin-content-os/plans/weekly_plan.md
+workspaces/linkedin-content-os/plans/reaction_queue.md
+workspaces/linkedin-content-os/plans/social_feed.md
 
 .next/
 frontend/.next/

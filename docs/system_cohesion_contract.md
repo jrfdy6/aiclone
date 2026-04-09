@@ -238,6 +238,7 @@ Reference:
 - `/Users/neo/.openclaw/workspace/docs/autonomous_meeting_system_contract.md`
 - `/Users/neo/.openclaw/workspace/docs/source_intelligence_contract.md`
 - `/Users/neo/.openclaw/workspace/docs/aiclone_brain_architecture.md`
+- `/Users/neo/.openclaw/workspace/docs/end_to_end_memory_convergence_implementation_plan.md`
 
 ## Bottom line
 

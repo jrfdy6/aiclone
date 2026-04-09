@@ -25,11 +25,17 @@ from typing import Any, Iterable
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+SCRIPT_ROOT = WORKSPACE_ROOT / "scripts"
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 OPENCLAW_ROOT = Path("/Users/neo/.openclaw")
 JOBS_JSON = OPENCLAW_ROOT / "cron" / "jobs.json"
 REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
 CODEX_HANDOFF_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
+
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+
+from durable_memory_context import build_durable_memory_context
 
 RUNNER_ID = "jean-claude"
 DEFAULT_WORKSPACE_SCOPE = [
@@ -340,6 +346,21 @@ def _load_codex_handoff_context() -> dict[str, Any]:
     }
 
 
+def _durable_memory_hints(workspace_scope: list[str], handoff_context: dict[str, Any]) -> list[str]:
+    hints: list[str] = list(workspace_scope)
+    for entry in handoff_context.get("recent_entries") or []:
+        for field in (
+            entry.get("summary"),
+            *(entry.get("decisions") or [])[:1],
+            *(entry.get("memory_promotions") or [])[:1],
+            *(entry.get("learning_updates") or [])[:1],
+            *(entry.get("pm_candidates") or [])[:1],
+        ):
+            if isinstance(field, str) and field.strip():
+                hints.append(field)
+    return hints
+
+
 def _load_previous_run(ledger_path: Path) -> dict[str, Any] | None:
     if not ledger_path.exists():
         return None
@@ -363,6 +384,10 @@ def _build_input_bundle(args: argparse.Namespace, imports: dict[str, Any], ledge
     automation_context = _load_automation_context(imports)
     workspace_context = _load_workspace_context(imports, workspace_scope)
     codex_handoff_context = _load_codex_handoff_context()
+    durable_memory_context = build_durable_memory_context(
+        "shared_ops",
+        _durable_memory_hints(workspace_scope, codex_handoff_context),
+    )
     previous_run = _load_previous_run(ledger_path)
     return {
         "schema_version": "runner_input/v1",
@@ -383,6 +408,7 @@ def _build_input_bundle(args: argparse.Namespace, imports: dict[str, Any], ledge
         "automation_context": automation_context,
         "codex_handoff_context": codex_handoff_context,
         "codex_chronicle_context": codex_handoff_context,
+        "durable_memory_context": durable_memory_context,
         "workspace_context": workspace_context,
         "previous_run_context": previous_run or {},
         "role_payload": {
@@ -418,6 +444,7 @@ def _build_recommendations(bundle: dict[str, Any]) -> dict[str, Any]:
     workspace_items = (bundle.get("workspace_context") or {}).get("workspaces") or []
     automation_context = bundle.get("automation_context") or {}
     codex_handoff_context = bundle.get("codex_handoff_context") or {}
+    durable_memory_context = bundle.get("durable_memory_context") or {}
     pm_context = bundle.get("pm_context") or {}
     workspaces_touched = [str(item.get("workspace_key")) for item in workspace_items if item.get("workspace_key")]
 
@@ -478,6 +505,19 @@ def _build_recommendations(bundle: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
 
+    for warning in durable_memory_context.get("warnings") or []:
+        lowered = str(warning).lower()
+        if "database is locked" in lowered:
+            dependencies.append("Durable memory retrieval hit a temporary QMD lock; retrieval fell back to filesystem matching.")
+            break
+
+    if durable_memory_context.get("available"):
+        summary_parts = [
+            f"Durable memory retrieval surfaced {durable_memory_context.get('result_count', 0)} older markdown artifact(s)."
+        ]
+    else:
+        summary_parts = []
+
     highest_priority_workspace = _priority_workspace(bundle)
     for item in workspace_items:
         key = str(item.get("workspace_key") or "")
@@ -501,7 +541,6 @@ def _build_recommendations(bundle: dict[str, Any]) -> dict[str, Any]:
         if key == highest_priority_workspace:
             next_actions.append(f"Treat `{key}` as the current highest-priority workspace until clearer PM signals exist.")
 
-    summary_parts = []
     if highest_priority_workspace:
         summary_parts.append(f"Highest-priority workspace right now is `{highest_priority_workspace}`.")
     if mismatch_count == 0 and action_required == 0:
@@ -553,6 +592,7 @@ def _build_recommendations(bundle: dict[str, Any]) -> dict[str, Any]:
         "summary": " ".join(summary_parts),
         "artifacts_written": artifacts_written,
         "memory_promotions": memory_promotions[:8],
+        "durable_memory_context": durable_memory_context,
         "pm_updates": pm_updates,
         "blockers": blockers,
         "dependencies": dependencies,
@@ -593,6 +633,24 @@ def _write_markdown_memo(path: Path, bundle: dict[str, Any], output: dict[str, A
             lines.append(
                 f"- `{escalation.get('target_agent')}`: {escalation.get('recommended_action')} ({escalation.get('reason')})"
             )
+    lines.extend(
+        [
+            "",
+            "## Durable Memory Recall",
+        ]
+    )
+    durable_memory = (bundle.get("durable_memory_context") or {}).get("results") or []
+    if not durable_memory:
+        lines.append("- None.")
+    else:
+        for item in durable_memory:
+            title = str(item.get("title") or "Untitled").strip()
+            path_str = str(item.get("path") or "").strip()
+            excerpt = str(item.get("excerpt") or "").strip()
+            if excerpt:
+                lines.append(f"- `{title}` ({path_str}): {excerpt}")
+            else:
+                lines.append(f"- `{title}` ({path_str})")
     lines.extend(
         [
             "",
