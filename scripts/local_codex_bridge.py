@@ -26,6 +26,8 @@ DEFAULT_POLL_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_POLL_SECONDS", "4"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LOCAL_CODEX_BRIDGE_TIMEOUT_SECONDS", "420"))
 DEFAULT_HTTP_TIMEOUT_SECONDS = int(os.getenv("LOCAL_CODEX_BRIDGE_HTTP_TIMEOUT_SECONDS", "45"))
 DEFAULT_HTTP_RETRIES = int(os.getenv("LOCAL_CODEX_BRIDGE_HTTP_RETRIES", "3"))
+DEFAULT_ERROR_BACKOFF_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_ERROR_BACKOFF_SECONDS", "8"))
+DEFAULT_MAX_ERROR_BACKOFF_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_MAX_ERROR_BACKOFF_SECONDS", "60"))
 RETRYABLE_HTTP_STATUS_CODES = {502, 503, 504}
 
 
@@ -78,8 +80,8 @@ def _claim_next_job(*, api_base: str, token: str | None, worker_id: str, workspa
         f"{api_base.rstrip('/')}/codex-jobs/claim-next",
         token=token,
         payload={"worker_id": worker_id, "workspace_slug": workspace_slug},
-        timeout=30,
-        attempts=3,
+        timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+        attempts=DEFAULT_HTTP_RETRIES,
     )
     if not isinstance(payload, dict) or not payload.get("job_available"):
         return None
@@ -355,10 +357,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reasoning-effort", default=DEFAULT_REASONING_EFFORT)
     parser.add_argument("--poll-seconds", type=float, default=DEFAULT_POLL_SECONDS)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--error-backoff-seconds", type=float, default=DEFAULT_ERROR_BACKOFF_SECONDS)
+    parser.add_argument("--max-error-backoff-seconds", type=float, default=DEFAULT_MAX_ERROR_BACKOFF_SECONDS)
     parser.add_argument("--worker-id", default=f"{socket.gethostname()}-codex-bridge")
     parser.add_argument("--token", default=os.getenv("LOCAL_CODEX_BRIDGE_TOKEN") or os.getenv("CRON_ACCESS_TOKEN"))
     parser.add_argument("--once", action="store_true", help="Claim at most one job, then exit.")
     return parser.parse_args()
+
+
+def _sleep_after_transient_error(*, args: argparse.Namespace, consecutive_errors: int) -> None:
+    base_delay = max(args.poll_seconds, args.error_backoff_seconds)
+    delay = min(args.max_error_backoff_seconds, base_delay * (2 ** max(0, consecutive_errors - 1)))
+    time.sleep(delay)
 
 
 def main() -> int:
@@ -368,6 +378,7 @@ def main() -> int:
         print(f"Workspace root does not exist: {workspace_root}", file=sys.stderr)
         return 1
 
+    consecutive_errors = 0
     while True:
         try:
             claimed = run_once(
@@ -380,17 +391,20 @@ def main() -> int:
                 reasoning_effort=args.reasoning_effort,
                 timeout_seconds=args.timeout_seconds,
             )
+            consecutive_errors = 0
         except urllib.error.HTTPError as exc:
-            print(f"Bridge HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+            consecutive_errors += 1
+            print(f"Bridge HTTP error: {exc.code} {exc.reason}", file=sys.stderr, flush=True)
             if args.once:
                 return 1
-            time.sleep(args.poll_seconds)
+            _sleep_after_transient_error(args=args, consecutive_errors=consecutive_errors)
             continue
-        except urllib.error.URLError as exc:
-            print(f"Bridge URL error: {exc}", file=sys.stderr)
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+            consecutive_errors += 1
+            print(f"Bridge transient error: {exc}", file=sys.stderr, flush=True)
             if args.once:
                 return 1
-            time.sleep(args.poll_seconds)
+            _sleep_after_transient_error(args=args, consecutive_errors=consecutive_errors)
             continue
 
         if args.once:
