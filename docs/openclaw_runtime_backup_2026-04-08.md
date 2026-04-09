@@ -2,6 +2,8 @@
 
 This note preserves the non-git OpenClaw runtime state that sits outside the repo at the time of the clean restore point.
 
+For the operating rules around this baseline, see [golden_snapshot_sop.md](/Users/neo/.openclaw/workspace/docs/golden_snapshot_sop.md).
+
 Repo restore point:
 
 - Git branch: `main`
