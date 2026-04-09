@@ -19,6 +19,11 @@ from durable_memory_context import build_durable_memory_context
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 CODEX_CHRONICLE_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
 JOBS_JSON = Path("/Users/neo/.openclaw/cron/jobs.json")
@@ -914,10 +919,12 @@ def main() -> int:
         _durable_memory_hints(args.workspace_key, workspace_display_name, chronicle_entries),
     )
     memory_context = {
-        "persistent_state_tail": _tail_text(MEMORY_ROOT / "persistent_state.md"),
-        "cron_prune_tail": _tail_text(MEMORY_ROOT / "cron-prune.md"),
-        "daily_briefs_tail": _tail_text(MEMORY_ROOT / "daily-briefs.md"),
-        "today_log_tail": _tail_text(MEMORY_ROOT / f"{datetime.now().astimezone():%Y-%m-%d}.md"),
+        "persistent_state_tail": _tail_text(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md")),
+        "cron_prune_tail": _tail_text(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/cron-prune.md")),
+        "daily_briefs_tail": _tail_text(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/daily-briefs.md")),
+        "today_log_tail": _tail_text(
+            resolve_snapshot_fallback_path(WORKSPACE_ROOT, f"memory/{datetime.now().astimezone():%Y-%m-%d}.md")
+        ),
     }
     if workspace_context.get("available"):
         memory_context["workspace_briefing_tail"] = workspace_context.get("latest_briefing_tail", "")
@@ -1071,9 +1078,9 @@ def main() -> int:
         },
         "source_paths": [
             str(CODEX_CHRONICLE_PATH),
-            str(MEMORY_ROOT / "persistent_state.md"),
-            str(MEMORY_ROOT / "cron-prune.md"),
-            str(MEMORY_ROOT / "daily-briefs.md"),
+            str(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md")),
+            str(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/cron-prune.md")),
+            str(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/daily-briefs.md")),
             *( [str(INFERRED_BRIEF_PATH)] if INFERRED_BRIEF_PATH.exists() else [] ),
             *([strategy_context["charter_path"]] if strategy_context.get("charter_path") else []),
             *durable_memory_context.get("source_paths", []),

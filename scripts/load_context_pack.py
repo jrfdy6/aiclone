@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 
 SECTION_FILES = {
     "sop": [
@@ -18,8 +23,8 @@ SECTION_FILES = {
         WORKSPACE_ROOT / "memory" / "roadmap.md",
     ],
     "memory": [
-        WORKSPACE_ROOT / "memory" / "persistent_state.md",
-        WORKSPACE_ROOT / "memory" / "LEARNINGS.md",
+        resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md"),
+        resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/LEARNINGS.md"),
     ],
 }
 

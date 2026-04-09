@@ -6,8 +6,6 @@ PYTHON_BIN="${PYTHON_BIN:-}"
 GENERATED_FILES=(
   "frontend/app/brain/workspaceSnapshot.ts"
   "frontend/legacy/content-pipeline/workspaceSnapshot.ts"
-  "memory/LEARNINGS.md"
-  "memory/cron-prune.md"
 )
 RESTORE_AFTER_VERIFY=()
 

@@ -28,6 +28,7 @@ keys/
 !package-lock.json
 !tsconfig.json
 !next.config.js
+!docs/runtime_snapshots/core_memory/**/*.json
 *.service-account*.json
 *service-account*.json
 firebase-service-account*.json
@@ -46,6 +47,14 @@ memory/runner-ledgers/
 memory/standup-prep/
 memory/reports/*latest.*
 memory/reports/*verification*.md
+memory/LEARNINGS.md
+memory/daily-briefs.md
+memory/cron-prune.md
+memory/dream_cycle_log.md
+memory/20??-??-??.md
+memory/doc-updates.md
+memory/self-improvement.md
+memory/audit_log_day_1.md
 workspaces/*/briefings/20*.md
 workspaces/*/memory/execution_log.md
 workspaces/linkedin-content-os/plans/weekly_plan.md

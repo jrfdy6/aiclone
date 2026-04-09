@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,10 +15,16 @@ from zoneinfo import ZoneInfo
 
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+
 STATE_PATH = WORKSPACE_ROOT / "memory" / "heartbeat-state.json"
 GATEWAY_LOG = Path.home() / ".openclaw" / "logs" / "gateway.log"
-CRON_PRUNE = WORKSPACE_ROOT / "memory" / "cron-prune.md"
-DAILY_BRIEFS = WORKSPACE_ROOT / "memory" / "daily-briefs.md"
+CRON_PRUNE = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/cron-prune.md")
+DAILY_BRIEFS = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/daily-briefs.md")
 EXECUTION_LOG = WORKSPACE_ROOT / "workspaces" / "shared-ops" / "memory" / "execution_log.md"
 
 TZ = ZoneInfo("America/New_York")
@@ -314,6 +321,91 @@ def render_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _format_short_ts(ts: str | None) -> str | None:
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts)
+    except ValueError:
+        return ts
+    return dt.astimezone(TZ).strftime("%H:%M %Z")
+
+
+def _format_age(age: float | int | None) -> str:
+    if age is None:
+        return "n/a"
+    if age >= 90:
+        return f"{age / 60:.1f}h"
+    return f"{age:.0f}m"
+
+
+def _find_check(state: dict, name: str) -> dict | None:
+    for check in state.get("checks") or []:
+        if check.get("name") == name:
+            return check
+    return None
+
+
+def _find_artifact(report: dict, label: str) -> dict | None:
+    for artifact in report.get("artifacts") or []:
+        if artifact.get("label") == label:
+            return artifact
+    return None
+
+
+def render_summary(report: dict) -> str:
+    state = report.get("state") or {}
+    prefix = state.get("note") or state.get("status") or "HEARTBEAT"
+    parts: list[str] = []
+
+    primary_check = _find_check(state, "automation_health")
+    if not primary_check and state.get("checks"):
+        primary_check = state["checks"][0]
+    if primary_check:
+        ts = _format_short_ts(primary_check.get("timestamp"))
+        age = _format_age(primary_check.get("age_minutes"))
+        parts.append(f"checks {ts or 'never'} (age {age})")
+
+    gateway = report.get("gateway") or {}
+    last_entry = gateway.get("last_entry")
+    if last_entry:
+        ts = _format_short_ts(last_entry.get("timestamp_local"))
+        age = _format_age(last_entry.get("age_minutes"))
+        parts.append(f"gateway run {ts or 'unknown'} (age {age})")
+
+    discord = report.get("discord") or {}
+    counts = discord.get("counts") or {}
+    window = discord.get("window_hours")
+    latest = discord.get("latest")
+    counts_str = f"{counts.get('closed', 0)}/{counts.get('reconnect', 0)} closes/reconnects"
+    window_str = f"{window:.0f}h" if isinstance(window, (int, float)) else "n/a"
+    discord_bits = f"discord {counts_str} ({window_str})"
+    if latest:
+        ts = _format_short_ts(latest.get("timestamp_local"))
+        discord_bits += f"; last {latest.get('type')} {ts or 'unknown'}"
+    parts.append(discord_bits)
+
+    exec_log = _find_artifact(report, "execution_log_shared_ops")
+    if exec_log and exec_log.get("exists"):
+        ts = _format_short_ts(exec_log.get("modified_local"))
+        age = _format_age(exec_log.get("age_minutes"))
+        parts.append(f"exec log {ts or 'never'} (age {age})")
+
+    cron = _find_artifact(report, "cron_prune")
+    if cron and cron.get("exists"):
+        ts = _format_short_ts(cron.get("modified_local"))
+        parts.append(f"cron {ts or 'never'}")
+
+    today_log = _find_artifact(report, "extra_0")
+    if today_log and today_log.get("exists"):
+        ts = _format_short_ts(today_log.get("modified_local"))
+        parts.append(f"daily log {ts or 'never'}")
+
+    if not parts:
+        parts.append("no diagnostics found")
+    return f"{prefix} — " + "; ".join(parts)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -323,11 +415,18 @@ def main() -> int:
         help="Log lookback window for heartbeat/Discord stats (hours).",
     )
     parser.add_argument("--json", action="store_true", help="Print JSON instead of markdown.")
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print a condensed single-line summary suitable for Discord.",
+    )
     args = parser.parse_args()
 
     report = build_report(args.hours)
     if args.json:
         print(json.dumps(report, indent=2))
+    elif args.summary:
+        print(render_summary(report))
     else:
         print(render_markdown(report))
     return 0

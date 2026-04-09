@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover - local fallback when DB deps are absent
 
 from app.models import DailyBrief
 from app.services import brief_reaction_service
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 from app.services.daily_brief_parser import ParsedBrief, parse_briefs_markdown
 from app.services.workspace_snapshot_store import list_snapshot_payloads
 
@@ -128,7 +129,7 @@ def _load_from_local_files(limit: int) -> List[DailyBrief]:
     for workspace in _WORKSPACE_CANDIDATES:
         if not workspace:
             continue
-        current_file = workspace / "memory" / "daily-briefs.md"
+        current_file = resolve_snapshot_fallback_path(workspace, "memory/daily-briefs.md")
         if current_file.exists():
             stat = current_file.stat()
             parsed = parse_briefs_markdown(current_file.read_text(), source_ref=str(current_file))

@@ -1,1 +1,0 @@
-Learning from the Progress Pulse digest:  Workflows should remain tightly aligned with execution artifacts, and delegated workspace execution pathways are crucial for maintaining operational coherence.

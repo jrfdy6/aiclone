@@ -13,6 +13,7 @@ Use this SOP when you want one trusted restore point, one living branch to keep 
 - Living branch for ongoing work: `main`
 - Runtime restore note: [openclaw_runtime_backup_2026-04-08.md](/Users/neo/.openclaw/workspace/docs/openclaw_runtime_backup_2026-04-08.md)
 - Post-baseline cron tuning note: [openclaw_cron_noise_reduction_2026-04-09.md](/Users/neo/.openclaw/workspace/docs/openclaw_cron_noise_reduction_2026-04-09.md)
+- Core memory snapshot lane: [README.md](/Users/neo/.openclaw/workspace/docs/runtime_snapshots/core_memory/README.md)
 
 Interpretation:
 
@@ -81,6 +82,12 @@ openclaw gateway start
 qmd search 'Codex handoff' -c memory-dir-main
 python3 /Users/neo/.openclaw/workspace/scripts/context_usage.py
 python3 /Users/neo/.openclaw/workspace/scripts/heartbeat_report.py
+```
+
+6. If the live markdown memory lane is missing after a fresh clone or restore, rehydrate it from the tracked snapshot lane.
+
+```bash
+python3 /Users/neo/.openclaw/workspace/scripts/restore_core_memory_snapshot.py
 ```
 
 ## When To Create A New Golden Snapshot

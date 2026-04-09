@@ -336,6 +336,12 @@ Keep maximum memory effectiveness while making the repository clean enough to wo
 - workspace `memory/execution_log.md`
 - generated plan outputs that can be rebuilt
 
+### Core Memory Snapshot Lane
+
+- exact tracked copies of the live memory lane now belong under `docs/runtime_snapshots/core_memory/<snapshot-id>/`
+- `docs/runtime_snapshots/core_memory/LATEST.json` is the fallback pointer for readers when a live runtime markdown file is absent
+- untrack the noisiest live markdown files only after the snapshot lane contains exact copies and key readers know how to fall back
+
 ### Defer Until After Verification
 
 - broader untracking of workspace research or core memory files
@@ -344,7 +350,7 @@ Keep maximum memory effectiveness while making the repository clean enough to wo
 
 ### Additional Safeguard
 
-- keep milestone or daily snapshot docs that summarize hashes and key excerpts of core canonical memory files
+- keep exact tracked copies plus hashes for the live core memory files in the snapshot lane, not just summaries
 - preserve LinkedIn research durability with a tracked `research/market_signal_archive/<YYYY-MM>.jsonl` + `.md` lane before untracking runtime `research/market_signals/*.md`
 - rely on workspace backups for full local runtime state
 

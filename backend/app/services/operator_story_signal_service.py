@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+
 
 def resolve_workspace_root() -> Path:
     current = Path(__file__).resolve()
@@ -569,7 +571,13 @@ def build_operator_story_signals_payload(
     memory_root: Path | None = None,
 ) -> dict[str, Any]:
     resolved_memory_root = (memory_root or MEMORY_ROOT).resolve()
-    source_paths = {name: str((resolved_memory_root / name).resolve()) for name in DEFAULT_SOURCE_FILE_NAMES}
+    source_paths: dict[str, str] = {}
+    for name in DEFAULT_SOURCE_FILE_NAMES:
+        live_path = (resolved_memory_root / name).resolve()
+        if live_path.exists():
+            source_paths[name] = str(live_path)
+            continue
+        source_paths[name] = str(resolve_snapshot_fallback_path(ROOT, Path("memory") / name).resolve())
     collected: list[dict[str, Any]] = []
     collected.extend(_chronicle_signals(Path(source_paths["codex_session_handoff.jsonl"])))
     collected.extend(_persistent_state_signal(Path(source_paths["persistent_state.md"])))
