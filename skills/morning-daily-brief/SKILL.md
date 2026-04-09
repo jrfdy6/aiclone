@@ -7,6 +7,7 @@ description: Generate the morning brief from cron/doc sources, append to memory/
 
 ## Inputs
 - `memory/codex_session_handoff.jsonl`
+- `memory/persistent_state.md`
 - `memory/cron-prune.md`
 - `memory/doc-updates.md`
 - `memory/LEARNINGS.md`
@@ -17,8 +18,11 @@ description: Generate the morning brief from cron/doc sources, append to memory/
 1. **Collect Signals**
    - Read each input file and extract highlights, blockers, and pending follow-ups.
    - Treat the latest Codex handoff entries as the primary signal for what actually moved most recently.
+   - Treat `memory/persistent_state.md` as the compact system snapshot that all other signals should reconcile against.
 2. **Summarize**
-   - Cover: top cron results, outstanding follow-ups (e.g., rich memory ingestion, Railway cache validation, doc updates, backup jobs), and any alerts.
+   - Cover: top cron results, outstanding follow-ups, and any alerts that actually matter today.
+   - This is the once-daily synthesis layer. Do not simply restate Progress Pulse boilerplate.
+   - Prefer one clear next opportunity or risk over a long list of minor maintenance notes.
 3. **Write Brief**
    - Append structured brief to `memory/daily-briefs.md` (date-stamped heading).
 4. **Deliver**

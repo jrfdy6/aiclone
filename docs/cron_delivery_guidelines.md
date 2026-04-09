@@ -17,10 +17,11 @@ For the local scheduling boundary between `launchd`, `OpenClaw`, `Railway`, and 
 
 ## Recommended cron flow
 - `daily-memory-flush`: append insights/decisions to `memory/LEARNINGS.md` and `memory/YYYY-MM-DD.md`.
-- `progress-pulse-digest`: archive context-control insights into `memory/cron-prune.md` and only mention blockers/status changes in Discord.
+- `progress-pulse-digest`: archive context-control insights into `memory/cron-prune.md` and only post to Discord when there is a material change since the last delivered digest.
 - `morning-daily-brief`: read `memory/persistent_state.md`, `memory/cron-prune.md`, and `memory/daily-briefs.md` so the summary points you to the single next opportunity each day.
 - `dream-cycle`: rewrite `memory/persistent_state.md` nightly so the next session can resume from a compact snapshot; report issues through the `memory/reports/` folder instead of flooding Discord.
 - `memory-health-check`, `rolling-docs-refresh`, `nightly-self-improvement`, `github-backup`: run quietly, log into `memory/reports/` or `memory/backup-log.md`, surface exceptions through Ops UI or selective alerts only.
+- `oracle-ledger`: stay log-only unless there is a true pruning or cleanup issue that needs human attention.
 - `youtube-watchlist-auto-ingest`: schedule locally with `launchd` every 2 hours, let it run inside the OpenClaw workspace, and treat Brain as the reporting surface rather than the cron engine.
 
 ## When to escalate

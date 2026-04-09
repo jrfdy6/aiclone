@@ -1,12 +1,12 @@
 ---
 name: oracle-ledger-prune
-description: Consolidate the latest Codex handoffs into canonical memory, prune OpenClaw session history only when it is actually active, and report durable lessons. Use for the "Oracle Ledger" cron.
+description: Consolidate the latest Codex handoffs into canonical memory, prune OpenClaw session history only when it is actually active, and report durable lessons into logs. Use for the "Oracle Ledger" cron.
 ---
 
 # Oracle Ledger Pruning Skill
 
 ## Purpose
-Keep the brain grounded by consolidating the latest Codex work into canonical memory while trimming OpenClaw session history only when that history is actually the active work surface.
+Keep the brain grounded by consolidating the latest Codex work into canonical memory while trimming OpenClaw session history only when that history is actually the active work surface. This is primarily a log-maintenance job, not a routine Discord narrator.
 
 ## Steps
 1. **Load Canonical Handoff First**
@@ -26,7 +26,8 @@ Keep the brain grounded by consolidating the latest Codex work into canonical me
    - Briefly describe what came from Codex handoff versus live OpenClaw session cleanup, mentioning message IDs only if you actually used session history.
 5. **Deliver**
    - Return the summary in the final answer only.
-   - Do not call the message tool; cron delivery is automatic.
+   - Do not call the message tool.
+   - Assume the canonical audience is `memory/cron-prune.md`, not Discord.
    - Mention if additional manual cleanup is required.
 
 ## Output Template

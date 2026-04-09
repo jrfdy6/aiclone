@@ -12,6 +12,7 @@ Use this SOP when you want one trusted restore point, one living branch to keep 
 - Exact restore commit: `206b447bc227bed9dd2623157bf14f69de587370`
 - Living branch for ongoing work: `main`
 - Runtime restore note: [openclaw_runtime_backup_2026-04-08.md](/Users/neo/.openclaw/workspace/docs/openclaw_runtime_backup_2026-04-08.md)
+- Post-baseline cron tuning note: [openclaw_cron_noise_reduction_2026-04-09.md](/Users/neo/.openclaw/workspace/docs/openclaw_cron_noise_reduction_2026-04-09.md)
 
 Interpretation:
 
@@ -23,7 +24,7 @@ Interpretation:
 
 1. Never move, retag, or reuse `clean-main-2026-04-08`.
 2. Always build new work on `main`, not on the tag.
-3. If runtime files under `/Users/neo/.openclaw/` are intentionally changed, update the runtime backup note in the same work session.
+3. If runtime files under `/Users/neo/.openclaw/` are intentionally changed, update the current runtime backup note or add a new dated runtime note in the same work session.
 4. If a new milestone deserves its own clean baseline, create a new tag. Do not redefine this one.
 5. Do not treat a dirty working tree by itself as proof that the baseline is bad; OpenClaw automation updates tracked files continuously.
 6. If you need to recover the exact known-good state, restore from the tag first, then reconcile the live runtime files using the runtime backup note.
