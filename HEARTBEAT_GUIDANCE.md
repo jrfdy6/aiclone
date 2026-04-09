@@ -22,6 +22,7 @@ Keep heartbeat calls lean by limiting what they check and how often they run. Fo
   - the latest modification time for `memory/cron-prune.md`, `memory/daily-briefs.md`, `workspaces/shared-ops/memory/execution_log.md`, and today’s `memory/YYYY-MM-DD.md`
   - the current `memory/heartbeat-state.json` timestamps
 - Include at least one concrete timestamp or metric from that output in every heartbeat summary so Discord logs stay diagnosable.
+- Use `python3 scripts/heartbeat_report.py --summary` to generate the exact status line you will post to Discord; keep that line intact so the metrics remain machine-readable.
 - If the report shows stale data (e.g., age > 120 minutes for the last heartbeat run), escalate instead of rubber-stamping `HEARTBEAT_OK`.
 
 ## What to check (rotate 2–4×/day)

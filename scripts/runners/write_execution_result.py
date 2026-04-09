@@ -18,9 +18,16 @@ from typing import Any
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
-CODEX_HANDOFF_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
 SCRIPT_DIR = WORKSPACE_ROOT / "scripts"
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
+
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
+
+
+CODEX_HANDOFF_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 
 
 def _now() -> datetime:
@@ -74,6 +81,10 @@ def _append_markdown(path: Path, heading: str, body: str) -> None:
         body,
     ]
     subprocess.run(cmd, check=True)
+
+
+def _runtime_memory_path(relative_path: str) -> Path:
+    return resolve_live_memory_write_path(WORKSPACE_ROOT, relative_path)
 
 
 def _parse_work_order_context(work_order: dict[str, Any], work_order_path: Path) -> dict[str, Any]:
@@ -357,13 +368,13 @@ def main() -> int:
             )
         if learnings:
             _append_markdown(
-                MEMORY_ROOT / "LEARNINGS.md",
+                _runtime_memory_path("memory/LEARNINGS.md"),
                 f"## {args.runner_id.capitalize()} Execution Learnings — {datetime.now().astimezone():%Y-%m-%d}",
                 "\n".join(f"- {item}" for item in learnings),
             )
         if memory_promotions or persistent_state:
             _append_markdown(
-                MEMORY_ROOT / "persistent_state.md",
+                _runtime_memory_path("memory/persistent_state.md"),
                 f"## {args.runner_id.capitalize()} Execution State — {datetime.now().astimezone():%Y-%m-%d %H:%M %Z}",
                 "\n".join(f"- {item}" for item in [*memory_promotions, *persistent_state]),
             )

@@ -25,7 +25,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
-CODEX_CHRONICLE_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
+CODEX_CHRONICLE_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 JOBS_JSON = Path("/Users/neo/.openclaw/cron/jobs.json")
 REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
 INFERRED_BRIEF_PATH = WORKSPACE_ROOT / "docs" / "inferred_workspace_operating_brief_2026-03-31.md"

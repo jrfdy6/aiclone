@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+
 FILES = {
-    "README.md": Path("/Users/neo/.openclaw/workspace/README.md"),
-    "memory/LEARNINGS.md": Path("/Users/neo/.openclaw/workspace/memory/LEARNINGS.md"),
-    "HEARTBEAT.md": Path("/Users/neo/.openclaw/workspace/HEARTBEAT.md"),
+    "README.md": WORKSPACE_ROOT / "README.md",
+    "memory/LEARNINGS.md": resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/LEARNINGS.md"),
+    "HEARTBEAT.md": WORKSPACE_ROOT / "HEARTBEAT.md",
 }
 
 rows = []

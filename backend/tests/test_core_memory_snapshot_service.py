@@ -13,6 +13,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.services.core_memory_snapshot_service import (  # noqa: E402
     build_core_memory_snapshot,
     latest_snapshot_id,
+    resolve_live_memory_write_path,
     resolve_snapshot_fallback_path,
     restore_core_memory_snapshot,
 )
@@ -29,8 +30,9 @@ class CoreMemorySnapshotServiceTest(unittest.TestCase):
 
             live_daily_briefs = memory_root / "daily-briefs.md"
             live_daily_briefs.write_text("# Daily Briefs\n\nCurrent brief.\n", encoding="utf-8")
-            live_persistent = memory_root / "persistent_state.md"
-            live_persistent.write_text("# Persistent State\n\nCurrent state.\n", encoding="utf-8")
+            runtime_persistent = resolve_live_memory_write_path(workspace_root, "memory/persistent_state.md")
+            runtime_persistent.parent.mkdir(parents=True, exist_ok=True)
+            runtime_persistent.write_text("# Persistent State\n\nCurrent state.\n", encoding="utf-8")
 
             build_core_memory_snapshot(
                 workspace_root,
@@ -46,10 +48,17 @@ class CoreMemorySnapshotServiceTest(unittest.TestCase):
             self.assertIn("docs/runtime_snapshots/core_memory/2026-04-09", fallback.as_posix())
             self.assertIn("Current brief.", fallback.read_text(encoding="utf-8"))
 
+            runtime_fallback = resolve_snapshot_fallback_path(workspace_root, "memory/persistent_state.md")
+            self.assertEqual(runtime_fallback, runtime_persistent)
+            self.assertIn("Current state.", runtime_fallback.read_text(encoding="utf-8"))
+
+            runtime_persistent.unlink()
             restore_result = restore_core_memory_snapshot(workspace_root, snapshot_id="2026-04-09")
             self.assertEqual(restore_result["count"], 2)
             self.assertTrue(live_daily_briefs.exists())
+            self.assertTrue(runtime_persistent.exists())
             self.assertIn("Current brief.", live_daily_briefs.read_text(encoding="utf-8"))
+            self.assertIn("Current state.", runtime_persistent.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

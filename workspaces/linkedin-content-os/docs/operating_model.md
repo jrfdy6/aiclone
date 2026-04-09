@@ -23,7 +23,7 @@ The lane should prioritize inputs in this order:
 5. blank-page ideation only when stronger signal is absent
 
 ### Signal Intake Sources (working list)
-- `memory/codex_session_handoff.jsonl` Chronicle entries tagged to `feezie-os`
+- Chronicle entries tagged to `feezie-os`, resolved through the canonical handoff lane (`memory/codex_session_handoff.jsonl`)
 - Daily/context flushes captured in `memory/YYYY-MM-DD.md`
 - Workspace snapshot overlays exposed through `/ops` (`source_assets`, `reaction_queue`, `persona_review_summary`)
 - Topic Intelligence and watchlists under `research/topic_intelligence/` and `research/watchlists.yaml`
@@ -33,8 +33,8 @@ The lane should prioritize inputs in this order:
 
 ## Latest Validation Snapshot
 
-- Accountability sweeps should reference `docs/operating_rhythm_status_2026-04-08.md`, which maps each stage in this model to concrete April 8 artifacts (weekly plan, reaction queue, draft queue, owner review packet, and scheduled retro slot).
-- Append a new `operating_rhythm_status_YYYY-MM-DD.md` entry whenever the rhythm is re-validated so future cards can prove compliance without re-scrolling the entire workspace.
+- Accountability sweeps should reference the latest `docs/operating_rhythm_status_YYYY-MM-DD.md` snapshot so each stage in this model points at a dated evidence set without rewriting this canonical file.
+- Keep validation snapshots append-only; create a new `operating_rhythm_status_YYYY-MM-DD.md` entry whenever the rhythm is re-validated so future cards can prove compliance without re-scrolling the entire workspace.
 
 ## Weekly Rhythm
 

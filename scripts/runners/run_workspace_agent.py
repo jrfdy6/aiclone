@@ -23,16 +23,20 @@ WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
-CODEX_HANDOFF_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
 REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
 PACK_FILES = ("AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md", "CHARTER.md")
 
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 from automation_run_mirror import build_run_payload, mirror_runs
 from chronicle_memory_contract import build_workspace_memory_contract
+
+CODEX_HANDOFF_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 
 
 def _now() -> datetime:

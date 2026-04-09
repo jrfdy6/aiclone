@@ -8,7 +8,8 @@
 
 ## Evidence Artifacts
 
-- `docs/backlog_seed_status_2026-04-08.md` — maps each queue item (FEEZIE-001..012) to its canonical persona anchors, drafts, and pending owner actions so accountability sweeps can verify backlog truth quickly.
+- `docs/backlog_seed_status_YYYY-MM-DD.md` — dated backlog evidence snapshots that map each queue item (FEEZIE-001..) to canon anchors, draft paths, and pending owner actions.
+- `drafts/feezie_owner_review_packet_YYYYMMDD.md` — dated owner-review packets for the active approval cycle.
 
 ## Active
 

@@ -15,9 +15,15 @@ from typing import Any
 
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 REPORT_ROOT = MEMORY_ROOT / "reports"
 SCRIPT_DIR = WORKSPACE_ROOT / "scripts"
+
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 
 
 def _now() -> datetime:
@@ -63,6 +69,10 @@ def _append_markdown(path: Path, heading: str, body: str) -> None:
         body,
     ]
     subprocess.run(cmd, check=True)
+
+
+def _runtime_memory_path(relative_path: str) -> Path:
+    return resolve_live_memory_write_path(WORKSPACE_ROOT, relative_path)
 
 
 def _append_chronicle(item: dict[str, Any]) -> None:
@@ -213,7 +223,7 @@ def build_report(api_url: str, limit: int, sync_live: bool) -> dict[str, Any]:
                 grouped[target].append(item)
 
         if grouped.get("persistent_state"):
-            path = MEMORY_ROOT / "persistent_state.md"
+            path = _runtime_memory_path("memory/persistent_state.md")
             _append_markdown(
                 path,
                 f"## Brain Triage Memory Sync — {local_now:%Y-%m-%d %H:%M %Z}",
@@ -222,7 +232,7 @@ def build_report(api_url: str, limit: int, sync_live: bool) -> dict[str, Any]:
             artifact_paths.append(str(path))
 
         if grouped.get("learnings"):
-            path = MEMORY_ROOT / "LEARNINGS.md"
+            path = _runtime_memory_path("memory/LEARNINGS.md")
             _append_markdown(
                 path,
                 f"## Brain Triage Learnings — {local_now:%Y-%m-%d}",
@@ -233,7 +243,7 @@ def build_report(api_url: str, limit: int, sync_live: bool) -> dict[str, Any]:
         if grouped.get("chronicle"):
             for item in grouped["chronicle"]:
                 _append_chronicle(item)
-            artifact_paths.append(str(MEMORY_ROOT / "codex_session_handoff.jsonl"))
+            artifact_paths.append(str(_runtime_memory_path("memory/codex_session_handoff.jsonl")))
 
         _append_markdown(
             daily_log_path,

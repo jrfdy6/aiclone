@@ -33,6 +33,12 @@ UNTRACKED_CORE_MEMORY_RELATIVE_PATHS: tuple[str, ...] = (
     "memory/audit_log_day_1.md",
 )
 
+RUNTIME_MEMORY_RELATIVE_PATHS: dict[str, str] = {
+    "memory/persistent_state.md": "memory/runtime/persistent_state.md",
+    "memory/LEARNINGS.md": "memory/runtime/LEARNINGS.md",
+    "memory/codex_session_handoff.jsonl": "memory/runtime/codex_session_handoff.jsonl",
+}
+
 SNAPSHOT_RELATIVE_ROOT = Path("docs/runtime_snapshots/core_memory")
 LATEST_POINTER_NAME = "LATEST.json"
 
@@ -103,8 +109,21 @@ def latest_snapshot_id(workspace_root: Path) -> str | None:
     return None
 
 
+def runtime_relative_path(relative_path: str | Path) -> Path:
+    relative = Path(relative_path)
+    mapped = RUNTIME_MEMORY_RELATIVE_PATHS.get(relative.as_posix())
+    return Path(mapped) if mapped else relative
+
+
+def resolve_live_memory_write_path(workspace_root: Path, relative_path: str | Path) -> Path:
+    return workspace_root / runtime_relative_path(relative_path)
+
+
 def resolve_snapshot_fallback_path(workspace_root: Path, relative_path: str | Path) -> Path:
     relative = Path(relative_path)
+    runtime_path = resolve_live_memory_write_path(workspace_root, relative)
+    if runtime_path.exists():
+        return runtime_path
     live_path = workspace_root / relative
     if live_path.exists():
         return live_path
@@ -130,11 +149,12 @@ def build_core_memory_snapshot(
     entries: list[dict[str, Any]] = []
     for relative_str in relative_paths:
         relative = Path(relative_str)
-        source = root / relative
+        source = resolve_live_memory_write_path(root, relative)
         destination = target_dir / relative
         entry: dict[str, Any] = {
             "relative_path": relative.as_posix(),
-            "live_path": _workspace_relative(source, root),
+            "live_path": _workspace_relative(root / relative, root),
+            "source_path": _workspace_relative(source, root),
             "snapshot_path": _workspace_relative(destination, root),
             "exists": source.exists(),
         }
@@ -219,7 +239,7 @@ def restore_core_memory_snapshot(workspace_root: Path, *, snapshot_id: str | Non
             continue
         relative = Path(str(entry.get("relative_path") or ""))
         snapshot_copy = snapshot_dir(root, chosen_snapshot_id) / relative
-        live_target = root / relative
+        live_target = resolve_live_memory_write_path(root, relative)
         if not snapshot_copy.exists():
             continue
         live_target.parent.mkdir(parents=True, exist_ok=True)

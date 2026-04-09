@@ -193,16 +193,42 @@ def _parse_datetime(value: str | None) -> str:
     return parsed.astimezone(timezone.utc).isoformat()
 
 
+def _load_existing_frontmatter(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    payload = yaml.safe_load(parts[1]) or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _render_signal(entry: dict[str, Any], body: str) -> str:
+    frontmatter = yaml.dump(entry, sort_keys=False, allow_unicode=False)
+    return f"---\n{frontmatter}---\n\n{body.strip()}\n"
+
+
 def _write_signal(path: Path, entry: dict[str, Any], body: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    frontmatter = yaml.dump(entry, sort_keys=False, allow_unicode=False)
-    path.write_text(f"---\n{frontmatter}---\n\n{body.strip()}\n", encoding="utf-8")
+    preserved_created_at = _clean_text(_load_existing_frontmatter(path).get("created_at"))
+    if preserved_created_at:
+        entry = {**entry, "created_at": preserved_created_at}
+    rendered = _render_signal(entry, body)
+    if not path.exists() or path.read_text(encoding="utf-8") != rendered:
+        path.write_text(rendered, encoding="utf-8")
     sync_market_signal_archive_entry(path, path.parents[2])
     return path
 
 
-def _clear_source_family(signals_root: Path, pattern: str) -> None:
+def _prune_source_family(signals_root: Path, pattern: str, keep_filenames: set[str]) -> None:
+    if not keep_filenames:
+        return
     for candidate in signals_root.glob(pattern):
+        if candidate.name in keep_filenames:
+            continue
         candidate.unlink(missing_ok=True)
 
 
@@ -319,7 +345,8 @@ def fetch_reddit_signals(workspace_root: Path | None = None, *, limit_per_source
         if not subreddit:
             continue
         slug = _slugify(subreddit.replace("r/", ""))
-        _clear_source_family(signals_root, f"*__reddit__{slug}__*.md")
+        family_pattern = f"*__reddit__{slug}__*.md"
+        keep_filenames: set[str] = set()
         try:
             payload = json.loads(_http_get(_reddit_url(subreddit, limit_per_source), accept="application/json"))
             posts = (((payload or {}).get("data") or {}).get("children") or [])
@@ -328,8 +355,10 @@ def fetch_reddit_signals(workspace_root: Path | None = None, *, limit_per_source
                 if data.get("stickied") or not _clean_text(data.get("title")):
                     continue
                 entry, body, filename = _build_reddit_entry(source, data)
+                keep_filenames.add(filename)
                 written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
             if posts:
+                _prune_source_family(signals_root, family_pattern, keep_filenames)
                 continue
         except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
             LOGGER.warning("Reddit JSON fetch failed for %s, falling back to RSS: %s", subreddit, exc)
@@ -346,7 +375,9 @@ def fetch_reddit_signals(workspace_root: Path | None = None, *, limit_per_source
             if not _clean_text(feed_entry.get("title")):
                 continue
             entry, body, filename = _build_reddit_feed_entry(source, feed_entry)
+            keep_filenames.add(filename)
             written.append(_write_signal(signals_root / filename, entry, f"# {entry['title']}\n\n{body}"))
+        _prune_source_family(signals_root, family_pattern, keep_filenames)
     return written
 
 
@@ -477,7 +508,8 @@ def fetch_rss_signals(workspace_root: Path | None = None, *, limit_per_source: i
 
     for source in watchlist.get("rss_sources", []):
         label = _clean_text(source.get("label")) or "rss-feed"
-        _clear_source_family(signals_root, f"*__rss__{_slugify(label)}__*.md")
+        family_pattern = f"*__rss__{_slugify(label)}__*.md"
+        keep_filenames: set[str] = set()
         try:
             raw = _http_get(_clean_text(source.get("url")), accept="application/rss+xml, application/atom+xml, text/xml, application/xml")
             root = ET.fromstring(raw)
@@ -490,5 +522,7 @@ def fetch_rss_signals(workspace_root: Path | None = None, *, limit_per_source: i
             if not _clean_text(entry.get("title")):
                 continue
             signal, body, filename = _build_rss_entry(source, entry)
+            keep_filenames.add(filename)
             written.append(_write_signal(signals_root / filename, signal, f"# {signal['title']}\n\n{body}"))
+        _prune_source_family(signals_root, family_pattern, keep_filenames)
     return written

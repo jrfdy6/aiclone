@@ -30,12 +30,17 @@ MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 OPENCLAW_ROOT = Path("/Users/neo/.openclaw")
 JOBS_JSON = OPENCLAW_ROOT / "cron" / "jobs.json"
 REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
-CODEX_HANDOFF_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
+
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 from durable_memory_context import build_durable_memory_context
+
+CODEX_HANDOFF_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 
 RUNNER_ID = "jean-claude"
 DEFAULT_WORKSPACE_SCOPE = [

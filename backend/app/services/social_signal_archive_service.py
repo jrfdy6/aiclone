@@ -108,7 +108,10 @@ def _write_month_records(path: Path, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     ordered = sorted(records, key=_record_sort_key)
     lines = [json.dumps(record, ensure_ascii=False, sort_keys=False) for record in ordered]
-    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    rendered = "\n".join(lines) + ("\n" if lines else "")
+    if path.exists() and path.read_text(encoding="utf-8") == rendered:
+        return
+    path.write_text(rendered, encoding="utf-8")
 
 
 def _render_month_markdown(month_key: str, records: list[dict[str, Any]]) -> str:
@@ -159,7 +162,21 @@ def _render_month_markdown(month_key: str, records: list[dict[str, Any]]) -> str
 
 def _write_month_markdown(path: Path, month_key: str, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_render_month_markdown(month_key, records) + "\n", encoding="utf-8")
+    rendered = _render_month_markdown(month_key, records) + "\n"
+    if path.exists() and path.read_text(encoding="utf-8") == rendered:
+        return
+    path.write_text(rendered, encoding="utf-8")
+
+
+def _preserve_existing_archive_fields(record: dict[str, Any], existing: dict[str, Any] | None) -> dict[str, Any]:
+    if not existing:
+        return record
+    merged = dict(record)
+    for key in ("created_at", "archived_at"):
+        value = _clean_text(existing.get(key))
+        if value:
+            merged[key] = value
+    return merged
 
 
 def build_market_signal_archive_record(signal_path: Path, workspace_root: Path) -> dict[str, Any]:
@@ -208,6 +225,7 @@ def sync_market_signal_archive_entry(signal_path: Path, workspace_root: Path) ->
     month_key = str(record["archive_month"])
     manifest_path = _month_manifest_path(workspace_root, month_key)
     records = {item.get("id"): item for item in _load_month_records(manifest_path) if isinstance(item, dict)}
+    record = _preserve_existing_archive_fields(record, records.get(str(record["id"])))
     records[str(record["id"])] = record
     ordered = [item for _, item in sorted(records.items(), key=lambda pair: _record_sort_key(pair[1]))]
     _write_month_records(manifest_path, ordered)

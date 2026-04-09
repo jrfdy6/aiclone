@@ -66,7 +66,10 @@ if [ ! -d "$ROOT/frontend/node_modules" ]; then
 fi
 npm --prefix "$ROOT/frontend" run build
 
-echo "[4/4] Working tree sanity"
+echo "[4/5] Repo hygiene"
+"$PYTHON_BIN" "$ROOT/scripts/verify_repo_hygiene.py"
+
+echo "[5/5] Working tree sanity"
 git -C "$ROOT" status --short
 
 echo

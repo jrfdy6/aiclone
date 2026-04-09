@@ -76,7 +76,17 @@ Fusion OS now has the same dispatch + execution plumbing as the other workspaces
 - This playbook lives beside the workspace knowledge base so Fusion Systems Operator or Codex can execute without reverse‑engineering the lane again.
 - Once the lane runs cleanly for a few packets, promote the cadence into `memory/roadmap.md` and mark the PM card `done`. Until then, default to `review` with a traceable artifact (this file + execution log entries).
 
+## Standup transcript capture
+- Store every Fusion OS standup discussion under `workspaces/fusion-os/standups/<stamp>_workspace_sync.md`, with the matching prep bundle under `memory/standup-prep/fusion-os/<stamp>.{json,md}`.
+- When Railway/PM access is unavailable, run the prep builder and `scripts/promote_standup_packet.py --prep-json <prep>.json --dry-run` to capture the transcript locally, then add the promotion command (without `--dry-run`) so the wrapper can create the canonical standup as soon as connectivity returns.
+- Once the API is reachable, execute `python3 scripts/promote_standup_packet.py --prep-json memory/standup-prep/fusion-os/<stamp>.json --api-url https://aiclone-production-32dc.up.railway.app` so the transcript enters the shared standup table and linked PM cards inherit the record automatically.
+
+## Verification loop
+- Prove Chronicle wiring by running `python3 scripts/build_standup_prep.py --standup-kind fusion-os --workspace-key fusion-os` and confirming the prep JSON either contains PM updates or explicitly reports why PM writes were blocked.
+- Prove Chronicle promotion by running `python3 scripts/promote_codex_chronicle.py --prep-json memory/standup-prep/fusion-os/<stamp>.json --workspace-key fusion-os --write-pm-recommendations` and confirming the daily log receives the promotion block while PM recommendation writes respect availability.
+- When Railway returns, promote the standup and write the execution result back to PM using the latest `<stamp>` packet pair rather than hard-coding a dated artifact into this canonical guide.
+
 ## Open follow-ups
 1. Run the same checklist for card `Review Fusion OS delegated lane proof and either close it or return it to execution` so the delegated proof and the review card enter the same recurrence loop.
-2. Create the first workspace-local Fusion standup (pending follow-up from the March 31 execution log) so future cards originate from a real standup transcript instead of manual proofs.
+2. Keep recording Fusion OS standups under `workspaces/fusion-os/standups/` and promote them via `scripts/promote_standup_packet.py` once Railway access returns.
 3. _[done 2026-04-07]_ Clean up duplicated dispatch files by archiving them under `workspaces/fusion-os/dispatch/archive/` once each packet is superseded.

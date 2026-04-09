@@ -2,7 +2,7 @@
 
 ## Startup
 1. Read local `IDENTITY.md`, `SOUL.md`, `USER.md`, and `CHARTER.md`.
-2. Read `docs/README.md` plus any linked review artifacts (currently `docs/workspace_pack_executive_review_2026-04-07.md`) to understand the latest accountability findings.
+2. Read `docs/README.md` plus the latest relevant dated review artifact (`workspace_pack_executive_review_YYYY-MM-DD.md`, `heartbeat_verification_YYYY-MM-DD.md`, or similar) to understand the latest accountability findings.
 3. Read `memory/execution_log.md` to confirm what already shipped.
 4. Read the active dispatch packet + briefing (`dispatch/*.json`, `briefings/*.md`) for the card being handled.
 5. Read the base pack (`../../AGENTS.md`, `../../SOUL.md`, `../../IDENTITY.md`, `../../USER.md`, `../../CHARTER.md`, `../../MEMORY.md`) so executive guardrails stay aligned.

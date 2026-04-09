@@ -9,8 +9,15 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
-DEFAULT_PATH = Path("/Users/neo/.openclaw/workspace/memory/codex_session_handoff.jsonl")
+from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
+
+
+DEFAULT_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 
 
 def _read_list(values: list[str] | None, file_path: str | None) -> list[str]:

@@ -25,7 +25,7 @@ from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_
 JOBS_PATH = OPENCLAW_ROOT / "cron" / "jobs.json"
 CRON_RUNS_DIR = OPENCLAW_ROOT / "cron" / "runs"
 GATEWAY_ERR_LOG = OPENCLAW_ROOT / "logs" / "gateway.err.log"
-PERSISTENT_STATE = WORKSPACE_ROOT / "memory" / "persistent_state.md"
+PERSISTENT_STATE = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md")
 DREAM_CYCLE_LOG = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/dream_cycle_log.md")
 QMD_FRESHNESS_SCRIPT = WORKSPACE_ROOT / "scripts" / "qmd_freshness_check.py"
 REPORT_GLOB = str(WORKSPACE_ROOT / "memory" / "reports" / "memory_health_*.md")

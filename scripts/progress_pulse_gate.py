@@ -5,14 +5,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 RUN_LOG = Path("/Users/neo/.openclaw/cron/runs/717f5346-f58f-4eac-ac30-014d8774a6c7.jsonl")
-HANDOFF_LOG = WORKSPACE_ROOT / "memory" / "codex_session_handoff.jsonl"
-PERSISTENT_STATE = WORKSPACE_ROOT / "memory" / "persistent_state.md"
+
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+
+
+HANDOFF_LOG = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+PERSISTENT_STATE = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md")
 
 
 def parse_args() -> argparse.Namespace:

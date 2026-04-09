@@ -12,6 +12,7 @@ logs/
 media/
 myenv312/
 .venv-main-safe/
+memory/runtime/
 knowledge/ingestions/
 knowledge/transcripts/
 memory/media_jobs/
@@ -45,6 +46,7 @@ memory/runner-results/
 memory/runner-memos/
 memory/runner-ledgers/
 memory/standup-prep/
+memory/reports/memory_health_*.md
 memory/reports/*latest.*
 memory/reports/*verification*.md
 memory/LEARNINGS.md
@@ -57,11 +59,21 @@ memory/self-improvement.md
 memory/audit_log_day_1.md
 workspaces/*/briefings/20*.md
 workspaces/*/memory/execution_log.md
+workspaces/*/runtime/
+workspaces/*/reports/
+workspaces/*/standups/
 workspaces/linkedin-content-os/plans/weekly_plan.md
 workspaces/linkedin-content-os/plans/reaction_queue.md
 workspaces/linkedin-content-os/plans/social_feed.md
 workspaces/linkedin-content-os/research/market_signals/*.md
 !workspaces/linkedin-content-os/research/market_signals/README.md
+workspaces/linkedin-content-os/docs/backlog_seed_status_20??-??-??.md
+workspaces/linkedin-content-os/docs/operating_rhythm_status_20??-??-??.md
+workspaces/linkedin-content-os/drafts/feezie_owner_review_packet_20??????.md
+workspaces/shared-ops/docs/workspace_pack_executive_review_20??-??-??.md
+workspaces/shared-ops/docs/heartbeat_verification_20??-??-??.md
+workspaces/shared-ops/docs/openclaw_codex_smoke_followup_20??-??-??.md
+workspaces/shared-ops/docs/workspace_identity_alignment_20??-??-??.md
 frontend/app/brain/workspaceSnapshot.ts
 frontend/legacy/content-pipeline/workspaceSnapshot.ts
 

@@ -12,4 +12,4 @@ Maintain a production-ready executive lane that keeps workspace identity packs, 
 - Operate only on shared/executive concerns; re-dispatch project work to its workspace agent.
 - Preserve PM truth: no closure without `write_execution_result.py`.
 - Keep evidence grounded in repo files or logs—no undocumented assertions.
-- Embed review artifacts (e.g., `docs/workspace_pack_executive_review_2026-04-07.md`) into the read path so future operators inherit the state.
+- Embed the latest dated review artifacts into the read path so future operators inherit the current state without rewriting this charter.

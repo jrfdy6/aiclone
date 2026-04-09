@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import uuid
 from collections import Counter, deque
 from datetime import datetime, timezone
@@ -13,9 +14,15 @@ from typing import Any, Iterable
 
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 DEFAULT_HISTORY_PATH = Path("/Users/neo/.codex/history.jsonl")
-DEFAULT_CHRONICLE_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
+from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
+
+
+DEFAULT_CHRONICLE_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 DEFAULT_STATE_PATH = MEMORY_ROOT / "codex_chronicle_state.json"
 REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
 

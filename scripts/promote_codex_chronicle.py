@@ -13,9 +13,15 @@ from typing import Any
 
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 SCRIPT_DIR = WORKSPACE_ROOT / "scripts"
 DEFAULT_PREP_ROOT = MEMORY_ROOT / "standup-prep"
+
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 
 
 def _now() -> datetime:
@@ -47,6 +53,10 @@ def _append_markdown(path: Path, heading: str, body: str) -> None:
         body,
     ]
     subprocess.run(cmd, check=True)
+
+
+def _runtime_memory_path(relative_path: str) -> Path:
+    return resolve_live_memory_write_path(WORKSPACE_ROOT, relative_path)
 
 
 def main() -> int:
@@ -110,7 +120,7 @@ def main() -> int:
         ]
         if learnings:
             _append_markdown(
-                MEMORY_ROOT / "LEARNINGS.md",
+                _runtime_memory_path("memory/LEARNINGS.md"),
                 f"## Chronicle Promotions — {timestamp:%Y-%m-%d}",
                 "\n".join(f"- {item}" for item in learnings),
             )
@@ -134,7 +144,7 @@ def main() -> int:
 
     print(f"Promoted Chronicle prep into {daily_path}")
     if learnings_written:
-        print(f"Appended {learnings_written} learning entries to {MEMORY_ROOT / 'LEARNINGS.md'}")
+        print(f"Appended {learnings_written} learning entries to {_runtime_memory_path('memory/LEARNINGS.md')}")
     if recommendation_path is not None:
         print(f"PM recommendations: {recommendation_path}")
     elif args.write_pm_recommendations and pm_updates_blocked_reason:

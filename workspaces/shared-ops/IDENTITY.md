@@ -7,7 +7,7 @@
 
 This lane exists so every portfolio decision has one accountable home for:
 - keeping registry, PM packets, runners, and UI surfaces on the same label/agent truth
-- running workspace-pack reviews and writing artifacts like `docs/workspace_pack_executive_review_2026-04-07.md`
+- running workspace-pack reviews and writing dated artifacts like `docs/workspace_pack_executive_review_YYYY-MM-DD.md`
 - repairing executive workflows (heartbeat diagnostics, Chronicle promotion, standup prep) before downstream lanes feel the drift
 
 Use `shared_ops` whenever the work is about executive hygiene, canonical identity quality, or shared-runner contracts—not for feature delivery that already belongs to a project workspace.

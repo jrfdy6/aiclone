@@ -15,7 +15,6 @@ WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 SCRIPT_ROOT = WORKSPACE_ROOT / "scripts"
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
-CODEX_HANDOFF_PATH = MEMORY_ROOT / "codex_session_handoff.jsonl"
 
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -24,6 +23,8 @@ if str(SCRIPT_ROOT) not in sys.path:
 
 from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 from durable_memory_context import build_durable_memory_context
+
+CODEX_HANDOFF_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 
 DEFAULT_MEMORY_PATHS: tuple[str, ...] = (
     "memory/persistent_state.md",
