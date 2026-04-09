@@ -12,7 +12,14 @@ from pathlib import Path
 
 
 DEFAULT_API_URL = os.getenv("AICLONE_API_URL", "https://aiclone-production-32dc.up.railway.app")
-DEFAULT_BRIEF_FILE = Path(os.getenv("OPENCLAW_WORKSPACE", "/Users/neo/.openclaw/workspace")) / "memory" / "daily-briefs.md"
+WORKSPACE_ROOT = Path(os.getenv("OPENCLAW_WORKSPACE", "/Users/neo/.openclaw/workspace"))
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+DEFAULT_BRIEF_FILE = WORKSPACE_ROOT / "memory" / "daily-briefs.md"
+
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,9 +32,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_brief_path(path_str: str) -> Path:
+    brief_path = Path(path_str).expanduser()
+    if brief_path.exists():
+        return brief_path
+    try:
+        relative = brief_path.resolve().relative_to(WORKSPACE_ROOT.resolve()).as_posix()
+    except ValueError:
+        return brief_path
+    return resolve_snapshot_fallback_path(WORKSPACE_ROOT, relative)
+
+
 def main() -> int:
     args = parse_args()
-    brief_path = Path(args.brief_file).expanduser()
+    brief_path = _resolve_brief_path(args.brief_file)
     if not brief_path.exists():
         print(json.dumps({"success": False, "error": f"Brief file not found: {brief_path}"}))
         return 1

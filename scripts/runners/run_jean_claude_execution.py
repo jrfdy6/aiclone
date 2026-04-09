@@ -39,6 +39,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from automation_run_mirror import build_run_payload, mirror_runs
+from chronicle_memory_contract import build_workspace_memory_contract
 
 
 def _now() -> datetime:
@@ -234,6 +235,23 @@ def _build_bundle(args: argparse.Namespace, run_id: str, selected_entry: dict[st
     workspace_root = _workspace_root(workspace_key, registry)
     workspace_pack = _load_pack(workspace_root)
     registry_item = _registry_item(workspace_key, registry)
+    memory_contract = build_workspace_memory_contract(
+        workspace_key,
+        seed_texts=[
+            selected_entry.get("title"),
+            selected_entry.get("reason"),
+            card.get("title"),
+            (card.get("payload") or {}).get("reason"),
+            registry_item.get("display_name"),
+        ],
+        memory_paths=(
+            "memory/persistent_state.md",
+            "memory/cron-prune.md",
+            "memory/daily-briefs.md",
+            "memory/LEARNINGS.md",
+            "memory/{today}.md",
+        ),
+    )
     return {
         "schema_version": "runner_input/v1",
         "run_id": run_id,
@@ -255,6 +273,10 @@ def _build_bundle(args: argparse.Namespace, run_id: str, selected_entry: dict[st
         "agent_pack": _load_pack(WORKSPACE_ROOT / "agents" / "jean-claude"),
         "workspace_pack": workspace_pack,
         "base_pack": _load_pack(WORKSPACE_ROOT),
+        "recent_chronicle_entries": memory_contract["chronicle_entries"],
+        "durable_memory_context": memory_contract["durable_memory_context"],
+        "memory_context": memory_contract["memory_context"],
+        "source_paths": memory_contract["source_paths"],
     }
 
 
@@ -309,6 +331,7 @@ def _build_sop(bundle: dict[str, Any]) -> dict[str, Any]:
             "Read Jean-Claude local pack first.",
             "Read workspace local pack second.",
             "Read the PM card and linked standup before changing scope or priorities.",
+            "Read recent Chronicle, durable markdown recall, and core memory tails before changing routing.",
         ],
         "identity_sources": {
             "manager_pack": bundle.get("agent_pack"),
@@ -519,8 +542,49 @@ def main() -> int:
         "## Objective",
         sop["objective"],
         "",
-        "## Steps",
+        "## Recent Chronicle",
     ]
+    chronicle_entries = bundle.get("recent_chronicle_entries") or []
+    if not chronicle_entries:
+        briefing_lines.append("- None in the latest Chronicle window.")
+    else:
+        for entry in chronicle_entries[-4:]:
+            summary = str(entry.get("summary") or "Untitled Chronicle entry").strip()
+            briefing_lines.append(f"- {summary}")
+    briefing_lines.extend(
+        [
+            "",
+            "## Durable Memory Recall",
+        ]
+    )
+    durable_results = ((bundle.get("durable_memory_context") or {}).get("results") or [])[:4]
+    if not durable_results:
+        briefing_lines.append("- None surfaced for this lane.")
+    else:
+        for item in durable_results:
+            title = str(item.get("title") or "Untitled").strip()
+            path_str = str(item.get("path") or "").strip()
+            excerpt = str(item.get("excerpt") or "").strip()
+            if excerpt:
+                briefing_lines.append(f"- `{title}` ({path_str}): {excerpt}")
+            else:
+                briefing_lines.append(f"- `{title}` ({path_str})")
+    briefing_lines.extend(
+        [
+            "",
+            "## Core Memory Context",
+        ]
+    )
+    for key, value in (bundle.get("memory_context") or {}).items():
+        if not value:
+            continue
+        label = key.replace("_tail", "").replace("_", " ")
+        briefing_lines.append(f"- {label}: {value[-280:]}")
+    briefing_lines.extend(
+        [
+            "",
+        "## Steps",
+    ])
     briefing_lines.extend(f"- {item}" for item in sop["steps"])
     briefing_path.write_text("\n".join(briefing_lines).rstrip() + "\n", encoding="utf-8")
 
@@ -548,6 +612,10 @@ def main() -> int:
             "briefing_path": str(briefing_path),
             "read_order": list(sop["read_order"]),
             "identity_sources": dict(sop["identity_sources"]),
+            "recent_chronicle_entries": bundle.get("recent_chronicle_entries") or [],
+            "durable_memory_context": bundle.get("durable_memory_context") or {},
+            "memory_context": bundle.get("memory_context") or {},
+            "source_paths": bundle.get("source_paths") or [],
             "write_back_contract": {
                 "pm_card_id": selected_entry["card_id"],
                 "preferred_runner_id": "jean-claude",

@@ -10,8 +10,10 @@ Keep the brain grounded by consolidating the latest Codex work into canonical me
 
 ## Steps
 1. **Load Canonical Handoff First**
+   - Run `python3 /Users/neo/.openclaw/workspace/scripts/build_cron_memory_contract.py --workspace-key shared_ops --memory-path memory/persistent_state.md --memory-path memory/cron-prune.md --memory-path memory/LEARNINGS.md --memory-path memory/{today}.md` first.
    - Read the latest entries from `memory/codex_session_handoff.jsonl` before looking at any OpenClaw session history.
-   - Treat that file as the primary truth source for recent Codex work.
+   - Treat `chronicle_entries` as the primary truth source for recent Codex work.
+   - If older markdown memory changes the interpretation of the Chronicle tail, use `durable_memory_context` instead of guessing.
    - Only inspect `agent:main:main` or any `openclaw-control-ui` traces if you need OpenClaw-specific cleanup context or the handoff file is empty.
 2. **Prune Only If Real Session Context Exists**
    - If a live OpenClaw session is clearly active and relevant, keep the latest three assistant responses in that live history.
@@ -22,6 +24,7 @@ Keep the brain grounded by consolidating the latest Codex work into canonical me
    - Treat `memory/LEARNINGS.md` as read-only during cron rehab. Do not edit it.
    - If there is a genuine durable lesson worth carrying forward, mention it in the final summary and leave a note in `memory/cron-prune.md` for a later human review.
    - Never write "no new learnings" into `memory/LEARNINGS.md`.
+   - When live markdown files are missing, use the fallback-resolved paths from the memory contract instead of pretending the files were empty.
 4. **Summarize**
    - Briefly describe what came from Codex handoff versus live OpenClaw session cleanup, mentioning message IDs only if you actually used session history.
 5. **Deliver**

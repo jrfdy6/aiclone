@@ -6,6 +6,7 @@ description: Generate the morning brief from cron/doc sources, append to memory/
 # Morning Daily Brief Skill
 
 ## Inputs
+- shared memory contract from `python3 /Users/neo/.openclaw/workspace/scripts/build_cron_memory_contract.py --workspace-key shared_ops --memory-path memory/persistent_state.md --memory-path memory/cron-prune.md --memory-path memory/doc-updates.md --memory-path memory/LEARNINGS.md --memory-path memory/daily-briefs.md --memory-path memory/{today}.md`
 - `memory/codex_session_handoff.jsonl`
 - `memory/persistent_state.md`
 - `memory/cron-prune.md`
@@ -16,9 +17,11 @@ description: Generate the morning brief from cron/doc sources, append to memory/
 
 ## Workflow
 1. **Collect Signals**
-   - Read each input file and extract highlights, blockers, and pending follow-ups.
-   - Treat the latest Codex handoff entries as the primary signal for what actually moved most recently.
-   - Treat `memory/persistent_state.md` as the compact system snapshot that all other signals should reconcile against.
+   - Run `build_cron_memory_contract.py` first and treat its JSON as the canonical merged context for this brief.
+   - Use `chronicle_entries` as the primary recent signal for what actually moved most recently.
+   - Use `durable_memory_context` when older markdown memory changes the interpretation of today's work.
+   - Use `memory_context` tails as the compact operator state; those paths may resolve to the live file or the latest tracked snapshot fallback.
+   - Read Tavily and latest cron run history only after reconciling them against the merged memory contract.
 2. **Summarize**
    - Cover: top cron results, outstanding follow-ups, and any alerts that actually matter today.
    - This is the once-daily synthesis layer. Do not simply restate Progress Pulse boilerplate.

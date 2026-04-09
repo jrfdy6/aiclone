@@ -6,6 +6,7 @@ description: Roll the current day into a durable persistent-state snapshot, appe
 # Dream Cycle Skill
 
 ## Inputs
+- shared memory contract from `python3 /Users/neo/.openclaw/workspace/scripts/build_cron_memory_contract.py --workspace-key shared_ops --memory-path memory/persistent_state.md --memory-path memory/cron-prune.md --memory-path memory/doc-updates.md --memory-path memory/self-improvement.md --memory-path memory/daily-briefs.md --memory-path memory/{today}.md`
 - today's daily log resolved to a concrete path such as `memory/2026-04-08.md`
 - `memory/codex_session_handoff.jsonl`
 - `memory/cron-prune.md`
@@ -19,11 +20,13 @@ description: Roll the current day into a durable persistent-state snapshot, appe
 
 ## Workflow
 1. **Collect The Day**
-   - Read today's daily log, the latest Codex handoff entries, recent cron outputs, and the latest health/report artifacts.
+   - Run `build_cron_memory_contract.py` first and treat its JSON as the canonical merged memory view for the run.
+   - Read today's daily log, `chronicle_entries`, `durable_memory_context`, recent cron outputs, and the latest health/report artifacts.
    - Resolve wildcard inputs to a concrete file path first; do not try to read `memory_health_*.md` literally.
    - Resolve placeholder paths to concrete current-date files first; do not try to read `memory/YYYY-MM-DD.md` literally.
    - If knowledge ingestions matter, list recent files under `knowledge/` and inspect specific files; do not try to read the `knowledge/` directory itself.
    - If heartbeat freshness, Discord summary quality, or automation drift is in question, run `heartbeat_report.py` and use the concrete timestamps in the snapshot.
+   - If older markdown memory materially changes today's interpretation, cite the specific durable recall result instead of relying only on the recent Chronicle tail.
 2. **Update Persistent State**
    - Overwrite `memory/persistent_state.md` with a compact operator snapshot:
      - Snapshot

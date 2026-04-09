@@ -32,6 +32,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from automation_run_mirror import build_run_payload, mirror_runs
+from chronicle_memory_contract import build_workspace_memory_contract
 
 
 def _now() -> datetime:
@@ -394,6 +395,22 @@ def main() -> int:
     execution = dict(card_payload.get("execution") or {})
     sop_path = Path(str(execution.get("sop_path") or ""))
     briefing_source = execution.get("briefing_path")
+    memory_contract = build_workspace_memory_contract(
+        workspace_key,
+        seed_texts=[
+            selected_entry.get("title"),
+            selected_entry.get("reason"),
+            card.get("title"),
+            card_payload.get("reason"),
+            target_agent,
+        ],
+        memory_paths=(
+            "memory/persistent_state.md",
+            "memory/cron-prune.md",
+            "memory/daily-briefs.md",
+            "memory/{today}.md",
+        ),
+    )
     input_path = output_root / "runner-inputs" / _slug(target_agent) / f"{stamp}.json"
     work_order_path = workspace_root / "dispatch" / f"{stamp}_{_slug(target_agent)}_work_order.json"
     briefing_path = workspace_root / "briefings" / f"{stamp}_{_slug(target_agent)}_status.md"
@@ -414,6 +431,10 @@ def main() -> int:
         "manager_pack": _load_pack(WORKSPACE_ROOT / "agents" / "jean-claude"),
         "workspace_pack": _load_pack(workspace_root),
         "base_pack": _load_pack(WORKSPACE_ROOT),
+        "recent_chronicle_entries": memory_contract["chronicle_entries"],
+        "durable_memory_context": memory_contract["durable_memory_context"],
+        "memory_context": memory_contract["memory_context"],
+        "source_paths": memory_contract["source_paths"],
     }
     work_order = {
         "schema_version": "workspace_agent_work_order/v1",
@@ -436,12 +457,14 @@ def main() -> int:
         "instructions": [
             f"Execute only inside `{workspace_key}`.",
             "Use the shared PM card as the source of truth.",
+            "Use recent Chronicle plus durable markdown recall before deciding whether to start, unblock, or escalate.",
             "Leave PM and Chronicle write-back to the wrapper-owned result path; focus on bounded workspace artifacts and status content.",
         ],
         "read_order": [
             "Read the local workspace pack first.",
             "Read Jean-Claude's SOP and briefing second.",
             "Read the PM card before executing or declaring completion.",
+            "Read recent Chronicle entries, durable memory recall, and core memory tails before changing scope.",
         ],
         "identity_sources": {
             "workspace_pack": bundle["workspace_pack"],
@@ -453,6 +476,10 @@ def main() -> int:
             "preferred_author_agent": target_agent,
             "next_state_on_result": "review",
         },
+        "recent_chronicle_entries": memory_contract["chronicle_entries"],
+        "durable_memory_context": memory_contract["durable_memory_context"],
+        "memory_context": memory_contract["memory_context"],
+        "source_paths": memory_contract["source_paths"],
     }
 
     _write_json(input_path, bundle)
@@ -475,12 +502,54 @@ def main() -> int:
         f"- Workspace soul: `{workspace_root / 'SOUL.md'}`",
         f"- SOP: `{sop_path}`" if sop_path else "- SOP: `missing`",
         f"- Jean-Claude briefing: `{briefing_source}`" if briefing_source else "- Jean-Claude briefing: `missing`",
+        f"- Recent Chronicle source: `{CODEX_HANDOFF_PATH}`",
         "",
+        "## Recent Chronicle",
+    ]
+    chronicle_entries = memory_contract["chronicle_entries"]
+    if not chronicle_entries:
+        briefing_lines.append("- None in the latest Chronicle window.")
+    else:
+        for entry in chronicle_entries[-3:]:
+            summary = str(entry.get("summary") or "Untitled Chronicle entry").strip()
+            briefing_lines.append(f"- {summary}")
+    briefing_lines.extend(
+        [
+            "",
+            "## Durable Memory Recall",
+        ]
+    )
+    durable_results = (memory_contract["durable_memory_context"].get("results") or [])[:3]
+    if not durable_results:
+        briefing_lines.append("- None surfaced for this lane.")
+    else:
+        for item in durable_results:
+            title = str(item.get("title") or "Untitled").strip()
+            path_str = str(item.get("path") or "").strip()
+            excerpt = str(item.get("excerpt") or "").strip()
+            if excerpt:
+                briefing_lines.append(f"- `{title}` ({path_str}): {excerpt}")
+            else:
+                briefing_lines.append(f"- `{title}` ({path_str})")
+    briefing_lines.extend(
+        [
+            "",
+            "## Core Memory Context",
+        ]
+    )
+    for key, value in (memory_contract["memory_context"] or {}).items():
+        if not value:
+            continue
+        label = key.replace("_tail", "").replace("_", " ")
+        briefing_lines.append(f"- {label}: {value[-280:]}")
+    briefing_lines.extend(
+        [
+            "",
         "## Next",
         f"- Execute inside `{workspace_key}`.",
         "- Keep the PM card as the source of truth.",
         "- Write the result back with the execution-result writer before the next executive standup.",
-    ]
+    ])
     briefing_path.write_text("\n".join(briefing_lines).rstrip() + "\n", encoding="utf-8")
 
     chronicle_entry = {

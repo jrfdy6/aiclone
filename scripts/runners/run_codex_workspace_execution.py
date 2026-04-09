@@ -46,6 +46,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from automation_run_mirror import build_run_payload, mirror_runs
+from chronicle_memory_contract import build_workspace_memory_contract
 
 
 def _now() -> datetime:
@@ -382,6 +383,10 @@ def _parse_work_order(path: Path) -> dict[str, Any]:
         "read_order": read_order,
         "preferred_runner_id": preferred_runner_id,
         "preferred_author_agent": preferred_author_agent,
+        "recent_chronicle_entries": list(payload.get("recent_chronicle_entries") or []),
+        "durable_memory_context": dict(payload.get("durable_memory_context") or {}),
+        "memory_context": dict(payload.get("memory_context") or {}),
+        "source_paths": [str(item).strip() for item in payload.get("source_paths") or [] if str(item).strip()],
     }
 
 
@@ -401,6 +406,22 @@ def _rebuild_direct_packet_from_entry(entry: dict[str, Any], card: dict[str, Any
     execution = dict(payload.get("execution") or {})
     sop_path = Path(str(execution.get("sop_path") or entry.get("sop_path") or "")).expanduser()
     briefing_path = Path(str(execution.get("briefing_path") or entry.get("briefing_path") or "")).expanduser()
+    memory_contract = build_workspace_memory_contract(
+        workspace_key,
+        seed_texts=[
+            entry.get("title"),
+            entry.get("reason"),
+            card.get("title"),
+            payload.get("reason"),
+        ],
+        memory_paths=(
+            "memory/persistent_state.md",
+            "memory/cron-prune.md",
+            "memory/daily-briefs.md",
+            "memory/LEARNINGS.md",
+            "memory/{today}.md",
+        ),
+    )
     workspace_root = sop_path.parent.parent if sop_path.exists() else WORKSPACE_ROOT / "workspaces" / workspace_key
     workspace_root.mkdir(parents=True, exist_ok=True)
     (workspace_root / "dispatch").mkdir(parents=True, exist_ok=True)
@@ -433,8 +454,13 @@ def _rebuild_direct_packet_from_entry(entry: dict[str, Any], card: dict[str, Any
             "Read Jean-Claude local pack first.",
             "Read workspace local pack second.",
             "Read the PM card and linked standup before changing scope or priorities.",
+            "Read recent Chronicle, durable markdown recall, and core memory tails before changing routing.",
         ],
         "identity_sources": {},
+        "recent_chronicle_entries": memory_contract["chronicle_entries"],
+        "durable_memory_context": memory_contract["durable_memory_context"],
+        "memory_context": memory_contract["memory_context"],
+        "source_paths": memory_contract["source_paths"],
         "write_back_contract": {
             "pm_card_id": str(entry.get("card_id") or card.get("id") or ""),
             "preferred_runner_id": "jean-claude",
@@ -508,6 +534,37 @@ def _build_prompt(packet: dict[str, Any]) -> str:
     if packet["instructions"]:
         lines.extend(["", "Execution instructions:"])
         lines.extend(f"- {item}" for item in packet["instructions"])
+    recent_chronicle_entries = packet.get("recent_chronicle_entries") or []
+    if recent_chronicle_entries:
+        lines.extend(["", "Recent Chronicle:"])
+        for entry in recent_chronicle_entries[-4:]:
+            summary = " ".join(str(entry.get("summary") or "").split()).strip()
+            if summary:
+                lines.append(f"- {summary[:240]}")
+    durable_results = (packet.get("durable_memory_context") or {}).get("results") or []
+    if durable_results:
+        lines.extend(["", "Durable memory recall:"])
+        for item in durable_results[:4]:
+            title = " ".join(str(item.get("title") or "Untitled").split()).strip()
+            path_str = " ".join(str(item.get("path") or "").split()).strip()
+            excerpt = " ".join(str(item.get("excerpt") or "").split()).strip()
+            if excerpt:
+                lines.append(f"- {title} ({path_str}): {excerpt[:280]}")
+            else:
+                lines.append(f"- {title} ({path_str})")
+    memory_context = packet.get("memory_context") or {}
+    if memory_context:
+        lines.extend(["", "Core memory context:"])
+        for key, value in memory_context.items():
+            text = " ".join(str(value or "").split()).strip()
+            if not text:
+                continue
+            label = str(key).replace("_tail", "").replace("_", " ")
+            lines.append(f"- {label}: {text[-280:]}")
+    source_paths = packet.get("source_paths") or []
+    if source_paths:
+        lines.extend(["", "Memory contract sources:"])
+        lines.extend(f"- {item}" for item in source_paths[:12])
     lines.extend(
         [
             "",
