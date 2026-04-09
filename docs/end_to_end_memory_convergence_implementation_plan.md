@@ -339,6 +339,7 @@ Keep maximum memory effectiveness while making the repository clean enough to wo
 ### Defer Until After Verification
 
 - broader untracking of workspace research or core memory files
+- untracking raw `research/market_signals/*.md` before a compensating archive or manifest lane exists
 - path migrations
 - replacing markdown durable memory with a different store
 

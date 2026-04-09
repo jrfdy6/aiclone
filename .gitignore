@@ -42,6 +42,7 @@ secrets/
 memory/filing_sync_state.json
 memory/runner-results/
 memory/runner-memos/
+memory/runner-ledgers/
 memory/standup-prep/
 memory/reports/*latest.*
 memory/reports/*verification*.md
@@ -50,6 +51,8 @@ workspaces/*/memory/execution_log.md
 workspaces/linkedin-content-os/plans/weekly_plan.md
 workspaces/linkedin-content-os/plans/reaction_queue.md
 workspaces/linkedin-content-os/plans/social_feed.md
+frontend/app/brain/workspaceSnapshot.ts
+frontend/legacy/content-pipeline/workspaceSnapshot.ts
 
 .next/
 frontend/.next/
