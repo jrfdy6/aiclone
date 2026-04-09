@@ -25,7 +25,7 @@ REQUIRED_GITIGNORE_LINES = (
     "workspaces/*/standups/",
     "workspaces/linkedin-content-os/docs/backlog_seed_status_20??-??-??.md",
     "workspaces/linkedin-content-os/docs/operating_rhythm_status_20??-??-??.md",
-    "workspaces/linkedin-content-os/drafts/feezie_owner_review_packet_20????????.md",
+    "workspaces/linkedin-content-os/drafts/feezie_owner_review_packet_20??????.md",
     "workspaces/shared-ops/docs/workspace_pack_executive_review_20??-??-??.md",
     "workspaces/shared-ops/docs/heartbeat_verification_20??-??-??.md",
     "workspaces/shared-ops/docs/openclaw_codex_smoke_followup_20??-??-??.md",
