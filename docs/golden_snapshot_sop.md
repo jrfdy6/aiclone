@@ -50,6 +50,46 @@ Any meaningful change to heartbeat behavior, cron behavior, Dream Cycle behavior
    - actual regressions in runtime config or cron behavior
 5. When making a major platform repair or stabilization pass, create a new dated tag instead of replacing the old anchor.
 
+## Daily Operator Routine
+
+Use [operator_baseline_routine.sh](/Users/neo/.openclaw/workspace/scripts/operator_baseline_routine.sh) as the front door for normal baseline hygiene.
+
+1. Start the day or a repair session by checking baseline status.
+
+```bash
+/Users/neo/.openclaw/workspace/scripts/operator_baseline_routine.sh status
+```
+
+2. When you want to freeze the current live memory state into the tracked snapshot lane, capture a core-memory snapshot.
+
+```bash
+/Users/neo/.openclaw/workspace/scripts/operator_baseline_routine.sh snapshot
+```
+
+3. If you intentionally changed non-git OpenClaw runtime files, record the new hashes before updating the runtime backup note.
+
+```bash
+/Users/neo/.openclaw/workspace/scripts/operator_baseline_routine.sh runtime-hashes
+```
+
+4. If the live markdown memory lane needs to be rehydrated from git-tracked state, restore it from the snapshot lane.
+
+```bash
+/Users/neo/.openclaw/workspace/scripts/operator_baseline_routine.sh restore-memory
+```
+
+5. If you want a quick runtime confidence check after a repair or restore, run the health bundle.
+
+```bash
+/Users/neo/.openclaw/workspace/scripts/operator_baseline_routine.sh health
+```
+
+Interpretation:
+
+- Active memory files changing during normal use is expected. Snapshot them when you want a durable freeze point.
+- Cron summaries being repetitive is an output-quality issue, not proof that the memory system is broken.
+- Runtime drift outside git is the one category that must be documented immediately in the runtime backup note.
+
 ## Restore Procedure
 
 1. Restore the repo baseline.
@@ -88,6 +128,12 @@ python3 /Users/neo/.openclaw/workspace/scripts/heartbeat_report.py
 
 ```bash
 python3 /Users/neo/.openclaw/workspace/scripts/restore_core_memory_snapshot.py
+```
+
+Shortcut:
+
+```bash
+/Users/neo/.openclaw/workspace/scripts/operator_baseline_routine.sh restore-guide
 ```
 
 ## When To Create A New Golden Snapshot
