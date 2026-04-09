@@ -115,3 +115,24 @@ class BrainCanonicalMemorySyncStatusRequest(BaseModel):
     processed_count: int = 0
     artifact_paths: list[str] = []
     processed_items: list[dict[str, Any]] = []
+
+
+class BrainOperatorStorySignalsSyncRequest(BaseModel):
+    generated_at: str | None = None
+    source: str = "operator_story_signal_distiller"
+    workspace_key: str = "linkedin-content-os"
+    signal_count: int = 0
+    source_paths: dict[str, str] = {}
+    counts: dict[str, Any] = {}
+    signals: list[dict[str, Any]] = []
+
+
+class BrainContentSafeOperatorLessonsSyncRequest(BaseModel):
+    generated_at: str | None = None
+    source: str = "content_safe_operator_lesson_distiller"
+    workspace_key: str = "linkedin-content-os"
+    lesson_count: int = 0
+    source_snapshot_type: str = "operator_story_signals"
+    source_generated_at: str | None = None
+    counts: dict[str, Any] = {}
+    lessons: list[dict[str, Any]] = []

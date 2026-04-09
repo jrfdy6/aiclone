@@ -137,6 +137,9 @@ def get_all_embeddings_for_user(
     max_documents: int = 1000,  # Limit to prevent timeouts
 ) -> List[Dict[str, Any]]:
     print(f"  [retrieval] Fetching embeddings for user {user_id}...", flush=True)
+    if db is None:
+        print("  [retrieval] Firestore is not configured; returning empty legacy retrieval results", flush=True)
+        return []
     try:
         collection = db.collection("users").document(user_id).collection("memory_chunks")
         

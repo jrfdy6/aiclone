@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -109,6 +110,8 @@ def _fetch_json(url: str, *, method: str = "GET", payload: dict[str, Any] | None
 
 
 def _optional_backend_imports() -> dict[str, Any]:
+    if not any(os.getenv(name) for name in ("OPEN_BRAIN_DATABASE_URL", "BRAIN_VECTOR_DATABASE_URL", "DATABASE_URL")):
+        return {"mode": "api"}
     if str(BACKEND_ROOT) not in sys.path:
         sys.path.insert(0, str(BACKEND_ROOT))
     loaded: dict[str, Any] = {}
@@ -160,6 +163,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work-order", required=True, help="Path to a runner or workspace-agent work order JSON.")
     parser.add_argument("--api-url", default=DEFAULT_API_URL)
+    parser.add_argument("--force-api", action="store_true", help="Skip backend service imports and write back through the API only.")
     parser.add_argument("--runner-id", default="neo")
     parser.add_argument("--author-agent", default="neo")
     parser.add_argument("--status", default="review", choices=["review", "done", "blocked"])
@@ -207,8 +211,14 @@ def main() -> int:
     stamp = _stamp(now)
     result_id = str(uuid.uuid4())
 
-    imports = _optional_backend_imports()
-    card = _load_card(imports, args.api_url.rstrip("/"), card_id)
+    imports = {"mode": "api"} if args.force_api else _optional_backend_imports()
+    pm_api_available = True
+    try:
+        card = _load_card(imports, args.api_url.rstrip("/"), card_id)
+    except urllib.error.URLError as exc:
+        pm_api_available = False
+        card = {"payload": {}}
+        print(f"[write_execution_result] Warning: PM API unreachable at {args.api_url.rstrip('/')}: {exc}. Continuing in offline mode.")
 
     decisions = _read_list(args.decisions, args.decision_file)
     blockers = _read_list(args.blockers, args.blocker_file)
@@ -245,7 +255,11 @@ def main() -> int:
     result_path = MEMORY_ROOT / "runner-results" / args.runner_id / f"{stamp}.json"
     memo_path = MEMORY_ROOT / "runner-memos" / args.runner_id / f"{stamp}_execution_result.md"
     daily_path = MEMORY_ROOT / f"{datetime.now().astimezone().date().isoformat()}.md"
-    workspace_memory_path = Path(workspace_root) / "memory" / "execution_log.md" if isinstance(workspace_root, Path) else None
+    workspace_memory_path = (
+        workspace_root.resolve() / "memory" / "execution_log.md"
+        if isinstance(workspace_root, Path)
+        else None
+    )
 
     _write_json(result_path, result_payload)
 
@@ -383,6 +397,9 @@ def main() -> int:
             "manager_attention_required": args.status == "blocked",
             "workspace_agent": execution.get("workspace_agent") or preferred_target_agent,
             "execution_mode": "direct" if args.status == "blocked" else execution.get("execution_mode"),
+            "executor_status": "completed",
+            "executor_finished_at": now.isoformat(),
+            "executor_last_error": None,
             "returned_from_agent": args.author_agent if args.status == "blocked" else execution.get("returned_from_agent"),
             "queued_at": now.isoformat() if args.status == "blocked" else execution.get("queued_at"),
             "last_transition_at": now.isoformat(),
@@ -404,9 +421,10 @@ def main() -> int:
         "follow_ups": follow_ups,
         "learnings": learnings,
         "outcomes": outcomes,
+        "artifacts": [str(result_path), str(memo_path), str(work_order_path), *artifacts],
     }
 
-    if not args.dry_run:
+    if not args.dry_run and pm_api_available:
         updated = _update_card(
             imports,
             args.api_url.rstrip("/"),
@@ -417,7 +435,9 @@ def main() -> int:
             },
         )
     else:
-        updated = {"id": card_id, "status": next_pm_status}
+        updated = {"id": card_id, "status": next_pm_status, "payload": payload}
+        if not pm_api_available:
+            print(f"[write_execution_result] Offline mode: skipped updating PM API, wrote local artifacts only.")
 
     print(f"Execution result written for {title}")
     print(f"Result JSON: {result_path}")
@@ -429,7 +449,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except urllib.error.URLError as exc:
-        raise SystemExit(f"Failed to reach PM API at {DEFAULT_API_URL}: {exc}") from exc
+    raise SystemExit(main())

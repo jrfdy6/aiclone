@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from app.routes import content_generation
+from app.services.content_generation_pipeline_audit_service import build_content_generation_pipeline_audit
 from app.services import social_long_form_signal_service as long_form_signal_service
 from app.services.social_source_asset_service import build_source_asset_inventory
 from app.services.social_signal_utils import build_variants, normalize_saved_signal
@@ -37,6 +38,103 @@ CONTENT_PROBES: List[dict[str, str]] = [
         "audience": "education_admissions",
         "category": "value",
         "tone": "expert_direct",
+    },
+]
+
+PIPELINE_AUDIT_PROBE: dict[str, str] = {
+    "topic": "workflow clarity",
+    "context": "Use the operator systems angle and pressure-test whether source-driven modes actually move the thesis.",
+    "content_type": "linkedin_post",
+    "category": "value",
+    "tone": "expert_direct",
+    "audience": "tech_ai",
+}
+
+CONTENT_GOLDEN_BENCHMARKS: List[dict[str, Any]] = [
+    {
+        "id": "agent_orchestration",
+        "topic": "agent orchestration",
+        "audience": "tech_ai",
+        "category": "value",
+        "tone": "expert_direct",
+        "label": "Tech AI / Agent Orchestration",
+        "description": "Lead with the thesis, keep the handoff visible, and preserve the named proof.",
+        "minimum_score": 85,
+        "requires_proof": True,
+        "requires_named_reference": True,
+        "expected_grounding_modes": {"proof_ready"},
+        "anchor_groups": [
+            ["prompting alone", "agent orchestration", "operator pattern"],
+            ["handoff", "shared state", "context alive", "routed workspace snapshot"],
+        ],
+    },
+    {
+        "id": "workflow_clarity",
+        "topic": "workflow clarity",
+        "audience": "tech_ai",
+        "category": "value",
+        "tone": "expert_direct",
+        "label": "Tech AI / Workflow Clarity",
+        "description": "Stay macro, keep the operator lens, and carry the proof reference cleanly.",
+        "minimum_score": 85,
+        "requires_proof": True,
+        "requires_named_reference": True,
+        "expected_grounding_modes": {"proof_ready"},
+        "anchor_groups": [
+            ["workflow", "clarity", "operator context", "context alive"],
+            ["handoff", "shared state", "snapshot", "structured lanes"],
+        ],
+    },
+    {
+        "id": "ai_adoption",
+        "topic": "AI adoption",
+        "audience": "tech_ai",
+        "category": "value",
+        "tone": "expert_direct",
+        "label": "Tech AI / Adoption",
+        "description": "Keep adoption grounded in systems, constraints, and operator behavior rather than model hype.",
+        "minimum_score": 80,
+        "requires_proof": True,
+        "requires_named_reference": False,
+        "expected_grounding_modes": {"proof_ready", "story_supported"},
+        "anchor_groups": [
+            ["adoption", "useful", "maturity", "system"],
+            ["operator", "workflow", "handoff", "constraints", "shared state"],
+        ],
+    },
+    {
+        "id": "change_management",
+        "topic": "change management",
+        "audience": "leadership_management",
+        "category": "value",
+        "tone": "expert_direct",
+        "label": "Leadership / Change Management",
+        "description": "Keep the people-and-behavior lens visible while preserving the concrete proof surface.",
+        "minimum_score": 80,
+        "requires_proof": True,
+        "requires_named_reference": True,
+        "expected_grounding_modes": {"proof_ready", "story_supported"},
+        "anchor_groups": [
+            ["people", "leadership", "behavior", "change"],
+            ["dashboard", "execution", "priorities", "clear next actions", "action"],
+        ],
+    },
+    {
+        "id": "kentucky_faculty_cuts",
+        "topic": "Kentucky Senate passes bill making it easier to cut faculty",
+        "audience": "education_admissions",
+        "category": "value",
+        "tone": "expert_direct",
+        "label": "Admissions / Faculty Cuts",
+        "description": "Translate the policy signal into family trust, admissions clarity, and educational legibility.",
+        "minimum_score": 80,
+        "requires_proof": False,
+        "requires_named_reference": False,
+        "expected_grounding_modes": {"proof_ready", "story_supported", "principle_only"},
+        "anchor_groups": [
+            ["admissions", "families", "trust", "translation"],
+            ["education", "policy", "policies", "school", "faculty", "educator", "educators", "higher-ed", "legible", "accessible"],
+        ],
     },
 ]
 
@@ -143,7 +241,7 @@ SOURCE_HANDOFF_PROBES: List[dict[str, str]] = [
         "url": "https://example.com/lab/source-handoff/post-candidate",
         "author": "Signal Desk",
         "segment": "Access to more models does not help if the team still cannot pressure-test outputs or decide when to escalate.",
-        "expected_handoff_lane": "post_candidate",
+        "expected_handoff_lane": "persona_candidate",
     },
     {
         "topic": "durable worldview evidence",
@@ -611,7 +709,9 @@ _HANDOFF_STAGE_LABELS = {stage["id"]: stage["label"] for stage in HANDOFF_STAGE_
 @contextmanager
 def _lab_provider_lane() -> Any:
     previous_provider_order = os.environ.get("CONTENT_GENERATION_PROVIDER_ORDER")
+    previous_stability_mode = os.environ.get("CONTENT_GENERATION_STABILITY_MODE")
     os.environ["CONTENT_GENERATION_PROVIDER_ORDER"] = "openai"
+    os.environ["CONTENT_GENERATION_STABILITY_MODE"] = "benchmark"
     try:
         yield
     finally:
@@ -619,6 +719,10 @@ def _lab_provider_lane() -> Any:
             os.environ.pop("CONTENT_GENERATION_PROVIDER_ORDER", None)
         else:
             os.environ["CONTENT_GENERATION_PROVIDER_ORDER"] = previous_provider_order
+        if previous_stability_mode is None:
+            os.environ.pop("CONTENT_GENERATION_STABILITY_MODE", None)
+        else:
+            os.environ["CONTENT_GENERATION_STABILITY_MODE"] = previous_stability_mode
 
 
 def _now_iso() -> str:
@@ -932,6 +1036,489 @@ _SOCIAL_QUALITY_WARNINGS = {
 
 def _metric_card(metric_id: str, label: str, value: float | int | None, tone: str) -> dict[str, Any]:
     return {"id": metric_id, "label": label, "value": value, "tone": tone}
+
+
+def _content_benchmark_key(*, topic: str, audience: str, category: str, tone: str) -> str:
+    return "||".join(" ".join(str(part or "").lower().split()) for part in (topic, audience, category, tone))
+
+
+_CONTENT_GOLDEN_BENCHMARK_MAP = {
+    _content_benchmark_key(
+        topic=item["topic"],
+        audience=item["audience"],
+        category=item["category"],
+        tone=item["tone"],
+    ): item
+    for item in CONTENT_GOLDEN_BENCHMARKS
+}
+
+
+def _contains_phrase_group(text: str, phrases: list[str]) -> bool:
+    normalized = " ".join((text or "").lower().split())
+    if not normalized:
+        return False
+    return any(" ".join(str(phrase or "").lower().split()) in normalized for phrase in phrases)
+
+
+def _warning_matches_prefix(warnings: list[str], prefixes: list[str]) -> bool:
+    for warning in warnings:
+        lowered = str(warning or "").lower()
+        if lowered.startswith("genericity:"):
+            try:
+                if int(lowered.split(":", 1)[1]) < 2:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        for prefix in prefixes:
+            if lowered.startswith(prefix):
+                return True
+    return False
+
+
+def _benchmark_row_status(score: int, minimum_score: int, required_checks_passed: bool) -> str:
+    if required_checks_passed and score >= minimum_score:
+        return "publishable"
+    if score >= 70 and required_checks_passed:
+        return "close"
+    return "fail"
+
+
+def _build_content_brief_from_diagnostics(diagnostics: dict[str, Any]) -> content_generation.ContentOptionBrief | None:
+    planned_briefs = diagnostics.get("planned_option_briefs") if isinstance(diagnostics.get("planned_option_briefs"), list) else []
+    if not planned_briefs:
+        return None
+    top_brief = planned_briefs[0] if isinstance(planned_briefs[0], dict) else {}
+    try:
+        option_number = int(top_brief.get("option_number") or 1)
+    except (TypeError, ValueError):
+        option_number = 1
+    return content_generation.ContentOptionBrief(
+        option_number=option_number,
+        framing_mode=str(top_brief.get("framing_mode") or "operator_lesson"),
+        primary_claim=str(top_brief.get("primary_claim") or ""),
+        proof_packet=str(top_brief.get("proof_packet") or ""),
+        story_beat=str(top_brief.get("story_beat") or ""),
+    )
+
+
+def _evaluate_content_golden_benchmark(
+    *,
+    probe: dict[str, str],
+    diagnostics: dict[str, Any],
+    top_option: str,
+    top_warnings: list[str],
+) -> dict[str, Any]:
+    benchmark = _CONTENT_GOLDEN_BENCHMARK_MAP.get(
+        _content_benchmark_key(
+            topic=probe.get("topic") or "",
+            audience=probe.get("audience") or "",
+            category=probe.get("category") or "",
+            tone=probe.get("tone") or "",
+        )
+    )
+    if not benchmark:
+        return {
+            "id": _content_benchmark_key(
+                topic=probe.get("topic") or "",
+                audience=probe.get("audience") or "",
+                category=probe.get("category") or "",
+                tone=probe.get("tone") or "",
+            ),
+            "label": probe.get("topic") or "Unknown benchmark",
+            "topic": probe.get("topic") or "",
+            "audience": probe.get("audience") or "",
+            "status": "missing",
+            "score": 0,
+            "minimum_score": 0,
+            "required_checks_passed": False,
+            "required_checks_total": 0,
+            "required_checks_passed_count": 0,
+            "summary": "No golden benchmark contract was configured for this probe.",
+            "checks": [],
+            "top_warnings": top_warnings,
+        }
+
+    primary_claims = diagnostics.get("primary_claims") if isinstance(diagnostics.get("primary_claims"), list) else []
+    proof_packets = diagnostics.get("proof_packets") if isinstance(diagnostics.get("proof_packets"), list) else []
+    grounding_mode = str(diagnostics.get("grounding_mode") or "")
+    active_brief = _build_content_brief_from_diagnostics(diagnostics)
+    blocked_warning_prefixes = ["genericity:", "taste_negative", "claim_not_leading", "named_reference_missing"]
+    claim_candidates: list[str] = []
+    if active_brief and str(active_brief.primary_claim or "").strip():
+        claim_candidates.append(str(active_brief.primary_claim or ""))
+        for helper in (
+            content_generation._opening_line_from_brief,
+            content_generation._contrast_line_from_brief,
+            content_generation._operator_system_sentence_from_brief,
+        ):
+            candidate = str(helper(active_brief) or "").strip()
+            if candidate:
+                claim_candidates.append(candidate)
+    for claim in primary_claims:
+        normalized = str(claim or "").strip()
+        if normalized:
+            claim_candidates.append(normalized)
+    claim_check = any(
+        content_generation._claim_near_opening(top_option, candidate)
+        for candidate in claim_candidates
+    )
+    proof_required = bool(benchmark.get("requires_proof"))
+    approved_proof_packets: list[str] = []
+    if active_brief and str(active_brief.proof_packet or "").strip():
+        approved_proof_packets.append(str(active_brief.proof_packet or ""))
+    approved_proof_packets.extend(str(packet or "") for packet in proof_packets if str(packet or "").strip())
+    proof_check = (
+        content_generation.option_mentions_approved_proof(top_option, approved_proof_packets)
+        if approved_proof_packets
+        else False
+    ) if proof_required else True
+    named_reference_required = bool(benchmark.get("requires_named_reference"))
+    named_reference_check = (
+        bool(active_brief) and content_generation._option_has_named_reference_specificity(top_option, active_brief)
+    ) if named_reference_required else True
+    blocked_warning_clear = not _warning_matches_prefix(top_warnings, blocked_warning_prefixes)
+    expected_grounding_modes = {str(item) for item in (benchmark.get("expected_grounding_modes") or set()) if str(item).strip()}
+    grounding_check = grounding_mode in expected_grounding_modes if expected_grounding_modes else True
+    anchor_groups = benchmark.get("anchor_groups") if isinstance(benchmark.get("anchor_groups"), list) else []
+    anchor_hits = sum(1 for group in anchor_groups if isinstance(group, list) and _contains_phrase_group(top_option, [str(item) for item in group]))
+    anchor_check = anchor_hits == len(anchor_groups) if anchor_groups else True
+    contrast_check = not any(str(warning or "").lower() == "low_contrast" for warning in top_warnings)
+
+    checks = [
+        {
+            "id": "claim_led",
+            "label": "Claim Led",
+            "status": "pass" if claim_check else "fail",
+            "detail": "The thesis stayed at the top of the draft." if claim_check else "The thesis drifted out of the opening.",
+            "weight": 20,
+            "required": True,
+        },
+        {
+            "id": "proof_visible",
+            "label": "Proof Visible",
+            "status": "pass" if proof_check else "fail",
+            "detail": "Approved proof survived into the top option." if proof_check else "Approved proof disappeared from the top option.",
+            "weight": 20,
+            "required": proof_required,
+        },
+        {
+            "id": "blocked_warnings_clear",
+            "label": "No Blocked Warnings",
+            "status": "pass" if blocked_warning_clear else "fail",
+            "detail": "The top option cleared the blocked warning set." if blocked_warning_clear else f"Blocked warnings: {', '.join(top_warnings[:4])}.",
+            "weight": 20,
+            "required": True,
+        },
+        {
+            "id": "anchor_contract",
+            "label": "Anchor Contract",
+            "status": "pass" if anchor_check else "fail",
+            "detail": f"Matched {anchor_hits}/{len(anchor_groups)} required anchor groups." if anchor_groups else "No anchor groups configured.",
+            "weight": 15,
+            "required": bool(anchor_groups),
+        },
+        {
+            "id": "grounding_contract",
+            "label": "Grounding Contract",
+            "status": "pass" if grounding_check else "fail",
+            "detail": f"Grounding mode: {grounding_mode or 'unknown'}." if expected_grounding_modes else "No grounding contract configured.",
+            "weight": 10,
+            "required": bool(expected_grounding_modes),
+        },
+        {
+            "id": "named_reference",
+            "label": "Named Reference",
+            "status": "pass" if named_reference_check else "fail",
+            "detail": "The top option kept an approved named reference." if named_reference_check else "Named proof/reference specificity dropped out of the polished draft.",
+            "weight": 10,
+            "required": named_reference_required,
+        },
+        {
+            "id": "contrast",
+            "label": "Contrast",
+            "status": "pass" if contrast_check else "fail",
+            "detail": "The draft kept its contrast line." if contrast_check else "The draft still reads too flat.",
+            "weight": 5,
+            "required": False,
+        },
+    ]
+
+    score = sum(int(check["weight"]) for check in checks if check["status"] == "pass")
+    required_checks = [check for check in checks if check["required"]]
+    required_checks_passed_count = sum(1 for check in required_checks if check["status"] == "pass")
+    required_checks_passed = required_checks_passed_count == len(required_checks)
+    minimum_score = int(benchmark.get("minimum_score") or 85)
+    status = _benchmark_row_status(score, minimum_score, required_checks_passed)
+
+    return {
+        "id": str(benchmark.get("id") or ""),
+        "label": str(benchmark.get("label") or probe.get("topic") or ""),
+        "topic": probe.get("topic") or "",
+        "audience": probe.get("audience") or "",
+        "description": str(benchmark.get("description") or ""),
+        "status": status,
+        "score": score,
+        "minimum_score": minimum_score,
+        "required_checks_total": len(required_checks),
+        "required_checks_passed_count": required_checks_passed_count,
+        "required_checks_passed": required_checks_passed,
+        "anchor_hits": anchor_hits,
+        "anchor_group_total": len(anchor_groups),
+        "top_warnings": [str(item) for item in top_warnings[:6]],
+        "summary": (
+            f"{status.title()} at {score}/{minimum_score}."
+            if status != "fail"
+            else f"Failing at {score}/{minimum_score}; tune the failed contracts before shipping."
+        ),
+        "checks": checks,
+    }
+
+
+def _build_content_golden_evaluation(results: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [item.get("golden_benchmark") for item in results if isinstance(item.get("golden_benchmark"), dict)]
+    rows = [item for item in rows if item]
+    total = len(rows)
+    publishable_count = sum(1 for row in rows if row.get("status") == "publishable")
+    close_count = sum(1 for row in rows if row.get("status") == "close")
+    fail_count = sum(1 for row in rows if row.get("status") == "fail")
+    missing_count = sum(1 for row in rows if row.get("status") == "missing")
+    publishable_rate = round((publishable_count / total) * 100, 1) if total else 0.0
+    close_rate = round((close_count / total) * 100, 1) if total else 0.0
+    fail_rate = round((fail_count / total) * 100, 1) if total else 0.0
+    average_score = round(sum(float(row.get("score") or 0) for row in rows) / total, 1) if total else 0.0
+    floor_score = min(int(row.get("score") or 0) for row in rows) if rows else 0
+    hard_fail_count = sum(
+        1
+        for row in rows
+        if not bool(row.get("required_checks_passed"))
+    )
+    return {
+        "generated_at": _now_iso(),
+        "total": total,
+        "publishable_count": publishable_count,
+        "close_count": close_count,
+        "fail_count": fail_count,
+        "missing_count": missing_count,
+        "publishable_rate": publishable_rate,
+        "close_rate": close_rate,
+        "fail_rate": fail_rate,
+        "average_score": average_score,
+        "floor_score": floor_score,
+        "hard_fail_count": hard_fail_count,
+        "summary": (
+            f"{publishable_count}/{total} publishable, {close_count}/{total} close, {fail_count}/{total} failing."
+            if total
+            else "No golden benchmark rows were recorded."
+        ),
+        "metric_cards": [
+            _metric_card("golden_publishable_rate", "Golden Publishable", publishable_rate, "#22c55e"),
+            _metric_card("golden_close_rate", "Golden Close", close_rate, "#f59e0b"),
+            _metric_card("golden_fail_rate", "Golden Fail", fail_rate, "#ef4444"),
+            _metric_card("golden_score_avg", "Golden Avg", average_score, "#38bdf8"),
+            _metric_card("golden_score_floor", "Golden Floor", floor_score, "#a78bfa"),
+            _metric_card("golden_hard_fail_count", "Hard Fails", hard_fail_count, "#f97316"),
+        ],
+        "rows": rows,
+    }
+
+
+_PIPELINE_PHASE_CATALOG: list[dict[str, str]] = [
+    {
+        "id": "persona_bundle",
+        "label": "Persona Bundle",
+        "description": "Load canonical persona chunks before any source-mode steering starts.",
+    },
+    {
+        "id": "source_assets",
+        "label": "Source Assets",
+        "description": "Keep persisted source assets fresh enough that production sees the same corpus as runtime.",
+    },
+    {
+        "id": "content_reservoir",
+        "label": "Content Reservoir",
+        "description": "Make sure source-backed belief/proof slices are present before retrieval begins.",
+    },
+    {
+        "id": "context_assembly",
+        "label": "Context Assembly",
+        "description": "Ensure source-driven retrieval support actually reaches the curated prompt packet.",
+    },
+    {
+        "id": "source_mode_effect",
+        "label": "Source Mode Effect",
+        "description": "Verify selected_source and recent_signals change the thesis instead of collapsing back to canon.",
+    },
+    {
+        "id": "reservoir_quality",
+        "label": "Reservoir Quality",
+        "description": "Pressure-test whether retrieved reservoir slices are proof-rich enough to steer the draft.",
+    },
+]
+
+
+def _count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = str(item.get(key) or "unknown").strip() or "unknown"
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
+
+
+def _pipeline_phase_status(issues: list[dict[str, Any]], phase_id: str) -> str:
+    matching = [item for item in issues if str(item.get("phase") or "") == phase_id]
+    if any(str(item.get("severity") or "").lower() == "high" for item in matching):
+        return "fail"
+    if matching:
+        return "warn"
+    return "pass"
+
+
+def _phase_detail_lines(
+    phase_id: str,
+    *,
+    audit: dict[str, Any],
+    mode_summaries: dict[str, dict[str, Any]],
+) -> list[str]:
+    source_assets = ((audit.get("phases") or {}).get("source_assets") or {}) if isinstance(audit.get("phases"), dict) else {}
+    content_reservoir = (
+        ((audit.get("phases") or {}).get("content_reservoir") or {}) if isinstance(audit.get("phases"), dict) else {}
+    )
+    if phase_id == "persona_bundle":
+        bundle = ((audit.get("phases") or {}).get("persona_bundle") or {}) if isinstance(audit.get("phases"), dict) else {}
+        total = int(bundle.get("total") or 0)
+        domain_tags = bundle.get("by_domain_tag") if isinstance(bundle.get("by_domain_tag"), dict) else {}
+        top_tags = ", ".join(list(domain_tags.keys())[:3]) if domain_tags else "no dominant tags"
+        return [f"{total} canonical persona chunks loaded.", f"Top domain tags: {top_tags}."]
+    if phase_id == "source_assets":
+        persisted = (source_assets.get("persisted") or {}) if isinstance(source_assets.get("persisted"), dict) else {}
+        runtime = (source_assets.get("runtime") or {}) if isinstance(source_assets.get("runtime"), dict) else {}
+        return [
+            f"Persisted assets: {int(persisted.get('item_count') or 0)}.",
+            f"Runtime assets: {int(runtime.get('item_count') or 0)}.",
+        ]
+    if phase_id == "content_reservoir":
+        persisted = (
+            (content_reservoir.get("persisted") or {}) if isinstance(content_reservoir.get("persisted"), dict) else {}
+        )
+        runtime = (content_reservoir.get("runtime") or {}) if isinstance(content_reservoir.get("runtime"), dict) else {}
+        return [
+            f"Persisted reservoir slices: {int(persisted.get('item_count') or 0)}.",
+            f"Runtime reservoir slices: {int(runtime.get('item_count') or 0)}.",
+        ]
+    if phase_id == "context_assembly":
+        return [
+            f"{mode}: retrieval support {int(summary.get('retrieval_support_count') or 0)} of {int(summary.get('curated_persona_chunk_count') or 0)} curated chunks."
+            for mode, summary in mode_summaries.items()
+            if mode != "persona_only"
+        ]
+    if phase_id == "source_mode_effect":
+        persona_claims = mode_summaries.get("persona_only", {}).get("primary_claims") or []
+        lines: list[str] = []
+        for mode, summary in mode_summaries.items():
+            if mode == "persona_only":
+                continue
+            changed = "changed" if (summary.get("primary_claims") or []) != persona_claims else "collapsed"
+            lines.append(f"{mode}: thesis {changed} relative to persona_only.")
+        return lines
+    if phase_id == "reservoir_quality":
+        lines = []
+        for mode, summary in mode_summaries.items():
+            if mode == "persona_only":
+                continue
+            roles = summary.get("reservoir_candidate_memory_roles") if isinstance(summary.get("reservoir_candidate_memory_roles"), dict) else {}
+            lines.append(
+                f"{mode}: proof {int(roles.get('proof') or 0)}, ambient {int(roles.get('ambient') or 0)}, candidates {int(summary.get('reservoir_candidate_count') or 0)}."
+            )
+        return lines
+    return []
+
+
+def _build_content_pipeline_audit_view(audit: dict[str, Any]) -> dict[str, Any]:
+    issues = audit.get("issues") if isinstance(audit.get("issues"), list) else []
+    mode_summaries = ((audit.get("phases") or {}).get("source_modes") or {}) if isinstance(audit.get("phases"), dict) else {}
+    issue_count = len(issues)
+    high_issue_count = sum(1 for item in issues if str(item.get("severity") or "").lower() == "high")
+    snapshot_drift_count = sum(
+        1 for item in issues if str(item.get("phase") or "") in {"source_assets", "content_reservoir"}
+    )
+    source_mode_collapse_count = sum(1 for item in issues if str(item.get("phase") or "") == "source_mode_effect")
+    retrieval_reach_count = sum(
+        1
+        for mode, summary in mode_summaries.items()
+        if mode != "persona_only" and int(summary.get("retrieval_support_count") or 0) > 0
+    )
+    phase_health = []
+    for phase in _PIPELINE_PHASE_CATALOG:
+        phase_id = phase["id"]
+        phase_issues = [item for item in issues if str(item.get("phase") or "") == phase_id]
+        phase_health.append(
+            {
+                **phase,
+                "status": _pipeline_phase_status(issues, phase_id),
+                "issue_count": len(phase_issues),
+                "issue_counts": _count_by(phase_issues, "severity"),
+                "top_issue_summaries": [str(item.get("summary") or "") for item in phase_issues[:3]],
+                "detail_lines": _phase_detail_lines(phase_id, audit=audit, mode_summaries=mode_summaries),
+            }
+        )
+
+    source_modes = []
+    for mode in ("persona_only", "selected_source", "recent_signals"):
+        summary = mode_summaries.get(mode) or {}
+        source_modes.append(
+            {
+                "id": mode,
+                "label": mode.replace("_", " ").title(),
+                "grounding_mode": summary.get("grounding_mode"),
+                "grounding_reason": summary.get("grounding_reason"),
+                "retrieval_support_count": int(summary.get("retrieval_support_count") or 0),
+                "canonical_bundle_count": int(summary.get("canonical_bundle_count") or 0),
+                "reservoir_candidate_count": int(summary.get("reservoir_candidate_count") or 0),
+                "content_reservoir_chunk_count": int(summary.get("content_reservoir_chunk_count") or 0),
+                "example_count": int(summary.get("example_count") or 0),
+                "primary_claims": [str(item) for item in (summary.get("primary_claims") or [])[:3]],
+            }
+        )
+
+    return {
+        "generated_at": audit.get("generated_at"),
+        "request": audit.get("request") or {},
+        "issue_count": issue_count,
+        "high_issue_count": high_issue_count,
+        "snapshot_drift_count": snapshot_drift_count,
+        "source_mode_collapse_count": source_mode_collapse_count,
+        "retrieval_reach_count": retrieval_reach_count,
+        "issue_counts": _count_by(issues, "phase"),
+        "issues": issues[:8],
+        "phase_health": phase_health,
+        "source_modes": source_modes,
+        "snapshot_cards": [
+            {
+                "id": "source_assets_persisted",
+                "label": "Source Assets Persisted",
+                "value": int((((audit.get("phases") or {}).get("source_assets") or {}).get("persisted") or {}).get("item_count") or 0),
+                "tone": "#38bdf8",
+            },
+            {
+                "id": "source_assets_runtime",
+                "label": "Source Assets Runtime",
+                "value": int((((audit.get("phases") or {}).get("source_assets") or {}).get("runtime") or {}).get("item_count") or 0),
+                "tone": "#14b8a6",
+            },
+            {
+                "id": "content_reservoir_persisted",
+                "label": "Reservoir Persisted",
+                "value": int((((audit.get("phases") or {}).get("content_reservoir") or {}).get("persisted") or {}).get("item_count") or 0),
+                "tone": "#a78bfa",
+            },
+            {
+                "id": "content_reservoir_runtime",
+                "label": "Reservoir Runtime",
+                "value": int((((audit.get("phases") or {}).get("content_reservoir") or {}).get("runtime") or {}).get("item_count") or 0),
+                "tone": "#f59e0b",
+            },
+        ],
+    }
 
 
 def _social_stage_result(stage_id: str, status: str, reason: str, detail: str) -> dict[str, Any]:
@@ -2728,6 +3315,8 @@ def _default_experiment_record() -> dict[str, Any]:
             "top_failure_modes": [],
         },
         "sample_runs": [],
+        "pipeline_audit": None,
+        "golden_evaluation": None,
         "history": [],
         "next_action": "Run the experiment from Lab to collect live fallback telemetry.",
         "ship_target": "LinkedIn OS",
@@ -2961,6 +3550,12 @@ async def run_content_fallback_experiment() -> dict[str, Any]:
                         "top_warnings": top_warnings,
                         "stage_results": stage_results,
                         "top_option_preview": (response.options or [""])[0][:340],
+                        "golden_benchmark": _evaluate_content_golden_benchmark(
+                            probe=probe,
+                            diagnostics=diagnostics,
+                            top_option=(response.options or [""])[0],
+                            top_warnings=top_warnings,
+                        ),
                     }
                 )
             except Exception as exc:
@@ -2997,6 +3592,12 @@ async def run_content_fallback_experiment() -> dict[str, Any]:
                         "top_warnings": [str(exc)[:220]],
                         "stage_results": stage_results,
                         "top_option_preview": "",
+                        "golden_benchmark": _evaluate_content_golden_benchmark(
+                            probe=probe,
+                            diagnostics={},
+                            top_option="",
+                            top_warnings=[str(exc)[:220]],
+                        ),
                     }
                 )
 
@@ -3009,9 +3610,49 @@ async def run_content_fallback_experiment() -> dict[str, Any]:
     provider_rate = round((provider_count / probe_count) * 100, 1)
     weak_output_rate = round((weak_output_count / probe_count) * 100, 1)
     target_lane_success_rate = round((target_lane_success_count / probe_count) * 100, 1)
+    try:
+        pipeline_audit = _build_content_pipeline_audit_view(
+            build_content_generation_pipeline_audit(
+                user_id="lab-experiment",
+                topic=PIPELINE_AUDIT_PROBE["topic"],
+                context=PIPELINE_AUDIT_PROBE["context"],
+                content_type=PIPELINE_AUDIT_PROBE["content_type"],
+                category=PIPELINE_AUDIT_PROBE["category"],
+                tone=PIPELINE_AUDIT_PROBE["tone"],
+                audience=PIPELINE_AUDIT_PROBE["audience"],
+            )
+        )
+    except Exception as exc:
+        pipeline_audit = {
+            "generated_at": _now_iso(),
+            "request": PIPELINE_AUDIT_PROBE,
+            "issue_count": 1,
+            "high_issue_count": 1,
+            "snapshot_drift_count": 0,
+            "source_mode_collapse_count": 0,
+            "retrieval_reach_count": 0,
+            "issue_counts": {"pipeline_audit_error": 1},
+            "issues": [
+                {
+                    "severity": "high",
+                    "phase": "pipeline_audit",
+                    "summary": f"Pipeline audit failed: {str(exc)[:220]}",
+                    "details": {},
+                }
+            ],
+            "phase_health": [],
+            "source_modes": [],
+            "snapshot_cards": [],
+        }
     passing = structural_fallback_rate <= TARGET_FALLBACK_RATE
     run_started_at = _now_iso()
     stage_health = _build_stage_health(results)
+    pipeline_issue_count = int(pipeline_audit.get("issue_count") or 0)
+    snapshot_drift_count = int(pipeline_audit.get("snapshot_drift_count") or 0)
+    source_mode_collapse_count = int(pipeline_audit.get("source_mode_collapse_count") or 0)
+    golden_evaluation = _build_content_golden_evaluation(results)
+    golden_fail_count = int(golden_evaluation.get("fail_count") or 0)
+    golden_publishable_rate = float(golden_evaluation.get("publishable_rate") or 0.0)
 
     run = {
         "run_id": f"{EXPERIMENT_ID}:{run_started_at}",
@@ -3028,11 +3669,15 @@ async def run_content_fallback_experiment() -> dict[str, Any]:
             key for key, value in sorted(stage_counts.items(), key=lambda item: item[1], reverse=True) if value > 0
         ][:4],
         "sample_runs": results,
-        "status": "passing" if passing else "investigating",
+        "status": "passing" if passing and golden_fail_count == 0 else "investigating",
         "next_action": (
             "Ship the improvement back into the owning workspace and write the postmortem."
-            if passing
-            else "Tune the stage with the highest fallback count, then rerun the experiment."
+            if passing and golden_fail_count == 0
+            else (
+                "Tune the failing golden benchmarks, then rerun the experiment."
+                if golden_fail_count > 0
+                else "Tune the stage with the highest fallback count, then rerun the experiment."
+            )
         ),
     }
 
@@ -3042,7 +3687,12 @@ async def run_content_fallback_experiment() -> dict[str, Any]:
         {
             "status": run["status"],
             "current": {
-                "summary": f"Structural fallback rate is {structural_fallback_rate}% across {probe_count} probes.",
+                "summary": (
+                    f"Structural fallback rate is {structural_fallback_rate}% across {probe_count} probes. "
+                    f"Upstream pipeline audit found {pipeline_issue_count} issue(s), with {snapshot_drift_count} snapshot drift signal(s) "
+                    f"and {source_mode_collapse_count} source-mode collapse signal(s). "
+                    f"Golden benchmarks are {golden_publishable_rate}% publishable with {golden_fail_count} failing contract(s)."
+                ),
                 "probe_count": probe_count,
                 "structural_fallback_rate": structural_fallback_rate,
                 "legacy_fallback_rate": legacy_rate,
@@ -3054,12 +3704,18 @@ async def run_content_fallback_experiment() -> dict[str, Any]:
                     _metric_card("legacy_fallback_rate", "Legacy Fallback", legacy_rate, "#f59e0b"),
                     _metric_card("provider_fallback_rate", "Provider Failover", provider_rate, "#38bdf8"),
                     _metric_card("weak_output_rate", "Weak Output", weak_output_rate, "#a78bfa"),
+                    _metric_card("upstream_issue_count", "Upstream Issues", pipeline_issue_count, "#ef4444"),
+                    _metric_card("snapshot_drift_count", "Snapshot Drift", snapshot_drift_count, "#f97316"),
+                    _metric_card("source_mode_collapse_count", "Mode Collapse", source_mode_collapse_count, "#fbbf24"),
+                    *list(golden_evaluation.get("metric_cards") or []),
                 ],
                 "stage_breakdown": stage_counts,
                 "stage_health": stage_health,
                 "top_failure_modes": run["top_failure_modes"],
             },
             "sample_runs": results,
+            "pipeline_audit": pipeline_audit,
+            "golden_evaluation": golden_evaluation,
             "history": history,
             "last_run_at": run_started_at,
             "next_action": run["next_action"],

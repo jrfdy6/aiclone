@@ -1,27 +1,31 @@
 # LinkedIn Social Feed
-Updated 2026-04-01T21:22:16.689992+00:00
+Updated 2026-04-09T00:04:04.591346+00:00
 
 ## Curation
 - target size: 12
 - selected count: 12
-- rejected count: 5
+- rejected count: 9
 
-- rss · More colleges get delay on submitting new admissions data (Natalie Schwartz)
-  - https://www.highereddive.com/news/delay-acts-survey-aau-aicum/816266/
-  - score: 471.0
-  - curation: +37.0
+- rss · Portland Community College reaches tentative deal with striking faculty (Laura Spitalniak)
+  - https://www.highereddive.com/news/portland-community-college-reaches-tentative-deal-with-striking-faculty/816268/
+  - score: 4582.0
+  - curation: +45.0
+- rss · Penn must turn over Jewish employee records to EEOC, judge rules (Laura Spitalniak)
+  - https://www.highereddive.com/news/penn-must-turn-over-jewish-employee-records-to-eeoc-judge-rules/816362/
+  - score: 4327.0
+  - curation: +45.0
+- rss · What can financial metrics actually tell college leaders about their programs? (Ben Unglesbee)
+  - https://www.highereddive.com/news/college-program-cost-revenue-efficiency-metrics-cuts/816035/
+  - score: 3970.0
+  - curation: +45.0
 - reddit · A man used AI to call 3,000 Irish bartenders to track the cost of Guinness. Now pubs are lowering their prices to compete (fortune)
   - https://www.reddit.com/r/ArtificialInteligence/comments/1s8prqq/a_man_used_ai_to_call_3000_irish_bartenders_to/
-  - score: 414.5
+  - score: 2474.5
   - curation: +22.0
 - reddit · Thousands lose their jobs in deep cuts at tech giant Oracle (talkingatoms)
   - https://www.reddit.com/r/ArtificialInteligence/comments/1s9i3mr/thousands_lose_their_jobs_in_deep_cuts_at_tech/
-  - score: 294.2
+  - score: 2354.2
   - curation: +22.0
-- rss · Portland Community College reaches tentative deal with striking faculty (Laura Spitalniak)
-  - https://www.highereddive.com/news/portland-community-college-reaches-tentative-deal-with-striking-faculty/816268/
-  - score: 226.0
-  - curation: +51.0
 - substack · The Shape of the Thing (Ethan Mollick)
   - https://www.oneusefulthing.org/p/the-shape-of-the-thing
   - score: 216.0
@@ -30,10 +34,6 @@ Updated 2026-04-01T21:22:16.689992+00:00
   - https://www.oneusefulthing.org/p/claude-dispatch-and-the-power-of
   - score: 216.0
   - curation: +41.0
-- rss · ‘A.I.-Washing’ Layoffs? + Why L.L.M.s Can’t Write Well + Tokenmaxxing (hardfork@nytimes.com (The New York Times))
-  - https://www.nytimes.com/column/hard-fork
-  - score: 213.0
-  - curation: +38.0
 - linkedin · Admissions teams are a content goldmine (Marc Zarefsky)
   - https://www.linkedin.com/posts/marczarefsky_looking-for-higher-ed-content-ideas-talk-activity-7371180984001765376-nSm0
   - score: 174.0
@@ -46,11 +46,11 @@ Updated 2026-04-01T21:22:16.689992+00:00
   - https://www.linkedin.com/posts/manishga_ai-agents-fail-not-from-lack-of-smarts-but-activity-7396961315585634304-A_3y
   - score: 151.0
   - curation: +36.0
-- rss · The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy? (hardfork@nytimes.com (The New York Times))
-  - https://www.nytimes.com/column/hard-fork
-  - score: 213.0
-  - curation: +38.0
-- rss · Higher ed groups urge GSA to rescind anti-DEI certification proposal (Natalie Schwartz)
-  - https://www.highereddive.com/news/higher-ed-groups-urge-gsa-rescind-anti-dei-certification-proposal/816280/
-  - score: 212.0
-  - curation: +37.0
+- rss · More colleges get delay on submitting new admissions data (Natalie Schwartz)
+  - https://www.highereddive.com/news/delay-acts-survey-aau-aicum/816266/
+  - score: 3623.0
+  - curation: +31.0
+- rss · Indiana public colleges to cut or merge about 580 programs due to state law (Natalie Schwartz)
+  - https://www.highereddive.com/news/indiana-public-colleges-to-cut-or-merge-about-580-programs-due-to-state-law/816540/
+  - score: 3358.0
+  - curation: +45.0

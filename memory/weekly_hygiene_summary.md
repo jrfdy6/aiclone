@@ -1,7 +1,7 @@
-# Weekly Memory Hygiene — 2026-03-31
+# Weekly Memory Hygiene — 2026-04-07
 
 ## Last 7 daily logs (newest last)
-- dream_cycle_log.md
+- log_full_progress_pulse.md
 - memory_health_check_plan.md
 - memory_management_check.md
 - persistent_state.md

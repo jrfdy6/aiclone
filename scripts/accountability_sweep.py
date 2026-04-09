@@ -91,6 +91,35 @@ def _find_open_followup(cards: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def _execution_state_for_card(card: dict[str, Any]) -> str:
+    payload = dict(card.get("payload") or {})
+    execution = dict(payload.get("execution") or {})
+    return str(execution.get("state") or "").strip().lower()
+
+
+def _tracked_followup_card_ids(card: dict[str, Any]) -> list[str]:
+    payload = dict(card.get("payload") or {})
+    tracked: list[str] = []
+    for key in ("rerouted_card_ids", "stale_card_ids", "stale_review_card_ids", "stale_running_card_ids"):
+        values = payload.get(key)
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            normalized = str(item or "").strip()
+            if normalized and normalized != str(card.get("id") or "") and normalized not in tracked:
+                tracked.append(normalized)
+    return tracked
+
+
+def _card_is_execution_healthy(card: dict[str, Any] | None) -> bool:
+    if card is None:
+        return False
+    status = str(card.get("status") or "").strip().lower()
+    if status in {"review", "done", "closed", "cancelled"}:
+        return True
+    return _execution_state_for_card(card) in {"review", "done"}
+
+
 def _reroute_reason(entry: dict[str, Any]) -> str:
     previous_state = str(entry.get("execution_state") or "review")
     workspace_key = str(entry.get("workspace_key") or "shared_ops")
@@ -140,6 +169,12 @@ def _reroute_stale_card(
             "reason": reroute_reason,
             "queued_at": now.isoformat(),
             "last_transition_at": now.isoformat(),
+            "execution_packet_path": None,
+            "executor_status": None,
+            "executor_worker_id": None,
+            "executor_started_at": None,
+            "executor_finished_at": None,
+            "executor_last_error": None,
             "history": history[-12:],
         }
     )
@@ -257,6 +292,18 @@ def _resolve_executive_followup(
     existing = _find_open_followup(cards)
     if existing is None:
         return None
+    cards_by_id = {str(item.get("id")): item for item in cards if item.get("id")}
+    tracked_card_ids = _tracked_followup_card_ids(existing)
+    if tracked_card_ids:
+        pending_card_ids = [card_id for card_id in tracked_card_ids if not _card_is_execution_healthy(cards_by_id.get(card_id))]
+        if pending_card_ids:
+            return {
+                "action": "tracked",
+                "card_id": existing.get("id"),
+                "status": existing.get("status"),
+                "title": FOLLOWUP_TITLE,
+                "pending_card_ids": pending_card_ids,
+            }
 
     payload = dict(existing.get("payload") or {})
     execution = dict(payload.get("execution") or {})
@@ -276,14 +323,22 @@ def _resolve_executive_followup(
             "manager_attention_required": False,
             "target_agent": "Jean-Claude",
             "assigned_runner": "codex",
-            "reason": "Accountability sweep found no stale review or running lanes, so the executive follow-up was closed automatically.",
+            "reason": (
+                "Tracked stale lanes returned to review/done, so the executive follow-up was closed automatically."
+                if tracked_card_ids
+                else "Accountability sweep found no stale review or running lanes, so the executive follow-up was closed automatically."
+            ),
             "last_transition_at": now.isoformat(),
             "history": history[-12:],
         }
     )
     payload["execution"] = execution
     payload["resolved_at"] = now.isoformat()
-    payload["resolution_reason"] = "No stale review or running PM lanes remained."
+    payload["resolution_reason"] = (
+        "Tracked rerouted cards are now back in review/done."
+        if tracked_card_ids
+        else "No stale review or running PM lanes remained."
+    )
     updated = fetch_json(
         f"{api_url.rstrip('/')}/api/pm/cards/{existing['id']}",
         method="PATCH",

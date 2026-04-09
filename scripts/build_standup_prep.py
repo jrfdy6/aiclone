@@ -145,6 +145,16 @@ def _workspace_display_name(workspace_key: str, registry: dict[str, dict[str, An
     return workspace_key
 
 
+def _workspace_label(workspace_key: str, display_name: str | None) -> str:
+    normalized_display = (display_name or workspace_key).strip()
+    normalized_key = workspace_key.strip()
+    if not normalized_key:
+        return "`shared_ops`"
+    if not normalized_display or normalized_display.lower() == normalized_key.lower():
+        return f"`{normalized_key}`"
+    return f"{normalized_display} (`{normalized_key}`)"
+
+
 def _extract_markdown_section(text: str, heading: str) -> str:
     lines = text.splitlines()
     normalized_heading = heading.strip().lower()
@@ -306,7 +316,7 @@ def _dedupe_strings(values: list[str], *, limit: int = 10) -> list[str]:
     return ordered
 
 
-def _build_pm_snapshot(pm_context: dict[str, Any], workspace_key: str) -> dict[str, Any]:
+def _build_pm_snapshot(pm_context: dict[str, Any], workspace_key: str, workspace_label: str) -> dict[str, Any]:
     if not pm_context.get("available"):
         return {
             "available": False,
@@ -316,7 +326,7 @@ def _build_pm_snapshot(pm_context: dict[str, Any], workspace_key: str) -> dict[s
             "status_counts": {},
             "cards": [],
             "lines": [
-                "PM board is not reachable from the current runtime.",
+                f"PM board is not reachable for {workspace_label}.",
                 "Treat this standup as recommendation-only until live PM state is available.",
             ],
         }
@@ -340,7 +350,7 @@ def _build_pm_snapshot(pm_context: dict[str, Any], workspace_key: str) -> dict[s
         )
 
     open_count = sum(count for key, count in status_counts.items() if key != "done")
-    lines = [f"{open_count} open PM card(s) across `{workspace_key}`."]
+    lines = [f"{open_count} open PM card(s) across {workspace_label}."]
     if status_counts:
         fragments = []
         for key in ("blocked", "review", "in_progress", "queued", "ready", "done"):
@@ -708,11 +718,17 @@ def _build_pm_updates(
 ) -> list[dict[str, Any]]:
     updates: list[dict[str, Any]] = []
     seen: set[str] = set()
+    if not pm_snapshot.get("available"):
+        return updates
+
     if workspace_key == "shared_ops":
         candidate_entries = entries
     else:
-        primary = [item for item in entries if str(item.get("workspace_key") or "shared_ops") == workspace_key]
-        candidate_entries = primary or entries
+        candidate_entries = [
+            item for item in entries if str(item.get("workspace_key") or "shared_ops") == workspace_key
+        ]
+        if not candidate_entries:
+            return updates
     for item in candidate_entries:
         for candidate in item.get("pm_candidates") or []:
             title = _normalize_pm_title(candidate)
@@ -851,12 +867,14 @@ def main() -> int:
     md_path = output_root / resolved_standup_kind / f"{stamp}.md"
 
     registry = _read_registry()
+    strategy_context = _load_strategy_context(args.workspace_key, registry)
     chronicle_entries = _filter_chronicle_entries(args.workspace_key, args.chronicle_limit)
     pm_context = _load_pm_context(imports, args.workspace_key, args.api_url)
-    pm_snapshot = _build_pm_snapshot(pm_context, args.workspace_key)
+    workspace_display_name = str(strategy_context.get("display_name") or args.workspace_key)
+    workspace_label = _workspace_label(args.workspace_key, workspace_display_name)
+    pm_snapshot = _build_pm_snapshot(pm_context, args.workspace_key, workspace_label)
     automation_context = _load_automation_context(imports)
     workspace_context = _workspace_context(args.workspace_key, registry)
-    strategy_context = _load_strategy_context(args.workspace_key, registry)
     memory_context = {
         "persistent_state_tail": _tail_text(MEMORY_ROOT / "persistent_state.md"),
         "cron_prune_tail": _tail_text(MEMORY_ROOT / "cron-prune.md"),
@@ -903,14 +921,19 @@ def main() -> int:
     if not pm_context.get("available"):
         needs.append("PM board is not reachable from the current runtime; treat PM updates as recommendations only.")
     if args.workspace_key != "shared_ops" and not workspace_context.get("available"):
-        blockers.append(f"Workspace lane `{args.workspace_key}` has no local artifact root yet.")
+        blockers.append(f"{workspace_label} has no local artifact root yet.")
     if workspace_context.get("latest_briefing_path") and args.workspace_key != "shared_ops":
         commitments.append("Bring the latest workspace briefing into the next standup and decide the next move from it.")
     if workspace_context.get("execution_log_path"):
         commitments.append("Use the workspace execution log to confirm what actually shipped before adding new work.")
 
     memory_promotions = _build_promotions(chronicle_entries, args.workspace_key)
-    pm_updates = _build_pm_updates(chronicle_entries, args.workspace_key, args.owner_agent, pm_snapshot)
+    pm_updates_blocked_reason: str | None = None
+    if pm_snapshot.get("available"):
+        pm_updates = _build_pm_updates(chronicle_entries, args.workspace_key, args.owner_agent, pm_snapshot)
+    else:
+        pm_updates = []
+        pm_updates_blocked_reason = "pm_snapshot_unavailable"
     if resolved_standup_kind == "saturday_vision":
         pm_updates = []
         needs.append("Keep Saturday Vision Sync strategy-only unless a conclusion clearly deserves PM promotion.")
@@ -940,9 +963,9 @@ def main() -> int:
         summary_parts.append("Automation layer is currently clean.")
     if args.workspace_key != "shared_ops":
         if workspace_context.get("latest_briefing_path"):
-            summary_parts.append("Workspace artifacts are available to support board decisions.")
+            summary_parts.append(f"{workspace_label} artifacts are available to support board decisions.")
         else:
-            summary_parts.append("Workspace artifact lane is still sparse and needs its first recurring meeting cadence.")
+            summary_parts.append(f"{workspace_label} artifact lane is still sparse and needs its first recurring meeting cadence.")
     if strategy_context_lines:
         summary_parts.append(strategy_context_lines[0])
 
@@ -983,6 +1006,7 @@ def main() -> int:
         "automation_context": automation_context,
         "memory_promotions": memory_promotions,
         "pm_updates": pm_updates,
+        "pm_updates_blocked_reason": pm_updates_blocked_reason,
         "standup_payload": {
             "owner": args.owner_agent,
             "status": "prepared",

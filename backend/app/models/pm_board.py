@@ -58,6 +58,17 @@ class ExecutionQueueEntry(BaseModel):
     reason: Optional[str] = None
     source: Optional[str] = None
     link_type: Optional[str] = None
+    front_door_agent: Optional[str] = None
+    trigger_key: Optional[str] = None
+    manager_attention_required: bool = False
+    executor_status: Optional[str] = None
+    executor_worker_id: Optional[str] = None
+    execution_packet_path: Optional[str] = None
+    sop_path: Optional[str] = None
+    briefing_path: Optional[str] = None
+    latest_result_status: Optional[str] = None
+    latest_result_summary: Optional[str] = None
+    latest_result_artifacts: list[str] = Field(default_factory=list)
     queued_at: Optional[datetime] = None
     last_transition_at: Optional[datetime] = None
 

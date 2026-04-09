@@ -1,7 +1,7 @@
 # Accountability Sweep Report
 
-- Generated: `2026-04-01T22:29:23Z`
-- Ready cards seen: `1`
+- Generated: `2026-04-09T00:05:05Z`
+- Ready cards seen: `0`
 - Dispatched to queue: `0`
 - Stale review cards: `0`
 - Stale active cards: `0`
@@ -20,4 +20,4 @@
 - None.
 
 ## Executive follow-up
-- `Executive review stale PM lanes from accountability sweep` -> `closed` (`done`)
+- None.

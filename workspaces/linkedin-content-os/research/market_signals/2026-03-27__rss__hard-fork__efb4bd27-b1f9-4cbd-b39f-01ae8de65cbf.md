@@ -1,7 +1,7 @@
 ---
 kind: market_signal
 title: 'The Ezra Klein Show: How Fast Will A.I. Agents Rip Through the Economy?'
-created_at: '2026-04-01T21:21:58.682954+00:00'
+created_at: '2026-04-09T00:03:57.149051+00:00'
 published_at: '2026-03-27T11:00:00+00:00'
 source_platform: rss
 source_type: article

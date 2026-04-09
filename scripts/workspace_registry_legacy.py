@@ -22,6 +22,7 @@ BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 LEGACY_REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
 _SOURCE_PATH = "backend/app/services/workspace_registry_service.py"
+DEFAULT_INCLUDE_EXECUTIVE = True
 
 
 def _now_iso() -> str:
@@ -85,7 +86,9 @@ def _legacy_entry_from_canonical(entry: dict[str, Any]) -> dict[str, Any]:
     return legacy
 
 
-def build_legacy_workspace_registry_payload(*, include_executive: bool = False) -> dict[str, Any]:
+def build_legacy_workspace_registry_payload(
+    *, include_executive: bool = DEFAULT_INCLUDE_EXECUTIVE
+) -> dict[str, Any]:
     canonical = _canonical_registry_payload(include_executive=include_executive)
     workspaces = canonical.get("workspaces") or []
     if not isinstance(workspaces, list):
@@ -106,7 +109,7 @@ def build_legacy_workspace_registry_payload(*, include_executive: bool = False) 
 def write_legacy_workspace_registry(
     path: Path = LEGACY_REGISTRY_PATH,
     *,
-    include_executive: bool = False,
+    include_executive: bool = DEFAULT_INCLUDE_EXECUTIVE,
 ) -> dict[str, Any]:
     payload = build_legacy_workspace_registry_payload(include_executive=include_executive)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,7 +120,7 @@ def write_legacy_workspace_registry(
 def load_legacy_workspace_registry_payload(
     path: Path = LEGACY_REGISTRY_PATH,
     *,
-    include_executive: bool = False,
+    include_executive: bool = DEFAULT_INCLUDE_EXECUTIVE,
     ensure_synced: bool = True,
 ) -> dict[str, Any]:
     if ensure_synced:
@@ -137,7 +140,7 @@ def load_legacy_workspace_registry_payload(
 def load_legacy_workspace_registry_map(
     path: Path = LEGACY_REGISTRY_PATH,
     *,
-    include_executive: bool = False,
+    include_executive: bool = DEFAULT_INCLUDE_EXECUTIVE,
     ensure_synced: bool = True,
 ) -> dict[str, dict[str, Any]]:
     payload = load_legacy_workspace_registry_payload(

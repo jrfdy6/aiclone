@@ -15,12 +15,18 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_API_BASE = os.getenv("AI_CLONE_API_BASE_URL", "http://127.0.0.1:8000/api/content-generation")
+DEFAULT_API_BASE = os.getenv(
+    "AI_CLONE_API_BASE_URL",
+    "https://aiclone-production-32dc.up.railway.app/api/content-generation",
+)
 DEFAULT_WORKSPACE_ROOT = os.getenv("LOCAL_CODEX_BRIDGE_WORKSPACE_ROOT", "/Users/neo/.openclaw/workspace")
 DEFAULT_MODEL = os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.1-codex")
-DEFAULT_REASONING_EFFORT = os.getenv("LOCAL_CODEX_BRIDGE_REASONING_EFFORT", "high")
+DEFAULT_REASONING_EFFORT = os.getenv("LOCAL_CODEX_BRIDGE_REASONING_EFFORT", "medium")
 DEFAULT_POLL_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_POLL_SECONDS", "4"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LOCAL_CODEX_BRIDGE_TIMEOUT_SECONDS", "420"))
+DEFAULT_HTTP_TIMEOUT_SECONDS = int(os.getenv("LOCAL_CODEX_BRIDGE_HTTP_TIMEOUT_SECONDS", "45"))
+DEFAULT_HTTP_RETRIES = int(os.getenv("LOCAL_CODEX_BRIDGE_HTTP_RETRIES", "3"))
+RETRYABLE_HTTP_STATUS_CODES = {502, 503, 504}
 
 
 def _headers(token: str | None) -> dict[str, str]:
@@ -30,14 +36,40 @@ def _headers(token: str | None) -> dict[str, str]:
     return headers
 
 
-def _request_json(method: str, url: str, *, token: str | None = None, payload: dict[str, Any] | None = None) -> Any:
+def _request_json(
+    method: str,
+    url: str,
+    *,
+    token: str | None = None,
+    payload: dict[str, Any] | None = None,
+    timeout: int = DEFAULT_HTTP_TIMEOUT_SECONDS,
+    attempts: int = DEFAULT_HTTP_RETRIES,
+) -> Any:
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=body, headers=_headers(token), method=method)
-    with urllib.request.urlopen(request, timeout=30) as response:
-        raw = response.read().decode("utf-8")
-    if not raw.strip():
-        return None
-    return json.loads(raw)
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read().decode("utf-8")
+            if not raw.strip():
+                return None
+            return json.loads(raw)
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code in RETRYABLE_HTTP_STATUS_CODES and attempt < attempts:
+                time.sleep(min(4.0, float(attempt)))
+                continue
+            raise
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(min(4.0, float(attempt)))
+                continue
+            raise
+    if last_error is not None:
+        raise last_error
+    return None
 
 
 def _claim_next_job(*, api_base: str, token: str | None, worker_id: str, workspace_slug: str) -> dict[str, Any] | None:
@@ -46,6 +78,8 @@ def _claim_next_job(*, api_base: str, token: str | None, worker_id: str, workspa
         f"{api_base.rstrip('/')}/codex-jobs/claim-next",
         token=token,
         payload={"worker_id": worker_id, "workspace_slug": workspace_slug},
+        timeout=30,
+        attempts=3,
     )
     if not isinstance(payload, dict) or not payload.get("job_available"):
         return None
@@ -63,19 +97,28 @@ def _complete_job(
     raw_output: str,
     command_stdout: str,
     command_stderr: str,
+    result_payload: dict[str, Any] | None = None,
+    artifacts: list[dict[str, Any]] | None = None,
 ) -> None:
+    payload: dict[str, Any] = {
+        "worker_id": worker_id,
+        "options": options,
+        "model": model,
+        "raw_output": raw_output,
+        "command_stdout": command_stdout,
+        "command_stderr": command_stderr,
+    }
+    if result_payload is not None:
+        payload["result_payload"] = result_payload
+    if artifacts:
+        payload["artifacts"] = artifacts
     _request_json(
         "POST",
         f"{api_base.rstrip('/')}/codex-jobs/{job_id}/complete",
         token=token,
-        payload={
-            "worker_id": worker_id,
-            "options": options,
-            "model": model,
-            "raw_output": raw_output,
-            "command_stdout": command_stdout,
-            "command_stderr": command_stderr,
-        },
+        payload=payload,
+        timeout=90,
+        attempts=4,
     )
 
 
@@ -85,6 +128,8 @@ def _fail_job(*, api_base: str, token: str | None, job_id: str, worker_id: str, 
         f"{api_base.rstrip('/')}/codex-jobs/{job_id}/fail",
         token=token,
         payload={"worker_id": worker_id, "error_message": error_message[:2000]},
+        timeout=60,
+        attempts=4,
     )
 
 
@@ -189,6 +234,46 @@ def run_once(
     prompt = str(context_packet.get("prompt") or "").strip()
     expected_option_count = int(context_packet.get("expected_option_count") or 3)
     requested_model = str(context_packet.get("requested_model") or model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    repo_import_roots = [workspace_root / "backend", workspace_root]
+    for candidate in repo_import_roots:
+        if (candidate / "app").exists():
+            if str(candidate) not in sys.path:
+                sys.path.insert(0, str(candidate))
+            break
+    from app.services import local_content_generation_execution_service as execution_service
+
+    local_options = execution_service.compose_local_template_options(context_packet)
+    quality_gate = execution_service.evaluate_local_quality(context_packet, local_options)
+    artifact_items = execution_service.build_local_template_artifacts(
+        context_packet=context_packet,
+        options=local_options,
+        quality_gate=quality_gate,
+    )
+
+    if quality_gate.get("passed"):
+        result_payload = execution_service.build_result_payload(
+            request_payload=job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {},
+            context_packet=context_packet,
+            options=local_options,
+            provider=execution_service.LOCAL_TEMPLATE_PROVIDER,
+            model=execution_service.LOCAL_TEMPLATE_MODEL,
+            quality_gate=quality_gate,
+            raw_output=json.dumps({"options": local_options}),
+        )
+        _complete_job(
+            api_base=api_base,
+            token=token,
+            job_id=job_id,
+            worker_id=worker_id,
+            options=list(result_payload.get("options") or []),
+            model=execution_service.LOCAL_TEMPLATE_MODEL,
+            raw_output=json.dumps({"options": local_options}),
+            command_stdout="",
+            command_stderr="",
+            result_payload=result_payload,
+            artifacts=artifact_items,
+        )
+        return True
 
     if not prompt:
         _fail_job(
@@ -196,7 +281,7 @@ def run_once(
             token=token,
             job_id=job_id,
             worker_id=worker_id,
-            error_message="Claimed Codex job did not include a prompt packet.",
+            error_message="Claimed Codex job did not include a prompt packet and the local quality gate did not pass.",
         )
         return True
 
@@ -209,16 +294,38 @@ def run_once(
             expected_option_count=expected_option_count,
             timeout_seconds=timeout_seconds,
         )
+        artifact_items.append(
+            {
+                "kind": "codex_output",
+                "label": "codex-output.json",
+                "filename": "codex-output.json",
+                "mime_type": "application/json",
+                "content": raw_output.rstrip() + "\n",
+            }
+        )
+        result_payload = execution_service.build_result_payload(
+            request_payload=job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {},
+            context_packet=context_packet,
+            options=options,
+            provider="codex_terminal",
+            model=requested_model,
+            quality_gate=quality_gate,
+            raw_output=raw_output,
+            command_stdout=stdout,
+            command_stderr=stderr,
+        )
         _complete_job(
             api_base=api_base,
             token=token,
             job_id=job_id,
             worker_id=worker_id,
-            options=options,
+            options=list(result_payload.get("options") or options),
             model=requested_model,
             raw_output=raw_output,
             command_stdout=stdout,
             command_stderr=stderr,
+            result_payload=result_payload,
+            artifacts=artifact_items,
         )
     except subprocess.TimeoutExpired:
         _fail_job(

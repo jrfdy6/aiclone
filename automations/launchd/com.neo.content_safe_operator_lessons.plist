@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.neo.content_safe_operator_lessons</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/neo/.openclaw/workspace/.venv-main-safe/bin/python</string>
+      <string>/Users/neo/.openclaw/workspace/scripts/build_content_safe_operator_lessons.py</string>
+      <string>--api-url</string>
+      <string>https://aiclone-production-32dc.up.railway.app</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/neo/.openclaw/workspace</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>3</integer>
+      <key>Minute</key>
+      <integer>25</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.openclaw/logs/content_safe_operator_lessons.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.openclaw/logs/content_safe_operator_lessons.log</string>
+  </dict>
+</plist>

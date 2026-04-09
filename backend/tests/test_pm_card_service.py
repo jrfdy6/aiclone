@@ -11,7 +11,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.models.pm_board import PMCard, PMCardActionRequest, PMCardDispatchRequest, PMCardUpdate
+from app.models.pm_board import PMCard, PMCardActionRequest, PMCardCreate, PMCardDispatchRequest, PMCardUpdate
 from app.services import pm_card_service
 from app.services.pm_card_service import build_execution_queue_entry
 
@@ -73,6 +73,93 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(entry.pm_status, "todo")
         self.assertEqual(entry.execution_state, "ready")
         self.assertEqual(entry.manager_agent, "Jean-Claude")
+
+    def test_normalize_human_front_door_payload_sets_neo_and_trigger_key(self) -> None:
+        payload = PMCardCreate(
+            title="Wire the next fusion lane",
+            owner=None,
+            status="todo",
+            source="openclaw:thin-trigger",
+            payload={
+                "workspace_key": "fusion-os",
+                "reason": "Route a human request into Fusion.",
+                "instructions": ["Use the PM card as the source of truth."],
+                "execution": {
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "workspace_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                    "lane": "codex",
+                },
+            },
+        )
+
+        normalized = pm_card_service._normalize_card_create_payload(payload)
+
+        self.assertEqual(normalized.owner, "Neo")
+        self.assertEqual(normalized.payload.get("front_door_agent"), "Neo")
+        self.assertEqual(normalized.payload.get("source_agent"), "Neo")
+        self.assertEqual(normalized.payload.get("requested_by"), "Neo")
+        self.assertTrue(str(normalized.payload.get("trigger_key") or "").startswith("openclaw:"))
+        self.assertEqual((normalized.payload.get("execution") or {}).get("requested_by"), "Neo")
+
+    def test_build_execution_queue_entry_exposes_executor_and_result_metadata(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="metadata-card",
+            title="Metadata lane",
+            owner="Neo",
+            status="in_progress",
+            source="openclaw:thin-trigger",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "fusion-os",
+                "front_door_agent": "Neo",
+                "trigger_key": "openclaw:test-trigger",
+                "execution": {
+                    "lane": "codex",
+                    "state": "running",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "workspace_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                    "requested_by": "Neo",
+                    "assigned_runner": "fusion-systems-operator",
+                    "manager_attention_required": True,
+                    "executor_status": "running",
+                    "executor_worker_id": "macbook-codex",
+                    "execution_packet_path": "/tmp/fusion_work_order.json",
+                    "sop_path": "/tmp/fusion_sop.json",
+                    "briefing_path": "/tmp/fusion_briefing.md",
+                    "queued_at": now.isoformat(),
+                    "last_transition_at": now.isoformat(),
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Fusion lane changes are ready for review.",
+                    "artifacts": ["/tmp/fusion_result.json", "/tmp/fusion_result.md"],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        entry = build_execution_queue_entry(card)
+
+        self.assertIsNotNone(entry)
+        assert entry is not None
+        self.assertEqual(entry.front_door_agent, "Neo")
+        self.assertEqual(entry.trigger_key, "openclaw:test-trigger")
+        self.assertTrue(entry.manager_attention_required)
+        self.assertEqual(entry.executor_status, "running")
+        self.assertEqual(entry.executor_worker_id, "macbook-codex")
+        self.assertEqual(entry.execution_packet_path, "/tmp/fusion_work_order.json")
+        self.assertEqual(entry.sop_path, "/tmp/fusion_sop.json")
+        self.assertEqual(entry.briefing_path, "/tmp/fusion_briefing.md")
+        self.assertEqual(entry.latest_result_status, "review")
+        self.assertEqual(entry.latest_result_summary, "Fusion lane changes are ready for review.")
+        self.assertEqual(entry.latest_result_artifacts, ["/tmp/fusion_result.json", "/tmp/fusion_result.md"])
 
     def test_dispatch_card_moves_ready_work_into_queued_execution(self) -> None:
         now = datetime.now(timezone.utc)

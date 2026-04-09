@@ -1,7 +1,7 @@
 ---
 kind: market_signal
 title: The Shape of the Thing
-created_at: '2026-04-01T21:21:58.223913+00:00'
+created_at: '2026-04-09T00:03:56.691816+00:00'
 published_at: '2026-03-12T14:10:07+00:00'
 source_platform: substack
 source_type: article

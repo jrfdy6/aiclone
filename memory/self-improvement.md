@@ -1,13 +1,14 @@
-### Nightly Self-Improvement — 2026-04-01
-**Wins:**
-- Codex handoff rewired to prioritize the flow of new entries.
-- AI Clone processes are working, but need constant monitoring to ensure context remains intact.
-- Successfully established local execution paths, connecting different workspace operations to improve flow and efficiency.
+### Nightly Self-Improvement — 2026-04-08
 
-**Frictions:**
-- No current blockers identified; context flow is stable.
-- Pending decisions on promoting Chronicle artifacts for autonomous processes.
+**Wins:**  
+- Rewired OpenClaw brain jobs to prioritize reading Codex handoff before stale control-session context.  
+- Successfully synced 20 new Codex history entries across 1 session.  
+- Built the Neo queue consumer, allowing new PM cards to transition into bounded execution packets.  
+- Defined and formalized the promotion boundary between Chronicle artifacts and PM flow, with new SOPs for clarity.  
 
-**Tomorrow’s Tweaks:**
-1. Jean-Claude should resolve the promotion boundary and improve documentation and handling of executive reports based on recent discussions.
-2. Monitor AI Clone processes more closely to ensure stability.
+**Frictions:**  
+- None identified at this time.  
+
+**Tomorrow’s Tweaks:**  
+1. Monitor the promotion boundary changes and the integration of the new operating model.  
+2. Ensure close oversight on the AI Clone processes.

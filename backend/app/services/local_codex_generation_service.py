@@ -30,8 +30,20 @@ def _store_path() -> Path:
     return _store_dir() / "jobs.json"
 
 
+def _artifact_root() -> Path:
+    return _store_dir() / "artifacts"
+
+
+def _artifact_dir(job_id: str) -> Path:
+    return _artifact_root() / job_id
+
+
 def _ensure_store_dir() -> None:
     _store_dir().mkdir(parents=True, exist_ok=True)
+
+
+def _ensure_artifact_dir(job_id: str) -> None:
+    _artifact_dir(job_id).mkdir(parents=True, exist_ok=True)
 
 
 def _load_jobs() -> list[dict[str, Any]]:
@@ -84,6 +96,12 @@ def _touch(job: dict[str, Any], *, status: str | None = None) -> None:
     job["updated_at"] = _utcnow_iso()
 
 
+def _normalize_artifact_name(value: str, *, fallback: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "-" for ch in (value or "").strip())
+    cleaned = cleaned.strip("-._")
+    return cleaned or fallback
+
+
 def create_codex_job(
     *,
     workspace_slug: str,
@@ -125,6 +143,7 @@ def create_codex_job(
             "canceled_at": None,
             "error_message": None,
             "result_payload": None,
+            "artifacts": [],
             "idempotency_key": idempotency_key,
             "created_at": now,
             "updated_at": now,
@@ -221,3 +240,75 @@ def cancel_codex_job(job_id: str) -> dict[str, Any]:
         _touch(job, status="canceled")
         _write_jobs(jobs)
         return dict(job)
+
+
+def write_job_artifact(
+    *,
+    job_id: str,
+    kind: str,
+    label: str,
+    content: str,
+    filename: str,
+    mime_type: str = "text/plain",
+) -> dict[str, Any]:
+    _ensure_store_dir()
+    _ensure_artifact_dir(job_id)
+    artifact_id = str(uuid4())
+    normalized_filename = _normalize_artifact_name(filename, fallback=f"{artifact_id}.txt")
+    path = _artifact_dir(job_id) / normalized_filename
+    encoded = content.encode("utf-8")
+    path.write_bytes(encoded)
+    return {
+        "artifact_id": artifact_id,
+        "job_id": job_id,
+        "kind": " ".join((kind or "").split()).strip() or "artifact",
+        "label": " ".join((label or "").split()).strip() or normalized_filename,
+        "filename": normalized_filename,
+        "mime_type": " ".join((mime_type or "").split()).strip() or "text/plain",
+        "relative_path": str(path.relative_to(_store_dir())),
+        "size_bytes": len(encoded),
+        "created_at": _utcnow_iso(),
+    }
+
+
+def append_job_artifacts(*, job_id: str, artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    with _LOCK:
+        jobs = _load_jobs()
+        job = _find_job(jobs, job_id)
+        if not job:
+            raise ValueError("Codex job not found.")
+        stored = job.get("artifacts")
+        job["artifacts"] = [item for item in stored if isinstance(item, dict)] if isinstance(stored, list) else []
+        for artifact in artifacts:
+            if isinstance(artifact, dict):
+                job["artifacts"].append(dict(artifact))
+        _touch(job)
+        _write_jobs(jobs)
+        return dict(job)
+
+
+def list_job_artifacts(job_id: str) -> list[dict[str, Any]]:
+    with _LOCK:
+        jobs = _load_jobs()
+        job = _find_job(jobs, job_id)
+        if not job:
+            raise ValueError("Codex job not found.")
+        stored = job.get("artifacts")
+        return [dict(item) for item in stored if isinstance(item, dict)] if isinstance(stored, list) else []
+
+
+def read_job_artifact_content(*, job_id: str, artifact_id: str) -> str | None:
+    artifacts = list_job_artifacts(job_id)
+    match = next((item for item in artifacts if str(item.get("artifact_id") or "") == artifact_id), None)
+    if not match:
+        raise ValueError("Codex job artifact not found.")
+    relative_path = str(match.get("relative_path") or "").strip()
+    if not relative_path:
+        return None
+    path = _store_dir() / relative_path
+    if not path.exists():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return None

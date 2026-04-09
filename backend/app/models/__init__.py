@@ -15,7 +15,9 @@ from .core import (
 from .analytics import ModelDistributionBucket, SessionMetrics, SessionRow, SessionTotals
 from .brain import (
     BrainCanonicalMemorySyncStatusRequest,
+    BrainContentSafeOperatorLessonsSyncRequest,
     BrainLongFormIngestRequest,
+    BrainOperatorStorySignalsSyncRequest,
     BrainPersonaReviewRequest,
     BrainPersonaRerouteRequest,
     BrainSystemRouteRequest,
@@ -66,7 +68,9 @@ __all__ = [
     "SessionRow",
     "SessionTotals",
     "BrainCanonicalMemorySyncStatusRequest",
+    "BrainContentSafeOperatorLessonsSyncRequest",
     "BrainLongFormIngestRequest",
+    "BrainOperatorStorySignalsSyncRequest",
     "BrainYouTubeWatchlistIngestRequest",
     "BrainPersonaReviewRequest",
     "BrainPersonaRerouteRequest",

@@ -19,6 +19,16 @@ class WorkspaceLaneContractTests(unittest.TestCase):
     def _workspace_entries(self) -> list[dict[str, object]]:
         return [entry for entry in workspace_registry_entries() if entry.get("kind") == "workspace"]
 
+    def test_shared_ops_has_full_identity_pack(self) -> None:
+        root = workspace_root_path("shared_ops", repo_root=REPO_ROOT)
+        self.assertTrue(root.exists(), "shared_ops root missing")
+        for pack_name in PACK_FILES:
+            self.assertTrue((root / pack_name).is_file(), f"shared_ops missing pack file {pack_name}")
+        self.assertTrue((root / "docs").is_dir(), "shared_ops missing docs directory")
+        self.assertTrue((root / "docs" / "README.md").is_file(), "shared_ops missing docs/README.md")
+        self.assertTrue((root / "docs" / "execution_lane.md").is_file(), "shared_ops missing docs/execution_lane.md")
+        self.assertTrue((root / "memory" / "execution_log.md").is_file(), "shared_ops missing execution log")
+
     def test_non_executive_workspaces_have_minimum_lane_shape(self) -> None:
         for entry in self._workspace_entries():
             key = str(entry["key"])
@@ -32,6 +42,7 @@ class WorkspaceLaneContractTests(unittest.TestCase):
                 self.assertTrue((root / dirname).is_dir(), f"{key} missing lane directory {dirname}/")
 
             self.assertTrue((root / "docs" / "README.md").is_file(), f"{key} missing docs/README.md")
+            self.assertTrue((root / "docs" / "execution_lane.md").is_file(), f"{key} missing docs/execution_lane.md")
             self.assertTrue((root / "memory" / "README.md").is_file(), f"{key} missing memory/README.md")
             self.assertTrue((root / "memory" / "execution_log.md").is_file(), f"{key} missing memory/execution_log.md")
 
