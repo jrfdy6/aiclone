@@ -135,6 +135,7 @@ function loadSocialFeed() {
 }
 
 function writeModule(outputPath, source) {
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, source, 'utf-8');
   console.log(`wrote snapshot to ${outputPath}`);
 }
