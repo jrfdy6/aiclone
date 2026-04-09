@@ -1,6 +1,6 @@
 # Post-Sync Dispatch Report
 
-- Generated: `2026-04-08T23:53:31Z`
+- Generated: `2026-04-09T00:23:33Z`
 - Processed standups: `7`
 - Linked cards: `1`
 - Created fallback cards: `0`
