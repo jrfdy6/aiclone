@@ -1025,6 +1025,25 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             "Discipline and customer trust matter more than chasing every technology cycle.",
         )
 
+    def test_public_safe_proof_packets_strip_noisy_source_artifact_prefixes(self) -> None:
+        proofs = build_public_safe_proof_packets(
+            proof_anchor_chunks=[{"metadata": {}}],
+            raw_proof_packets=[
+                "From Pilot To Payoff 7 Pattern Matched Traits Of AI Systems That Actually Work P5Yznr8Duj4 · canon_bridge · 2 times more likely to be successful with AI because they're talking about it"
+            ],
+            content_type="linkedin_post",
+            topic="workflow clarity",
+            audience="tech_ai",
+        )
+
+        self.assertEqual(len(proofs), 1)
+        self.assertEqual(
+            proofs[0]["public_packet"],
+            "2 times more likely to be successful with AI because they're talking about it.",
+        )
+        self.assertNotIn("p5yznr8duj4", proofs[0]["public_packet"].lower())
+        self.assertNotIn("canon_bridge", proofs[0]["public_packet"].lower())
+
     def test_student_topic_anchor_gate_blocks_generic_business_proof(self) -> None:
         self.assertFalse(
             content_generation._passes_audience_anchor_gate(

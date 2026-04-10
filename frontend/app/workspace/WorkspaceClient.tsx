@@ -846,6 +846,43 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     setGeneratedContent([]);
     setGeneratedOptionBriefs([]);
     setGeneratedSupportItems([]);
+    setProviderTrace(null);
+    try {
+      const { topicToSend, contextToSend } = resolveGenerationSeed();
+      const response = await apiPost<GeneratedContentResponse>('/api/content-generation/generate', {
+        user_id: 'johnnie_fields',
+        topic: topicToSend,
+        context: contextToSend,
+        content_type: generatorType,
+        category: activeCategory,
+        tone: 'expert_direct',
+        audience,
+        source_mode: effectiveSourceMode,
+      });
+      applyGeneratedResponse(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to generate content right now.';
+      setGeneratorError(
+        message.includes('/api/content-generation/codex-jobs')
+          ? 'Direct generation is disabled here. Use Queue on This Mac for the local tuned run.'
+          : message,
+      );
+      setProviderTrace(null);
+    } finally {
+      setGenerating(false);
+    }
+  }, [activeCategory, applyGeneratedResponse, audience, effectiveSourceMode, generatorType, resolveGenerationSeed]);
+
+  const generateContentWithCodex = useCallback(async () => {
+    setGenerating(false);
+    setGeneratorError(null);
+    setCodexJobError(null);
+    setCodexActionLoading(null);
+    setCodexJobId(null);
+    setCodexJobStatus(null);
+    setGeneratedContent([]);
+    setGeneratedOptionBriefs([]);
+    setGeneratedSupportItems([]);
     setProviderTrace('local_worker · queued');
     try {
       const { topicToSend, contextToSend } = resolveGenerationSeed();
@@ -870,16 +907,10 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setGeneratorError(error instanceof Error ? error.message : 'Unable to queue local generation right now.');
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to queue local generation right now.');
       setProviderTrace(null);
-    } finally {
-      setGenerating(false);
     }
   }, [activeCategory, audience, effectiveSourceMode, generatorType, resolveGenerationSeed]);
-
-  const generateContentWithCodex = useCallback(async () => {
-    await generateContent();
-  }, [generateContent]);
 
   const cancelCodexJob = useCallback(async () => {
     if (!codexJobId) return;

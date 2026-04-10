@@ -257,6 +257,43 @@ function PostingWorkspaceClient() {
     setPostOptions([]);
     setPostOptionBriefs([]);
     setPostSupportItems([]);
+    setProviderTrace(null);
+    try {
+      const { topicToSend, contextToSend } = resolvePostInputs();
+      const response = await apiPost<GeneratedContentResponse>('/api/content-generation/generate', {
+        user_id: 'johnnie_fields',
+        topic: topicToSend,
+        context: contextToSend,
+        content_type: 'linkedin_post',
+        category,
+        tone: 'expert_direct',
+        audience,
+        source_mode: effectiveSourceMode,
+      });
+      applyGeneratedResponse(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to generate post options right now.';
+      setPostError(
+        message.includes('/api/content-generation/codex-jobs')
+          ? 'Direct generation is disabled here. Use Queue on This Mac for the local tuned run.'
+          : message,
+      );
+      setProviderTrace(null);
+    } finally {
+      setPostLoading(false);
+    }
+  }, [applyGeneratedResponse, audience, category, effectiveSourceMode, resolvePostInputs]);
+
+  const handleGeneratePostWithCodex = useCallback(async () => {
+    setPostLoading(false);
+    setPostError(null);
+    setCodexJobError(null);
+    setCodexActionLoading(null);
+    setCodexJobId(null);
+    setCodexJobStatus(null);
+    setPostOptions([]);
+    setPostOptionBriefs([]);
+    setPostSupportItems([]);
     setProviderTrace('local_worker · queued');
     try {
       const { topicToSend, contextToSend } = resolvePostInputs();
@@ -281,16 +318,10 @@ function PostingWorkspaceClient() {
     } catch (error) {
       setCodexJobId(null);
       setCodexJobStatus(null);
-      setPostError(error instanceof Error ? error.message : 'Unable to queue local generation right now.');
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to queue local generation right now.');
       setProviderTrace(null);
-    } finally {
-      setPostLoading(false);
     }
   }, [audience, category, effectiveSourceMode, resolvePostInputs]);
-
-  const handleGeneratePostWithCodex = useCallback(async () => {
-    await handleGeneratePost();
-  }, [handleGeneratePost]);
 
   const cancelCodexJob = useCallback(async () => {
     if (!codexJobId) return;

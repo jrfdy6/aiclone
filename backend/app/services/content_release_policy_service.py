@@ -24,6 +24,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"\s+([,.;:])")
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _METRIC_RE = re.compile(r"\b\d+(?:[.,]\d+)?%?\b")
+_SOURCE_ARTIFACT_TOKEN_RE = re.compile(r"\b(?=[A-Za-z0-9_-]{8,}\b)(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b")
 _INTERNAL_REPLACEMENTS = (
     (re.compile(r"\bAI Clone\b", re.IGNORECASE), "the system"),
     (re.compile(r"\bBrain System\b", re.IGNORECASE), "the system"),
@@ -256,6 +257,38 @@ def _looks_like_partial_source_fragment(text: str) -> bool:
     return False
 
 
+def _looks_like_source_artifact_reference(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if "canon_bridge" in lowered or "canon-bridge" in lowered:
+        return True
+    if "youtube:" in lowered or "artifactref" in lowered:
+        return True
+    if " · " in normalized and _SOURCE_ARTIFACT_TOKEN_RE.search(normalized):
+        return True
+    return bool(_SOURCE_ARTIFACT_TOKEN_RE.search(normalized))
+
+
+def _strip_source_artifact_prefix(text: str) -> str:
+    normalized = _normalize_text(text)
+    if not normalized or " · " not in normalized:
+        return normalized
+    segments = [segment.strip(" .") for segment in normalized.split(" · ") if segment.strip()]
+    if len(segments) < 2:
+        return normalized
+    if not any(_looks_like_source_artifact_reference(segment) for segment in segments[:-1]):
+        return normalized
+    for segment in reversed(segments):
+        if len(segment.split()) < 4:
+            continue
+        if _looks_like_source_artifact_reference(segment):
+            continue
+        return segment
+    return normalized
+
+
 def _needs_public_claim_rewrite(text: str) -> bool:
     normalized = _normalize_text(text)
     if not normalized:
@@ -277,6 +310,7 @@ def _needs_public_proof_rewrite(text: str) -> bool:
         _semantic_leak_flags(normalized)
         or _starts_with_third_person_persona_bio(normalized)
         or _looks_like_partial_source_fragment(normalized)
+        or _looks_like_source_artifact_reference(normalized)
         or _looks_tool_heavy_public_proof(normalized)
     )
 
@@ -391,6 +425,14 @@ def _looks_like_student_topic_business_drift(text: str) -> bool:
 
 def _generalize_internal_proof(*, label: str, proof_text: str, topic: str, audience: str) -> str:
     combined = " ".join(part.lower() for part in (label, proof_text, topic, audience) if part)
+    if _looks_like_source_artifact_reference(label) or _looks_like_source_artifact_reference(proof_text):
+        trimmed = _strip_source_artifact_prefix(proof_text)
+        sanitized_text, _ = _sanitize_public_text(trimmed)
+        sentences = _split_sentences(sanitized_text)
+        if sentences:
+            return sentences[0].rstrip(".") + "."
+        if sanitized_text:
+            return sanitized_text.rstrip(".") + "."
     if _is_student_support_topic(topic, audience):
         if any(
             term in combined
@@ -520,6 +562,8 @@ def _safe_label(label: str, *, public_text: str) -> str:
         return ""
     if _looks_like_partial_source_fragment(cleaned):
         return ""
+    if _looks_like_source_artifact_reference(cleaned):
+        return ""
     if "/" in cleaned or len(cleaned.split()) > 6:
         return ""
     tokens = re.findall(r"[A-Za-z][A-Za-z'.-]*", cleaned)
@@ -557,12 +601,15 @@ def build_public_safe_proof_packets(
         chunk = proof_anchor_chunks[index] if index < len(proof_anchor_chunks) else {}
         metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
         label, proof_text = _split_label(raw_text)
-        sanitized_proof, sanitize_notes = _sanitize_public_text(proof_text)
+        trimmed_proof_text = _strip_source_artifact_prefix(proof_text)
+        sanitized_proof, sanitize_notes = _sanitize_public_text(trimmed_proof_text)
+        if trimmed_proof_text != proof_text:
+            sanitize_notes.append("trimmed_source_artifact_prefix")
         evidence_type = _evidence_type(proof_text=sanitized_proof or proof_text, metadata=metadata)
         transform_rule = "quote"
         policy_notes: list[str] = sanitize_notes[:]
 
-        candidate_text = sanitized_proof or proof_text
+        candidate_text = sanitized_proof or trimmed_proof_text or proof_text
         if public_surface:
             leak_flags = _semantic_leak_flags(candidate_text)
             if _looks_like_voice_fragment(raw_text):
