@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.models import (
     ExecutionQueueEntry,
+    LinkedinOwnerReviewDecisionRequest,
     PMCard,
     PMCardActionRequest,
     PMCardActionResult,
@@ -16,6 +17,7 @@ from app.models import (
     PMCardUpdate,
 )
 from app.services import pm_card_service
+from app.services.linkedin_owner_review_service import record_owner_decision_for_pm_card, sync_owner_review_pm_cards
 
 router = APIRouter(tags=["PM Board"], prefix="/api/pm")
 
@@ -33,6 +35,11 @@ async def list_cards(
 @router.post("/cards", response_model=PMCard)
 async def create_card(payload: PMCardCreate):
     return pm_card_service.create_card(payload)
+
+
+@router.post("/owner-review/sync")
+async def sync_owner_review_cards():
+    return sync_owner_review_pm_cards()
 
 
 @router.get("/execution-queue", response_model=List[ExecutionQueueEntry])
@@ -66,6 +73,14 @@ async def act_on_card(card_id: UUID, payload: PMCardActionRequest):
     if not result:
         raise HTTPException(status_code=404, detail="PM card not found")
     return result
+
+
+@router.post("/cards/{card_id}/owner-review")
+async def act_on_owner_review_card(card_id: UUID, payload: LinkedinOwnerReviewDecisionRequest):
+    try:
+        return record_owner_decision_for_pm_card(str(card_id), payload.decision, payload.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.patch("/cards/{card_id}", response_model=PMCard)

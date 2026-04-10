@@ -49,6 +49,7 @@ from .standups import (
 from .timeline import TimelineEvent
 from .social_feedback import SocialFeedbackCreate
 from .social_feed_refresh import IngestSignalRequest, RefreshSocialFeedRequest
+from .linkedin_owner_review import LinkedinOwnerReviewDecisionRequest
 
 __all__ = [
     "CalendarEvent",
@@ -110,4 +111,5 @@ __all__ = [
     "SocialFeedbackCreate",
     "RefreshSocialFeedRequest",
     "IngestSignalRequest",
+    "LinkedinOwnerReviewDecisionRequest",
 ]

@@ -152,6 +152,44 @@ type WorkspaceSnapshot = {
   doc_entries?: WorkspaceFile[];
 };
 
+type OwnerReviewDecision = 'approve' | 'revise' | 'park';
+
+type OwnerReviewItem = {
+  queue_id: string;
+  title: string;
+  lane: string;
+  format: string;
+  core_angle?: string;
+  why_now?: string;
+  status: string;
+  approval_status: string;
+  draft_path: string;
+  owner_packet_path?: string | null;
+  proof_anchors?: string[];
+  draft_body?: string;
+  first_pass_draft?: string;
+  draft_owner_notes?: string[];
+  packet_recommendation?: string | null;
+  current_decision?: OwnerReviewDecision | null;
+  current_notes?: string | null;
+  publish_posture?: string;
+  reviewed_at?: string | null;
+};
+
+type OwnerReviewPayload = {
+  generated_at?: string;
+  queue_path?: string;
+  owner_packet_path?: string | null;
+  items?: OwnerReviewItem[];
+  workflow?: {
+    status?: string;
+    message?: string;
+    card_id?: string | null;
+    target_agent?: string | null;
+    execution_state?: string | null;
+  } | null;
+};
+
 type FeedRefreshStatus = {
   running: boolean;
   last_run?: string | null;
@@ -474,6 +512,12 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [snapshotState, setSnapshotState] = useState<'loading' | 'live' | 'error'>('loading');
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [ownerReviewItems, setOwnerReviewItems] = useState<OwnerReviewItem[]>([]);
+  const [ownerReviewState, setOwnerReviewState] = useState<'loading' | 'live' | 'error'>('loading');
+  const [ownerReviewError, setOwnerReviewError] = useState<string | null>(null);
+  const [ownerReviewNotes, setOwnerReviewNotes] = useState<Record<string, string>>({});
+  const [ownerReviewActioning, setOwnerReviewActioning] = useState<string | null>(null);
+  const [ownerReviewStatus, setOwnerReviewStatus] = useState<string | null>(null);
   const [manualFeedItems, setManualFeedItems] = useState<SocialFeedItem[]>([]);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [feedLensSelections, setFeedLensSelections] = useState<Record<string, FeedLensId>>({});
@@ -599,9 +643,36 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     }
   }, []);
 
+  const loadOwnerReview = useCallback(async () => {
+    setOwnerReviewState('loading');
+    try {
+      const payload = await apiGet<OwnerReviewPayload>('/api/workspace/linkedin-os-owner-review');
+      const items = payload.items ?? [];
+      setOwnerReviewItems(items);
+      setOwnerReviewNotes((current) => {
+        const next = { ...current };
+        items.forEach((item) => {
+          if (next[item.queue_id] === undefined) {
+            next[item.queue_id] = item.current_notes ?? '';
+          }
+        });
+        return next;
+      });
+      setOwnerReviewError(null);
+      setOwnerReviewState('live');
+    } catch (error) {
+      setOwnerReviewError(error instanceof Error ? error.message : 'Unable to load owner review items right now.');
+      setOwnerReviewState('error');
+    }
+  }, []);
+
   useEffect(() => {
     void loadSnapshot();
   }, [loadSnapshot]);
+
+  useEffect(() => {
+    void loadOwnerReview();
+  }, [loadOwnerReview]);
 
   const resolveFeedLens = useCallback(
     (item: SocialFeedItem): FeedLensId => {
@@ -1170,6 +1241,37 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     }
   }, []);
 
+  const submitOwnerReviewDecision = useCallback(
+    async (item: OwnerReviewItem, decision: OwnerReviewDecision) => {
+      setOwnerReviewActioning(item.queue_id);
+      setOwnerReviewStatus(`Saving ${humanizeSnakeCase(decision)} for ${item.queue_id}...`);
+      try {
+        const payload = await apiPost<OwnerReviewPayload>(`/api/workspace/linkedin-os-owner-review/${item.queue_id}`, {
+          decision,
+          notes: ownerReviewNotes[item.queue_id] ?? '',
+        });
+        const items = payload.items ?? [];
+        setOwnerReviewItems(items);
+        setOwnerReviewNotes((current) => {
+          const next = { ...current };
+          items.forEach((entry) => {
+            next[entry.queue_id] = entry.current_notes ?? next[entry.queue_id] ?? '';
+          });
+          return next;
+        });
+        setOwnerReviewError(null);
+        setOwnerReviewState('live');
+        setOwnerReviewStatus(payload.workflow?.message ?? `${item.queue_id} marked ${humanizeSnakeCase(decision)}.`);
+        await loadSnapshot();
+      } catch (error) {
+        setOwnerReviewStatus(error instanceof Error ? error.message : 'Unable to save the owner decision right now.');
+      } finally {
+        setOwnerReviewActioning(null);
+      }
+    },
+    [loadSnapshot, ownerReviewNotes],
+  );
+
   async function handleCopy(text: string, label: string) {
     try {
       await copyText(text);
@@ -1237,6 +1339,124 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
             <MiniStat label="Post Seeds" value={String(snapshot?.reaction_queue?.counts?.post_seeds ?? 0)} detail="save-for-post angles" />
             <MiniStat label="Feedback" value={String(snapshot?.feedback_summary?.total_events ?? 0)} detail="human training events" />
           </div>
+        </section>
+
+        <section style={panelStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <p style={sectionLabelStyle('#fbbf24')}>0 Owner Review</p>
+              <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 8px' }}>Approve, revise, or park from here</h2>
+              <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '840px', margin: 0 }}>
+                This is the missing owner gate for FEEZIE drafts. The buttons below now write back to the draft queue, the latest owner-review packet, and the workspace execution log, then queue Jean-Claude follow-up for approved or revised drafts.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <InlinePill label={`${ownerReviewItems.length} owner-review drafts`} tone="#fbbf24" />
+              <InlinePill label={ownerReviewState === 'live' ? 'review lane live' : ownerReviewState} tone={ownerReviewState === 'error' ? '#f87171' : '#38bdf8'} />
+            </div>
+          </div>
+
+          {ownerReviewStatus && (
+            <p style={{ color: ownerReviewStatus.toLowerCase().includes('unable') || ownerReviewStatus.toLowerCase().includes('failed') ? '#f87171' : '#34d399', margin: 0, fontSize: '13px' }}>
+              {ownerReviewStatus}
+            </p>
+          )}
+
+          {ownerReviewState === 'error' ? (
+            <EmptyMessage message={ownerReviewError ?? 'Owner review is unavailable right now.'} />
+          ) : ownerReviewItems.length === 0 ? (
+            <EmptyMessage message="No owner-review drafts are currently loaded from the FEEZIE queue." />
+          ) : (
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {ownerReviewItems.map((item) => {
+                const actioning = ownerReviewActioning === item.queue_id;
+                return (
+                  <article key={item.queue_id} style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{item.queue_id}</p>
+                          <InlinePill label={humanizeSnakeCase(item.lane || 'unknown lane')} tone="#38bdf8" />
+                          {item.format && <InlinePill label={item.format} tone="#94a3b8" />}
+                          <InlinePill label={humanizeSnakeCase(item.status || 'pending')} tone={item.current_decision === 'approve' ? '#22c55e' : item.current_decision === 'park' ? '#f87171' : '#fbbf24'} />
+                        </div>
+                        <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
+                        {item.core_angle && <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.core_angle}</p>}
+                        {item.why_now && (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Why now:</span> {item.why_now}
+                          </p>
+                        )}
+                      </div>
+                      <div style={{ display: 'grid', gap: '6px', justifyItems: 'end' }}>
+                        {item.packet_recommendation && <InlinePill label={item.packet_recommendation.replace(/\*\*/g, '')} tone="#fbbf24" />}
+                        {item.publish_posture && <InlinePill label={humanizeSnakeCase(item.publish_posture)} tone="#22c55e" />}
+                        {item.reviewed_at && <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Saved {formatTimestamp(item.reviewed_at)}</p>}
+                      </div>
+                    </div>
+
+                    {item.proof_anchors && item.proof_anchors.length > 0 && (
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {item.proof_anchors.slice(0, 4).map((anchor) => (
+                          <InlinePill key={`${item.queue_id}-${anchor}`} label={anchor.replace(/^.*\//, '')} tone="#64748b" />
+                        ))}
+                      </div>
+                    )}
+
+                    <details style={agentSectionStyle}>
+                      <summary style={agentSectionSummaryStyle}>
+                        <div>
+                          <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>First-pass draft</p>
+                          <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>{item.draft_path}</p>
+                        </div>
+                        <span style={{ color: '#38bdf8', fontSize: '12px' }}>Expand</span>
+                      </summary>
+                      <div style={{ padding: '0 16px 16px' }}>
+                        <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: 'none' }}>{item.first_pass_draft || summarizeContent(item.draft_body) || 'No draft body available.'}</pre>
+                      </div>
+                    </details>
+
+                    {item.draft_owner_notes && item.draft_owner_notes.length > 0 && (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Draft notes</p>
+                        {item.draft_owner_notes.map((note) => (
+                          <p key={`${item.queue_id}-${note}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                            {note}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    <label style={fieldWrapStyle}>
+                      <span style={fieldLabelStyle}>Your notes</span>
+                      <textarea
+                        value={ownerReviewNotes[item.queue_id] ?? ''}
+                        onChange={(event) => setOwnerReviewNotes((current) => ({ ...current, [item.queue_id]: event.target.value }))}
+                        placeholder="Add revision notes, scheduling notes, or why this should be parked."
+                        rows={4}
+                        style={{ ...textareaStyle, minHeight: '96px' }}
+                      />
+                    </label>
+
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button onClick={() => void submitOwnerReviewDecision(item, 'approve')} disabled={actioning} style={primaryActionStyle('#22c55e')}>
+                        {actioning ? 'Saving…' : 'Approve'}
+                      </button>
+                      <button onClick={() => void submitOwnerReviewDecision(item, 'revise')} disabled={actioning} style={primaryActionStyle('#fbbf24')}>
+                        {actioning ? 'Saving…' : 'Revise'}
+                      </button>
+                      <button onClick={() => void submitOwnerReviewDecision(item, 'park')} disabled={actioning} style={primaryActionStyle('#f87171')}>
+                        {actioning ? 'Saving…' : 'Park'}
+                      </button>
+                      <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                        Queue status: {humanizeSnakeCase(item.approval_status || 'owner_review_required')}
+                      </p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <section style={panelStyle}>

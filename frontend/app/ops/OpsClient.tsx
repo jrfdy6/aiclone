@@ -313,6 +313,40 @@ type PMCardActionResult = {
   queue_entry?: ExecutionQueueEntry | null;
 };
 
+type OwnerReviewDecision = 'approve' | 'revise' | 'park';
+
+type OwnerReviewCardPayload = {
+  queue_id?: string;
+  title?: string;
+  lane?: string;
+  format?: string;
+  core_angle?: string;
+  why_now?: string;
+  status?: string;
+  approval_status?: string;
+  draft_path?: string;
+  owner_packet_path?: string | null;
+  proof_anchors?: string[];
+  first_pass_draft?: string;
+  draft_owner_notes?: string[];
+  packet_recommendation?: string | null;
+  current_notes?: string | null;
+  publish_posture?: string;
+  reviewed_at?: string | null;
+  sync_state?: string;
+};
+
+type OwnerReviewActionResult = {
+  workflow?: {
+    status?: string;
+    message?: string;
+    card_id?: string | null;
+    target_agent?: string | null;
+    execution_state?: string | null;
+  } | null;
+  source_card_id?: string;
+};
+
 type Panel = 'mission' | 'team' | 'pm' | 'standups' | 'workspace' | 'docs';
 
 const PANEL_HASH: Record<Panel, string> = {
@@ -1250,6 +1284,20 @@ export default function OpsClient({
   const loadTelemetry = useCallback(async () => {
     setIsRefreshing(true);
     setGlobalError(null);
+    let ownerReviewSyncError: string | null = null;
+
+    try {
+      const syncResponse = await fetch(`${API_URL}/api/pm/owner-review/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!syncResponse.ok) {
+        const text = await syncResponse.text().catch(() => syncResponse.statusText);
+        ownerReviewSyncError = `${syncResponse.status} ${syncResponse.statusText}: ${text}`;
+      }
+    } catch (error) {
+      ownerReviewSyncError = toErrorMessage(error);
+    }
 
     const requests = await Promise.allSettled([
       fetchJson<ComplianceMetrics>(`${API_URL}/api/analytics/compliance`),
@@ -1310,9 +1358,12 @@ export default function OpsClient({
 
     if (pmResp.status === 'fulfilled') {
       setPmCards(Array.isArray(pmResp.value) ? pmResp.value : []);
-      updateSectionError('pmCards', null);
+      updateSectionError('pmCards', ownerReviewSyncError);
     } else {
-      updateSectionError('pmCards', toErrorMessage(pmResp.reason));
+      updateSectionError(
+        'pmCards',
+        [ownerReviewSyncError, toErrorMessage(pmResp.reason)].filter(Boolean).join(' | ') || null,
+      );
     }
 
     if (executionQueueResp.status === 'fulfilled') {
@@ -1413,6 +1464,27 @@ export default function OpsClient({
         throw new Error(`${response.status} ${response.statusText}: ${text}`);
       }
       const result = (await response.json()) as PMCardActionResult;
+      await loadTelemetry();
+      return result;
+    },
+    [loadTelemetry],
+  );
+
+  const actOnOwnerReviewCard = useCallback(
+    async (cardId: string, decision: OwnerReviewDecision, notes: string) => {
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/owner-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decision,
+          notes,
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        throw new Error(`${response.status} ${response.statusText}: ${text}`);
+      }
+      const result = (await response.json()) as OwnerReviewActionResult;
       await loadTelemetry();
       return result;
     },
@@ -1582,6 +1654,7 @@ export default function OpsClient({
           queueError={sectionErrors.executionQueue}
           onDispatch={dispatchPmCard}
           onActOnPmCard={actOnPmCard}
+          onActOnOwnerReviewCard={actOnOwnerReviewCard}
           onOpenArtifactPath={openArtifactPath}
         />
       )}
@@ -2058,6 +2131,7 @@ function PMBoardPanel({
   queueError,
   onDispatch,
   onActOnPmCard,
+  onActOnOwnerReviewCard,
   onOpenArtifactPath,
 }: {
   cards: PMCard[];
@@ -2069,6 +2143,7 @@ function PMBoardPanel({
   queueError: string | null;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
+  onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
@@ -2405,6 +2480,7 @@ function PMBoardPanel({
           onClose={() => setSelectedBoardCardId(null)}
           onDispatch={onDispatch}
           onActOnPmCard={onActOnPmCard}
+          onActOnOwnerReviewCard={onActOnOwnerReviewCard}
           onOpenArtifactPath={onOpenArtifactPath}
         />
       ) : null}
@@ -2420,6 +2496,7 @@ function PMCardDetailModal({
   onClose,
   onDispatch,
   onActOnPmCard,
+  onActOnOwnerReviewCard,
   onOpenArtifactPath,
 }: {
   boardItem: UnifiedBoardItem;
@@ -2429,6 +2506,7 @@ function PMCardDetailModal({
   onClose: () => void;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
+  onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'outcomes' | 'raw'>('overview');
@@ -2438,6 +2516,17 @@ function PMCardDetailModal({
   const theme = workspaceBoardTheme(boardItem.workspaceKey);
   const guidance = boardItemGuidance(boardItem);
   const payload = card.payload ?? {};
+  const ownerReviewPayload =
+    payload.owner_review && typeof payload.owner_review === 'object'
+      ? (payload.owner_review as OwnerReviewCardPayload)
+      : null;
+  const isOwnerReviewCard = card.link_type === 'owner_review' || Boolean(ownerReviewPayload?.queue_id);
+  const isPendingOwnerReview =
+    isOwnerReviewCard &&
+    (ownerReviewPayload?.sync_state === 'pending_owner_review' ||
+      ownerReviewPayload?.approval_status === 'owner_review_required' ||
+      boardItem.lane === 'review');
+  const [ownerReviewNotes, setOwnerReviewNotes] = useState(ownerReviewPayload?.current_notes ?? '');
   const rawSource = boardItem.source ?? card.source ?? 'manual';
   const linkType = typeof card.link_type === 'string' && card.link_type.trim() ? card.link_type.trim() : 'manual';
   const linkId = typeof card.link_id === 'string' && card.link_id.trim() ? card.link_id.trim() : null;
@@ -2544,6 +2633,10 @@ function PMCardDetailModal({
     },
   ];
 
+  useEffect(() => {
+    setOwnerReviewNotes(ownerReviewPayload?.current_notes ?? '');
+  }, [ownerReviewPayload?.current_notes, card.id]);
+
   const handleCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked') => {
     try {
       setActioningCardId(card.id);
@@ -2561,6 +2654,27 @@ function PMCardDetailModal({
           : action === 'return'
             ? `Returned ${card.title} to Jean-Claude.`
             : `Marked ${card.title} as blocked and rerouted it to Jean-Claude.`,
+      );
+    } catch (error) {
+      setActionError(toErrorMessage(error));
+    } finally {
+      setActioningCardId(null);
+    }
+  };
+
+  const handleOwnerReviewAction = async (decision: OwnerReviewDecision) => {
+    try {
+      setActioningCardId(card.id);
+      setActionError(null);
+      setActionFeedback(null);
+      const result = await onActOnOwnerReviewCard(card.id, decision, ownerReviewNotes);
+      setActionFeedback(
+        result.workflow?.message ??
+          (decision === 'approve'
+            ? `Approved ${card.title}.`
+            : decision === 'revise'
+              ? `Requested revision for ${card.title}.`
+              : `Parked ${card.title}.`),
       );
     } catch (error) {
       setActionError(toErrorMessage(error));
@@ -2712,6 +2826,20 @@ function PMCardDetailModal({
               </section>
             ) : null}
 
+            {ownerReviewPayload ? (
+              <section style={{ borderRadius: '16px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '16px' }}>
+                <p style={{ color: '#fbbf24', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Owner Review Context</p>
+                <div style={{ display: 'grid', gap: '8px', color: '#fef3c7', fontSize: '13px' }}>
+                  <div>Queue item: {ownerReviewPayload.queue_id ?? linkId ?? 'unknown'}</div>
+                  {ownerReviewPayload.format ? <div>Format: {ownerReviewPayload.format}</div> : null}
+                  {ownerReviewPayload.packet_recommendation ? <div>Recommendation: {ownerReviewPayload.packet_recommendation}</div> : null}
+                  {ownerReviewPayload.core_angle ? <div>Core angle: {ownerReviewPayload.core_angle}</div> : null}
+                  {ownerReviewPayload.why_now ? <div>Why now: {ownerReviewPayload.why_now}</div> : null}
+                  <div>Approval status: {humanizeStatusLabel(ownerReviewPayload.approval_status ?? 'unknown')}</div>
+                </div>
+              </section>
+            ) : null}
+
             {heldAtPmLayer ? (
               <section style={{ borderRadius: '16px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '16px' }}>
                 <p style={{ color: '#fbbf24', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Held At PM Layer</p>
@@ -2797,6 +2925,93 @@ function PMCardDetailModal({
                 ) : null}
               </div>
             </section>
+
+            {ownerReviewPayload ? (
+              <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Owner Review Draft</p>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  {ownerReviewPayload.draft_path ? (
+                    <div>
+                      <span style={{ color: '#94a3b8', fontSize: '12px' }}>Draft path: </span>
+                      <button
+                        type="button"
+                        onClick={() => onOpenArtifactPath(ownerReviewPayload.draft_path as string)}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          padding: 0,
+                          color: '#f8fafc',
+                          fontSize: '12px',
+                          fontFamily: 'monospace',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          textUnderlineOffset: '2px',
+                        }}
+                        title={ownerReviewPayload.draft_path}
+                      >
+                        {summarizePathForDisplay(String(ownerReviewPayload.draft_path))}
+                      </button>
+                    </div>
+                  ) : null}
+                  {ownerReviewPayload.owner_packet_path ? (
+                    <div>
+                      <span style={{ color: '#94a3b8', fontSize: '12px' }}>Owner packet: </span>
+                      <button
+                        type="button"
+                        onClick={() => onOpenArtifactPath(ownerReviewPayload.owner_packet_path as string)}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          padding: 0,
+                          color: '#f8fafc',
+                          fontSize: '12px',
+                          fontFamily: 'monospace',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          textUnderlineOffset: '2px',
+                        }}
+                        title={ownerReviewPayload.owner_packet_path ?? undefined}
+                      >
+                        {summarizePathForDisplay(String(ownerReviewPayload.owner_packet_path))}
+                      </button>
+                    </div>
+                  ) : null}
+                  {ownerReviewPayload.first_pass_draft ? (
+                    <pre
+                      style={{
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        color: '#e2e8f0',
+                        fontSize: '12px',
+                        lineHeight: 1.6,
+                        margin: 0,
+                        maxHeight: '280px',
+                        overflowY: 'auto',
+                        borderRadius: '12px',
+                        border: '1px solid #1f2937',
+                        backgroundColor: '#0b1324',
+                        padding: '12px',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+                      }}
+                    >
+                      {ownerReviewPayload.first_pass_draft}
+                    </pre>
+                  ) : (
+                    <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No first-pass draft text is attached to this PM card yet.</p>
+                  )}
+                  {(ownerReviewPayload.draft_owner_notes ?? []).length > 0 ? (
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Draft notes</p>
+                      {(ownerReviewPayload.draft_owner_notes ?? []).map((note) => (
+                        <p key={`${card.id}-owner-note-${note}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                          {note}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
 
             <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
               <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Execution Artifacts</p>
@@ -2992,48 +3207,102 @@ function PMCardDetailModal({
 
             <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
               <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Actions</p>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {(boardItem.lane === 'ready' || boardItem.lane === 'todo') && (
-                  <button
-                    type="button"
-                    disabled={actioningCardId === card.id}
-                    onClick={() => void handleCardAction('dispatch')}
-                    style={meetingActionButtonStyle('primary', actioningCardId === card.id)}
-                  >
-                    {actioningCardId === card.id ? 'Opening…' : 'Open SOP'}
-                  </button>
-                )}
-                {boardItem.lane === 'review' && (
-                  <button
-                    type="button"
-                    disabled={actioningCardId === card.id}
-                    onClick={() => void handleCardAction('approve')}
-                    style={meetingActionButtonStyle('success', actioningCardId === card.id)}
-                  >
-                    {actioningCardId === card.id ? 'Closing…' : 'Approve and close'}
-                  </button>
-                )}
-                {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
-                  <button
-                    type="button"
-                    disabled={actioningCardId === card.id}
-                    onClick={() => void handleCardAction('return')}
-                    style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
-                  >
-                    {actioningCardId === card.id ? 'Returning…' : 'Return to Jean-Claude'}
-                  </button>
-                )}
-                {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
-                  <button
-                    type="button"
-                    disabled={actioningCardId === card.id}
-                    onClick={() => void handleCardAction('blocked')}
-                    style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
-                  >
-                    {actioningCardId === card.id ? 'Routing…' : 'Mark blocked'}
-                  </button>
-                )}
-              </div>
+              {isPendingOwnerReview && ownerReviewPayload ? (
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                    Open the draft, make the owner call here, and let PM queue the follow-up automatically.
+                  </p>
+                  <label style={{ display: 'grid', gap: '6px' }}>
+                    <span style={{ color: '#94a3b8', fontSize: '12px' }}>Owner notes</span>
+                    <textarea
+                      value={ownerReviewNotes}
+                      onChange={(event) => setOwnerReviewNotes(event.target.value)}
+                      placeholder="Add revision notes, scheduling notes, or why this should be parked."
+                      rows={4}
+                      style={{
+                        width: '100%',
+                        borderRadius: '12px',
+                        border: '1px solid #334155',
+                        backgroundColor: '#0f172a',
+                        color: '#e2e8f0',
+                        padding: '12px',
+                        fontSize: '13px',
+                        lineHeight: 1.5,
+                        resize: 'vertical',
+                      }}
+                    />
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      disabled={actioningCardId === card.id}
+                      onClick={() => void handleOwnerReviewAction('approve')}
+                      style={meetingActionButtonStyle('success', actioningCardId === card.id)}
+                    >
+                      {actioningCardId === card.id ? 'Saving…' : 'Approve draft'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actioningCardId === card.id}
+                      onClick={() => void handleOwnerReviewAction('revise')}
+                      style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
+                    >
+                      {actioningCardId === card.id ? 'Saving…' : 'Request revision'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actioningCardId === card.id}
+                      onClick={() => void handleOwnerReviewAction('park')}
+                      style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
+                    >
+                      {actioningCardId === card.id ? 'Saving…' : 'Park draft'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {(boardItem.lane === 'ready' || boardItem.lane === 'todo') && (
+                    <button
+                      type="button"
+                      disabled={actioningCardId === card.id}
+                      onClick={() => void handleCardAction('dispatch')}
+                      style={meetingActionButtonStyle('primary', actioningCardId === card.id)}
+                    >
+                      {actioningCardId === card.id ? 'Opening…' : 'Open SOP'}
+                    </button>
+                  )}
+                  {boardItem.lane === 'review' && (
+                    <button
+                      type="button"
+                      disabled={actioningCardId === card.id}
+                      onClick={() => void handleCardAction('approve')}
+                      style={meetingActionButtonStyle('success', actioningCardId === card.id)}
+                    >
+                      {actioningCardId === card.id ? 'Closing…' : 'Approve and close'}
+                    </button>
+                  )}
+                  {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
+                    <button
+                      type="button"
+                      disabled={actioningCardId === card.id}
+                      onClick={() => void handleCardAction('return')}
+                      style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
+                    >
+                      {actioningCardId === card.id ? 'Returning…' : 'Return to Jean-Claude'}
+                    </button>
+                  )}
+                  {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
+                    <button
+                      type="button"
+                      disabled={actioningCardId === card.id}
+                      onClick={() => void handleCardAction('blocked')}
+                      style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
+                    >
+                      {actioningCardId === card.id ? 'Routing…' : 'Mark blocked'}
+                    </button>
+                  )}
+                </div>
+              )}
             </section>
 
             <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
@@ -4354,6 +4623,17 @@ function buildPmCardHistoryItems(card: PMCard, boardItem: UnifiedBoardItem, link
       label: 'Recommendation Packet Attached',
       detail: `This card carries recommendation evidence from ${summarizePathForDisplay(payload.recommendation_path)}.`,
       tone: '#38bdf8',
+    });
+  }
+  const ownerReview =
+    payload.owner_review && typeof payload.owner_review === 'object'
+      ? (payload.owner_review as OwnerReviewCardPayload)
+      : null;
+  if (ownerReview?.queue_id) {
+    items.push({
+      label: 'Owner Review Linked',
+      detail: `This PM card is linked to owner-review queue item \`${ownerReview.queue_id}\`${ownerReview.approval_status ? ` with approval status \`${ownerReview.approval_status}\`` : ''}.`,
+      tone: '#fbbf24',
     });
   }
   if (boardItem.queueEntry) {
@@ -7312,6 +7592,7 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
       workspaceKey: workspaceKeyFromCard(card),
       lane,
       pmStatus: card.status,
+      reason: typeof card.payload?.reason === 'string' ? card.payload.reason : null,
       source: card.source ?? null,
       owner: card.owner ?? null,
       updatedAt: card.updated_at ?? card.created_at ?? null,
@@ -7335,6 +7616,13 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
 }
 
 function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
+  if ((item.source ?? '').includes('workspace-owner-review') && item.lane === 'review') {
+    return {
+      summary: 'This card is waiting on an owner decision for a FEEZIE draft, not on more agent execution.',
+      userRole: 'Read the draft, decide approve, revise, or park, and let PM mutate the downstream lane from that judgment.',
+      nextAction: 'Open the card, review the first-pass copy, and make the owner call from the Actions block.',
+    };
+  }
   switch (item.lane) {
     case 'todo':
       if (isHeldPmLayerStatus(item.pmStatus, item.lane, item.executionState)) {

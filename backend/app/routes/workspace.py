@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
-from app.models import IngestSignalRequest, RefreshSocialFeedRequest
+from app.models import IngestSignalRequest, LinkedinOwnerReviewDecisionRequest, RefreshSocialFeedRequest
 from app.services import social_feed_refresh_service
+from app.services.linkedin_owner_review_service import list_owner_review_items, record_owner_decision
 from app.services.social_feed_preview_service import social_feed_preview_service
 from app.services.workspace_snapshot_service import workspace_snapshot_service
 router = APIRouter(tags=["Workspace"], prefix="/api/workspace")
@@ -51,6 +52,24 @@ async def get_linkedin_os_snapshot():
     if isinstance(refresh_status, dict):
         snapshot["refresh_status"] = _serialize_status(refresh_status)
     return snapshot
+
+
+@router.get("/linkedin-os-owner-review")
+async def get_linkedin_os_owner_review():
+    try:
+        return list_owner_review_items()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/linkedin-os-owner-review/{queue_id}")
+async def post_linkedin_os_owner_review(queue_id: str, payload: LinkedinOwnerReviewDecisionRequest):
+    try:
+        return record_owner_decision(queue_id, payload.decision, payload.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/refresh-social-feed")

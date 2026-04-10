@@ -17,7 +17,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.main import app
-from app.models import PersonaDelta
+from app.models import PMCard, PersonaDelta
 from app.services.social_expression_engine import social_expression_engine
 from app.services.social_feed_builder_service import build_feed
 from app.services.social_source_asset_service import build_source_asset_inventory
@@ -41,6 +41,7 @@ persona_promotion_extractor_module = importlib.import_module("app.services.perso
 belief_engine_module = importlib.import_module("app.services.social_belief_engine")
 persona_bundle_writer_module = importlib.import_module("app.services.persona_bundle_writer")
 persona_bundle_context_module = importlib.import_module("app.services.persona_bundle_context_service")
+linkedin_owner_review_module = importlib.import_module("app.services.linkedin_owner_review_service")
 
 
 class _FakeBriefReactionCursor:
@@ -644,6 +645,288 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertTrue(items[0].get("lens_variants"))
         self.assertGreater(len(asset_items), 0)
         self.assertIn("counts", persona_review_summary)
+
+    def test_linkedin_owner_review_route_reads_and_updates_drafts(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        queue_path = drafts_dir / "queue_01.md"
+        draft_path = drafts_dir / "feezie-001_cheap-models-better-systems.md"
+        packet_path = drafts_dir / "feezie_owner_review_packet_20260409.md"
+
+        queue_path.write_text(
+            """# FEEZIE Draft Queue 01
+
+## Queue
+
+### FEEZIE-001 - Cheap models, better systems
+- Lane: `ai`
+- Format: long-form LinkedIn post
+- Core angle: Constraint-led systems work beats model worship.
+- Proof anchors:
+  - `../../knowledge/persona/feeze/history/story_bank.md`
+- Why now: the AI Clone / Brain work is active and publicly legible.
+- Status: owner_review_draft (`drafts/feezie-001_cheap-models-better-systems.md`)
+- Owner packet: latest `drafts/feezie_owner_review_packet_YYYYMMDD.md` entry for `FEEZIE-001`
+- Approval status: `owner_review_required`
+""",
+            encoding="utf-8",
+        )
+        draft_path.write_text(
+            """---
+title: "Cheap models, better systems"
+lane: ai
+publish_posture: owner_review_required
+---
+
+# Cheap models, better systems
+
+## Why this draft exists
+- Queue item: `FEEZIE-001`
+
+## First-pass draft
+
+This is the first pass.
+
+## Owner notes
+- Keep this grounded in proof.
+""",
+            encoding="utf-8",
+        )
+        packet_path.write_text(
+            """# FEEZIE Owner Review Packet
+
+## FEEZIE-001 — Cheap models, better systems
+- **Lane / Format:** `ai` | long-form post
+- **Recommended action:** **Approve for scheduling**
+
+**Owner decision**
+- [ ] Approve for scheduling
+- [ ] Revise (note specifics below)
+- [ ] Park for later
+
+**Draft copy**
+> This is the first pass.
+
+**Revision notes (if needed):**
+
+---
+
+## Next steps after owner review
+1. Ping Jean-Claude.
+""",
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/api/workspace/linkedin-os-owner-review")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        items = payload.get("items") or []
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].get("queue_id"), "FEEZIE-001")
+        self.assertEqual(items[0].get("publish_posture"), "owner_review_required")
+        self.assertIn("This is the first pass.", items[0].get("first_pass_draft") or "")
+
+        created_card = PMCard(
+            id="owner-review-card-1",
+            title="Schedule approved FEEZIE draft - FEEZIE-001",
+            owner="Neo",
+            status="todo",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id="FEEZIE-001",
+            payload={"workspace_key": "linkedin-os"},
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        def fake_create_card(payload):
+            self.assertEqual(payload.payload.get("workspace_key"), "linkedin-os")
+            self.assertEqual((payload.payload.get("owner_review") or {}).get("decision"), "approve")
+            self.assertEqual(payload.link_id, "FEEZIE-001")
+            return created_card
+
+        def fake_dispatch_card(card_id, payload):
+            self.assertEqual(card_id, created_card.id)
+            self.assertEqual(payload.execution_state, "queued")
+            return SimpleNamespace(
+                card=created_card,
+                queue_entry=SimpleNamespace(target_agent="Jean-Claude", execution_state="queued"),
+            )
+
+        with (
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(linkedin_owner_review_module.pm_card_service, "create_card", side_effect=fake_create_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "dispatch_card", side_effect=fake_dispatch_card),
+        ):
+            update_response = self.client.post(
+                "/api/workspace/linkedin-os-owner-review/FEEZIE-001",
+                json={"decision": "approve", "notes": "Ship this first."},
+            )
+        self.assertEqual(update_response.status_code, 200)
+        updated_payload = update_response.json()
+        updated_item = (updated_payload.get("items") or [None])[0]
+        self.assertEqual(updated_item.get("current_decision"), "approve")
+        self.assertEqual(updated_item.get("approval_status"), "owner_approved")
+        self.assertEqual(updated_item.get("publish_posture"), "approved")
+        self.assertEqual(updated_item.get("current_notes"), "Ship this first.")
+        self.assertEqual((updated_payload.get("workflow") or {}).get("status"), "queued")
+        self.assertIn("Jean-Claude follow-up is queued", (updated_payload.get("workflow") or {}).get("message") or "")
+
+        self.assertIn("Approval status: `owner_approved`", queue_path.read_text(encoding="utf-8"))
+        updated_draft = draft_path.read_text(encoding="utf-8")
+        self.assertIn("publish_posture: approved", updated_draft)
+        self.assertIn("owner_decision: approve", updated_draft)
+        updated_packet = packet_path.read_text(encoding="utf-8")
+        self.assertIn("- [x] Approve for scheduling", updated_packet)
+        self.assertIn("Ship this first.", updated_packet)
+
+    def test_pm_owner_review_sync_and_card_action_route(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        queue_path = drafts_dir / "queue_01.md"
+        draft_path = drafts_dir / "feezie-002_quiet-inefficiency-is-still-failure.md"
+        packet_path = drafts_dir / "feezie_owner_review_packet_20260409_b.md"
+
+        queue_path.write_text(
+            """# FEEZIE Draft Queue 01
+
+## Queue
+
+### FEEZIE-002 - Quiet inefficiency is still failure
+- Lane: `ops-pm`
+- Format: long-form LinkedIn post
+- Core angle: Quiet inefficiency is still a real operating cost.
+- Proof anchors:
+  - `../../knowledge/persona/feeze/history/story_bank.md`
+- Why now: the operating signal is visible right now.
+- Status: owner_review_draft (`drafts/feezie-002_quiet-inefficiency-is-still-failure.md`)
+- Owner packet: latest `drafts/feezie_owner_review_packet_YYYYMMDD.md` entry for `FEEZIE-002`
+- Approval status: `owner_review_required`
+""",
+            encoding="utf-8",
+        )
+        draft_path.write_text(
+            """---
+title: "Quiet inefficiency is still failure"
+lane: ops-pm
+publish_posture: owner_review_required
+---
+
+# Quiet inefficiency is still failure
+
+## Why this draft exists
+- Queue item: `FEEZIE-002`
+
+## First-pass draft
+
+This is the second first pass.
+
+## Owner notes
+- Keep the operating examples specific.
+""",
+            encoding="utf-8",
+        )
+        packet_path.write_text(
+            """# FEEZIE Owner Review Packet
+
+## FEEZIE-002 — Quiet inefficiency is still failure
+- **Lane / Format:** `ops-pm` | long-form post
+- **Recommended action:** **Approve for scheduling**
+
+**Owner decision**
+- [ ] Approve for scheduling
+- [ ] Revise (note specifics below)
+- [ ] Park for later
+
+**Draft copy**
+> This is the second first pass.
+
+**Revision notes (if needed):**
+
+---
+""",
+            encoding="utf-8",
+        )
+
+        pending_card = PMCard(
+            id="11111111-1111-4111-8111-111111111112",
+            title="Owner review - FEEZIE-002 - Quiet inefficiency is still failure",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id="FEEZIE-002",
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {"queue_id": "FEEZIE-002"},
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        def fake_create_pending_card(payload):
+            self.assertEqual(payload.status, "review")
+            self.assertEqual(payload.link_id, "FEEZIE-002")
+            self.assertEqual((payload.payload.get("owner_review") or {}).get("queue_id"), "FEEZIE-002")
+            return pending_card
+
+        with (
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(linkedin_owner_review_module.pm_card_service, "create_card", side_effect=fake_create_pending_card),
+        ):
+            sync_response = self.client.post("/api/pm/owner-review/sync")
+        self.assertEqual(sync_response.status_code, 200)
+        sync_payload = sync_response.json()
+        self.assertEqual(sync_payload.get("pending_count"), 1)
+        self.assertIn("11111111-1111-4111-8111-111111111112", sync_payload.get("created_card_ids") or [])
+
+        def fake_update_card(_card_id, patch):
+            return pending_card.model_copy(
+                update={
+                    "title": patch.title if patch.title is not None else pending_card.title,
+                    "status": patch.status if patch.status is not None else pending_card.status,
+                    "payload": patch.payload if patch.payload is not None else pending_card.payload,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+
+        def fake_dispatch_card(card_id, payload):
+            self.assertEqual(card_id, pending_card.id)
+            self.assertEqual(payload.execution_state, "queued")
+            dispatched_card = pending_card.model_copy(
+                update={
+                    "title": "Schedule approved FEEZIE draft - FEEZIE-002",
+                    "status": "todo",
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+            return SimpleNamespace(
+                card=dispatched_card,
+                queue_entry=SimpleNamespace(target_agent="Jean-Claude", execution_state="queued"),
+            )
+
+        with (
+            patch.object(linkedin_owner_review_module.pm_card_service, "get_card", return_value=pending_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=pending_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "update_card", side_effect=fake_update_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "dispatch_card", side_effect=fake_dispatch_card),
+        ):
+            action_response = self.client.post(
+                f"/api/pm/cards/{pending_card.id}/owner-review",
+                json={"decision": "approve", "notes": "Use this one next."},
+            )
+        self.assertEqual(action_response.status_code, 200)
+        action_payload = action_response.json()
+        self.assertEqual((action_payload.get("workflow") or {}).get("status"), "queued")
+        self.assertEqual(action_payload.get("source_card_id"), pending_card.id)
+        self.assertIn("Jean-Claude follow-up is queued", (action_payload.get("workflow") or {}).get("message") or "")
+
+        self.assertIn("Approval status: `owner_approved`", queue_path.read_text(encoding="utf-8"))
+        updated_draft = draft_path.read_text(encoding="utf-8")
+        self.assertIn("publish_posture: approved", updated_draft)
+        updated_packet = packet_path.read_text(encoding="utf-8")
+        self.assertIn("- [x] Approve for scheduling", updated_packet)
+        self.assertIn("Use this one next.", updated_packet)
 
     def test_daily_briefs_attach_live_source_intelligence_to_latest_brief(self) -> None:
         fake_payloads = {
