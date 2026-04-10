@@ -418,6 +418,72 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(result.get("resolved_count"), 0)
         update_card_mock.assert_not_called()
 
+    def test_decorate_card_for_client_marks_feezie_review_as_autonomous_and_prefills_followup(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="feezie-review-card",
+            title="Seed FEEZIE backlog from canonical persona and lived work",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-feezie-1",
+            payload={
+                "workspace_key": "linkedin-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertEqual(policy.get("recommended_resolution_mode"), "close_and_spawn_next")
+        self.assertEqual(policy.get("suggested_next_title"), "Turn seeded FEEZIE backlog into first draft batch")
+
+    def test_decorate_card_for_client_marks_fusion_review_as_needs_owner(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="fusion-review-card",
+            title="Review Fusion delegated result",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-fusion-1",
+            payload={
+                "workspace_key": "fusion-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "workspace_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "needs_owner")
+        self.assertIsNone(policy.get("recommended_resolution_mode"))
+
     def test_act_on_card_return_reroutes_to_jean_claude(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

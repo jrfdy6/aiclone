@@ -19,9 +19,11 @@ from app.models import (
 )
 from app.services.open_brain_db import get_pool
 from app.services.trigger_identity_service import build_pm_trigger_key
-from app.services.workspace_runtime_contract_service import execution_defaults_for_workspace as runtime_execution_defaults_for_workspace
+from app.services.workspace_runtime_contract_service import (
+    execution_defaults_for_workspace as runtime_execution_defaults_for_workspace,
+    pm_review_policy_for_workspace as runtime_pm_review_policy_for_workspace,
+)
 
-AUTO_RESOLVE_WORKSPACES = {"shared_ops", "linkedin-os"}
 AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
 
 
@@ -598,6 +600,18 @@ def auto_resolve_review_cards(limit: int = 250) -> dict[str, Any]:
     }
 
 
+def decorate_card_for_client(card: PMCard | None) -> PMCard | None:
+    if card is None:
+        return None
+    payload = dict(card.payload or {})
+    payload["pm_review_policy"] = _build_client_review_policy(card)
+    return card.model_copy(update={"payload": payload})
+
+
+def decorate_cards_for_client(cards: List[PMCard]) -> List[PMCard]:
+    return [decorate_card_for_client(card) or card for card in cards]
+
+
 def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
     if _is_closed_pm_status(card.status):
         return None
@@ -680,7 +694,8 @@ def _auto_resolve_review_policy(card: PMCard) -> dict[str, str] | None:
         return None
 
     workspace_key = _workspace_key_from_card(card)
-    if workspace_key not in AUTO_RESOLVE_WORKSPACES:
+    workspace_policy = review_policy_for_workspace(workspace_key)
+    if not bool(workspace_policy.get("auto_resolve_review_residue")):
         return None
 
     payload = dict(card.payload or {})
@@ -742,6 +757,10 @@ def execution_defaults_for_workspace(workspace_key: str) -> dict[str, object]:
     return runtime_execution_defaults_for_workspace(workspace_key)
 
 
+def review_policy_for_workspace(workspace_key: str) -> dict[str, object]:
+    return runtime_pm_review_policy_for_workspace(workspace_key)
+
+
 def _merge_execution_defaults(current_execution: dict, defaults: dict[str, object]) -> dict:
     merged = dict(current_execution)
     for key, value in defaults.items():
@@ -766,6 +785,65 @@ def _workspace_key_from_card(card: PMCard) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return "shared_ops"
+
+
+def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
+    workspace_key = _workspace_key_from_card(card)
+    workspace_policy = review_policy_for_workspace(workspace_key)
+    execution = dict(_execution_payload(card) or {})
+    normalized_status = str(card.status or "").strip().lower()
+    owner_gate = _is_owner_decision_gate(card)
+    auto_resolve_policy = _auto_resolve_review_policy(card)
+    attention_class = "fyi"
+    attention_reason = "This card is visible for context, but it does not currently need your judgment."
+    recommended_resolution_mode: str | None = None
+    suggested_next_title: str | None = None
+    suggested_next_reason: str | None = None
+
+    if _is_closed_pm_status(card.status):
+        attention_reason = "This card is already closed and kept here as traceable history."
+    elif owner_gate:
+        attention_class = "needs_owner"
+        attention_reason = "This card is an explicit owner gate and should wait for your call."
+    elif bool(execution.get("manager_attention_required")) or normalized_status in {"blocked", "failed"}:
+        attention_class = "needs_owner"
+        attention_reason = "This lane is blocked or flagged for manager attention and needs a human decision."
+    elif auto_resolve_policy is not None:
+        attention_class = "stale"
+        attention_reason = auto_resolve_policy["reason"]
+    elif normalized_status == "review":
+        interrupt_policy = str(workspace_policy.get("interrupt_policy") or "manual_review")
+        if interrupt_policy == "manual_review":
+            attention_class = "needs_owner"
+            attention_reason = "This workspace expects a human review before a returned result is accepted or continued."
+        elif interrupt_policy == "owner_gate_only":
+            attention_class = "autonomous"
+            attention_reason = "Routine review results in this workspace should keep moving unless they hit an owner gate or blocker."
+            recommended_resolution_mode = _valid_resolution_mode(workspace_policy.get("default_resolution_mode"))
+        elif interrupt_policy == "manager_attention_only":
+            attention_class = "autonomous"
+            attention_reason = "Routine review residue in this workspace should close quietly unless manager attention is required."
+            recommended_resolution_mode = _valid_resolution_mode(workspace_policy.get("default_resolution_mode"))
+    elif normalized_status in {"queued", "running", "in_progress"}:
+        attention_reason = "This card is active system work. You usually only need to step in if it blocks or priorities change."
+
+    if recommended_resolution_mode == "close_and_spawn_next":
+        suggestion = _suggest_review_followup(card, workspace_policy)
+        if suggestion is not None:
+            suggested_next_title = suggestion.get("title")
+            suggested_next_reason = suggestion.get("reason")
+
+    return {
+        "attention_class": attention_class,
+        "attention_reason": attention_reason,
+        "policy_label": _optional_str(workspace_policy.get("policy_label")),
+        "interrupt_policy": _optional_str(workspace_policy.get("interrupt_policy")),
+        "recommended_resolution_mode": recommended_resolution_mode,
+        "suggested_next_title": suggested_next_title,
+        "suggested_next_reason": suggested_next_reason,
+        "auto_resolve_eligible": auto_resolve_policy is not None,
+        "owner_decision_gate": owner_gate,
+    }
 
 
 def _is_closed_pm_status(status: Optional[str]) -> bool:
@@ -805,7 +883,55 @@ def _payload_value(payload: dict, key: str) -> Optional[str]:
 
 
 def _optional_str(value: object) -> Optional[str]:
-    return value if isinstance(value, str) and value.strip() else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _valid_resolution_mode(value: object) -> str | None:
+    normalized = str(value or "").strip()
+    if normalized in {"close_only", "close_and_spawn_next"}:
+        return normalized
+    return None
+
+
+def _suggest_review_followup(card: PMCard, workspace_policy: dict[str, object]) -> dict[str, str] | None:
+    payload = dict(card.payload or {})
+    execution = dict(_execution_payload(card) or {})
+    latest_result = payload.get("latest_execution_result")
+    latest_summary = ""
+    if isinstance(latest_result, dict):
+        latest_summary = str(latest_result.get("summary") or "").strip()
+    haystack = " ".join(
+        item
+        for item in [
+            card.title,
+            str(payload.get("reason") or "").strip(),
+            str(execution.get("reason") or "").strip(),
+            latest_summary,
+        ]
+        if item
+    ).lower()
+
+    templates = workspace_policy.get("followup_templates")
+    if isinstance(templates, list):
+        for template in templates:
+            if not isinstance(template, dict):
+                continue
+            keywords = [str(item).strip().lower() for item in (template.get("match_any") or []) if str(item).strip()]
+            if keywords and any(keyword in haystack for keyword in keywords):
+                title = _optional_str(template.get("title"))
+                if title:
+                    return {
+                        "title": title,
+                        "reason": _optional_str(template.get("reason")) or f"Follow-on work continues after accepting '{card.title}'.",
+                    }
+
+    fallback_title = _optional_str(workspace_policy.get("default_next_title"))
+    if fallback_title:
+        return {
+            "title": fallback_title,
+            "reason": _optional_str(workspace_policy.get("default_next_reason")) or f"Follow-on work continues after accepting '{card.title}'.",
+        }
+    return None
 
 
 def _datetime_to_iso(value: Optional[datetime]) -> Optional[str]:

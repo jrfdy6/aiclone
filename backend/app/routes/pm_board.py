@@ -29,12 +29,14 @@ async def list_cards(
     workspace_key: Optional[str] = None,
     limit: int = 100,
 ):
-    return pm_card_service.list_cards(limit=limit, status=status, owner=owner, workspace_key=workspace_key)
+    return pm_card_service.decorate_cards_for_client(
+        pm_card_service.list_cards(limit=limit, status=status, owner=owner, workspace_key=workspace_key)
+    )
 
 
 @router.post("/cards", response_model=PMCard)
 async def create_card(payload: PMCardCreate):
-    return pm_card_service.create_card(payload)
+    return pm_card_service.decorate_card_for_client(pm_card_service.create_card(payload))
 
 
 @router.post("/owner-review/sync")
@@ -69,7 +71,10 @@ async def dispatch_card(card_id: UUID, payload: PMCardDispatchRequest):
     result = pm_card_service.dispatch_card(str(card_id), payload)
     if not result:
         raise HTTPException(status_code=404, detail="PM card not found")
-    return result
+    return PMCardDispatchResult(
+        card=pm_card_service.decorate_card_for_client(result.card) or result.card,
+        queue_entry=result.queue_entry,
+    )
 
 
 @router.post("/cards/{card_id}/actions", response_model=PMCardActionResult)
@@ -80,7 +85,11 @@ async def act_on_card(card_id: UUID, payload: PMCardActionRequest):
         raise HTTPException(status_code=400, detail=str(exc))
     if not result:
         raise HTTPException(status_code=404, detail="PM card not found")
-    return result
+    return PMCardActionResult(
+        card=pm_card_service.decorate_card_for_client(result.card) or result.card,
+        queue_entry=result.queue_entry,
+        successor_card=pm_card_service.decorate_card_for_client(result.successor_card) if result.successor_card else None,
+    )
 
 
 @router.post("/cards/{card_id}/owner-review")
@@ -96,4 +105,4 @@ async def update_card(card_id: UUID, payload: PMCardUpdate):
     card = pm_card_service.update_card(str(card_id), payload)
     if not card:
         raise HTTPException(status_code=404, detail="PM card not found")
-    return card
+    return pm_card_service.decorate_card_for_client(card)

@@ -167,6 +167,31 @@ type PMCard = {
   updated_at?: string;
 };
 
+type PMReviewAttentionClass = 'needs_owner' | 'stale' | 'autonomous' | 'fyi';
+
+type PMReviewPolicyPayload = {
+  attention_class?: PMReviewAttentionClass;
+  attention_reason?: string | null;
+  policy_label?: string | null;
+  interrupt_policy?: string | null;
+  recommended_resolution_mode?: PMCardResolutionMode | null;
+  suggested_next_title?: string | null;
+  suggested_next_reason?: string | null;
+  auto_resolve_eligible?: boolean;
+  owner_decision_gate?: boolean;
+};
+
+type PMReviewHygieneResult = {
+  resolved_count?: number;
+  resolved?: Array<{
+    card_id: string;
+    title: string;
+    workspace_key: string;
+    rule?: string;
+    reason?: string;
+  }>;
+};
+
 type ExecutionQueueEntry = {
   card_id: string;
   title: string;
@@ -218,6 +243,7 @@ type UnifiedBoardItem = {
   updatedAt?: string | null;
   dueAt?: string | null;
   queueEntry?: ExecutionQueueEntry | null;
+  pmReviewPolicy?: PMReviewPolicyPayload | null;
 };
 
 type BoardItemGuidance = {
@@ -1194,6 +1220,7 @@ export default function OpsClient({
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [automationRuns, setAutomationRuns] = useState<AutomationRun[]>([]);
   const [pmCards, setPmCards] = useState<PMCard[]>([]);
+  const [reviewHygieneSummary, setReviewHygieneSummary] = useState<PMReviewHygieneResult | null>(null);
   const [executionQueue, setExecutionQueue] = useState<ExecutionQueueEntry[]>([]);
   const [standups, setStandups] = useState<StandupEntry[]>([]);
   const [brainMetrics, setBrainMetrics] = useState<OpenBrainTelemetry | null>(null);
@@ -1318,9 +1345,14 @@ export default function OpsClient({
       if (!autoResolveResponse.ok) {
         const text = await autoResolveResponse.text().catch(() => autoResolveResponse.statusText);
         autoResolveError = `${autoResolveResponse.status} ${autoResolveResponse.statusText}: ${text}`;
+        setReviewHygieneSummary(null);
+      } else {
+        const payload = (await autoResolveResponse.json().catch(() => null)) as PMReviewHygieneResult | null;
+        setReviewHygieneSummary(payload);
       }
     } catch (error) {
       autoResolveError = toErrorMessage(error);
+      setReviewHygieneSummary(null);
     }
 
     try {
@@ -1687,6 +1719,7 @@ export default function OpsClient({
       {activePanel === 'pm' && (
         <PMBoardPanel
           cards={pmCards}
+          reviewHygieneSummary={reviewHygieneSummary}
           executionQueue={executionQueue}
           standups={standups}
           automations={automations}
@@ -2164,6 +2197,7 @@ const STANDUP_ROOMS: {
 
 function PMBoardPanel({
   cards,
+  reviewHygieneSummary,
   executionQueue,
   standups,
   automations,
@@ -2176,6 +2210,7 @@ function PMBoardPanel({
   onOpenArtifactPath,
 }: {
   cards: PMCard[];
+  reviewHygieneSummary: PMReviewHygieneResult | null;
   executionQueue: ExecutionQueueEntry[];
   standups: StandupEntry[];
   automations: Automation[];
@@ -2351,6 +2386,11 @@ function PMBoardPanel({
           <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>
             This is the short list. Open these first. Ignore the rest of the board unless priorities changed.
           </p>
+          {Number(reviewHygieneSummary?.resolved_count ?? 0) > 0 ? (
+            <p style={{ color: '#86efac', fontSize: '12px', margin: '8px 0 0' }}>
+              The system cleared {reviewHygieneSummary?.resolved_count} stale review card{reviewHygieneSummary?.resolved_count === 1 ? '' : 's'} on this refresh.
+            </p>
+          ) : null}
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
           <div style={{ borderRadius: '999px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '7px 11px', color: '#fef3c7', fontSize: '12px' }}>
@@ -2360,7 +2400,7 @@ function PMBoardPanel({
             Probably stale: {ownerAttentionCounts.stale}
           </div>
           <div style={{ borderRadius: '999px', border: '1px solid rgba(148,163,184,0.24)', backgroundColor: 'rgba(148,163,184,0.08)', padding: '7px 11px', color: '#cbd5e1', fontSize: '12px' }}>
-            FYI only: {ownerAttentionCounts.update}
+            System-managed: {ownerAttentionCounts.update}
           </div>
         </div>
         {ownerInboxItems.length === 0 ? (
@@ -2374,7 +2414,7 @@ function PMBoardPanel({
                   ? { label: 'Needs your call', color: '#fef3c7', border: 'rgba(251,191,36,0.28)', background: 'rgba(251,191,36,0.08)' }
                   : item.kind === 'stale'
                     ? { label: 'Probably stale', color: '#fecaca', border: 'rgba(248,113,113,0.28)', background: 'rgba(248,113,113,0.08)' }
-                    : { label: 'Update only', color: '#cbd5e1', border: 'rgba(148,163,184,0.24)', background: 'rgba(148,163,184,0.08)' };
+                    : { label: 'System-managed', color: '#cbd5e1', border: 'rgba(148,163,184,0.24)', background: 'rgba(148,163,184,0.08)' };
               return (
                 <article
                   key={`owner-inbox-${item.cardId}`}
@@ -2648,6 +2688,10 @@ function PMCardDetailModal({
   const theme = workspaceBoardTheme(boardItem.workspaceKey);
   const guidance = boardItemGuidance(boardItem);
   const payload = card.payload ?? {};
+  const pmReviewPolicy =
+    payload.pm_review_policy && typeof payload.pm_review_policy === 'object'
+      ? (payload.pm_review_policy as PMReviewPolicyPayload)
+      : null;
   const ownerReviewPayload =
     payload.owner_review && typeof payload.owner_review === 'object'
       ? (payload.owner_review as OwnerReviewCardPayload)
@@ -2659,10 +2703,10 @@ function PMCardDetailModal({
       ownerReviewPayload?.approval_status === 'owner_review_required' ||
       boardItem.lane === 'review');
   const [ownerReviewNotes, setOwnerReviewNotes] = useState(ownerReviewPayload?.current_notes ?? '');
-  const [resolutionMode, setResolutionMode] = useState<PMCardResolutionMode | null>(null);
+  const [resolutionMode, setResolutionMode] = useState<PMCardResolutionMode | null>(pmReviewPolicy?.recommended_resolution_mode ?? null);
   const [resolutionNote, setResolutionNote] = useState('');
-  const [nextCardTitle, setNextCardTitle] = useState('');
-  const [nextCardReason, setNextCardReason] = useState('');
+  const [nextCardTitle, setNextCardTitle] = useState(pmReviewPolicy?.suggested_next_title ?? '');
+  const [nextCardReason, setNextCardReason] = useState(pmReviewPolicy?.suggested_next_reason ?? '');
   const rawSource = boardItem.source ?? card.source ?? 'manual';
   const linkType = typeof card.link_type === 'string' && card.link_type.trim() ? card.link_type.trim() : 'manual';
   const linkId = typeof card.link_id === 'string' && card.link_id.trim() ? card.link_id.trim() : null;
@@ -2986,6 +3030,15 @@ function PMCardDetailModal({
           <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>
             Actions
           </p>
+          {pmReviewPolicy?.policy_label && !isPendingOwnerReview && (boardItem.lane === 'review' || Boolean(pmReviewPolicy.auto_resolve_eligible)) ? (
+            <section style={{ borderRadius: '14px', border: '1px solid rgba(56,189,248,0.22)', backgroundColor: '#08101f', padding: '12px 14px', marginBottom: '12px' }}>
+              <p style={{ color: '#38bdf8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 6px' }}>System Policy</p>
+              <p style={{ color: '#dbeafe', fontSize: '13px', lineHeight: 1.55, margin: '0 0 6px' }}>{pmReviewPolicy.policy_label}</p>
+              {pmReviewPolicy.attention_reason ? (
+                <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{pmReviewPolicy.attention_reason}</p>
+              ) : null}
+            </section>
+          ) : null}
           {isPendingOwnerReview && ownerReviewPayload ? (
             <div style={{ display: 'grid', gap: '12px' }}>
               <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
@@ -3045,6 +3098,11 @@ function PMCardDetailModal({
                   <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
                     Resolving a review card now requires an explicit next-step choice so the loop either closes intentionally or spawns the next lane.
                   </p>
+                  {pmReviewPolicy?.recommended_resolution_mode ? (
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                      Default for this workspace: {pmReviewPolicy.recommended_resolution_mode === 'close_and_spawn_next' ? 'close and spawn the next card' : 'close only'}.
+                    </p>
+                  ) : null}
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     {([
                       ['close_only', 'Close only'],
@@ -7717,6 +7775,14 @@ function workspaceKeyFromCard(card: PMCard) {
   return 'shared_ops';
 }
 
+function pmReviewPolicyFromCard(card?: PMCard | null): PMReviewPolicyPayload | null {
+  const payload = (card?.payload ?? {}) as Record<string, unknown>;
+  if (!payload.pm_review_policy || typeof payload.pm_review_policy !== 'object') {
+    return null;
+  }
+  return payload.pm_review_policy as PMReviewPolicyPayload;
+}
+
 function meetingLabelForWorkspace(workspaceKey: string) {
   switch (workspaceKey) {
     case 'shared_ops':
@@ -7887,6 +7953,7 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
       updatedAt: entry.last_transition_at ?? card?.updated_at ?? card?.created_at ?? null,
       dueAt: card?.due_at ?? null,
       queueEntry: entry,
+      pmReviewPolicy: pmReviewPolicyFromCard(card),
     });
     seen.add(entry.card_id);
   });
@@ -7911,6 +7978,7 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
       updatedAt: card.updated_at ?? card.created_at ?? null,
       dueAt: card.due_at ?? null,
       queueEntry: null,
+      pmReviewPolicy: pmReviewPolicyFromCard(card),
     });
   });
 
@@ -7937,6 +8005,9 @@ function parseUpdatedAtMillis(value?: string | null) {
 }
 
 function isLikelyStaleBoardItem(item: UnifiedBoardItem) {
+  if (item.pmReviewPolicy?.attention_class === 'stale' || item.pmReviewPolicy?.auto_resolve_eligible) {
+    return true;
+  }
   if (item.lane !== 'review') {
     return false;
   }
@@ -7954,6 +8025,7 @@ function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem
       const source = String(item.source ?? '').toLowerCase();
       const stale = isLikelyStaleBoardItem(item);
       const isOwnerReview = source.includes('workspace-owner-review');
+      const attentionClass = item.pmReviewPolicy?.attention_class;
       let kind: OwnerAttentionKind = 'update';
       let summary = 'This lane is moving or parked in the background. You usually do not need to do anything right now.';
       let nextAction = 'Ignore it unless priorities changed.';
@@ -7962,10 +8034,21 @@ function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem
         kind = 'decision';
         summary = 'A draft is waiting for your approval call.';
         nextAction = 'Open it and choose approve, request revision, or park.';
+      } else if (attentionClass === 'needs_owner') {
+        kind = 'decision';
+        summary = item.pmReviewPolicy?.attention_reason ?? 'This card still needs a human decision.';
+        nextAction = item.lane === 'review' ? 'Open it and resolve the returned result.' : 'Open it and decide the next step.';
       } else if (stale) {
         kind = 'stale';
-        summary = 'This card was pulled back up by the system and may already be handled outside PM.';
+        summary = item.pmReviewPolicy?.attention_reason ?? 'This card was pulled back up by the system and may already be handled outside PM.';
         nextAction = 'Open it. If already solved, close it. If still real, send it back into work.';
+      } else if (attentionClass === 'autonomous') {
+        kind = 'update';
+        summary = item.pmReviewPolicy?.attention_reason ?? 'This workspace is configured to keep this type of result moving on its own.';
+        nextAction =
+          item.pmReviewPolicy?.recommended_resolution_mode === 'close_and_spawn_next'
+            ? 'Open it only if you want to inspect or override the default follow-up.'
+            : 'Ignore it unless you want to inspect or override the default closeout.';
       } else if (item.lane === 'review') {
         kind = 'decision';
         summary = 'A result came back and the system is waiting for your judgment.';
@@ -8015,6 +8098,16 @@ function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
       summary: 'This card is waiting on an owner decision for a FEEZIE draft, not on more agent execution.',
       userRole: 'Read the draft, decide approve, revise, or park, and let PM mutate the downstream lane from that judgment.',
       nextAction: 'Open the card, review the first-pass copy, and make the owner call from the Actions block.',
+    };
+  }
+  if (item.pmReviewPolicy?.attention_class === 'autonomous' && item.lane === 'review') {
+    return {
+      summary: 'This workspace is configured to keep accepted review results moving without asking you for routine closure.',
+      userRole: 'Only step in if you want to inspect or override the default follow-through.',
+      nextAction:
+        item.pmReviewPolicy?.recommended_resolution_mode === 'close_and_spawn_next'
+          ? 'Use the prefilled resolve settings if you want to accept the result and keep the loop moving.'
+          : 'Use the preselected resolve settings if you want to accept the result as routine system work.',
     };
   }
   if (isLikelyStaleBoardItem(item)) {
