@@ -226,6 +226,19 @@ type BoardItemGuidance = {
   nextAction: string;
 };
 
+type OwnerAttentionKind = 'decision' | 'stale' | 'update';
+
+type OwnerAttentionItem = {
+  cardId: string;
+  title: string;
+  workspaceKey: string;
+  kind: OwnerAttentionKind;
+  lane: UnifiedBoardLaneKey;
+  summary: string;
+  nextAction: string;
+  updatedAt?: string | null;
+};
+
 type StandupEntry = {
   id: string;
   owner: string;
@@ -2217,6 +2230,19 @@ function PMBoardPanel({
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [selectedBoardCardId, setSelectedBoardCardId] = useState<string | null>(null);
   const unifiedBoardItems = useMemo(() => Object.values(unifiedBoard).flat(), [unifiedBoard]);
+  const ownerAttentionItems = useMemo(() => buildOwnerAttentionItems(unifiedBoardItems), [unifiedBoardItems]);
+  const ownerAttentionCounts = useMemo(
+    () => ({
+      decision: ownerAttentionItems.filter((item) => item.kind === 'decision').length,
+      stale: ownerAttentionItems.filter((item) => item.kind === 'stale').length,
+      update: ownerAttentionItems.filter((item) => item.kind === 'update').length,
+    }),
+    [ownerAttentionItems],
+  );
+  const ownerInboxItems = useMemo(
+    () => ownerAttentionItems.filter((item) => item.kind !== 'update'),
+    [ownerAttentionItems],
+  );
   const selectedBoardItem = useMemo(
     () => (selectedBoardCardId ? unifiedBoardItems.find((item) => item.cardId === selectedBoardCardId) ?? null : null),
     [selectedBoardCardId, unifiedBoardItems],
@@ -2303,6 +2329,84 @@ function PMBoardPanel({
             </p>
           ))}
         </div>
+      </section>
+      <section style={{ borderRadius: '18px', border: '1px solid rgba(56,189,248,0.22)', backgroundColor: '#08101f', padding: '14px' }}>
+        <div style={{ marginBottom: '10px' }}>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>What Needs You</p>
+          <h3 style={{ fontSize: '20px', color: 'white', margin: '4px 0' }}>Owner inbox</h3>
+          <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>
+            This is the short list. Open these first. Ignore the rest of the board unless priorities changed.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+          <div style={{ borderRadius: '999px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '7px 11px', color: '#fef3c7', fontSize: '12px' }}>
+            Needs decision: {ownerAttentionCounts.decision}
+          </div>
+          <div style={{ borderRadius: '999px', border: '1px solid rgba(248,113,113,0.28)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '7px 11px', color: '#fecaca', fontSize: '12px' }}>
+            Probably stale: {ownerAttentionCounts.stale}
+          </div>
+          <div style={{ borderRadius: '999px', border: '1px solid rgba(148,163,184,0.24)', backgroundColor: 'rgba(148,163,184,0.08)', padding: '7px 11px', color: '#cbd5e1', fontSize: '12px' }}>
+            FYI only: {ownerAttentionCounts.update}
+          </div>
+        </div>
+        {ownerInboxItems.length === 0 ? (
+          <EmptyPanel message={ownerAttentionCounts.update > 0 ? 'Nothing needs your judgment right now. The remaining cards look like background updates.' : 'Nothing currently looks like it needs your judgment.'} compact />
+        ) : (
+          <div style={{ display: 'grid', gap: '10px' }}>
+            {ownerInboxItems.slice(0, 8).map((item) => {
+              const theme = workspaceBoardTheme(item.workspaceKey);
+              const tone =
+                item.kind === 'decision'
+                  ? { label: 'Needs your call', color: '#fef3c7', border: 'rgba(251,191,36,0.28)', background: 'rgba(251,191,36,0.08)' }
+                  : item.kind === 'stale'
+                    ? { label: 'Probably stale', color: '#fecaca', border: 'rgba(248,113,113,0.28)', background: 'rgba(248,113,113,0.08)' }
+                    : { label: 'Update only', color: '#cbd5e1', border: 'rgba(148,163,184,0.24)', background: 'rgba(148,163,184,0.08)' };
+              return (
+                <article
+                  key={`owner-inbox-${item.cardId}`}
+                  style={{
+                    borderRadius: '14px',
+                    border: `1px solid ${theme.border}`,
+                    backgroundColor: theme.background,
+                    padding: '12px',
+                    display: 'grid',
+                    gap: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ borderRadius: '999px', border: `1px solid ${tone.border}`, backgroundColor: tone.background, color: tone.color, padding: '4px 8px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
+                        {tone.label}
+                      </span>
+                      <span style={{ color: theme.accent, fontSize: '12px' }}>{meetingLabelForWorkspace(item.workspaceKey)}</span>
+                    </div>
+                    <span style={{ color: '#94a3b8', fontSize: '12px' }}>{item.updatedAt ? formatTimestamp(new Date(item.updatedAt)) : '-'}</span>
+                  </div>
+                  <p style={{ color: 'white', fontSize: '15px', fontWeight: 700, margin: 0 }}>{item.title}</p>
+                  <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{item.summary}</p>
+                  <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{item.nextAction}</p>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBoardCardId(item.cardId)}
+                      style={{
+                        borderRadius: '999px',
+                        border: `1px solid ${theme.border}`,
+                        backgroundColor: '#0f172a',
+                        color: '#f8fafc',
+                        padding: '8px 12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Open card
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
       <details style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '12px 14px' }}>
         <summary style={{ cursor: 'pointer', color: 'white', fontWeight: 700, listStyle: 'none' }}>
@@ -2598,6 +2702,7 @@ function PMCardDetailModal({
   );
   const historyItems = buildPmCardHistoryItems(card, boardItem, linkedStandups);
   const heldAtPmLayer = isHeldPmLayerStatus(card.status, boardItem.lane, boardItem.executionState);
+  const likelyStaleBoardItem = isLikelyStaleBoardItem(boardItem);
   const pmStatusLabel = displayPmStatusLabel(card.status, boardItem.lane, boardItem.executionState);
   const executionStatusLabel = boardItem.executionState ? displayExecutionStateLabel(boardItem.executionState) : null;
   const rawRecord = JSON.stringify(
@@ -2728,6 +2833,23 @@ function PMCardDetailModal({
     }
   };
 
+  const handleAlreadyHandled = async () => {
+    try {
+      setActioningCardId(card.id);
+      setActionError(null);
+      setActionFeedback(null);
+      await onActOnPmCard(card.id, 'approve', {
+        reason: resolutionNote.trim() || 'Closed as already handled outside PM.',
+        resolutionMode: 'close_only',
+      });
+      setActionFeedback(`Closed ${card.title} as already handled.`);
+    } catch (error) {
+      setActionError(toErrorMessage(error));
+    } finally {
+      setActioningCardId(null);
+    }
+  };
+
   return (
     <div
       onClick={onClose}
@@ -2803,6 +2925,14 @@ function PMCardDetailModal({
             {actionFeedback}
           </div>
         )}
+        {likelyStaleBoardItem ? (
+          <section style={{ borderRadius: '14px', border: '1px solid rgba(248,113,113,0.28)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '12px 14px', marginBottom: '12px' }}>
+            <p style={{ color: '#fecaca', fontSize: '14px', fontWeight: 700, margin: '0 0 6px' }}>This may already be handled</p>
+            <p style={{ color: '#fee2e2', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+              The system pulled this card back up because it looked stale. If you already fixed it somewhere else, you can close it here without creating more work.
+            </p>
+          </section>
+        ) : null}
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
           {([
@@ -2989,6 +3119,16 @@ function PMCardDetailModal({
                 </div>
               ) : null}
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {likelyStaleBoardItem && boardItem.lane === 'review' ? (
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleAlreadyHandled()}
+                  style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Closing…' : 'Already handled'}
+                </button>
+              ) : null}
               {(boardItem.lane === 'ready' || boardItem.lane === 'todo') && (
                 <button
                   type="button"
@@ -7774,12 +7914,100 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
   return lanes;
 }
 
+function parseUpdatedAtMillis(value?: string | null) {
+  if (!value) {
+    return 0;
+  }
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function isLikelyStaleBoardItem(item: UnifiedBoardItem) {
+  if (item.lane !== 'review') {
+    return false;
+  }
+  const updatedAt = parseUpdatedAtMillis(item.updatedAt);
+  const ageHours = updatedAt > 0 ? (Date.now() - updatedAt) / 3_600_000 : 0;
+  const reason = String(item.reason ?? '').toLowerCase();
+  const sweepReroute = reason.includes('accountability sweep rerouted this stale');
+  return sweepReroute || ageHours >= 72;
+}
+
+function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem[] {
+  const ranked = items
+    .filter((item) => item.lane !== 'done')
+    .map((item) => {
+      const source = String(item.source ?? '').toLowerCase();
+      const stale = isLikelyStaleBoardItem(item);
+      const isOwnerReview = source.includes('workspace-owner-review');
+      let kind: OwnerAttentionKind = 'update';
+      let summary = 'This lane is moving or parked in the background. You usually do not need to do anything right now.';
+      let nextAction = 'Ignore it unless priorities changed.';
+
+      if (isOwnerReview) {
+        kind = 'decision';
+        summary = 'A draft is waiting for your approval call.';
+        nextAction = 'Open it and choose approve, request revision, or park.';
+      } else if (stale) {
+        kind = 'stale';
+        summary = 'This card was pulled back up by the system and may already be handled outside PM.';
+        nextAction = 'Open it. If already solved, close it. If still real, send it back into work.';
+      } else if (item.lane === 'review') {
+        kind = 'decision';
+        summary = 'A result came back and the system is waiting for your judgment.';
+        nextAction = 'Open it and decide whether to close it or create the next card.';
+      } else if (item.lane === 'failed') {
+        kind = 'decision';
+        summary = 'This lane hit a blocker and needs a human call.';
+        nextAction = 'Open it and decide whether to reroute it or keep it blocked.';
+      } else if (item.lane === 'ready') {
+        kind = 'update';
+        summary = 'This card is ready to start, but nothing is broken if you leave it alone.';
+        nextAction = 'Only open it if you want the system to begin that work now.';
+      } else if (item.lane === 'todo') {
+        kind = 'update';
+        summary = 'This is backlog, not an urgent decision.';
+        nextAction = 'Ignore it unless you want to reprioritize backlog.';
+      }
+
+      const rank = kind === 'decision' ? 0 : kind === 'stale' ? 1 : 2;
+      return {
+        cardId: item.cardId,
+        title: item.title,
+        workspaceKey: item.workspaceKey,
+        kind,
+        lane: item.lane,
+        summary,
+        nextAction,
+        updatedAt: item.updatedAt,
+        rank,
+        updatedAtMillis: parseUpdatedAtMillis(item.updatedAt),
+      };
+    });
+
+  return ranked
+    .sort((left, right) => {
+      if (left.rank !== right.rank) {
+        return left.rank - right.rank;
+      }
+      return right.updatedAtMillis - left.updatedAtMillis;
+    })
+    .map(({ rank: _rank, updatedAtMillis: _updatedAtMillis, ...item }) => item);
+}
+
 function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
   if ((item.source ?? '').includes('workspace-owner-review') && item.lane === 'review') {
     return {
       summary: 'This card is waiting on an owner decision for a FEEZIE draft, not on more agent execution.',
       userRole: 'Read the draft, decide approve, revise, or park, and let PM mutate the downstream lane from that judgment.',
       nextAction: 'Open the card, review the first-pass copy, and make the owner call from the Actions block.',
+    };
+  }
+  if (isLikelyStaleBoardItem(item)) {
+    return {
+      summary: 'This card was resurfaced by the accountability sweep and may already be solved outside PM.',
+      userRole: 'Confirm whether this is still real work or just stale system residue.',
+      nextAction: 'If it is already handled, close it. If it still matters, resolve it into the next concrete card.',
     };
   }
   switch (item.lane) {
