@@ -246,6 +246,95 @@ def _draft_path_from_status(root: Path, status_value: str) -> tuple[str, Path | 
     return relative_path, root / relative_path
 
 
+def _assessment_recommendation_text(item: dict[str, Any]) -> str:
+    return re.sub(r"\*+", "", str(item.get("packet_recommendation") or "")).strip()
+
+
+def _build_owner_review_assessment(item: dict[str, Any]) -> dict[str, Any]:
+    recommendation_text = _assessment_recommendation_text(item)
+    recommendation_lower = recommendation_text.lower()
+    source_kind = str(item.get("source_kind") or "").strip()
+    latent_reason = str(item.get("latent_reason") or "").strip()
+    first_pass_draft = str(item.get("first_pass_draft") or "").strip()
+    proof_anchors = [str(anchor).strip() for anchor in (item.get("proof_anchors") or []) if str(anchor).strip()]
+    draft_owner_notes = [str(note).strip() for note in (item.get("draft_owner_notes") or []) if str(note).strip()]
+    revision_goals = [str(goal).strip() for goal in (item.get("revision_goals") or []) if str(goal).strip()]
+
+    decision = "revise"
+    confidence = "medium"
+    reasons: list[str] = []
+    missing_items: list[str] = []
+
+    if recommendation_text:
+        if "park" in recommendation_lower:
+            decision = "park"
+            confidence = "medium"
+            reasons.append("The owner packet already leans toward parking this instead of advancing it.")
+        elif "approve" in recommendation_lower and "after" not in recommendation_lower:
+            decision = "approve"
+            confidence = "high"
+            reasons.append("The owner packet already recommends approval or scheduling.")
+        elif "revise" in recommendation_lower or "after" in recommendation_lower:
+            decision = "revise"
+            confidence = "medium"
+            reasons.append("The owner packet still frames this as conditional rather than schedule-ready.")
+
+    if source_kind == "latent_transform":
+        decision = "revise"
+        confidence = "high" if first_pass_draft and revision_goals else "medium"
+        reasons.append("This came from the latent transform lane, so it is still being translated into your angle and audience context.")
+        if latent_reason == "needs_context_translation":
+            missing_items.append("The audience consequence is still implied rather than clearly named.")
+
+    if not first_pass_draft:
+        missing_items.append("There is no first-pass draft attached yet.")
+    elif len(first_pass_draft.split()) < 70:
+        missing_items.append("The first-pass draft is still short enough that the final angle may not be fully expressed.")
+
+    if not proof_anchors:
+        missing_items.append("No proof anchors are attached yet.")
+
+    if not str(item.get("core_angle") or "").strip():
+        missing_items.append("The core angle is not stated explicitly.")
+
+    if not str(item.get("why_now") or "").strip():
+        missing_items.append("The timing or audience consequence is not stated explicitly.")
+
+    if draft_owner_notes:
+        reasons.append("The draft already carries explicit owner notes, so the system should not assume it is frictionless.")
+
+    if revision_goals:
+        reasons.append("There are named revision goals, which usually means this is closer to revise than approve.")
+
+    if decision == "approve" and missing_items:
+        confidence = "medium"
+    elif decision == "park" and len(missing_items) >= 2:
+        confidence = "high"
+    elif decision == "revise" and (revision_goals or source_kind == "latent_transform" or len(missing_items) >= 2):
+        confidence = "high"
+    elif decision == "revise" and not missing_items:
+        confidence = "medium"
+
+    if decision == "approve":
+        summary = "System suggestion: approve if the hook and proof feel publicly defensible on one clean read."
+        fallback_action = "If you still want to add a story beat, sharper audience consequence, or cleaner proof line, choose Revise instead."
+    elif decision == "park":
+        summary = "System suggestion: park this unless you already know exactly how it becomes stronger in the next cycle."
+        fallback_action = "Only keep it alive if the angle matters strategically and you know what concrete proof or timing change would rescue it."
+    else:
+        summary = "System suggestion: revise before this moves forward."
+        fallback_action = "Approve only if you can already defend the claim, proof, and audience consequence without adding anything material."
+
+    return {
+        "suggested_decision": decision,
+        "confidence": confidence,
+        "summary": summary,
+        "reasons": reasons[:3],
+        "missing_items": missing_items[:4],
+        "fallback_action": fallback_action,
+    }
+
+
 def _serialize_item(root: Path, queue_id: str, title: str, fields: dict[str, str], list_fields: dict[str, list[str]], packet_path: Path | None) -> dict[str, Any]:
     status_value = fields.get("status", "")
     draft_rel_path, draft_path = _draft_path_from_status(root, status_value)
@@ -257,7 +346,7 @@ def _serialize_item(root: Path, queue_id: str, title: str, fields: dict[str, str
     if not current_decision:
         current_decision = frontmatter.get("owner_decision") or None
     current_notes = decision_notes or frontmatter.get("owner_review_notes") or None
-    return {
+    item = {
         "queue_id": queue_id,
         "title": title,
         "lane": fields.get("lane", ""),
@@ -287,6 +376,8 @@ def _serialize_item(root: Path, queue_id: str, title: str, fields: dict[str, str
         "source_url": frontmatter.get("source_url") or None,
         "idea_id": frontmatter.get("idea_id") or None,
     }
+    item["system_assessment"] = _build_owner_review_assessment(item)
+    return item
 
 
 def _serialize_supplemental_owner_review_item(root: Path, draft_path: Path) -> dict[str, Any] | None:
@@ -324,7 +415,7 @@ def _serialize_supplemental_owner_review_item(root: Path, draft_path: Path) -> d
     if proof_prompt:
         proof_anchors.append(f"Proof prompt: {proof_prompt}")
 
-    return {
+    item = {
         "queue_id": queue_id,
         "title": title,
         "lane": str(frontmatter.get("lane") or ""),
@@ -355,6 +446,8 @@ def _serialize_supplemental_owner_review_item(root: Path, draft_path: Path) -> d
         "transform_type": frontmatter.get("transform_type") or None,
         "generated_by": frontmatter.get("generated_by") or None,
     }
+    item["system_assessment"] = _build_owner_review_assessment(item)
+    return item
 
 
 def _list_supplemental_owner_review_items(root: Path) -> list[dict[str, Any]]:
@@ -508,6 +601,7 @@ def _build_owner_review_card_payload(
                 "source_kind": item.get("source_kind"),
                 "source_url": item.get("source_url"),
                 "idea_id": item.get("idea_id"),
+                "system_assessment": item.get("system_assessment"),
             },
             "execution": _build_owner_review_execution(reason),
         }
@@ -596,6 +690,7 @@ def _build_pending_owner_review_card_payload(
                 "revision_goals": item.get("revision_goals") or [],
                 "latent_reason": item.get("latent_reason"),
                 "transform_type": item.get("transform_type"),
+                "system_assessment": item.get("system_assessment"),
             },
         }
     )

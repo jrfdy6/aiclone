@@ -727,6 +727,7 @@ This is the first pass.
         self.assertEqual(items[0].get("publish_posture"), "owner_review_required")
         self.assertIsNone(items[0].get("current_notes"))
         self.assertIn("This is the first pass.", items[0].get("first_pass_draft") or "")
+        self.assertEqual((items[0].get("system_assessment") or {}).get("suggested_decision"), "approve")
 
         created_card = PMCard(
             id="owner-review-card-1",
@@ -1012,6 +1013,7 @@ This is the latent first pass.
         self.assertEqual(latent_item.get("source_kind"), "latent_transform")
         self.assertEqual(latent_item.get("entry_kind"), "supplemental")
         self.assertIn("This is the latent first pass.", latent_item.get("first_pass_draft") or "")
+        self.assertEqual((latent_item.get("system_assessment") or {}).get("suggested_decision"), "revise")
 
         created_card = PMCard(
             id="owner-review-card-latent-1",
@@ -1031,6 +1033,7 @@ This is the latent first pass.
             self.assertEqual(payload.payload.get("workspace_key"), "linkedin-os")
             self.assertEqual(owner_review.get("decision"), "revise")
             self.assertEqual(owner_review.get("source_kind"), "latent_transform")
+            self.assertEqual((owner_review.get("system_assessment") or {}).get("suggested_decision"), "revise")
             self.assertIsNone(payload.link_id)
             return created_card
 
@@ -1140,6 +1143,7 @@ This is another latent first pass.
                 self.assertEqual(owner_review.get("source_kind"), "latent_transform")
                 self.assertEqual(owner_review.get("entry_kind"), "supplemental")
                 self.assertEqual(owner_review.get("draft_path"), "drafts/2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md")
+                self.assertEqual((owner_review.get("system_assessment") or {}).get("suggested_decision"), "revise")
                 return pending_card.model_copy(update={"link_id": payload.link_id})
             return PMCard(
                 id=f"owner-review-{len(created_payloads)}",

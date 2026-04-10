@@ -364,6 +364,15 @@ type PMCardActionOptions = {
 
 type OwnerReviewDecision = 'approve' | 'revise' | 'park';
 
+type OwnerReviewSystemAssessment = {
+  suggested_decision?: OwnerReviewDecision | string;
+  confidence?: 'high' | 'medium' | 'low' | string;
+  summary?: string;
+  reasons?: string[];
+  missing_items?: string[];
+  fallback_action?: string;
+};
+
 type OwnerReviewCardPayload = {
   queue_id?: string;
   title?: string;
@@ -391,6 +400,7 @@ type OwnerReviewCardPayload = {
   revision_goals?: string[];
   latent_reason?: string | null;
   transform_type?: string | null;
+  system_assessment?: OwnerReviewSystemAssessment | null;
 };
 
 type OwnerReviewActionResult = {
@@ -2794,6 +2804,10 @@ function PMCardDetailModal({
   const ownerReviewProofAnchors = Array.isArray(ownerReviewPayload?.proof_anchors)
     ? ownerReviewPayload?.proof_anchors.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
+  const ownerReviewAssessment =
+    ownerReviewPayload?.system_assessment && typeof ownerReviewPayload.system_assessment === 'object'
+      ? ownerReviewPayload.system_assessment
+      : null;
   const executionPacketPath =
     typeof boardItem.queueEntry?.execution_packet_path === 'string' && boardItem.queueEntry.execution_packet_path.trim()
       ? boardItem.queueEntry.execution_packet_path.trim()
@@ -3642,6 +3656,56 @@ function PMCardDetailModal({
                   {ownerReviewPayload.why_now ? <div>Why now: {ownerReviewPayload.why_now}</div> : null}
                   <div>Approval status: {humanizeStatusLabel(ownerReviewPayload.approval_status ?? 'unknown')}</div>
                 </div>
+              </section>
+            ) : null}
+
+            {ownerReviewAssessment ? (
+              <section style={{ borderRadius: '16px', border: '1px solid rgba(56,189,248,0.28)', backgroundColor: 'rgba(56,189,248,0.08)', padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
+                  <p style={{ color: '#38bdf8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: 0 }}>System Read</p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {ownerReviewAssessment.suggested_decision ? (
+                      <span style={{ borderRadius: '999px', border: '1px solid rgba(56,189,248,0.4)', backgroundColor: '#08101f', color: '#e0f2fe', padding: '6px 10px', fontSize: '12px', fontWeight: 700 }}>
+                        Suggestion: {humanizeStatusLabel(ownerReviewAssessment.suggested_decision)}
+                      </span>
+                    ) : null}
+                    {ownerReviewAssessment.confidence ? (
+                      <span style={{ borderRadius: '999px', border: '1px solid rgba(148,163,184,0.32)', backgroundColor: '#08101f', color: '#cbd5e1', padding: '6px 10px', fontSize: '12px', fontWeight: 700 }}>
+                        Confidence: {humanizeStatusLabel(ownerReviewAssessment.confidence)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                {ownerReviewAssessment.summary ? (
+                  <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: '0 0 10px' }}>{ownerReviewAssessment.summary}</p>
+                ) : null}
+                {Array.isArray(ownerReviewAssessment.reasons) && ownerReviewAssessment.reasons.length > 0 ? (
+                  <div style={{ marginBottom: ownerReviewAssessment.missing_items?.length ? '10px' : 0 }}>
+                    <p style={{ color: '#93c5fd', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Why the system is leaning this way</p>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      {ownerReviewAssessment.reasons.map((reason) => (
+                        <p key={`${card.id}-assessment-reason-${reason}`} style={{ color: '#dbeafe', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                          {reason}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {Array.isArray(ownerReviewAssessment.missing_items) && ownerReviewAssessment.missing_items.length > 0 ? (
+                  <div style={{ marginBottom: ownerReviewAssessment.fallback_action ? '10px' : 0 }}>
+                    <p style={{ color: '#fca5a5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>What still looks thin</p>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      {ownerReviewAssessment.missing_items.map((entry) => (
+                        <p key={`${card.id}-assessment-missing-${entry}`} style={{ color: '#fee2e2', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                          {entry}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {ownerReviewAssessment.fallback_action ? (
+                  <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{ownerReviewAssessment.fallback_action}</p>
+                ) : null}
               </section>
             ) : null}
 

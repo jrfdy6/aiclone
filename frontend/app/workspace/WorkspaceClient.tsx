@@ -154,6 +154,15 @@ type WorkspaceSnapshot = {
 
 type OwnerReviewDecision = 'approve' | 'revise' | 'park';
 
+type OwnerReviewSystemAssessment = {
+  suggested_decision?: OwnerReviewDecision | string;
+  confidence?: 'high' | 'medium' | 'low' | string;
+  summary?: string;
+  reasons?: string[];
+  missing_items?: string[];
+  fallback_action?: string;
+};
+
 type OwnerReviewItem = {
   queue_id: string;
   title: string;
@@ -182,6 +191,7 @@ type OwnerReviewItem = {
   revision_goals?: string[];
   latent_reason?: string | null;
   transform_type?: string | null;
+  system_assessment?: OwnerReviewSystemAssessment | null;
 };
 
 type OwnerReviewPayload = {
@@ -1420,12 +1430,15 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                           </p>
                         )}
                       </div>
-                      <div style={{ display: 'grid', gap: '6px', justifyItems: 'end' }}>
-                        {item.packet_recommendation && <InlinePill label={item.packet_recommendation.replace(/\*\*/g, '')} tone="#fbbf24" />}
-                        {item.publish_posture && <InlinePill label={humanizeSnakeCase(item.publish_posture)} tone="#22c55e" />}
-                        {item.reviewed_at && <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Saved {formatTimestamp(item.reviewed_at)}</p>}
-                      </div>
+                    <div style={{ display: 'grid', gap: '6px', justifyItems: 'end' }}>
+                      {item.system_assessment?.suggested_decision ? (
+                        <InlinePill label={`System: ${humanizeSnakeCase(item.system_assessment.suggested_decision)}`} tone="#38bdf8" />
+                      ) : null}
+                      {item.packet_recommendation && <InlinePill label={item.packet_recommendation.replace(/\*\*/g, '')} tone="#fbbf24" />}
+                      {item.publish_posture && <InlinePill label={humanizeSnakeCase(item.publish_posture)} tone="#22c55e" />}
+                      {item.reviewed_at && <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Saved {formatTimestamp(item.reviewed_at)}</p>}
                     </div>
+                  </div>
 
                     {item.proof_anchors && item.proof_anchors.length > 0 && (
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1468,6 +1481,47 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                           </p>
                         ))}
                       </div>
+                    ) : null}
+
+                    {item.system_assessment ? (
+                      <section style={{ ...agentSectionStyle, gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <p style={{ color: '#38bdf8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>System read</p>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {item.system_assessment.suggested_decision ? (
+                              <InlinePill label={humanizeSnakeCase(item.system_assessment.suggested_decision)} tone="#38bdf8" />
+                            ) : null}
+                            {item.system_assessment.confidence ? (
+                              <InlinePill label={`${humanizeSnakeCase(item.system_assessment.confidence)} confidence`} tone="#64748b" />
+                            ) : null}
+                          </div>
+                        </div>
+                        {item.system_assessment.summary ? (
+                          <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.system_assessment.summary}</p>
+                        ) : null}
+                        {item.system_assessment.reasons && item.system_assessment.reasons.length > 0 ? (
+                          <div style={{ display: 'grid', gap: '4px' }}>
+                            {item.system_assessment.reasons.map((reason) => (
+                              <p key={`${item.queue_id}-${reason}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                                {reason}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {item.system_assessment.missing_items && item.system_assessment.missing_items.length > 0 ? (
+                          <div style={{ display: 'grid', gap: '4px' }}>
+                            <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '2px 0 0' }}>Still thin</p>
+                            {item.system_assessment.missing_items.map((entry) => (
+                              <p key={`${item.queue_id}-${entry}`} style={{ color: '#fecaca', fontSize: '13px', margin: 0 }}>
+                                {entry}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {item.system_assessment.fallback_action ? (
+                          <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{item.system_assessment.fallback_action}</p>
+                        ) : null}
+                      </section>
                     ) : null}
 
                     <label style={fieldWrapStyle}>
