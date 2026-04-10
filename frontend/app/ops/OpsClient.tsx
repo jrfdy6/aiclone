@@ -2912,6 +2912,78 @@ function PMCardDetailModal({
       ...linkedConversationPaths,
     ].filter((value): value is string => Boolean(value && value.trim())),
   ).slice(0, 6);
+  const storyboardWhyText = likelyStaleBoardItem
+    ? 'The system pulled this card back up because it looked stale. Before you judge the work itself, first decide whether this is still a live issue or just residue from something you already handled elsewhere.'
+    : isPendingOwnerReview
+      ? 'This card surfaced because the system hit an explicit owner gate. A draft exists, but the workflow is not allowed to move it forward until you make the call.'
+      : boardItem.lane === 'review'
+        ? 'This card surfaced because execution returned something and PM now needs a closure judgment. The question is not “what is PM,” it is whether this returned result should be accepted, continued, or sent back.'
+        : boardItem.lane === 'failed'
+          ? 'This card surfaced because the normal loop broke. Something blocked or failed, and PM is waiting for a clearer human decision before it moves again.'
+          : boardItem.lane === 'ready'
+            ? 'This card is here because the system believes the work is framed well enough to start. It has not started execution yet.'
+            : 'This card is here because PM is still tracking this work as an active lane.';
+  const storyboardProofText =
+    validationQuickLinks.length > 0 || ownerReviewProofAnchors.length > 0
+      ? [
+          validationQuickLinks.length > 0
+            ? `Openable proof is attached in ${validationQuickLinks.length} linked file${validationQuickLinks.length === 1 ? '' : 's'}`
+            : null,
+          ownerReviewProofAnchors.length > 0
+            ? `${ownerReviewProofAnchors.length} proof anchor${ownerReviewProofAnchors.length === 1 ? '' : 's'} are quoted on the card`
+            : null,
+          linkedStandups.length > 0
+            ? `${linkedStandups.length} linked standup record${linkedStandups.length === 1 ? '' : 's'} give source context`
+            : null,
+        ]
+          .filter((item): item is string => Boolean(item))
+          .join('. ') + '.'
+      : 'The card does not carry much direct proof yet. If you are unsure, that is a signal to revise or return it rather than guess.';
+  const storyboardMissingText =
+    validationMissingItems.length > 0
+      ? `What still feels thin: ${validationMissingItems.map((item) => item.label.toLowerCase()).join(', ')}.`
+      : 'Nothing obvious is missing for a first-pass judgment. You may still want to inspect the proof, but the card is not obviously under-explained.';
+  const storyboardDecisionDetail =
+    boardItem.lane === 'review' && effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
+      ? `${validationDecisionText} The current default is to accept this and continue into "${effectiveNextCardTitle}".`
+      : validationDecisionText;
+  const storyboardFallbackText = isPendingOwnerReview
+    ? 'If the draft is not ready, use revision or park instead of trying to interpret around missing context.'
+    : boardItem.lane === 'review'
+      ? 'If this still feels thin after the storyboard and proof, return it to Jean-Claude or mark it blocked rather than forcing a close.'
+      : 'If the plot still feels incomplete, do not resolve it just to clear the board.';
+  const storyboardItems = [
+    {
+      title: '1. Why you are seeing this',
+      detail: storyboardWhyText,
+      tone: '#38bdf8',
+    },
+    {
+      title: '2. What changed',
+      detail: validationPrimaryText,
+      tone: '#f8fafc',
+    },
+    {
+      title: '3. Why the system thinks it is real',
+      detail: storyboardProofText,
+      tone: '#a7f3d0',
+    },
+    {
+      title: '4. What is still thin or missing',
+      detail: storyboardMissingText,
+      tone: validationMissingItems.length > 0 ? '#fecaca' : '#cbd5f5',
+    },
+    {
+      title: '5. What you are actually deciding',
+      detail: storyboardDecisionDetail,
+      tone: '#fef3c7',
+    },
+    {
+      title: '6. What happens next',
+      detail: `${validationOutcomeText} ${storyboardFallbackText}`,
+      tone: '#cbd5f5',
+    },
+  ];
   const rawRecord = JSON.stringify(
     {
       card,
@@ -3152,89 +3224,70 @@ function PMCardDetailModal({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
             <div>
-              <p style={{ color: validationTone, letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 4px' }}>Validation Snapshot</p>
-              <p style={{ color: '#e2e8f0', fontSize: '14px', margin: 0 }}>{validationDecisionText}</p>
+              <p style={{ color: validationTone, letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 4px' }}>Storyboard</p>
+              <p style={{ color: '#e2e8f0', fontSize: '14px', margin: 0 }}>Read this top to bottom. It answers the usual follow-up questions in order.</p>
             </div>
             <span style={{ borderRadius: '999px', border: `1px solid ${validationTone}55`, backgroundColor: `${validationTone}20`, color: '#f8fafc', padding: '6px 10px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
               {validationStateLabel}
             </span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.95fr', gap: '12px' }}>
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px' }}>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 6px' }}>What changed</p>
-              <p style={{ color: '#f8fafc', fontSize: '14px', lineHeight: 1.6, margin: '0 0 12px' }}>{validationPrimaryText}</p>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 6px' }}>If you accept this</p>
-              <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{validationOutcomeText}</p>
-            </section>
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px' }}>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 8px' }}>Validation checklist</p>
-              <div style={{ display: 'grid', gap: '8px' }}>
-                {validationChecklist.map((item) => (
-                  <div
-                    key={`${card.id}-validation-${item.label}`}
+          <div style={{ display: 'grid', gap: '10px' }}>
+            {storyboardItems.map((item) => (
+              <section
+                key={`${card.id}-storyboard-${item.title}`}
+                style={{
+                  borderRadius: '14px',
+                  border: '1px solid #1f2937',
+                  backgroundColor: '#08101f',
+                  padding: '12px',
+                }}
+              >
+                <p style={{ color: item.tone, letterSpacing: '0.06em', fontSize: '12px', fontWeight: 700, margin: '0 0 6px' }}>{item.title}</p>
+                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.6, margin: 0 }}>{item.detail}</p>
+              </section>
+            ))}
+          </div>
+          <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px', marginTop: '12px' }}>
+            <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 8px' }}>Quick proof</p>
+            {validationQuickLinks.length > 0 ? (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: ownerReviewProofAnchors.length > 0 ? '10px' : 0 }}>
+                {validationQuickLinks.map((path) => (
+                  <button
+                    key={`${card.id}-validation-link-${path}`}
+                    type="button"
+                    onClick={() => onOpenArtifactPath(path)}
                     style={{
-                      borderRadius: '12px',
-                      border: item.ready ? '1px solid rgba(34,197,94,0.24)' : '1px solid rgba(248,113,113,0.24)',
-                      backgroundColor: item.ready ? 'rgba(34,197,94,0.06)' : 'rgba(248,113,113,0.06)',
-                      padding: '10px',
+                      borderRadius: '999px',
+                      border: '1px solid #334155',
+                      backgroundColor: '#0f172a',
+                      color: '#f8fafc',
+                      padding: '8px 10px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
                     }}
+                    title={path}
                   >
-                    <p style={{ color: item.ready ? '#bbf7d0' : '#fecaca', fontSize: '12px', fontWeight: 700, margin: '0 0 4px' }}>
-                      {item.ready ? 'Ready' : 'Missing'}: {item.label}
-                    </p>
-                    <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{item.detail}</p>
-                  </div>
+                    {summarizePathForDisplay(path)}
+                  </button>
                 ))}
               </div>
-            </section>
-          </div>
-          {validationMissingItems.length > 0 ? (
-            <section style={{ borderRadius: '14px', border: '1px solid rgba(248,113,113,0.22)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '12px', marginTop: '12px' }}>
-              <p style={{ color: '#fecaca', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 6px' }}>Still missing</p>
-              <p style={{ color: '#fee2e2', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-                {validationMissingItems.map((item) => item.label.toLowerCase()).join(', ')}.
+            ) : (
+              <p style={{ color: '#64748b', fontSize: '13px', lineHeight: 1.55, margin: ownerReviewProofAnchors.length > 0 ? '0 0 10px' : 0 }}>
+                No openable proof files are attached yet.
               </p>
-            </section>
-          ) : null}
-          {validationQuickLinks.length > 0 || ownerReviewProofAnchors.length > 0 ? (
-            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px', marginTop: '12px' }}>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 8px' }}>Open the proof</p>
-              {validationQuickLinks.length > 0 ? (
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: ownerReviewProofAnchors.length > 0 ? '10px' : 0 }}>
-                  {validationQuickLinks.map((path) => (
-                    <button
-                      key={`${card.id}-validation-link-${path}`}
-                      type="button"
-                      onClick={() => onOpenArtifactPath(path)}
-                      style={{
-                        borderRadius: '999px',
-                        border: '1px solid #334155',
-                        backgroundColor: '#0f172a',
-                        color: '#f8fafc',
-                        padding: '8px 10px',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
-                      }}
-                      title={path}
-                    >
-                      {summarizePathForDisplay(path)}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {ownerReviewProofAnchors.length > 0 ? (
-                <div style={{ display: 'grid', gap: '4px' }}>
-                  <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Proof anchors</p>
-                  {ownerReviewProofAnchors.slice(0, 4).map((anchor) => (
-                    <p key={`${card.id}-proof-anchor-${anchor}`} style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-                      {anchor}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-          ) : null}
+            )}
+            {ownerReviewProofAnchors.length > 0 ? (
+              <div style={{ display: 'grid', gap: '4px' }}>
+                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Proof anchors</p>
+                {ownerReviewProofAnchors.slice(0, 4).map((anchor) => (
+                  <p key={`${card.id}-proof-anchor-${anchor}`} style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                    {anchor}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </section>
         </section>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
