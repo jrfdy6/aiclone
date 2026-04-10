@@ -25,6 +25,7 @@ from app.services.workspace_runtime_contract_service import (
 )
 
 AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
+AUTO_PROGRESS_REQUESTED_BY = "Codex PM Review Worker"
 
 
 def list_cards(
@@ -348,8 +349,7 @@ def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardAc
     card = get_card(card_id)
     if card is None:
         return None
-
-    status, card_payload = build_card_action_update(
+    return _apply_card_action(
         card,
         action=payload.action,
         requested_by=payload.requested_by,
@@ -358,16 +358,39 @@ def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardAc
         next_title=payload.next_title,
         next_reason=payload.next_reason,
     )
-    updated = update_card(card_id, PMCardUpdate(status=status, payload=card_payload))
+
+
+def _apply_card_action(
+    card: PMCard,
+    *,
+    action: str,
+    requested_by: str,
+    reason: str | None = None,
+    resolution_mode: str | None = None,
+    next_title: str | None = None,
+    next_reason: str | None = None,
+    review_metadata: dict[str, Any] | None = None,
+) -> Optional[PMCardActionResult]:
+    status, card_payload = build_card_action_update(
+        card,
+        action=action,
+        requested_by=requested_by,
+        reason=reason,
+        resolution_mode=resolution_mode,
+        next_title=next_title,
+        next_reason=next_reason,
+    )
+    updated = update_card(card.id, PMCardUpdate(status=status, payload=card_payload))
     if updated is None:
         return None
+
     successor_card: PMCard | None = None
-    if payload.action == "approve" and payload.resolution_mode == "close_and_spawn_next":
+    if action == "approve" and resolution_mode == "close_and_spawn_next":
         successor_card = _create_resolution_successor_card(
             card,
-            requested_by=payload.requested_by,
-            next_title=payload.next_title,
-            next_reason=payload.next_reason,
+            requested_by=requested_by,
+            next_title=next_title,
+            next_reason=next_reason,
         )
         updated_payload = dict(updated.payload or {})
         latest_manual_review = dict(updated_payload.get("latest_manual_review") or {})
@@ -380,9 +403,19 @@ def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardAc
             "created_at": _datetime_to_iso(successor_card.created_at),
             "workspace_key": _workspace_key_from_card(successor_card),
         }
-        refreshed = update_card(card_id, PMCardUpdate(status=updated.status, payload=updated_payload))
+        refreshed = update_card(card.id, PMCardUpdate(status=updated.status, payload=updated_payload))
         if refreshed is not None:
             updated = refreshed
+
+    if review_metadata:
+        updated_payload = dict(updated.payload or {})
+        latest_manual_review = dict(updated_payload.get("latest_manual_review") or {})
+        latest_manual_review.update(review_metadata)
+        updated_payload["latest_manual_review"] = latest_manual_review
+        refreshed = update_card(card.id, PMCardUpdate(status=updated.status, payload=updated_payload))
+        if refreshed is not None:
+            updated = refreshed
+
     return PMCardActionResult(card=updated, queue_entry=build_execution_queue_entry(updated), successor_card=successor_card)
 
 
@@ -570,20 +603,21 @@ def auto_resolve_review_cards(limit: int = 250) -> dict[str, Any]:
         policy = _auto_resolve_review_policy(card)
         if policy is None:
             continue
-        status, payload = build_card_action_update(
+        result = _apply_card_action(
             card,
             action="approve",
             requested_by=AUTO_RESOLVE_REQUESTED_BY,
             reason=policy["reason"],
             resolution_mode="close_only",
+            review_metadata={
+                "auto_resolved": True,
+                "policy_rule": policy["rule"],
+                "worker_action": "close_only",
+            },
         )
-        latest_manual_review = dict(payload.get("latest_manual_review") or {})
-        latest_manual_review["auto_resolved"] = True
-        latest_manual_review["policy_rule"] = policy["rule"]
-        payload["latest_manual_review"] = latest_manual_review
-        updated = update_card(card.id, PMCardUpdate(status=status, payload=payload))
-        if updated is None:
+        if result is None:
             continue
+        updated = result.card
         resolved.append(
             {
                 "card_id": updated.id,
@@ -597,6 +631,82 @@ def auto_resolve_review_cards(limit: int = 250) -> dict[str, Any]:
     return {
         "resolved_count": len(resolved),
         "resolved": resolved,
+    }
+
+
+def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
+    cards = list_cards(limit=limit)
+    processed: list[dict[str, Any]] = []
+
+    for card in cards:
+        stale_policy = _auto_resolve_review_policy(card)
+        if stale_policy is not None:
+            result = _apply_card_action(
+                card,
+                action="approve",
+                requested_by=AUTO_PROGRESS_REQUESTED_BY,
+                reason=stale_policy["reason"],
+                resolution_mode="close_only",
+                review_metadata={
+                    "auto_resolved": True,
+                    "auto_progressed": True,
+                    "policy_rule": stale_policy["rule"],
+                    "worker_action": "close_only",
+                    "worker_id": AUTO_PROGRESS_REQUESTED_BY,
+                },
+            )
+            if result is None:
+                continue
+            processed.append(
+                {
+                    "card_id": result.card.id,
+                    "title": result.card.title,
+                    "workspace_key": _workspace_key_from_card(result.card),
+                    "resolution_mode": "close_only",
+                    "rule": stale_policy["rule"],
+                    "reason": stale_policy["reason"],
+                }
+            )
+            continue
+
+        progression = _autonomous_review_progression(card)
+        if progression is None:
+            continue
+        result = _apply_card_action(
+            card,
+            action="approve",
+            requested_by=AUTO_PROGRESS_REQUESTED_BY,
+            reason=progression["reason"],
+            resolution_mode=progression["resolution_mode"],
+            next_title=progression.get("next_title"),
+            next_reason=progression.get("next_reason"),
+            review_metadata={
+                "auto_progressed": True,
+                "policy_rule": progression["rule"],
+                "worker_action": progression["resolution_mode"],
+                "worker_id": AUTO_PROGRESS_REQUESTED_BY,
+            },
+        )
+        if result is None:
+            continue
+        processed.append(
+            {
+                "card_id": result.card.id,
+                "title": result.card.title,
+                "workspace_key": _workspace_key_from_card(result.card),
+                "resolution_mode": progression["resolution_mode"],
+                "rule": progression["rule"],
+                "reason": progression["reason"],
+                "successor_card_id": result.successor_card.id if result.successor_card else None,
+                "successor_card_title": result.successor_card.title if result.successor_card else None,
+            }
+        )
+
+    return {
+        "processed_count": len(processed),
+        "closed_count": sum(1 for item in processed if item.get("resolution_mode") == "close_only"),
+        "continued_count": sum(1 for item in processed if item.get("resolution_mode") == "close_and_spawn_next"),
+        "processed": processed,
     }
 
 
@@ -733,6 +843,52 @@ def _auto_resolve_review_policy(card: PMCard) -> dict[str, str] | None:
         }
 
     return None
+
+
+def _autonomous_review_progression(card: PMCard) -> dict[str, str] | None:
+    if _is_closed_pm_status(card.status):
+        return None
+    if str(card.status or "").strip().lower() != "review":
+        return None
+    if _auto_resolve_review_policy(card) is not None:
+        return None
+
+    execution = _execution_payload(card) or {}
+    if bool(execution.get("manager_attention_required")):
+        return None
+    if _is_owner_decision_gate(card):
+        return None
+
+    workspace_key = _workspace_key_from_card(card)
+    workspace_policy = review_policy_for_workspace(workspace_key)
+    interrupt_policy = str(workspace_policy.get("interrupt_policy") or "manual_review")
+    if interrupt_policy not in {"owner_gate_only", "manager_attention_only"}:
+        return None
+
+    resolution_mode = _valid_resolution_mode(workspace_policy.get("default_resolution_mode")) or "close_only"
+    next_title: str | None = None
+    next_reason: str | None = None
+    if resolution_mode == "close_and_spawn_next":
+        suggestion = _suggest_review_followup(card, workspace_policy)
+        if suggestion is None or not str(suggestion.get("title") or "").strip():
+            return None
+        next_title = str(suggestion.get("title") or "").strip()
+        next_reason = str(suggestion.get("reason") or "").strip() or None
+
+    if resolution_mode == "close_and_spawn_next":
+        return {
+            "rule": "workspace_policy_accept_and_continue",
+            "reason": "Codex review worker accepted this routine review result and opened the next PM lane under the workspace review policy.",
+            "resolution_mode": resolution_mode,
+            "next_title": next_title or "",
+            "next_reason": next_reason or "",
+        }
+
+    return {
+        "rule": "workspace_policy_accept_and_close",
+        "reason": "Codex review worker accepted this routine review result and closed the lane under the workspace review policy.",
+        "resolution_mode": resolution_mode,
+    }
 
 
 def _is_owner_decision_gate(card: PMCard) -> bool:

@@ -418,6 +418,139 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(result.get("resolved_count"), 0)
         update_card_mock.assert_not_called()
 
+    def test_auto_progress_review_cards_closes_shared_ops_routine_review(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-shared-ops",
+            title="Routine shared ops review",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-auto-progress-1",
+            payload={
+                "workspace_key": "shared_ops",
+                "reason": "Routine execution result ready for review.",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("closed_count"), 1)
+        self.assertEqual(result.get("continued_count"), 0)
+        processed = (result.get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("card_id"), "auto-progress-shared-ops")
+        self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_close")
+
+    def test_auto_progress_review_cards_continues_feezie_review_and_spawns_successor(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-feezie",
+            title="Seed FEEZIE backlog from canonical persona and lived work",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-auto-progress-2",
+            payload={
+                "workspace_key": "linkedin-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        successor = PMCard(
+            id="auto-progress-feezie-next",
+            title="Turn seeded FEEZIE backlog into first draft batch",
+            owner="Jean-Claude",
+            status="todo",
+            source="pm_review_resolution",
+            link_type="standup",
+            link_id="standup-auto-progress-2",
+            payload={"workspace_key": "linkedin-os"},
+            created_at=now,
+            updated_at=now,
+        )
+
+        def fake_create_card(payload: PMCardCreate) -> PMCard:
+            self.assertEqual(payload.title, successor.title)
+            self.assertEqual(payload.payload.get("workspace_key"), "linkedin-os")
+            self.assertEqual(payload.payload.get("reason"), "The accepted backlog seed should now become concrete first-pass draft production.")
+            return successor
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+            patch.object(pm_card_service, "create_card", side_effect=fake_create_card),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("closed_count"), 0)
+        self.assertEqual(result.get("continued_count"), 1)
+        processed = (result.get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("card_id"), "auto-progress-feezie")
+        self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_continue")
+        self.assertEqual((processed or {}).get("successor_card_id"), "auto-progress-feezie-next")
+        self.assertEqual((processed or {}).get("successor_card_title"), successor.title)
+
+    def test_auto_progress_review_cards_skips_owner_review_gate(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-owner-gate",
+            title="Owner review gate",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id="FEEZIE-888",
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {"queue_id": "FEEZIE-888"},
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card") as update_card_mock,
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 0)
+        update_card_mock.assert_not_called()
+
     def test_decorate_card_for_client_marks_feezie_review_as_autonomous_and_prefills_followup(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

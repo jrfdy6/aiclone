@@ -42,6 +42,7 @@ belief_engine_module = importlib.import_module("app.services.social_belief_engin
 persona_bundle_writer_module = importlib.import_module("app.services.persona_bundle_writer")
 persona_bundle_context_module = importlib.import_module("app.services.persona_bundle_context_service")
 linkedin_owner_review_module = importlib.import_module("app.services.linkedin_owner_review_service")
+pm_card_service_module = importlib.import_module("app.services.pm_card_service")
 
 
 class _FakeBriefReactionCursor:
@@ -927,6 +928,32 @@ This is the second first pass.
         updated_packet = packet_path.read_text(encoding="utf-8")
         self.assertIn("- [x] Approve for scheduling", updated_packet)
         self.assertIn("Use this one next.", updated_packet)
+
+    def test_pm_auto_progress_route(self) -> None:
+        expected = {
+            "processed_count": 1,
+            "closed_count": 0,
+            "continued_count": 1,
+            "processed": [
+                {
+                    "card_id": "card-123",
+                    "title": "Seed FEEZIE backlog from canonical persona and lived work",
+                    "workspace_key": "linkedin-os",
+                    "resolution_mode": "close_and_spawn_next",
+                    "rule": "workspace_policy_accept_and_continue",
+                    "reason": "Codex review worker accepted this routine review result and opened the next PM lane under the workspace review policy.",
+                    "successor_card_id": "card-124",
+                    "successor_card_title": "Turn seeded FEEZIE backlog into first draft batch",
+                }
+            ],
+        }
+
+        with patch.object(pm_card_service_module, "auto_progress_review_cards", return_value=expected) as auto_progress_mock:
+            response = self.client.post("/api/pm/review-hygiene/auto-progress")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+        auto_progress_mock.assert_called_once_with(limit=250)
 
     def test_daily_briefs_attach_live_source_intelligence_to_latest_brief(self) -> None:
         fake_payloads = {

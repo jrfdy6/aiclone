@@ -49,6 +49,11 @@ async def auto_resolve_review_hygiene():
     return pm_card_service.auto_resolve_review_cards()
 
 
+@router.post("/review-hygiene/auto-progress")
+async def auto_progress_review_hygiene(limit: int = 250):
+    return pm_card_service.auto_progress_review_cards(limit=limit)
+
+
 @router.get("/execution-queue", response_model=List[ExecutionQueueEntry])
 async def list_execution_queue(
     target_agent: Optional[str] = None,
