@@ -2785,6 +2785,116 @@ function PMCardDetailModal({
           ))}
         </div>
 
+        <section
+          style={{
+            borderRadius: '16px',
+            border: '1px solid rgba(251,191,36,0.18)',
+            backgroundColor: '#111827',
+            padding: '14px',
+            marginBottom: '14px',
+          }}
+        >
+          <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>
+            Actions
+          </p>
+          {isPendingOwnerReview && ownerReviewPayload ? (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                Open the draft, make the owner call here, and let PM queue the follow-up automatically.
+              </p>
+              <label style={{ display: 'grid', gap: '6px' }}>
+                <span style={{ color: '#94a3b8', fontSize: '12px' }}>Owner notes</span>
+                <textarea
+                  value={ownerReviewNotes}
+                  onChange={(event) => setOwnerReviewNotes(event.target.value)}
+                  placeholder="Add revision notes, scheduling notes, or why this should be parked."
+                  rows={4}
+                  style={{
+                    width: '100%',
+                    borderRadius: '12px',
+                    border: '1px solid #334155',
+                    backgroundColor: '#0f172a',
+                    color: '#e2e8f0',
+                    padding: '12px',
+                    fontSize: '13px',
+                    lineHeight: 1.5,
+                    resize: 'vertical',
+                  }}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleOwnerReviewAction('approve')}
+                  style={meetingActionButtonStyle('success', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Saving…' : 'Approve draft'}
+                </button>
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleOwnerReviewAction('revise')}
+                  style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Saving…' : 'Request revision'}
+                </button>
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleOwnerReviewAction('park')}
+                  style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Saving…' : 'Park draft'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {(boardItem.lane === 'ready' || boardItem.lane === 'todo') && (
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleCardAction('dispatch')}
+                  style={meetingActionButtonStyle('primary', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Opening…' : 'Open SOP'}
+                </button>
+              )}
+              {boardItem.lane === 'review' && (
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleCardAction('approve')}
+                  style={meetingActionButtonStyle('success', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Closing…' : 'Approve and close'}
+                </button>
+              )}
+              {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleCardAction('return')}
+                  style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Returning…' : 'Return to Jean-Claude'}
+                </button>
+              )}
+              {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleCardAction('blocked')}
+                  style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Routing…' : 'Mark blocked'}
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+
         {activeTab === 'overview' && (
           <div style={{ display: 'grid', gap: '14px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 0.95fr', gap: '14px' }}>
@@ -3203,106 +3313,6 @@ function PMCardDetailModal({
                   4. Latest result signal: {latestExecutionResult ? humanizeStatusLabel(String(latestExecutionResult.status || 'unknown')) : 'none yet'}.
                 </p>
               </div>
-            </section>
-
-            <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
-              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Actions</p>
-              {isPendingOwnerReview && ownerReviewPayload ? (
-                <div style={{ display: 'grid', gap: '12px' }}>
-                  <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
-                    Open the draft, make the owner call here, and let PM queue the follow-up automatically.
-                  </p>
-                  <label style={{ display: 'grid', gap: '6px' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '12px' }}>Owner notes</span>
-                    <textarea
-                      value={ownerReviewNotes}
-                      onChange={(event) => setOwnerReviewNotes(event.target.value)}
-                      placeholder="Add revision notes, scheduling notes, or why this should be parked."
-                      rows={4}
-                      style={{
-                        width: '100%',
-                        borderRadius: '12px',
-                        border: '1px solid #334155',
-                        backgroundColor: '#0f172a',
-                        color: '#e2e8f0',
-                        padding: '12px',
-                        fontSize: '13px',
-                        lineHeight: 1.5,
-                        resize: 'vertical',
-                      }}
-                    />
-                  </label>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      disabled={actioningCardId === card.id}
-                      onClick={() => void handleOwnerReviewAction('approve')}
-                      style={meetingActionButtonStyle('success', actioningCardId === card.id)}
-                    >
-                      {actioningCardId === card.id ? 'Saving…' : 'Approve draft'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actioningCardId === card.id}
-                      onClick={() => void handleOwnerReviewAction('revise')}
-                      style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
-                    >
-                      {actioningCardId === card.id ? 'Saving…' : 'Request revision'}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actioningCardId === card.id}
-                      onClick={() => void handleOwnerReviewAction('park')}
-                      style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
-                    >
-                      {actioningCardId === card.id ? 'Saving…' : 'Park draft'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {(boardItem.lane === 'ready' || boardItem.lane === 'todo') && (
-                    <button
-                      type="button"
-                      disabled={actioningCardId === card.id}
-                      onClick={() => void handleCardAction('dispatch')}
-                      style={meetingActionButtonStyle('primary', actioningCardId === card.id)}
-                    >
-                      {actioningCardId === card.id ? 'Opening…' : 'Open SOP'}
-                    </button>
-                  )}
-                  {boardItem.lane === 'review' && (
-                    <button
-                      type="button"
-                      disabled={actioningCardId === card.id}
-                      onClick={() => void handleCardAction('approve')}
-                      style={meetingActionButtonStyle('success', actioningCardId === card.id)}
-                    >
-                      {actioningCardId === card.id ? 'Closing…' : 'Approve and close'}
-                    </button>
-                  )}
-                  {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
-                    <button
-                      type="button"
-                      disabled={actioningCardId === card.id}
-                      onClick={() => void handleCardAction('return')}
-                      style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
-                    >
-                      {actioningCardId === card.id ? 'Returning…' : 'Return to Jean-Claude'}
-                    </button>
-                  )}
-                  {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
-                    <button
-                      type="button"
-                      disabled={actioningCardId === card.id}
-                      onClick={() => void handleCardAction('blocked')}
-                      style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
-                    >
-                      {actioningCardId === card.id ? 'Routing…' : 'Mark blocked'}
-                    </button>
-                  )}
-                </div>
-              )}
             </section>
 
             <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
