@@ -86,14 +86,19 @@ class PMCardDispatchResult(BaseModel):
 
 
 PMCardActionType = Literal["approve", "return", "blocked"]
+PMCardResolutionMode = Literal["close_only", "close_and_spawn_next"]
 
 
 class PMCardActionRequest(BaseModel):
     action: PMCardActionType
     requested_by: str = "Neo"
     reason: Optional[str] = None
+    resolution_mode: Optional[PMCardResolutionMode] = None
+    next_title: Optional[str] = None
+    next_reason: Optional[str] = None
 
 
 class PMCardActionResult(BaseModel):
     card: PMCard
     queue_entry: Optional[ExecutionQueueEntry] = None
+    successor_card: Optional[PMCard] = None

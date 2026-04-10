@@ -349,11 +349,85 @@ def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardAc
         action=payload.action,
         requested_by=payload.requested_by,
         reason=payload.reason,
+        resolution_mode=payload.resolution_mode,
+        next_title=payload.next_title,
+        next_reason=payload.next_reason,
     )
     updated = update_card(card_id, PMCardUpdate(status=status, payload=card_payload))
     if updated is None:
         return None
-    return PMCardActionResult(card=updated, queue_entry=build_execution_queue_entry(updated))
+    successor_card: PMCard | None = None
+    if payload.action == "approve" and payload.resolution_mode == "close_and_spawn_next":
+        successor_card = _create_resolution_successor_card(
+            card,
+            requested_by=payload.requested_by,
+            next_title=payload.next_title,
+            next_reason=payload.next_reason,
+        )
+        updated_payload = dict(updated.payload or {})
+        latest_manual_review = dict(updated_payload.get("latest_manual_review") or {})
+        latest_manual_review["successor_card_id"] = successor_card.id
+        latest_manual_review["successor_card_title"] = successor_card.title
+        updated_payload["latest_manual_review"] = latest_manual_review
+        updated_payload["resolution_successor"] = {
+            "card_id": successor_card.id,
+            "title": successor_card.title,
+            "created_at": _datetime_to_iso(successor_card.created_at),
+            "workspace_key": _workspace_key_from_card(successor_card),
+        }
+        refreshed = update_card(card_id, PMCardUpdate(status=updated.status, payload=updated_payload))
+        if refreshed is not None:
+            updated = refreshed
+    return PMCardActionResult(card=updated, queue_entry=build_execution_queue_entry(updated), successor_card=successor_card)
+
+
+def _create_resolution_successor_card(
+    card: PMCard,
+    *,
+    requested_by: str,
+    next_title: str | None,
+    next_reason: str | None,
+) -> PMCard:
+    cleaned_title = str(next_title or "").strip()
+    if not cleaned_title:
+        raise ValueError("A next card title is required when resolving with a spawned follow-up.")
+
+    source_payload = dict(card.payload or {})
+    workspace_key = _workspace_key_from_card(card)
+    successor_reason = str(next_reason or "").strip() or f"Follow-on work spawned from resolving '{card.title}'."
+    successor_payload: dict[str, Any] = {
+        "workspace_key": workspace_key,
+        "reason": successor_reason,
+        "source_agent": requested_by,
+        "front_door_agent": requested_by,
+        "resolution_predecessor": {
+            "card_id": card.id,
+            "title": card.title,
+            "resolved_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    for key in [
+        "created_from_standup_id",
+        "created_from_standup_kind",
+        "created_from_standup_workspace",
+        "created_from_prep_id",
+        "recommendation_path",
+    ]:
+        value = source_payload.get(key)
+        if value is not None:
+            successor_payload[key] = value
+
+    return create_card(
+        PMCardCreate(
+            title=cleaned_title,
+            owner=card.owner or execution_defaults_for_workspace(workspace_key)["manager_agent"],
+            status="todo",
+            source="pm_review_resolution",
+            link_type=card.link_type,
+            link_id=card.link_id,
+            payload=successor_payload,
+        )
+    )
 
 
 def build_card_action_update(
@@ -362,6 +436,9 @@ def build_card_action_update(
     action: str,
     requested_by: str = "Neo",
     reason: str | None = None,
+    resolution_mode: str | None = None,
+    next_title: str | None = None,
+    next_reason: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     payload = dict(card.payload or {})
     current_execution = dict(_execution_payload(card) or {})
@@ -369,6 +446,9 @@ def build_card_action_update(
     queue_entry = build_execution_queue_entry(card)
     now = datetime.now(timezone.utc).isoformat()
     history = list(current_execution.get("history") or [])
+    cleaned_resolution_mode = str(resolution_mode or "").strip() or None
+    cleaned_next_title = str(next_title or "").strip()
+    cleaned_next_reason = str(next_reason or "").strip()
 
     next_status = card.status or "review"
     next_state = str(current_execution.get("state") or (queue_entry.execution_state if queue_entry else "review"))
@@ -385,6 +465,10 @@ def build_card_action_update(
     ).strip()
 
     if action == "approve":
+        if cleaned_resolution_mode not in {"close_only", "close_and_spawn_next"}:
+            raise ValueError("Resolve requires an explicit next-step mode.")
+        if cleaned_resolution_mode == "close_and_spawn_next" and not cleaned_next_title:
+            raise ValueError("A next card title is required when resolving with a spawned follow-up.")
         next_status = "done"
         next_state = "done"
         manager_attention_required = False
@@ -465,6 +549,9 @@ def build_card_action_update(
         "reviewed_at": now,
         "reviewed_by": requested_by,
         "from_lane": queue_entry.execution_state if queue_entry else (card.status or "todo"),
+        "resolution_mode": cleaned_resolution_mode,
+        "next_title": cleaned_next_title or None,
+        "next_reason": cleaned_next_reason or None,
     }
 
     return next_status, payload

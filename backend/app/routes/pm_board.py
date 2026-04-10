@@ -69,7 +69,10 @@ async def dispatch_card(card_id: UUID, payload: PMCardDispatchRequest):
 
 @router.post("/cards/{card_id}/actions", response_model=PMCardActionResult)
 async def act_on_card(card_id: UUID, payload: PMCardActionRequest):
-    result = pm_card_service.act_on_card(str(card_id), payload)
+    try:
+        result = pm_card_service.act_on_card(str(card_id), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not result:
         raise HTTPException(status_code=404, detail="PM card not found")
     return result

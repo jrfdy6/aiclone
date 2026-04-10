@@ -311,6 +311,16 @@ type PMCardDispatchResult = {
 type PMCardActionResult = {
   card: PMCard;
   queue_entry?: ExecutionQueueEntry | null;
+  successor_card?: PMCard | null;
+};
+
+type PMCardResolutionMode = 'close_only' | 'close_and_spawn_next';
+
+type PMCardActionOptions = {
+  reason?: string;
+  resolutionMode?: PMCardResolutionMode;
+  nextTitle?: string;
+  nextReason?: string;
 };
 
 type OwnerReviewDecision = 'approve' | 'revise' | 'park';
@@ -1450,13 +1460,17 @@ export default function OpsClient({
   );
 
   const actOnPmCard = useCallback(
-    async (cardId: string, action: 'approve' | 'return' | 'blocked') => {
+    async (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => {
       const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/actions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
           requested_by: 'Neo',
+          reason: options?.reason,
+          resolution_mode: options?.resolutionMode,
+          next_title: options?.nextTitle,
+          next_reason: options?.nextReason,
         }),
       });
       if (!response.ok) {
@@ -2142,7 +2156,7 @@ function PMBoardPanel({
   error: string | null;
   queueError: string | null;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
-  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
+  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
 }) {
@@ -2505,7 +2519,7 @@ function PMCardDetailModal({
   boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[];
   onClose: () => void;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
-  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
+  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
 }) {
@@ -2527,6 +2541,10 @@ function PMCardDetailModal({
       ownerReviewPayload?.approval_status === 'owner_review_required' ||
       boardItem.lane === 'review');
   const [ownerReviewNotes, setOwnerReviewNotes] = useState(ownerReviewPayload?.current_notes ?? '');
+  const [resolutionMode, setResolutionMode] = useState<PMCardResolutionMode | null>(null);
+  const [resolutionNote, setResolutionNote] = useState('');
+  const [nextCardTitle, setNextCardTitle] = useState('');
+  const [nextCardReason, setNextCardReason] = useState('');
   const rawSource = boardItem.source ?? card.source ?? 'manual';
   const linkType = typeof card.link_type === 'string' && card.link_type.trim() ? card.link_type.trim() : 'manual';
   const linkId = typeof card.link_id === 'string' && card.link_id.trim() ? card.link_id.trim() : null;
@@ -2637,6 +2655,13 @@ function PMCardDetailModal({
     setOwnerReviewNotes(ownerReviewPayload?.current_notes ?? '');
   }, [ownerReviewPayload?.current_notes, card.id]);
 
+  useEffect(() => {
+    setResolutionMode(null);
+    setResolutionNote('');
+    setNextCardTitle('');
+    setNextCardReason('');
+  }, [card.id]);
+
   const handleCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked') => {
     try {
       setActioningCardId(card.id);
@@ -2647,13 +2672,33 @@ function PMCardDetailModal({
         setActionFeedback(`Opened SOP for ${card.title}.`);
         return;
       }
-      await onActOnPmCard(card.id, action);
+      if (action === 'approve') {
+        if (!resolutionMode) {
+          throw new Error('Choose what should happen next before resolving this card.');
+        }
+        if (resolutionMode === 'close_and_spawn_next' && !nextCardTitle.trim()) {
+          throw new Error('Add a title for the next PM card before resolving this card.');
+        }
+        const result = await onActOnPmCard(card.id, action, {
+          reason: resolutionNote.trim() || undefined,
+          resolutionMode,
+          nextTitle: nextCardTitle.trim() || undefined,
+          nextReason: nextCardReason.trim() || undefined,
+        });
+        setActionFeedback(
+          result.successor_card
+            ? `Resolved ${card.title} and spawned "${result.successor_card.title}".`
+            : `Resolved ${card.title} and closed this lane.`,
+        );
+        return;
+      }
+      await onActOnPmCard(card.id, action, {
+        reason: resolutionNote.trim() || undefined,
+      });
       setActionFeedback(
-        action === 'approve'
-          ? `Closed ${card.title}.`
-          : action === 'return'
-            ? `Returned ${card.title} to Jean-Claude.`
-            : `Marked ${card.title} as blocked and rerouted it to Jean-Claude.`,
+        action === 'return'
+          ? `Returned ${card.title} to Jean-Claude.`
+          : `Marked ${card.title} as blocked and rerouted it to Jean-Claude.`,
       );
     } catch (error) {
       setActionError(toErrorMessage(error));
@@ -2850,7 +2895,100 @@ function PMCardDetailModal({
               </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'grid', gap: '12px' }}>
+              {boardItem.lane === 'review' ? (
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                    Resolving a review card now requires an explicit next-step choice so the loop either closes intentionally or spawns the next lane.
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {([
+                      ['close_only', 'Close only'],
+                      ['close_and_spawn_next', 'Close and spawn next'],
+                    ] as const).map(([mode, label]) => (
+                      <button
+                        key={`${card.id}-resolution-${mode}`}
+                        type="button"
+                        onClick={() => setResolutionMode(mode)}
+                        disabled={actioningCardId === card.id}
+                        style={{
+                          borderRadius: '999px',
+                          border: resolutionMode === mode ? '1px solid rgba(251,191,36,0.45)' : '1px solid #334155',
+                          backgroundColor: resolutionMode === mode ? 'rgba(251,191,36,0.12)' : '#0f172a',
+                          color: resolutionMode === mode ? '#f8fafc' : '#94a3b8',
+                          padding: '8px 14px',
+                          fontWeight: 700,
+                          cursor: actioningCardId === card.id ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <label style={{ display: 'grid', gap: '6px' }}>
+                    <span style={{ color: '#94a3b8', fontSize: '12px' }}>Resolution note</span>
+                    <textarea
+                      value={resolutionNote}
+                      onChange={(event) => setResolutionNote(event.target.value)}
+                      placeholder="Optional note about why this result is accepted or how the loop should continue."
+                      rows={3}
+                      style={{
+                        width: '100%',
+                        borderRadius: '12px',
+                        border: '1px solid #334155',
+                        backgroundColor: '#0f172a',
+                        color: '#e2e8f0',
+                        padding: '12px',
+                        fontSize: '13px',
+                        lineHeight: 1.5,
+                        resize: 'vertical',
+                      }}
+                    />
+                  </label>
+                  {resolutionMode === 'close_and_spawn_next' ? (
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      <label style={{ display: 'grid', gap: '6px' }}>
+                        <span style={{ color: '#94a3b8', fontSize: '12px' }}>Next PM card title</span>
+                        <input
+                          value={nextCardTitle}
+                          onChange={(event) => setNextCardTitle(event.target.value)}
+                          placeholder="Name the concrete next lane this result should create."
+                          style={{
+                            width: '100%',
+                            borderRadius: '12px',
+                            border: '1px solid #334155',
+                            backgroundColor: '#0f172a',
+                            color: '#e2e8f0',
+                            padding: '12px',
+                            fontSize: '13px',
+                          }}
+                        />
+                      </label>
+                      <label style={{ display: 'grid', gap: '6px' }}>
+                        <span style={{ color: '#94a3b8', fontSize: '12px' }}>Why the next card exists</span>
+                        <textarea
+                          value={nextCardReason}
+                          onChange={(event) => setNextCardReason(event.target.value)}
+                          placeholder="Optional context for the follow-on card."
+                          rows={3}
+                          style={{
+                            width: '100%',
+                            borderRadius: '12px',
+                            border: '1px solid #334155',
+                            backgroundColor: '#0f172a',
+                            color: '#e2e8f0',
+                            padding: '12px',
+                            fontSize: '13px',
+                            lineHeight: 1.5,
+                            resize: 'vertical',
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {(boardItem.lane === 'ready' || boardItem.lane === 'todo') && (
                 <button
                   type="button"
@@ -2864,11 +3002,15 @@ function PMCardDetailModal({
               {boardItem.lane === 'review' && (
                 <button
                   type="button"
-                  disabled={actioningCardId === card.id}
+                  disabled={
+                    actioningCardId === card.id ||
+                    !resolutionMode ||
+                    (resolutionMode === 'close_and_spawn_next' && !nextCardTitle.trim())
+                  }
                   onClick={() => void handleCardAction('approve')}
                   style={meetingActionButtonStyle('success', actioningCardId === card.id)}
                 >
-                  {actioningCardId === card.id ? 'Closing…' : 'Approve and close'}
+                  {actioningCardId === card.id ? 'Resolving…' : 'Resolve'}
                 </button>
               )}
               {['review', 'queued', 'running', 'failed'].includes(boardItem.lane) && (
@@ -2887,10 +3029,11 @@ function PMCardDetailModal({
                   disabled={actioningCardId === card.id}
                   onClick={() => void handleCardAction('blocked')}
                   style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
-                >
-                  {actioningCardId === card.id ? 'Routing…' : 'Mark blocked'}
-                </button>
+                  >
+                    {actioningCardId === card.id ? 'Routing…' : 'Mark blocked'}
+                  </button>
               )}
+              </div>
             </div>
           )}
         </section>
@@ -3236,8 +3379,10 @@ function PMCardDetailModal({
                 ) : (
                   <div style={{ display: 'grid', gap: '6px', color: '#e2e8f0', fontSize: '13px' }}>
                     <span>Action: {String(latestManualReview.action || 'unknown')}</span>
+                    {latestManualReview.resolution_mode ? <span>Resolution mode: {String(latestManualReview.resolution_mode)}</span> : null}
                     <span>Reviewed by: {String(latestManualReview.reviewed_by || 'unknown')}</span>
                     <span>From lane: {String(latestManualReview.from_lane || 'unknown')}</span>
+                    {latestManualReview.successor_card_title ? <span>Spawned next card: {String(latestManualReview.successor_card_title)}</span> : null}
                     <span>
                       Reviewed at:{' '}
                       {latestManualReview.reviewed_at ? formatTimestamp(new Date(String(latestManualReview.reviewed_at))) : '-'}
@@ -3377,7 +3522,7 @@ function StandupsPanel({
   ) => Promise<StandupPromotionResult>;
   onOpenArtifactPath: (path: string) => void;
   onDispatchPmCard: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
-  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
+  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
 }) {
   const automationCounts = useMemo(() => summarizeAutomationSources(automations), [automations]);
   const latestChronicle = executiveFeed.chronicleEntries[executiveFeed.chronicleEntries.length - 1] ?? executiveFeed.chronicleEntries[0] ?? null;
@@ -3689,7 +3834,7 @@ function MeetingReaderView({
   onSelectMeeting: (id: string) => void;
   onOpenArtifactPath: (path: string) => void;
   onDispatchPmCard: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
-  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked') => Promise<PMCardActionResult>;
+  onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
 }) {
   const [activeTab, setActiveTab] = useState<'conversation' | 'evidence' | 'outcomes' | 'raw'>('conversation');
   const [actioningCardId, setActioningCardId] = useState<string | null>(null);
@@ -3791,13 +3936,15 @@ function MeetingReaderView({
         setActionFeedback(`Opened SOP for ${item.card.title}.`);
         return;
       }
+      if (action === 'approve') {
+        setActionFeedback('Resolve review cards from the PM Board modal so you can choose whether to close the lane or spawn the next card.');
+        return;
+      }
       await onActOnPmCard(item.card.id, action);
       setActionFeedback(
-        action === 'approve'
-          ? `Closed ${item.card.title}.`
-          : action === 'return'
-            ? `Returned ${item.card.title} to Jean-Claude.`
-            : `Marked ${item.card.title} as blocked and rerouted it to Jean-Claude.`,
+        action === 'return'
+          ? `Returned ${item.card.title} to Jean-Claude.`
+          : `Marked ${item.card.title} as blocked and rerouted it to Jean-Claude.`,
       );
     } catch (error) {
       setActionError(toErrorMessage(error));
@@ -4369,7 +4516,7 @@ function MeetingReaderView({
                               onClick={() => void handleLinkedCardAction('approve', item)}
                               style={meetingActionButtonStyle('success', actioningCardId === item.card.id)}
                             >
-                              {actioningCardId === item.card.id ? 'Closing…' : 'Approve and close'}
+                              Resolve in PM Board
                             </button>
                           )}
                           {['review', 'queued', 'running', 'failed'].includes(item.boardItem.lane) && (
@@ -4658,9 +4805,11 @@ function buildPmCardHistoryItems(card: PMCard, boardItem: UnifiedBoardItem, link
       ? (payload.latest_manual_review as Record<string, unknown>)
       : null;
   if (latestManualReview) {
+    const resolutionMode = typeof latestManualReview.resolution_mode === 'string' ? String(latestManualReview.resolution_mode) : null;
+    const successorTitle = typeof latestManualReview.successor_card_title === 'string' ? String(latestManualReview.successor_card_title) : null;
     items.push({
       label: 'Latest Manual Review',
-      detail: `Manual review recorded action \`${String(latestManualReview.action || 'unknown')}\` from lane \`${String(latestManualReview.from_lane || 'unknown')}\` at ${latestManualReview.reviewed_at ? formatTimestamp(new Date(String(latestManualReview.reviewed_at))) : 'an unknown time'}.`,
+      detail: `Manual review recorded action \`${String(latestManualReview.action || 'unknown')}\`${resolutionMode ? ` with resolution mode \`${resolutionMode}\`` : ''} from lane \`${String(latestManualReview.from_lane || 'unknown')}\` at ${latestManualReview.reviewed_at ? formatTimestamp(new Date(String(latestManualReview.reviewed_at))) : 'an unknown time'}${successorTitle ? `. Spawned follow-up: ${successorTitle}.` : '.'}`,
       tone: '#fbbf24',
     });
   }

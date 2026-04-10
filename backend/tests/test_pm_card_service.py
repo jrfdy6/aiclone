@@ -191,7 +191,7 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(result.queue_entry.target_agent, "Jean-Claude")
         self.assertEqual((result.card.payload.get("execution") or {}).get("state"), "queued")
 
-    def test_act_on_card_approve_closes_review_lane(self) -> None:
+    def test_act_on_card_approve_close_only_closes_review_lane(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
             id="approve-card",
@@ -225,14 +225,126 @@ class PMCardServiceTests(unittest.TestCase):
             patch.object(pm_card_service, "get_card", return_value=card),
             patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
         ):
-            result = pm_card_service.act_on_card(card.id, PMCardActionRequest(action="approve", requested_by="Neo"))
+            result = pm_card_service.act_on_card(
+                card.id,
+                PMCardActionRequest(action="approve", requested_by="Neo", resolution_mode="close_only"),
+            )
 
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual(result.card.status, "done")
         self.assertIsNone(result.queue_entry)
         self.assertEqual((result.card.payload.get("latest_manual_review") or {}).get("action"), "approve")
+        self.assertEqual((result.card.payload.get("latest_manual_review") or {}).get("resolution_mode"), "close_only")
         self.assertEqual((result.card.payload.get("latest_execution_result") or {}).get("review_resolution"), "approve")
+
+    def test_act_on_card_approve_requires_resolution_mode(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="approve-no-mode-card",
+            title="Review result without mode",
+            owner="Jean-Claude",
+            status="review",
+            source="standup-prep:test",
+            link_type="standup",
+            link_id="standup-4b",
+            payload={
+                "workspace_key": "shared_ops",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "queued_at": now.isoformat(),
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with patch.object(pm_card_service, "get_card", return_value=card):
+            with self.assertRaisesRegex(ValueError, "explicit next-step mode"):
+                pm_card_service.act_on_card(card.id, PMCardActionRequest(action="approve", requested_by="Neo"))
+
+    def test_act_on_card_approve_can_spawn_successor_card(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="approve-spawn-card",
+            title="Resolve then continue",
+            owner="Jean-Claude",
+            status="review",
+            source="standup-prep:test",
+            link_type="standup",
+            link_id="standup-4c",
+            payload={
+                "workspace_key": "feezie-os",
+                "created_from_standup_id": "standup-4c",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "queued_at": now.isoformat(),
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        successor = PMCard(
+            id="spawned-card",
+            title="Package backlog into the next release step",
+            owner="Jean-Claude",
+            status="todo",
+            source="pm_review_resolution",
+            link_type="standup",
+            link_id="standup-4c",
+            payload={"workspace_key": "feezie-os"},
+            created_at=now,
+            updated_at=now,
+        )
+
+        def fake_create_card(payload: PMCardCreate) -> PMCard:
+            self.assertEqual(payload.title, successor.title)
+            self.assertEqual(payload.status, "todo")
+            self.assertEqual(payload.source, "pm_review_resolution")
+            self.assertEqual(payload.link_type, "standup")
+            self.assertEqual(payload.link_id, "standup-4c")
+            self.assertEqual(payload.payload.get("workspace_key"), "feezie-os")
+            self.assertEqual((payload.payload.get("resolution_predecessor") or {}).get("card_id"), card.id)
+            self.assertEqual(payload.payload.get("reason"), "Turn the accepted backlog seed into a concrete next lane.")
+            return successor
+
+        with (
+            patch.object(pm_card_service, "get_card", return_value=card),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+            patch.object(pm_card_service, "create_card", side_effect=fake_create_card),
+        ):
+            result = pm_card_service.act_on_card(
+                card.id,
+                PMCardActionRequest(
+                    action="approve",
+                    requested_by="Neo",
+                    resolution_mode="close_and_spawn_next",
+                    next_title=successor.title,
+                    next_reason="Turn the accepted backlog seed into a concrete next lane.",
+                ),
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "done")
+        self.assertIsNone(result.queue_entry)
+        self.assertIsNotNone(result.successor_card)
+        assert result.successor_card is not None
+        self.assertEqual(result.successor_card.id, "spawned-card")
+        latest_manual_review = result.card.payload.get("latest_manual_review") or {}
+        self.assertEqual(latest_manual_review.get("resolution_mode"), "close_and_spawn_next")
+        self.assertEqual(latest_manual_review.get("successor_card_id"), "spawned-card")
+        self.assertEqual((result.card.payload.get("resolution_successor") or {}).get("card_id"), "spawned-card")
 
     def test_act_on_card_return_reroutes_to_jean_claude(self) -> None:
         now = datetime.now(timezone.utc)
@@ -371,7 +483,7 @@ class PMCardServiceTests(unittest.TestCase):
         ):
             close_result = pm_card_service.act_on_card(
                 review_card.id,
-                PMCardActionRequest(action="approve", requested_by="Neo"),
+                PMCardActionRequest(action="approve", requested_by="Neo", resolution_mode="close_only"),
             )
 
         self.assertIsNotNone(close_result)
