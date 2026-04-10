@@ -2835,10 +2835,20 @@ function PMCardDetailModal({
         : 'Confirm whether this card should move, stay parked, or be treated as already handled.';
   const effectiveResolutionMode = resolutionMode ?? pmReviewPolicy?.recommended_resolution_mode ?? null;
   const effectiveNextCardTitle = nextCardTitle.trim() || pmReviewPolicy?.suggested_next_title || '';
+  const acceptanceNeedsResolutionChoice = !isPendingOwnerReview && boardItem.lane === 'review' && effectiveResolutionMode === null;
+  const acceptanceNeedsNextCardTitle =
+    !isPendingOwnerReview &&
+    boardItem.lane === 'review' &&
+    effectiveResolutionMode === 'close_and_spawn_next' &&
+    !effectiveNextCardTitle;
   const validationOutcomeText = isPendingOwnerReview
     ? 'If you approve this draft, PM writes the decision back and queues Jean-Claude for follow-through automatically.'
     : boardItem.lane === 'review'
-      ? effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
+      ? acceptanceNeedsResolutionChoice
+        ? 'If you want to accept this, PM still needs one explicit branch from you: choose `Close only` to end this lane, or `Close and spawn next` to keep the initiative moving.'
+        : acceptanceNeedsNextCardTitle
+          ? 'If you want to accept this and continue the initiative, PM is ready to create the next card but still needs you to name that next lane.'
+        : effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
         ? `If you accept this, PM will close this card and spawn "${effectiveNextCardTitle}".`
         : effectiveResolutionMode === 'close_only'
           ? 'If you accept this, PM will close this card and remove it from active work.'
@@ -2885,16 +2895,24 @@ function PMCardDetailModal({
               ? 'The draft includes recommendation context or framing.'
               : 'There is no recommendation or framing note attached to this draft yet.',
         }
-      : {
-          label: 'Next step is clear',
-          ready: Boolean(boardItem.lane !== 'review' || effectiveResolutionMode !== null),
-          detail:
-            boardItem.lane !== 'review'
-              ? 'This card is not waiting on a review resolution.'
-              : effectiveResolutionMode
-                ? 'PM already knows what should happen if you accept this result.'
-                : 'You still need to choose what happens next if you accept this result.',
-        },
+      : acceptanceNeedsNextCardTitle
+        ? {
+            label: 'Next card named',
+            ready: false,
+            detail: 'You already chose to continue the loop, but PM still needs a title for the next card it should create.',
+          }
+        : {
+            label: 'Accept path chosen',
+            ready: Boolean(boardItem.lane !== 'review' || effectiveResolutionMode !== null),
+            detail:
+              boardItem.lane !== 'review'
+                ? 'This card is not waiting on a review resolution.'
+                : effectiveResolutionMode === 'close_only'
+                  ? 'If you accept this, PM will simply close the current lane.'
+                  : effectiveResolutionMode === 'close_and_spawn_next'
+                    ? 'If you accept this, PM will close this lane and continue the initiative into a new card.'
+                    : 'You still need to choose whether accepting this should end the lane or spawn the next card.',
+          },
   ];
   const validationMissingItems = validationChecklist.filter((item) => !item.ready);
   const validationTone = validationMissingItems.length === 0 ? '#22c55e' : validationChecklist.some((item) => item.ready) ? '#f59e0b' : '#f87171';
@@ -2940,15 +2958,27 @@ function PMCardDetailModal({
           .join('. ') + '.'
       : 'The card does not carry much direct proof yet. If you are unsure, that is a signal to revise or return it rather than guess.';
   const storyboardMissingText =
-    validationMissingItems.length > 0
-      ? `What still feels thin: ${validationMissingItems.map((item) => item.label.toLowerCase()).join(', ')}.`
-      : 'Nothing obvious is missing for a first-pass judgment. You may still want to inspect the proof, but the card is not obviously under-explained.';
+    acceptanceNeedsResolutionChoice
+      ? 'The work itself may be reviewable, but PM does not yet know what "accept" should mean. You still need to choose one of two branches: end this lane now, or close it and create the next card.'
+      : acceptanceNeedsNextCardTitle
+        ? 'You already chose to continue the loop, but PM still needs you to name the next card it should create.'
+        : validationMissingItems.length > 0
+          ? `What still feels thin: ${validationMissingItems.map((item) => item.label.toLowerCase()).join(', ')}.`
+          : 'Nothing obvious is missing for a first-pass judgment. You may still want to inspect the proof, but the card is not obviously under-explained.';
   const storyboardDecisionDetail =
-    boardItem.lane === 'review' && effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
-      ? `${validationDecisionText} The current default is to accept this and continue into "${effectiveNextCardTitle}".`
-      : validationDecisionText;
+    acceptanceNeedsResolutionChoice
+      ? 'You are deciding two things: first, whether the returned result is good enough; second, if it is good enough, whether this lane should end here or continue into a new PM card.'
+      : acceptanceNeedsNextCardTitle
+        ? 'You are deciding whether the returned result is good enough and, if it is, what the follow-up card should be called.'
+        : boardItem.lane === 'review' && effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
+          ? `${validationDecisionText} The current default is to accept this and continue into "${effectiveNextCardTitle}".`
+          : validationDecisionText;
   const storyboardFallbackText = isPendingOwnerReview
     ? 'If the draft is not ready, use revision or park instead of trying to interpret around missing context.'
+    : acceptanceNeedsResolutionChoice
+      ? 'If you are not ready to choose between ending the lane and continuing it, return it to Jean-Claude or mark it blocked instead of accepting it ambiguously.'
+      : acceptanceNeedsNextCardTitle
+        ? 'If you are not ready to name the next lane, return it to Jean-Claude or mark it blocked instead of creating a vague follow-up.'
     : boardItem.lane === 'review'
       ? 'If this still feels thin after the storyboard and proof, return it to Jean-Claude or mark it blocked rather than forcing a close.'
       : 'If the plot still feels incomplete, do not resolve it just to clear the board.';
