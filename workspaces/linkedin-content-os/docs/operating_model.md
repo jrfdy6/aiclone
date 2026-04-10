@@ -57,6 +57,7 @@ The lane should prioritize inputs in this order:
   - Label each intake item with lane, belief stance, and response mode inside `plans/reaction_queue.md`.
   - Decide whether the signal fuels comments, reposts, post seeds, or belief evidence only.
   - Drop low-signal items into an "archive" section to avoid recirculating vague ideas.
+  - Move stale `reaction_seed` drafts that no longer pass idea qualification into `drafts/archive/stale_reaction_drafts/` so old generated files stop polluting the active backlog.
 - **Outputs:** ranked interpretation list with `lane`, `stance`, `response_mode`, and `next action` columns.
 
 ### 3. Backlog

@@ -20,6 +20,7 @@ from linkedin_strategy_utils import (  # noqa: E402
     workspace_root,
     write_text,
 )
+from linkedin_idea_qualification import load_or_build_idea_qualification_payload, qualification_indexes  # noqa: E402
 
 
 def _workspace_dir_from_arg(path: str | None) -> Path:
@@ -29,7 +30,7 @@ def _workspace_dir_from_arg(path: str | None) -> Path:
 def _existing_source_paths(workspace_dir: Path) -> set[str]:
     source_paths: set[str] = set()
     for path in drafts_root(workspace_dir).glob("*.md"):
-        if path.name == "README.md" or path.name.startswith("queue_"):
+        if path.name == "README.md" or path.name.startswith("queue_") or path.name.startswith("feezie_owner_review_packet_"):
             continue
         text = path.read_text(encoding="utf-8")
         for line in text.splitlines():
@@ -96,6 +97,9 @@ def _reaction_body(item: dict[str, Any]) -> str:
     source_url = clean_text(item.get("source_url"))
     source_path = clean_text(item.get("source_path"))
     lane = clean_text(item.get("priority_lane"))
+    qualification_route = clean_text(item.get("qualification_route")) or "pass"
+    qualification_id = clean_text(item.get("qualification_id"))
+    qualification_reason = clean_text(item.get("qualification_reason"))
     return "\n".join(
         [
             "---",
@@ -110,6 +114,8 @@ def _reaction_body(item: dict[str, Any]) -> str:
             f"role_alignment: {clean_text(item.get('role_alignment')) or 'role_anchored'}",
             f"source_url: {source_url}",
             f"source_path: {source_path}",
+            f"qualification_route: {qualification_route}",
+            f"qualification_id: {qualification_id}",
             f"created_at: {now_iso()}",
             "---",
             "",
@@ -119,6 +125,8 @@ def _reaction_body(item: dict[str, Any]) -> str:
             f"- Source URL: {source_url}",
             f"- Source file: `{source_path}`",
             f"- Why it matters: {why_it_matters}",
+            f"- Qualification: `{qualification_route}`",
+            (f"- Qualification notes: {qualification_reason}" if qualification_reason else ""),
             "",
             "## First-pass draft",
             "",
@@ -151,6 +159,8 @@ def materialize_owner_review_drafts(workspace_dir: Path) -> dict[str, Any]:
     drafts_dir.mkdir(parents=True, exist_ok=True)
     created: list[str] = []
     existing_sources = _existing_source_paths(workspace_dir)
+    qualification_payload = load_or_build_idea_qualification_payload(workspace_dir)
+    _, qualification_by_source_path = qualification_indexes(qualification_payload)
 
     for item in load_queue_items(workspace_dir)[:3]:
         draft_path = drafts_dir / f"{clean_text(item.get('id')).lower()}_{_queue_slug(item)}.md"
@@ -164,8 +174,17 @@ def materialize_owner_review_drafts(workspace_dir: Path) -> dict[str, Any]:
         if not isinstance(item, dict):
             continue
         source_path = clean_text(item.get("source_path"))
+        report = qualification_by_source_path.get(source_path) if source_path else None
+        route = clean_text((report or {}).get("route")) or clean_text(item.get("qualification_route")) or "discard"
+        if route != "pass":
+            continue
         if source_path and source_path in existing_sources:
             continue
+        if report:
+            item = dict(item)
+            item["qualification_route"] = route
+            item["qualification_id"] = clean_text(report.get("idea_id")) or clean_text(item.get("title"))
+            item["qualification_reason"] = clean_text(report.get("suggested_fix"))
         draft_path = drafts_dir / f"{Path(now_iso()).name[:10]}_{_reaction_slug(item)}.md"
         if draft_path.exists():
             continue

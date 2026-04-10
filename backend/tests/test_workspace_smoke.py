@@ -725,6 +725,7 @@ This is the first pass.
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].get("queue_id"), "FEEZIE-001")
         self.assertEqual(items[0].get("publish_posture"), "owner_review_required")
+        self.assertIsNone(items[0].get("current_notes"))
         self.assertIn("This is the first pass.", items[0].get("first_pass_draft") or "")
 
         created_card = PMCard(
@@ -743,7 +744,7 @@ This is the first pass.
         def fake_create_card(payload):
             self.assertEqual(payload.payload.get("workspace_key"), "linkedin-os")
             self.assertEqual((payload.payload.get("owner_review") or {}).get("decision"), "approve")
-            self.assertEqual(payload.link_id, "FEEZIE-001")
+            self.assertIsNone(payload.link_id)
             return created_card
 
         def fake_dispatch_card(card_id, payload):
@@ -865,11 +866,28 @@ This is the second first pass.
             updated_at=datetime.now(timezone.utc),
         )
 
+        created_payloads = []
+
         def fake_create_pending_card(payload):
+            owner_review = payload.payload.get("owner_review") or {}
+            queue_id = owner_review.get("queue_id")
+            created_payloads.append({"queue_id": queue_id, "title": payload.title})
             self.assertEqual(payload.status, "review")
-            self.assertEqual(payload.link_id, "FEEZIE-002")
-            self.assertEqual((payload.payload.get("owner_review") or {}).get("queue_id"), "FEEZIE-002")
-            return pending_card
+            self.assertIsNone(payload.link_id)
+            if queue_id == "FEEZIE-002":
+                return pending_card
+            return PMCard(
+                id=f"owner-review-{len(created_payloads)}",
+                title=payload.title,
+                owner="Neo",
+                status="review",
+                source="openclaw:workspace-owner-review",
+                link_type="owner_review",
+                link_id=payload.link_id,
+                payload=payload.payload,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
 
         with (
             patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=None),
@@ -878,7 +896,8 @@ This is the second first pass.
             sync_response = self.client.post("/api/pm/owner-review/sync")
         self.assertEqual(sync_response.status_code, 200)
         sync_payload = sync_response.json()
-        self.assertEqual(sync_payload.get("pending_count"), 1)
+        self.assertGreaterEqual(sync_payload.get("pending_count") or 0, 1)
+        self.assertIn("FEEZIE-002", {entry["queue_id"] for entry in created_payloads})
         self.assertIn("11111111-1111-4111-8111-111111111112", sync_payload.get("created_card_ids") or [])
 
         def fake_update_card(_card_id, patch):
@@ -928,6 +947,231 @@ This is the second first pass.
         updated_packet = packet_path.read_text(encoding="utf-8")
         self.assertIn("- [x] Approve for scheduling", updated_packet)
         self.assertIn("Use this one next.", updated_packet)
+
+    def test_linkedin_owner_review_route_reads_and_updates_latent_transform_drafts(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        draft_path = drafts_dir / "2026-04-10_the-shape-of-the-thing-latent-transform.md"
+        execution_log = self.fixture_root / "memory" / "execution_log.md"
+
+        draft_path.write_text(
+            """---
+title: "The Shape of the Thing"
+draft_kind: owner_review
+source_kind: latent_transform
+idea_id: idea-123
+lane: ai
+publish_posture: owner_review_required
+source_url: https://example.com/the-shape-of-the-thing
+source_path: workspaces/linkedin-content-os/research/source.md
+latent_reason: needs_context_translation
+transform_type: context_translation
+---
+
+# The Shape of the Thing
+
+## Why this draft exists
+- This source was preserved as `needs_context_translation` instead of discarded.
+- Priority lane: `AI systems and operator clarity`
+
+## Source signal
+- Source file: `workspaces/linkedin-content-os/research/source.md`
+- Source URL: https://example.com/the-shape-of-the-thing
+- Source summary: Useful signal about AI workflow interfaces.
+- Why it matters: AI workflow design, operator judgment, and implementation signals
+
+## Transform brief
+- Proposed angle: If the workflow is unclear, AI just scales confusion.
+- Owner question: What concrete change should operators notice if this is true?
+- Proof prompt: AI Clone / Brain System rebuild notes
+- Promotion rule: Promote only after one lived proof line and one audience consequence.
+
+## Revision goals
+- add one lived proof line
+
+## First-pass transformed draft
+
+This is the latent first pass.
+
+## Owner notes
+- Add one proof line before approval.
+""",
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/api/workspace/linkedin-os-owner-review")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        items = payload.get("items") or []
+        latent_item = next(
+            item
+            for item in items
+            if item.get("entry_kind") == "supplemental" and item.get("title") == "The Shape of the Thing"
+        )
+        self.assertTrue((latent_item.get("queue_id") or "").startswith("LATENT-"))
+        self.assertEqual(latent_item.get("source_kind"), "latent_transform")
+        self.assertEqual(latent_item.get("entry_kind"), "supplemental")
+        self.assertIn("This is the latent first pass.", latent_item.get("first_pass_draft") or "")
+
+        created_card = PMCard(
+            id="owner-review-card-latent-1",
+            title="Revise FEEZIE draft - latent",
+            owner="Neo",
+            status="todo",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=str(latent_item.get("queue_id")),
+            payload={"workspace_key": "linkedin-os"},
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        def fake_create_card(payload):
+            owner_review = payload.payload.get("owner_review") or {}
+            self.assertEqual(payload.payload.get("workspace_key"), "linkedin-os")
+            self.assertEqual(owner_review.get("decision"), "revise")
+            self.assertEqual(owner_review.get("source_kind"), "latent_transform")
+            self.assertIsNone(payload.link_id)
+            return created_card
+
+        def fake_dispatch_card(card_id, payload):
+            self.assertEqual(card_id, created_card.id)
+            self.assertEqual(payload.execution_state, "queued")
+            return SimpleNamespace(
+                card=created_card,
+                queue_entry=SimpleNamespace(target_agent="Jean-Claude", execution_state="queued"),
+            )
+
+        with (
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(linkedin_owner_review_module.pm_card_service, "create_card", side_effect=fake_create_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "dispatch_card", side_effect=fake_dispatch_card),
+        ):
+            update_response = self.client.post(
+                f"/api/workspace/linkedin-os-owner-review/{latent_item['queue_id']}",
+                json={"decision": "revise", "notes": "Add one lived proof line before approval."},
+            )
+        self.assertEqual(update_response.status_code, 200)
+        updated_payload = update_response.json()
+        updated_items = updated_payload.get("items") or []
+        updated_item = next(item for item in updated_items if item.get("queue_id") == latent_item.get("queue_id"))
+        self.assertEqual(updated_item.get("current_decision"), "revise")
+        self.assertEqual(updated_item.get("current_notes"), "Add one lived proof line before approval.")
+        self.assertEqual(updated_item.get("publish_posture"), "owner_review_required")
+        self.assertEqual((updated_payload.get("workflow") or {}).get("status"), "queued")
+
+        updated_draft = draft_path.read_text(encoding="utf-8")
+        self.assertIn("owner_decision: revise", updated_draft)
+        self.assertIn("owner_review_notes: \"Add one lived proof line before approval.\"", updated_draft)
+        self.assertIn("publish_posture: owner_review_required", updated_draft)
+        self.assertIn(str(latent_item.get("queue_id")), execution_log.read_text(encoding="utf-8"))
+
+    def test_pm_owner_review_sync_includes_latent_transform_drafts(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        draft_path = drafts_dir / "2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md"
+
+        draft_path.write_text(
+            """---
+title: "Claude Dispatch and the Power of Interfaces"
+draft_kind: owner_review
+source_kind: latent_transform
+idea_id: idea-456
+lane: ai
+publish_posture: owner_review_required
+source_url: https://example.com/claude-dispatch
+source_path: workspaces/linkedin-content-os/research/claude-dispatch.md
+latent_reason: needs_context_translation
+transform_type: context_translation
+---
+
+# Claude Dispatch and the Power of Interfaces
+
+## Source signal
+- Source file: `workspaces/linkedin-content-os/research/claude-dispatch.md`
+- Source URL: https://example.com/claude-dispatch
+- Source summary: Interface quality changes whether AI is actually useful.
+- Why it matters: AI workflow design and operator judgment signals
+
+## Transform brief
+- Proposed angle: Interface quality decides whether capability becomes leverage.
+- Owner question: What concrete change should operators notice if this is true?
+- Proof prompt: AI Clone / Brain System rebuild notes
+- Promotion rule: Promote only after one lived proof line and one audience consequence.
+
+## First-pass transformed draft
+
+This is another latent first pass.
+""",
+            encoding="utf-8",
+        )
+
+        pending_card = PMCard(
+            id="22222222-2222-4222-8222-222222222222",
+            title="Owner review - latent",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id="LATENT-DUMMY",
+            payload={"workspace_key": "linkedin-os"},
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        created_payloads = []
+
+        def fake_create_pending_card(payload):
+            owner_review = payload.payload.get("owner_review") or {}
+            queue_id = owner_review.get("queue_id")
+            created_payloads.append(
+                {
+                    "queue_id": queue_id,
+                    "title": payload.title,
+                    "source_kind": owner_review.get("source_kind"),
+                    "entry_kind": owner_review.get("entry_kind"),
+                    "draft_path": owner_review.get("draft_path"),
+                }
+            )
+            self.assertEqual(payload.status, "review")
+            self.assertIsNone(payload.link_id)
+            if owner_review.get("draft_path") == "drafts/2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md":
+                self.assertEqual(payload.title, "Owner review - Latent transform - Claude Dispatch and the Power of Interfaces")
+                self.assertEqual(owner_review.get("source_kind"), "latent_transform")
+                self.assertEqual(owner_review.get("entry_kind"), "supplemental")
+                self.assertEqual(owner_review.get("draft_path"), "drafts/2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md")
+                return pending_card.model_copy(update={"link_id": payload.link_id})
+            return PMCard(
+                id=f"owner-review-{len(created_payloads)}",
+                title=payload.title,
+                owner="Neo",
+                status="review",
+                source="openclaw:workspace-owner-review",
+                link_type="owner_review",
+                link_id=payload.link_id,
+                payload=payload.payload,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+
+        with (
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(linkedin_owner_review_module.pm_card_service, "create_card", side_effect=fake_create_pending_card),
+        ):
+            sync_response = self.client.post("/api/pm/owner-review/sync")
+        self.assertEqual(sync_response.status_code, 200)
+        sync_payload = sync_response.json()
+        self.assertGreaterEqual(sync_payload.get("pending_count") or 0, 1)
+        self.assertTrue(
+            any(
+                entry["source_kind"] == "latent_transform"
+                and entry["entry_kind"] == "supplemental"
+                and entry["draft_path"]
+                == "drafts/2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md"
+                for entry in created_payloads
+            )
+        )
+        self.assertIn(pending_card.id, sync_payload.get("created_card_ids") or [])
 
     def test_pm_auto_progress_route(self) -> None:
         expected = {

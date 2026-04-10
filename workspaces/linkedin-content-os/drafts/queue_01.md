@@ -18,7 +18,7 @@ Every item in this queue requires explicit owner approval before public posting.
   - `../../knowledge/persona/feeze/history/wins.md`
 - Why now: the AI Clone / Brain work is active and publicly legible.
 - Status: owner_review_draft (`drafts/feezie-001_cheap-models-better-systems.md`)
-- Owner packet: latest `drafts/feezie_owner_review_packet_YYYYMMDD.md` entry for `FEEZIE-001`
+- Owner packet: `drafts/feezie_owner_review_packet_20260410.md#feezie-001---cheap-models-better-systems`
 - Approval status: `owner_review_required`
 
 ### FEEZIE-002 - Quiet inefficiency is still failure
@@ -30,7 +30,7 @@ Every item in this queue requires explicit owner approval before public posting.
   - `../../knowledge/persona/feeze/history/wins.md`
 - Why now: this sharpens Feeze's operator voice without fake founder performance.
 - Status: owner_review_draft (`drafts/feezie-002_quiet-inefficiency-is-still-failure.md`)
-- Owner packet: latest `drafts/feezie_owner_review_packet_YYYYMMDD.md` entry for `FEEZIE-002`
+- Owner packet: `drafts/feezie_owner_review_packet_20260410.md#feezie-002---quiet-inefficiency-is-still-failure`
 - Approval status: `owner_review_required`
 
 ### FEEZIE-003 - Visibility that changes behavior
@@ -43,7 +43,7 @@ Every item in this queue requires explicit owner approval before public posting.
   - `../../knowledge/persona/feeze/history/wins.md`
 - Why now: this is one of the strongest public proofs of systems-and-leadership credibility.
 - Status: owner_review_draft (`drafts/feezie-003_visibility-that-changes-behavior.md`)
-- Owner packet: latest `drafts/feezie_owner_review_packet_YYYYMMDD.md` entry for `FEEZIE-003`
+- Owner packet: `drafts/feezie_owner_review_packet_20260410.md#feezie-003---visibility-that-changes-behavior`
 - Approval status: `owner_review_required`
 
 ### FEEZIE-004 - Warm then sharp

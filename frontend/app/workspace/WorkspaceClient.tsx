@@ -174,6 +174,14 @@ type OwnerReviewItem = {
   current_notes?: string | null;
   publish_posture?: string;
   reviewed_at?: string | null;
+  entry_kind?: string;
+  source_kind?: string;
+  source_url?: string | null;
+  idea_id?: string | null;
+  summary?: string | null;
+  revision_goals?: string[];
+  latent_reason?: string | null;
+  transform_type?: string | null;
 };
 
 type OwnerReviewPayload = {
@@ -427,6 +435,13 @@ function formatTimestamp(value?: string | null) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date);
+}
+
+function ownerReviewKindLabel(item?: Pick<OwnerReviewItem, 'entry_kind' | 'source_kind'> | null) {
+  if (!item) return 'Owner review';
+  if (item.entry_kind === 'supplemental' && item.source_kind === 'latent_transform') return 'Latent transform';
+  if (item.entry_kind === 'supplemental') return 'Supplemental review';
+  return 'Queue item';
 }
 
 function copyText(text: string) {
@@ -1347,7 +1362,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
               <p style={sectionLabelStyle('#fbbf24')}>0 Owner Review</p>
               <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 8px' }}>Approve, revise, or park from here</h2>
               <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '840px', margin: 0 }}>
-                This is the missing owner gate for FEEZIE drafts. The buttons below now write back to the draft queue, the latest owner-review packet, and the workspace execution log, then queue Jean-Claude follow-up for approved or revised drafts.
+                This is the missing owner gate for FEEZIE drafts. The buttons below now write back to the draft artifacts, queue files when they exist, and the workspace execution log, then queue Jean-Claude follow-up for approved or revised drafts.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1365,23 +1380,40 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
           {ownerReviewState === 'error' ? (
             <EmptyMessage message={ownerReviewError ?? 'Owner review is unavailable right now.'} />
           ) : ownerReviewItems.length === 0 ? (
-            <EmptyMessage message="No owner-review drafts are currently loaded from the FEEZIE queue." />
+            <EmptyMessage message="No owner-review drafts are currently loaded into the FEEZIE owner-review lane." />
           ) : (
             <div style={{ display: 'grid', gap: '14px' }}>
               {ownerReviewItems.map((item) => {
                 const actioning = ownerReviewActioning === item.queue_id;
+                const isSupplemental = item.entry_kind === 'supplemental';
                 return (
                   <article key={item.queue_id} style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                       <div style={{ display: 'grid', gap: '6px' }}>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{item.queue_id}</p>
+                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{isSupplemental ? ownerReviewKindLabel(item) : item.queue_id}</p>
                           <InlinePill label={humanizeSnakeCase(item.lane || 'unknown lane')} tone="#38bdf8" />
                           {item.format && <InlinePill label={item.format} tone="#94a3b8" />}
+                          {isSupplemental && item.transform_type ? <InlinePill label={humanizeSnakeCase(item.transform_type)} tone="#fbbf24" /> : null}
                           <InlinePill label={humanizeSnakeCase(item.status || 'pending')} tone={item.current_decision === 'approve' ? '#22c55e' : item.current_decision === 'park' ? '#f87171' : '#fbbf24'} />
                         </div>
                         <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
+                        {isSupplemental ? (
+                          <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#475569' }}>Reference:</span> {item.queue_id}
+                          </p>
+                        ) : null}
                         {item.core_angle && <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.core_angle}</p>}
+                        {isSupplemental && item.summary ? (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Source summary:</span> {item.summary}
+                          </p>
+                        ) : null}
+                        {isSupplemental && item.latent_reason ? (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Why it was preserved:</span> {humanizeSnakeCase(item.latent_reason)}
+                          </p>
+                        ) : null}
                         {item.why_now && (
                           <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
                             <span style={{ color: '#64748b' }}>Why now:</span> {item.why_now}
@@ -1427,6 +1459,17 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                       </div>
                     )}
 
+                    {isSupplemental && item.revision_goals && item.revision_goals.length > 0 ? (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Transform goals</p>
+                        {item.revision_goals.map((goal) => (
+                          <p key={`${item.queue_id}-${goal}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                            {goal}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
                     <label style={fieldWrapStyle}>
                       <span style={fieldLabelStyle}>Your notes</span>
                       <textarea
@@ -1449,7 +1492,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                         {actioning ? 'Saving…' : 'Park'}
                       </button>
                       <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
-                        Queue status: {humanizeSnakeCase(item.approval_status || 'owner_review_required')}
+                        {isSupplemental ? 'Review status' : 'Queue status'}: {humanizeSnakeCase(item.approval_status || 'owner_review_required')}
                       </p>
                     </div>
                   </article>

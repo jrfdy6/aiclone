@@ -757,25 +757,28 @@ def _build_weekly_plan_payload() -> dict[str, Any] | None:
     module = _load_module("generate_linkedin_weekly_plan_runtime", script_path) if script_path else None
     if module is None or not linkedin_root.exists():
         return None
-    draft_candidates, draft_source_refs = module.load_draft_candidates(linkedin_root)
-    media_candidates = module.load_media_candidates(_ingestions_root())
-    research_candidates, research_signals, research_notes = module.load_research_candidates(linkedin_root)
-    filtered_research_candidates = [item for item in research_candidates if item.source_path not in draft_source_refs]
-    all_candidates = sorted(draft_candidates + media_candidates + filtered_research_candidates, key=lambda item: (-item.score, item.title.lower()))
-    recommendations = [item for item in all_candidates if item.publish_posture != "hold_private"][:5]
-    hold_items = [item for item in all_candidates if item.publish_posture == "hold_private" or item.risk_level == "high"][:10]
-    payload = module.plan_payload(
-        workspace_dir=linkedin_root,
-        recommendations=recommendations,
-        hold_items=hold_items,
-        research_signals=research_signals,
-        research_notes=research_notes,
-        counts={
-            "drafts": len(draft_candidates),
-            "media": len(media_candidates),
-            "research": len(filtered_research_candidates),
-        },
-    )
+    if hasattr(module, "build_weekly_plan"):
+        payload = module.build_weekly_plan(linkedin_root)
+    else:
+        draft_candidates, draft_source_refs = module.load_draft_candidates(linkedin_root)
+        media_candidates = module.load_media_candidates(_ingestions_root())
+        research_candidates, research_signals, research_notes = module.load_research_candidates(linkedin_root)
+        filtered_research_candidates = [item for item in research_candidates if item.source_path not in draft_source_refs]
+        all_candidates = sorted(draft_candidates + media_candidates + filtered_research_candidates, key=lambda item: (-item.score, item.title.lower()))
+        recommendations = [item for item in all_candidates if item.publish_posture != "hold_private"][:5]
+        hold_items = [item for item in all_candidates if item.publish_posture == "hold_private" or item.risk_level == "high"][:10]
+        payload = module.plan_payload(
+            workspace_dir=linkedin_root,
+            recommendations=recommendations,
+            hold_items=hold_items,
+            research_signals=research_signals,
+            research_notes=research_notes,
+            counts={
+                "drafts": len(draft_candidates),
+                "media": len(media_candidates),
+                "research": len(filtered_research_candidates),
+            },
+        )
     long_form_routes = _current_long_form_routes_payload()
     return _augment_weekly_plan_payload(payload, long_form_routes)
 

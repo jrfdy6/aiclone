@@ -9,6 +9,7 @@
 ## Evidence Artifacts
 
 - `docs/backlog_seed_status_YYYY-MM-DD.md` — dated backlog evidence snapshots that map each queue item (FEEZIE-001..) to canon anchors, draft paths, and pending owner actions.
+  - Latest snapshot: `docs/backlog_seed_status_2026-04-10.md`
 - `drafts/feezie_owner_review_packet_YYYYMMDD.md` — dated owner-review packets for the active approval cycle.
 
 ## Active

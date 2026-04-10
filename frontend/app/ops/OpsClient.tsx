@@ -383,6 +383,14 @@ type OwnerReviewCardPayload = {
   publish_posture?: string;
   reviewed_at?: string | null;
   sync_state?: string;
+  entry_kind?: string;
+  source_kind?: string;
+  source_url?: string | null;
+  idea_id?: string | null;
+  summary?: string | null;
+  revision_goals?: string[];
+  latent_reason?: string | null;
+  transform_type?: string | null;
 };
 
 type OwnerReviewActionResult = {
@@ -2750,6 +2758,7 @@ function PMCardDetailModal({
     payload.owner_review && typeof payload.owner_review === 'object'
       ? (payload.owner_review as OwnerReviewCardPayload)
       : null;
+  const displayCardTitle = ownerReviewDisplayTitle(card, ownerReviewPayload);
   const isOwnerReviewCard = card.link_type === 'owner_review' || Boolean(ownerReviewPayload?.queue_id);
   const isPendingOwnerReview =
     isOwnerReviewCard &&
@@ -3083,7 +3092,7 @@ function PMCardDetailModal({
       setActionFeedback(null);
       if (action === 'dispatch') {
         await onDispatch(card.id, boardItem.queueEntry?.target_agent || displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent));
-        setActionFeedback(`Opened SOP for ${card.title}.`);
+        setActionFeedback(`Opened SOP for ${displayCardTitle}.`);
         return;
       }
       if (action === 'approve') {
@@ -3101,8 +3110,8 @@ function PMCardDetailModal({
         });
         setActionFeedback(
           result.successor_card
-            ? `Resolved ${card.title} and spawned "${result.successor_card.title}".`
-            : `Resolved ${card.title} and closed this lane.`,
+            ? `Resolved ${displayCardTitle} and spawned "${result.successor_card.title}".`
+            : `Resolved ${displayCardTitle} and closed this lane.`,
         );
         return;
       }
@@ -3111,8 +3120,8 @@ function PMCardDetailModal({
       });
       setActionFeedback(
         action === 'return'
-          ? `Returned ${card.title} to Jean-Claude.`
-          : `Marked ${card.title} as blocked and rerouted it to Jean-Claude.`,
+          ? `Returned ${displayCardTitle} to Jean-Claude.`
+          : `Marked ${displayCardTitle} as blocked and rerouted it to Jean-Claude.`,
       );
     } catch (error) {
       setActionError(toErrorMessage(error));
@@ -3130,10 +3139,10 @@ function PMCardDetailModal({
       setActionFeedback(
         result.workflow?.message ??
           (decision === 'approve'
-            ? `Approved ${card.title}.`
+            ? `Approved ${displayCardTitle}.`
             : decision === 'revise'
-              ? `Requested revision for ${card.title}.`
-              : `Parked ${card.title}.`),
+              ? `Requested revision for ${displayCardTitle}.`
+              : `Parked ${displayCardTitle}.`),
       );
     } catch (error) {
       setActionError(toErrorMessage(error));
@@ -3151,7 +3160,7 @@ function PMCardDetailModal({
         reason: resolutionNote.trim() || 'Closed as already handled outside PM.',
         resolutionMode: 'close_only',
       });
-      setActionFeedback(`Closed ${card.title} as already handled.`);
+      setActionFeedback(`Closed ${displayCardTitle} as already handled.`);
     } catch (error) {
       setActionError(toErrorMessage(error));
     } finally {
@@ -3623,10 +3632,13 @@ function PMCardDetailModal({
               <section style={{ borderRadius: '16px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '16px' }}>
                 <p style={{ color: '#fbbf24', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Owner Review Context</p>
                 <div style={{ display: 'grid', gap: '8px', color: '#fef3c7', fontSize: '13px' }}>
-                  <div>Queue item: {ownerReviewPayload.queue_id ?? linkId ?? 'unknown'}</div>
+                  <div>{ownerReviewKindLabel(ownerReviewPayload)}: {ownerReviewReferenceLabel(ownerReviewPayload, linkId)}</div>
                   {ownerReviewPayload.format ? <div>Format: {ownerReviewPayload.format}</div> : null}
+                  {ownerReviewPayload.transform_type ? <div>Transform type: {humanizeStatusLabel(ownerReviewPayload.transform_type)}</div> : null}
+                  {ownerReviewPayload.latent_reason ? <div>Why it was preserved: {humanizeStatusLabel(ownerReviewPayload.latent_reason)}</div> : null}
                   {ownerReviewPayload.packet_recommendation ? <div>Recommendation: {ownerReviewPayload.packet_recommendation}</div> : null}
                   {ownerReviewPayload.core_angle ? <div>Core angle: {ownerReviewPayload.core_angle}</div> : null}
+                  {ownerReviewPayload.summary ? <div>Source summary: {ownerReviewPayload.summary}</div> : null}
                   {ownerReviewPayload.why_now ? <div>Why now: {ownerReviewPayload.why_now}</div> : null}
                   <div>Approval status: {humanizeStatusLabel(ownerReviewPayload.approval_status ?? 'unknown')}</div>
                 </div>
@@ -5164,6 +5176,10 @@ function buildLinkedStandupCards(entry: StandupEntry, pmCards: PMCard[], executi
 }
 
 function buildMeetingBoardItem(card: PMCard, queueEntry: ExecutionQueueEntry | null): UnifiedBoardItem {
+  const ownerReviewPayload =
+    card.payload?.owner_review && typeof card.payload.owner_review === 'object'
+      ? (card.payload.owner_review as OwnerReviewCardPayload)
+      : null;
   const normalizedStatus = normalizeStatus(card.status ?? 'todo');
   const lane: UnifiedBoardLaneKey = queueEntry
     ? normalizeExecutionState(queueEntry.execution_state)
@@ -5177,7 +5193,7 @@ function buildMeetingBoardItem(card: PMCard, queueEntry: ExecutionQueueEntry | n
   return {
     id: `meeting-card-${card.id}`,
     cardId: card.id,
-    title: card.title,
+    title: ownerReviewDisplayTitle(card, ownerReviewPayload),
     workspaceKey: workspaceKeyFromCard(card),
     lane,
     pmStatus: card.status ?? 'todo',
@@ -5329,7 +5345,7 @@ function buildPmCardHistoryItems(card: PMCard, boardItem: UnifiedBoardItem, link
   if (ownerReview?.queue_id) {
     items.push({
       label: 'Owner Review Linked',
-      detail: `This PM card is linked to owner-review queue item \`${ownerReview.queue_id}\`${ownerReview.approval_status ? ` with approval status \`${ownerReview.approval_status}\`` : ''}.`,
+      detail: `This PM card is linked to ${ownerReviewKindLabel(ownerReview).toLowerCase()} \`${ownerReview.entry_kind === 'supplemental' ? ownerReview.title ?? ownerReview.queue_id : ownerReview.queue_id}\`${ownerReview.approval_status ? ` with approval status \`${ownerReview.approval_status}\`` : ''}.`,
       tone: '#fbbf24',
     });
   }
@@ -9963,6 +9979,26 @@ function summarize(text: string, maxLength = 120) {
     return trimmed;
   }
   return `${trimmed.slice(0, maxLength).trim()}...`;
+}
+
+function ownerReviewKindLabel(ownerReview?: OwnerReviewCardPayload | null) {
+  if (!ownerReview) return 'Owner review';
+  if (ownerReview.entry_kind === 'supplemental' && ownerReview.source_kind === 'latent_transform') return 'Latent transform';
+  if (ownerReview.entry_kind === 'supplemental') return 'Supplemental review';
+  return 'Queue item';
+}
+
+function ownerReviewReferenceLabel(ownerReview?: OwnerReviewCardPayload | null, fallback?: string | null) {
+  if (!ownerReview) return fallback ?? 'unknown';
+  if (ownerReview.entry_kind === 'supplemental') return ownerReview.title ?? fallback ?? 'supplemental draft';
+  return ownerReview.queue_id ?? fallback ?? 'unknown';
+}
+
+function ownerReviewDisplayTitle(card: PMCard, ownerReview?: OwnerReviewCardPayload | null) {
+  if (ownerReview?.entry_kind === 'supplemental' && ownerReview.title) {
+    return `Owner review - ${ownerReview.title}`;
+  }
+  return card.title;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
