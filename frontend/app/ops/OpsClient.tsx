@@ -2782,6 +2782,9 @@ function PMCardDetailModal({
     payload.latest_manual_review && typeof payload.latest_manual_review === 'object'
       ? (payload.latest_manual_review as Record<string, unknown>)
       : null;
+  const ownerReviewProofAnchors = Array.isArray(ownerReviewPayload?.proof_anchors)
+    ? ownerReviewPayload?.proof_anchors.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
   const executionPacketPath =
     typeof boardItem.queueEntry?.execution_packet_path === 'string' && boardItem.queueEntry.execution_packet_path.trim()
       ? boardItem.queueEntry.execution_packet_path.trim()
@@ -2817,6 +2820,98 @@ function PMCardDetailModal({
   const likelyStaleBoardItem = isLikelyStaleBoardItem(boardItem);
   const pmStatusLabel = displayPmStatusLabel(card.status, boardItem.lane, boardItem.executionState);
   const executionStatusLabel = boardItem.executionState ? displayExecutionStateLabel(boardItem.executionState) : null;
+  const validationPrimaryText =
+    (ownerReviewPayload?.first_pass_draft ? summarize(ownerReviewPayload.first_pass_draft, 320) : null) ??
+    latestExecutionSummary ??
+    boardItem.queueEntry?.latest_result_summary ??
+    boardItem.reason ??
+    (linkedStandups[0] ? summarize(standupSummary(linkedStandups[0]), 220) : 'The system has not attached a concise result summary to this card yet.');
+  const validationDecisionText = isPendingOwnerReview
+    ? 'Decide whether this draft is ready to move forward, needs revision, or should be parked.'
+    : boardItem.lane === 'review'
+      ? 'Decide whether the returned result is good enough to accept, continue, or reroute.'
+      : boardItem.lane === 'failed'
+        ? 'Decide whether this blocked lane should be rerouted, clarified, or kept blocked.'
+        : 'Confirm whether this card should move, stay parked, or be treated as already handled.';
+  const effectiveResolutionMode = resolutionMode ?? pmReviewPolicy?.recommended_resolution_mode ?? null;
+  const effectiveNextCardTitle = nextCardTitle.trim() || pmReviewPolicy?.suggested_next_title || '';
+  const validationOutcomeText = isPendingOwnerReview
+    ? 'If you approve this draft, PM writes the decision back and queues Jean-Claude for follow-through automatically.'
+    : boardItem.lane === 'review'
+      ? effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
+        ? `If you accept this, PM will close this card and spawn "${effectiveNextCardTitle}".`
+        : effectiveResolutionMode === 'close_only'
+          ? 'If you accept this, PM will close this card and remove it from active work.'
+          : 'Before you accept this, PM still needs to know whether to close the lane or create the next card.'
+      : boardItem.lane === 'failed'
+        ? 'If you mark this blocked, the system will keep it visible until a clearer reroute exists.'
+        : 'This card is not currently in the review decision path.';
+  const validationChecklist = [
+    isPendingOwnerReview
+      ? {
+          label: 'Draft attached',
+          ready: Boolean(ownerReviewPayload?.first_pass_draft || ownerReviewPayload?.draft_path),
+          detail: ownerReviewPayload?.draft_path ? 'Draft text or file is attached to the card.' : 'No draft text or draft file is attached yet.',
+        }
+      : {
+          label: 'Result summary attached',
+          ready: Boolean(latestExecutionSummary || boardItem.queueEntry?.latest_result_summary),
+          detail: latestExecutionSummary || boardItem.queueEntry?.latest_result_summary ? 'A returned result summary is attached.' : 'There is no concise result summary attached yet.',
+        },
+    {
+      label: 'Proof attached',
+      ready: Boolean(ownerReviewProofAnchors.length > 0 || latestExecutionArtifacts.length > 0 || executionPacketPath || sopArtifactPath || briefingArtifactPath),
+      detail:
+        ownerReviewProofAnchors.length > 0
+          ? `${ownerReviewProofAnchors.length} proof anchor${ownerReviewProofAnchors.length === 1 ? '' : 's'} attached.`
+          : latestExecutionArtifacts.length > 0 || executionPacketPath || sopArtifactPath || briefingArtifactPath
+            ? 'Execution artifacts are attached to this card.'
+            : 'No direct proof or result artifacts are attached yet.',
+    },
+    {
+      label: 'Source context linked',
+      ready: Boolean(linkedStandups.length > 0 || linkedSourcePaths.length > 0 || recommendationPath),
+      detail:
+        linkedStandups.length > 0 || linkedSourcePaths.length > 0 || recommendationPath
+          ? 'Standup or source context is linked for traceability.'
+          : 'No standup or supporting source context is linked yet.',
+    },
+    isPendingOwnerReview
+      ? {
+          label: 'Recommendation present',
+          ready: Boolean(ownerReviewPayload?.packet_recommendation || ownerReviewPayload?.why_now || ownerReviewPayload?.core_angle),
+          detail:
+            ownerReviewPayload?.packet_recommendation || ownerReviewPayload?.why_now || ownerReviewPayload?.core_angle
+              ? 'The draft includes recommendation context or framing.'
+              : 'There is no recommendation or framing note attached to this draft yet.',
+        }
+      : {
+          label: 'Next step is clear',
+          ready: Boolean(boardItem.lane !== 'review' || effectiveResolutionMode !== null),
+          detail:
+            boardItem.lane !== 'review'
+              ? 'This card is not waiting on a review resolution.'
+              : effectiveResolutionMode
+                ? 'PM already knows what should happen if you accept this result.'
+                : 'You still need to choose what happens next if you accept this result.',
+        },
+  ];
+  const validationMissingItems = validationChecklist.filter((item) => !item.ready);
+  const validationTone = validationMissingItems.length === 0 ? '#22c55e' : validationChecklist.some((item) => item.ready) ? '#f59e0b' : '#f87171';
+  const validationStateLabel = validationMissingItems.length === 0 ? 'Enough to review' : validationChecklist.some((item) => item.ready) ? 'Thin evidence' : 'Not enough proof yet';
+  const validationQuickLinks = dedupeStrings(
+    [
+      ownerReviewPayload?.draft_path ? String(ownerReviewPayload.draft_path) : '',
+      ownerReviewPayload?.owner_packet_path ? String(ownerReviewPayload.owner_packet_path) : '',
+      recommendationPath ?? '',
+      executionPacketPath ?? '',
+      sopArtifactPath ?? '',
+      briefingArtifactPath ?? '',
+      ...latestExecutionArtifacts,
+      ...linkedSourcePaths,
+      ...linkedConversationPaths,
+    ].filter((value): value is string => Boolean(value && value.trim())),
+  ).slice(0, 6);
   const rawRecord = JSON.stringify(
     {
       card,
@@ -2873,11 +2968,11 @@ function PMCardDetailModal({
   }, [ownerReviewPayload?.current_notes, card.id]);
 
   useEffect(() => {
-    setResolutionMode(null);
+    setResolutionMode(pmReviewPolicy?.recommended_resolution_mode ?? null);
     setResolutionNote('');
-    setNextCardTitle('');
-    setNextCardReason('');
-  }, [card.id]);
+    setNextCardTitle(pmReviewPolicy?.suggested_next_title ?? '');
+    setNextCardReason(pmReviewPolicy?.suggested_next_reason ?? '');
+  }, [card.id, pmReviewPolicy?.recommended_resolution_mode, pmReviewPolicy?.suggested_next_reason, pmReviewPolicy?.suggested_next_title]);
 
   const handleCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked') => {
     try {
@@ -3045,6 +3140,102 @@ function PMCardDetailModal({
             </p>
           </section>
         ) : null}
+
+        <section
+          style={{
+            borderRadius: '16px',
+            border: `1px solid ${validationTone}33`,
+            backgroundColor: `${validationTone}10`,
+            padding: '14px',
+            marginBottom: '14px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
+            <div>
+              <p style={{ color: validationTone, letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 4px' }}>Validation Snapshot</p>
+              <p style={{ color: '#e2e8f0', fontSize: '14px', margin: 0 }}>{validationDecisionText}</p>
+            </div>
+            <span style={{ borderRadius: '999px', border: `1px solid ${validationTone}55`, backgroundColor: `${validationTone}20`, color: '#f8fafc', padding: '6px 10px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
+              {validationStateLabel}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.95fr', gap: '12px' }}>
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 6px' }}>What changed</p>
+              <p style={{ color: '#f8fafc', fontSize: '14px', lineHeight: 1.6, margin: '0 0 12px' }}>{validationPrimaryText}</p>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 6px' }}>If you accept this</p>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{validationOutcomeText}</p>
+            </section>
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 8px' }}>Validation checklist</p>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {validationChecklist.map((item) => (
+                  <div
+                    key={`${card.id}-validation-${item.label}`}
+                    style={{
+                      borderRadius: '12px',
+                      border: item.ready ? '1px solid rgba(34,197,94,0.24)' : '1px solid rgba(248,113,113,0.24)',
+                      backgroundColor: item.ready ? 'rgba(34,197,94,0.06)' : 'rgba(248,113,113,0.06)',
+                      padding: '10px',
+                    }}
+                  >
+                    <p style={{ color: item.ready ? '#bbf7d0' : '#fecaca', fontSize: '12px', fontWeight: 700, margin: '0 0 4px' }}>
+                      {item.ready ? 'Ready' : 'Missing'}: {item.label}
+                    </p>
+                    <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{item.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+          {validationMissingItems.length > 0 ? (
+            <section style={{ borderRadius: '14px', border: '1px solid rgba(248,113,113,0.22)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '12px', marginTop: '12px' }}>
+              <p style={{ color: '#fecaca', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 6px' }}>Still missing</p>
+              <p style={{ color: '#fee2e2', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                {validationMissingItems.map((item) => item.label.toLowerCase()).join(', ')}.
+              </p>
+            </section>
+          ) : null}
+          {validationQuickLinks.length > 0 || ownerReviewProofAnchors.length > 0 ? (
+            <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px', marginTop: '12px' }}>
+              <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 8px' }}>Open the proof</p>
+              {validationQuickLinks.length > 0 ? (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: ownerReviewProofAnchors.length > 0 ? '10px' : 0 }}>
+                  {validationQuickLinks.map((path) => (
+                    <button
+                      key={`${card.id}-validation-link-${path}`}
+                      type="button"
+                      onClick={() => onOpenArtifactPath(path)}
+                      style={{
+                        borderRadius: '999px',
+                        border: '1px solid #334155',
+                        backgroundColor: '#0f172a',
+                        color: '#f8fafc',
+                        padding: '8px 10px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+                      }}
+                      title={path}
+                    >
+                      {summarizePathForDisplay(path)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {ownerReviewProofAnchors.length > 0 ? (
+                <div style={{ display: 'grid', gap: '4px' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Proof anchors</p>
+                  {ownerReviewProofAnchors.slice(0, 4).map((anchor) => (
+                    <p key={`${card.id}-proof-anchor-${anchor}`} style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                      {anchor}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+        </section>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
           {([
