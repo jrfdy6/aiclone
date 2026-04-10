@@ -2313,6 +2313,8 @@ function PMBoardPanel({
     { key: 'failed', label: 'Blocked', detail: 'needs intervention or reroute' },
     { key: 'done', label: 'Done', detail: 'closed and kept for history' },
   ];
+  const activeBoardColumns = useMemo(() => boardColumns.filter((column) => column.key !== 'done'), [boardColumns]);
+  const recentClosedItems = useMemo(() => unifiedBoard.done.slice(0, 12), [unifiedBoard.done]);
 
   const handleDispatch = useCallback(
     async (entry: ExecutionQueueEntry) => {
@@ -2523,13 +2525,13 @@ function PMBoardPanel({
         <div style={{ marginBottom: '10px' }}>
           <p style={{ color: '#22c55e', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Operational Board</p>
           <h3 style={{ fontSize: '20px', color: 'white', margin: '4px 0' }}>One board for PM + execution</h3>
-          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Single-row board. Columns stay on one line and scroll internally only if a lane gets long.</p>
+          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Active lanes stay visible here. Closed cards fall out of the main board and stay in collapsed history.</p>
         </div>
         {queueError && <SectionAlert message={`${TELEMETRY_LABELS.executionQueue}: ${queueError}`} />}
         {dispatchError && <SectionAlert message={dispatchError} />}
         {dispatchFeedback && <SectionAlert message={dispatchFeedback} />}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          {boardColumns.map((column) => (
+          {activeBoardColumns.map((column) => (
             <div key={`board-meta-${column.key}`} style={{ borderRadius: '999px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '7px 11px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
               <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{column.label}</span>
               <span style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 700 }}>{unifiedBoard[column.key].length}</span>
@@ -2539,13 +2541,13 @@ function PMBoardPanel({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${boardColumns.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${activeBoardColumns.length}, minmax(0, 1fr))`,
             gap: '10px',
             marginTop: '12px',
             alignItems: 'start',
           }}
         >
-          {boardColumns.map((column) => (
+          {activeBoardColumns.map((column) => (
             <div
               key={column.key}
               style={{
@@ -2641,6 +2643,58 @@ function PMBoardPanel({
             </div>
           ))}
         </div>
+        <details style={{ marginTop: '12px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px 14px' }}>
+          <summary style={{ cursor: 'pointer', color: 'white', fontWeight: 700, listStyle: 'none' }}>
+            Recent closed cards
+            <span style={{ color: '#64748b', fontWeight: 400, marginLeft: '10px', fontSize: '13px' }}>
+              {unifiedBoard.done.length} total
+            </span>
+          </summary>
+          <p style={{ color: '#94a3b8', fontSize: '12px', margin: '10px 0 0' }}>
+            Closed work stays here for traceability, but it no longer crowds the active board.
+          </p>
+          <div style={{ display: 'grid', gap: '8px', marginTop: '12px' }}>
+            {recentClosedItems.length === 0 ? (
+              <p style={{ color: '#475569', fontSize: '12px', margin: 0 }}>No closed cards in the current snapshot.</p>
+            ) : (
+              recentClosedItems.map((item) => {
+                const theme = workspaceBoardTheme(item.workspaceKey);
+                return (
+                  <article
+                    key={`done-history-${item.id}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedBoardCardId(item.cardId)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedBoardCardId(item.cardId);
+                      }
+                    }}
+                    style={{
+                      borderRadius: '10px',
+                      border: `1px solid ${theme.border}`,
+                      backgroundColor: theme.background,
+                      padding: '10px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                      <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{item.title}</p>
+                      {statusBadge('Done')}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '11px', color: '#cbd5e1' }}>
+                      <span style={{ padding: '3px 8px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent }}>
+                        {meetingLabelForWorkspace(item.workspaceKey)}
+                      </span>
+                      <span>Updated: {item.updatedAt ? formatTimestamp(new Date(item.updatedAt)) : '-'}</span>
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </div>
+        </details>
       </section>
       {selectedBoardItem && selectedBoardCard ? (
         <PMCardDetailModal
