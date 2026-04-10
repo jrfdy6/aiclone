@@ -1307,7 +1307,21 @@ export default function OpsClient({
   const loadTelemetry = useCallback(async () => {
     setIsRefreshing(true);
     setGlobalError(null);
+    let autoResolveError: string | null = null;
     let ownerReviewSyncError: string | null = null;
+
+    try {
+      const autoResolveResponse = await fetch(`${API_URL}/api/pm/review-hygiene/auto-resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!autoResolveResponse.ok) {
+        const text = await autoResolveResponse.text().catch(() => autoResolveResponse.statusText);
+        autoResolveError = `${autoResolveResponse.status} ${autoResolveResponse.statusText}: ${text}`;
+      }
+    } catch (error) {
+      autoResolveError = toErrorMessage(error);
+    }
 
     try {
       const syncResponse = await fetch(`${API_URL}/api/pm/owner-review/sync`, {
@@ -1381,11 +1395,11 @@ export default function OpsClient({
 
     if (pmResp.status === 'fulfilled') {
       setPmCards(Array.isArray(pmResp.value) ? pmResp.value : []);
-      updateSectionError('pmCards', ownerReviewSyncError);
+      updateSectionError('pmCards', [autoResolveError, ownerReviewSyncError].filter(Boolean).join(' | ') || null);
     } else {
       updateSectionError(
         'pmCards',
-        [ownerReviewSyncError, toErrorMessage(pmResp.reason)].filter(Boolean).join(' | ') || null,
+        [autoResolveError, ownerReviewSyncError, toErrorMessage(pmResp.reason)].filter(Boolean).join(' | ') || null,
       );
     }
 

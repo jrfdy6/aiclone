@@ -42,6 +42,11 @@ async def sync_owner_review_cards():
     return sync_owner_review_pm_cards()
 
 
+@router.post("/review-hygiene/auto-resolve")
+async def auto_resolve_review_hygiene():
+    return pm_card_service.auto_resolve_review_cards()
+
+
 @router.get("/execution-queue", response_model=List[ExecutionQueueEntry])
 async def list_execution_queue(
     target_agent: Optional[str] = None,

@@ -21,6 +21,9 @@ from app.services.open_brain_db import get_pool
 from app.services.trigger_identity_service import build_pm_trigger_key
 from app.services.workspace_runtime_contract_service import execution_defaults_for_workspace as runtime_execution_defaults_for_workspace
 
+AUTO_RESOLVE_WORKSPACES = {"shared_ops", "linkedin-os"}
+AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
+
 
 def list_cards(
     limit: int = 100,
@@ -557,6 +560,44 @@ def build_card_action_update(
     return next_status, payload
 
 
+def auto_resolve_review_cards(limit: int = 250) -> dict[str, Any]:
+    cards = list_cards(limit=limit)
+    resolved: list[dict[str, Any]] = []
+
+    for card in cards:
+        policy = _auto_resolve_review_policy(card)
+        if policy is None:
+            continue
+        status, payload = build_card_action_update(
+            card,
+            action="approve",
+            requested_by=AUTO_RESOLVE_REQUESTED_BY,
+            reason=policy["reason"],
+            resolution_mode="close_only",
+        )
+        latest_manual_review = dict(payload.get("latest_manual_review") or {})
+        latest_manual_review["auto_resolved"] = True
+        latest_manual_review["policy_rule"] = policy["rule"]
+        payload["latest_manual_review"] = latest_manual_review
+        updated = update_card(card.id, PMCardUpdate(status=status, payload=payload))
+        if updated is None:
+            continue
+        resolved.append(
+            {
+                "card_id": updated.id,
+                "title": updated.title,
+                "workspace_key": _workspace_key_from_card(updated),
+                "rule": policy["rule"],
+                "reason": policy["reason"],
+            }
+        )
+
+    return {
+        "resolved_count": len(resolved),
+        "resolved": resolved,
+    }
+
+
 def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
     if _is_closed_pm_status(card.status):
         return None
@@ -630,6 +671,65 @@ def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
         queued_at=_parse_datetime(effective_execution.get("queued_at")),
         last_transition_at=_parse_datetime(effective_execution.get("last_transition_at")) or card.updated_at,
     )
+
+
+def _auto_resolve_review_policy(card: PMCard) -> dict[str, str] | None:
+    if _is_closed_pm_status(card.status):
+        return None
+    if str(card.status or "").strip().lower() != "review":
+        return None
+
+    workspace_key = _workspace_key_from_card(card)
+    if workspace_key not in AUTO_RESOLVE_WORKSPACES:
+        return None
+
+    payload = dict(card.payload or {})
+    execution = _execution_payload(card) or {}
+    if bool(execution.get("manager_attention_required")):
+        return None
+    if _is_owner_decision_gate(card):
+        return None
+
+    reason_text = str(
+        execution.get("reason")
+        or _payload_value(payload, "reason")
+        or ""
+    ).strip().lower()
+
+    if "accountability sweep rerouted this stale" in reason_text:
+        return {
+            "rule": "accountability_stale_review_autoclose",
+            "reason": "Auto-closed stale accountability-sweep review residue that did not require an owner decision.",
+        }
+
+    review_reference = (
+        _parse_datetime(execution.get("last_transition_at"))
+        or _parse_datetime(execution.get("queued_at"))
+        or card.updated_at
+        or card.created_at
+    )
+    age_hours = 0.0
+    if review_reference is not None:
+        age_hours = max(0.0, (datetime.now(timezone.utc) - review_reference.astimezone(timezone.utc)).total_seconds() / 3600)
+    if age_hours >= 168:
+        return {
+            "rule": "aged_review_autoclose",
+            "reason": "Auto-closed an old review card in a self-managed workspace because no explicit owner gate was present.",
+        }
+
+    return None
+
+
+def _is_owner_decision_gate(card: PMCard) -> bool:
+    payload = dict(card.payload or {})
+    owner_review_payload = payload.get("owner_review")
+    if card.link_type == "owner_review":
+        return True
+    if isinstance(card.source, str) and "workspace-owner-review" in card.source:
+        return True
+    if isinstance(owner_review_payload, dict) and str(owner_review_payload.get("queue_id") or "").strip():
+        return True
+    return False
 
 
 def _execution_payload(card: PMCard) -> dict | None:

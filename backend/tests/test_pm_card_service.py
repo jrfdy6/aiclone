@@ -346,6 +346,78 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(latest_manual_review.get("successor_card_id"), "spawned-card")
         self.assertEqual((result.card.payload.get("resolution_successor") or {}).get("card_id"), "spawned-card")
 
+    def test_auto_resolve_review_cards_closes_stale_shared_ops_review_residue(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-resolve-card",
+            title="Recurring stale review lane",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-auto-1",
+            payload={
+                "workspace_key": "shared_ops",
+                "reason": "Accountability sweep rerouted this stale `review` lane in `shared_ops` back to Jean-Claude for a required closure decision.",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.auto_resolve_review_cards()
+
+        self.assertEqual(result.get("resolved_count"), 1)
+        resolved = (result.get("resolved") or [None])[0]
+        self.assertEqual((resolved or {}).get("card_id"), "auto-resolve-card")
+        self.assertEqual((resolved or {}).get("rule"), "accountability_stale_review_autoclose")
+
+    def test_auto_resolve_review_cards_skips_owner_review_gate(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-resolve-owner-gate",
+            title="Owner review gate",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id="FEEZIE-777",
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {"queue_id": "FEEZIE-777"},
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card") as update_card_mock,
+        ):
+            result = pm_card_service.auto_resolve_review_cards()
+
+        self.assertEqual(result.get("resolved_count"), 0)
+        update_card_mock.assert_not_called()
+
     def test_act_on_card_return_reroutes_to_jean_claude(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
