@@ -1253,6 +1253,132 @@ This is another latent first pass.
         )
         self.assertIn(pending_card.id, sync_payload.get("created_card_ids") or [])
 
+    def test_owner_review_list_falls_back_to_pending_pm_cards_when_workspace_artifacts_are_empty(self) -> None:
+        pending_card = PMCard(
+            id="pm-fallback-owner-review-1",
+            title="Owner review - Latent transform - Claude Dispatch and the Power of Interfaces",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "LATENT-CLAUDE-DISPATCH-AND-THE-POWER-OF-INT-838606",
+                    "title": "Claude Dispatch and the Power of Interfaces",
+                    "lane": "ai",
+                    "format": "owner_review",
+                    "status": "owner_review_draft",
+                    "entry_kind": "supplemental",
+                    "source_kind": "latent_transform",
+                    "approval_status": "owner_review_required",
+                    "publish_posture": "owner_review_required",
+                    "sync_state": "pending_owner_review",
+                    "draft_path": "drafts/2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md",
+                    "core_angle": "If the workflow is unclear, AI just scales confusion.",
+                    "why_now": "AI workflow design and operator judgment signals",
+                    "first_pass_draft": "This is another latent first pass.",
+                    "proof_anchors": ["Proof prompt: AI Clone / Brain System rebuild notes"],
+                    "draft_owner_notes": ["Add one lived proof line before approval."],
+                    "packet_recommendation": "Promote only after one lived proof line and one audience consequence.",
+                    "system_assessment": {"suggested_decision": "revise", "confidence": "high"},
+                },
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch.object(linkedin_owner_review_module, "_queue_path", return_value=self.fixture_root / "drafts" / "missing_queue.md"),
+            patch.object(linkedin_owner_review_module, "_latest_owner_packet", return_value=None),
+            patch.object(linkedin_owner_review_module, "_list_supplemental_owner_review_items", return_value=[]),
+            patch.object(linkedin_owner_review_module.pm_card_service, "list_cards", return_value=[pending_card]),
+        ):
+            response = self.client.get("/api/workspace/linkedin-os-owner-review")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        items = payload.get("items") or []
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].get("queue_id"), "LATENT-CLAUDE-DISPATCH-AND-THE-POWER-OF-INT-838606")
+        self.assertEqual(items[0].get("entry_kind"), "supplemental")
+        self.assertEqual(items[0].get("source_kind"), "latent_transform")
+        self.assertEqual((items[0].get("system_assessment") or {}).get("suggested_decision"), "revise")
+
+    def test_pm_owner_review_action_falls_back_to_card_payload_when_workspace_artifacts_are_missing(self) -> None:
+        pending_card = PMCard(
+            id="33333333-3333-4333-8333-333333333333",
+            title="Owner review - Latent transform - Claude Dispatch and the Power of Interfaces",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "LATENT-CLAUDE-DISPATCH-AND-THE-POWER-OF-INT-838606",
+                    "title": "Claude Dispatch and the Power of Interfaces",
+                    "lane": "ai",
+                    "format": "owner_review",
+                    "status": "owner_review_draft",
+                    "entry_kind": "supplemental",
+                    "source_kind": "latent_transform",
+                    "approval_status": "owner_review_required",
+                    "publish_posture": "owner_review_required",
+                    "sync_state": "pending_owner_review",
+                    "draft_path": "drafts/2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md",
+                    "core_angle": "If the workflow is unclear, AI just scales confusion.",
+                    "why_now": "AI workflow design and operator judgment signals",
+                    "first_pass_draft": "This is another latent first pass.",
+                    "proof_anchors": ["Proof prompt: AI Clone / Brain System rebuild notes"],
+                    "draft_owner_notes": ["Add one lived proof line before approval."],
+                    "packet_recommendation": "Promote only after one lived proof line and one audience consequence.",
+                    "system_assessment": {"suggested_decision": "revise", "confidence": "high"},
+                },
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        def fake_update_card(_card_id, patch):
+            return pending_card.model_copy(
+                update={
+                    "title": patch.title if patch.title is not None else pending_card.title,
+                    "status": patch.status if patch.status is not None else pending_card.status,
+                    "payload": patch.payload if patch.payload is not None else pending_card.payload,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+
+        def fake_dispatch_card(card_id, payload):
+            self.assertEqual(card_id, pending_card.id)
+            self.assertEqual(payload.execution_state, "queued")
+            return SimpleNamespace(
+                card=pending_card.model_copy(update={"status": "todo", "updated_at": datetime.now(timezone.utc)}),
+                queue_entry=SimpleNamespace(target_agent="Jean-Claude", execution_state="queued"),
+            )
+
+        with (
+            patch.object(linkedin_owner_review_module, "_queue_path", return_value=self.fixture_root / "drafts" / "missing_queue.md"),
+            patch.object(linkedin_owner_review_module, "_latest_owner_packet", return_value=None),
+            patch.object(linkedin_owner_review_module, "_list_supplemental_owner_review_items", return_value=[]),
+            patch.object(linkedin_owner_review_module.pm_card_service, "list_cards", return_value=[]),
+            patch.object(linkedin_owner_review_module.pm_card_service, "get_card", return_value=pending_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=pending_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "update_card", side_effect=fake_update_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "dispatch_card", side_effect=fake_dispatch_card),
+        ):
+            response = self.client.post(
+                f"/api/pm/cards/{pending_card.id}/owner-review",
+                json={"decision": "approve", "notes": "Move this forward."},
+            )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual((payload.get("workflow") or {}).get("status"), "queued")
+        self.assertEqual(payload.get("source_card_id"), pending_card.id)
+        self.assertTrue(any("Draft file is missing" in warning for warning in (payload.get("artifact_warnings") or [])))
+
     def test_pm_auto_progress_route(self) -> None:
         expected = {
             "processed_count": 1,

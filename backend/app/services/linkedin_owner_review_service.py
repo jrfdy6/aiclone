@@ -461,6 +461,69 @@ def _list_supplemental_owner_review_items(root: Path) -> list[dict[str, Any]]:
     return items
 
 
+def _item_from_owner_review_payload(owner_review_payload: dict[str, Any]) -> dict[str, Any] | None:
+    queue_id = str(owner_review_payload.get("queue_id") or "").strip()
+    if not queue_id:
+        return None
+    title = str(owner_review_payload.get("title") or queue_id).strip()
+    item = {
+        "queue_id": queue_id,
+        "title": title,
+        "lane": str(owner_review_payload.get("lane") or ""),
+        "format": str(owner_review_payload.get("format") or ""),
+        "core_angle": str(owner_review_payload.get("core_angle") or ""),
+        "why_now": str(owner_review_payload.get("why_now") or ""),
+        "status": str(owner_review_payload.get("status") or ""),
+        "approval_status": str(owner_review_payload.get("approval_status") or ""),
+        "draft_path": str(owner_review_payload.get("draft_path") or ""),
+        "owner_packet_path": owner_review_payload.get("owner_packet_path"),
+        "proof_anchors": list(owner_review_payload.get("proof_anchors") or []),
+        "draft_body": "",
+        "first_pass_draft": str(owner_review_payload.get("first_pass_draft") or ""),
+        "draft_owner_notes": list(owner_review_payload.get("draft_owner_notes") or []),
+        "packet_section": "",
+        "packet_recommendation": str(owner_review_payload.get("packet_recommendation") or ""),
+        "current_decision": owner_review_payload.get("current_decision"),
+        "current_notes": owner_review_payload.get("current_notes"),
+        "publish_posture": str(owner_review_payload.get("publish_posture") or ""),
+        "reviewed_at": owner_review_payload.get("reviewed_at"),
+        "entry_kind": str(owner_review_payload.get("entry_kind") or "queue"),
+        "source_kind": str(owner_review_payload.get("source_kind") or "feezie_queue"),
+        "source_url": owner_review_payload.get("source_url"),
+        "idea_id": owner_review_payload.get("idea_id"),
+        "summary": str(owner_review_payload.get("summary") or ""),
+        "revision_goals": list(owner_review_payload.get("revision_goals") or []),
+        "latent_reason": owner_review_payload.get("latent_reason"),
+        "transform_type": owner_review_payload.get("transform_type"),
+    }
+    system_assessment = owner_review_payload.get("system_assessment")
+    item["system_assessment"] = system_assessment if isinstance(system_assessment, dict) else _build_owner_review_assessment(item)
+    return item
+
+
+def _list_pm_pending_owner_review_items() -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for card in pm_card_service.list_cards(limit=250):
+        if str(card.source or "") != OWNER_REVIEW_CARD_SOURCE:
+            continue
+        if str(card.link_type or "") != OWNER_REVIEW_LINK_TYPE:
+            continue
+        if str(card.status or "").lower() not in {"review", "todo", "in_progress"}:
+            continue
+        payload = dict(card.payload or {})
+        owner_review_payload = payload.get("owner_review") if isinstance(payload.get("owner_review"), dict) else {}
+        if not isinstance(owner_review_payload, dict):
+            continue
+        if str(owner_review_payload.get("sync_state") or "").strip() != "pending_owner_review":
+            continue
+        if str(owner_review_payload.get("decision") or "").strip():
+            continue
+        item = _item_from_owner_review_payload(owner_review_payload)
+        if item is not None:
+            items.append(item)
+    return items
+
+
 def _owner_review_trigger_key(queue_id: str) -> str:
     return f"owner-review:{queue_id}"
 
@@ -761,13 +824,21 @@ def record_owner_decision_for_pm_card(card_id: str, decision: str, notes: str | 
     payload = dict(card.payload or {})
     owner_review_payload = payload.get("owner_review") if isinstance(payload.get("owner_review"), dict) else {}
     queue_id = ""
+    fallback_item: dict[str, Any] | None = None
     if isinstance(owner_review_payload, dict):
         queue_id = str(owner_review_payload.get("queue_id") or "").strip()
+        fallback_item = _item_from_owner_review_payload(owner_review_payload)
     if not queue_id and isinstance(card.link_id, str):
         queue_id = card.link_id.strip()
     if not queue_id:
         raise ValueError(f"PM card {card_id} is not linked to an owner-review queue item.")
-    result = record_owner_decision(queue_id, decision, notes)
+    payload_snapshot = list_owner_review_items()
+    item = next((entry for entry in payload_snapshot.get("items", []) if entry.get("queue_id") == queue_id), None)
+    if item is None:
+        item = fallback_item
+    if item is None:
+        raise ValueError(f"Unknown queue item: {queue_id}")
+    result = _record_owner_decision_for_item(item, decision, notes, tolerate_missing_artifacts=True)
     result["source_card_id"] = card_id
     return result
 
@@ -880,11 +951,14 @@ def list_owner_review_items() -> dict[str, Any]:
     packet_path = _latest_owner_packet(root)
     items: list[dict[str, Any]] = []
     if not queue_text:
+        supplemental_items = _list_supplemental_owner_review_items(root)
+        if not supplemental_items:
+            supplemental_items = _list_pm_pending_owner_review_items()
         return {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "queue_path": queue_path.relative_to(root).as_posix(),
             "owner_packet_path": packet_path.relative_to(root).as_posix() if packet_path and packet_path.exists() else None,
-            "items": _list_supplemental_owner_review_items(root),
+            "items": supplemental_items,
         }
     section = queue_text.split("## Queue", 1)[1] if "## Queue" in queue_text else queue_text
     for queue_id, title, block in _split_queue_blocks(section):
@@ -894,6 +968,8 @@ def list_owner_review_items() -> dict[str, Any]:
             continue
         items.append(_serialize_item(root, queue_id, title, fields, list_fields, packet_path))
     items.extend(_list_supplemental_owner_review_items(root))
+    if not items:
+        items.extend(_list_pm_pending_owner_review_items())
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "queue_path": queue_path.relative_to(root).as_posix(),
@@ -994,30 +1070,55 @@ def _append_execution_log(root: Path, queue_id: str, title: str, decision: str, 
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(entry)
 
-
-def record_owner_decision(queue_id: str, decision: str, notes: str | None = None) -> dict[str, Any]:
-    payload = list_owner_review_items()
-    item = next((entry for entry in payload.get("items", []) if entry.get("queue_id") == queue_id), None)
-    if item is None:
-        raise ValueError(f"Unknown queue item: {queue_id}")
+def _record_owner_decision_for_item(
+    item: dict[str, Any],
+    decision: str,
+    notes: str | None = None,
+    *,
+    tolerate_missing_artifacts: bool = False,
+) -> dict[str, Any]:
     root = _linkedin_root()
     queue_path = _queue_path(root)
     packet_path = _latest_owner_packet(root)
-    draft_rel_path = str(item.get("draft_path") or "")
+    queue_id = str(item.get("queue_id") or "").strip()
+    draft_rel_path = str(item.get("draft_path") or "").strip()
+    artifact_warnings: list[str] = []
     if not draft_rel_path:
-        raise ValueError(f"{queue_id} does not have a draft path.")
-    draft_path = root / draft_rel_path
-    if not draft_path.exists():
-        raise ValueError(f"Draft file is missing for {queue_id}: {draft_rel_path}")
+        if not tolerate_missing_artifacts:
+            raise ValueError(f"{queue_id} does not have a draft path.")
+        artifact_warnings.append(f"{queue_id} has no draft path in the current runtime payload.")
+        draft_path = None
+    else:
+        draft_path = root / draft_rel_path
+        if not draft_path.exists():
+            if not tolerate_missing_artifacts:
+                raise ValueError(f"Draft file is missing for {queue_id}: {draft_rel_path}")
+            artifact_warnings.append(f"Draft file is missing for {queue_id}: {draft_rel_path}")
+            draft_path = None
     reviewed_at = datetime.now(timezone.utc).isoformat()
     packet_rel_path = packet_path.relative_to(root).as_posix() if packet_path and packet_path.exists() else None
     workflow: dict[str, Any] | None = None
 
     if str(item.get("entry_kind") or "") == "queue":
-        _update_queue_file(queue_path, queue_id, decision, draft_rel_path, packet_rel_path)
+        bounds = _section_bounds(_read_text(queue_path), QUEUE_HEADING_RE, queue_id)
+        if bounds is not None:
+            _update_queue_file(queue_path, queue_id, decision, draft_rel_path, packet_rel_path)
+        elif tolerate_missing_artifacts:
+            artifact_warnings.append(f"{queue_id} is not present in the live queue artifact at {queue_path.relative_to(root).as_posix()}.")
+        else:
+            raise ValueError(f"{queue_id} is not present in {queue_path}")
         if packet_path and packet_path.exists():
-            _update_owner_packet(packet_path, queue_id, decision, notes or "")
-    _update_draft_file(draft_path, decision, reviewed_at, notes)
+            packet_bounds = _section_bounds(_read_text(packet_path), PACKET_HEADING_RE, queue_id)
+            if packet_bounds is not None:
+                _update_owner_packet(packet_path, queue_id, decision, notes or "")
+            elif tolerate_missing_artifacts:
+                artifact_warnings.append(f"{queue_id} is not present in the live owner packet at {packet_rel_path}.")
+            else:
+                raise ValueError(f"{queue_id} is not present in {packet_path}")
+        elif tolerate_missing_artifacts:
+            artifact_warnings.append("Live owner packet is missing in this runtime, so the decision was recorded from PM payload only.")
+    if draft_path is not None:
+        _update_draft_file(draft_path, decision, reviewed_at, notes)
     _append_execution_log(root, queue_id, str(item.get("title") or queue_id), decision, notes or "", draft_rel_path, packet_rel_path)
     try:
         workflow = _queue_owner_review_followup(
@@ -1037,4 +1138,14 @@ def record_owner_decision(queue_id: str, decision: str, notes: str | None = None
 
     refreshed = list_owner_review_items()
     refreshed["workflow"] = workflow
+    if artifact_warnings:
+        refreshed["artifact_warnings"] = artifact_warnings
     return refreshed
+
+
+def record_owner_decision(queue_id: str, decision: str, notes: str | None = None) -> dict[str, Any]:
+    payload = list_owner_review_items()
+    item = next((entry for entry in payload.get("items", []) if entry.get("queue_id") == queue_id), None)
+    if item is None:
+        raise ValueError(f"Unknown queue item: {queue_id}")
+    return _record_owner_decision_for_item(item, decision, notes)
