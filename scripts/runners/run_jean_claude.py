@@ -37,10 +37,10 @@ if str(BACKEND_ROOT) not in sys.path:
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
-from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 from durable_memory_context import build_durable_memory_context
 
-CODEX_HANDOFF_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+CODEX_HANDOFF_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 
 RUNNER_ID = "jean-claude"
 DEFAULT_WORKSPACE_SCOPE = [

@@ -39,11 +39,11 @@ if str(BACKEND_ROOT) not in sys.path:
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 from automation_run_mirror import build_run_payload, mirror_runs
 from chronicle_memory_contract import build_workspace_memory_contract
 
-CODEX_HANDOFF_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+CODEX_HANDOFF_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
 
 
 def _now() -> datetime:
