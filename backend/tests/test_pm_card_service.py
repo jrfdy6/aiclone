@@ -73,7 +73,7 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertIsNotNone(entry)
         assert entry is not None
         self.assertEqual(entry.pm_status, "todo")
-        self.assertEqual(entry.execution_state, "ready")
+        self.assertEqual(entry.execution_state, "queued")
         self.assertEqual(entry.manager_agent, "Jean-Claude")
 
     def test_normalize_human_front_door_payload_sets_neo_and_trigger_key(self) -> None:
@@ -814,6 +814,97 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual((entry or {}).get("processed_count"), 1)
         processed = ((entry or {}).get("processed") or [None])[0]
         self.assertEqual((processed or {}).get("card_id"), "auto-progress-audit")
+
+    def test_list_execution_queue_repairs_missing_successor_contracts(self) -> None:
+        now = datetime.now(timezone.utc)
+        original = PMCard(
+            id="repair-successor-card",
+            title="Turn seeded FEEZIE backlog into first draft batch",
+            owner="Jean-Claude",
+            status="todo",
+            source="pm_review_resolution",
+            link_type="standup",
+            link_id="standup-repair-1",
+            payload={
+                "workspace_key": "linkedin-os",
+                "reason": "Continue the accepted FEEZIE loop automatically.",
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        updates: list[PMCardUpdate] = []
+        call_count = {"value": 0}
+
+        def fake_update(_card_id: str, patch: PMCardUpdate) -> PMCard:
+            updates.append(patch)
+            return original.model_copy(update={"payload": patch.payload, "updated_at": now})
+
+        def fake_list_cards(*_args, **_kwargs) -> list[PMCard]:
+            call_count["value"] += 1
+            if call_count["value"] == 1 or not updates:
+                return [original]
+            return [original.model_copy(update={"payload": updates[-1].payload, "updated_at": now})]
+
+        with (
+            patch.object(pm_card_service, "list_cards", side_effect=fake_list_cards),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+        ):
+            entries = pm_card_service.list_execution_queue(limit=10)
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(len(updates), 1)
+        repaired_payload = updates[0].payload or {}
+        self.assertEqual((repaired_payload.get("completion_contract") or {}).get("source"), "pm_review_resolution")
+        self.assertEqual((repaired_payload.get("execution") or {}).get("state"), "queued")
+        self.assertTrue((repaired_payload.get("execution") or {}).get("queued_at"))
+        self.assertEqual(entries[0].execution_state, "queued")
+
+    def test_auto_progress_review_cards_reports_repaired_followup_cards(self) -> None:
+        now = datetime.now(timezone.utc)
+        original = PMCard(
+            id="repair-owner-followup-card",
+            title="Schedule approved FEEZIE draft - FEEZIE-002",
+            owner="Jean-Claude",
+            status="queued",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "reason": "Owner approved the draft and it should keep moving.",
+                "owner_review": {
+                    "queue_id": "FEEZIE-002",
+                    "decision": "approve",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        updates: list[PMCardUpdate] = []
+        call_count = {"value": 0}
+
+        def fake_update(_card_id: str, patch: PMCardUpdate) -> PMCard:
+            updates.append(patch)
+            return original.model_copy(update={"payload": patch.payload, "updated_at": now})
+
+        def fake_list_cards(*_args, **_kwargs) -> list[PMCard]:
+            call_count["value"] += 1
+            if call_count["value"] == 1 or not updates:
+                return [original]
+            return [original.model_copy(update={"payload": updates[-1].payload, "updated_at": now})]
+
+        with (
+            patch.object(pm_card_service, "list_cards", side_effect=fake_list_cards),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+        ):
+            result = pm_card_service.auto_progress_review_cards(limit=10)
+
+        self.assertEqual(result.get("repair_count"), 1)
+        repaired_items = result.get("repaired") or []
+        self.assertEqual((repaired_items[0] if repaired_items else {}).get("contract_source"), "owner_review_followup")
+        self.assertEqual(result.get("processed_count"), 0)
 
     def test_decorate_card_for_client_marks_feezie_review_as_autonomous_and_prefills_followup(self) -> None:
         now = datetime.now(timezone.utc)

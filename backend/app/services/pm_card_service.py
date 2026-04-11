@@ -267,6 +267,7 @@ def list_execution_queue(
     workspace_key: Optional[str] = None,
     execution_state: Optional[str] = None,
 ) -> List[ExecutionQueueEntry]:
+    repair_execution_contracts(limit=max(limit, 250), workspace_key=workspace_key)
     cards = list_cards(limit=limit, workspace_key=workspace_key)
     entries: List[ExecutionQueueEntry] = []
     for card in cards:
@@ -676,6 +677,7 @@ def auto_resolve_review_cards(limit: int = 250) -> dict[str, Any]:
 
 
 def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
+    repair_result = repair_execution_contracts(limit=limit)
     cards = list_cards(limit=limit)
     processed: list[dict[str, Any]] = []
 
@@ -752,6 +754,8 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
         )
 
     result = {
+        "repair_count": int(repair_result.get("repaired_count") or 0),
+        "repaired": repair_result.get("repaired") or [],
         "processed_count": len(processed),
         "advanced_count": sum(1 for item in processed if item.get("action") == "approve"),
         "returned_count": sum(1 for item in processed if item.get("action") == "return"),
@@ -793,12 +797,13 @@ def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
     defaults = execution_defaults_for_workspace(_workspace_key_from_card(card))
     effective_execution = dict(execution or {})
     if not effective_execution:
+        default_state = _default_execution_state_for_card(card)
         effective_execution = {
             **defaults,
             "lane": "codex",
-            "state": "ready",
+            "state": default_state,
             "requested_by": _payload_value(payload, "source_agent") or card.owner or defaults["manager_agent"],
-            "assigned_runner": "codex",
+            "assigned_runner": "jean-claude" if str(defaults["execution_mode"]) == "direct" else "codex",
             "reason": _payload_value(payload, "reason")
             or (
                 "Standup promoted this card and it is ready for Jean-Claude to open a direct SOP."
@@ -807,6 +812,8 @@ def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
             ),
             "last_transition_at": _datetime_to_iso(card.updated_at),
         }
+        if default_state == "queued":
+            effective_execution["queued_at"] = _datetime_to_iso(card.updated_at)
     else:
         effective_execution = _merge_execution_defaults(effective_execution, defaults)
 
@@ -1191,12 +1198,138 @@ def _is_closed_pm_status(status: Optional[str]) -> bool:
 def _is_execution_candidate(card: PMCard) -> bool:
     if _is_closed_pm_status(card.status):
         return False
-    payload = card.payload or {}
-    return bool(
-        card.link_type == "standup"
-        or (card.source or "").startswith("standup-prep:")
-        or payload.get("created_from_standup_id")
+    return _execution_contract_source(card) is not None
+
+
+def repair_execution_contracts(limit: int = 250, workspace_key: str | None = None) -> dict[str, Any]:
+    cards = list_cards(limit=limit, workspace_key=workspace_key)
+    repaired: list[dict[str, Any]] = []
+
+    for card in cards:
+        patched_payload = _build_missing_execution_contract_payload(card)
+        if patched_payload is None:
+            continue
+        updated = update_card(card.id, PMCardUpdate(payload=patched_payload))
+        effective = updated or card.model_copy(update={"payload": patched_payload})
+        repaired.append(
+            {
+                "card_id": effective.id,
+                "title": effective.title,
+                "workspace_key": _workspace_key_from_card(effective),
+                "status": effective.status,
+                "source": effective.source,
+                "contract_source": _payload_contract_source(effective.payload or {}),
+            }
+        )
+
+    return {
+        "repaired_count": len(repaired),
+        "repaired": repaired,
+    }
+
+
+def _build_missing_execution_contract_payload(card: PMCard) -> dict[str, Any] | None:
+    if _is_closed_pm_status(card.status):
+        return None
+
+    payload = dict(card.payload or {})
+    contract_source = _execution_contract_source(card)
+    if contract_source is None:
+        return None
+
+    current_contract = payload.get("completion_contract")
+    current_execution = _execution_payload(card)
+    needs_contract = not isinstance(current_contract, dict) or not current_contract
+    needs_execution = not isinstance(current_execution, dict) or not current_execution
+
+    if not needs_contract and not needs_execution:
+        return None
+
+    workspace_key = _workspace_key_from_card(card)
+    existing_reason = _payload_value(payload, "reason") or _optional_str((current_execution or {}).get("reason"))
+    normalized_reason = existing_reason or f"Autonomous PM execution for `{card.title}` in `{workspace_key}`."
+    contract = build_execution_contract(
+        title=card.title,
+        workspace_key=workspace_key,
+        source=contract_source,
+        reason=normalized_reason,
+        instructions=payload.get("instructions"),
+        acceptance_criteria=payload.get("acceptance_criteria"),
+        artifacts_expected=payload.get("artifacts_expected"),
     )
+
+    updated_payload = dict(payload)
+    if needs_contract:
+        updated_payload["instructions"] = contract["instructions"]
+        updated_payload["acceptance_criteria"] = contract["acceptance_criteria"]
+        updated_payload["artifacts_expected"] = contract["artifacts_expected"]
+        updated_payload["completion_contract"] = contract["completion_contract"]
+
+    if needs_execution:
+        defaults = execution_defaults_for_workspace(workspace_key)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        state = _default_execution_state_for_card(card)
+        updated_payload["execution"] = {
+            "lane": "codex",
+            "state": state,
+            "manager_agent": defaults["manager_agent"],
+            "target_agent": defaults["target_agent"],
+            "workspace_agent": defaults.get("workspace_agent"),
+            "execution_mode": defaults["execution_mode"],
+            "requested_by": _payload_value(payload, "requested_by")
+            or _payload_value(payload, "source_agent")
+            or card.owner
+            or defaults["manager_agent"],
+            "assigned_runner": "jean-claude" if str(defaults["execution_mode"]) == "direct" else "codex",
+            "reason": normalized_reason,
+            "last_transition_at": now_iso,
+            "source": contract_source,
+        }
+        if state == "queued":
+            updated_payload["execution"]["queued_at"] = now_iso
+
+    return updated_payload
+
+
+def _execution_contract_source(card: PMCard) -> str | None:
+    payload = dict(card.payload or {})
+    source = str(card.source or "").strip()
+    if _is_owner_decision_gate(card):
+        return None
+    if source == "pm_review_resolution":
+        return "pm_review_resolution"
+    if source.startswith("brain-triage:"):
+        return "brain_triage"
+    if source.startswith("accountability_sweep"):
+        return "accountability_sweep"
+    if source == "openclaw:workspace-owner-review":
+        return "owner_review_followup"
+    if source == "openclaw:thin-trigger" or str(payload.get("trigger_origin") or "").strip() == "openclaw_thin_trigger":
+        return "openclaw_thin_trigger"
+    if card.link_type == "standup" or source.startswith("standup-prep:") or payload.get("created_from_standup_id"):
+        return "standup_promotion"
+    return None
+
+
+def _payload_contract_source(payload: dict[str, Any]) -> str | None:
+    contract = payload.get("completion_contract")
+    if not isinstance(contract, dict):
+        return None
+    return _optional_str(contract.get("source"))
+
+
+def _default_execution_state_for_card(card: PMCard) -> str:
+    normalized_status = str(card.status or "").strip().lower()
+    if normalized_status in {"queued", "review", "blocked", "failed"}:
+        return normalized_status
+    if normalized_status in {"running", "in_progress"}:
+        return "running"
+    payload = dict(card.payload or {})
+    contract = payload.get("completion_contract")
+    autostart = isinstance(contract, dict) and bool(contract.get("autostart"))
+    if autostart or _execution_contract_source(card) is not None:
+        return "queued"
+    return "ready"
 
 
 def _execution_sort_rank(state: str) -> int:
