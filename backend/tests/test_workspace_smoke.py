@@ -647,6 +647,82 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         self.assertGreater(len(asset_items), 0)
         self.assertIn("counts", persona_review_summary)
 
+    def test_owner_review_assessment_conditional_approve_stays_revise(self) -> None:
+        assessment = linkedin_owner_review_module._build_owner_review_assessment(
+            {
+                "packet_recommendation": "**Approve for scheduling after one lived proof line lands.**",
+                "source_kind": "feezie_queue",
+                "first_pass_draft": "This draft already has enough words to avoid the short-draft warning. " * 12,
+                "proof_anchors": ["../../knowledge/persona/feeze/history/story_bank.md"],
+                "core_angle": "Systems fail when context is fuzzy.",
+                "why_now": "The audience is already seeing this problem in AI tooling.",
+                "revision_goals": ["add one lived proof line"],
+            }
+        )
+
+        self.assertEqual(assessment.get("suggested_decision"), "revise")
+        self.assertEqual(assessment.get("confidence"), "high")
+        self.assertIn("conditional", " ".join(assessment.get("reasons") or []).lower())
+        self.assertEqual(assessment.get("missing_items"), [])
+
+    def test_owner_review_assessment_approve_with_missing_proof_stays_cautious(self) -> None:
+        assessment = linkedin_owner_review_module._build_owner_review_assessment(
+            {
+                "packet_recommendation": "**Approve for scheduling**",
+                "source_kind": "feezie_queue",
+                "first_pass_draft": "This draft already has enough words to avoid the short-draft warning. " * 3,
+                "proof_anchors": [],
+                "core_angle": "Cheap models win when the surrounding system is better designed.",
+                "why_now": "",
+            }
+        )
+
+        self.assertEqual(assessment.get("suggested_decision"), "approve")
+        self.assertEqual(assessment.get("confidence"), "medium")
+        self.assertIn("The owner packet already recommends approval or scheduling.", assessment.get("reasons") or [])
+        self.assertIn("No proof anchors are attached yet.", assessment.get("missing_items") or [])
+        self.assertIn("The timing or audience consequence is not stated explicitly.", assessment.get("missing_items") or [])
+
+    def test_owner_review_assessment_park_with_multiple_gaps_raises_confidence(self) -> None:
+        assessment = linkedin_owner_review_module._build_owner_review_assessment(
+            {
+                "packet_recommendation": "**Park for later**",
+                "source_kind": "feezie_queue",
+                "first_pass_draft": "",
+                "proof_anchors": [],
+                "core_angle": "",
+                "why_now": "",
+            }
+        )
+
+        self.assertEqual(assessment.get("suggested_decision"), "park")
+        self.assertEqual(assessment.get("confidence"), "high")
+        self.assertIn("parking", " ".join(assessment.get("reasons") or []).lower())
+        self.assertIn("There is no first-pass draft attached yet.", assessment.get("missing_items") or [])
+        self.assertIn("No proof anchors are attached yet.", assessment.get("missing_items") or [])
+        self.assertIn("The core angle is not stated explicitly.", assessment.get("missing_items") or [])
+        self.assertIn("The timing or audience consequence is not stated explicitly.", assessment.get("missing_items") or [])
+
+    def test_owner_review_assessment_latent_transform_surfaces_translation_gaps(self) -> None:
+        assessment = linkedin_owner_review_module._build_owner_review_assessment(
+            {
+                "source_kind": "latent_transform",
+                "latent_reason": "needs_context_translation",
+                "first_pass_draft": "",
+                "proof_anchors": [],
+                "core_angle": "",
+                "why_now": "",
+                "revision_goals": [],
+            }
+        )
+
+        self.assertEqual(assessment.get("suggested_decision"), "revise")
+        self.assertEqual(assessment.get("confidence"), "high")
+        self.assertIn("latent transform lane", " ".join(assessment.get("reasons") or []).lower())
+        self.assertIn("The audience consequence is still implied rather than clearly named.", assessment.get("missing_items") or [])
+        self.assertIn("There is no first-pass draft attached yet.", assessment.get("missing_items") or [])
+        self.assertIn("No proof anchors are attached yet.", assessment.get("missing_items") or [])
+
     def test_linkedin_owner_review_route_reads_and_updates_drafts(self) -> None:
         drafts_dir = self.fixture_root / "drafts"
         drafts_dir.mkdir(parents=True, exist_ok=True)
