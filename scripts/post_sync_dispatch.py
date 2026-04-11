@@ -18,6 +18,7 @@ REPORT_ROOT = WORKSPACE_ROOT / "memory" / "reports"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.workspace_runtime_contract_service import execution_defaults_for_workspace as shared_execution_defaults_for_workspace
 
 
@@ -200,6 +201,13 @@ def _build_card_payload(entry: dict[str, Any], title: str) -> dict[str, Any]:
     workspace_key = str(entry.get("workspace_key") or "shared_ops")
     payload = entry.get("payload") or {}
     defaults = _execution_defaults(workspace_key)
+    transition_at = _iso(_now())
+    contract = build_execution_contract(
+        title=title,
+        workspace_key=workspace_key,
+        source="post_sync_dispatch",
+        reason="Post-sync dispatch created this card from a completed standup commitment.",
+    )
     return {
         "workspace_key": workspace_key,
         "scope": "workspace" if workspace_key != "shared_ops" else "shared_ops",
@@ -211,7 +219,7 @@ def _build_card_payload(entry: dict[str, Any], title: str) -> dict[str, Any]:
         "reason": "Post-sync dispatch created this card from a completed standup commitment.",
         "execution": {
             "lane": "codex",
-            "state": "ready",
+            "state": "queued",
             "manager_agent": defaults["manager_agent"],
             "target_agent": defaults["target_agent"],
             "workspace_agent": defaults["workspace_agent"],
@@ -219,10 +227,12 @@ def _build_card_payload(entry: dict[str, Any], title: str) -> dict[str, Any]:
             "requested_by": "Jean-Claude",
             "assigned_runner": "codex",
             "reason": "Post-sync dispatch promoted a standup commitment into the execution lane.",
-            "last_transition_at": _iso(_now()),
+            "queued_at": transition_at,
+            "last_transition_at": transition_at,
             "source": "post_sync_dispatch",
         },
         "dispatch_source_title": title,
+        **contract,
     }
 
 

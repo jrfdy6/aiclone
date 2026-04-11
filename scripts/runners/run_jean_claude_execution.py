@@ -595,7 +595,26 @@ def main() -> int:
     if sop["execution_mode"] == "direct":
         card_payload = dict(card.get("payload") or {})
         repo_path = str(card_payload.get("repo_path") or WORKSPACE_ROOT)
+        task_instructions = [
+            str(item).strip()
+            for item in card_payload.get("instructions") or []
+            if str(item).strip()
+        ]
+        acceptance_criteria = [
+            str(item).strip()
+            for item in card_payload.get("acceptance_criteria") or []
+            if str(item).strip()
+        ]
+        artifacts_expected = [
+            str(item).strip()
+            for item in card_payload.get("artifacts_expected") or []
+            if str(item).strip()
+        ]
         work_order_path = workspace_root / "dispatch" / f"{stamp}_jean_claude_work_order.json"
+        work_order_instructions = list(sop["steps"])
+        for item in task_instructions:
+            if item not in work_order_instructions:
+                work_order_instructions.append(item)
         direct_work_order = {
             "schema_version": "codex_execution_work_order/v1",
             "run_id": run_id,
@@ -611,7 +630,10 @@ def main() -> int:
             "title": selected_entry["title"],
             "objective": sop["objective"],
             "reason": sop["reason"],
-            "instructions": list(sop["steps"]),
+            "instructions": work_order_instructions,
+            "acceptance_criteria": acceptance_criteria,
+            "artifacts_expected": artifacts_expected,
+            "completion_contract": dict(card_payload.get("completion_contract") or {}),
             "sop_path": str(sop_path),
             "briefing_path": str(briefing_path),
             "read_order": list(sop["read_order"]),

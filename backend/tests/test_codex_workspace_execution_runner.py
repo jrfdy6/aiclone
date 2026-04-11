@@ -119,6 +119,9 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
                         "objective": "Implement the bounded change.",
                         "reason": "Test the direct execution packet.",
                         "instructions": ["Read the SOP first."],
+                        "acceptance_criteria": ["Return a bounded result with at least one concrete outcome."],
+                        "artifacts_expected": ["updated PM execution result"],
+                        "completion_contract": {"source": "standup_promotion", "autostart": True},
                         "read_order": ["Work packet", "SOP", "PM card"],
                         "sop_path": str(temp_root / "dispatch" / "sop.json"),
                         "briefing_path": str(temp_root / "briefings" / "brief.md"),
@@ -140,6 +143,9 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         self.assertEqual(parsed["preferred_author_agent"], "Jean-Claude")
         self.assertEqual(parsed["front_door_agent"], "Neo")
         self.assertEqual(parsed["instructions"], ["Read the SOP first."])
+        self.assertEqual(parsed["acceptance_criteria"], ["Return a bounded result with at least one concrete outcome."])
+        self.assertEqual(parsed["artifacts_expected"], ["updated PM execution result"])
+        self.assertEqual(parsed["completion_contract"], {"source": "standup_promotion", "autostart": True})
 
     def test_sanitize_result_strips_wrapper_owned_failures(self) -> None:
         packet = {

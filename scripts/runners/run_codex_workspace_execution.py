@@ -361,6 +361,8 @@ def _parse_work_order(path: Path) -> dict[str, Any]:
     preferred_runner_id = str(write_back_contract.get("preferred_runner_id") or _slug(owner_agent))
     preferred_author_agent = str(write_back_contract.get("preferred_author_agent") or owner_agent)
     instructions = [str(item).strip() for item in payload.get("instructions") or [] if str(item).strip()]
+    acceptance_criteria = [str(item).strip() for item in payload.get("acceptance_criteria") or [] if str(item).strip()]
+    artifacts_expected = [str(item).strip() for item in payload.get("artifacts_expected") or [] if str(item).strip()]
     read_order = [str(item).strip() for item in payload.get("read_order") or [] if str(item).strip()]
 
     return {
@@ -380,6 +382,9 @@ def _parse_work_order(path: Path) -> dict[str, Any]:
         "sop_path": str(payload.get("sop_path") or ""),
         "briefing_path": str(payload.get("briefing_path") or ""),
         "instructions": instructions,
+        "acceptance_criteria": acceptance_criteria,
+        "artifacts_expected": artifacts_expected,
+        "completion_contract": dict(payload.get("completion_contract") or {}),
         "read_order": read_order,
         "preferred_runner_id": preferred_runner_id,
         "preferred_author_agent": preferred_author_agent,
@@ -447,7 +452,23 @@ def _rebuild_direct_packet_from_entry(entry: dict[str, Any], card: dict[str, Any
             "Stay inside the originating workspace lane.",
             "Use the PM card as the source of truth throughout execution.",
             "Write results back through the execution-result writer so Chronicle, LEARNINGS, persistent_state, and PM state all update together.",
+            *[
+                str(item).strip()
+                for item in payload.get("instructions") or []
+                if str(item).strip()
+            ],
         ],
+        "acceptance_criteria": [
+            str(item).strip()
+            for item in payload.get("acceptance_criteria") or []
+            if str(item).strip()
+        ],
+        "artifacts_expected": [
+            str(item).strip()
+            for item in payload.get("artifacts_expected") or []
+            if str(item).strip()
+        ],
+        "completion_contract": dict(payload.get("completion_contract") or {}),
         "sop_path": str(sop_path) if str(sop_path) else "",
         "briefing_path": str(briefing_path) if str(briefing_path) else "",
         "read_order": [
@@ -534,6 +555,12 @@ def _build_prompt(packet: dict[str, Any]) -> str:
     if packet["instructions"]:
         lines.extend(["", "Execution instructions:"])
         lines.extend(f"- {item}" for item in packet["instructions"])
+    if packet.get("acceptance_criteria"):
+        lines.extend(["", "Acceptance criteria:"])
+        lines.extend(f"- {item}" for item in packet["acceptance_criteria"])
+    if packet.get("artifacts_expected"):
+        lines.extend(["", "Expected artifacts:"])
+        lines.extend(f"- {item}" for item in packet["artifacts_expected"])
     recent_chronicle_entries = packet.get("recent_chronicle_entries") or []
     if recent_chronicle_entries:
         lines.extend(["", "Recent Chronicle:"])

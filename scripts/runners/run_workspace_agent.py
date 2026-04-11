@@ -440,13 +440,38 @@ def main() -> int:
         "memory_context": memory_contract["memory_context"],
         "source_paths": memory_contract["source_paths"],
     }
+    card_payload = dict(card.get("payload") or {})
+    task_instructions = [
+        str(item).strip()
+        for item in card_payload.get("instructions") or []
+        if str(item).strip()
+    ]
+    acceptance_criteria = [
+        str(item).strip()
+        for item in card_payload.get("acceptance_criteria") or []
+        if str(item).strip()
+    ]
+    artifacts_expected = [
+        str(item).strip()
+        for item in card_payload.get("artifacts_expected") or []
+        if str(item).strip()
+    ]
+    work_order_instructions = [
+        f"Execute only inside `{workspace_key}`.",
+        "Use the shared PM card as the source of truth.",
+        "Use recent Chronicle plus durable markdown recall before deciding whether to start, unblock, or escalate.",
+        "Leave PM and Chronicle write-back to the wrapper-owned result path; focus on bounded workspace artifacts and status content.",
+    ]
+    for item in task_instructions:
+        if item not in work_order_instructions:
+            work_order_instructions.append(item)
     work_order = {
         "schema_version": "workspace_agent_work_order/v1",
         "run_id": run_id,
         "workspace_key": workspace_key,
         "workspace_root": str(workspace_root),
-        "repo_path": str((card.get("payload") or {}).get("repo_path") or WORKSPACE_ROOT),
-        "front_door_agent": (card.get("payload") or {}).get("front_door_agent") or card.get("owner") or "Neo",
+        "repo_path": str(card_payload.get("repo_path") or WORKSPACE_ROOT),
+        "front_door_agent": card_payload.get("front_door_agent") or card.get("owner") or "Neo",
         "manager_agent": "Jean-Claude",
         "workspace_agent": target_agent,
         "owner_agent": target_agent,
@@ -458,12 +483,10 @@ def main() -> int:
         "briefing_path": str(briefing_path),
         "pm_card_id": selected_entry["card_id"],
         "reason": selected_entry.get("reason"),
-        "instructions": [
-            f"Execute only inside `{workspace_key}`.",
-            "Use the shared PM card as the source of truth.",
-            "Use recent Chronicle plus durable markdown recall before deciding whether to start, unblock, or escalate.",
-            "Leave PM and Chronicle write-back to the wrapper-owned result path; focus on bounded workspace artifacts and status content.",
-        ],
+        "instructions": work_order_instructions,
+        "acceptance_criteria": acceptance_criteria,
+        "artifacts_expected": artifacts_expected,
+        "completion_contract": dict(card_payload.get("completion_contract") or {}),
         "read_order": [
             "Read the local workspace pack first.",
             "Read Jean-Claude's SOP and briefing second.",

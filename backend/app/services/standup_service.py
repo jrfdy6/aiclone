@@ -8,8 +8,9 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from app.models import PMCard, PMCardCreate, StandupCreate, StandupEntry, StandupPromotionRequest, StandupPromotionResult, StandupUpdate
-from app.services.open_brain_db import get_pool
 from app.services import pm_card_service
+from app.services.open_brain_db import get_pool
+from app.services.pm_execution_contract_service import build_execution_contract
 
 
 def list_standups(limit: int = 50, owner: Optional[str] = None, workspace_key: Optional[str] = None) -> List[StandupEntry]:
@@ -186,6 +187,20 @@ def promote_standup(payload: StandupPromotionRequest) -> StandupPromotionResult:
 
         execution_defaults = pm_card_service.execution_defaults_for_workspace(update.workspace_key or payload.workspace_key)
         card_payload = dict(update.payload or {})
+        contract = build_execution_contract(
+            title=update.title,
+            workspace_key=update.workspace_key or payload.workspace_key,
+            source="standup_promotion",
+            reason=update.reason,
+            instructions=card_payload.get("instructions") if isinstance(card_payload.get("instructions"), list) else None,
+            acceptance_criteria=(
+                card_payload.get("acceptance_criteria") if isinstance(card_payload.get("acceptance_criteria"), list) else None
+            ),
+            artifacts_expected=(
+                card_payload.get("artifacts_expected") if isinstance(card_payload.get("artifacts_expected"), list) else None
+            ),
+        )
+        transition_at = datetime.now(timezone.utc).isoformat()
         card_payload.update(
             {
                 "workspace_key": update.workspace_key or payload.workspace_key,
@@ -198,7 +213,7 @@ def promote_standup(payload: StandupPromotionRequest) -> StandupPromotionResult:
                 "reason": update.reason,
                 "execution": {
                     "lane": "codex",
-                    "state": "ready",
+                    "state": "queued",
                     "manager_agent": execution_defaults["manager_agent"],
                     "target_agent": execution_defaults["target_agent"],
                     "workspace_agent": execution_defaults.get("workspace_agent"),
@@ -206,9 +221,11 @@ def promote_standup(payload: StandupPromotionRequest) -> StandupPromotionResult:
                     "requested_by": payload.owner,
                     "assigned_runner": "codex",
                     "reason": update.reason,
-                    "last_transition_at": datetime.now(timezone.utc).isoformat(),
+                    "queued_at": transition_at,
+                    "last_transition_at": transition_at,
                     "source": "standup_promotion",
                 },
+                **contract,
             }
         )
         created_cards.append(
