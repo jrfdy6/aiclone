@@ -8448,22 +8448,22 @@ function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem
   const ranked = items
     .filter((item) => item.lane !== 'done')
     .map((item) => {
-      const source = String(item.source ?? '').toLowerCase();
       const stale = isLikelyStaleBoardItem(item);
-      const isOwnerReview = source.includes('workspace-owner-review');
       const attentionClass = item.pmReviewPolicy?.attention_class;
       let kind: OwnerAttentionKind = 'update';
       let summary = 'This lane is moving or parked in the background. You usually do not need to do anything right now.';
       let nextAction = 'Ignore it unless priorities changed.';
 
-      if (isOwnerReview) {
-        kind = 'decision';
-        summary = 'A draft is waiting for your approval call.';
-        nextAction = 'Open it and choose approve, request revision, or park.';
-      } else if (attentionClass === 'needs_owner') {
+      if (attentionClass === 'needs_owner') {
         kind = 'decision';
         summary = item.pmReviewPolicy?.attention_reason ?? 'This card still needs a human decision.';
-        nextAction = item.lane === 'review' ? 'Open it and resolve the returned result.' : 'Open it and decide the next step.';
+        const isPendingOwnerReview =
+          item.lane === 'review' && String(item.reason ?? '').toLowerCase().includes('owner decision needed');
+        nextAction = isPendingOwnerReview
+          ? 'Open it and choose approve, request revision, or park.'
+          : item.lane === 'review'
+            ? 'Open it and resolve the returned result.'
+            : 'Open it and decide the next step.';
       } else if (stale) {
         kind = 'stale';
         summary = item.pmReviewPolicy?.attention_reason ?? 'This card was pulled back up by the system and may already be handled outside PM.';
