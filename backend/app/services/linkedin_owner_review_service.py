@@ -9,6 +9,7 @@ from typing import Any
 
 from app.models import PMCardCreate, PMCardDispatchRequest, PMCardUpdate
 from app.services import pm_card_service, workspace_snapshot_service
+from app.services.pm_execution_contract_service import build_execution_contract
 
 QUEUE_HEADING_RE = re.compile(r"^###\s+(FEEZIE-\d+)\s*-\s*(.+)$", flags=re.MULTILINE)
 PACKET_HEADING_RE = re.compile(r"^##\s+(FEEZIE-\d+)\s+[—-]\s+(.+)$", flags=re.MULTILINE)
@@ -611,6 +612,50 @@ def _owner_review_instructions(item: dict[str, Any], decision: str, notes: str) 
     return base
 
 
+def _owner_review_acceptance_criteria(item: dict[str, Any], decision: str) -> list[str]:
+    queue_id = str(item.get("queue_id") or "").strip()
+    title = str(item.get("title") or queue_id).strip()
+    if _is_supplemental_owner_review_item(item):
+        if decision == "approve":
+            return [
+                f"`{title}` is promoted out of the latent lane into a concrete next FEEZIE step.",
+                "PM write-back makes the promotion outcome explicit and bounded.",
+                "Draft or queue artifacts reflect the new active state.",
+            ]
+        return [
+            f"`{title}` is revised directly in the latent draft artifact.",
+            "The revised draft is returned to owner review with concrete notes or proof added.",
+            "PM write-back explains what changed and what the owner should re-check.",
+        ]
+    if decision == "approve":
+        return [
+            f"`{queue_id}` advances from approved draft into a concrete release or scheduling step.",
+            "PM write-back records a bounded result with outcomes and any follow-up actions.",
+            "The FEEZIE draft artifacts reflect the new post-approval state.",
+        ]
+    return [
+        f"`{queue_id}` is revised directly in the FEEZIE draft artifacts.",
+        "The revised draft is returned to owner review instead of stalling in execution.",
+        "PM write-back explains what changed and what the owner should re-check.",
+    ]
+
+
+def _owner_review_artifacts_expected(item: dict[str, Any], decision: str) -> list[str]:
+    draft_path = str(item.get("draft_path") or "").strip()
+    queue_id = str(item.get("queue_id") or "").strip()
+    if decision == "approve":
+        return [
+            draft_path or f"updated draft artifact for {queue_id}",
+            "updated PM execution result",
+            "bounded scheduling, publishing, or queue artifact showing the next concrete step",
+        ]
+    return [
+        draft_path or f"updated draft artifact for {queue_id}",
+        "updated PM execution result",
+        "owner-review-ready revision notes in the draft or packet artifacts",
+    ]
+
+
 def _build_owner_review_execution(reason: str) -> dict[str, Any]:
     defaults = pm_card_service.execution_defaults_for_workspace(PM_WORKSPACE_KEY)
     return {
@@ -642,6 +687,15 @@ def _build_owner_review_card_payload(
     reason = _owner_review_reason(item, decision)
     payload = dict(existing_payload or {})
     artifact_paths = [path for path in [draft_rel_path, packet_rel_path] if path]
+    contract = build_execution_contract(
+        title=_owner_review_card_title(item, decision),
+        workspace_key=PM_WORKSPACE_KEY,
+        source="owner_review_followup",
+        reason=reason,
+        instructions=_owner_review_instructions(item, decision, notes),
+        acceptance_criteria=_owner_review_acceptance_criteria(item, decision),
+        artifacts_expected=_owner_review_artifacts_expected(item, decision),
+    )
     payload.update(
         {
             "workspace_key": PM_WORKSPACE_KEY,
@@ -650,7 +704,10 @@ def _build_owner_review_card_payload(
             "trigger_origin": "owner_review",
             "trigger_key": _owner_review_trigger_key(queue_id),
             "reason": reason,
-            "instructions": _owner_review_instructions(item, decision, notes),
+            "instructions": contract["instructions"],
+            "acceptance_criteria": contract["acceptance_criteria"],
+            "artifacts_expected": contract["artifacts_expected"],
+            "completion_contract": contract["completion_contract"],
             "artifact_paths": artifact_paths,
             "owner_review": {
                 "queue_id": queue_id,

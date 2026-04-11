@@ -821,6 +821,10 @@ This is the first pass.
         def fake_create_card(payload):
             self.assertEqual(payload.payload.get("workspace_key"), "linkedin-os")
             self.assertEqual((payload.payload.get("owner_review") or {}).get("decision"), "approve")
+            self.assertTrue(payload.payload.get("acceptance_criteria"))
+            self.assertTrue(payload.payload.get("artifacts_expected"))
+            self.assertEqual((payload.payload.get("completion_contract") or {}).get("source"), "owner_review_followup")
+            self.assertTrue((payload.payload.get("completion_contract") or {}).get("autostart"))
             self.assertIsNone(payload.link_id)
             return created_card
 
@@ -978,6 +982,9 @@ This is the second first pass.
         self.assertIn("11111111-1111-4111-8111-111111111112", sync_payload.get("created_card_ids") or [])
 
         def fake_update_card(_card_id, patch):
+            self.assertTrue((patch.payload or {}).get("acceptance_criteria"))
+            self.assertTrue((patch.payload or {}).get("artifacts_expected"))
+            self.assertEqual(((patch.payload or {}).get("completion_contract") or {}).get("source"), "owner_review_followup")
             return pending_card.model_copy(
                 update={
                     "title": patch.title if patch.title is not None else pending_card.title,
@@ -1110,6 +1117,9 @@ This is the latent first pass.
             self.assertEqual(owner_review.get("decision"), "revise")
             self.assertEqual(owner_review.get("source_kind"), "latent_transform")
             self.assertEqual((owner_review.get("system_assessment") or {}).get("suggested_decision"), "revise")
+            self.assertTrue(payload.payload.get("acceptance_criteria"))
+            self.assertTrue(payload.payload.get("artifacts_expected"))
+            self.assertEqual((payload.payload.get("completion_contract") or {}).get("source"), "owner_review_followup")
             self.assertIsNone(payload.link_id)
             return created_card
 
@@ -1342,6 +1352,9 @@ This is another latent first pass.
         )
 
         def fake_update_card(_card_id, patch):
+            self.assertTrue((patch.payload or {}).get("acceptance_criteria"))
+            self.assertTrue((patch.payload or {}).get("artifacts_expected"))
+            self.assertEqual(((patch.payload or {}).get("completion_contract") or {}).get("source"), "owner_review_followup")
             return pending_card.model_copy(
                 update={
                     "title": patch.title if patch.title is not None else pending_card.title,
