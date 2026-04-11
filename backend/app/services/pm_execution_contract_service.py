@@ -44,6 +44,13 @@ def build_execution_contract(
         "autostart": True,
         "writeback_required": True,
         "next_state_on_result": "review",
+        "auto_return_limit": 2,
+        "result_requirements": {
+            "summary_min_length": 20,
+            "require_outcome_or_artifact": True,
+            "require_writeback": True,
+            "allow_blockers": False,
+        },
         "done_when": acceptance_list[:6],
     }
     if normalized_reason:

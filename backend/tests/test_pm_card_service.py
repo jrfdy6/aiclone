@@ -588,6 +588,176 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(result.get("processed_count"), 0)
         update_card_mock.assert_not_called()
 
+    def test_auto_progress_review_cards_returns_unmet_completion_contract_to_execution(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-contract-return",
+            title="Routine review with unmet contract",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-contract-return-1",
+            payload={
+                "workspace_key": "shared_ops",
+                "completion_contract": {
+                    "source": "standup_promotion",
+                    "auto_return_limit": 2,
+                    "result_requirements": {
+                        "summary_min_length": 20,
+                        "require_outcome_or_artifact": True,
+                        "require_writeback": True,
+                        "allow_blockers": False,
+                    },
+                    "done_when": ["Return a bounded result with at least one concrete outcome."],
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Started work.",
+                    "outcomes": [],
+                    "artifacts": [],
+                    "blockers": [],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("returned_count"), 1)
+        processed = (result.get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("action"), "return")
+        self.assertEqual((processed or {}).get("rule"), "completion_contract_return_for_rework")
+        self.assertIn("completion contract", (processed or {}).get("reason", "").lower())
+
+    def test_auto_progress_review_cards_escalates_after_completion_contract_retry_limit(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-contract-blocked",
+            title="Routine review with repeated unmet contract",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-contract-blocked-1",
+            payload={
+                "workspace_key": "shared_ops",
+                "completion_contract": {
+                    "source": "standup_promotion",
+                    "auto_return_limit": 1,
+                    "result_requirements": {
+                        "summary_min_length": 20,
+                        "require_outcome_or_artifact": True,
+                        "require_writeback": True,
+                        "allow_blockers": False,
+                    },
+                    "done_when": ["Return a bounded result with at least one concrete outcome."],
+                },
+                "latest_manual_review": {
+                    "action": "return",
+                    "contract_auto_return_count": 1,
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Started work.",
+                    "outcomes": [],
+                    "artifacts": [],
+                    "blockers": [],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("escalated_count"), 1)
+        processed = (result.get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("action"), "blocked")
+        self.assertEqual((processed or {}).get("rule"), "completion_contract_escalation_after_retries")
+
+    def test_auto_progress_review_cards_accepts_met_completion_contract(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-contract-met",
+            title="Routine review with met contract",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-contract-met-1",
+            payload={
+                "workspace_key": "shared_ops",
+                "completion_contract": {
+                    "source": "standup_promotion",
+                    "auto_return_limit": 2,
+                    "result_requirements": {
+                        "summary_min_length": 20,
+                        "require_outcome_or_artifact": True,
+                        "require_writeback": True,
+                        "allow_blockers": False,
+                    },
+                    "done_when": ["Return a bounded result with at least one concrete outcome."],
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Updated the workflow and wrote the result back with a concrete artifact.",
+                    "outcomes": ["The workflow now advances automatically."],
+                    "artifacts": ["/tmp/result.json"],
+                    "blockers": [],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("closed_count"), 1)
+        processed = (result.get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("action"), "approve")
+        self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_close")
+
     def test_decorate_card_for_client_marks_feezie_review_as_autonomous_and_prefills_followup(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

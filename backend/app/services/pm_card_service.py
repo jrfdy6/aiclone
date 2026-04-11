@@ -26,6 +26,7 @@ from app.services.workspace_runtime_contract_service import (
 
 AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
 AUTO_PROGRESS_REQUESTED_BY = "Codex PM Review Worker"
+AUTO_CONTRACT_RETRY_LIMIT = 2
 
 
 def list_cards(
@@ -672,20 +673,27 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
         progression = _autonomous_review_progression(card)
         if progression is None:
             continue
+        action = str(progression.get("action") or "approve")
+        review_metadata = {
+            "auto_progressed": True,
+            "policy_rule": progression["rule"],
+            "worker_action": progression.get("worker_action") or progression.get("resolution_mode") or action,
+            "worker_id": AUTO_PROGRESS_REQUESTED_BY,
+        }
+        contract_assessment = progression.get("contract_assessment")
+        if isinstance(contract_assessment, dict):
+            review_metadata["contract_assessment"] = contract_assessment
+        if progression.get("contract_auto_return_count") is not None:
+            review_metadata["contract_auto_return_count"] = progression.get("contract_auto_return_count")
         result = _apply_card_action(
             card,
-            action="approve",
+            action=action,
             requested_by=AUTO_PROGRESS_REQUESTED_BY,
             reason=progression["reason"],
-            resolution_mode=progression["resolution_mode"],
+            resolution_mode=progression.get("resolution_mode"),
             next_title=progression.get("next_title"),
             next_reason=progression.get("next_reason"),
-            review_metadata={
-                "auto_progressed": True,
-                "policy_rule": progression["rule"],
-                "worker_action": progression["resolution_mode"],
-                "worker_id": AUTO_PROGRESS_REQUESTED_BY,
-            },
+            review_metadata=review_metadata,
         )
         if result is None:
             continue
@@ -694,7 +702,8 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
                 "card_id": result.card.id,
                 "title": result.card.title,
                 "workspace_key": _workspace_key_from_card(result.card),
-                "resolution_mode": progression["resolution_mode"],
+                "action": action,
+                "resolution_mode": progression.get("resolution_mode"),
                 "rule": progression["rule"],
                 "reason": progression["reason"],
                 "successor_card_id": result.successor_card.id if result.successor_card else None,
@@ -704,6 +713,8 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
 
     return {
         "processed_count": len(processed),
+        "returned_count": sum(1 for item in processed if item.get("action") == "return"),
+        "escalated_count": sum(1 for item in processed if item.get("action") == "blocked"),
         "closed_count": sum(1 for item in processed if item.get("resolution_mode") == "close_only"),
         "continued_count": sum(1 for item in processed if item.get("resolution_mode") == "close_and_spawn_next"),
         "processed": processed,
@@ -845,7 +856,7 @@ def _auto_resolve_review_policy(card: PMCard) -> dict[str, str] | None:
     return None
 
 
-def _autonomous_review_progression(card: PMCard) -> dict[str, str] | None:
+def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
     if _is_closed_pm_status(card.status):
         return None
     if str(card.status or "").strip().lower() != "review":
@@ -865,6 +876,34 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, str] | None:
     if interrupt_policy not in {"owner_gate_only", "manager_attention_only"}:
         return None
 
+    contract_assessment = _completion_contract_assessment(card)
+    if contract_assessment is not None and not bool(contract_assessment.get("satisfied")):
+        retry_limit = int(contract_assessment.get("auto_return_limit") or AUTO_CONTRACT_RETRY_LIMIT)
+        current_retry_count = _completion_contract_auto_retry_count(card)
+        assessment_summary = _contract_assessment_summary(contract_assessment)
+        if current_retry_count >= retry_limit:
+            return {
+                "action": "blocked",
+                "rule": "completion_contract_escalation_after_retries",
+                "reason": (
+                    "Codex review worker could not satisfy the PM completion contract after repeated automatic passes. "
+                    + assessment_summary
+                ),
+                "worker_action": "escalate_for_attention",
+                "contract_assessment": contract_assessment,
+            }
+        return {
+            "action": "return",
+            "rule": "completion_contract_return_for_rework",
+            "reason": (
+                "Codex review worker returned this card to execution because the PM completion contract was not met yet. "
+                + assessment_summary
+            ),
+            "worker_action": "return_to_execution",
+            "contract_assessment": contract_assessment,
+            "contract_auto_return_count": current_retry_count + 1,
+        }
+
     resolution_mode = _valid_resolution_mode(workspace_policy.get("default_resolution_mode")) or "close_only"
     next_title: str | None = None
     next_reason: str | None = None
@@ -877,18 +916,102 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, str] | None:
 
     if resolution_mode == "close_and_spawn_next":
         return {
+            "action": "approve",
             "rule": "workspace_policy_accept_and_continue",
             "reason": "Codex review worker accepted this routine review result and opened the next PM lane under the workspace review policy.",
             "resolution_mode": resolution_mode,
             "next_title": next_title or "",
             "next_reason": next_reason or "",
+            "contract_assessment": contract_assessment,
         }
 
     return {
+        "action": "approve",
         "rule": "workspace_policy_accept_and_close",
         "reason": "Codex review worker accepted this routine review result and closed the lane under the workspace review policy.",
         "resolution_mode": resolution_mode,
+        "contract_assessment": contract_assessment,
     }
+
+
+def _completion_contract_assessment(card: PMCard) -> dict[str, Any] | None:
+    payload = dict(card.payload or {})
+    contract = payload.get("completion_contract")
+    if not isinstance(contract, dict) or not contract:
+        return None
+
+    latest_result = payload.get("latest_execution_result")
+    done_when = [
+        str(item).strip()
+        for item in contract.get("done_when") or []
+        if str(item).strip()
+    ]
+    requirements = dict(contract.get("result_requirements") or {})
+    summary_min_length = max(1, int(requirements.get("summary_min_length") or 20))
+    require_outcome_or_artifact = bool(requirements.get("require_outcome_or_artifact", True))
+    require_writeback = bool(requirements.get("require_writeback", True))
+    allow_blockers = bool(requirements.get("allow_blockers", False))
+
+    missing: list[str] = []
+    summary = ""
+    status = ""
+    outcomes: list[str] = []
+    artifacts: list[str] = []
+    blockers: list[str] = []
+
+    if not isinstance(latest_result, dict):
+        if require_writeback:
+            missing.append("No execution result has been written back yet.")
+    else:
+        summary = str(latest_result.get("summary") or "").strip()
+        status = str(latest_result.get("status") or "").strip().lower()
+        outcomes = [str(item).strip() for item in latest_result.get("outcomes") or [] if str(item).strip()]
+        artifacts = [str(item).strip() for item in latest_result.get("artifacts") or [] if str(item).strip()]
+        blockers = [str(item).strip() for item in latest_result.get("blockers") or [] if str(item).strip()]
+        if len(summary) < summary_min_length:
+            missing.append("Result summary is too thin to prove completion.")
+        if require_outcome_or_artifact and not outcomes and not artifacts:
+            missing.append("Result is missing a concrete outcome or artifact.")
+        if not allow_blockers and blockers:
+            missing.append("Result still contains unresolved blockers.")
+        if status == "blocked":
+            missing.append("Result reported a blocked status.")
+
+    return {
+        "active": True,
+        "satisfied": not missing,
+        "missing": missing,
+        "done_when": done_when,
+        "summary": summary,
+        "status": status,
+        "auto_return_limit": max(0, int(contract.get("auto_return_limit") or AUTO_CONTRACT_RETRY_LIMIT)),
+    }
+
+
+def _completion_contract_auto_retry_count(card: PMCard) -> int:
+    payload = dict(card.payload or {})
+    latest_manual_review = payload.get("latest_manual_review")
+    if not isinstance(latest_manual_review, dict):
+        return 0
+    return max(0, int(latest_manual_review.get("contract_auto_return_count") or 0))
+
+
+def _contract_assessment_summary(assessment: dict[str, Any]) -> str:
+    missing = [
+        str(item).strip()
+        for item in assessment.get("missing") or []
+        if str(item).strip()
+    ]
+    if missing:
+        return "Missing: " + "; ".join(missing[:3])
+    done_when = [
+        str(item).strip()
+        for item in assessment.get("done_when") or []
+        if str(item).strip()
+    ]
+    if done_when:
+        return "Expected: " + "; ".join(done_when[:2])
+    return "The completion contract did not pass."
 
 
 def _is_owner_decision_gate(card: PMCard) -> bool:
