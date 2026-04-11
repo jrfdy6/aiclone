@@ -318,11 +318,13 @@ class PMCardServiceTests(unittest.TestCase):
             self.assertEqual(payload.payload.get("workspace_key"), "feezie-os")
             self.assertEqual((payload.payload.get("resolution_predecessor") or {}).get("card_id"), card.id)
             self.assertEqual(payload.payload.get("reason"), "Turn the accepted backlog seed into a concrete next lane.")
+            self.assertTrue(str(payload.payload.get("trigger_key") or "").startswith("openclaw:"))
             return successor
 
         with (
             patch.object(pm_card_service, "get_card", return_value=card),
             patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
             patch.object(pm_card_service, "create_card", side_effect=fake_create_card),
         ):
             result = pm_card_service.act_on_card(
@@ -546,6 +548,7 @@ class PMCardServiceTests(unittest.TestCase):
         with (
             patch.object(pm_card_service, "list_cards", return_value=[card]),
             patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
             patch.object(pm_card_service, "create_card", side_effect=fake_create_card),
         ):
             result = pm_card_service.auto_progress_review_cards()
@@ -905,6 +908,83 @@ class PMCardServiceTests(unittest.TestCase):
         repaired_items = result.get("repaired") or []
         self.assertEqual((repaired_items[0] if repaired_items else {}).get("contract_source"), "owner_review_followup")
         self.assertEqual(result.get("processed_count"), 0)
+
+    def test_repair_execution_contracts_closes_duplicate_pm_review_resolution_cards(self) -> None:
+        now = datetime.now(timezone.utc)
+        running = PMCard(
+            id="pm-review-running",
+            title="Turn seeded FEEZIE backlog into first draft batch",
+            owner="Jean-Claude",
+            status="in_progress",
+            source="pm_review_resolution",
+            link_type="standup",
+            link_id="standup-dup-running",
+            payload={
+                "workspace_key": "linkedin-os",
+                "completion_contract": {"source": "pm_review_resolution", "autostart": True},
+                "execution": {
+                    "state": "running",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        duplicate = PMCard(
+            id="pm-review-queued-dup",
+            title="Turn seeded FEEZIE backlog into first draft batch",
+            owner="Jean-Claude",
+            status="todo",
+            source="pm_review_resolution",
+            link_type="standup",
+            link_id="standup-dup-queued",
+            payload={
+                "workspace_key": "linkedin-os",
+                "completion_contract": {"source": "pm_review_resolution", "autostart": True},
+                "execution": {
+                    "state": "queued",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "queued_at": now.isoformat(),
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        updates: list[tuple[str, PMCardUpdate]] = []
+
+        def fake_update(card_id: str, patch: PMCardUpdate) -> PMCard:
+            updates.append((card_id, patch))
+            base = running if card_id == running.id else duplicate
+            return base.model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else base.status,
+                    "payload": patch.payload if patch.payload is not None else base.payload,
+                    "updated_at": now,
+                }
+            )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[running, duplicate]),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+        ):
+            result = pm_card_service.repair_execution_contracts(limit=10)
+
+        self.assertEqual(result.get("deduped_count"), 1)
+        deduped = result.get("deduped") or []
+        self.assertEqual((deduped[0] if deduped else {}).get("card_id"), "pm-review-queued-dup")
+        self.assertEqual((deduped[0] if deduped else {}).get("kept_card_id"), "pm-review-running")
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0][0], "pm-review-queued-dup")
+        self.assertEqual(updates[0][1].status, "done")
+        duplicate_resolution = (updates[0][1].payload or {}).get("duplicate_resolution") or {}
+        self.assertEqual(duplicate_resolution.get("kept_card_id"), "pm-review-running")
 
     def test_decorate_card_for_client_marks_feezie_review_as_autonomous_and_prefills_followup(self) -> None:
         now = datetime.now(timezone.utc)

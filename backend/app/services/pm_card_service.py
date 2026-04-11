@@ -497,6 +497,16 @@ def _create_resolution_successor_card(
         if value is not None:
             successor_payload[key] = value
 
+    successor_payload["trigger_key"] = _build_trigger_key(
+        title=cleaned_title,
+        workspace_key=workspace_key,
+        source="pm_review_resolution",
+        payload=successor_payload,
+    )
+    existing = find_active_card_by_trigger_key(str(successor_payload["trigger_key"]))
+    if existing is not None:
+        return existing
+
     return create_card(
         PMCardCreate(
             title=cleaned_title,
@@ -1203,6 +1213,9 @@ def _is_execution_candidate(card: PMCard) -> bool:
 
 def repair_execution_contracts(limit: int = 250, workspace_key: str | None = None) -> dict[str, Any]:
     cards = list_cards(limit=limit, workspace_key=workspace_key)
+    deduped = _dedupe_active_pm_review_resolution_cards(cards)
+    closed_duplicate_ids = {str(item.get("card_id")) for item in deduped}
+    cards = [card for card in cards if card.id not in closed_duplicate_ids]
     repaired: list[dict[str, Any]] = []
 
     for card in cards:
@@ -1223,6 +1236,8 @@ def repair_execution_contracts(limit: int = 250, workspace_key: str | None = Non
         )
 
     return {
+        "deduped_count": len(deduped),
+        "deduped": deduped,
         "repaired_count": len(repaired),
         "repaired": repaired,
     }
@@ -1289,6 +1304,63 @@ def _build_missing_execution_contract_payload(card: PMCard) -> dict[str, Any] | 
             updated_payload["execution"]["queued_at"] = now_iso
 
     return updated_payload
+
+
+def _dedupe_active_pm_review_resolution_cards(cards: list[PMCard]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str, str], list[PMCard]] = {}
+    for card in cards:
+        if _is_closed_pm_status(card.status):
+            continue
+        if str(card.source or "").strip() != "pm_review_resolution":
+            continue
+        workspace_key = _workspace_key_from_card(card)
+        group_key = (workspace_key, str(card.source or "").strip(), str(card.title or "").strip().lower())
+        groups.setdefault(group_key, []).append(card)
+
+    deduped: list[dict[str, Any]] = []
+    for siblings in groups.values():
+        if len(siblings) <= 1:
+            continue
+        ranked = sorted(siblings, key=_pm_resolution_dedupe_rank, reverse=True)
+        keep = ranked[0]
+        for duplicate in ranked[1:]:
+            payload = dict(duplicate.payload or {})
+            payload["duplicate_resolution"] = {
+                "kept_card_id": keep.id,
+                "kept_card_title": keep.title,
+                "closed_at": datetime.now(timezone.utc).isoformat(),
+                "reason": "Closed duplicate pm_review_resolution lane because an equivalent active successor card already exists.",
+            }
+            updated = update_card(duplicate.id, PMCardUpdate(status="done", payload=payload))
+            effective = updated or duplicate.model_copy(update={"status": "done", "payload": payload})
+            deduped.append(
+                {
+                    "card_id": effective.id,
+                    "title": effective.title,
+                    "workspace_key": _workspace_key_from_card(effective),
+                    "kept_card_id": keep.id,
+                    "kept_card_title": keep.title,
+                }
+            )
+    return deduped
+
+
+def _pm_resolution_dedupe_rank(card: PMCard) -> tuple[int, int, datetime]:
+    execution = _execution_payload(card) or {}
+    execution_state = str(execution.get("state") or "").strip().lower()
+    status = str(card.status or "").strip().lower()
+    status_rank = {
+        "in_progress": 4,
+        "running": 4,
+        "queued": 3,
+        "todo": 2,
+        "review": 1,
+    }.get(status, 0)
+    execution_rank = _execution_sort_rank(execution_state)
+    updated_at = card.updated_at or card.created_at or datetime.min.replace(tzinfo=timezone.utc)
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    return (status_rank, execution_rank, updated_at)
 
 
 def _execution_contract_source(card: PMCard) -> str | None:
