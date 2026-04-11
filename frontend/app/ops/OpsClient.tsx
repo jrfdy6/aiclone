@@ -2722,6 +2722,7 @@ function PMBoardPanel({
           linkedStandups={selectedBoardLinkedStandups}
           boardColumns={boardColumns}
           onClose={() => setSelectedBoardCardId(null)}
+          onSelectCard={(cardId) => setSelectedBoardCardId(cardId)}
           onDispatch={onDispatch}
           onActOnPmCard={onActOnPmCard}
           onActOnOwnerReviewCard={onActOnOwnerReviewCard}
@@ -2738,6 +2739,7 @@ function PMCardDetailModal({
   linkedStandups,
   boardColumns,
   onClose,
+  onSelectCard,
   onDispatch,
   onActOnPmCard,
   onActOnOwnerReviewCard,
@@ -2748,6 +2750,7 @@ function PMCardDetailModal({
   linkedStandups: StandupEntry[];
   boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[];
   onClose: () => void;
+  onSelectCard: (cardId: string | null) => void;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
@@ -3150,6 +3153,7 @@ function PMCardDetailModal({
       setActionError(null);
       setActionFeedback(null);
       const result = await onActOnOwnerReviewCard(card.id, decision, ownerReviewNotes);
+      const queuedFollowupCardId = result.workflow?.card_id ?? null;
       setActionFeedback(
         result.workflow?.message ??
           (decision === 'approve'
@@ -3158,6 +3162,12 @@ function PMCardDetailModal({
               ? `Requested revision for ${displayCardTitle}.`
               : `Parked ${displayCardTitle}.`),
       );
+      if (decision === 'park') {
+        onSelectCard(null);
+        return;
+      }
+      setActiveTab('overview');
+      onSelectCard(queuedFollowupCardId || card.id);
     } catch (error) {
       setActionError(toErrorMessage(error));
     } finally {
