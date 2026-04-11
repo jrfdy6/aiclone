@@ -2404,7 +2404,7 @@ function PMBoardPanel({
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>What Needs You</p>
           <h3 style={{ fontSize: '20px', color: 'white', margin: '4px 0' }}>Owner inbox</h3>
           <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>
-            This is the short list. Open these first. Ignore the rest of the board unless priorities changed.
+            This is the owner-sorted list. Start here. Ignore the rest of the board unless priorities changed.
           </p>
           {Number(reviewHygieneSummary?.resolved_count ?? 0) > 0 ? (
             <p style={{ color: '#86efac', fontSize: '12px', margin: '8px 0 0' }}>
@@ -2427,7 +2427,7 @@ function PMBoardPanel({
           <EmptyPanel message={ownerAttentionCounts.update > 0 ? 'Nothing needs your judgment right now. The remaining cards look like background updates.' : 'Nothing currently looks like it needs your judgment.'} compact />
         ) : (
           <div style={{ display: 'grid', gap: '10px' }}>
-            {ownerInboxItems.slice(0, 8).map((item) => {
+            {ownerInboxItems.map((item) => {
               const theme = workspaceBoardTheme(item.workspaceKey);
               const tone =
                 item.kind === 'decision'
@@ -8177,10 +8177,18 @@ function workspaceKeyFromCard(card: PMCard) {
   for (const key of ['workspace_key', 'workspace', 'belongs_to_workspace']) {
     const value = payload[key];
     if (typeof value === 'string' && value.trim()) {
-      return value.trim();
+      return normalizeWorkspaceBoardKey(value);
     }
   }
   return 'shared_ops';
+}
+
+function normalizeWorkspaceBoardKey(value?: string | null) {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'feezie-os') {
+    return 'linkedin-os';
+  }
+  return (value ?? '').trim() || 'shared_ops';
 }
 
 function pmReviewPolicyFromCard(card?: PMCard | null): PMReviewPolicyPayload | null {
@@ -8347,7 +8355,7 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
       id: `execution-${entry.card_id}`,
       cardId: entry.card_id,
       title: entry.title,
-      workspaceKey: entry.workspace_key ?? 'shared_ops',
+      workspaceKey: normalizeWorkspaceBoardKey(entry.workspace_key ?? 'shared_ops'),
       lane,
       pmStatus: entry.pm_status,
       executionState: entry.execution_state,
@@ -8458,9 +8466,9 @@ function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem
             ? 'Open it only if you want to inspect or override the default follow-up.'
             : 'Ignore it unless you want to inspect or override the default closeout.';
       } else if (item.lane === 'review') {
-        kind = 'decision';
-        summary = 'A result came back and the system is waiting for your judgment.';
-        nextAction = 'Open it and decide whether to close it or create the next card.';
+        kind = 'update';
+        summary = 'This review card is visible for context, but PM did not mark it as a required human decision.';
+        nextAction = 'Ignore it unless you want to inspect the result or override the default workflow.';
       } else if (item.lane === 'failed') {
         kind = 'decision';
         summary = 'This lane hit a blocker and needs a human call.';

@@ -383,6 +383,43 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual((resolved or {}).get("card_id"), "auto-resolve-card")
         self.assertEqual((resolved or {}).get("rule"), "accountability_stale_review_autoclose")
 
+    def test_auto_resolve_review_cards_closes_stale_feezie_alias_review_residue(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-resolve-feezie-alias-card",
+            title="Turn first FEEZIE queue items into owner-review drafts",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-auto-feezie-alias-1",
+            payload={
+                "workspace_key": "feezie-os",
+                "reason": "Accountability sweep rerouted this stale `review` lane in `feezie-os` back to Jean-Claude for a required closure decision.",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.auto_resolve_review_cards()
+
+        self.assertEqual(result.get("resolved_count"), 1)
+        resolved = (result.get("resolved") or [None])[0]
+        self.assertEqual((resolved or {}).get("card_id"), "auto-resolve-feezie-alias-card")
+        self.assertEqual((resolved or {}).get("rule"), "accountability_stale_review_autoclose")
+
     def test_auto_resolve_review_cards_skips_owner_review_gate(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
@@ -583,6 +620,39 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("attention_class"), "autonomous")
         self.assertEqual(policy.get("recommended_resolution_mode"), "close_and_spawn_next")
         self.assertEqual(policy.get("suggested_next_title"), "Turn seeded FEEZIE backlog into first draft batch")
+
+    def test_decorate_card_for_client_marks_feezie_alias_review_as_autonomous(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="feezie-alias-review-card",
+            title="Turn first FEEZIE queue items into owner-review drafts",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-feezie-alias-1",
+            payload={
+                "workspace_key": "feezie-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertEqual(policy.get("recommended_resolution_mode"), "close_and_spawn_next")
+        self.assertEqual(policy.get("suggested_next_title"), "Package accepted FEEZIE draft into scheduling lane")
 
     def test_decorate_card_for_client_marks_fusion_review_as_needs_owner(self) -> None:
         now = datetime.now(timezone.utc)

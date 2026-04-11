@@ -2,7 +2,44 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.workspace_registry_service import canonicalize_workspace_key
+
 EXECUTIVE_STANDUP_KINDS = frozenset({"executive_ops", "operations", "weekly_review", "saturday_vision"})
+
+FEEZIE_RUNTIME_CONTRACT: dict[str, Any] = {
+    "display_name": "FEEZIE OS",
+    "manager_agent": "Jean-Claude",
+    "target_agent": "Jean-Claude",
+    "workspace_agent": None,
+    "execution_mode": "direct",
+    "default_standup_kind": "workspace_sync",
+    "workspace_sync_participants": ["Jean-Claude", "Neo", "Yoda"],
+    "pm_review_policy": {
+        "interrupt_policy": "owner_gate_only",
+        "default_resolution_mode": "close_and_spawn_next",
+        "auto_resolve_review_residue": True,
+        "policy_label": "FEEZIE should keep moving after accepted review results and only interrupt you for explicit owner gates or blockers.",
+        "default_next_title": "Turn accepted FEEZIE result into the next publishing lane",
+        "default_next_reason": "The accepted FEEZIE result should continue into the next concrete publishing step.",
+        "followup_templates": [
+            {
+                "match_any": ["seed", "backlog"],
+                "title": "Turn seeded FEEZIE backlog into first draft batch",
+                "reason": "The accepted backlog seed should now become concrete first-pass draft production.",
+            },
+            {
+                "match_any": ["draft", "copy", "post"],
+                "title": "Package accepted FEEZIE draft into scheduling lane",
+                "reason": "The accepted draft should now move into scheduling and release prep.",
+            },
+            {
+                "match_any": ["review", "feedback", "signal"],
+                "title": "Turn accepted FEEZIE review result into the next publishing lane",
+                "reason": "The accepted review result should continue into the next concrete publishing step.",
+            },
+        ],
+    },
+}
 
 WORKSPACE_RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
     "shared_ops": {
@@ -20,40 +57,8 @@ WORKSPACE_RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
             "policy_label": "Shared Ops should close routine review residue on its own and only interrupt you for blockers or explicit owner gates.",
         },
     },
-    "linkedin-os": {
-        "display_name": "FEEZIE OS",
-        "manager_agent": "Jean-Claude",
-        "target_agent": "Jean-Claude",
-        "workspace_agent": None,
-        "execution_mode": "direct",
-        "default_standup_kind": "workspace_sync",
-        "workspace_sync_participants": ["Jean-Claude", "Neo", "Yoda"],
-        "pm_review_policy": {
-            "interrupt_policy": "owner_gate_only",
-            "default_resolution_mode": "close_and_spawn_next",
-            "auto_resolve_review_residue": True,
-            "policy_label": "FEEZIE should keep moving after accepted review results and only interrupt you for explicit owner gates or blockers.",
-            "default_next_title": "Turn accepted FEEZIE result into the next publishing lane",
-            "default_next_reason": "The accepted FEEZIE result should continue into the next concrete publishing step.",
-            "followup_templates": [
-                {
-                    "match_any": ["seed", "backlog"],
-                    "title": "Turn seeded FEEZIE backlog into first draft batch",
-                    "reason": "The accepted backlog seed should now become concrete first-pass draft production.",
-                },
-                {
-                    "match_any": ["draft", "copy", "post"],
-                    "title": "Package accepted FEEZIE draft into scheduling lane",
-                    "reason": "The accepted draft should now move into scheduling and release prep.",
-                },
-                {
-                    "match_any": ["review", "feedback", "signal"],
-                    "title": "Turn accepted FEEZIE review result into the next publishing lane",
-                    "reason": "The accepted review result should continue into the next concrete publishing step.",
-                },
-            ],
-        },
-    },
+    "feezie-os": FEEZIE_RUNTIME_CONTRACT,
+    "linkedin-os": FEEZIE_RUNTIME_CONTRACT,
     "fusion-os": {
         "display_name": "Fusion OS",
         "manager_agent": "Jean-Claude",
@@ -94,7 +99,7 @@ WORKSPACE_RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
 
 
 def runtime_contract_for_workspace(workspace_key: str | None) -> dict[str, Any]:
-    normalized = str(workspace_key or "").strip() or "shared_ops"
+    normalized = canonicalize_workspace_key(workspace_key, default="shared_ops")
     contract = WORKSPACE_RUNTIME_CONTRACTS.get(normalized)
     if contract is not None:
         return dict(contract)
