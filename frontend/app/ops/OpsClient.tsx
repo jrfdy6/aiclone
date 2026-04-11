@@ -2763,7 +2763,7 @@ function PMBoardPanel({
                         {item.queueEntry ? <span>Target: {displayTargetAgent(item.workspaceKey, item.targetAgent)}</span> : null}
                         {item.workspaceAgent ? <span>Agent: {displayWorkspaceAgent(item.workspaceKey, item.workspaceAgent)}</span> : null}
                         {item.executionMode ? <span>Mode: {item.executionMode}</span> : null}
-                        {item.queueEntry?.executor_status ? <span>Executor: {humanizeStatusLabel(item.queueEntry.executor_status)}</span> : null}
+                        {displayWorkerStatusLabel(item.queueEntry) ? <span>Worker: {displayWorkerStatusLabel(item.queueEntry)}</span> : null}
                         {item.queueEntry?.manager_attention_required ? <span>Manager attention: required</span> : null}
                         <span>Updated: {item.updatedAt ? formatTimestamp(new Date(item.updatedAt)) : '-'}</span>
                       </div>
@@ -3775,8 +3775,8 @@ function PMCardDetailModal({
                   <div>Target: {displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}</div>
                   {boardItem.workspaceAgent ? <div>Workspace agent: {displayWorkspaceAgent(boardItem.workspaceKey, boardItem.workspaceAgent)}</div> : null}
                   {boardItem.executionMode ? <div>Execution mode: {boardItem.executionMode}</div> : null}
-                  {boardItem.queueEntry?.executor_status ? <div>Codex executor: {humanizeStatusLabel(boardItem.queueEntry.executor_status)}</div> : null}
-                  {boardItem.queueEntry?.executor_worker_id ? <div>Executor worker: {boardItem.queueEntry.executor_worker_id}</div> : null}
+                  {displayWorkerStatusLabel(boardItem.queueEntry) ? <div>Worker status: {displayWorkerStatusLabel(boardItem.queueEntry)}</div> : null}
+                  {boardItem.queueEntry?.executor_worker_id ? <div>Worker host: {boardItem.queueEntry.executor_worker_id}</div> : null}
                   {boardItem.queueEntry?.manager_attention_required ? <div>Manager attention: required</div> : null}
                 </div>
               </section>
@@ -9943,6 +9943,30 @@ function displayExecutionStateLabel(executionState?: string | null) {
   const normalized = normalizeExecutionState(executionState ?? 'ready');
   if (normalized === 'failed') return 'blocked';
   return humanizeStatusLabel(normalized);
+}
+
+function displayWorkerStatusLabel(entry?: ExecutionQueueEntry | null) {
+  if (!entry?.executor_status) {
+    return null;
+  }
+  const executionState = normalizeExecutionState(entry.execution_state ?? 'ready');
+  const executorStatus = String(entry.executor_status ?? '').trim().toLowerCase();
+  const executionMode = String(entry.execution_mode ?? '').trim().toLowerCase();
+  const directMode = executionMode === 'direct';
+
+  if (executionState === 'running' && executorStatus === 'queued') {
+    return directMode ? 'queued after SOP handoff' : 'queued after delegate handoff';
+  }
+  if (executionState === 'queued' && executorStatus === 'queued') {
+    return directMode ? 'waiting for pickup' : 'waiting for delegate pickup';
+  }
+  if (executionState === 'running' && executorStatus === 'running') {
+    return directMode ? 'running' : 'delegate running';
+  }
+  if (executionState === 'review' && executorStatus === 'completed') {
+    return 'completed; waiting on review';
+  }
+  return humanizeStatusLabel(executorStatus);
 }
 
 function standupKind(entry: StandupEntry) {
