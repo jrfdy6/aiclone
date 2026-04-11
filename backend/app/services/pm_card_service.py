@@ -894,11 +894,20 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, str] | None:
 def _is_owner_decision_gate(card: PMCard) -> bool:
     payload = dict(card.payload or {})
     owner_review_payload = payload.get("owner_review")
-    if card.link_type == "owner_review":
+    normalized_status = str(card.status or "").strip().lower()
+    if isinstance(owner_review_payload, dict):
+        queue_id = str(owner_review_payload.get("queue_id") or "").strip()
+        sync_state = str(owner_review_payload.get("sync_state") or "").strip().lower()
+        decision = str(owner_review_payload.get("decision") or "").strip().lower()
+        if decision:
+            return False
+        if sync_state == "pending_owner_review" and queue_id:
+            return True
+        if queue_id and normalized_status == "review":
+            return True
+    if card.link_type == "owner_review" and normalized_status == "review":
         return True
-    if isinstance(card.source, str) and "workspace-owner-review" in card.source:
-        return True
-    if isinstance(owner_review_payload, dict) and str(owner_review_payload.get("queue_id") or "").strip():
+    if isinstance(card.source, str) and "workspace-owner-review" in card.source and normalized_status == "review":
         return True
     return False
 

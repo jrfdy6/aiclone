@@ -687,6 +687,87 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("attention_class"), "needs_owner")
         self.assertIsNone(policy.get("recommended_resolution_mode"))
 
+    def test_decorate_card_for_client_treats_owner_review_followup_as_fyi_once_decided(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="owner-review-followup-card",
+            title="Schedule approved FEEZIE draft - FEEZIE-002",
+            owner="Neo",
+            status="todo",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "FEEZIE-002",
+                    "title": "Quiet inefficiency is still failure",
+                    "decision": "approve",
+                    "draft_path": "drafts/feezie-002_quiet-inefficiency-is-still-failure.md",
+                    "entry_kind": "queue",
+                    "source_kind": "feezie_queue",
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "queued",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "fyi")
+        self.assertFalse(bool(policy.get("owner_decision_gate")))
+
+    def test_decorate_card_for_client_treats_owner_review_followup_review_as_autonomous(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="owner-review-followup-review-card",
+            title="Promote approved latent draft - The Shape of the Thing",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "LATENT-THE-SHAPE-OF-THE-THING-B030F5",
+                    "title": "The Shape of the Thing",
+                    "decision": "approve",
+                    "draft_path": "drafts/2026-04-10_the-shape-of-the-thing-latent-transform.md",
+                    "entry_kind": "supplemental",
+                    "source_kind": "latent_transform",
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertFalse(bool(policy.get("owner_decision_gate")))
+        self.assertEqual(policy.get("recommended_resolution_mode"), "close_and_spawn_next")
+
     def test_act_on_card_return_reroutes_to_jean_claude(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
