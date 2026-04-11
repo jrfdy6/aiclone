@@ -1405,6 +1405,41 @@ This is another latent first pass.
         self.assertEqual(response.json(), expected)
         auto_progress_mock.assert_called_once_with(limit=250)
 
+    def test_pm_review_hygiene_audit_route(self) -> None:
+        expected = {
+            "path": "/tmp/pm_review_hygiene_audit.jsonl",
+            "window_hours": 24,
+            "summary": {
+                "runs": 2,
+                "processed_count": 3,
+                "advanced_count": 2,
+                "returned_count": 1,
+                "escalated_count": 0,
+                "closed_count": 1,
+                "continued_count": 1,
+            },
+            "entries": [
+                {
+                    "run_id": "run-123",
+                    "processed_at": "2026-04-11T03:00:00Z",
+                    "processed_count": 1,
+                    "advanced_count": 1,
+                    "returned_count": 0,
+                    "escalated_count": 0,
+                    "closed_count": 0,
+                    "continued_count": 1,
+                    "processed": [],
+                }
+            ],
+        }
+
+        with patch.object(pm_card_service_module, "review_hygiene_audit", return_value=expected) as audit_mock:
+            response = self.client.get("/api/pm/review-hygiene/audit?limit=8&hours=24")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+        audit_mock.assert_called_once_with(limit=8, hours=24)
+
     def test_daily_briefs_attach_live_source_intelligence_to_latest_brief(self) -> None:
         fake_payloads = {
             "weekly_plan": {

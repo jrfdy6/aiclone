@@ -18,6 +18,7 @@ from app.models import (
     PMCardUpdate,
 )
 from app.services.open_brain_db import get_pool
+from app.services.pm_review_hygiene_audit_service import list_review_hygiene_audit, record_review_hygiene_audit
 from app.services.trigger_identity_service import build_pm_trigger_key
 from app.services.workspace_runtime_contract_service import (
     execution_defaults_for_workspace as runtime_execution_defaults_for_workspace,
@@ -711,14 +712,23 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
             }
         )
 
-    return {
+    result = {
         "processed_count": len(processed),
+        "advanced_count": sum(1 for item in processed if item.get("action") == "approve"),
         "returned_count": sum(1 for item in processed if item.get("action") == "return"),
         "escalated_count": sum(1 for item in processed if item.get("action") == "blocked"),
         "closed_count": sum(1 for item in processed if item.get("resolution_mode") == "close_only"),
         "continued_count": sum(1 for item in processed if item.get("resolution_mode") == "close_and_spawn_next"),
         "processed": processed,
     }
+    audit_entry = record_review_hygiene_audit(result)
+    if audit_entry is not None:
+        result["audit_entry"] = audit_entry
+    return result
+
+
+def review_hygiene_audit(limit: int = 12, hours: int = 24) -> dict[str, Any]:
+    return list_review_hygiene_audit(limit=limit, hours=hours)
 
 
 def decorate_card_for_client(card: PMCard | None) -> PMCard | None:

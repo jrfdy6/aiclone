@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.models.pm_board import PMCard, PMCardActionRequest, PMCardCreate, PMCardDispatchRequest, PMCardUpdate
 from app.services import pm_card_service
+from app.services import pm_review_hygiene_audit_service
 from app.services.pm_card_service import build_execution_queue_entry
 
 
@@ -757,6 +759,57 @@ class PMCardServiceTests(unittest.TestCase):
         processed = (result.get("processed") or [None])[0]
         self.assertEqual((processed or {}).get("action"), "approve")
         self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_close")
+
+    def test_auto_progress_review_cards_records_audit_entry(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-audit",
+            title="Routine review for audit trail",
+            owner="Jean-Claude",
+            status="review",
+            source="standup:test",
+            link_type="standup",
+            link_id="standup-audit-1",
+            payload={
+                "workspace_key": "shared_ops",
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Updated the workflow and wrote the result back with a concrete artifact.",
+                    "outcomes": ["The workflow now advances automatically."],
+                    "artifacts": ["/tmp/result.json"],
+                    "blockers": [],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audit_path = Path(temp_dir) / "pm_review_hygiene_audit.jsonl"
+            with (
+                patch.object(pm_card_service, "list_cards", return_value=[card]),
+                patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+                patch.object(pm_review_hygiene_audit_service, "AUDIT_PATH", audit_path),
+            ):
+                result = pm_card_service.auto_progress_review_cards()
+                report = pm_card_service.review_hygiene_audit(limit=5, hours=24)
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertIn("audit_entry", result)
+        self.assertEqual((report.get("summary") or {}).get("processed_count"), 1)
+        self.assertEqual((report.get("summary") or {}).get("advanced_count"), 1)
+        entry = (report.get("entries") or [None])[0]
+        self.assertEqual((entry or {}).get("processed_count"), 1)
+        processed = ((entry or {}).get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("card_id"), "auto-progress-audit")
 
     def test_decorate_card_for_client_marks_feezie_review_as_autonomous_and_prefills_followup(self) -> None:
         now = datetime.now(timezone.utc)

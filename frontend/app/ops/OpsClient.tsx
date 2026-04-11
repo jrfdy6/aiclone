@@ -192,6 +192,56 @@ type PMReviewHygieneResult = {
   }>;
 };
 
+type PMAutoProgressItem = {
+  card_id: string;
+  title: string;
+  workspace_key: string;
+  action?: 'approve' | 'return' | 'blocked';
+  resolution_mode?: PMCardResolutionMode | null;
+  rule?: string;
+  reason?: string;
+  successor_card_id?: string | null;
+  successor_card_title?: string | null;
+};
+
+type PMAutoProgressResult = {
+  processed_count?: number;
+  advanced_count?: number;
+  returned_count?: number;
+  escalated_count?: number;
+  closed_count?: number;
+  continued_count?: number;
+  processed?: PMAutoProgressItem[];
+  audit_entry?: PMAutoProgressAuditEntry;
+};
+
+type PMAutoProgressAuditEntry = {
+  run_id: string;
+  processed_at: string;
+  processed_count: number;
+  advanced_count: number;
+  returned_count: number;
+  escalated_count: number;
+  closed_count: number;
+  continued_count: number;
+  processed: PMAutoProgressItem[];
+};
+
+type PMAutoProgressAuditReport = {
+  path?: string;
+  window_hours?: number;
+  summary?: {
+    runs?: number;
+    processed_count?: number;
+    advanced_count?: number;
+    returned_count?: number;
+    escalated_count?: number;
+    closed_count?: number;
+    continued_count?: number;
+  };
+  entries?: PMAutoProgressAuditEntry[];
+};
+
 type ExecutionQueueEntry = {
   card_id: string;
   title: string;
@@ -1239,6 +1289,8 @@ export default function OpsClient({
   const [automationRuns, setAutomationRuns] = useState<AutomationRun[]>([]);
   const [pmCards, setPmCards] = useState<PMCard[]>([]);
   const [reviewHygieneSummary, setReviewHygieneSummary] = useState<PMReviewHygieneResult | null>(null);
+  const [reviewProgressSummary, setReviewProgressSummary] = useState<PMAutoProgressResult | null>(null);
+  const [reviewProgressAudit, setReviewProgressAudit] = useState<PMAutoProgressAuditReport | null>(null);
   const [executionQueue, setExecutionQueue] = useState<ExecutionQueueEntry[]>([]);
   const [standups, setStandups] = useState<StandupEntry[]>([]);
   const [brainMetrics, setBrainMetrics] = useState<OpenBrainTelemetry | null>(null);
@@ -1354,6 +1406,7 @@ export default function OpsClient({
     setGlobalError(null);
     let autoResolveError: string | null = null;
     let ownerReviewSyncError: string | null = null;
+    let autoProgressError: string | null = null;
 
     try {
       const autoResolveResponse = await fetch(`${API_URL}/api/pm/review-hygiene/auto-resolve`, {
@@ -1386,6 +1439,24 @@ export default function OpsClient({
       ownerReviewSyncError = toErrorMessage(error);
     }
 
+    try {
+      const autoProgressResponse = await fetch(`${API_URL}/api/pm/review-hygiene/auto-progress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!autoProgressResponse.ok) {
+        const text = await autoProgressResponse.text().catch(() => autoProgressResponse.statusText);
+        autoProgressError = `${autoProgressResponse.status} ${autoProgressResponse.statusText}: ${text}`;
+        setReviewProgressSummary(null);
+      } else {
+        const payload = (await autoProgressResponse.json().catch(() => null)) as PMAutoProgressResult | null;
+        setReviewProgressSummary(payload);
+      }
+    } catch (error) {
+      autoProgressError = toErrorMessage(error);
+      setReviewProgressSummary(null);
+    }
+
     const requests = await Promise.allSettled([
       fetchJson<ComplianceMetrics>(`${API_URL}/api/analytics/compliance`),
       fetchJson<LogsResponse>(`${API_URL}/api/system/logs/?limit=40`),
@@ -1396,9 +1467,11 @@ export default function OpsClient({
       fetchJson<PMCard[]>(`${API_URL}/api/pm/cards?limit=50`),
       fetchJson<ExecutionQueueEntry[]>(`${API_URL}/api/pm/execution-queue?limit=50`),
       fetchJson<StandupEntry[]>(`${API_URL}/api/standups/?limit=20`),
+      fetchJson<PMAutoProgressAuditReport>(`${API_URL}/api/pm/review-hygiene/audit?limit=8&hours=24`),
     ]);
 
-    const [metricsResp, logsResp, healthResp, automationsResp, brainResp, brainHealthResp, pmResp, executionQueueResp, standupsResp] = requests;
+    const [metricsResp, logsResp, healthResp, automationsResp, brainResp, brainHealthResp, pmResp, executionQueueResp, standupsResp, auditResp] =
+      requests;
 
     if (metricsResp.status === 'fulfilled') {
       setMetrics(metricsResp.value ?? null);
@@ -1445,11 +1518,11 @@ export default function OpsClient({
 
     if (pmResp.status === 'fulfilled') {
       setPmCards(Array.isArray(pmResp.value) ? pmResp.value : []);
-      updateSectionError('pmCards', [autoResolveError, ownerReviewSyncError].filter(Boolean).join(' | ') || null);
+      updateSectionError('pmCards', [autoResolveError, ownerReviewSyncError, autoProgressError].filter(Boolean).join(' | ') || null);
     } else {
       updateSectionError(
         'pmCards',
-        [autoResolveError, ownerReviewSyncError, toErrorMessage(pmResp.reason)].filter(Boolean).join(' | ') || null,
+        [autoResolveError, ownerReviewSyncError, autoProgressError, toErrorMessage(pmResp.reason)].filter(Boolean).join(' | ') || null,
       );
     }
 
@@ -1465,6 +1538,12 @@ export default function OpsClient({
       updateSectionError('standups', null);
     } else {
       updateSectionError('standups', toErrorMessage(standupsResp.reason));
+    }
+
+    if (auditResp.status === 'fulfilled') {
+      setReviewProgressAudit(auditResp.value ?? null);
+    } else {
+      setReviewProgressAudit(null);
     }
 
     const failures = requests.filter((result) => result.status === 'rejected');
@@ -1738,6 +1817,8 @@ export default function OpsClient({
         <PMBoardPanel
           cards={pmCards}
           reviewHygieneSummary={reviewHygieneSummary}
+          reviewProgressSummary={reviewProgressSummary}
+          reviewProgressAudit={reviewProgressAudit}
           executionQueue={executionQueue}
           standups={standups}
           automations={automations}
@@ -2216,6 +2297,8 @@ const STANDUP_ROOMS: {
 function PMBoardPanel({
   cards,
   reviewHygieneSummary,
+  reviewProgressSummary,
+  reviewProgressAudit,
   executionQueue,
   standups,
   automations,
@@ -2229,6 +2312,8 @@ function PMBoardPanel({
 }: {
   cards: PMCard[];
   reviewHygieneSummary: PMReviewHygieneResult | null;
+  reviewProgressSummary: PMAutoProgressResult | null;
+  reviewProgressAudit: PMAutoProgressAuditReport | null;
   executionQueue: ExecutionQueueEntry[];
   standups: StandupEntry[];
   automations: Automation[];
@@ -2309,6 +2394,19 @@ function PMBoardPanel({
   const ownerInboxItems = useMemo(
     () => ownerAttentionItems.filter((item) => item.kind !== 'update'),
     [ownerAttentionItems],
+  );
+  const reviewProgressWindowSummary = reviewProgressAudit?.summary ?? null;
+  const recentAutoProgressItems = useMemo(
+    () =>
+      (reviewProgressAudit?.entries ?? [])
+        .flatMap((entry) =>
+          (entry.processed ?? []).map((item) => ({
+            ...item,
+            processed_at: entry.processed_at,
+          })),
+        )
+        .slice(0, 5),
+    [reviewProgressAudit],
   );
   const selectedBoardItem = useMemo(
     () => (selectedBoardCardId ? unifiedBoardItems.find((item) => item.cardId === selectedBoardCardId) ?? null : null),
@@ -2399,6 +2497,45 @@ function PMBoardPanel({
           ))}
         </div>
       </section>
+      {(Number(reviewProgressSummary?.processed_count ?? 0) > 0 || Number(reviewProgressWindowSummary?.processed_count ?? 0) > 0) && (
+        <section style={{ borderRadius: '16px', border: '1px solid rgba(34,197,94,0.22)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '14px' }}>
+          <div style={{ marginBottom: '10px' }}>
+            <p style={{ color: '#22c55e', letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Autonomous Review Loop</p>
+            <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+              Routine PM review cards now auto-advance, auto-return, or escalate based on the completion contract instead of waiting for manual cleanup.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: recentAutoProgressItems.length > 0 ? '12px' : 0 }}>
+            <div style={{ borderRadius: '999px', border: '1px solid rgba(34,197,94,0.28)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '7px 11px', color: '#dcfce7', fontSize: '12px' }}>
+              This refresh: advanced {reviewProgressSummary?.advanced_count ?? 0}
+            </div>
+            <div style={{ borderRadius: '999px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '7px 11px', color: '#fef3c7', fontSize: '12px' }}>
+              Returned: {reviewProgressSummary?.returned_count ?? 0}
+            </div>
+            <div style={{ borderRadius: '999px', border: '1px solid rgba(248,113,113,0.28)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '7px 11px', color: '#fecaca', fontSize: '12px' }}>
+              Escalated: {reviewProgressSummary?.escalated_count ?? 0}
+            </div>
+            <div style={{ borderRadius: '999px', border: '1px solid rgba(148,163,184,0.24)', backgroundColor: 'rgba(148,163,184,0.08)', padding: '7px 11px', color: '#cbd5e1', fontSize: '12px' }}>
+              Last 24h: advanced {reviewProgressWindowSummary?.advanced_count ?? 0}, returned {reviewProgressWindowSummary?.returned_count ?? 0}, escalated {reviewProgressWindowSummary?.escalated_count ?? 0}
+            </div>
+          </div>
+          {recentAutoProgressItems.length > 0 && (
+            <div style={{ display: 'grid', gap: '8px' }}>
+              {recentAutoProgressItems.map((item) => (
+                <article key={`auto-progress-${item.card_id}-${item.processed_at}`} style={{ borderRadius: '12px', border: '1px solid rgba(148,163,184,0.18)', backgroundColor: '#08101f', padding: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                    <p style={{ color: 'white', fontSize: '14px', fontWeight: 700, margin: 0 }}>{item.title}</p>
+                    <span style={{ color: '#94a3b8', fontSize: '12px' }}>{item.processed_at ? formatTimestamp(new Date(item.processed_at)) : '-'}</span>
+                  </div>
+                  <p style={{ color: '#cbd5e1', fontSize: '12px', margin: 0 }}>
+                    {describeAutoProgressItem(item)}
+                  </p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       <section style={{ borderRadius: '18px', border: '1px solid rgba(56,189,248,0.22)', backgroundColor: '#08101f', padding: '14px' }}>
         <div style={{ marginBottom: '10px' }}>
           <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>What Needs You</p>
@@ -8516,6 +8653,20 @@ function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem
       return right.updatedAtMillis - left.updatedAtMillis;
     })
     .map(({ rank: _rank, updatedAtMillis: _updatedAtMillis, ...item }) => item);
+}
+
+function describeAutoProgressItem(item: PMAutoProgressItem & { processed_at?: string }) {
+  if (item.action === 'return') {
+    return `${meetingLabelForWorkspace(item.workspace_key)}: returned to execution because the completion contract was not met yet.`;
+  }
+  if (item.action === 'blocked') {
+    return `${meetingLabelForWorkspace(item.workspace_key)}: escalated for human attention after repeated automatic passes failed.`;
+  }
+  if (item.resolution_mode === 'close_and_spawn_next') {
+    const successor = item.successor_card_title ? ` Next card: ${item.successor_card_title}.` : '';
+    return `${meetingLabelForWorkspace(item.workspace_key)}: accepted automatically and continued into the next PM lane.${successor}`;
+  }
+  return `${meetingLabelForWorkspace(item.workspace_key)}: accepted automatically and closed as routine system work.`;
 }
 
 function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
