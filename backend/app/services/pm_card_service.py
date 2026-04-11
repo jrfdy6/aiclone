@@ -18,6 +18,7 @@ from app.models import (
     PMCardUpdate,
 )
 from app.services.open_brain_db import get_pool
+from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.pm_review_hygiene_audit_service import list_review_hygiene_audit, record_review_hygiene_audit
 from app.services.trigger_identity_service import build_pm_trigger_key
 from app.services.workspace_runtime_contract_service import (
@@ -435,11 +436,49 @@ def _create_resolution_successor_card(
     source_payload = dict(card.payload or {})
     workspace_key = _workspace_key_from_card(card)
     successor_reason = str(next_reason or "").strip() or f"Follow-on work spawned from resolving '{card.title}'."
+    execution_defaults = execution_defaults_for_workspace(workspace_key)
+    contract = build_execution_contract(
+        title=cleaned_title,
+        workspace_key=workspace_key,
+        source="pm_review_resolution",
+        reason=successor_reason,
+        instructions=[
+            f"Continue the PM loop after resolving `{card.title}`.",
+            "Use the predecessor PM card and latest execution result as the source of truth for this next lane.",
+            "Write back a bounded result with outcomes, blockers, and follow-up actions.",
+        ],
+        acceptance_criteria=[
+            f"`{cleaned_title}` advances to a concrete next state instead of remaining a placeholder.",
+            "PM write-back includes a bounded summary and at least one concrete outcome or artifact.",
+        ],
+        artifacts_expected=[
+            "updated PM execution result",
+            "bounded workspace artifact or execution memo when the next lane produces one",
+        ],
+    )
     successor_payload: dict[str, Any] = {
         "workspace_key": workspace_key,
         "reason": successor_reason,
         "source_agent": requested_by,
         "front_door_agent": requested_by,
+        "instructions": contract["instructions"],
+        "acceptance_criteria": contract["acceptance_criteria"],
+        "artifacts_expected": contract["artifacts_expected"],
+        "completion_contract": contract["completion_contract"],
+        "execution": {
+            "lane": "codex",
+            "state": "queued",
+            "manager_agent": execution_defaults["manager_agent"],
+            "target_agent": execution_defaults["target_agent"],
+            "workspace_agent": execution_defaults.get("workspace_agent"),
+            "execution_mode": execution_defaults["execution_mode"],
+            "requested_by": requested_by,
+            "assigned_runner": "jean-claude" if str(execution_defaults["execution_mode"]) == "direct" else "codex",
+            "reason": successor_reason,
+            "queued_at": datetime.now(timezone.utc).isoformat(),
+            "last_transition_at": datetime.now(timezone.utc).isoformat(),
+            "source": "pm_review_resolution",
+        },
         "resolution_predecessor": {
             "card_id": card.id,
             "title": card.title,
@@ -460,7 +499,7 @@ def _create_resolution_successor_card(
     return create_card(
         PMCardCreate(
             title=cleaned_title,
-            owner=card.owner or execution_defaults_for_workspace(workspace_key)["manager_agent"],
+            owner=card.owner or execution_defaults["manager_agent"],
             status="todo",
             source="pm_review_resolution",
             link_type=card.link_type,

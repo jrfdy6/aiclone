@@ -537,6 +537,10 @@ class PMCardServiceTests(unittest.TestCase):
             self.assertEqual(payload.title, successor.title)
             self.assertEqual(payload.payload.get("workspace_key"), "linkedin-os")
             self.assertEqual(payload.payload.get("reason"), "The accepted backlog seed should now become concrete first-pass draft production.")
+            self.assertEqual((payload.payload.get("completion_contract") or {}).get("source"), "pm_review_resolution")
+            self.assertTrue((payload.payload.get("completion_contract") or {}).get("autostart"))
+            self.assertEqual((payload.payload.get("execution") or {}).get("state"), "queued")
+            self.assertTrue((payload.payload.get("execution") or {}).get("queued_at"))
             return successor
 
         with (

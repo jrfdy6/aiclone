@@ -14,6 +14,7 @@ from typing import Any, Callable
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
 SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 REPORT_ROOT = WORKSPACE_ROOT / "memory" / "reports"
 FOLLOWUP_TITLE = "Executive review stale PM lanes from accountability sweep"
 FOLLOWUP_SOURCE = "accountability_sweep:executive_followup"
@@ -21,8 +22,11 @@ FOLLOWUP_REASON = "Accountability sweep found stale review/running cards that ne
 
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from automation_run_mirror import build_run_payload, mirror_runs
+from app.services.pm_execution_contract_service import build_execution_contract
 
 
 def _now() -> datetime:
@@ -224,6 +228,38 @@ def _upsert_executive_followup(
         f"Accountability sweep found {len(stale_review)} stale review cards and "
         f"{len(stale_running)} stale active cards that require executive closure."
     )
+    contract = build_execution_contract(
+        title=FOLLOWUP_TITLE,
+        workspace_key="shared_ops",
+        source="accountability_sweep",
+        reason=FOLLOWUP_REASON,
+        instructions=[
+            "Review the rerouted stale PM lanes and decide whether each one should close, continue, or stay blocked.",
+            "Use the rerouted card list as the source of truth instead of creating duplicate executive work.",
+            "Write back a bounded PM result that explains which stale lanes were resolved and which still need attention.",
+        ],
+        acceptance_criteria=[
+            "Every tracked stale PM lane is either resolved, re-routed cleanly, or left with an explicit blocker decision.",
+            "The executive follow-up writes a bounded PM result instead of remaining a placeholder reminder.",
+        ],
+        artifacts_expected=[
+            "updated PM execution result",
+            "bounded executive review note or closure artifact when stale lanes need explanation",
+        ],
+    )
+    execution = {
+        "lane": "codex",
+        "state": "queued",
+        "manager_agent": "Jean-Claude",
+        "target_agent": "Jean-Claude",
+        "execution_mode": "direct",
+        "requested_by": "Accountability Sweep",
+        "assigned_runner": "codex",
+        "reason": FOLLOWUP_REASON,
+        "queued_at": now.isoformat(),
+        "last_transition_at": now.isoformat(),
+        "source": "accountability_sweep",
+    }
     payload = {
         "workspace_key": "shared_ops",
         "scope": "shared_ops",
@@ -235,28 +271,37 @@ def _upsert_executive_followup(
         "stale_card_ids": stale_card_ids,
         "rerouted_card_ids": [item.get("card_id") for item in rerouted_cards],
         "alert_summary": summary,
-        "execution": {
-            "lane": "codex",
-            "state": "ready",
-            "manager_agent": "Jean-Claude",
-            "target_agent": "Jean-Claude",
-            "execution_mode": "direct",
-            "requested_by": "Accountability Sweep",
-            "assigned_runner": "codex",
-            "reason": FOLLOWUP_REASON,
-            "last_transition_at": now.isoformat(),
-            "source": "accountability_sweep",
-        },
+        "instructions": contract["instructions"],
+        "acceptance_criteria": contract["acceptance_criteria"],
+        "artifacts_expected": contract["artifacts_expected"],
+        "completion_contract": contract["completion_contract"],
+        "execution": execution,
     }
 
     existing = _find_open_followup(cards)
     if existing is not None:
+        existing_payload = dict(existing.get("payload") or {})
+        existing_execution = dict(existing_payload.get("execution") or {})
+        existing_state = str(existing_execution.get("state") or "").strip().lower()
+        if existing_state in {"ready", "queued", "running", "review"}:
+            execution.update(
+                {
+                    "state": existing_execution.get("state"),
+                    "queued_at": existing_execution.get("queued_at") or execution.get("queued_at"),
+                    "last_transition_at": existing_execution.get("last_transition_at") or execution.get("last_transition_at"),
+                    "assigned_runner": existing_execution.get("assigned_runner") or execution.get("assigned_runner"),
+                    "executor_status": existing_execution.get("executor_status"),
+                    "executor_worker_id": existing_execution.get("executor_worker_id"),
+                    "manager_attention_required": existing_execution.get("manager_attention_required"),
+                }
+            )
+        payload["execution"] = execution
         updated = fetch_json(
             f"{api_url.rstrip('/')}/api/pm/cards/{existing['id']}",
             method="PATCH",
             payload={
                 "owner": "Jean-Claude",
-                "payload": {**dict(existing.get("payload") or {}), **payload},
+                "payload": {**existing_payload, **payload},
             },
         )
         card_id = updated.get("id") if isinstance(updated, dict) else existing.get("id")

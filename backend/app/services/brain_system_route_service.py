@@ -5,6 +5,7 @@ from typing import Any
 
 from app.models import PMCard, PMCardCreate, PersonaDelta, PersonaDeltaUpdate, StandupCreate, StandupEntry
 from app.services import persona_delta_service, pm_card_service, standup_service
+from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.workspace_runtime_contract_service import default_standup_kind_for_workspace, standup_participants_for
 
 
@@ -203,6 +204,26 @@ def _create_pm_route(
         return existing
 
     execution_defaults = pm_card_service.execution_defaults_for_workspace(workspace_key)
+    reason = f"Brain triage routed reviewed signal into executable work: {delta.trait}"
+    contract = build_execution_contract(
+        title=title,
+        workspace_key=workspace_key,
+        source="brain_triage",
+        reason=reason,
+        instructions=[
+            "Use the persona-delta routing summary and selected promotion items as the source of truth.",
+            "Convert the reviewed signal into a bounded next step inside the target workspace without expanding scope.",
+            "Write back a concrete execution result with outcomes and any blockers.",
+        ],
+        acceptance_criteria=[
+            f"`{title}` advances the reviewed signal into a concrete next state inside `{workspace_key}`.",
+            "PM write-back includes a bounded summary and at least one concrete outcome or artifact.",
+        ],
+        artifacts_expected=[
+            "updated PM execution result",
+            "bounded workspace artifact or execution memo tied to the routed signal",
+        ],
+    )
     return pm_card_service.create_card(
         PMCardCreate(
             title=title,
@@ -213,14 +234,18 @@ def _create_pm_route(
             link_id=delta.id,
             payload={
                 "workspace_key": workspace_key,
-                "reason": f"Brain triage routed reviewed signal into executable work: {delta.trait}",
+                "reason": reason,
                 "triage_source_delta_id": delta.id,
                 "triage_source_capture_id": delta.capture_id,
                 "triage_summary": summary,
                 "triage_selected_promotion_items": selected_items,
+                "instructions": contract["instructions"],
+                "acceptance_criteria": contract["acceptance_criteria"],
+                "artifacts_expected": contract["artifacts_expected"],
+                "completion_contract": contract["completion_contract"],
                 "execution": {
                     "lane": "codex",
-                    "state": "ready",
+                    "state": "queued",
                     "manager_agent": execution_defaults["manager_agent"],
                     "target_agent": execution_defaults["target_agent"],
                     "workspace_agent": execution_defaults.get("workspace_agent"),
@@ -228,6 +253,7 @@ def _create_pm_route(
                     "requested_by": "Brain",
                     "assigned_runner": "codex",
                     "reason": f"Brain triage routed signal from persona delta {delta.id}.",
+                    "queued_at": _iso_now(),
                     "last_transition_at": _iso_now(),
                     "source": "brain_triage",
                 },

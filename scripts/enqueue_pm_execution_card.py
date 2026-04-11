@@ -18,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.workspace_runtime_contract_service import execution_defaults_for_workspace  # noqa: E402
+from app.services.pm_execution_contract_service import build_execution_contract  # noqa: E402
 from app.services.trigger_identity_service import build_pm_trigger_key  # noqa: E402
 
 
@@ -91,15 +92,26 @@ def build_card_request(args: argparse.Namespace | SimpleNamespace, *, now_iso: s
     if str(args.briefing_path or "").strip():
         execution_payload["briefing_path"] = str(args.briefing_path).strip()
 
+    contract = build_execution_contract(
+        title=str(args.title),
+        workspace_key=workspace_key,
+        source="openclaw_thin_trigger",
+        reason=normalized_reason,
+        instructions=[str(item).strip() for item in args.instruction if str(item).strip()],
+        acceptance_criteria=[str(item).strip() for item in args.acceptance_criterion if str(item).strip()],
+        artifacts_expected=[str(item).strip() for item in args.artifact if str(item).strip()],
+    )
+
     payload: dict[str, Any] = {
         "workspace_key": workspace_key,
         "scope": "workspace" if workspace_key != "shared_ops" else "shared_ops",
         "source_agent": str(args.source_agent),
         "requested_by": str(args.requested_by),
         "reason": normalized_reason,
-        "instructions": [str(item).strip() for item in args.instruction if str(item).strip()],
-        "acceptance_criteria": [str(item).strip() for item in args.acceptance_criterion if str(item).strip()],
-        "artifacts_expected": [str(item).strip() for item in args.artifact if str(item).strip()],
+        "instructions": contract["instructions"],
+        "acceptance_criteria": contract["acceptance_criteria"],
+        "artifacts_expected": contract["artifacts_expected"],
+        "completion_contract": contract["completion_contract"],
         "repo_path": str(args.repo_path),
         "branch": str(args.branch or "").strip() or None,
         "execution": execution_payload,

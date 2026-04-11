@@ -105,6 +105,11 @@ class AccountabilitySweepTests(unittest.TestCase):
         self.assertEqual(first_patch_payload["assigned_runner"], "jean-claude")
         self.assertEqual(first_patch_payload["execution_mode"], "direct")
         self.assertEqual(first_patch_payload["state"], "queued")
+        created_payload = posted[0][1]["payload"]
+        self.assertEqual((created_payload.get("execution") or {}).get("state"), "queued")
+        self.assertTrue((created_payload.get("execution") or {}).get("queued_at"))
+        self.assertEqual((created_payload.get("completion_contract") or {}).get("source"), "accountability_sweep")
+        self.assertTrue(created_payload.get("acceptance_criteria"))
 
     def test_live_sweep_closes_followup_when_no_stale_cards_remain(self) -> None:
         cards = [
@@ -214,6 +219,85 @@ class AccountabilitySweepTests(unittest.TestCase):
         self.assertEqual(patched, [])
         self.assertEqual(report["executive_followup_card"]["action"], "tracked")
         self.assertEqual(report["executive_followup_card"]["pending_card_ids"], ["rerouted-1"])
+
+    def test_live_sweep_updates_existing_followup_without_resetting_active_execution_state(self) -> None:
+        queue = [
+            {
+                "card_id": "review-1",
+                "title": "Stale review lane",
+                "workspace_key": "fusion-os",
+                "execution_state": "review",
+                "target_agent": "Fusion Systems Operator",
+                "last_transition_at": "2026-03-30T00:00:00Z",
+            }
+        ]
+        cards = [
+            {
+                "id": "followup-1",
+                "title": MODULE.FOLLOWUP_TITLE,
+                "status": "in_progress",
+                "source": MODULE.FOLLOWUP_SOURCE,
+                "payload": {
+                    "execution": {
+                        "state": "running",
+                        "queued_at": "2026-04-10T00:00:00Z",
+                        "last_transition_at": "2026-04-10T00:30:00Z",
+                        "assigned_runner": "codex",
+                        "executor_status": "running",
+                        "executor_worker_id": "worker-123",
+                    }
+                },
+            },
+            {
+                "id": "review-1",
+                "title": "Stale review lane",
+                "status": "review",
+                "source": "standup:test",
+                "payload": {
+                    "workspace_key": "fusion-os",
+                    "execution": {
+                        "state": "review",
+                        "target_agent": "Fusion Systems Operator",
+                        "execution_mode": "delegated",
+                        "assigned_runner": "fusion-systems-operator",
+                        "workspace_agent": "Fusion Systems Operator",
+                    }
+                },
+            },
+        ]
+        patched: list[tuple[str, dict]] = []
+
+        def fake_fetch_json(url: str, *, method: str = "GET", payload: dict | None = None):
+            if method == "GET" and url.endswith("/api/pm/execution-queue?limit=200"):
+                return queue
+            if method == "GET" and url.endswith("/api/pm/cards?limit=400"):
+                return cards
+            if method == "PATCH" and url.endswith("/api/pm/cards/review-1"):
+                assert payload is not None
+                patched.append((url, payload))
+                return {"id": "review-1", "status": payload.get("status", "review")}
+            if method == "PATCH" and url.endswith("/api/pm/cards/followup-1"):
+                assert payload is not None
+                patched.append((url, payload))
+                return {"id": "followup-1", "status": payload.get("status", "in_progress")}
+            raise AssertionError(f"Unexpected call: {method} {url}")
+
+        report = MODULE.build_report(
+            "https://example.test",
+            ready_age_minutes=90,
+            review_age_hours=24,
+            sync_live=True,
+            fetch_json=fake_fetch_json,
+        )
+
+        self.assertEqual(report["executive_followup_card"]["action"], "updated")
+        self.assertEqual(len(patched), 2)
+        followup_patch = next(payload for url, payload in patched if url.endswith("/api/pm/cards/followup-1"))
+        execution = followup_patch["payload"]["execution"]
+        self.assertEqual(execution["state"], "running")
+        self.assertEqual(execution["queued_at"], "2026-04-10T00:00:00Z")
+        self.assertEqual(execution["executor_worker_id"], "worker-123")
+        self.assertEqual((followup_patch["payload"].get("completion_contract") or {}).get("source"), "accountability_sweep")
 
 
 if __name__ == "__main__":
