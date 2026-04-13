@@ -190,6 +190,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--outcome-file")
     parser.add_argument("--follow-up", action="append", dest="follow_ups")
     parser.add_argument("--follow-up-file")
+    parser.add_argument("--host-action", action="append", dest="host_actions")
+    parser.add_argument("--host-action-file")
+    parser.add_argument("--host-action-proof", action="append", dest="host_action_proof")
+    parser.add_argument("--host-action-proof-file")
     parser.add_argument("--project-update", action="append", dest="project_updates")
     parser.add_argument("--project-update-file")
     parser.add_argument("--memory-promotion", action="append", dest="memory_promotions")
@@ -236,6 +240,8 @@ def main() -> int:
     learnings = _read_list(args.learnings, args.learning_file)
     outcomes = _read_list(args.outcomes, args.outcome_file)
     follow_ups = _read_list(args.follow_ups, args.follow_up_file)
+    host_actions = _read_list(args.host_actions, args.host_action_file)
+    host_action_proof = _read_list(args.host_action_proof, args.host_action_proof_file)
     project_updates = _read_list(args.project_updates, args.project_update_file)
     memory_promotions = _read_list(args.memory_promotions, args.memory_promotion_file)
     persistent_state = _read_list(args.persistent_state, args.persistent_state_file)
@@ -257,6 +263,8 @@ def main() -> int:
         "learnings": learnings,
         "outcomes": outcomes,
         "follow_ups": follow_ups,
+        "host_actions": host_actions,
+        "host_action_proof": host_action_proof,
         "project_updates": project_updates,
         "memory_promotions": memory_promotions,
         "persistent_state_updates": persistent_state,
@@ -303,6 +311,12 @@ def main() -> int:
     memo_lines.extend(["", "## Follow-ups"])
     for item in follow_ups or ["None."]:
         memo_lines.append(f"- {item}")
+    memo_lines.extend(["", "## Host Actions"])
+    for item in host_actions or ["None."]:
+        memo_lines.append(f"- {item}")
+    memo_lines.extend(["", "## Host Action Proof"])
+    for item in host_action_proof or ["None."]:
+        memo_lines.append(f"- {item}")
     memo_path.parent.mkdir(parents=True, exist_ok=True)
     memo_path.write_text("\n".join(memo_lines).rstrip() + "\n", encoding="utf-8")
 
@@ -328,9 +342,9 @@ def main() -> int:
         ],
         "phrase_signals": [],
         "outcomes": outcomes or [f"Execution result file written to {result_path}"],
-        "follow_ups": follow_ups,
+        "follow_ups": [*follow_ups, *[f"Host: {item}" for item in host_actions]],
         "memory_promotions": memory_promotions + persistent_state,
-        "pm_candidates": follow_ups,
+        "pm_candidates": [*follow_ups, *[f"Host: {item}" for item in host_actions]],
         "artifacts": [str(result_path), str(memo_path), str(work_order_path), *artifacts],
         "tags": [args.runner_id, "execution-result", workspace_key],
     }
@@ -352,6 +366,14 @@ def main() -> int:
         daily_lines.append("")
         daily_lines.append("### Follow-ups")
         daily_lines.extend(f"- {item}" for item in follow_ups)
+    if host_actions:
+        daily_lines.append("")
+        daily_lines.append("### Host Actions")
+        daily_lines.extend(f"- {item}" for item in host_actions)
+    if host_action_proof:
+        daily_lines.append("")
+        daily_lines.append("### Host Action Proof")
+        daily_lines.extend(f"- {item}" for item in host_action_proof)
 
     if not args.dry_run:
         _append_jsonl(CODEX_HANDOFF_PATH, chronicle_entry)
@@ -430,6 +452,8 @@ def main() -> int:
         "memo_path": str(memo_path),
         "blockers": blockers,
         "follow_ups": follow_ups,
+        "host_actions": host_actions,
+        "host_action_proof": host_action_proof,
         "learnings": learnings,
         "outcomes": outcomes,
         "artifacts": [str(result_path), str(memo_path), str(work_order_path), *artifacts],

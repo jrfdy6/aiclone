@@ -167,7 +167,7 @@ type PMCard = {
   updated_at?: string;
 };
 
-type PMReviewAttentionClass = 'needs_owner' | 'stale' | 'autonomous' | 'fyi';
+type PMReviewAttentionClass = 'needs_owner' | 'needs_host' | 'stale' | 'autonomous' | 'fyi';
 
 type PMReviewPolicyPayload = {
   attention_class?: PMReviewAttentionClass;
@@ -202,6 +202,8 @@ type PMAutoProgressItem = {
   reason?: string;
   successor_card_id?: string | null;
   successor_card_title?: string | null;
+  host_action_card_id?: string | null;
+  host_action_card_title?: string | null;
 };
 
 type PMAutoProgressResult = {
@@ -309,6 +311,7 @@ type OwnerAttentionItem = {
   title: string;
   workspaceKey: string;
   kind: OwnerAttentionKind;
+  attentionClass?: PMReviewAttentionClass;
   lane: UnifiedBoardLaneKey;
   summary: string;
   nextAction: string;
@@ -451,6 +454,18 @@ type OwnerReviewCardPayload = {
   latent_reason?: string | null;
   transform_type?: string | null;
   system_assessment?: OwnerReviewSystemAssessment | null;
+};
+
+type HostActionRequiredPayload = {
+  summary?: string | null;
+  steps?: string[];
+  proof_required?: string[];
+  source_card_id?: string | null;
+  source_card_title?: string | null;
+  source_result_id?: string | null;
+  source_result_summary?: string | null;
+  detected_from?: string | null;
+  created_at?: string | null;
 };
 
 type OwnerReviewActionResult = {
@@ -2551,7 +2566,7 @@ function PMBoardPanel({
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
           <div style={{ borderRadius: '999px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '7px 11px', color: '#fef3c7', fontSize: '12px' }}>
-            Needs decision: {ownerAttentionCounts.decision}
+            Needs action: {ownerAttentionCounts.decision}
           </div>
           <div style={{ borderRadius: '999px', border: '1px solid rgba(248,113,113,0.28)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '7px 11px', color: '#fecaca', fontSize: '12px' }}>
             Probably stale: {ownerAttentionCounts.stale}
@@ -2561,14 +2576,16 @@ function PMBoardPanel({
           </div>
         </div>
         {ownerInboxItems.length === 0 ? (
-          <EmptyPanel message={ownerAttentionCounts.update > 0 ? 'Nothing needs your judgment right now. The remaining cards look like background updates.' : 'Nothing currently looks like it needs your judgment.'} compact />
+          <EmptyPanel message={ownerAttentionCounts.update > 0 ? 'Nothing needs your action right now. The remaining cards look like background updates.' : 'Nothing currently looks like it needs your action.'} compact />
         ) : (
           <div style={{ display: 'grid', gap: '10px' }}>
             {ownerInboxItems.map((item) => {
               const theme = workspaceBoardTheme(item.workspaceKey);
               const tone =
                 item.kind === 'decision'
-                  ? { label: 'Needs your call', color: '#fef3c7', border: 'rgba(251,191,36,0.28)', background: 'rgba(251,191,36,0.08)' }
+                  ? item.attentionClass === 'needs_host'
+                    ? { label: 'Needs host step', color: '#fef3c7', border: 'rgba(251,191,36,0.28)', background: 'rgba(251,191,36,0.08)' }
+                    : { label: 'Needs your call', color: '#fef3c7', border: 'rgba(251,191,36,0.28)', background: 'rgba(251,191,36,0.08)' }
                   : item.kind === 'stale'
                     ? { label: 'Probably stale', color: '#fecaca', border: 'rgba(248,113,113,0.28)', background: 'rgba(248,113,113,0.08)' }
                     : { label: 'System-managed', color: '#cbd5e1', border: 'rgba(148,163,184,0.24)', background: 'rgba(148,163,184,0.08)' };
@@ -2908,6 +2925,11 @@ function PMCardDetailModal({
     payload.owner_review && typeof payload.owner_review === 'object'
       ? (payload.owner_review as OwnerReviewCardPayload)
       : null;
+  const hostActionPayload =
+    payload.host_action_required && typeof payload.host_action_required === 'object'
+      ? (payload.host_action_required as HostActionRequiredPayload)
+      : null;
+  const isHostActionCard = Boolean(hostActionPayload);
   const displayCardTitle = ownerReviewDisplayTitle(card, ownerReviewPayload);
   const isOwnerReviewCard = card.link_type === 'owner_review' || Boolean(ownerReviewPayload?.queue_id);
   const isPendingOwnerReview =
@@ -2941,6 +2963,12 @@ function PMCardDetailModal({
     payload.latest_manual_review && typeof payload.latest_manual_review === 'object'
       ? (payload.latest_manual_review as Record<string, unknown>)
       : null;
+  const hostActionSteps = Array.isArray(hostActionPayload?.steps)
+    ? hostActionPayload.steps.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  const hostActionProofRequired = Array.isArray(hostActionPayload?.proof_required)
+    ? hostActionPayload.proof_required.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
   const ownerReviewProofAnchors = Array.isArray(ownerReviewPayload?.proof_anchors)
     ? ownerReviewPayload?.proof_anchors.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -2984,43 +3012,55 @@ function PMCardDetailModal({
   const pmStatusLabel = displayPmStatusLabel(card.status, boardItem.lane, boardItem.executionState);
   const executionStatusLabel = boardItem.executionState ? displayExecutionStateLabel(boardItem.executionState) : null;
   const validationPrimaryText =
+    (hostActionPayload?.summary ? summarize(hostActionPayload.summary, 320) : null) ??
     (ownerReviewPayload?.first_pass_draft ? summarize(ownerReviewPayload.first_pass_draft, 320) : null) ??
     latestExecutionSummary ??
     boardItem.queueEntry?.latest_result_summary ??
     boardItem.reason ??
     (linkedStandups[0] ? summarize(standupSummary(linkedStandups[0]), 220) : 'The system has not attached a concise result summary to this card yet.');
-  const validationDecisionText = isPendingOwnerReview
-    ? 'Decide whether this draft is ready to move forward, needs revision, or should be parked.'
-    : boardItem.lane === 'review'
-      ? 'Decide whether the returned result is good enough to accept, continue, or reroute.'
-      : boardItem.lane === 'failed'
-        ? 'Decide whether this blocked lane should be rerouted, clarified, or kept blocked.'
-        : 'Confirm whether this card should move, stay parked, or be treated as already handled.';
+  const validationDecisionText = isHostActionCard
+    ? 'Decide whether the external host step is complete, should be handed back into system work, or needs to stay blocked.'
+    : isPendingOwnerReview
+      ? 'Decide whether this draft is ready to move forward, needs revision, or should be parked.'
+      : boardItem.lane === 'review'
+        ? 'Decide whether the returned result is good enough to accept, continue, or reroute.'
+        : boardItem.lane === 'failed'
+          ? 'Decide whether this blocked lane should be rerouted, clarified, or kept blocked.'
+          : 'Confirm whether this card should move, stay parked, or be treated as already handled.';
   const effectiveResolutionMode = resolutionMode ?? pmReviewPolicy?.recommended_resolution_mode ?? null;
   const effectiveNextCardTitle = nextCardTitle.trim() || pmReviewPolicy?.suggested_next_title || '';
-  const acceptanceNeedsResolutionChoice = !isPendingOwnerReview && boardItem.lane === 'review' && effectiveResolutionMode === null;
+  const acceptanceNeedsResolutionChoice = !isHostActionCard && !isPendingOwnerReview && boardItem.lane === 'review' && effectiveResolutionMode === null;
   const acceptanceNeedsNextCardTitle =
+    !isHostActionCard &&
     !isPendingOwnerReview &&
     boardItem.lane === 'review' &&
     effectiveResolutionMode === 'close_and_spawn_next' &&
     !effectiveNextCardTitle;
-  const validationOutcomeText = isPendingOwnerReview
-    ? 'If you approve this draft, PM writes the decision back and queues Jean-Claude for follow-through automatically.'
-    : boardItem.lane === 'review'
-      ? acceptanceNeedsResolutionChoice
-        ? 'If you want to accept this, PM still needs one explicit branch from you: choose `Close only` to end this lane, or `Close and spawn next` to keep the initiative moving.'
-        : acceptanceNeedsNextCardTitle
-          ? 'If you want to accept this and continue the initiative, PM is ready to create the next card but still needs you to name that next lane.'
-        : effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
-        ? `If you accept this, PM will close this card and spawn "${effectiveNextCardTitle}".`
-        : effectiveResolutionMode === 'close_only'
-          ? 'If you accept this, PM will close this card and remove it from active work.'
-          : 'Before you accept this, PM still needs to know whether to close the lane or create the next card.'
-      : boardItem.lane === 'failed'
-        ? 'If you mark this blocked, the system will keep it visible until a clearer reroute exists.'
-        : 'This card is not currently in the review decision path.';
+  const validationOutcomeText = isHostActionCard
+    ? 'If you mark this complete, PM will close this host-action card and remove it from active work. If the step cannot happen yet, you can send it back into system work or block it.'
+    : isPendingOwnerReview
+      ? 'If you approve this draft, PM writes the decision back and queues Jean-Claude for follow-through automatically.'
+      : boardItem.lane === 'review'
+        ? acceptanceNeedsResolutionChoice
+          ? 'If you want to accept this, PM still needs one explicit branch from you: choose `Close only` to end this lane, or `Close and spawn next` to keep the initiative moving.'
+          : acceptanceNeedsNextCardTitle
+            ? 'If you want to accept this and continue the initiative, PM is ready to create the next card but still needs you to name that next lane.'
+          : effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
+            ? `If you accept this, PM will close this card and spawn "${effectiveNextCardTitle}".`
+            : effectiveResolutionMode === 'close_only'
+              ? 'If you accept this, PM will close this card and remove it from active work.'
+              : 'Before you accept this, PM still needs to know whether to close the lane or create the next card.'
+        : boardItem.lane === 'failed'
+          ? 'If you mark this blocked, the system will keep it visible until a clearer reroute exists.'
+          : 'This card is not currently in the review decision path.';
   const validationChecklist = [
-    isPendingOwnerReview
+    isHostActionCard
+      ? {
+          label: 'Host step attached',
+          ready: Boolean(hostActionPayload?.summary || hostActionSteps.length > 0),
+          detail: hostActionSteps.length > 0 ? 'The card includes explicit host steps.' : 'The host step summary is missing from this card.',
+        }
+      : isPendingOwnerReview
       ? {
           label: 'Draft attached',
           ready: Boolean(ownerReviewPayload?.first_pass_draft || ownerReviewPayload?.draft_path),
@@ -3031,25 +3071,43 @@ function PMCardDetailModal({
           ready: Boolean(latestExecutionSummary || boardItem.queueEntry?.latest_result_summary),
           detail: latestExecutionSummary || boardItem.queueEntry?.latest_result_summary ? 'A returned result summary is attached.' : 'There is no concise result summary attached yet.',
         },
+    isHostActionCard
+      ? {
+          label: 'Source result linked',
+          ready: Boolean(hostActionPayload?.source_card_title || hostActionPayload?.source_result_summary),
+          detail:
+            hostActionPayload?.source_card_title || hostActionPayload?.source_result_summary
+              ? 'The host step is linked back to the internal result that created it.'
+              : 'This host-action card is missing the source result context.',
+        }
+      : {
+          label: 'Proof attached',
+          ready: Boolean(ownerReviewProofAnchors.length > 0 || latestExecutionArtifacts.length > 0 || executionPacketPath || sopArtifactPath || briefingArtifactPath),
+          detail:
+            ownerReviewProofAnchors.length > 0
+              ? `${ownerReviewProofAnchors.length} proof anchor${ownerReviewProofAnchors.length === 1 ? '' : 's'} attached.`
+              : latestExecutionArtifacts.length > 0 || executionPacketPath || sopArtifactPath || briefingArtifactPath
+                ? 'Execution artifacts are attached to this card.'
+                : 'No direct proof or result artifacts are attached yet.',
+        },
     {
-      label: 'Proof attached',
-      ready: Boolean(ownerReviewProofAnchors.length > 0 || latestExecutionArtifacts.length > 0 || executionPacketPath || sopArtifactPath || briefingArtifactPath),
-      detail:
-        ownerReviewProofAnchors.length > 0
-          ? `${ownerReviewProofAnchors.length} proof anchor${ownerReviewProofAnchors.length === 1 ? '' : 's'} attached.`
-          : latestExecutionArtifacts.length > 0 || executionPacketPath || sopArtifactPath || briefingArtifactPath
-            ? 'Execution artifacts are attached to this card.'
-            : 'No direct proof or result artifacts are attached yet.',
-    },
-    {
-      label: 'Source context linked',
-      ready: Boolean(linkedStandups.length > 0 || linkedSourcePaths.length > 0 || recommendationPath),
-      detail:
-        linkedStandups.length > 0 || linkedSourcePaths.length > 0 || recommendationPath
+      label: isHostActionCard ? 'Proof requirement is clear' : 'Source context linked',
+      ready: isHostActionCard ? true : Boolean(linkedStandups.length > 0 || linkedSourcePaths.length > 0 || recommendationPath),
+      detail: isHostActionCard
+        ? hostActionProofRequired.length > 0
+          ? `The card spells out ${hostActionProofRequired.length} proof requirement${hostActionProofRequired.length === 1 ? '' : 's'} for completion.`
+          : 'No specific proof is required. A short completion note is enough.'
+        : linkedStandups.length > 0 || linkedSourcePaths.length > 0 || recommendationPath
           ? 'Standup or source context is linked for traceability.'
           : 'No standup or supporting source context is linked yet.',
     },
-    isPendingOwnerReview
+    isHostActionCard
+      ? {
+          label: 'What completion means is clear',
+          ready: Boolean(hostActionPayload?.summary || hostActionSteps.length > 0),
+          detail: 'The remaining step is explicit enough to complete or return with a note.',
+        }
+      : isPendingOwnerReview
       ? {
           label: 'Recommendation present',
           ready: Boolean(ownerReviewPayload?.packet_recommendation || ownerReviewPayload?.why_now || ownerReviewPayload?.core_angle),
@@ -3095,7 +3153,9 @@ function PMCardDetailModal({
   ).slice(0, 6);
   const storyboardWhyText = likelyStaleBoardItem
     ? 'The system pulled this card back up because it looked stale. Before you judge the work itself, first decide whether this is still a live issue or just residue from something you already handled elsewhere.'
-    : isPendingOwnerReview
+    : isHostActionCard
+      ? 'This card surfaced because the system finished the internal PM lane and detected one remaining step that has to happen outside the runtime.'
+      : isPendingOwnerReview
       ? 'This card surfaced because the system hit an explicit owner gate. A draft exists, but the workflow is not allowed to move it forward until you make the call.'
       : boardItem.lane === 'review'
         ? 'This card surfaced because execution returned something and PM now needs a closure judgment. The question is not “what is PM,” it is whether this returned result should be accepted, continued, or sent back.'
@@ -3105,6 +3165,20 @@ function PMCardDetailModal({
             ? 'This card is here because the system believes the work is framed well enough to start. It has not started execution yet.'
             : 'This card is here because PM is still tracking this work as an active lane.';
   const storyboardProofText =
+    isHostActionCard
+      ? (() => {
+          const proofBits = [
+            hostActionPayload?.source_card_title ? `This step was spawned from "${hostActionPayload.source_card_title}"` : null,
+            hostActionPayload?.source_result_summary ? `The source result says: ${hostActionPayload.source_result_summary}` : null,
+            hostActionProofRequired.length > 0
+              ? `${hostActionProofRequired.length} proof requirement${hostActionProofRequired.length === 1 ? '' : 's'} are attached`
+              : null,
+          ].filter((item): item is string => Boolean(item));
+          return proofBits.length > 0
+            ? proofBits.join('. ') + '.'
+            : 'The card tells you the remaining host step, but it does not carry much supporting context yet.';
+        })()
+      :
     validationQuickLinks.length > 0 || ownerReviewProofAnchors.length > 0
       ? [
           validationQuickLinks.length > 0
@@ -3121,7 +3195,11 @@ function PMCardDetailModal({
           .join('. ') + '.'
       : 'The card does not carry much direct proof yet. If you are unsure, that is a signal to revise or return it rather than guess.';
   const storyboardMissingText =
-    acceptanceNeedsResolutionChoice
+    isHostActionCard
+      ? hostActionProofRequired.length > 0
+        ? 'Nothing critical is missing from the card. The remaining question is whether you have actually completed the external step and can stand behind the proof.'
+        : 'The step is clear, but the card does not ask for specific proof. Add a short completion note when you close it so the loop stays traceable.'
+      : acceptanceNeedsResolutionChoice
       ? 'The work itself may be reviewable, but PM does not yet know what "accept" should mean. You still need to choose one of two branches: end this lane now, or close it and create the next card.'
       : acceptanceNeedsNextCardTitle
         ? 'You already chose to continue the loop, but PM still needs you to name the next card it should create.'
@@ -3129,14 +3207,18 @@ function PMCardDetailModal({
           ? `What still feels thin: ${validationMissingItems.map((item) => item.label.toLowerCase()).join(', ')}.`
           : 'Nothing obvious is missing for a first-pass judgment. You may still want to inspect the proof, but the card is not obviously under-explained.';
   const storyboardDecisionDetail =
-    acceptanceNeedsResolutionChoice
+    isHostActionCard
+      ? 'You are deciding whether the host step has been completed cleanly enough to close this card, or whether it needs to go back into system work or stay blocked.'
+      : acceptanceNeedsResolutionChoice
       ? 'You are deciding two things: first, whether the returned result is good enough; second, if it is good enough, whether this lane should end here or continue into a new PM card.'
       : acceptanceNeedsNextCardTitle
         ? 'You are deciding whether the returned result is good enough and, if it is, what the follow-up card should be called.'
         : boardItem.lane === 'review' && effectiveResolutionMode === 'close_and_spawn_next' && effectiveNextCardTitle
           ? `${validationDecisionText} The current default is to accept this and continue into "${effectiveNextCardTitle}".`
           : validationDecisionText;
-  const storyboardFallbackText = isPendingOwnerReview
+  const storyboardFallbackText = isHostActionCard
+    ? 'If the host step cannot happen yet, return it to Jean-Claude or mark it blocked instead of closing it optimistically.'
+    : isPendingOwnerReview
     ? 'If the draft is not ready, use revision or park instead of trying to interpret around missing context.'
     : acceptanceNeedsResolutionChoice
       ? 'If you are not ready to choose between ending the lane and continuing it, return it to Jean-Claude or mark it blocked instead of accepting it ambiguously.'
@@ -3322,6 +3404,24 @@ function PMCardDetailModal({
         resolutionMode: 'close_only',
       });
       setActionFeedback(`Closed ${displayCardTitle} as already handled.`);
+    } catch (error) {
+      setActionError(toErrorMessage(error));
+    } finally {
+      setActioningCardId(null);
+    }
+  };
+
+  const handleHostActionComplete = async () => {
+    try {
+      setActioningCardId(card.id);
+      setActionError(null);
+      setActionFeedback(null);
+      await onActOnPmCard(card.id, 'approve', {
+        reason: resolutionNote.trim() || 'Completed the required host action and closed the loop.',
+        resolutionMode: 'close_only',
+      });
+      setActionFeedback(`Closed ${displayCardTitle} as completed host work.`);
+      onSelectCard(null);
     } catch (error) {
       setActionError(toErrorMessage(error));
     } finally {
@@ -3528,7 +3628,7 @@ function PMCardDetailModal({
           <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>
             Actions
           </p>
-          {pmReviewPolicy?.policy_label && !isPendingOwnerReview && (boardItem.lane === 'review' || Boolean(pmReviewPolicy.auto_resolve_eligible)) ? (
+          {pmReviewPolicy?.policy_label && !isPendingOwnerReview && !isHostActionCard && (boardItem.lane === 'review' || Boolean(pmReviewPolicy.auto_resolve_eligible)) ? (
             <section style={{ borderRadius: '14px', border: '1px solid rgba(56,189,248,0.22)', backgroundColor: '#08101f', padding: '12px 14px', marginBottom: '12px' }}>
               <p style={{ color: '#38bdf8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 6px' }}>System Policy</p>
               <p style={{ color: '#dbeafe', fontSize: '13px', lineHeight: 1.55, margin: '0 0 6px' }}>{pmReviewPolicy.policy_label}</p>
@@ -3586,6 +3686,58 @@ function PMCardDetailModal({
                   style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
                 >
                   {actioningCardId === card.id ? 'Saving…' : 'Park draft'}
+                </button>
+              </div>
+            </div>
+          ) : isHostActionCard && hostActionPayload ? (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                The system already finished the internal work. This card is only for the external host step that still needs to happen.
+              </p>
+              <label style={{ display: 'grid', gap: '6px' }}>
+                <span style={{ color: '#94a3b8', fontSize: '12px' }}>Completion note</span>
+                <textarea
+                  value={resolutionNote}
+                  onChange={(event) => setResolutionNote(event.target.value)}
+                  placeholder="Optional note with the scheduled time, publish URL, screenshot path, or other proof."
+                  rows={3}
+                  style={{
+                    width: '100%',
+                    borderRadius: '12px',
+                    border: '1px solid #334155',
+                    backgroundColor: '#0f172a',
+                    color: '#e2e8f0',
+                    padding: '12px',
+                    fontSize: '13px',
+                    lineHeight: 1.5,
+                    resize: 'vertical',
+                  }}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleHostActionComplete()}
+                  style={meetingActionButtonStyle('success', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Closing…' : 'Mark host action complete'}
+                </button>
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleCardAction('return')}
+                  style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Returning…' : 'Return to Jean-Claude'}
+                </button>
+                <button
+                  type="button"
+                  disabled={actioningCardId === card.id}
+                  onClick={() => void handleCardAction('blocked')}
+                  style={meetingActionButtonStyle('danger', actioningCardId === card.id)}
+                >
+                  {actioningCardId === card.id ? 'Routing…' : 'Mark blocked'}
                 </button>
               </div>
             </div>
@@ -3767,17 +3919,17 @@ function PMCardDetailModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#cbd5f5', fontSize: '13px' }}>
                   <div>Source: {rawSource}</div>
                   <div>PM status: {pmStatusLabel}</div>
-                  <div>Execution state: {executionStatusLabel ?? 'not in execution yet'}</div>
+                  <div>Execution state: {isHostActionCard ? 'host step only' : executionStatusLabel ?? 'not in execution yet'}</div>
                   {boardItem.queueEntry?.front_door_agent ? <div>Front door: {boardItem.queueEntry.front_door_agent}</div> : null}
                   <div>Updated: {boardItem.updatedAt ? formatTimestamp(new Date(boardItem.updatedAt)) : '-'}</div>
                   <div>Due: {boardItem.dueAt ? formatTimestamp(new Date(boardItem.dueAt)) : '-'}</div>
-                  <div>Manager: {displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)}</div>
-                  <div>Target: {displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}</div>
-                  {boardItem.workspaceAgent ? <div>Workspace agent: {displayWorkspaceAgent(boardItem.workspaceKey, boardItem.workspaceAgent)}</div> : null}
-                  {boardItem.executionMode ? <div>Execution mode: {boardItem.executionMode}</div> : null}
-                  {displayWorkerStatusLabel(boardItem.queueEntry) ? <div>Worker status: {displayWorkerStatusLabel(boardItem.queueEntry)}</div> : null}
-                  {boardItem.queueEntry?.executor_worker_id ? <div>Worker host: {boardItem.queueEntry.executor_worker_id}</div> : null}
-                  {boardItem.queueEntry?.manager_attention_required ? <div>Manager attention: required</div> : null}
+                  {!isHostActionCard ? <div>Manager: {displayManagerAgent(boardItem.workspaceKey, boardItem.managerAgent)}</div> : null}
+                  {!isHostActionCard ? <div>Target: {displayTargetAgent(boardItem.workspaceKey, boardItem.targetAgent)}</div> : null}
+                  {!isHostActionCard && boardItem.workspaceAgent ? <div>Workspace agent: {displayWorkspaceAgent(boardItem.workspaceKey, boardItem.workspaceAgent)}</div> : null}
+                  {!isHostActionCard && boardItem.executionMode ? <div>Execution mode: {boardItem.executionMode}</div> : null}
+                  {!isHostActionCard && displayWorkerStatusLabel(boardItem.queueEntry) ? <div>Worker status: {displayWorkerStatusLabel(boardItem.queueEntry)}</div> : null}
+                  {!isHostActionCard && boardItem.queueEntry?.executor_worker_id ? <div>Worker host: {boardItem.queueEntry.executor_worker_id}</div> : null}
+                  {!isHostActionCard && boardItem.queueEntry?.manager_attention_required ? <div>Manager attention: required</div> : null}
                 </div>
               </section>
             </div>
@@ -3802,6 +3954,36 @@ function PMCardDetailModal({
                   {ownerReviewPayload.summary ? <div>Source summary: {ownerReviewPayload.summary}</div> : null}
                   {ownerReviewPayload.why_now ? <div>Why now: {ownerReviewPayload.why_now}</div> : null}
                   <div>Approval status: {humanizeStatusLabel(ownerReviewPayload.approval_status ?? 'unknown')}</div>
+                </div>
+              </section>
+            ) : hostActionPayload ? (
+              <section style={{ borderRadius: '16px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.08)', padding: '16px' }}>
+                <p style={{ color: '#fbbf24', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Host Action Context</p>
+                <div style={{ display: 'grid', gap: '8px', color: '#fef3c7', fontSize: '13px' }}>
+                  {hostActionPayload.summary ? <div>Remaining step: {hostActionPayload.summary}</div> : null}
+                  {hostActionPayload.source_card_title ? <div>Source card: {hostActionPayload.source_card_title}</div> : null}
+                  {hostActionPayload.source_result_summary ? <div>Source result: {hostActionPayload.source_result_summary}</div> : null}
+                  {hostActionPayload.detected_from ? <div>Detected from: {humanizeStatusLabel(hostActionPayload.detected_from)}</div> : null}
+                  {hostActionSteps.length > 0 ? (
+                    <div>
+                      Host steps:
+                      <div style={{ display: 'grid', gap: '4px', marginTop: '6px' }}>
+                        {hostActionSteps.map((step) => (
+                          <div key={`${card.id}-host-step-${step}`}>{step}</div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {hostActionProofRequired.length > 0 ? (
+                    <div>
+                      Proof required:
+                      <div style={{ display: 'grid', gap: '4px', marginTop: '6px' }}>
+                        {hostActionProofRequired.map((step) => (
+                          <div key={`${card.id}-host-proof-${step}`}>{step}</div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </section>
             ) : null}
@@ -8601,6 +8783,10 @@ function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem
           : item.lane === 'review'
             ? 'Open it and resolve the returned result.'
             : 'Open it and decide the next step.';
+      } else if (attentionClass === 'needs_host') {
+        kind = 'decision';
+        summary = item.pmReviewPolicy?.attention_reason ?? 'This card needs a host action outside the runtime.';
+        nextAction = 'Open it, complete the host step, and mark it complete.';
       } else if (stale) {
         kind = 'stale';
         summary = item.pmReviewPolicy?.attention_reason ?? 'This card was pulled back up by the system and may already be handled outside PM.';
@@ -8636,6 +8822,7 @@ function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem
         title: item.title,
         workspaceKey: item.workspaceKey,
         kind,
+        attentionClass,
         lane: item.lane,
         summary,
         nextAction,
@@ -8662,6 +8849,9 @@ function describeAutoProgressItem(item: PMAutoProgressItem & { processed_at?: st
   if (item.action === 'blocked') {
     return `${meetingLabelForWorkspace(item.workspace_key)}: escalated for human attention after repeated automatic passes failed.`;
   }
+  if (item.host_action_card_title) {
+    return `${meetingLabelForWorkspace(item.workspace_key)}: accepted automatically and routed the remaining external step into "${item.host_action_card_title}".`;
+  }
   if (item.resolution_mode === 'close_and_spawn_next') {
     const successor = item.successor_card_title ? ` Next card: ${item.successor_card_title}.` : '';
     return `${meetingLabelForWorkspace(item.workspace_key)}: accepted automatically and continued into the next PM lane.${successor}`;
@@ -8670,6 +8860,13 @@ function describeAutoProgressItem(item: PMAutoProgressItem & { processed_at?: st
 }
 
 function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
+  if (item.pmReviewPolicy?.attention_class === 'needs_host') {
+    return {
+      summary: 'This card is not waiting on more system execution. The runtime finished its side and now needs a host action outside the system.',
+      userRole: 'Complete the external step yourself, record any proof or scheduling details, and then close the host-action card.',
+      nextAction: 'Open the card, complete the host step, and use Mark host action complete when done.',
+    };
+  }
   if ((item.source ?? '').includes('workspace-owner-review') && item.lane === 'review') {
     return {
       summary: 'This card is waiting on an owner decision for a FEEZIE draft, not on more agent execution.',

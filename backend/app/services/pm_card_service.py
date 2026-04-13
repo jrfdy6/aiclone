@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 from uuid import uuid4
@@ -29,6 +30,7 @@ from app.services.workspace_runtime_contract_service import (
 AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
 AUTO_PROGRESS_REQUESTED_BY = "Codex PM Review Worker"
 AUTO_CONTRACT_RETRY_LIMIT = 2
+HOST_ACTION_PREFIX = re.compile(r"^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:host(?:\s+action)?)\s*:\s*(.+?)\s*$", re.IGNORECASE)
 
 
 def list_cards(
@@ -749,6 +751,33 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
         )
         if result is None:
             continue
+        host_action_card: PMCard | None = None
+        host_action_required = progression.get("host_action_required")
+        if action == "approve" and isinstance(host_action_required, dict):
+            host_action_card = _create_host_action_required_card(
+                result.card,
+                requested_by=AUTO_PROGRESS_REQUESTED_BY,
+                host_action_required=host_action_required,
+            )
+            if host_action_card is not None:
+                updated_payload = dict(result.card.payload or {})
+                latest_manual_review = dict(updated_payload.get("latest_manual_review") or {})
+                latest_manual_review["host_action_card_id"] = host_action_card.id
+                latest_manual_review["host_action_card_title"] = host_action_card.title
+                updated_payload["latest_manual_review"] = latest_manual_review
+                updated_payload["host_action_successor"] = {
+                    "card_id": host_action_card.id,
+                    "title": host_action_card.title,
+                    "created_at": _datetime_to_iso(host_action_card.created_at),
+                    "workspace_key": _workspace_key_from_card(host_action_card),
+                }
+                refreshed = update_card(result.card.id, PMCardUpdate(status=result.card.status, payload=updated_payload))
+                if refreshed is not None:
+                    result = PMCardActionResult(
+                        card=refreshed,
+                        queue_entry=build_execution_queue_entry(refreshed),
+                        successor_card=result.successor_card,
+                    )
         processed.append(
             {
                 "card_id": result.card.id,
@@ -760,6 +789,8 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
                 "reason": progression["reason"],
                 "successor_card_id": result.successor_card.id if result.successor_card else None,
                 "successor_card_title": result.successor_card.title if result.successor_card else None,
+                "host_action_card_id": host_action_card.id if host_action_card else None,
+                "host_action_card_title": host_action_card.title if host_action_card else None,
             }
         )
 
@@ -970,6 +1001,17 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
             "contract_auto_return_count": current_retry_count + 1,
         }
 
+    host_action_required = _extract_host_action_required(card)
+    if host_action_required is not None:
+        return {
+            "action": "approve",
+            "rule": "completion_contract_host_action_required",
+            "reason": "Codex review worker accepted the internal execution result and routed the remaining external step into a host action card.",
+            "resolution_mode": "close_only",
+            "contract_assessment": contract_assessment,
+            "host_action_required": host_action_required,
+        }
+
     resolution_mode = _valid_resolution_mode(workspace_policy.get("default_resolution_mode")) or "close_only"
     next_title: str | None = None
     next_reason: str | None = None
@@ -1051,6 +1093,54 @@ def _completion_contract_assessment(card: PMCard) -> dict[str, Any] | None:
         "summary": summary,
         "status": status,
         "auto_return_limit": max(0, int(contract.get("auto_return_limit") or AUTO_CONTRACT_RETRY_LIMIT)),
+    }
+
+
+def _extract_host_action_required(card: PMCard) -> dict[str, Any] | None:
+    payload = dict(card.payload or {})
+    latest_result = payload.get("latest_execution_result")
+    if not isinstance(latest_result, dict):
+        return None
+
+    steps: list[str] = []
+    proof_required: list[str] = []
+    detected_from = "follow_up_prefix"
+
+    explicit_host_actions = latest_result.get("host_actions")
+    if isinstance(explicit_host_actions, list):
+        detected_from = "explicit_host_actions"
+        for item in explicit_host_actions:
+            if isinstance(item, dict):
+                summary = _optional_str(item.get("summary"))
+                if summary:
+                    steps.append(summary)
+                steps.extend(_normalize_string_list(item.get("steps")))
+                proof_required.extend(_normalize_string_list(item.get("proof_required")))
+            else:
+                normalized = str(item).strip()
+                if normalized:
+                    steps.append(normalized)
+
+    if not steps:
+        for follow_up in _normalize_string_list(latest_result.get("follow_ups")):
+            match = HOST_ACTION_PREFIX.match(follow_up)
+            if match:
+                normalized = str(match.group(1) or "").strip()
+                if normalized:
+                    steps.append(normalized)
+
+    proof_required.extend(_normalize_string_list(latest_result.get("host_action_proof")))
+    deduped_steps = _dedupe_nonempty_strings(steps)
+    if not deduped_steps:
+        return None
+
+    return {
+        "summary": deduped_steps[0],
+        "steps": deduped_steps,
+        "proof_required": _dedupe_nonempty_strings(proof_required),
+        "source_result_id": _optional_str(latest_result.get("result_id")),
+        "source_result_summary": _optional_str(latest_result.get("summary")),
+        "detected_from": detected_from,
     }
 
 
@@ -1147,6 +1237,7 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
     execution = dict(_execution_payload(card) or {})
     normalized_status = str(card.status or "").strip().lower()
     owner_gate = _is_owner_decision_gate(card)
+    host_action_required = _is_host_action_required_card(card)
     auto_resolve_policy = _auto_resolve_review_policy(card)
     attention_class = "fyi"
     attention_reason = "This card is visible for context, but it does not currently need your judgment."
@@ -1162,6 +1253,9 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
     elif bool(execution.get("manager_attention_required")) or normalized_status in {"blocked", "failed"}:
         attention_class = "needs_owner"
         attention_reason = "This lane is blocked or flagged for manager attention and needs a human decision."
+    elif host_action_required:
+        attention_class = "needs_host"
+        attention_reason = "This card requires a host action outside the runtime before the loop can fully close."
     elif auto_resolve_policy is not None:
         attention_class = "stale"
         attention_reason = auto_resolve_policy["reason"]
@@ -1368,6 +1462,8 @@ def _execution_contract_source(card: PMCard) -> str | None:
     source = str(card.source or "").strip()
     if _is_owner_decision_gate(card):
         return None
+    if source == "pm_host_action_required" or _is_host_action_required_card(card):
+        return None
     if source == "pm_review_resolution":
         return "pm_review_resolution"
     if source.startswith("brain-triage:"):
@@ -1404,6 +1500,70 @@ def _default_execution_state_for_card(card: PMCard) -> str:
     return "ready"
 
 
+def _is_host_action_required_card(card: PMCard) -> bool:
+    payload = dict(card.payload or {})
+    host_action_required = payload.get("host_action_required")
+    return isinstance(host_action_required, dict) and bool(host_action_required)
+
+
+def _create_host_action_required_card(
+    source_card: PMCard,
+    *,
+    requested_by: str,
+    host_action_required: dict[str, Any],
+) -> PMCard:
+    workspace_key = _workspace_key_from_card(source_card)
+    steps = _dedupe_nonempty_strings(host_action_required.get("steps"))
+    summary = _optional_str(host_action_required.get("summary")) or (steps[0] if steps else f"Complete host action for {source_card.title}")
+    proof_required = _dedupe_nonempty_strings(host_action_required.get("proof_required"))
+    title = _truncate_pm_card_title(f"Host action required - {summary}")
+    reason = (
+        "Codex completed the internal PM lane, but the last external step still needs to happen outside the runtime. "
+        + summary
+    )
+    payload: dict[str, Any] = {
+        "workspace_key": workspace_key,
+        "reason": reason,
+        "source_agent": requested_by,
+        "front_door_agent": requested_by,
+        "host_action_required": {
+            "summary": summary,
+            "steps": steps,
+            "proof_required": proof_required,
+            "source_card_id": source_card.id,
+            "source_card_title": source_card.title,
+            "source_result_id": _optional_str(host_action_required.get("source_result_id")),
+            "source_result_summary": _optional_str(host_action_required.get("source_result_summary")),
+            "detected_from": _optional_str(host_action_required.get("detected_from")),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+        # These fields make the trigger key stable without turning the card into an execution candidate.
+        "instructions": steps,
+        "acceptance_criteria": proof_required,
+    }
+    payload["trigger_key"] = _build_trigger_key(
+        title=title,
+        workspace_key=workspace_key,
+        source="pm_host_action_required",
+        payload=payload,
+    )
+    existing = find_active_card_by_trigger_key(str(payload["trigger_key"]))
+    if existing is not None:
+        return existing
+
+    return create_card(
+        PMCardCreate(
+            title=title,
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type=source_card.link_type,
+            link_id=source_card.link_id,
+            payload=payload,
+        )
+    )
+
+
 def _execution_sort_rank(state: str) -> int:
     normalized = state.lower()
     if normalized == "running":
@@ -1426,6 +1586,35 @@ def _payload_value(payload: dict, key: str) -> Optional[str]:
 
 def _optional_str(value: object) -> Optional[str]:
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _normalize_string_list(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _dedupe_nonempty_strings(values: object) -> list[str]:
+    if isinstance(values, list):
+        source = values
+    else:
+        source = []
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for item in source:
+        cleaned = str(item).strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
+
+
+def _truncate_pm_card_title(value: str, limit: int = 108) -> str:
+    cleaned = str(value or "").strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: max(0, limit - 1)].rstrip() + "…"
 
 
 def _valid_resolution_mode(value: object) -> str | None:

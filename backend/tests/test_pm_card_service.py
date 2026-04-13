@@ -767,6 +767,106 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual((processed or {}).get("action"), "approve")
         self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_close")
 
+    def test_auto_progress_review_cards_routes_host_actions_into_host_card(self) -> None:
+        now = datetime.now(timezone.utc)
+        source_card = PMCard(
+            id="auto-progress-host-action",
+            title="Package accepted FEEZIE draft into scheduling lane",
+            owner="Jean-Claude",
+            status="review",
+            source="pm_review_resolution",
+            link_type="standup",
+            link_id="standup-host-action-1",
+            payload={
+                "workspace_key": "linkedin-os",
+                "completion_contract": {
+                    "source": "pm_review_resolution",
+                    "auto_return_limit": 2,
+                    "result_requirements": {
+                        "summary_min_length": 20,
+                        "require_outcome_or_artifact": True,
+                        "require_writeback": True,
+                        "allow_blockers": False,
+                    },
+                    "done_when": ["Package the approved draft into a scheduling-ready artifact."],
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Built the scheduling packet and wrote back the release memo with a concrete artifact.",
+                    "outcomes": ["Scheduling packet is ready."],
+                    "artifacts": ["/tmp/schedule-packet.md"],
+                    "follow_ups": ["Host: Schedule the approved draft in LinkedIn's native scheduler for Thursday morning."],
+                    "blockers": [],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        current = {"card": source_card}
+        created_payloads: list[PMCardCreate] = []
+
+        def fake_update(card_id: str, patch: PMCardUpdate) -> PMCard:
+            self.assertEqual(card_id, source_card.id)
+            current["card"] = current["card"].model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else current["card"].status,
+                    "payload": patch.payload if patch.payload is not None else current["card"].payload,
+                    "updated_at": now,
+                }
+            )
+            return current["card"]
+
+        def fake_create(payload: PMCardCreate) -> PMCard:
+            created_payloads.append(payload)
+            return PMCard(
+                id="host-action-card-1",
+                title=payload.title,
+                owner=payload.owner,
+                status=payload.status,
+                source=payload.source,
+                link_type=payload.link_type,
+                link_id=payload.link_id,
+                payload=payload.payload,
+                created_at=now,
+                updated_at=now,
+            )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[source_card]),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(pm_card_service, "create_card", side_effect=fake_create),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("closed_count"), 1)
+        processed = (result.get("processed") or [None])[0] or {}
+        self.assertEqual(processed.get("action"), "approve")
+        self.assertEqual(processed.get("rule"), "completion_contract_host_action_required")
+        self.assertEqual(processed.get("host_action_card_id"), "host-action-card-1")
+        self.assertEqual(len(created_payloads), 1)
+        created = created_payloads[0]
+        self.assertEqual(created.source, "pm_host_action_required")
+        self.assertEqual(created.owner, "Neo")
+        self.assertEqual(created.status, "todo")
+        host_payload = created.payload.get("host_action_required") or {}
+        self.assertIn("LinkedIn's native scheduler", str(host_payload.get("summary") or ""))
+        self.assertEqual(
+            (current["card"].payload.get("latest_manual_review") or {}).get("host_action_card_id"),
+            "host-action-card-1",
+        )
+
+
     def test_auto_progress_review_cards_records_audit_entry(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
@@ -1018,6 +1118,58 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("attention_class"), "autonomous")
         self.assertEqual(policy.get("recommended_resolution_mode"), "close_and_spawn_next")
         self.assertEqual(policy.get("suggested_next_title"), "Turn seeded FEEZIE backlog into first draft batch")
+
+    def test_decorate_card_for_client_marks_host_action_card_as_needs_host(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-card",
+            title="Host action required - Schedule approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="standup",
+            link_id="standup-host-card-1",
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule the approved draft in LinkedIn's native scheduler.",
+                    "steps": ["Schedule the approved draft in LinkedIn's native scheduler."],
+                    "proof_required": ["Add the scheduled date and screenshot path to the card notes."],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "needs_host")
+        self.assertFalse(bool(policy.get("owner_decision_gate")))
+
+    def test_host_action_card_does_not_surface_in_execution_queue(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-not-queueable",
+            title="Host action required - Publish approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="standup",
+            link_id="standup-host-card-2",
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Publish the approved draft manually.",
+                    "steps": ["Publish the approved draft manually."],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        self.assertIsNone(build_execution_queue_entry(card))
 
     def test_decorate_card_for_client_marks_feezie_alias_review_as_autonomous(self) -> None:
         now = datetime.now(timezone.utc)
