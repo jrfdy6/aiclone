@@ -584,6 +584,7 @@ def _owner_review_instructions(item: dict[str, Any], decision: str, notes: str) 
                 [
                     "Turn the approved latent transform into the next concrete FEEZIE move: promote it into the active publishing plan, package it for scheduling, or explicitly place it into the canonical queue if it now deserves that lane.",
                     "Write the follow-up outcome back to PM and the draft artifacts so the approval loop closes visibly.",
+                    "If repo-side work is complete and the only remaining step needs host credentials or an external UI, return explicit host actions with proof requirements instead of leaving a generic follow-up.",
                 ]
             )
         else:
@@ -598,6 +599,7 @@ def _owner_review_instructions(item: dict[str, Any], decision: str, notes: str) 
             [
                 "Turn the approved draft into the next concrete execution step: scheduling, packaging, or explicit publish follow-through.",
                 "Write the follow-up outcome back to PM, the draft queue, and the execution log so the approval loop closes visibly.",
+                "If the remaining work is host-only, such as LinkedIn scheduling or proof capture outside the repo, return it as explicit host actions with proof requirements.",
             ]
         )
     else:

@@ -507,6 +507,8 @@ def _build_schema() -> dict[str, Any]:
             "learnings": _string_array(),
             "outcomes": _string_array(),
             "follow_ups": _string_array(),
+            "host_actions": _string_array(),
+            "host_action_proof": _string_array(),
             "project_updates": _string_array(),
             "memory_promotions": _string_array(),
             "persistent_state": _string_array(),
@@ -520,6 +522,8 @@ def _build_schema() -> dict[str, Any]:
             "learnings",
             "outcomes",
             "follow_ups",
+            "host_actions",
+            "host_action_proof",
             "project_updates",
             "memory_promotions",
             "persistent_state",
@@ -592,6 +596,11 @@ def _build_prompt(packet: dict[str, Any]) -> str:
     if source_paths:
         lines.extend(["", "Memory contract sources:"])
         lines.extend(f"- {item}" for item in source_paths[:12])
+    completion_contract = packet.get("completion_contract") or {}
+    done_when = [str(item).strip() for item in completion_contract.get("done_when") or [] if str(item).strip()]
+    if done_when:
+        lines.extend(["", "Completion contract:"])
+        lines.extend(f"- {item}" for item in done_when[:6])
     lines.extend(
         [
             "",
@@ -604,6 +613,9 @@ def _build_prompt(packet: dict[str, Any]) -> str:
             "- Never report wrapper, Railway, PM API, or write-back failures in the structured result; only report blockers that affected the workspace task itself.",
             "- Prefer status `review` after making changes, unless the task is fully complete and safe to mark `done`.",
             "- Use status `blocked` only when a concrete blocker prevented meaningful progress.",
+            "- If repo-side work is complete but the remaining step requires host credentials or an external UI, keep status `review` and put the exact remaining steps in `host_actions`.",
+            "- Use `host_action_proof` to list what evidence the host should capture, such as a confirmation screenshot, publish URL, or analytics note.",
+            "- Use `follow_ups` for runtime or team follow-through, not for host-only steps that should become a host-action card.",
             "- Return artifact_paths as absolute file paths for changed or created files when possible.",
         ]
     )
@@ -653,7 +665,7 @@ def _sanitize_result_for_wrapper_success(result: dict[str, Any], api_url: str, p
     sanitized = dict(result)
     changed = False
 
-    for field in ("blockers", "follow_ups", "project_updates"):
+    for field in ("blockers", "follow_ups", "host_actions", "host_action_proof", "project_updates"):
         values = [str(item).strip() for item in sanitized.get(field) or [] if str(item).strip()]
         filtered = [item for item in values if not _mentions_wrapper_status(item, api_url)]
         if filtered != values:
@@ -761,6 +773,8 @@ def _write_result(
     command.extend(_writer_args("--learning", list(result.get("learnings") or [])))
     command.extend(_writer_args("--outcome", list(result.get("outcomes") or [])))
     command.extend(_writer_args("--follow-up", list(result.get("follow_ups") or [])))
+    command.extend(_writer_args("--host-action", list(result.get("host_actions") or [])))
+    command.extend(_writer_args("--host-action-proof", list(result.get("host_action_proof") or [])))
     command.extend(_writer_args("--project-update", list(result.get("project_updates") or [])))
     command.extend(_writer_args("--memory-promotion", list(result.get("memory_promotions") or [])))
     command.extend(_writer_args("--persistent-state", list(result.get("persistent_state") or [])))
@@ -914,6 +928,8 @@ def main() -> int:
                 "learnings": [],
                 "outcomes": [],
                 "follow_ups": [],
+                "host_actions": [],
+                "host_action_proof": [],
                 "project_updates": [],
                 "memory_promotions": [],
                 "persistent_state": [],

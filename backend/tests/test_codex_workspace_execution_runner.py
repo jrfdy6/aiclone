@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -189,6 +190,94 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         )
         self.assertEqual(sanitized["blockers"], [])
         self.assertEqual(sanitized["follow_ups"], ["Schedule and capture the first Fusion OS workspace standup."])
+
+    def test_schema_requires_host_action_fields(self) -> None:
+        schema = self.runner._build_schema()
+
+        self.assertIn("host_actions", schema["properties"])
+        self.assertIn("host_action_proof", schema["properties"])
+        self.assertIn("host_actions", schema["required"])
+        self.assertIn("host_action_proof", schema["required"])
+
+    def test_sanitize_result_strips_wrapper_owned_host_action_noise(self) -> None:
+        packet = {
+            "title": "Package accepted FEEZIE draft into scheduling lane",
+            "workspace_key": "feezie-os",
+            "owner_agent": "Jean-Claude",
+        }
+        result = {
+            "status": "review",
+            "summary": "Packaged the approved FEEZIE draft into a scheduling lane and documented the host-only next steps.",
+            "blockers": [],
+            "decisions": [],
+            "learnings": [],
+            "outcomes": ["Updated the scheduling packet and status memo."],
+            "follow_ups": [],
+            "host_actions": [
+                "Schedule the approved draft in LinkedIn's native scheduler.",
+                "Rerun the writer once PM API access is restored.",
+            ],
+            "host_action_proof": [
+                "Confirmation screenshot stored under analytics/2026-04-13_feezie-002/confirmation.png.",
+                "Document that write_execution_result.py completed successfully.",
+            ],
+            "project_updates": [],
+            "memory_promotions": [],
+            "persistent_state": [],
+            "artifact_paths": [],
+        }
+
+        sanitized, changed = self.runner._sanitize_result_for_wrapper_success(
+            result,
+            "https://aiclone-production-32dc.up.railway.app",
+            packet,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            sanitized["host_actions"],
+            ["Schedule the approved draft in LinkedIn's native scheduler."],
+        )
+        self.assertEqual(
+            sanitized["host_action_proof"],
+            ["Confirmation screenshot stored under analytics/2026-04-13_feezie-002/confirmation.png."],
+        )
+
+    def test_write_result_passes_host_action_flags_to_writer(self) -> None:
+        packet = {
+            "path": "/tmp/work-order.json",
+            "preferred_runner_id": "jean-claude",
+            "preferred_author_agent": "Jean-Claude",
+        }
+        result = {
+            "status": "review",
+            "summary": "Packaged the approved draft and left only the host scheduling step.",
+            "decisions": [],
+            "blockers": [],
+            "learnings": [],
+            "outcomes": ["Updated the release packet and scheduling memo."],
+            "follow_ups": [],
+            "host_actions": ["Schedule the approved draft in LinkedIn's native scheduler."],
+            "host_action_proof": ["Capture a confirmation screenshot and store it under analytics."],
+            "project_updates": [],
+            "memory_promotions": [],
+            "persistent_state": [],
+            "artifact_paths": ["/tmp/release-packet.md"],
+        }
+
+        completed = mock.Mock()
+        completed.returncode = 0
+        completed.stdout = ""
+        completed.stderr = ""
+
+        with mock.patch.object(self.runner.subprocess, "run", return_value=completed) as mocked_run:
+            self.runner._write_result(packet, result, api_url="https://example.com", dry_run=False)
+
+        command = mocked_run.call_args.args[0]
+        self.assertIn("--host-action", command)
+        self.assertIn("Schedule the approved draft in LinkedIn's native scheduler.", command)
+        self.assertIn("--host-action-proof", command)
+        self.assertIn("Capture a confirmation screenshot and store it under analytics.", command)
 
 
 if __name__ == "__main__":
