@@ -847,11 +847,9 @@ This is the first pass.
             )
         self.assertEqual(update_response.status_code, 200)
         updated_payload = update_response.json()
-        updated_item = (updated_payload.get("items") or [None])[0]
-        self.assertEqual(updated_item.get("current_decision"), "approve")
-        self.assertEqual(updated_item.get("approval_status"), "owner_approved")
-        self.assertEqual(updated_item.get("publish_posture"), "approved")
-        self.assertEqual(updated_item.get("current_notes"), "Ship this first.")
+        self.assertEqual(updated_payload.get("pending_count"), 0)
+        self.assertGreaterEqual(updated_payload.get("resolved_count") or 0, 1)
+        self.assertFalse(updated_payload.get("items"))
         self.assertEqual((updated_payload.get("workflow") or {}).get("status"), "queued")
         self.assertIn("Jean-Claude follow-up is queued", (updated_payload.get("workflow") or {}).get("message") or "")
 
@@ -1142,11 +1140,9 @@ This is the latent first pass.
             )
         self.assertEqual(update_response.status_code, 200)
         updated_payload = update_response.json()
-        updated_items = updated_payload.get("items") or []
-        updated_item = next(item for item in updated_items if item.get("queue_id") == latent_item.get("queue_id"))
-        self.assertEqual(updated_item.get("current_decision"), "revise")
-        self.assertEqual(updated_item.get("current_notes"), "Add one lived proof line before approval.")
-        self.assertEqual(updated_item.get("publish_posture"), "owner_review_required")
+        self.assertEqual(updated_payload.get("pending_count"), 0)
+        self.assertGreaterEqual(updated_payload.get("resolved_count") or 0, 1)
+        self.assertFalse(updated_payload.get("items"))
         self.assertEqual((updated_payload.get("workflow") or {}).get("status"), "queued")
 
         updated_draft = draft_path.read_text(encoding="utf-8")

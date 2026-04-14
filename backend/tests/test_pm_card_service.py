@@ -14,6 +14,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.models.pm_board import PMCard, PMCardActionRequest, PMCardCreate, PMCardDispatchRequest, PMCardUpdate
 from app.services import pm_card_service
+from app.services import pm_loop_canary_service
 from app.services import pm_review_hygiene_audit_service
 from app.services.pm_card_service import build_execution_queue_entry
 
@@ -1700,6 +1701,85 @@ class PMCardServiceTests(unittest.TestCase):
         assert close_result is not None
         self.assertEqual(close_result.card.status, "done")
         self.assertIsNone(close_result.queue_entry)
+
+    def test_pm_loop_canary_audit_detects_owner_review_mismatch(self) -> None:
+        now = datetime.now(timezone.utc)
+        owner_card = PMCard(
+            id="owner-card",
+            title="Owner review - FEEZIE-001",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "FEEZIE-001",
+                    "sync_state": "pending_owner_review",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_loop_canary_service.pm_card_service, "list_cards", return_value=[owner_card]),
+            patch.object(pm_loop_canary_service.pm_card_service, "list_execution_queue", return_value=[]),
+            patch.object(
+                pm_loop_canary_service,
+                "list_owner_review_items",
+                return_value={"items": [{"queue_id": "FEEZIE-002"}]},
+            ),
+        ):
+            result = pm_loop_canary_service.pm_loop_canary_audit()
+
+        self.assertEqual(result["summary"]["status"], "fail")
+        owner_check = next(check for check in result["checks"] if check["name"] == "owner_review_alignment")
+        self.assertEqual(owner_check["missing_in_pm"], ["FEEZIE-002"])
+        self.assertEqual(owner_check["extra_in_pm"], ["FEEZIE-001"])
+
+    def test_pm_loop_canary_audit_passes_host_action_schema_with_typed_fields(self) -> None:
+        now = datetime.now(timezone.utc)
+        host_card = PMCard(
+            id="host-card",
+            title="Host action required - Schedule post",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "steps": ["Schedule the approved post in LinkedIn."],
+                    "proof_required": ["Record the scheduled timestamp."],
+                    "proof_fields": [
+                        {
+                            "kind": "scheduled_timestamp",
+                            "label": "Scheduled timestamp",
+                            "requirement": "Record the scheduled timestamp.",
+                            "placeholder": "2026-04-15T09:00:00-04:00",
+                            "multiline": False,
+                        }
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_loop_canary_service.pm_card_service, "list_cards", return_value=[host_card]),
+            patch.object(pm_loop_canary_service.pm_card_service, "list_execution_queue", return_value=[]),
+            patch.object(pm_loop_canary_service, "list_owner_review_items", return_value={"items": []}),
+        ):
+            result = pm_loop_canary_service.pm_loop_canary_audit()
+
+        self.assertEqual(result["summary"]["status"], "pass")
+        host_check = next(check for check in result["checks"] if check["name"] == "host_action_schema")
+        self.assertEqual(host_check["checked_count"], 1)
+        self.assertEqual(host_check["issue_count"], 0)
 
 
 if __name__ == "__main__":

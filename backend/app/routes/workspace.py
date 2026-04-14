@@ -55,9 +55,9 @@ async def get_linkedin_os_snapshot():
 
 
 @router.get("/linkedin-os-owner-review")
-async def get_linkedin_os_owner_review():
+async def get_linkedin_os_owner_review(include_resolved: bool = False):
     try:
-        return list_owner_review_items()
+        return list_owner_review_items(include_resolved=include_resolved)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

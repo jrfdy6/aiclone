@@ -18,6 +18,7 @@ from app.models import (
 )
 from app.services import pm_card_service
 from app.services.linkedin_owner_review_service import record_owner_decision_for_pm_card, sync_owner_review_pm_cards
+from app.services.pm_loop_canary_service import pm_loop_canary_audit
 
 router = APIRouter(tags=["PM Board"], prefix="/api/pm")
 
@@ -57,6 +58,11 @@ async def auto_progress_review_hygiene(limit: int = 250):
 @router.get("/review-hygiene/audit")
 async def review_hygiene_audit(limit: int = 12, hours: int = 24):
     return pm_card_service.review_hygiene_audit(limit=limit, hours=hours)
+
+
+@router.get("/canary-audit")
+async def canary_audit(limit: int = 500):
+    return pm_loop_canary_audit(limit=limit)
 
 
 @router.get("/execution-queue", response_model=List[ExecutionQueueEntry])

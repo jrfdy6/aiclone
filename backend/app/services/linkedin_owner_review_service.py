@@ -1003,7 +1003,19 @@ def _queue_owner_review_followup(
     }
 
 
-def list_owner_review_items() -> dict[str, Any]:
+def _split_pending_owner_review_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    pending: list[dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = []
+    for item in items:
+        decision = str(item.get("current_decision") or "").strip().lower()
+        if decision:
+            resolved.append(item)
+        else:
+            pending.append(item)
+    return pending, resolved
+
+
+def list_owner_review_items(*, include_resolved: bool = False) -> dict[str, Any]:
     root = _linkedin_root()
     queue_path = _queue_path(root)
     queue_text = _read_text(queue_path)
@@ -1013,11 +1025,16 @@ def list_owner_review_items() -> dict[str, Any]:
         supplemental_items = _list_supplemental_owner_review_items(root)
         if not supplemental_items:
             supplemental_items = _list_pm_pending_owner_review_items()
+        pending_items, resolved_items = _split_pending_owner_review_items(supplemental_items)
+        selected_items = supplemental_items if include_resolved else pending_items
         return {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "queue_path": queue_path.relative_to(root).as_posix(),
             "owner_packet_path": packet_path.relative_to(root).as_posix() if packet_path and packet_path.exists() else None,
-            "items": supplemental_items,
+            "items": selected_items,
+            "pending_count": len(pending_items),
+            "resolved_count": len(resolved_items),
+            "total_count": len(supplemental_items),
         }
     section = queue_text.split("## Queue", 1)[1] if "## Queue" in queue_text else queue_text
     for queue_id, title, block in _split_queue_blocks(section):
@@ -1029,11 +1046,16 @@ def list_owner_review_items() -> dict[str, Any]:
     items.extend(_list_supplemental_owner_review_items(root))
     if not items:
         items.extend(_list_pm_pending_owner_review_items())
+    pending_items, resolved_items = _split_pending_owner_review_items(items)
+    selected_items = items if include_resolved else pending_items
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "queue_path": queue_path.relative_to(root).as_posix(),
         "owner_packet_path": packet_path.relative_to(root).as_posix() if packet_path and packet_path.exists() else None,
-        "items": items,
+        "items": selected_items,
+        "pending_count": len(pending_items),
+        "resolved_count": len(resolved_items),
+        "total_count": len(items),
     }
 
 
