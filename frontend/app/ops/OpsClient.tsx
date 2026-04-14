@@ -413,6 +413,7 @@ type PMCardActionOptions = {
   resolutionMode?: PMCardResolutionMode;
   nextTitle?: string;
   nextReason?: string;
+  proofItems?: string[];
 };
 
 type OwnerReviewDecision = 'approve' | 'revise' | 'park';
@@ -1642,6 +1643,7 @@ export default function OpsClient({
           resolution_mode: options?.resolutionMode,
           next_title: options?.nextTitle,
           next_reason: options?.nextReason,
+          proof_items: options?.proofItems,
         }),
       });
       if (!response.ok) {
@@ -2940,6 +2942,7 @@ function PMCardDetailModal({
   const [ownerReviewNotes, setOwnerReviewNotes] = useState(ownerReviewPayload?.current_notes ?? '');
   const [resolutionMode, setResolutionMode] = useState<PMCardResolutionMode | null>(pmReviewPolicy?.recommended_resolution_mode ?? null);
   const [resolutionNote, setResolutionNote] = useState('');
+  const [hostActionProofText, setHostActionProofText] = useState('');
   const [nextCardTitle, setNextCardTitle] = useState(pmReviewPolicy?.suggested_next_title ?? '');
   const [nextCardReason, setNextCardReason] = useState(pmReviewPolicy?.suggested_next_reason ?? '');
   const rawSource = boardItem.source ?? card.source ?? 'manual';
@@ -2969,6 +2972,12 @@ function PMCardDetailModal({
   const hostActionProofRequired = Array.isArray(hostActionPayload?.proof_required)
     ? hostActionPayload.proof_required.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
+  const hostActionProofItems = hostActionProofText
+    .split('\n')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  const hostActionProofReady =
+    hostActionProofRequired.length === 0 || hostActionProofItems.length >= hostActionProofRequired.length;
   const ownerReviewProofAnchors = Array.isArray(ownerReviewPayload?.proof_anchors)
     ? ownerReviewPayload?.proof_anchors.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -3417,8 +3426,9 @@ function PMCardDetailModal({
       setActionError(null);
       setActionFeedback(null);
       await onActOnPmCard(card.id, 'approve', {
-        reason: resolutionNote.trim() || 'Completed the required host action and closed the loop.',
+        reason: resolutionNote.trim(),
         resolutionMode: 'close_only',
+        proofItems: hostActionProofItems,
       });
       setActionFeedback(`Closed ${displayCardTitle} as completed host work.`);
       onSelectCard(null);
@@ -3694,12 +3704,22 @@ function PMCardDetailModal({
               <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
                 The system already finished the internal work. This card is only for the external host step that still needs to happen.
               </p>
+              {hostActionProofRequired.length > 0 ? (
+                <div style={{ display: 'grid', gap: '6px', borderRadius: '12px', border: '1px solid #334155', backgroundColor: '#08101f', padding: '12px' }}>
+                  <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: 0 }}>Proof required before closing</p>
+                  {hostActionProofRequired.map((item, index) => (
+                    <p key={`${card.id}-host-proof-${index}`} style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                      {index + 1}. {item}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
               <label style={{ display: 'grid', gap: '6px' }}>
                 <span style={{ color: '#94a3b8', fontSize: '12px' }}>Completion note</span>
                 <textarea
                   value={resolutionNote}
                   onChange={(event) => setResolutionNote(event.target.value)}
-                  placeholder="Optional note with the scheduled time, publish URL, screenshot path, or other proof."
+                  placeholder="What exactly did you complete, and what should the audit trail remember?"
                   rows={3}
                   style={{
                     width: '100%',
@@ -3714,12 +3734,44 @@ function PMCardDetailModal({
                   }}
                 />
               </label>
+              <label style={{ display: 'grid', gap: '6px' }}>
+                <span style={{ color: '#94a3b8', fontSize: '12px' }}>
+                  Proof captured
+                  {hostActionProofRequired.length > 0 ? ` (${hostActionProofItems.length}/${hostActionProofRequired.length})` : ''}
+                </span>
+                <textarea
+                  value={hostActionProofText}
+                  onChange={(event) => setHostActionProofText(event.target.value)}
+                  placeholder={
+                    hostActionProofRequired.length > 0
+                      ? 'One proof item per line: screenshot path, scheduled timestamp, publish URL, updated artifact path, metric log path, etc.'
+                      : 'Optional proof lines, one per line.'
+                  }
+                  rows={4}
+                  style={{
+                    width: '100%',
+                    borderRadius: '12px',
+                    border: '1px solid #334155',
+                    backgroundColor: '#0f172a',
+                    color: '#e2e8f0',
+                    padding: '12px',
+                    fontSize: '13px',
+                    lineHeight: 1.5,
+                    resize: 'vertical',
+                  }}
+                />
+              </label>
+              {!hostActionProofReady ? (
+                <p style={{ color: '#fca5a5', fontSize: '12px', margin: 0 }}>
+                  Add at least one proof line for each required proof item before closing this card.
+                </p>
+              ) : null}
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  disabled={actioningCardId === card.id}
+                  disabled={actioningCardId === card.id || !resolutionNote.trim() || !hostActionProofReady}
                   onClick={() => void handleHostActionComplete()}
-                  style={meetingActionButtonStyle('success', actioningCardId === card.id)}
+                  style={meetingActionButtonStyle('success', actioningCardId === card.id || !resolutionNote.trim() || !hostActionProofReady)}
                 >
                   {actioningCardId === card.id ? 'Closing…' : 'Mark host action complete'}
                 </button>

@@ -96,6 +96,7 @@ class PMCardActionRequest(BaseModel):
     resolution_mode: Optional[PMCardResolutionMode] = None
     next_title: Optional[str] = None
     next_reason: Optional[str] = None
+    proof_items: list[str] = Field(default_factory=list)
 
 
 class PMCardActionResult(BaseModel):

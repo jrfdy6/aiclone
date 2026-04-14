@@ -363,6 +363,7 @@ def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardAc
         resolution_mode=payload.resolution_mode,
         next_title=payload.next_title,
         next_reason=payload.next_reason,
+        proof_items=payload.proof_items,
     )
 
 
@@ -375,8 +376,17 @@ def _apply_card_action(
     resolution_mode: str | None = None,
     next_title: str | None = None,
     next_reason: str | None = None,
+    proof_items: list[str] | None = None,
     review_metadata: dict[str, Any] | None = None,
 ) -> Optional[PMCardActionResult]:
+    host_action_completion: dict[str, Any] | None = None
+    if action == "approve" and _is_host_action_required_card(card):
+        host_action_completion = _build_host_action_completion_payload(
+            card,
+            requested_by=requested_by,
+            completion_note=reason,
+            proof_items=proof_items,
+        )
     status, card_payload = build_card_action_update(
         card,
         action=action,
@@ -386,6 +396,8 @@ def _apply_card_action(
         next_title=next_title,
         next_reason=next_reason,
     )
+    if host_action_completion is not None:
+        card_payload["host_action_completion"] = host_action_completion
     updated = update_card(card.id, PMCardUpdate(status=status, payload=card_payload))
     if updated is None:
         return None
@@ -747,6 +759,7 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
             resolution_mode=progression.get("resolution_mode"),
             next_title=progression.get("next_title"),
             next_reason=progression.get("next_reason"),
+            proof_items=None,
             review_metadata=review_metadata,
         )
         if result is None:
@@ -1569,6 +1582,37 @@ def _create_host_action_required_card(
             payload=payload,
         )
     )
+
+
+def _build_host_action_completion_payload(
+    card: PMCard,
+    *,
+    requested_by: str,
+    completion_note: str | None,
+    proof_items: list[str] | None,
+) -> dict[str, Any]:
+    payload = dict(card.payload or {})
+    host_action_required = dict(payload.get("host_action_required") or {})
+    required = _dedupe_nonempty_strings(host_action_required.get("proof_required"))
+    provided = _dedupe_nonempty_strings(proof_items or [])
+    note = _optional_str(completion_note)
+
+    if note is None:
+        raise ValueError("Closing a host action card requires a completion note.")
+    if required and len(provided) < len(required):
+        raise ValueError(
+            f"Closing this host action card requires at least {len(required)} proof item(s) because explicit proof was requested."
+        )
+
+    return {
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_by": requested_by,
+        "completion_note": note,
+        "proof_items": provided,
+        "proof_required": required,
+        "source_card_id": _optional_str(host_action_required.get("source_card_id")),
+        "source_card_title": _optional_str(host_action_required.get("source_card_title")),
+    }
 
 
 def _execution_sort_rank(state: str) -> int:

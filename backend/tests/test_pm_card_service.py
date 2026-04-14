@@ -1210,6 +1210,111 @@ class PMCardServiceTests(unittest.TestCase):
 
         self.assertIsNone(build_execution_queue_entry(card))
 
+    def test_host_action_card_completion_requires_requested_proof(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-proof-required",
+            title="Host action required - Schedule approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule the approved draft in LinkedIn's native scheduler.",
+                    "steps": ["Schedule the approved draft in LinkedIn's native scheduler."],
+                    "proof_required": [
+                        "Scheduler confirmation screenshot path.",
+                        "Updated publishing schedule path.",
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with self.assertRaisesRegex(ValueError, "requires at least 2 proof item"):
+            pm_card_service._apply_card_action(
+                card,
+                action="approve",
+                requested_by="Neo",
+                reason="Scheduled it and updated the release packet.",
+                resolution_mode="close_only",
+                proof_items=["workspaces/linkedin-content-os/analytics/confirmation.png"],
+            )
+
+    def test_host_action_card_completion_records_proof_items(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-proof-recorded",
+            title="Host action required - Schedule approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule the approved draft in LinkedIn's native scheduler.",
+                    "steps": ["Schedule the approved draft in LinkedIn's native scheduler."],
+                    "proof_required": [
+                        "Scheduler confirmation screenshot path.",
+                        "Updated publishing schedule path.",
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        current = {"card": card}
+
+        def fake_update(_card_id: str, patch: PMCardUpdate) -> PMCard:
+            current["card"] = current["card"].model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else current["card"].status,
+                    "payload": patch.payload if patch.payload is not None else current["card"].payload,
+                    "updated_at": now,
+                }
+            )
+            return current["card"]
+
+        with patch.object(pm_card_service, "update_card", side_effect=fake_update):
+            result = pm_card_service._apply_card_action(
+                card,
+                action="approve",
+                requested_by="Neo",
+                reason="Scheduled for Thursday 9:00 AM and updated the linked release artifacts.",
+                resolution_mode="close_only",
+                proof_items=[
+                    "workspaces/linkedin-content-os/analytics/2026-04-13_feezie-002/confirmation.png",
+                    "workspaces/linkedin-content-os/docs/publishing_schedule_2026-04-11.md",
+                ],
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "done")
+        completion = (result.card.payload.get("host_action_completion") or {})
+        self.assertEqual(completion.get("completed_by"), "Neo")
+        self.assertEqual(
+            completion.get("proof_items"),
+            [
+                "workspaces/linkedin-content-os/analytics/2026-04-13_feezie-002/confirmation.png",
+                "workspaces/linkedin-content-os/docs/publishing_schedule_2026-04-11.md",
+            ],
+        )
+        self.assertEqual(
+            completion.get("proof_required"),
+            [
+                "Scheduler confirmation screenshot path.",
+                "Updated publishing schedule path.",
+            ],
+        )
+
     def test_decorate_card_for_client_marks_feezie_alias_review_as_autonomous(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
