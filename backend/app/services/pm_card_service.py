@@ -1184,8 +1184,6 @@ def _is_owner_decision_gate(card: PMCard) -> bool:
             return True
         if queue_id and normalized_status == "review":
             return True
-    if card.link_type == "owner_review" and normalized_status == "review":
-        return True
     if isinstance(card.source, str) and "workspace-owner-review" in card.source and normalized_status == "review":
         return True
     return False

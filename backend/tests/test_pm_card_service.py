@@ -775,8 +775,8 @@ class PMCardServiceTests(unittest.TestCase):
             owner="Jean-Claude",
             status="review",
             source="pm_review_resolution",
-            link_type="standup",
-            link_id="standup-host-action-1",
+            link_type="owner_review",
+            link_id=None,
             payload={
                 "workspace_key": "linkedin-os",
                 "completion_contract": {
@@ -865,6 +865,44 @@ class PMCardServiceTests(unittest.TestCase):
             (current["card"].payload.get("latest_manual_review") or {}).get("host_action_card_id"),
             "host-action-card-1",
         )
+
+    def test_pm_review_resolution_owner_review_link_is_not_manual_gate(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="pm-review-followup-owner-link",
+            title="Package accepted FEEZIE draft into scheduling lane",
+            owner="Jean-Claude",
+            status="review",
+            source="pm_review_resolution",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Packaged the approved draft and left only the host scheduling step.",
+                    "outcomes": ["Scheduling packet is ready."],
+                    "artifacts": ["/tmp/schedule-packet.md"],
+                    "host_actions": ["Schedule the approved draft in LinkedIn's native scheduler."],
+                    "blockers": [],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        self.assertFalse(pm_card_service._is_owner_decision_gate(card))
+        policy = pm_card_service._build_client_review_policy(card)
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertFalse(bool(policy.get("owner_decision_gate")))
 
 
     def test_auto_progress_review_cards_records_audit_entry(self) -> None:
