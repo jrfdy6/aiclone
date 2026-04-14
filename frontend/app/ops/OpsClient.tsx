@@ -469,6 +469,26 @@ type HostActionRequiredPayload = {
   created_at?: string | null;
 };
 
+function hostActionProofPlaceholder(requirement: string): string {
+  const normalized = requirement.toLowerCase();
+  if (normalized.includes('screenshot')) {
+    return 'Enter the screenshot path or link.';
+  }
+  if (normalized.includes('timestamp') || normalized.includes('scheduled')) {
+    return 'Enter the exact scheduled timestamp or confirmation detail.';
+  }
+  if (normalized.includes('url')) {
+    return 'Enter the publish URL or confirmation link.';
+  }
+  if (normalized.includes('path') || normalized.includes('artifact')) {
+    return 'Enter the updated file path or artifact reference.';
+  }
+  if (normalized.includes('metric') || normalized.includes('analytics')) {
+    return 'Enter where the metric or analytics proof was recorded.';
+  }
+  return 'Enter the proof that satisfies this requirement.';
+}
+
 type OwnerReviewActionResult = {
   workflow?: {
     status?: string;
@@ -2931,6 +2951,9 @@ function PMCardDetailModal({
     payload.host_action_required && typeof payload.host_action_required === 'object'
       ? (payload.host_action_required as HostActionRequiredPayload)
       : null;
+  const hostActionProofRequired = Array.isArray(hostActionPayload?.proof_required)
+    ? hostActionPayload.proof_required.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
   const isHostActionCard = Boolean(hostActionPayload);
   const displayCardTitle = ownerReviewDisplayTitle(card, ownerReviewPayload);
   const isOwnerReviewCard = card.link_type === 'owner_review' || Boolean(ownerReviewPayload?.queue_id);
@@ -2942,7 +2965,8 @@ function PMCardDetailModal({
   const [ownerReviewNotes, setOwnerReviewNotes] = useState(ownerReviewPayload?.current_notes ?? '');
   const [resolutionMode, setResolutionMode] = useState<PMCardResolutionMode | null>(pmReviewPolicy?.recommended_resolution_mode ?? null);
   const [resolutionNote, setResolutionNote] = useState('');
-  const [hostActionProofText, setHostActionProofText] = useState('');
+  const [hostActionProofInputs, setHostActionProofInputs] = useState<string[]>(() => hostActionProofRequired.map(() => ''));
+  const [hostActionAdditionalProofText, setHostActionAdditionalProofText] = useState('');
   const [nextCardTitle, setNextCardTitle] = useState(pmReviewPolicy?.suggested_next_title ?? '');
   const [nextCardReason, setNextCardReason] = useState(pmReviewPolicy?.suggested_next_reason ?? '');
   const rawSource = boardItem.source ?? card.source ?? 'manual';
@@ -2969,15 +2993,17 @@ function PMCardDetailModal({
   const hostActionSteps = Array.isArray(hostActionPayload?.steps)
     ? hostActionPayload.steps.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
-  const hostActionProofRequired = Array.isArray(hostActionPayload?.proof_required)
-    ? hostActionPayload.proof_required.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    : [];
-  const hostActionProofItems = hostActionProofText
+  const hostActionRequiredProofItems = hostActionProofRequired.flatMap((requirement, index) => {
+    const value = hostActionProofInputs[index]?.trim();
+    return value ? [`${requirement} Evidence: ${value}`] : [];
+  });
+  const hostActionAdditionalProofItems = hostActionAdditionalProofText
     .split('\n')
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
-  const hostActionProofReady =
-    hostActionProofRequired.length === 0 || hostActionProofItems.length >= hostActionProofRequired.length;
+  const hostActionProofItems = [...hostActionRequiredProofItems, ...hostActionAdditionalProofItems];
+  const hostActionProofCompletedCount = hostActionProofInputs.filter((item) => item.trim().length > 0).length;
+  const hostActionProofReady = hostActionProofRequired.every((_, index) => Boolean(hostActionProofInputs[index]?.trim()));
   const ownerReviewProofAnchors = Array.isArray(ownerReviewPayload?.proof_anchors)
     ? ownerReviewPayload?.proof_anchors.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -3704,6 +3730,18 @@ function PMCardDetailModal({
               <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
                 The system already finished the internal work. This card is only for the external host step that still needs to happen.
               </p>
+              {hostActionPayload.source_card_id ? (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    disabled={actioningCardId === card.id}
+                    onClick={() => onSelectCard(hostActionPayload.source_card_id ?? null)}
+                    style={meetingActionButtonStyle('secondary', actioningCardId === card.id)}
+                  >
+                    Open source PM card
+                  </button>
+                </div>
+              ) : null}
               {hostActionProofRequired.length > 0 ? (
                 <div style={{ display: 'grid', gap: '6px', borderRadius: '12px', border: '1px solid #334155', backgroundColor: '#08101f', padding: '12px' }}>
                   <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: 0 }}>Proof required before closing</p>
@@ -3734,20 +3772,48 @@ function PMCardDetailModal({
                   }}
                 />
               </label>
+              {hostActionProofRequired.length > 0 ? (
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                    Proof captured ({hostActionProofCompletedCount}/{hostActionProofRequired.length})
+                  </p>
+                  {hostActionProofRequired.map((requirement, index) => (
+                    <label key={`${card.id}-host-proof-input-${index}`} style={{ display: 'grid', gap: '6px' }}>
+                      <span style={{ color: '#cbd5f5', fontSize: '12px' }}>{requirement}</span>
+                      <textarea
+                        value={hostActionProofInputs[index] ?? ''}
+                        onChange={(event) =>
+                          setHostActionProofInputs((current) => {
+                            const next = [...current];
+                            next[index] = event.target.value;
+                            return next;
+                          })
+                        }
+                        placeholder={hostActionProofPlaceholder(requirement)}
+                        rows={2}
+                        style={{
+                          width: '100%',
+                          borderRadius: '12px',
+                          border: '1px solid #334155',
+                          backgroundColor: '#0f172a',
+                          color: '#e2e8f0',
+                          padding: '12px',
+                          fontSize: '13px',
+                          lineHeight: 1.5,
+                          resize: 'vertical',
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
               <label style={{ display: 'grid', gap: '6px' }}>
-                <span style={{ color: '#94a3b8', fontSize: '12px' }}>
-                  Proof captured
-                  {hostActionProofRequired.length > 0 ? ` (${hostActionProofItems.length}/${hostActionProofRequired.length})` : ''}
-                </span>
+                <span style={{ color: '#94a3b8', fontSize: '12px' }}>Additional proof lines</span>
                 <textarea
-                  value={hostActionProofText}
-                  onChange={(event) => setHostActionProofText(event.target.value)}
-                  placeholder={
-                    hostActionProofRequired.length > 0
-                      ? 'One proof item per line: screenshot path, scheduled timestamp, publish URL, updated artifact path, metric log path, etc.'
-                      : 'Optional proof lines, one per line.'
-                  }
-                  rows={4}
+                  value={hostActionAdditionalProofText}
+                  onChange={(event) => setHostActionAdditionalProofText(event.target.value)}
+                  placeholder="Optional extra proof, one line per item."
+                  rows={3}
                   style={{
                     width: '100%',
                     borderRadius: '12px',
@@ -3763,7 +3829,7 @@ function PMCardDetailModal({
               </label>
               {!hostActionProofReady ? (
                 <p style={{ color: '#fca5a5', fontSize: '12px', margin: 0 }}>
-                  Add at least one proof line for each required proof item before closing this card.
+                  Complete every required proof field before closing this card.
                 </p>
               ) : null}
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
