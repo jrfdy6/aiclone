@@ -217,6 +217,8 @@ type PMAutoProgressResult = {
   audit_entry?: PMAutoProgressAuditEntry;
 };
 
+const OWNER_REVIEW_ACTIVE_WIP_LIMIT = 3;
+
 type PMAutoProgressAuditEntry = {
   run_id: string;
   processed_at: string;
@@ -2415,7 +2417,11 @@ function PMBoardPanel({
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
   const executionBuckets = useMemo(() => groupExecutionQueue(executionQueue), [executionQueue]);
-  const unifiedBoard = useMemo(() => buildUnifiedOpsBoard(cards, executionQueue), [cards, executionQueue]);
+  const rawUnifiedBoard = useMemo(() => buildUnifiedOpsBoard(cards, executionQueue), [cards, executionQueue]);
+  const { board: unifiedBoard, hiddenOwnerReviewItems } = useMemo(
+    () => applyOwnerReviewWipLimit(rawUnifiedBoard),
+    [rawUnifiedBoard],
+  );
   const activeCards = useMemo(() => cards.filter((card) => normalizeStatus(card.status) !== 'done'), [cards]);
   const recommendationItems = useMemo(
     () =>
@@ -2447,8 +2453,24 @@ function PMBoardPanel({
   const missingRoomCount = useMemo(() => meetingOps.rooms.filter((room) => room.status === 'missing').length, [meetingOps]);
   const staleLaneCount = meetingOps.staleReadyCount + meetingOps.staleReviewCount + meetingOps.staleRunningCount;
   const opsSummaryTone = staleLaneCount > 0 || missingRoomCount > 0 ? '#f59e0b' : executionBuckets.running.length > 0 ? '#22c55e' : '#38bdf8';
+  const boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[] = [
+    { key: 'todo', label: 'Backlog', detail: 'pm card exists, not in execution yet' },
+    { key: 'ready', label: 'Ready', detail: 'Jean-Claude can open SOP now' },
+    { key: 'queued', label: 'Queued', detail: 'opened and waiting on pickup' },
+    { key: 'running', label: 'Running', detail: 'actively being worked' },
+    { key: 'review', label: 'Review', detail: 'result returned, waiting on judgment' },
+    { key: 'failed', label: 'Blocked', detail: 'needs intervention or reroute' },
+    { key: 'done', label: 'Done', detail: 'closed and kept for history' },
+  ];
+  const activeBoardColumns = useMemo(() => boardColumns.filter((column) => column.key !== 'done'), [boardColumns]);
+  const hiddenOwnerReviewCount = hiddenOwnerReviewItems.length;
+  const visibleActiveCardCount = useMemo(
+    () => activeBoardColumns.reduce((sum, column) => sum + unifiedBoard[column.key].length, 0),
+    [activeBoardColumns, unifiedBoard],
+  );
+  const visibleReviewCount = unifiedBoard.review.length;
   const opsSummaryBullets = [
-    `Board: ${activeCards.length} active card${activeCards.length === 1 ? '' : 's'}, ${executionBuckets.running.length} running, ${executionBuckets.review.length} waiting on review.`,
+    `Board: ${visibleActiveCardCount} active card${visibleActiveCardCount === 1 ? '' : 's'} visible, ${executionBuckets.running.length} running, ${visibleReviewCount} waiting on review${hiddenOwnerReviewCount > 0 ? ` (${hiddenOwnerReviewCount} more owner-review card${hiddenOwnerReviewCount === 1 ? '' : 's'} held in backlog)` : ''}.`,
     `Meetings: ${healthyRoomCount}/${meetingOps.rooms.length} healthy lanes, ${meetingOps.orphanStandupCount} orphan standup${meetingOps.orphanStandupCount === 1 ? '' : 's'}, ${missingRoomCount} missing room${missingRoomCount === 1 ? '' : 's'}.`,
     `Automation: ${automationCounts.total} visible job${automationCounts.total === 1 ? '' : 's'}, ${automationCounts.launchd} launchd-driven, latest meeting ${latestMeetingAt ? formatTimestamp(latestMeetingAt) : 'not recorded yet'}.`,
     staleLaneCount > 0
@@ -2456,7 +2478,7 @@ function PMBoardPanel({
       : 'Attention: no stale ready/review/running execution lanes are currently visible.',
   ];
   const compactOverview = [
-    { label: 'Active', value: `${activeCards.length}`, detail: 'open PM cards' },
+    { label: 'Active', value: `${visibleActiveCardCount}`, detail: hiddenOwnerReviewCount > 0 ? `${hiddenOwnerReviewCount} owner-review held` : 'open PM cards' },
     { label: 'Closed', value: `${buckets.done.length}`, detail: 'resolved history' },
     { label: 'Standup Queue', value: `${recommendationItems.length}`, detail: 'pending promotion' },
     { label: 'Ready', value: `${executionBuckets.ready.length}`, detail: 'Jean-Claude can open now' },
@@ -2508,16 +2530,6 @@ function PMBoardPanel({
     () => (selectedBoardCard ? linkedStandupsForCard(selectedBoardCard, standups) : []),
     [selectedBoardCard, standups],
   );
-  const boardColumns: { key: UnifiedBoardLaneKey; label: string; detail: string }[] = [
-    { key: 'todo', label: 'Backlog', detail: 'pm card exists, not in execution yet' },
-    { key: 'ready', label: 'Ready', detail: 'Jean-Claude can open SOP now' },
-    { key: 'queued', label: 'Queued', detail: 'opened and waiting on pickup' },
-    { key: 'running', label: 'Running', detail: 'actively being worked' },
-    { key: 'review', label: 'Review', detail: 'result returned, waiting on judgment' },
-    { key: 'failed', label: 'Blocked', detail: 'needs intervention or reroute' },
-    { key: 'done', label: 'Done', detail: 'closed and kept for history' },
-  ];
-  const activeBoardColumns = useMemo(() => boardColumns.filter((column) => column.key !== 'done'), [boardColumns]);
   const recentClosedItems = useMemo(() => unifiedBoard.done.slice(0, 12), [unifiedBoard.done]);
 
   const handleDispatch = useCallback(
@@ -2631,6 +2643,11 @@ function PMBoardPanel({
           <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>
             This is the owner-sorted list. Start here. Ignore the rest of the board unless priorities changed.
           </p>
+          {hiddenOwnerReviewCount > 0 ? (
+            <p style={{ color: '#fbbf24', fontSize: '12px', margin: '8px 0 0' }}>
+              Showing the top {OWNER_REVIEW_ACTIVE_WIP_LIMIT} owner-review cards. {hiddenOwnerReviewCount} more pending owner-review card{hiddenOwnerReviewCount === 1 ? '' : 's'} are held in backlog until you clear the current set.
+            </p>
+          ) : null}
           {Number(reviewHygieneSummary?.resolved_count ?? 0) > 0 ? (
             <p style={{ color: '#86efac', fontSize: '12px', margin: '8px 0 0' }}>
               The system cleared {reviewHygieneSummary?.resolved_count} stale review card{reviewHygieneSummary?.resolved_count === 1 ? '' : 's'} on this refresh.
@@ -2647,6 +2664,11 @@ function PMBoardPanel({
           <div style={{ borderRadius: '999px', border: '1px solid rgba(148,163,184,0.24)', backgroundColor: 'rgba(148,163,184,0.08)', padding: '7px 11px', color: '#cbd5e1', fontSize: '12px' }}>
             System-managed: {ownerAttentionCounts.update}
           </div>
+          {hiddenOwnerReviewCount > 0 ? (
+            <div style={{ borderRadius: '999px', border: '1px solid rgba(56,189,248,0.24)', backgroundColor: 'rgba(56,189,248,0.08)', padding: '7px 11px', color: '#bae6fd', fontSize: '12px' }}>
+              Owner-review backlog: {hiddenOwnerReviewCount}
+            </div>
+          ) : null}
         </div>
         {ownerInboxItems.length === 0 ? (
           <EmptyPanel message={ownerAttentionCounts.update > 0 ? 'Nothing needs your action right now. The remaining cards look like background updates.' : 'Nothing currently looks like it needs your action.'} compact />
@@ -2810,6 +2832,11 @@ function PMBoardPanel({
                 <span style={{ color: '#64748b', fontSize: '11px' }}>{unifiedBoard[column.key].length}</span>
               </div>
               <p style={{ color: '#64748b', fontSize: '11px', margin: '0 0 10px' }}>{column.detail}</p>
+              {column.key === 'review' && hiddenOwnerReviewCount > 0 ? (
+                <p style={{ color: '#fbbf24', fontSize: '11px', margin: '0 0 10px' }}>
+                  {hiddenOwnerReviewCount} more owner-review card{hiddenOwnerReviewCount === 1 ? '' : 's'} are held in backlog so the active review lane stays capped at {OWNER_REVIEW_ACTIVE_WIP_LIMIT}.
+                </p>
+              ) : null}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {unifiedBoard[column.key].length === 0 && <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this lane yet.</p>}
                 {unifiedBoard[column.key].map((item) => {
@@ -8945,6 +8972,29 @@ function buildUnifiedOpsBoard(cards: PMCard[], executionQueue: ExecutionQueueEnt
   });
 
   return lanes;
+}
+
+function isOwnerReviewDecisionItem(item: UnifiedBoardItem) {
+  return item.lane === 'review' && (item.source ?? '').includes('workspace-owner-review') && item.pmReviewPolicy?.attention_class === 'needs_owner';
+}
+
+function applyOwnerReviewWipLimit(board: Record<UnifiedBoardLaneKey, UnifiedBoardItem[]>) {
+  const reviewItems = board.review ?? [];
+  const visibleOwnerReviewIds = new Set(
+    reviewItems.filter(isOwnerReviewDecisionItem).slice(0, OWNER_REVIEW_ACTIVE_WIP_LIMIT).map((item) => item.cardId),
+  );
+  const hiddenOwnerReviewItems = reviewItems.filter((item) => isOwnerReviewDecisionItem(item) && !visibleOwnerReviewIds.has(item.cardId));
+  if (hiddenOwnerReviewItems.length === 0) {
+    return { board, hiddenOwnerReviewItems: [] as UnifiedBoardItem[] };
+  }
+  const hiddenIds = new Set(hiddenOwnerReviewItems.map((item) => item.cardId));
+  return {
+    board: {
+      ...board,
+      review: reviewItems.filter((item) => !hiddenIds.has(item.cardId)),
+    },
+    hiddenOwnerReviewItems,
+  };
 }
 
 function parseUpdatedAtMillis(value?: string | null) {
