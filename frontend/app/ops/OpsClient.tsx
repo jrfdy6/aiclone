@@ -469,24 +469,54 @@ type HostActionRequiredPayload = {
   created_at?: string | null;
 };
 
-function hostActionProofPlaceholder(requirement: string): string {
+type HostActionProofFieldConfig = {
+  label: string;
+  placeholder: string;
+  multiline: boolean;
+};
+
+function hostActionProofFieldConfig(requirement: string): HostActionProofFieldConfig {
   const normalized = requirement.toLowerCase();
   if (normalized.includes('screenshot')) {
-    return 'Enter the screenshot path or link.';
+    return {
+      label: 'Screenshot path',
+      placeholder: 'Enter the screenshot path or link.',
+      multiline: false,
+    };
   }
   if (normalized.includes('timestamp') || normalized.includes('scheduled')) {
-    return 'Enter the exact scheduled timestamp or confirmation detail.';
+    return {
+      label: 'Scheduled timestamp',
+      placeholder: 'Enter the exact scheduled timestamp or confirmation detail.',
+      multiline: false,
+    };
   }
   if (normalized.includes('url')) {
-    return 'Enter the publish URL or confirmation link.';
+    return {
+      label: 'Publish URL',
+      placeholder: 'Enter the publish URL or confirmation link.',
+      multiline: false,
+    };
   }
   if (normalized.includes('path') || normalized.includes('artifact')) {
-    return 'Enter the updated file path or artifact reference.';
+    return {
+      label: 'Artifact update path',
+      placeholder: 'Enter the updated file path or artifact reference.',
+      multiline: false,
+    };
   }
   if (normalized.includes('metric') || normalized.includes('analytics')) {
-    return 'Enter where the metric or analytics proof was recorded.';
+    return {
+      label: 'Metric log reference',
+      placeholder: 'Enter where the metric or analytics proof was recorded.',
+      multiline: false,
+    };
   }
-  return 'Enter the proof that satisfies this requirement.';
+  return {
+    label: 'Proof note',
+    placeholder: 'Enter the proof that satisfies this requirement.',
+    multiline: true,
+  };
 }
 
 type OwnerReviewActionResult = {
@@ -3777,34 +3807,63 @@ function PMCardDetailModal({
                   <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
                     Proof captured ({hostActionProofCompletedCount}/{hostActionProofRequired.length})
                   </p>
-                  {hostActionProofRequired.map((requirement, index) => (
-                    <label key={`${card.id}-host-proof-input-${index}`} style={{ display: 'grid', gap: '6px' }}>
-                      <span style={{ color: '#cbd5f5', fontSize: '12px' }}>{requirement}</span>
-                      <textarea
-                        value={hostActionProofInputs[index] ?? ''}
-                        onChange={(event) =>
-                          setHostActionProofInputs((current) => {
-                            const next = [...current];
-                            next[index] = event.target.value;
-                            return next;
-                          })
-                        }
-                        placeholder={hostActionProofPlaceholder(requirement)}
-                        rows={2}
-                        style={{
-                          width: '100%',
-                          borderRadius: '12px',
-                          border: '1px solid #334155',
-                          backgroundColor: '#0f172a',
-                          color: '#e2e8f0',
-                          padding: '12px',
-                          fontSize: '13px',
-                          lineHeight: 1.5,
-                          resize: 'vertical',
-                        }}
-                      />
-                    </label>
-                  ))}
+                  {hostActionProofRequired.map((requirement, index) => {
+                    const config = hostActionProofFieldConfig(requirement);
+                    return (
+                      <label key={`${card.id}-host-proof-input-${index}`} style={{ display: 'grid', gap: '6px' }}>
+                        <span style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700 }}>{config.label}</span>
+                        <span style={{ color: '#94a3b8', fontSize: '12px' }}>{requirement}</span>
+                        {config.multiline ? (
+                          <textarea
+                            value={hostActionProofInputs[index] ?? ''}
+                            onChange={(event) =>
+                              setHostActionProofInputs((current) => {
+                                const next = [...current];
+                                next[index] = event.target.value;
+                                return next;
+                              })
+                            }
+                            placeholder={config.placeholder}
+                            rows={2}
+                            style={{
+                              width: '100%',
+                              borderRadius: '12px',
+                              border: '1px solid #334155',
+                              backgroundColor: '#0f172a',
+                              color: '#e2e8f0',
+                              padding: '12px',
+                              fontSize: '13px',
+                              lineHeight: 1.5,
+                              resize: 'vertical',
+                            }}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={hostActionProofInputs[index] ?? ''}
+                            onChange={(event) =>
+                              setHostActionProofInputs((current) => {
+                                const next = [...current];
+                                next[index] = event.target.value;
+                                return next;
+                              })
+                            }
+                            placeholder={config.placeholder}
+                            style={{
+                              width: '100%',
+                              borderRadius: '12px',
+                              border: '1px solid #334155',
+                              backgroundColor: '#0f172a',
+                              color: '#e2e8f0',
+                              padding: '12px',
+                              fontSize: '13px',
+                              lineHeight: 1.5,
+                            }}
+                          />
+                        )}
+                      </label>
+                    );
+                  })}
                 </div>
               ) : null}
               <label style={{ display: 'grid', gap: '6px' }}>
