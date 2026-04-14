@@ -366,6 +366,7 @@ class PMCardServiceTests(unittest.TestCase):
                 "execution": {
                     "lane": "codex",
                     "state": "review",
+                    "reason": "Accountability sweep rerouted this stale `review` lane in `linkedin-os` back to Jean-Claude for a required closure decision.",
                     "manager_agent": "Jean-Claude",
                     "target_agent": "Jean-Claude",
                     "execution_mode": "direct",

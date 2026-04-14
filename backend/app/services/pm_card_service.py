@@ -958,8 +958,6 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
         return None
     if str(card.status or "").strip().lower() != "review":
         return None
-    if _auto_resolve_review_policy(card) is not None:
-        return None
 
     execution = _execution_payload(card) or {}
     if bool(execution.get("manager_attention_required")):
@@ -1010,6 +1008,17 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
             "resolution_mode": "close_only",
             "contract_assessment": contract_assessment,
             "host_action_required": host_action_required,
+        }
+
+    auto_resolve_policy = _auto_resolve_review_policy(card)
+    if auto_resolve_policy is not None:
+        return {
+            "action": "approve",
+            "rule": str(auto_resolve_policy.get("rule") or "auto_resolve_review_residue"),
+            "reason": str(auto_resolve_policy.get("reason") or "Automatically resolved routine review residue."),
+            "resolution_mode": "close_only",
+            "worker_action": "close_only",
+            "contract_assessment": contract_assessment,
         }
 
     resolution_mode = _valid_resolution_mode(workspace_policy.get("default_resolution_mode")) or "close_only"
