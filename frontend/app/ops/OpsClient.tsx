@@ -461,6 +461,7 @@ type HostActionRequiredPayload = {
   summary?: string | null;
   steps?: string[];
   proof_required?: string[];
+  proof_fields?: HostActionProofField[];
   source_card_id?: string | null;
   source_card_title?: string | null;
   source_result_id?: string | null;
@@ -469,13 +470,33 @@ type HostActionRequiredPayload = {
   created_at?: string | null;
 };
 
+type HostActionProofField = {
+  kind?: string | null;
+  label?: string | null;
+  placeholder?: string | null;
+  multiline?: boolean | null;
+  requirement?: string | null;
+};
+
 type HostActionProofFieldConfig = {
   label: string;
   placeholder: string;
   multiline: boolean;
 };
 
-function hostActionProofFieldConfig(requirement: string): HostActionProofFieldConfig {
+function hostActionProofFieldConfig(requirement: string, proofField?: HostActionProofField | null): HostActionProofFieldConfig {
+  if (proofField && typeof proofField === 'object') {
+    const label = typeof proofField.label === 'string' && proofField.label.trim() ? proofField.label.trim() : null;
+    const placeholder =
+      typeof proofField.placeholder === 'string' && proofField.placeholder.trim() ? proofField.placeholder.trim() : null;
+    if (label && placeholder) {
+      return {
+        label,
+        placeholder,
+        multiline: Boolean(proofField.multiline),
+      };
+    }
+  }
   const normalized = requirement.toLowerCase();
   if (normalized.includes('screenshot')) {
     return {
@@ -3034,6 +3055,14 @@ function PMCardDetailModal({
   const hostActionProofItems = [...hostActionRequiredProofItems, ...hostActionAdditionalProofItems];
   const hostActionProofCompletedCount = hostActionProofInputs.filter((item) => item.trim().length > 0).length;
   const hostActionProofReady = hostActionProofRequired.every((_, index) => Boolean(hostActionProofInputs[index]?.trim()));
+  const hostActionProofFieldConfigs = hostActionProofRequired.map((requirement, index) =>
+    hostActionProofFieldConfig(
+      requirement,
+      Array.isArray(hostActionPayload?.proof_fields) && typeof hostActionPayload.proof_fields[index] === 'object'
+        ? (hostActionPayload.proof_fields[index] as HostActionProofField)
+        : null,
+    ),
+  );
   const ownerReviewProofAnchors = Array.isArray(ownerReviewPayload?.proof_anchors)
     ? ownerReviewPayload?.proof_anchors.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -3808,7 +3837,7 @@ function PMCardDetailModal({
                     Proof captured ({hostActionProofCompletedCount}/{hostActionProofRequired.length})
                   </p>
                   {hostActionProofRequired.map((requirement, index) => {
-                    const config = hostActionProofFieldConfig(requirement);
+                    const config = hostActionProofFieldConfigs[index];
                     return (
                       <label key={`${card.id}-host-proof-input-${index}`} style={{ display: 'grid', gap: '6px' }}>
                         <span style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700 }}>{config.label}</span>

@@ -1536,6 +1536,7 @@ def _create_host_action_required_card(
     steps = _dedupe_nonempty_strings(host_action_required.get("steps"))
     summary = _optional_str(host_action_required.get("summary")) or (steps[0] if steps else f"Complete host action for {source_card.title}")
     proof_required = _dedupe_nonempty_strings(host_action_required.get("proof_required"))
+    proof_fields = _build_host_action_proof_fields(proof_required)
     title = _truncate_pm_card_title(f"Host action required - {summary}")
     reason = (
         "Codex completed the internal PM lane, but the last external step still needs to happen outside the runtime. "
@@ -1550,6 +1551,7 @@ def _create_host_action_required_card(
             "summary": summary,
             "steps": steps,
             "proof_required": proof_required,
+            "proof_fields": proof_fields,
             "source_card_id": source_card.id,
             "source_card_title": source_card.title,
             "source_result_id": _optional_str(host_action_required.get("source_result_id")),
@@ -1582,6 +1584,73 @@ def _create_host_action_required_card(
             payload=payload,
         )
     )
+
+
+def _build_host_action_proof_fields(proof_required: list[str]) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    for requirement in proof_required:
+        normalized = requirement.lower()
+        if "screenshot" in normalized:
+            fields.append(
+                {
+                    "kind": "screenshot_path",
+                    "label": "Screenshot path",
+                    "placeholder": "Enter the screenshot path or link.",
+                    "multiline": False,
+                    "requirement": requirement,
+                }
+            )
+        elif "timestamp" in normalized or "scheduled" in normalized:
+            fields.append(
+                {
+                    "kind": "scheduled_timestamp",
+                    "label": "Scheduled timestamp",
+                    "placeholder": "Enter the exact scheduled timestamp or confirmation detail.",
+                    "multiline": False,
+                    "requirement": requirement,
+                }
+            )
+        elif "url" in normalized:
+            fields.append(
+                {
+                    "kind": "publish_url",
+                    "label": "Publish URL",
+                    "placeholder": "Enter the publish URL or confirmation link.",
+                    "multiline": False,
+                    "requirement": requirement,
+                }
+            )
+        elif "path" in normalized or "artifact" in normalized:
+            fields.append(
+                {
+                    "kind": "artifact_path",
+                    "label": "Artifact update path",
+                    "placeholder": "Enter the updated file path or artifact reference.",
+                    "multiline": False,
+                    "requirement": requirement,
+                }
+            )
+        elif "metric" in normalized or "analytics" in normalized:
+            fields.append(
+                {
+                    "kind": "metric_reference",
+                    "label": "Metric log reference",
+                    "placeholder": "Enter where the metric or analytics proof was recorded.",
+                    "multiline": False,
+                    "requirement": requirement,
+                }
+            )
+        else:
+            fields.append(
+                {
+                    "kind": "proof_note",
+                    "label": "Proof note",
+                    "placeholder": "Enter the proof that satisfies this requirement.",
+                    "multiline": True,
+                    "requirement": requirement,
+                }
+            )
+    return fields
 
 
 def _build_host_action_completion_payload(

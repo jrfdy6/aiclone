@@ -867,6 +867,65 @@ class PMCardServiceTests(unittest.TestCase):
             "host-action-card-1",
         )
 
+    def test_create_host_action_card_builds_structured_proof_fields(self) -> None:
+        now = datetime.now(timezone.utc)
+        source_card = PMCard(
+            id="source-card-structured-proof",
+            title="Package accepted FEEZIE draft into scheduling lane",
+            owner="Jean-Claude",
+            status="done",
+            source="pm_review_resolution",
+            link_type="owner_review",
+            link_id=None,
+            payload={"workspace_key": "linkedin-os"},
+            created_at=now,
+            updated_at=now,
+        )
+
+        created_payloads: list[PMCardCreate] = []
+
+        def fake_create(payload: PMCardCreate) -> PMCard:
+            created_payloads.append(payload)
+            return PMCard(
+                id="host-action-card-typed-proof",
+                title=payload.title,
+                owner=payload.owner,
+                status=payload.status,
+                source=payload.source,
+                link_type=payload.link_type,
+                link_id=payload.link_id,
+                payload=payload.payload,
+                created_at=now,
+                updated_at=now,
+            )
+
+        with (
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(pm_card_service, "create_card", side_effect=fake_create),
+        ):
+            created = pm_card_service._create_host_action_required_card(
+                source_card,
+                requested_by="Neo",
+                host_action_required={
+                    "summary": "Schedule the approved draft and write back the publish packet.",
+                    "steps": ["Schedule the approved draft and write back the publish packet."],
+                    "proof_required": [
+                        "Scheduler confirmation screenshot path.",
+                        "Updated publishing schedule path.",
+                        "Publish URL once the post is live.",
+                    ],
+                },
+            )
+
+        self.assertEqual(created.id, "host-action-card-typed-proof")
+        self.assertEqual(len(created_payloads), 1)
+        host_payload = created_payloads[0].payload.get("host_action_required") or {}
+        proof_fields = host_payload.get("proof_fields") or []
+        self.assertEqual(
+            [field.get("kind") for field in proof_fields],
+            ["screenshot_path", "artifact_path", "publish_url"],
+        )
+
     def test_pm_review_resolution_owner_review_link_is_not_manual_gate(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
