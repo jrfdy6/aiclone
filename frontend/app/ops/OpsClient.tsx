@@ -3435,6 +3435,33 @@ function PMCardDetailModal({
     setOwnerReviewNotes(ownerReviewPayload?.current_notes ?? '');
   }, [ownerReviewPayload?.current_notes, card.id]);
 
+  const reviewNeedsEvidenceFirst = boardItem.lane === 'review';
+  const tabSequence = reviewNeedsEvidenceFirst
+    ? ([
+        ['evidence', 'Evidence'],
+        ['overview', 'Overview'],
+        ['outcomes', 'Outcomes'],
+        ['raw', 'Raw'],
+      ] as const)
+    : ([
+        ['overview', 'Overview'],
+        ['evidence', 'Evidence'],
+        ['outcomes', 'Outcomes'],
+        ['raw', 'Raw'],
+      ] as const);
+  const evidenceFirstLinks = [
+    ...(ownerReviewPayload?.draft_path ? [String(ownerReviewPayload.draft_path)] : []),
+    ...(ownerReviewPayload?.owner_packet_path ? [String(ownerReviewPayload.owner_packet_path)] : []),
+    ...validationQuickLinks,
+  ].filter((value, index, array) => value && array.indexOf(value) === index);
+  const evidenceFirstPreview = ownerReviewPayload?.first_pass_draft
+    ? ownerReviewPayload.first_pass_draft
+    : latestExecutionSummary || null;
+
+  useEffect(() => {
+    setActiveTab(reviewNeedsEvidenceFirst ? 'evidence' : 'overview');
+  }, [card.id, reviewNeedsEvidenceFirst]);
+
   useEffect(() => {
     setResolutionMode(pmReviewPolicy?.recommended_resolution_mode ?? null);
     setResolutionNote('');
@@ -3635,6 +3662,88 @@ function PMCardDetailModal({
           </section>
         ) : null}
 
+        {reviewNeedsEvidenceFirst ? (
+          <section
+            style={{
+              borderRadius: '16px',
+              border: '1px solid rgba(56,189,248,0.28)',
+              backgroundColor: 'rgba(56,189,248,0.08)',
+              padding: '14px',
+              marginBottom: '14px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <div>
+                <p style={{ color: '#38bdf8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: '0 0 4px' }}>Evidence First</p>
+                <p style={{ color: '#e2e8f0', fontSize: '14px', margin: 0 }}>
+                  Read the proof before the storyline. This is the concrete material the review decision should rest on.
+                </p>
+              </div>
+              {validationStateLabel ? (
+                <span style={{ borderRadius: '999px', border: '1px solid rgba(56,189,248,0.35)', backgroundColor: '#08101f', color: '#e0f2fe', padding: '6px 10px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' }}>
+                  {validationStateLabel}
+                </span>
+              ) : null}
+            </div>
+            {evidenceFirstLinks.length > 0 ? (
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: ownerReviewProofAnchors.length > 0 || evidenceFirstPreview ? '10px' : 0 }}>
+                {evidenceFirstLinks.map((path) => (
+                  <button
+                    key={`${card.id}-evidence-first-link-${path}`}
+                    type="button"
+                    onClick={() => onOpenArtifactPath(path)}
+                    style={{
+                      borderRadius: '999px',
+                      border: '1px solid #334155',
+                      backgroundColor: '#0f172a',
+                      color: '#f8fafc',
+                      padding: '8px 10px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+                    }}
+                    title={path}
+                  >
+                    {summarizePathForDisplay(path)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {ownerReviewProofAnchors.length > 0 ? (
+              <div style={{ display: 'grid', gap: '4px', marginBottom: evidenceFirstPreview ? '10px' : 0 }}>
+                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>Proof anchors</p>
+                {ownerReviewProofAnchors.slice(0, 3).map((anchor) => (
+                  <p key={`${card.id}-evidence-first-anchor-${anchor}`} style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                    {anchor}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {evidenceFirstPreview ? (
+              <section style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px' }}>
+                <p style={{ color: '#94a3b8', letterSpacing: '0.08em', fontSize: '12px', textTransform: 'uppercase', margin: '0 0 8px' }}>
+                  Draft / evidence preview
+                </p>
+                <pre
+                  style={{
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    color: '#e2e8f0',
+                    fontSize: '12px',
+                    lineHeight: 1.6,
+                    margin: 0,
+                    maxHeight: '220px',
+                    overflowY: 'auto',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+                  }}
+                >
+                  {evidenceFirstPreview}
+                </pre>
+              </section>
+            ) : null}
+          </section>
+        ) : null}
+
         <section
           style={{
             borderRadius: '16px',
@@ -3713,12 +3822,7 @@ function PMCardDetailModal({
         </section>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
-          {([
-            ['overview', 'Overview'],
-            ['evidence', 'Evidence'],
-            ['outcomes', 'Outcomes'],
-            ['raw', 'Raw'],
-          ] as const).map(([key, label]) => (
+          {tabSequence.map(([key, label]) => (
             <button
               key={key}
               type="button"
