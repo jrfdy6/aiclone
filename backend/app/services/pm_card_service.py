@@ -832,6 +832,16 @@ def decorate_card_for_client(card: PMCard | None) -> PMCard | None:
     if card is None:
         return None
     payload = dict(card.payload or {})
+    host_action_required = payload.get("host_action_required")
+    if isinstance(host_action_required, dict):
+        existing_proof_fields = host_action_required.get("proof_fields")
+        if not isinstance(existing_proof_fields, list) or not existing_proof_fields:
+            proof_required = _dedupe_nonempty_strings(host_action_required.get("proof_required"))
+            if proof_required:
+                payload["host_action_required"] = {
+                    **host_action_required,
+                    "proof_fields": _build_host_action_proof_fields(proof_required),
+                }
     payload["pm_review_policy"] = _build_client_review_policy(card)
     return card.model_copy(update={"payload": payload})
 

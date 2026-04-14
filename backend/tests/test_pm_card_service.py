@@ -1246,6 +1246,41 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("attention_class"), "needs_host")
         self.assertFalse(bool(policy.get("owner_decision_gate")))
 
+    def test_decorate_card_for_client_backfills_host_action_proof_fields(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="legacy-host-action-card",
+            title="Host action required - Schedule approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="standup",
+            link_id="standup-host-card-legacy",
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule the approved draft in LinkedIn's native scheduler.",
+                    "steps": ["Schedule the approved draft in LinkedIn's native scheduler."],
+                    "proof_required": [
+                        "Scheduler confirmation screenshot path.",
+                        "Updated publishing schedule path.",
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        host_payload = (decorated.payload.get("host_action_required") or {}) if decorated else {}
+        proof_fields = host_payload.get("proof_fields") or []
+        self.assertEqual(
+            [field.get("kind") for field in proof_fields],
+            ["screenshot_path", "artifact_path"],
+        )
+
     def test_host_action_card_does_not_surface_in_execution_queue(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
