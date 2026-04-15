@@ -525,6 +525,25 @@ def _list_pm_pending_owner_review_items() -> list[dict[str, Any]]:
     return items
 
 
+def _find_pm_pending_owner_review_item(queue_id: str) -> dict[str, Any] | None:
+    normalized_queue_id = str(queue_id or "").strip()
+    if not normalized_queue_id:
+        return None
+    return next(
+        (item for item in _list_pm_pending_owner_review_items() if str(item.get("queue_id") or "").strip() == normalized_queue_id),
+        None,
+    )
+
+
+def _is_missing_owner_review_artifact_error(exc: ValueError) -> bool:
+    message = str(exc)
+    return (
+        "Draft file is missing" in message
+        or "does not have a draft path" in message
+        or "is not present in" in message
+    )
+
+
 def _owner_review_trigger_key(queue_id: str) -> str:
     return f"owner-review:{queue_id}"
 
@@ -1250,5 +1269,13 @@ def record_owner_decision(queue_id: str, decision: str, notes: str | None = None
     payload = list_owner_review_items()
     item = next((entry for entry in payload.get("items", []) if entry.get("queue_id") == queue_id), None)
     if item is None:
+        item = _find_pm_pending_owner_review_item(queue_id)
+    if item is None:
         raise ValueError(f"Unknown queue item: {queue_id}")
-    return _record_owner_decision_for_item(item, decision, notes)
+    try:
+        return _record_owner_decision_for_item(item, decision, notes)
+    except ValueError as exc:
+        fallback_item = _find_pm_pending_owner_review_item(queue_id)
+        if fallback_item is None or not _is_missing_owner_review_artifact_error(exc):
+            raise
+        return _record_owner_decision_for_item(fallback_item, decision, notes, tolerate_missing_artifacts=True)

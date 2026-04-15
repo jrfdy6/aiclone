@@ -1463,6 +1463,98 @@ This is another latent first pass.
         self.assertEqual(payload.get("source_card_id"), pending_card.id)
         self.assertTrue(any("Draft file is missing" in warning for warning in (payload.get("artifact_warnings") or [])))
 
+    def test_workspace_owner_review_route_falls_back_to_pm_payload_when_draft_artifact_is_missing(self) -> None:
+        pending_card = PMCard(
+            id="44444444-4444-4444-8444-444444444444",
+            title="Owner review - FEEZIE-009 - Persona review is an operating system",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "FEEZIE-009",
+                    "title": "Persona review is an operating system",
+                    "lane": "ai",
+                    "format": "long-form operator lesson",
+                    "status": "owner_review_draft",
+                    "entry_kind": "queue",
+                    "source_kind": "feezie_queue",
+                    "approval_status": "owner_review_required",
+                    "publish_posture": "owner_review_required",
+                    "sync_state": "pending_owner_review",
+                    "draft_path": "drafts/feezie-009_persona-review-is-an-operating-system.md",
+                    "core_angle": "The six-step review-to-canon path forced us to treat persona truth like an operating system.",
+                    "why_now": "Chronicle-to-PM wiring keeps surfacing how fragile persona trust gets when review is optional.",
+                    "first_pass_draft": "Treat persona truth like code, not a mood board.",
+                    "proof_anchors": ["wins.md", "initiatives.md", "2026-04-07.md"],
+                    "draft_owner_notes": ["Add the specific numbers from the last review if we want more rigor."],
+                    "packet_recommendation": "Approve for scheduling",
+                    "system_assessment": {"suggested_decision": "approve", "confidence": "high"},
+                },
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        def fake_update_card(_card_id, patch):
+            self.assertTrue((patch.payload or {}).get("acceptance_criteria"))
+            self.assertTrue((patch.payload or {}).get("artifacts_expected"))
+            self.assertEqual(((patch.payload or {}).get("completion_contract") or {}).get("source"), "owner_review_followup")
+            return pending_card.model_copy(
+                update={
+                    "title": patch.title if patch.title is not None else pending_card.title,
+                    "status": patch.status if patch.status is not None else pending_card.status,
+                    "payload": patch.payload if patch.payload is not None else pending_card.payload,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+
+        def fake_dispatch_card(card_id, payload):
+            self.assertEqual(card_id, pending_card.id)
+            self.assertEqual(payload.execution_state, "queued")
+            return SimpleNamespace(
+                card=pending_card.model_copy(update={"status": "todo", "updated_at": datetime.now(timezone.utc)}),
+                queue_entry=SimpleNamespace(target_agent="Jean-Claude", execution_state="queued"),
+            )
+
+        missing_queue_path = self.fixture_root / "drafts" / "queue_01.md"
+        missing_queue_path.parent.mkdir(parents=True, exist_ok=True)
+        missing_queue_path.write_text(
+            """## Queue
+
+### FEEZIE-009 - Persona review is an operating system
+- Lane: ai
+- Format: long-form operator lesson
+- Core angle: The six-step review-to-canon path forced us to treat persona truth like an operating system.
+- Why now: Chronicle-to-PM wiring keeps surfacing how fragile persona trust gets when review is optional.
+- Status: owner_review_draft (`drafts/feezie-009_persona-review-is-an-operating-system.md`)
+- Approval status: `owner_review_required`
+""",
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(linkedin_owner_review_module, "_queue_path", return_value=missing_queue_path),
+            patch.object(linkedin_owner_review_module, "_latest_owner_packet", return_value=None),
+            patch.object(linkedin_owner_review_module, "_list_supplemental_owner_review_items", return_value=[]),
+            patch.object(linkedin_owner_review_module.pm_card_service, "list_cards", return_value=[pending_card]),
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=pending_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "update_card", side_effect=fake_update_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "dispatch_card", side_effect=fake_dispatch_card),
+        ):
+            response = self.client.post(
+                "/api/workspace/linkedin-os-owner-review/FEEZIE-009",
+                json={"decision": "approve", "notes": "Schedule this next."},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual((payload.get("workflow") or {}).get("status"), "queued")
+        self.assertTrue(any("Draft file is missing" in warning for warning in (payload.get("artifact_warnings") or [])))
+
     def test_pm_auto_progress_route(self) -> None:
         expected = {
             "processed_count": 1,
