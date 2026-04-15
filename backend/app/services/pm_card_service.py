@@ -31,6 +31,15 @@ AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
 AUTO_PROGRESS_REQUESTED_BY = "Codex PM Review Worker"
 AUTO_CONTRACT_RETRY_LIMIT = 2
 HOST_ACTION_PREFIX = re.compile(r"^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:host(?:\s+action)?)\s*:\s*(.+?)\s*$", re.IGNORECASE)
+HOST_ACTION_DELAYED_PATTERNS = (
+    re.compile(r"\bwithin\s+\d+\s*(?:hours?|hrs?|h)\b", re.IGNORECASE),
+    re.compile(r"\bfirst[-\s]24h\b", re.IGNORECASE),
+    re.compile(r"\bfirst[-\s]24[-\s]hour\b", re.IGNORECASE),
+    re.compile(r"\bafter\s+publish\b", re.IGNORECASE),
+    re.compile(r"\bonce\s+the\s+post\s+(?:is\s+)?live\b", re.IGNORECASE),
+    re.compile(r"\bafter\s+slot\s*0\b", re.IGNORECASE),
+    re.compile(r"\bafter\s+the\s+real\s+slot\s*0\b", re.IGNORECASE),
+)
 
 
 def list_cards(
@@ -380,7 +389,9 @@ def _apply_card_action(
     review_metadata: dict[str, Any] | None = None,
 ) -> Optional[PMCardActionResult]:
     host_action_completion: dict[str, Any] | None = None
+    host_action_followup: dict[str, Any] | None = None
     if action == "approve" and _is_host_action_required_card(card):
+        host_action_followup = _resolved_host_action_phases(card).get("follow_up")
         host_action_completion = _build_host_action_completion_payload(
             card,
             requested_by=requested_by,
@@ -416,6 +427,27 @@ def _apply_card_action(
         latest_manual_review["successor_card_title"] = successor_card.title
         updated_payload["latest_manual_review"] = latest_manual_review
         updated_payload["resolution_successor"] = {
+            "card_id": successor_card.id,
+            "title": successor_card.title,
+            "created_at": _datetime_to_iso(successor_card.created_at),
+            "workspace_key": _workspace_key_from_card(successor_card),
+        }
+        refreshed = update_card(card.id, PMCardUpdate(status=updated.status, payload=updated_payload))
+        if refreshed is not None:
+            updated = refreshed
+
+    if action == "approve" and host_action_completion is not None and isinstance(host_action_followup, dict):
+        successor_card = _create_host_action_required_card(
+            updated,
+            requested_by=requested_by,
+            host_action_required=host_action_followup,
+        )
+        updated_payload = dict(updated.payload or {})
+        host_completion = dict(updated_payload.get("host_action_completion") or host_action_completion)
+        host_completion["follow_up_card_id"] = successor_card.id
+        host_completion["follow_up_card_title"] = successor_card.title
+        updated_payload["host_action_completion"] = host_completion
+        updated_payload["host_action_followup_spawned"] = {
             "card_id": successor_card.id,
             "title": successor_card.title,
             "created_at": _datetime_to_iso(successor_card.created_at),
@@ -834,14 +866,21 @@ def decorate_card_for_client(card: PMCard | None) -> PMCard | None:
     payload = dict(card.payload or {})
     host_action_required = payload.get("host_action_required")
     if isinstance(host_action_required, dict):
-        existing_proof_fields = host_action_required.get("proof_fields")
-        if not isinstance(existing_proof_fields, list) or not existing_proof_fields:
-            proof_required = _dedupe_nonempty_strings(host_action_required.get("proof_required"))
-            if proof_required:
-                payload["host_action_required"] = {
-                    **host_action_required,
-                    "proof_fields": _build_host_action_proof_fields(proof_required),
-                }
+        phases = _split_host_action_timeline(host_action_required)
+        current_phase = phases.get("current")
+        follow_up_phase = _normalize_host_action_payload(payload.get("host_action_followup")) or phases.get("follow_up")
+        if current_phase is not None:
+            proof_required = _dedupe_nonempty_strings(current_phase.get("proof_required"))
+            payload["host_action_required"] = {
+                **host_action_required,
+                **current_phase,
+                "proof_fields": _build_host_action_proof_fields(proof_required),
+            }
+        if follow_up_phase is not None:
+            payload["host_action_followup"] = {
+                **follow_up_phase,
+                "proof_fields": _build_host_action_proof_fields(_dedupe_nonempty_strings(follow_up_phase.get("proof_required"))),
+            }
     payload["pm_review_policy"] = _build_client_review_policy(card)
     return card.model_copy(update={"payload": payload})
 
@@ -1174,6 +1213,104 @@ def _extract_host_action_required(card: PMCard) -> dict[str, Any] | None:
         "source_result_summary": _optional_str(latest_result.get("summary")),
         "detected_from": detected_from,
     }
+
+
+def _is_delayed_host_action_text(value: object) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in HOST_ACTION_DELAYED_PATTERNS)
+
+
+def _normalize_host_action_payload(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    summary = _optional_str(value.get("summary"))
+    steps = _dedupe_nonempty_strings(value.get("steps"))
+    proof_required = _dedupe_nonempty_strings(value.get("proof_required"))
+    normalized: dict[str, Any] = {
+        "summary": summary or (steps[0] if steps else (proof_required[0] if proof_required else None)),
+        "steps": steps,
+        "proof_required": proof_required,
+        "source_card_id": _optional_str(value.get("source_card_id")),
+        "source_card_title": _optional_str(value.get("source_card_title")),
+        "source_result_id": _optional_str(value.get("source_result_id")),
+        "source_result_summary": _optional_str(value.get("source_result_summary")),
+        "detected_from": _optional_str(value.get("detected_from")),
+    }
+    return normalized if normalized.get("summary") else None
+
+
+def _split_host_action_timeline(host_action_required: dict[str, Any]) -> dict[str, dict[str, Any] | None]:
+    current = _normalize_host_action_payload(host_action_required)
+    if current is None:
+        return {"current": None, "follow_up": None}
+
+    existing_follow_up = _normalize_host_action_payload(host_action_required.get("follow_up_host_action"))
+    if existing_follow_up is not None:
+        return {"current": current, "follow_up": existing_follow_up}
+
+    steps = _dedupe_nonempty_strings(current.get("steps"))
+    proof_required = _dedupe_nonempty_strings(current.get("proof_required"))
+    current_steps = [item for item in steps if not _is_delayed_host_action_text(item)]
+    follow_up_steps = [item for item in steps if _is_delayed_host_action_text(item)]
+    current_proof = [item for item in proof_required if not _is_delayed_host_action_text(item)]
+    follow_up_proof = [item for item in proof_required if _is_delayed_host_action_text(item)]
+    current_summary = _optional_str(current.get("summary"))
+
+    if current_summary and _is_delayed_host_action_text(current_summary):
+        if follow_up_steps and current_summary not in follow_up_steps:
+            follow_up_steps.insert(0, current_summary)
+        current_summary = current_steps[0] if current_steps else None
+    elif current_summary and not current_steps:
+        current_steps = [current_summary]
+
+    if not current_steps and not current_proof:
+        return {"current": current, "follow_up": None}
+
+    if not current_summary:
+        current_summary = current_steps[0] if current_steps else (current_proof[0] if current_proof else None)
+
+    follow_up_summary = follow_up_steps[0] if follow_up_steps else (follow_up_proof[0] if follow_up_proof else None)
+    follow_up = None
+    if follow_up_summary:
+        follow_up = {
+            "summary": follow_up_summary,
+            "steps": follow_up_steps,
+            "proof_required": follow_up_proof,
+            "source_card_id": current.get("source_card_id"),
+            "source_card_title": current.get("source_card_title"),
+            "source_result_id": current.get("source_result_id"),
+            "source_result_summary": current.get("source_result_summary"),
+            "detected_from": current.get("detected_from"),
+        }
+
+    return {
+        "current": {
+            "summary": current_summary,
+            "steps": current_steps,
+            "proof_required": current_proof,
+            "source_card_id": current.get("source_card_id"),
+            "source_card_title": current.get("source_card_title"),
+            "source_result_id": current.get("source_result_id"),
+            "source_result_summary": current.get("source_result_summary"),
+            "detected_from": current.get("detected_from"),
+        },
+        "follow_up": follow_up,
+    }
+
+
+def _resolved_host_action_phases(card: PMCard) -> dict[str, dict[str, Any] | None]:
+    payload = dict(card.payload or {})
+    host_action_required = payload.get("host_action_required")
+    current = _normalize_host_action_payload(host_action_required)
+    if current is None:
+        return {"current": None, "follow_up": None}
+
+    host_action_followup = _normalize_host_action_payload(payload.get("host_action_followup"))
+    if host_action_followup is not None:
+        return {"current": current, "follow_up": host_action_followup}
+    return _split_host_action_timeline(current)
 
 
 def _completion_contract_auto_retry_count(card: PMCard) -> int:
@@ -1543,9 +1680,12 @@ def _create_host_action_required_card(
     host_action_required: dict[str, Any],
 ) -> PMCard:
     workspace_key = _workspace_key_from_card(source_card)
-    steps = _dedupe_nonempty_strings(host_action_required.get("steps"))
-    summary = _optional_str(host_action_required.get("summary")) or (steps[0] if steps else f"Complete host action for {source_card.title}")
-    proof_required = _dedupe_nonempty_strings(host_action_required.get("proof_required"))
+    phases = _split_host_action_timeline(host_action_required)
+    current_phase = phases.get("current") or {}
+    follow_up_phase = phases.get("follow_up")
+    steps = _dedupe_nonempty_strings(current_phase.get("steps"))
+    summary = _optional_str(current_phase.get("summary")) or (steps[0] if steps else f"Complete host action for {source_card.title}")
+    proof_required = _dedupe_nonempty_strings(current_phase.get("proof_required"))
     proof_fields = _build_host_action_proof_fields(proof_required)
     title = _truncate_pm_card_title(f"Host action required - {summary}")
     reason = (
@@ -1564,15 +1704,20 @@ def _create_host_action_required_card(
             "proof_fields": proof_fields,
             "source_card_id": source_card.id,
             "source_card_title": source_card.title,
-            "source_result_id": _optional_str(host_action_required.get("source_result_id")),
-            "source_result_summary": _optional_str(host_action_required.get("source_result_summary")),
-            "detected_from": _optional_str(host_action_required.get("detected_from")),
+            "source_result_id": _optional_str(current_phase.get("source_result_id")),
+            "source_result_summary": _optional_str(current_phase.get("source_result_summary")),
+            "detected_from": _optional_str(current_phase.get("detected_from")),
             "created_at": datetime.now(timezone.utc).isoformat(),
         },
         # These fields make the trigger key stable without turning the card into an execution candidate.
         "instructions": steps,
         "acceptance_criteria": proof_required,
     }
+    if follow_up_phase is not None:
+        payload["host_action_followup"] = {
+            **follow_up_phase,
+            "proof_fields": _build_host_action_proof_fields(_dedupe_nonempty_strings(follow_up_phase.get("proof_required"))),
+        }
     payload["trigger_key"] = _build_trigger_key(
         title=title,
         workspace_key=workspace_key,
@@ -1671,7 +1816,9 @@ def _build_host_action_completion_payload(
     proof_items: list[str] | None,
 ) -> dict[str, Any]:
     payload = dict(card.payload or {})
-    host_action_required = dict(payload.get("host_action_required") or {})
+    phases = _resolved_host_action_phases(card)
+    host_action_required = dict(phases.get("current") or payload.get("host_action_required") or {})
+    follow_up_host_action = dict(phases.get("follow_up") or payload.get("host_action_followup") or {})
     required = _dedupe_nonempty_strings(host_action_required.get("proof_required"))
     provided = _dedupe_nonempty_strings(proof_items or [])
     note = _optional_str(completion_note)
@@ -1691,6 +1838,8 @@ def _build_host_action_completion_payload(
         "proof_required": required,
         "source_card_id": _optional_str(host_action_required.get("source_card_id")),
         "source_card_title": _optional_str(host_action_required.get("source_card_title")),
+        "follow_up_summary": _optional_str(follow_up_host_action.get("summary")),
+        "follow_up_proof_required": _dedupe_nonempty_strings(follow_up_host_action.get("proof_required")),
     }
 
 

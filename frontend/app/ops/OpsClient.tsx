@@ -3055,6 +3055,10 @@ function PMCardDetailModal({
     payload.host_action_required && typeof payload.host_action_required === 'object'
       ? (payload.host_action_required as HostActionRequiredPayload)
       : null;
+  const hostActionFollowupPayload =
+    payload.host_action_followup && typeof payload.host_action_followup === 'object'
+      ? (payload.host_action_followup as HostActionRequiredPayload)
+      : null;
   const hostActionProofRequired = Array.isArray(hostActionPayload?.proof_required)
     ? hostActionPayload.proof_required.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -3186,7 +3190,9 @@ function PMCardDetailModal({
     effectiveResolutionMode === 'close_and_spawn_next' &&
     !effectiveNextCardTitle;
   const validationOutcomeText = isHostActionCard
-    ? 'If you mark this complete, PM will close this host-action card and remove it from active work. If the step cannot happen yet, you can send it back into system work or block it.'
+    ? hostActionFollowupPayload?.summary
+      ? `If you mark this complete, PM will close this host-action card and create the next host step: "${hostActionFollowupPayload.summary}". If the step cannot happen yet, you can send it back into system work or block it.`
+      : 'If you mark this complete, PM will close this host-action card and remove it from active work. If the step cannot happen yet, you can send it back into system work or block it.'
     : isPendingOwnerReview
       ? 'If you approve this draft, PM writes the decision back and queues Jean-Claude for follow-through automatically.'
       : boardItem.lane === 'review'
@@ -3976,6 +3982,11 @@ function PMCardDetailModal({
               <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
                 The system already finished the internal work. This card is only for the external host step that still needs to happen.
               </p>
+              {hostActionFollowupPayload?.summary ? (
+                <p style={{ color: '#93c5fd', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                  Closing this card will spawn the next delayed host step: {hostActionFollowupPayload.summary}
+                </p>
+              ) : null}
               {hostActionPayload.source_card_id ? (
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button

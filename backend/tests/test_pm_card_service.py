@@ -924,7 +924,82 @@ class PMCardServiceTests(unittest.TestCase):
         proof_fields = host_payload.get("proof_fields") or []
         self.assertEqual(
             [field.get("kind") for field in proof_fields],
-            ["screenshot_path", "artifact_path", "publish_url"],
+            ["screenshot_path", "artifact_path"],
+        )
+        follow_up_payload = created_payloads[0].payload.get("host_action_followup") or {}
+        follow_up_fields = follow_up_payload.get("proof_fields") or []
+        self.assertEqual(
+            [field.get("kind") for field in follow_up_fields],
+            ["publish_url"],
+        )
+
+    def test_create_host_action_card_splits_delayed_followup_requirements(self) -> None:
+        now = datetime.now(timezone.utc)
+        source_card = PMCard(
+            id="source-card-split-host-action",
+            title="Package accepted FEEZIE draft into scheduling lane",
+            owner="Jean-Claude",
+            status="done",
+            source="pm_review_resolution",
+            link_type="owner_review",
+            link_id=None,
+            payload={"workspace_key": "linkedin-os"},
+            created_at=now,
+            updated_at=now,
+        )
+
+        created_payloads: list[PMCardCreate] = []
+
+        def fake_create(payload: PMCardCreate) -> PMCard:
+            created_payloads.append(payload)
+            return PMCard(
+                id="host-action-card-split-proof",
+                title=payload.title,
+                owner=payload.owner,
+                status=payload.status,
+                source=payload.source,
+                link_type=payload.link_type,
+                link_id=payload.link_id,
+                payload=payload.payload,
+                created_at=now,
+                updated_at=now,
+            )
+
+        with (
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(pm_card_service, "create_card", side_effect=fake_create),
+        ):
+            created = pm_card_service._create_host_action_required_card(
+                source_card,
+                requested_by="Neo",
+                host_action_required={
+                    "summary": "Schedule FEEZIE-002 and log the first-24h metrics after publish.",
+                    "steps": [
+                        "Schedule FEEZIE-002 in LinkedIn's native scheduler.",
+                        "Within 24 hours of publish, log first-24h metrics in the analytics template.",
+                    ],
+                    "proof_required": [
+                        "Scheduler confirmation screenshot path.",
+                        "Updated publishing schedule path.",
+                        "First-24h analytics recorded in the analytics template.",
+                    ],
+                },
+            )
+
+        self.assertEqual(created.id, "host-action-card-split-proof")
+        host_payload = created_payloads[0].payload.get("host_action_required") or {}
+        self.assertEqual(
+            host_payload.get("proof_required"),
+            [
+                "Scheduler confirmation screenshot path.",
+                "Updated publishing schedule path.",
+            ],
+        )
+        follow_up_payload = created_payloads[0].payload.get("host_action_followup") or {}
+        self.assertIn("first-24h metrics", str(follow_up_payload.get("summary") or ""))
+        self.assertEqual(
+            follow_up_payload.get("proof_required"),
+            ["First-24h analytics recorded in the analytics template."],
         )
 
     def test_pm_review_resolution_owner_review_link_is_not_manual_gate(self) -> None:
@@ -1282,6 +1357,52 @@ class PMCardServiceTests(unittest.TestCase):
             ["screenshot_path", "artifact_path"],
         )
 
+    def test_decorate_card_for_client_splits_delayed_host_action_for_display(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="legacy-host-action-split-display",
+            title="Host action required - Schedule approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="standup",
+            link_id="standup-host-card-split-display",
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule the approved draft and log first-24h analytics after publish.",
+                    "steps": [
+                        "Schedule the approved draft in LinkedIn's native scheduler.",
+                        "Within 24 hours of publish, log first-24h analytics in the analytics template.",
+                    ],
+                    "proof_required": [
+                        "Scheduler confirmation screenshot path.",
+                        "Updated publishing schedule path.",
+                        "First-24h analytics recorded in the analytics template.",
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        host_payload = (decorated.payload.get("host_action_required") or {}) if decorated else {}
+        self.assertEqual(
+            host_payload.get("proof_required"),
+            [
+                "Scheduler confirmation screenshot path.",
+                "Updated publishing schedule path.",
+            ],
+        )
+        follow_up_payload = (decorated.payload.get("host_action_followup") or {}) if decorated else {}
+        self.assertEqual(
+            follow_up_payload.get("proof_required"),
+            ["First-24h analytics recorded in the analytics template."],
+        )
+
     def test_host_action_card_does_not_surface_in_execution_queue(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
@@ -1408,6 +1529,106 @@ class PMCardServiceTests(unittest.TestCase):
                 "Scheduler confirmation screenshot path.",
                 "Updated publishing schedule path.",
             ],
+        )
+
+    def test_host_action_completion_spawns_delayed_followup_card(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-followup-split",
+            title="Host action required - Schedule approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule the approved draft and log first-24h analytics after publish.",
+                    "steps": [
+                        "Schedule the approved draft in LinkedIn's native scheduler.",
+                        "Within 24 hours of publish, log first-24h analytics in the analytics template.",
+                    ],
+                    "proof_required": [
+                        "Scheduler confirmation screenshot path.",
+                        "Updated publishing schedule path.",
+                        "First-24h analytics recorded in the analytics template.",
+                    ],
+                    "source_card_id": "pm-review-source-1",
+                    "source_card_title": "Package accepted FEEZIE draft into scheduling lane",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        current = {"card": card}
+
+        def fake_update(_card_id: str, patch: PMCardUpdate) -> PMCard:
+            current["card"] = current["card"].model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else current["card"].status,
+                    "payload": patch.payload if patch.payload is not None else current["card"].payload,
+                    "updated_at": now,
+                }
+            )
+            return current["card"]
+
+        created_payloads: list[PMCardCreate] = []
+
+        def fake_create(payload: PMCardCreate) -> PMCard:
+            created_payloads.append(payload)
+            return PMCard(
+                id="host-followup-card-1",
+                title=payload.title,
+                owner=payload.owner,
+                status=payload.status,
+                source=payload.source,
+                link_type=payload.link_type,
+                link_id=payload.link_id,
+                payload=payload.payload,
+                created_at=now,
+                updated_at=now,
+            )
+
+        with (
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(pm_card_service, "create_card", side_effect=fake_create),
+        ):
+            result = pm_card_service._apply_card_action(
+                card,
+                action="approve",
+                requested_by="Neo",
+                reason="Scheduled for Thursday 9:00 AM and updated the release artifacts.",
+                resolution_mode="close_only",
+                proof_items=[
+                    "workspaces/linkedin-content-os/analytics/2026-04-13_feezie-002/confirmation.png",
+                    "workspaces/linkedin-content-os/docs/publishing_schedule_2026-04-11.md",
+                ],
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "done")
+        self.assertIsNotNone(result.successor_card)
+        assert result.successor_card is not None
+        self.assertEqual(result.successor_card.id, "host-followup-card-1")
+        completion = result.card.payload.get("host_action_completion") or {}
+        self.assertEqual(
+            completion.get("proof_required"),
+            [
+                "Scheduler confirmation screenshot path.",
+                "Updated publishing schedule path.",
+            ],
+        )
+        self.assertEqual(completion.get("follow_up_card_id"), "host-followup-card-1")
+        self.assertEqual(len(created_payloads), 1)
+        follow_up_payload = created_payloads[0].payload.get("host_action_required") or {}
+        self.assertIn("first-24h analytics", str(follow_up_payload.get("summary") or ""))
+        self.assertEqual(
+            follow_up_payload.get("proof_required"),
+            ["First-24h analytics recorded in the analytics template."],
         )
 
     def test_decorate_card_for_client_marks_feezie_alias_review_as_autonomous(self) -> None:
