@@ -1492,6 +1492,44 @@ class PMCardServiceTests(unittest.TestCase):
         policy = decorated.payload.get("pm_review_policy") or {}
         self.assertEqual(policy.get("attention_class"), "needs_host")
 
+    def test_host_action_card_with_stale_execution_is_normalized_for_client(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-normalized",
+            title="Host action required - Publish approved draft",
+            owner="Neo",
+            status="in_progress",
+            source="pm_host_action_required",
+            link_type="standup",
+            link_id="standup-host-card-normalized",
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Publish the approved draft manually.",
+                    "steps": ["Publish the approved draft manually."],
+                },
+                "execution": {
+                    "state": "failed",
+                    "manager_attention_required": True,
+                    "executor_status": "failed",
+                    "executor_last_error": "stale failure payload",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        self.assertEqual(decorated.status, "todo")
+        execution = decorated.payload.get("execution") or {}
+        self.assertEqual(execution.get("state"), "host_step_only")
+        self.assertFalse(execution.get("manager_attention_required"))
+        self.assertIsNone(execution.get("executor_status"))
+        self.assertIsNone(execution.get("executor_last_error"))
+
     def test_dispatch_card_rejects_host_action_cards(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

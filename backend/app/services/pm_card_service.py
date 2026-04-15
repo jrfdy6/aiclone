@@ -867,6 +867,7 @@ def decorate_card_for_client(card: PMCard | None) -> PMCard | None:
         return None
     payload = dict(card.payload or {})
     host_action_required = payload.get("host_action_required")
+    normalized_status = card.status
     if isinstance(host_action_required, dict):
         phases = _split_host_action_timeline(host_action_required)
         current_phase = phases.get("current")
@@ -883,8 +884,23 @@ def decorate_card_for_client(card: PMCard | None) -> PMCard | None:
                 **follow_up_phase,
                 "proof_fields": _build_host_action_proof_fields(_dedupe_nonempty_strings(follow_up_phase.get("proof_required"))),
             }
+        execution = dict(payload.get("execution") or {}) if isinstance(payload.get("execution"), dict) else {}
+        if not _is_closed_pm_status(card.status):
+            if str(card.status or "").strip().lower() in {"queued", "running", "in_progress", "review", "failed"}:
+                normalized_status = "todo"
+            payload["execution"] = {
+                **execution,
+                "state": "host_step_only",
+                "manager_attention_required": False,
+                "executor_status": None,
+                "executor_worker_id": None,
+                "executor_last_error": None,
+                "execution_packet_path": None,
+                "sop_path": None,
+                "briefing_path": None,
+            }
     payload["pm_review_policy"] = _build_client_review_policy(card)
-    return card.model_copy(update={"payload": payload})
+    return card.model_copy(update={"status": normalized_status, "payload": payload})
 
 
 def decorate_cards_for_client(cards: List[PMCard]) -> List[PMCard]:
