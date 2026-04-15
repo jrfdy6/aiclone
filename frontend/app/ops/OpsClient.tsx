@@ -2491,6 +2491,11 @@ function PMBoardPanel({
   const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [selectedBoardCardId, setSelectedBoardCardId] = useState<string | null>(null);
+  const [selectedBoardSnapshot, setSelectedBoardSnapshot] = useState<{
+    boardItem: UnifiedBoardItem;
+    card: PMCard;
+    linkedStandups: StandupEntry[];
+  } | null>(null);
   const unifiedBoardItems = useMemo(() => Object.values(unifiedBoard).flat(), [unifiedBoard]);
   const ownerAttentionItems = useMemo(() => buildOwnerAttentionItems(unifiedBoardItems), [unifiedBoardItems]);
   const ownerAttentionCounts = useMemo(
@@ -2518,18 +2523,22 @@ function PMBoardPanel({
         .slice(0, 5),
     [reviewProgressAudit],
   );
-  const selectedBoardItem = useMemo(
+  const liveSelectedBoardItem = useMemo(
     () => (selectedBoardCardId ? unifiedBoardItems.find((item) => item.cardId === selectedBoardCardId) ?? null : null),
     [selectedBoardCardId, unifiedBoardItems],
   );
-  const selectedBoardCard = useMemo(
+  const liveSelectedBoardCard = useMemo(
     () => (selectedBoardCardId ? cards.find((card) => card.id === selectedBoardCardId) ?? null : null),
     [cards, selectedBoardCardId],
   );
-  const selectedBoardLinkedStandups = useMemo(
-    () => (selectedBoardCard ? linkedStandupsForCard(selectedBoardCard, standups) : []),
-    [selectedBoardCard, standups],
+  const liveSelectedBoardLinkedStandups = useMemo(
+    () => (liveSelectedBoardCard ? linkedStandupsForCard(liveSelectedBoardCard, standups) : []),
+    [liveSelectedBoardCard, standups],
   );
+  const selectedBoardSnapshotMatches = selectedBoardSnapshot?.card.id === selectedBoardCardId;
+  const selectedBoardItem = selectedBoardSnapshotMatches ? selectedBoardSnapshot.boardItem : liveSelectedBoardItem;
+  const selectedBoardCard = selectedBoardSnapshotMatches ? selectedBoardSnapshot.card : liveSelectedBoardCard;
+  const selectedBoardLinkedStandups = selectedBoardSnapshotMatches ? selectedBoardSnapshot.linkedStandups : liveSelectedBoardLinkedStandups;
   const recentClosedItems = useMemo(() => unifiedBoard.done.slice(0, 12), [unifiedBoard.done]);
 
   const handleDispatch = useCallback(
@@ -2553,6 +2562,7 @@ function PMBoardPanel({
 
   useEffect(() => {
     if (!selectedBoardCardId) {
+      setSelectedBoardSnapshot(null);
       return undefined;
     }
     const handleEscape = (event: KeyboardEvent) => {
@@ -2565,10 +2575,26 @@ function PMBoardPanel({
   }, [selectedBoardCardId]);
 
   useEffect(() => {
-    if (selectedBoardCardId && !selectedBoardItem) {
-      setSelectedBoardCardId(null);
+    if (!selectedBoardCardId) {
+      return;
     }
-  }, [selectedBoardCardId, selectedBoardItem]);
+    if (selectedBoardSnapshot?.card.id === selectedBoardCardId) {
+      return;
+    }
+    if (liveSelectedBoardItem && liveSelectedBoardCard) {
+      setSelectedBoardSnapshot({
+        boardItem: liveSelectedBoardItem,
+        card: liveSelectedBoardCard,
+        linkedStandups: liveSelectedBoardLinkedStandups,
+      });
+    }
+  }, [
+    selectedBoardCardId,
+    selectedBoardSnapshot,
+    liveSelectedBoardItem,
+    liveSelectedBoardCard,
+    liveSelectedBoardLinkedStandups,
+  ]);
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
