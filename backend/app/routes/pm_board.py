@@ -84,7 +84,10 @@ async def list_execution_queue(
 
 @router.post("/cards/{card_id}/dispatch", response_model=PMCardDispatchResult)
 async def dispatch_card(card_id: UUID, payload: PMCardDispatchRequest):
-    result = pm_card_service.dispatch_card(str(card_id), payload)
+    try:
+        result = pm_card_service.dispatch_card(str(card_id), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not result:
         raise HTTPException(status_code=404, detail="PM card not found")
     return PMCardDispatchResult(

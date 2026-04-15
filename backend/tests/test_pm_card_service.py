@@ -1426,6 +1426,105 @@ class PMCardServiceTests(unittest.TestCase):
 
         self.assertIsNone(build_execution_queue_entry(card))
 
+    def test_host_action_card_with_stale_execution_does_not_surface_in_execution_queue(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-stale-execution",
+            title="Host action required - Publish approved draft",
+            owner="Neo",
+            status="in_progress",
+            source="pm_host_action_required",
+            link_type="standup",
+            link_id="standup-host-card-stale",
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Publish the approved draft manually.",
+                    "steps": ["Publish the approved draft manually."],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "failed",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "manager_attention_required": True,
+                    "executor_status": "failed",
+                    "executor_last_error": "stale execution payload from pre-host-action bug",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        self.assertIsNone(build_execution_queue_entry(card))
+
+    def test_host_action_card_with_stale_execution_stays_needs_host(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-needs-host",
+            title="Host action required - Publish approved draft",
+            owner="Neo",
+            status="in_progress",
+            source="pm_host_action_required",
+            link_type="standup",
+            link_id="standup-host-card-policy",
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Publish the approved draft manually.",
+                    "steps": ["Publish the approved draft manually."],
+                },
+                "execution": {
+                    "state": "failed",
+                    "manager_attention_required": True,
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        policy = decorated.payload.get("pm_review_policy") or {}
+        self.assertEqual(policy.get("attention_class"), "needs_host")
+
+    def test_dispatch_card_rejects_host_action_cards(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-dispatch-rejected",
+            title="Host action required - Publish approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="standup",
+            link_id="standup-host-card-dispatch",
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Publish the approved draft manually.",
+                    "steps": ["Publish the approved draft manually."],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with patch.object(pm_card_service, "get_card", return_value=card):
+            with self.assertRaisesRegex(ValueError, "Host-action cards cannot be dispatched"):
+                pm_card_service.dispatch_card(
+                    card.id,
+                    PMCardDispatchRequest(
+                        target_agent="Jean-Claude",
+                        lane="codex",
+                        requested_by="Jean-Claude",
+                        execution_state="queued",
+                    ),
+                )
+
     def test_host_action_card_completion_allows_simple_confirmation(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

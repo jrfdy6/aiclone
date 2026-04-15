@@ -306,6 +306,8 @@ def dispatch_card(card_id: str, payload: PMCardDispatchRequest) -> Optional[PMCa
     card = get_card(card_id)
     if card is None:
         return None
+    if _is_host_action_required_card(card):
+        raise ValueError("Host-action cards cannot be dispatched into execution. Confirm, return, or block the host step instead.")
 
     now = datetime.now(timezone.utc)
     card_payload = dict(card.payload or {})
@@ -892,6 +894,8 @@ def decorate_cards_for_client(cards: List[PMCard]) -> List[PMCard]:
 def build_execution_queue_entry(card: PMCard) -> Optional[ExecutionQueueEntry]:
     if _is_closed_pm_status(card.status):
         return None
+    if _is_host_action_required_card(card):
+        return None
     payload = dict(card.payload or {})
     execution = _execution_payload(card)
     if not execution and not _is_execution_candidate(card):
@@ -1417,12 +1421,12 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
     elif owner_gate:
         attention_class = "needs_owner"
         attention_reason = "This card is an explicit owner gate and should wait for your call."
-    elif bool(execution.get("manager_attention_required")) or normalized_status in {"blocked", "failed"}:
-        attention_class = "needs_owner"
-        attention_reason = "This lane is blocked or flagged for manager attention and needs a human decision."
     elif host_action_required:
         attention_class = "needs_host"
         attention_reason = "This card requires a host action outside the runtime before the loop can fully close."
+    elif bool(execution.get("manager_attention_required")) or normalized_status in {"blocked", "failed"}:
+        attention_class = "needs_owner"
+        attention_reason = "This lane is blocked or flagged for manager attention and needs a human decision."
     elif auto_resolve_policy is not None:
         attention_class = "stale"
         attention_reason = auto_resolve_policy["reason"]
