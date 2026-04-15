@@ -3347,6 +3347,253 @@ function PMCardDetailModal({
     null,
     2,
   );
+  const codexPacketMode = useMemo<'clarify_only' | 'execute_repo_work'>(() => {
+    if (isPendingOwnerReview || isHostActionCard) {
+      return 'clarify_only';
+    }
+    if (boardItem.lane === 'failed' || boardItem.lane === 'queued' || boardItem.lane === 'running' || boardItem.lane === 'ready') {
+      return 'execute_repo_work';
+    }
+    if (boardItem.lane === 'review' && pmReviewPolicy?.attention_class !== 'needs_owner' && pmReviewPolicy?.attention_class !== 'needs_host') {
+      return 'execute_repo_work';
+    }
+    return 'clarify_only';
+  }, [boardItem.lane, isHostActionCard, isPendingOwnerReview, pmReviewPolicy?.attention_class]);
+  const codexCardKind = useMemo(() => {
+    if (isPendingOwnerReview) {
+      return 'owner_decision';
+    }
+    if (isHostActionCard) {
+      return 'host_confirmation';
+    }
+    if (boardItem.lane === 'failed') {
+      return 'execution_retry';
+    }
+    if (likelyStaleBoardItem) {
+      return 'stale_or_already_handled';
+    }
+    if (boardItem.lane === 'review') {
+      return 'execution_review';
+    }
+    return 'execution_lane';
+  }, [boardItem.lane, isHostActionCard, isPendingOwnerReview, likelyStaleBoardItem]);
+  const codexDefaultAction = useMemo(() => {
+    if (isPendingOwnerReview) {
+      const suggested = ownerReviewAssessment?.suggested_decision;
+      return typeof suggested === 'string' && suggested.trim() ? suggested.trim() : 'make_owner_decision';
+    }
+    if (isHostActionCard) {
+      return 'confirm_host_step_if_done_otherwise_block_or_return';
+    }
+    if (boardItem.lane === 'failed') {
+      return 'return_to_jean_claude_with_concrete_result_or_blocker';
+    }
+    if (likelyStaleBoardItem) {
+      return 'close_if_already_handled_otherwise_clarify_next_step';
+    }
+    if (boardItem.lane === 'review') {
+      return pmReviewPolicy?.recommended_resolution_mode === 'close_and_spawn_next' ? 'accept_and_spawn_next' : 'accept_or_return';
+    }
+    return 'follow_card_guidance';
+  }, [boardItem.lane, isHostActionCard, isPendingOwnerReview, likelyStaleBoardItem, ownerReviewAssessment?.suggested_decision, pmReviewPolicy?.recommended_resolution_mode]);
+  const codexPacket = useMemo(() => {
+    const workspacePath = '/Users/neo/.openclaw/workspace';
+    const lines: string[] = [
+      `You are working from a PM card in ${workspacePath}.`,
+      '',
+      `Mode: ${codexPacketMode}`,
+      `Card kind: ${codexCardKind}`,
+      `Default action: ${codexDefaultAction}`,
+      '',
+      'Guardrails:',
+      '- Treat the PM card as the source of truth.',
+      '- Do not reinterpret the task beyond what is necessary to complete it.',
+      '- Do not invent facts, metrics, proof, or external actions.',
+      '- Do not make owner decisions unless the card explicitly asks for owner judgment.',
+      codexPacketMode === 'execute_repo_work'
+        ? '- Complete repo-side work if it can be completed safely from this workspace.'
+        : '- Clarify the task first. Do not execute repo changes unless the card clearly supports them.',
+      '- If anything still requires Neo, state exactly what it is.',
+      '- If the card is blocked, not due yet, or depends on an external UI, say so directly.',
+      '- Do not mutate PM/backend state unless the card explicitly requires it.',
+      '',
+      'Return:',
+      '1. What this card is asking',
+      '2. What I can do now',
+      '3. What I did',
+      '4. What still requires Neo',
+      '5. Files changed',
+      '',
+      'PM card snapshot:',
+      `- Title: ${displayCardTitle}`,
+      `- Workspace: ${meetingLabelForWorkspace(boardItem.workspaceKey)} (${boardItem.workspaceKey})`,
+      `- Lane: ${boardColumns.find((column) => column.key === boardItem.lane)?.label ?? boardItem.lane}`,
+      `- PM status: ${card.status}`,
+      `- Execution state: ${executionStatusLabel ?? 'not in execution yet'}`,
+      `- Source: ${rawSource}`,
+      `- Link type: ${linkType}`,
+      linkId ? `- Link id: ${linkId}` : '',
+      card.due_at ? `- Due at: ${card.due_at}` : '',
+      pmReviewPolicy?.attention_class ? `- Attention class: ${pmReviewPolicy.attention_class}` : '',
+      pmReviewPolicy?.attention_reason ? `- Attention reason: ${pmReviewPolicy.attention_reason}` : '',
+      `- Why this card exists: ${boardItem.reason ?? guidance.summary}`,
+      `- Your role: ${guidance.userRole}`,
+      `- Next best action: ${guidance.nextAction}`,
+      `- Codex can help now: ${codexPacketMode === 'execute_repo_work' ? 'yes, repo-side work' : 'yes, clarification only'}`,
+      '',
+      'Card explanation already on the PM surface:',
+      `- Storyboard summary: ${storyboardWhyText}`,
+      `- Decision required: ${storyboardDecisionDetail}`,
+      `- Fallback if unclear: ${storyboardFallbackText}`,
+    ];
+
+    if (isPendingOwnerReview) {
+      lines.push(
+        '',
+        'Owner review context:',
+        ownerReviewPayload?.queue_id ? `- Queue id: ${ownerReviewPayload.queue_id}` : '',
+        ownerReviewPayload?.summary ? `- Summary: ${ownerReviewPayload.summary}` : '',
+        ownerReviewPayload?.core_angle ? `- Core angle: ${ownerReviewPayload.core_angle}` : '',
+        ownerReviewPayload?.why_now ? `- Why now: ${ownerReviewPayload.why_now}` : '',
+        ownerReviewPayload?.packet_recommendation ? `- Packet recommendation: ${ownerReviewPayload.packet_recommendation}` : '',
+        ownerReviewPayload?.draft_path ? `- Draft path: ${ownerReviewPayload.draft_path}` : '',
+        ownerReviewPayload?.owner_packet_path ? `- Owner packet path: ${ownerReviewPayload.owner_packet_path}` : '',
+        ownerReviewAssessment?.summary ? `- System read: ${ownerReviewAssessment.summary}` : '',
+        ownerReviewAssessment?.confidence ? `- System confidence: ${ownerReviewAssessment.confidence}` : '',
+      );
+      if (ownerReviewAssessment?.reasons?.length) {
+        lines.push('- System reasons:');
+        ownerReviewAssessment.reasons.forEach((reason) => lines.push(`  - ${reason}`));
+      }
+      if (ownerReviewAssessment?.missing_items?.length) {
+        lines.push('- Missing items:');
+        ownerReviewAssessment.missing_items.forEach((item) => lines.push(`  - ${item}`));
+      }
+      if (ownerReviewProofAnchors.length > 0) {
+        lines.push('- Proof anchors:');
+        ownerReviewProofAnchors.forEach((anchor) => lines.push(`  - ${anchor}`));
+      }
+    }
+
+    if (isHostActionCard) {
+      lines.push(
+        '',
+        'Host action context:',
+        hostActionPayload?.summary ? `- Remaining step: ${hostActionPayload.summary}` : '',
+        hostActionPayload?.source_card_title ? `- Source card: ${hostActionPayload.source_card_title}` : '',
+        hostActionPayload?.source_result_summary ? `- Source result: ${hostActionPayload.source_result_summary}` : '',
+        hostActionPayload?.detected_from ? `- Detected from: ${hostActionPayload.detected_from}` : '',
+      );
+      if (hostActionSteps.length > 0) {
+        lines.push('- Host steps:');
+        hostActionSteps.forEach((step) => lines.push(`  - ${step}`));
+      }
+      if (hostActionProofRequired.length > 0) {
+        lines.push('- Expected evidence:');
+        hostActionProofRequired.forEach((item) => lines.push(`  - ${item}`));
+      }
+      if (hostActionFollowupPayload?.summary) {
+        lines.push(`- Delayed follow-up after completion: ${hostActionFollowupPayload.summary}`);
+      }
+    }
+
+    if (latestExecutionSummary || latestExecutionArtifacts.length > 0 || executionPacketPath || sopArtifactPath || briefingArtifactPath) {
+      lines.push(
+        '',
+        'Execution context:',
+        latestExecutionSummary ? `- Latest execution summary: ${latestExecutionSummary}` : '- Latest execution summary: none attached',
+        executionPacketPath ? `- Execution packet: ${executionPacketPath}` : '',
+        sopArtifactPath ? `- SOP: ${sopArtifactPath}` : '',
+        briefingArtifactPath ? `- Briefing: ${briefingArtifactPath}` : '',
+      );
+      if (latestExecutionArtifacts.length > 0) {
+        lines.push('- Latest execution artifacts:');
+        latestExecutionArtifacts.forEach((artifact) => lines.push(`  - ${artifact}`));
+      }
+    }
+
+    if (linkedStandups.length > 0 || linkedConversationPaths.length > 0 || linkedSourcePaths.length > 0) {
+      lines.push('', 'Linked context:');
+      if (linkedStandups.length > 0) {
+        lines.push(`- Linked standups: ${linkedStandups.length}`);
+      }
+      if (linkedConversationPaths.length > 0) {
+        lines.push('- Conversation paths:');
+        linkedConversationPaths.forEach((path) => lines.push(`  - ${path}`));
+      }
+      if (linkedSourcePaths.length > 0) {
+        lines.push('- Source paths:');
+        linkedSourcePaths.forEach((path) => lines.push(`  - ${path}`));
+      }
+    }
+
+    lines.push('', 'Raw PM payload:', '```json', rawRecord, '```');
+    const cleanedLines = lines.reduce<string[]>((acc, line) => {
+      if (line !== '') {
+        acc.push(line);
+        return acc;
+      }
+      if (acc[acc.length - 1] !== '') {
+        acc.push('');
+      }
+      return acc;
+    }, []);
+    return cleanedLines.join('\n');
+  }, [
+    boardColumns,
+    boardItem.lane,
+    boardItem.reason,
+    boardItem.workspaceKey,
+    briefingArtifactPath,
+    card.due_at,
+    card.status,
+    codexCardKind,
+    codexDefaultAction,
+    codexPacketMode,
+    displayCardTitle,
+    executionPacketPath,
+    executionStatusLabel,
+    guidance.nextAction,
+    guidance.summary,
+    guidance.userRole,
+    hostActionFollowupPayload?.summary,
+    hostActionPayload?.detected_from,
+    hostActionPayload?.source_card_title,
+    hostActionPayload?.source_result_summary,
+    hostActionPayload?.summary,
+    hostActionProofRequired,
+    hostActionSteps,
+    isHostActionCard,
+    isPendingOwnerReview,
+    latestExecutionArtifacts,
+    latestExecutionSummary,
+    linkedConversationPaths,
+    linkedSourcePaths,
+    linkedStandups.length,
+    linkId,
+    linkType,
+    meetingLabelForWorkspace,
+    ownerReviewAssessment?.confidence,
+    ownerReviewAssessment?.missing_items,
+    ownerReviewAssessment?.reasons,
+    ownerReviewAssessment?.summary,
+    ownerReviewPayload?.core_angle,
+    ownerReviewPayload?.draft_path,
+    ownerReviewPayload?.owner_packet_path,
+    ownerReviewPayload?.packet_recommendation,
+    ownerReviewPayload?.queue_id,
+    ownerReviewPayload?.summary,
+    ownerReviewPayload?.why_now,
+    ownerReviewProofAnchors,
+    pmReviewPolicy?.attention_class,
+    pmReviewPolicy?.attention_reason,
+    rawRecord,
+    rawSource,
+    sopArtifactPath,
+    storyboardDecisionDetail,
+    storyboardFallbackText,
+    storyboardWhyText,
+  ]);
   const pmEventChainItems = [
     {
       label: 'Signal',
@@ -3435,6 +3682,20 @@ function PMCardDetailModal({
     setNextCardTitle(pmReviewPolicy?.suggested_next_title ?? '');
     setNextCardReason(pmReviewPolicy?.suggested_next_reason ?? '');
   }, [pmReviewPolicy?.recommended_resolution_mode, pmReviewPolicy?.suggested_next_reason, pmReviewPolicy?.suggested_next_title, resolutionInputsDirty]);
+
+  const handleCopyForCodex = useCallback(async () => {
+    try {
+      setActionError(null);
+      setActionFeedback(null);
+      if (typeof navigator === 'undefined' || !navigator.clipboard) {
+        throw new Error('Clipboard access is not available in this browser session.');
+      }
+      await navigator.clipboard.writeText(codexPacket);
+      setActionFeedback(`Copied Codex work packet for ${displayCardTitle}.`);
+    } catch (error) {
+      setActionError(`Copy for Codex: ${toErrorMessage(error)}`);
+    }
+  }, [codexPacket, displayCardTitle]);
 
   const handleCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked') => {
     try {
@@ -3585,21 +3846,38 @@ function PMCardDetailModal({
               {meetingLabelForWorkspace(boardItem.workspaceKey)} · {boardItem.updatedAt ? formatTimestamp(new Date(boardItem.updatedAt)) : '-'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              borderRadius: '999px',
-              border: '1px solid #1f2937',
-              backgroundColor: '#111827',
-              color: '#cbd5e1',
-              padding: '8px 12px',
-              cursor: 'pointer',
-              fontWeight: 600,
-            }}
-          >
-            Close
-          </button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={handleCopyForCodex}
+              style={{
+                borderRadius: '999px',
+                border: '1px solid rgba(56,189,248,0.32)',
+                backgroundColor: 'rgba(56,189,248,0.12)',
+                color: '#dbeafe',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontWeight: 700,
+              }}
+            >
+              Copy for Codex
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                borderRadius: '999px',
+                border: '1px solid #1f2937',
+                backgroundColor: '#111827',
+                color: '#cbd5e1',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
