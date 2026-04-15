@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
@@ -40,6 +41,23 @@ HOST_ACTION_DELAYED_PATTERNS = (
     re.compile(r"\bafter\s+slot\s*0\b", re.IGNORECASE),
     re.compile(r"\bafter\s+the\s+real\s+slot\s*0\b", re.IGNORECASE),
 )
+HOST_ACTION_PUBLISH_PATTERNS = (
+    re.compile(r"\bpublish\b", re.IGNORECASE),
+    re.compile(r"\bafter\s+publish\b", re.IGNORECASE),
+    re.compile(r"\bpublished?\b", re.IGNORECASE),
+    re.compile(r"\bpost\s+(?:is\s+)?live\b", re.IGNORECASE),
+    re.compile(r"\bgo[-\s]?live\b", re.IGNORECASE),
+)
+HOST_ACTION_SCHEDULE_PATTERNS = (
+    re.compile(r"\bschedule(?:d|r|ing)?\b", re.IGNORECASE),
+    re.compile(r"\bnative\s+scheduler\b", re.IGNORECASE),
+    re.compile(r"\bslot\s*0\b", re.IGNORECASE),
+)
+HOST_ACTION_TIMESTAMP_PATTERNS = (
+    re.compile(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\b"),
+    re.compile(r"\b\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\s*(?:ET|EST|EDT|UTC)?\b", re.IGNORECASE),
+)
+NEW_YORK_TZ = ZoneInfo("America/New_York")
 
 
 def list_cards(
@@ -392,6 +410,7 @@ def _apply_card_action(
 ) -> Optional[PMCardActionResult]:
     host_action_completion: dict[str, Any] | None = None
     host_action_followup: dict[str, Any] | None = None
+    host_action_followup_gate: dict[str, Any] | None = None
     if action == "approve" and _is_host_action_required_card(card):
         host_action_followup = _resolved_host_action_phases(card).get("follow_up")
         host_action_completion = _build_host_action_completion_payload(
@@ -400,6 +419,8 @@ def _apply_card_action(
             completion_note=reason,
             proof_items=proof_items,
         )
+        if isinstance(host_action_followup, dict):
+            host_action_followup_gate = _evaluate_host_action_followup_readiness(host_action_followup, host_action_completion)
     status, card_payload = build_card_action_update(
         card,
         action=action,
@@ -411,6 +432,8 @@ def _apply_card_action(
     )
     if host_action_completion is not None:
         card_payload["host_action_completion"] = host_action_completion
+    if host_action_followup_gate is not None and not bool(host_action_followup_gate.get("ready")):
+        card_payload["host_action_followup_pending"] = host_action_followup_gate
     updated = update_card(card.id, PMCardUpdate(status=status, payload=card_payload))
     if updated is None:
         return None
@@ -438,11 +461,17 @@ def _apply_card_action(
         if refreshed is not None:
             updated = refreshed
 
-    if action == "approve" and host_action_completion is not None and isinstance(host_action_followup, dict):
+    if (
+        action == "approve"
+        and host_action_completion is not None
+        and isinstance(host_action_followup, dict)
+        and bool((host_action_followup_gate or {}).get("ready"))
+    ):
         successor_card = _create_host_action_required_card(
             updated,
             requested_by=requested_by,
             host_action_required=host_action_followup,
+            due_at=host_action_followup_gate.get("due_at") if isinstance(host_action_followup_gate, dict) else None,
         )
         updated_payload = dict(updated.payload or {})
         host_completion = dict(updated_payload.get("host_action_completion") or host_action_completion)
@@ -455,6 +484,7 @@ def _apply_card_action(
             "created_at": _datetime_to_iso(successor_card.created_at),
             "workspace_key": _workspace_key_from_card(successor_card),
         }
+        updated_payload.pop("host_action_followup_pending", None)
         refreshed = update_card(card.id, PMCardUpdate(status=updated.status, payload=updated_payload))
         if refreshed is not None:
             updated = refreshed
@@ -884,6 +914,9 @@ def decorate_card_for_client(card: PMCard | None) -> PMCard | None:
                 **follow_up_phase,
                 "proof_fields": _build_host_action_proof_fields(_dedupe_nonempty_strings(follow_up_phase.get("proof_required"))),
             }
+        activation = _host_action_activation_status(card)
+        if activation is not None:
+            payload["host_action_activation"] = activation
         execution = dict(payload.get("execution") or {}) if isinstance(payload.get("execution"), dict) else {}
         if not _is_closed_pm_status(card.status):
             if str(card.status or "").strip().lower() in {"queued", "running", "in_progress", "review", "failed"}:
@@ -1320,6 +1353,202 @@ def _split_host_action_timeline(host_action_required: dict[str, Any]) -> dict[st
     }
 
 
+def _host_action_text_items(host_action: dict[str, Any] | None) -> list[str]:
+    if not isinstance(host_action, dict):
+        return []
+    items = [_optional_str(host_action.get("summary"))]
+    items.extend(_dedupe_nonempty_strings(host_action.get("steps")))
+    items.extend(_dedupe_nonempty_strings(host_action.get("proof_required")))
+    return [item for item in items if item]
+
+
+def _host_action_text_blob(host_action: dict[str, Any] | None) -> str:
+    return "\n".join(_host_action_text_items(host_action))
+
+
+def _host_action_requires_publish_state(host_action: dict[str, Any] | None) -> bool:
+    text = _host_action_text_blob(host_action)
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in HOST_ACTION_PUBLISH_PATTERNS) and _is_delayed_host_action_text(text)
+
+
+def _host_action_mentions_publish(host_action: dict[str, Any] | None) -> bool:
+    text = _host_action_text_blob(host_action)
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in HOST_ACTION_PUBLISH_PATTERNS)
+
+
+def _host_action_mentions_scheduling(host_action: dict[str, Any] | None) -> bool:
+    text = _host_action_text_blob(host_action)
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in HOST_ACTION_SCHEDULE_PATTERNS)
+
+
+def _host_action_required_state_key(host_action: dict[str, Any] | None) -> str | None:
+    if _host_action_requires_publish_state(host_action):
+        return "published_at"
+    if _is_delayed_host_action_text(_host_action_text_blob(host_action)) and _host_action_mentions_scheduling(host_action):
+        return "scheduled_at"
+    return None
+
+
+def _parse_host_action_datetime(value: str | None) -> datetime | None:
+    text = _optional_str(value)
+    if not text:
+        return None
+
+    candidate = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=NEW_YORK_TZ)
+
+    normalized = re.sub(r"\s+", " ", text.strip())
+    timezone_hint = None
+    upper = normalized.upper()
+    for suffix in (" EDT", " EST", " ET", " UTC"):
+        if upper.endswith(suffix):
+            timezone_hint = suffix.strip()
+            normalized = normalized[: -len(suffix)].strip()
+            break
+    normalized = normalized.replace("T", " ")
+    for fmt in ("%Y-%m-%d %I:%M %p", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            parsed = datetime.strptime(normalized, fmt)
+        except ValueError:
+            continue
+        if timezone_hint == "UTC":
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.replace(tzinfo=NEW_YORK_TZ)
+    return None
+
+
+def _extract_host_action_datetime(text_values: list[str]) -> str | None:
+    for raw in text_values:
+        text = _optional_str(raw)
+        if not text:
+            continue
+        for pattern in HOST_ACTION_TIMESTAMP_PATTERNS:
+            for match in pattern.findall(text):
+                parsed = _parse_host_action_datetime(match)
+                if parsed is not None:
+                    return parsed.astimezone(timezone.utc).isoformat()
+        parsed_full = _parse_host_action_datetime(text)
+        if parsed_full is not None:
+            return parsed_full.astimezone(timezone.utc).isoformat()
+    return None
+
+
+def _extract_host_action_external_state(
+    host_action_required: dict[str, Any] | None,
+    *,
+    completion_note: str | None,
+    proof_items: list[str] | None,
+) -> dict[str, Any]:
+    state: dict[str, Any] = {}
+    evidence_items = [item for item in [completion_note, *list(proof_items or [])] if _optional_str(item)]
+    timestamp = _extract_host_action_datetime([str(item) for item in evidence_items])
+    if not timestamp:
+        return state
+    if _host_action_mentions_publish(host_action_required):
+        state["published_at"] = timestamp
+    elif _host_action_mentions_scheduling(host_action_required):
+        state["scheduled_at"] = timestamp
+    return state
+
+
+def _host_action_followup_due_at(host_action: dict[str, Any] | None, external_state: dict[str, Any]) -> datetime | None:
+    required_state_key = _host_action_required_state_key(host_action)
+    if not required_state_key:
+        return None
+    state_value = _optional_str(external_state.get(required_state_key))
+    anchor = _parse_host_action_datetime(state_value)
+    if anchor is None:
+        return None
+    text = _host_action_text_blob(host_action)
+    if not text:
+        return anchor
+    hours_match = re.search(r"\bwithin\s+(\d+)\s*(?:hours?|hrs?|h)\b", text, re.IGNORECASE)
+    if hours_match:
+        return anchor + timedelta(hours=int(hours_match.group(1)))
+    if re.search(r"\bfirst[-\s]24h\b|\bfirst[-\s]24[-\s]hour\b", text, re.IGNORECASE):
+        return anchor + timedelta(hours=24)
+    return anchor
+
+
+def _evaluate_host_action_followup_readiness(
+    host_action: dict[str, Any] | None,
+    completion_payload: dict[str, Any],
+) -> dict[str, Any]:
+    follow_up = _normalize_host_action_payload(host_action)
+    if follow_up is None:
+        return {"ready": False, "reason": "No delayed host follow-up is attached."}
+    required_state_key = _host_action_required_state_key(follow_up)
+    external_state = dict(completion_payload.get("external_state") or {})
+    if required_state_key is None:
+        return {
+            "ready": True,
+            "required_state_key": None,
+            "due_at": None,
+            "reason": "This follow-up does not depend on a delayed external state token.",
+        }
+    state_value = _optional_str(external_state.get(required_state_key))
+    if not state_value:
+        return {
+            "ready": False,
+            "required_state_key": required_state_key,
+            "due_at": None,
+            "reason": f"Waiting on explicit `{required_state_key}` before the delayed host follow-up can exist.",
+        }
+    return {
+        "ready": True,
+        "required_state_key": required_state_key,
+        "state_value": state_value,
+        "due_at": _host_action_followup_due_at(follow_up, external_state),
+        "reason": f"Delayed host follow-up unlocked by `{required_state_key}`.",
+    }
+
+
+def _host_action_activation_status(card: PMCard) -> dict[str, Any] | None:
+    if not _is_host_action_required_card(card):
+        return None
+    payload = dict(card.payload or {})
+    host_action_required = _normalize_host_action_payload(payload.get("host_action_required"))
+    if host_action_required is None:
+        return None
+    required_state_key = _host_action_required_state_key(host_action_required)
+    if required_state_key is None:
+        return None
+    now = datetime.now(timezone.utc)
+    due_at = card.due_at
+    if due_at is None:
+        return {
+            "state": "waiting_on_prerequisite",
+            "required_state_key": required_state_key,
+            "reason": f"This delayed host follow-up should wait until `{required_state_key}` is recorded upstream.",
+        }
+    if due_at.tzinfo is None:
+        due_at = due_at.replace(tzinfo=timezone.utc)
+    if due_at > now:
+        return {
+            "state": "not_due_yet",
+            "required_state_key": required_state_key,
+            "due_at": due_at.isoformat(),
+            "reason": f"This delayed host follow-up is not due until `{due_at.astimezone(timezone.utc).isoformat()}`.",
+        }
+    return {
+        "state": "due",
+        "required_state_key": required_state_key,
+        "due_at": due_at.isoformat(),
+        "reason": "This delayed host follow-up is now due.",
+    }
+
+
 def _resolved_host_action_phases(card: PMCard) -> dict[str, dict[str, Any] | None]:
     payload = dict(card.payload or {})
     host_action_required = payload.get("host_action_required")
@@ -1425,6 +1654,7 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
     normalized_status = str(card.status or "").strip().lower()
     owner_gate = _is_owner_decision_gate(card)
     host_action_required = _is_host_action_required_card(card)
+    host_action_activation = _host_action_activation_status(card)
     auto_resolve_policy = _auto_resolve_review_policy(card)
     attention_class = "fyi"
     attention_reason = "This card is visible for context, but it does not currently need your judgment."
@@ -1438,6 +1668,14 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
     elif owner_gate:
         attention_class = "needs_owner"
         attention_reason = "This card is an explicit owner gate and should wait for your call."
+    elif host_action_activation is not None and str(host_action_activation.get("state") or "").strip() in {
+        "waiting_on_prerequisite",
+        "not_due_yet",
+    }:
+        attention_class = "autonomous"
+        attention_reason = _optional_str(host_action_activation.get("reason")) or (
+            "This delayed host follow-up is waiting on an upstream state change and should stay out of your action surface."
+        )
     elif host_action_required:
         attention_class = "needs_host"
         attention_reason = "This card requires a host action outside the runtime before the loop can fully close."
@@ -1489,6 +1727,7 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
         "suggested_next_reason": suggested_next_reason,
         "auto_resolve_eligible": auto_resolve_policy is not None,
         "owner_decision_gate": owner_gate,
+        "host_action_activation": host_action_activation,
     }
 
 
@@ -1709,6 +1948,7 @@ def _create_host_action_required_card(
     *,
     requested_by: str,
     host_action_required: dict[str, Any],
+    due_at: datetime | None = None,
 ) -> PMCard:
     workspace_key = _workspace_key_from_card(source_card)
     phases = _split_host_action_timeline(host_action_required)
@@ -1767,6 +2007,7 @@ def _create_host_action_required_card(
             source="pm_host_action_required",
             link_type=source_card.link_type,
             link_id=source_card.link_id,
+            due_at=due_at,
             payload=payload,
         )
     )
@@ -1853,6 +2094,12 @@ def _build_host_action_completion_payload(
     required = _dedupe_nonempty_strings(host_action_required.get("proof_required"))
     provided = _dedupe_nonempty_strings(proof_items or [])
     note = _optional_str(completion_note)
+    external_state = _extract_host_action_external_state(
+        host_action_required,
+        completion_note=note,
+        proof_items=provided,
+    )
+    follow_up_gate = _evaluate_host_action_followup_readiness(follow_up_host_action, {"external_state": external_state})
 
     return {
         "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -1860,10 +2107,12 @@ def _build_host_action_completion_payload(
         "completion_note": note,
         "proof_items": provided,
         "proof_required": required,
+        "external_state": external_state,
         "source_card_id": _optional_str(host_action_required.get("source_card_id")),
         "source_card_title": _optional_str(host_action_required.get("source_card_title")),
         "follow_up_summary": _optional_str(follow_up_host_action.get("summary")),
         "follow_up_proof_required": _dedupe_nonempty_strings(follow_up_host_action.get("proof_required")),
+        "follow_up_gate": follow_up_gate,
         "host_confirmation_mode": "confirmed_with_context" if note or provided else "confirmed_without_context",
     }
 

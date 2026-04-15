@@ -1322,6 +1322,37 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("attention_class"), "needs_host")
         self.assertFalse(bool(policy.get("owner_decision_gate")))
 
+    def test_decorate_card_for_client_hides_delayed_host_action_without_due_at(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-delayed-without-due-at",
+            title="Host action required - Within 24 hours of publish, log first-24h metrics",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Within 24 hours of publish, log first-24h analytics in the analytics template.",
+                    "steps": ["Within 24 hours of publish, log first-24h analytics in the analytics template."],
+                    "proof_required": ["First-24h analytics recorded in the analytics template."],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertIn("published_at", str(policy.get("attention_reason") or ""))
+        activation = (decorated.payload.get("host_action_activation") or {}) if decorated else {}
+        self.assertEqual(activation.get("state"), "waiting_on_prerequisite")
+
     def test_decorate_card_for_client_backfills_host_action_proof_fields(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
@@ -1691,7 +1722,7 @@ class PMCardServiceTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         card = PMCard(
             id="host-action-followup-split",
-            title="Host action required - Schedule approved draft",
+            title="Host action required - Confirm publish",
             owner="Neo",
             status="todo",
             source="pm_host_action_required",
@@ -1700,14 +1731,13 @@ class PMCardServiceTests(unittest.TestCase):
             payload={
                 "workspace_key": "linkedin-os",
                 "host_action_required": {
-                    "summary": "Schedule the approved draft and log first-24h analytics after publish.",
+                    "summary": "Confirm FEEZIE-002 published and log first-24h analytics after publish.",
                     "steps": [
-                        "Schedule the approved draft in LinkedIn's native scheduler.",
+                        "Confirm FEEZIE-002 went live on LinkedIn and record the live timestamp.",
                         "Within 24 hours of publish, log first-24h analytics in the analytics template.",
                     ],
                     "proof_required": [
-                        "Scheduler confirmation screenshot path.",
-                        "Updated publishing schedule path.",
+                        "Record the published timestamp.",
                         "First-24h analytics recorded in the analytics template.",
                     ],
                     "source_card_id": "pm-review-source-1",
@@ -1756,11 +1786,10 @@ class PMCardServiceTests(unittest.TestCase):
                 card,
                 action="approve",
                 requested_by="Neo",
-                reason="Scheduled for Thursday 9:00 AM and updated the release artifacts.",
+                reason="Published at 2026-04-15 09:00 AM ET.",
                 resolution_mode="close_only",
                 proof_items=[
-                    "workspaces/linkedin-content-os/analytics/2026-04-13_feezie-002/confirmation.png",
-                    "workspaces/linkedin-content-os/docs/publishing_schedule_2026-04-11.md",
+                    "https://www.linkedin.com/posts/example-post",
                 ],
             )
 
@@ -1773,11 +1802,10 @@ class PMCardServiceTests(unittest.TestCase):
         completion = result.card.payload.get("host_action_completion") or {}
         self.assertEqual(
             completion.get("proof_required"),
-            [
-                "Scheduler confirmation screenshot path.",
-                "Updated publishing schedule path.",
-            ],
+            ["Record the published timestamp."],
         )
+        external_state = completion.get("external_state") or {}
+        self.assertEqual(external_state.get("published_at"), "2026-04-15T13:00:00+00:00")
         self.assertEqual(completion.get("follow_up_card_id"), "host-followup-card-1")
         self.assertEqual(len(created_payloads), 1)
         follow_up_payload = created_payloads[0].payload.get("host_action_required") or {}
@@ -1786,6 +1814,78 @@ class PMCardServiceTests(unittest.TestCase):
             follow_up_payload.get("proof_required"),
             ["First-24h analytics recorded in the analytics template."],
         )
+        self.assertEqual(created_payloads[0].due_at, datetime(2026, 4, 16, 13, 0, tzinfo=timezone.utc))
+
+    def test_host_action_completion_does_not_spawn_delayed_followup_without_publish_state(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="host-action-followup-pending",
+            title="Host action required - Schedule approved draft",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule the approved draft and log first-24h analytics after publish.",
+                    "steps": [
+                        "Schedule the approved draft in LinkedIn's native scheduler.",
+                        "Within 24 hours of publish, log first-24h analytics in the analytics template.",
+                    ],
+                    "proof_required": [
+                        "Scheduler confirmation screenshot path.",
+                        "Updated publishing schedule path.",
+                        "First-24h analytics recorded in the analytics template.",
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        current = {"card": card}
+
+        def fake_update(_card_id: str, patch: PMCardUpdate) -> PMCard:
+            current["card"] = current["card"].model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else current["card"].status,
+                    "payload": patch.payload if patch.payload is not None else current["card"].payload,
+                    "updated_at": now,
+                }
+            )
+            return current["card"]
+
+        with (
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(pm_card_service, "create_card") as create_card_mock,
+        ):
+            result = pm_card_service._apply_card_action(
+                card,
+                action="approve",
+                requested_by="Neo",
+                reason="Scheduled for 2026-04-15 09:00 AM ET and updated the release artifacts.",
+                resolution_mode="close_only",
+                proof_items=[
+                    "workspaces/linkedin-content-os/analytics/2026-04-13_feezie-002/confirmation.png",
+                    "workspaces/linkedin-content-os/docs/publishing_schedule_2026-04-11.md",
+                ],
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "done")
+        self.assertIsNone(result.successor_card)
+        create_card_mock.assert_not_called()
+        completion = result.card.payload.get("host_action_completion") or {}
+        self.assertEqual((completion.get("external_state") or {}).get("scheduled_at"), "2026-04-15T13:00:00+00:00")
+        follow_up_gate = completion.get("follow_up_gate") or {}
+        self.assertFalse(bool(follow_up_gate.get("ready")))
+        self.assertEqual(follow_up_gate.get("required_state_key"), "published_at")
+        pending = result.card.payload.get("host_action_followup_pending") or {}
+        self.assertEqual(pending.get("required_state_key"), "published_at")
 
     def test_decorate_card_for_client_marks_feezie_alias_review_as_autonomous(self) -> None:
         now = datetime.now(timezone.utc)
