@@ -3041,8 +3041,10 @@ function PMCardDetailModal({
       ownerReviewPayload?.approval_status === 'owner_review_required' ||
       boardItem.lane === 'review');
   const [ownerReviewNotes, setOwnerReviewNotes] = useState(ownerReviewPayload?.current_notes ?? '');
+  const [ownerReviewNotesDirty, setOwnerReviewNotesDirty] = useState(false);
   const [resolutionMode, setResolutionMode] = useState<PMCardResolutionMode | null>(pmReviewPolicy?.recommended_resolution_mode ?? null);
   const [resolutionNote, setResolutionNote] = useState('');
+  const [resolutionInputsDirty, setResolutionInputsDirty] = useState(false);
   const [hostActionProofInputs, setHostActionProofInputs] = useState<string[]>(() => hostActionProofRequired.map(() => ''));
   const [hostActionAdditionalProofText, setHostActionAdditionalProofText] = useState('');
   const [nextCardTitle, setNextCardTitle] = useState(pmReviewPolicy?.suggested_next_title ?? '');
@@ -3433,7 +3435,15 @@ function PMCardDetailModal({
 
   useEffect(() => {
     setOwnerReviewNotes(ownerReviewPayload?.current_notes ?? '');
-  }, [ownerReviewPayload?.current_notes, card.id]);
+    setOwnerReviewNotesDirty(false);
+  }, [card.id]);
+
+  useEffect(() => {
+    if (ownerReviewNotesDirty) {
+      return;
+    }
+    setOwnerReviewNotes(ownerReviewPayload?.current_notes ?? '');
+  }, [ownerReviewNotesDirty, ownerReviewPayload?.current_notes]);
 
   const reviewNeedsEvidenceFirst = boardItem.lane === 'review';
   const tabSequence = reviewNeedsEvidenceFirst
@@ -3465,9 +3475,21 @@ function PMCardDetailModal({
   useEffect(() => {
     setResolutionMode(pmReviewPolicy?.recommended_resolution_mode ?? null);
     setResolutionNote('');
+    setResolutionInputsDirty(false);
+    setHostActionProofInputs(hostActionProofRequired.map(() => ''));
+    setHostActionAdditionalProofText('');
     setNextCardTitle(pmReviewPolicy?.suggested_next_title ?? '');
     setNextCardReason(pmReviewPolicy?.suggested_next_reason ?? '');
-  }, [card.id, pmReviewPolicy?.recommended_resolution_mode, pmReviewPolicy?.suggested_next_reason, pmReviewPolicy?.suggested_next_title]);
+  }, [card.id]);
+
+  useEffect(() => {
+    if (resolutionInputsDirty) {
+      return;
+    }
+    setResolutionMode(pmReviewPolicy?.recommended_resolution_mode ?? null);
+    setNextCardTitle(pmReviewPolicy?.suggested_next_title ?? '');
+    setNextCardReason(pmReviewPolicy?.suggested_next_reason ?? '');
+  }, [pmReviewPolicy?.recommended_resolution_mode, pmReviewPolicy?.suggested_next_reason, pmReviewPolicy?.suggested_next_title, resolutionInputsDirty]);
 
   const handleCardAction = async (action: 'dispatch' | 'approve' | 'return' | 'blocked') => {
     try {
@@ -3492,6 +3514,7 @@ function PMCardDetailModal({
           nextTitle: nextCardTitle.trim() || undefined,
           nextReason: nextCardReason.trim() || undefined,
         });
+        setResolutionInputsDirty(false);
         setActionFeedback(
           result.successor_card
             ? `Resolved ${displayCardTitle} and spawned "${result.successor_card.title}".`
@@ -3502,6 +3525,7 @@ function PMCardDetailModal({
       await onActOnPmCard(card.id, action, {
         reason: resolutionNote.trim() || undefined,
       });
+      setResolutionInputsDirty(false);
       setActionFeedback(
         action === 'return'
           ? `Returned ${displayCardTitle} to Jean-Claude.`
@@ -3529,6 +3553,7 @@ function PMCardDetailModal({
               ? `Requested revision for ${displayCardTitle}.`
               : `Parked ${displayCardTitle}.`),
       );
+      setOwnerReviewNotesDirty(false);
       if (decision === 'park') {
         onSelectCard(null);
         return;
@@ -3551,6 +3576,7 @@ function PMCardDetailModal({
         reason: resolutionNote.trim() || 'Closed as already handled outside PM.',
         resolutionMode: 'close_only',
       });
+      setResolutionInputsDirty(false);
       setActionFeedback(`Closed ${displayCardTitle} as already handled.`);
     } catch (error) {
       setActionError(toErrorMessage(error));
@@ -3569,6 +3595,7 @@ function PMCardDetailModal({
         resolutionMode: 'close_only',
         proofItems: hostActionProofItems,
       });
+      setResolutionInputsDirty(false);
       setActionFeedback(`Closed ${displayCardTitle} as completed host work.`);
       onSelectCard(null);
     } catch (error) {
@@ -3872,7 +3899,10 @@ function PMCardDetailModal({
                 <span style={{ color: '#94a3b8', fontSize: '12px' }}>Owner notes</span>
                 <textarea
                   value={ownerReviewNotes}
-                  onChange={(event) => setOwnerReviewNotes(event.target.value)}
+                  onChange={(event) => {
+                    setOwnerReviewNotes(event.target.value);
+                    setOwnerReviewNotesDirty(true);
+                  }}
                   placeholder="Add revision notes, scheduling notes, or why this should be parked."
                   rows={4}
                   style={{
@@ -3946,7 +3976,10 @@ function PMCardDetailModal({
                 <span style={{ color: '#94a3b8', fontSize: '12px' }}>Completion note</span>
                 <textarea
                   value={resolutionNote}
-                  onChange={(event) => setResolutionNote(event.target.value)}
+                  onChange={(event) => {
+                    setResolutionNote(event.target.value);
+                    setResolutionInputsDirty(true);
+                  }}
                   placeholder="What exactly did you complete, and what should the audit trail remember?"
                   rows={3}
                   style={{
@@ -3980,6 +4013,7 @@ function PMCardDetailModal({
                               setHostActionProofInputs((current) => {
                                 const next = [...current];
                                 next[index] = event.target.value;
+                                setResolutionInputsDirty(true);
                                 return next;
                               })
                             }
@@ -4005,6 +4039,7 @@ function PMCardDetailModal({
                               setHostActionProofInputs((current) => {
                                 const next = [...current];
                                 next[index] = event.target.value;
+                                setResolutionInputsDirty(true);
                                 return next;
                               })
                             }
@@ -4030,7 +4065,10 @@ function PMCardDetailModal({
                 <span style={{ color: '#94a3b8', fontSize: '12px' }}>Additional proof lines</span>
                 <textarea
                   value={hostActionAdditionalProofText}
-                  onChange={(event) => setHostActionAdditionalProofText(event.target.value)}
+                  onChange={(event) => {
+                    setHostActionAdditionalProofText(event.target.value);
+                    setResolutionInputsDirty(true);
+                  }}
                   placeholder="Optional extra proof, one line per item."
                   rows={3}
                   style={{
@@ -4098,7 +4136,10 @@ function PMCardDetailModal({
                       <button
                         key={`${card.id}-resolution-${mode}`}
                         type="button"
-                        onClick={() => setResolutionMode(mode)}
+                        onClick={() => {
+                          setResolutionMode(mode);
+                          setResolutionInputsDirty(true);
+                        }}
                         disabled={actioningCardId === card.id}
                         style={{
                           borderRadius: '999px',
@@ -4118,7 +4159,10 @@ function PMCardDetailModal({
                     <span style={{ color: '#94a3b8', fontSize: '12px' }}>Resolution note</span>
                     <textarea
                       value={resolutionNote}
-                      onChange={(event) => setResolutionNote(event.target.value)}
+                      onChange={(event) => {
+                        setResolutionNote(event.target.value);
+                        setResolutionInputsDirty(true);
+                      }}
                       placeholder="Optional note about why this result is accepted or how the loop should continue."
                       rows={3}
                       style={{
@@ -4140,7 +4184,10 @@ function PMCardDetailModal({
                         <span style={{ color: '#94a3b8', fontSize: '12px' }}>Next PM card title</span>
                         <input
                           value={nextCardTitle}
-                          onChange={(event) => setNextCardTitle(event.target.value)}
+                          onChange={(event) => {
+                            setNextCardTitle(event.target.value);
+                            setResolutionInputsDirty(true);
+                          }}
                           placeholder="Name the concrete next lane this result should create."
                           style={{
                             width: '100%',
@@ -4157,7 +4204,10 @@ function PMCardDetailModal({
                         <span style={{ color: '#94a3b8', fontSize: '12px' }}>Why the next card exists</span>
                         <textarea
                           value={nextCardReason}
-                          onChange={(event) => setNextCardReason(event.target.value)}
+                          onChange={(event) => {
+                            setNextCardReason(event.target.value);
+                            setResolutionInputsDirty(true);
+                          }}
                           placeholder="Optional context for the follow-on card."
                           rows={3}
                           style={{
