@@ -1823,13 +1823,6 @@ def _build_host_action_completion_payload(
     provided = _dedupe_nonempty_strings(proof_items or [])
     note = _optional_str(completion_note)
 
-    if note is None:
-        raise ValueError("Closing a host action card requires a completion note.")
-    if required and len(provided) < len(required):
-        raise ValueError(
-            f"Closing this host action card requires at least {len(required)} proof item(s) because explicit proof was requested."
-        )
-
     return {
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "completed_by": requested_by,
@@ -1840,6 +1833,7 @@ def _build_host_action_completion_payload(
         "source_card_title": _optional_str(host_action_required.get("source_card_title")),
         "follow_up_summary": _optional_str(follow_up_host_action.get("summary")),
         "follow_up_proof_required": _dedupe_nonempty_strings(follow_up_host_action.get("proof_required")),
+        "host_confirmation_mode": "confirmed_with_context" if note or provided else "confirmed_without_context",
     }
 
 

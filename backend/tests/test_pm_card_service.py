@@ -1426,7 +1426,7 @@ class PMCardServiceTests(unittest.TestCase):
 
         self.assertIsNone(build_execution_queue_entry(card))
 
-    def test_host_action_card_completion_requires_requested_proof(self) -> None:
+    def test_host_action_card_completion_allows_simple_confirmation(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
             id="host-action-proof-required",
@@ -1451,15 +1451,33 @@ class PMCardServiceTests(unittest.TestCase):
             updated_at=now,
         )
 
-        with self.assertRaisesRegex(ValueError, "requires at least 2 proof item"):
+        current = {"card": card}
+
+        def fake_update(_card_id: str, patch: PMCardUpdate) -> PMCard:
+            current["card"] = current["card"].model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else current["card"].status,
+                    "payload": patch.payload if patch.payload is not None else current["card"].payload,
+                    "updated_at": now,
+                }
+            )
+            return current["card"]
+
+        with patch.object(pm_card_service, "update_card", side_effect=fake_update):
             pm_card_service._apply_card_action(
                 card,
                 action="approve",
                 requested_by="Neo",
-                reason="Scheduled it and updated the release packet.",
+                reason=None,
                 resolution_mode="close_only",
-                proof_items=["workspaces/linkedin-content-os/analytics/confirmation.png"],
             )
+
+        completion = (current["card"].payload.get("host_action_completion") or {})
+        self.assertEqual(current["card"].status, "done")
+        self.assertEqual(completion.get("completed_by"), "Neo")
+        self.assertEqual(completion.get("proof_items"), [])
+        self.assertIsNone(completion.get("completion_note"))
+        self.assertEqual(completion.get("host_confirmation_mode"), "confirmed_without_context")
 
     def test_host_action_card_completion_records_proof_items(self) -> None:
         now = datetime.now(timezone.utc)
@@ -1530,6 +1548,7 @@ class PMCardServiceTests(unittest.TestCase):
                 "Updated publishing schedule path.",
             ],
         )
+        self.assertEqual(completion.get("host_confirmation_mode"), "confirmed_with_context")
 
     def test_host_action_completion_spawns_delayed_followup_card(self) -> None:
         now = datetime.now(timezone.utc)
