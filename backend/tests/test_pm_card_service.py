@@ -1820,6 +1820,42 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("recommended_resolution_mode"), "close_and_spawn_next")
         self.assertEqual(policy.get("suggested_next_title"), "Package accepted FEEZIE draft into scheduling lane")
 
+    def test_decorate_card_for_client_treats_failed_feezie_successor_lane_as_autonomous(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="feezie-failed-successor-card",
+            title="Turn seeded FEEZIE backlog into first draft batch",
+            owner="Jean-Claude",
+            status="in_progress",
+            source="pm_review_resolution",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "failed",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "manager_attention_required": True,
+                    "executor_status": "failed",
+                    "executor_last_error": "codex exec exited with code 1",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertIn("failed", str(policy.get("attention_reason") or "").lower())
+        self.assertFalse(bool(policy.get("owner_decision_gate")))
+
     def test_decorate_card_for_client_marks_fusion_review_as_needs_owner(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
@@ -1933,6 +1969,49 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("attention_class"), "autonomous")
         self.assertFalse(bool(policy.get("owner_decision_gate")))
         self.assertEqual(policy.get("recommended_resolution_mode"), "close_and_spawn_next")
+
+    def test_decorate_card_for_client_treats_failed_owner_review_followup_as_autonomous(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="owner-review-followup-failed-card",
+            title="Schedule approved FEEZIE draft - FEEZIE-004",
+            owner="Neo",
+            status="in_progress",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "FEEZIE-004",
+                    "title": "Warm then sharp",
+                    "decision": "approve",
+                    "draft_path": "drafts/feezie-004_warm-then-sharp.md",
+                    "entry_kind": "queue",
+                    "source_kind": "feezie_queue",
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "failed",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "manager_attention_required": True,
+                    "executor_status": "failed",
+                    "executor_last_error": "codex exec exited with code 1",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertFalse(bool(policy.get("owner_decision_gate")))
 
     def test_act_on_card_return_reroutes_to_jean_claude(self) -> None:
         now = datetime.now(timezone.utc)

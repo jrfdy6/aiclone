@@ -1431,6 +1431,7 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
     recommended_resolution_mode: str | None = None
     suggested_next_title: str | None = None
     suggested_next_reason: str | None = None
+    interrupt_policy = str(workspace_policy.get("interrupt_policy") or "manual_review")
 
     if _is_closed_pm_status(card.status):
         attention_reason = "This card is already closed and kept here as traceable history."
@@ -1440,6 +1441,17 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
     elif host_action_required:
         attention_class = "needs_host"
         attention_reason = "This card requires a host action outside the runtime before the loop can fully close."
+    elif (
+        interrupt_policy in {"owner_gate_only", "manager_attention_only"}
+        and not owner_gate
+        and not host_action_required
+        and (
+            str(execution.get("state") or "").strip().lower() == "failed"
+            or str(execution.get("executor_status") or "").strip().lower() == "failed"
+        )
+    ):
+        attention_class = "autonomous"
+        attention_reason = "This autonomous execution lane failed and should go back through Codex or Jean-Claude, not your owner inbox."
     elif bool(execution.get("manager_attention_required")) or normalized_status in {"blocked", "failed"}:
         attention_class = "needs_owner"
         attention_reason = "This lane is blocked or flagged for manager attention and needs a human decision."
@@ -1447,7 +1459,6 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
         attention_class = "stale"
         attention_reason = auto_resolve_policy["reason"]
     elif normalized_status == "review":
-        interrupt_policy = str(workspace_policy.get("interrupt_policy") or "manual_review")
         if interrupt_policy == "manual_review":
             attention_class = "needs_owner"
             attention_reason = "This workspace expects a human review before a returned result is accepted or continued."
