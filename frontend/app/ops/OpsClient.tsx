@@ -2461,6 +2461,7 @@ function PMBoardPanel({
         .slice(0, 5),
     [reviewProgressAudit],
   );
+  const [showAutoProgressHistory, setShowAutoProgressHistory] = useState(false);
   const liveSelectedBoardItem = useMemo(
     () => (selectedBoardCardId ? unifiedBoardItems.find((item) => item.cardId === selectedBoardCardId) ?? null : null),
     [selectedBoardCardId, unifiedBoardItems],
@@ -2563,10 +2564,36 @@ function PMBoardPanel({
       </section>
       {(Number(reviewProgressSummary?.processed_count ?? 0) > 0 || Number(reviewProgressWindowSummary?.processed_count ?? 0) > 0) && (
         <section style={{ borderRadius: '16px', border: '1px solid rgba(34,197,94,0.22)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '14px' }}>
-          <div style={{ marginBottom: '10px' }}>
-            <p style={{ color: '#22c55e', letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Autonomous Review Loop</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '10px' }}>
+            <div>
+              <p style={{ color: '#22c55e', letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>Recent Automatic Decisions</p>
+              <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: '0 0 6px' }}>History only. Do not work cards from this section.</p>
+              <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                This is a recent audit trail of routine PM cards the system already processed. Use <strong>What Needs You</strong> for current action.
+              </p>
+            </div>
+            {recentAutoProgressItems.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowAutoProgressHistory((value) => !value)}
+                style={{
+                  borderRadius: '999px',
+                  border: '1px solid rgba(148,163,184,0.24)',
+                  backgroundColor: 'rgba(15,23,42,0.65)',
+                  color: '#e2e8f0',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  padding: '7px 11px',
+                  cursor: 'pointer',
+                }}
+              >
+                {showAutoProgressHistory ? 'Hide history' : `Show history (${recentAutoProgressItems.length})`}
+              </button>
+            ) : null}
+          </div>
+          <div style={{ marginBottom: recentAutoProgressItems.length > 0 ? '12px' : 0 }}>
             <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
-              Routine PM review cards now auto-advance, auto-return, or escalate based on the completion contract instead of waiting for manual cleanup.
+              Routine PM review cards auto-advance, auto-return, or escalate based on the completion contract instead of waiting for manual cleanup.
             </p>
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: recentAutoProgressItems.length > 0 ? '12px' : 0 }}>
@@ -2583,17 +2610,17 @@ function PMBoardPanel({
               Last 24h: advanced {reviewProgressWindowSummary?.advanced_count ?? 0}, returned {reviewProgressWindowSummary?.returned_count ?? 0}, escalated {reviewProgressWindowSummary?.escalated_count ?? 0}
             </div>
           </div>
-          {recentAutoProgressItems.length > 0 && (
+          {showAutoProgressHistory && recentAutoProgressItems.length > 0 && (
             <div style={{ display: 'grid', gap: '8px' }}>
               {recentAutoProgressItems.map((item) => (
                 <article key={`auto-progress-${item.card_id}-${item.processed_at}`} style={{ borderRadius: '12px', border: '1px solid rgba(148,163,184,0.18)', backgroundColor: '#08101f', padding: '10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                    <p style={{ color: 'white', fontSize: '14px', fontWeight: 700, margin: 0 }}>{item.title}</p>
+                    <p style={{ color: 'white', fontSize: '14px', fontWeight: 700, margin: 0 }}>{autoProgressSourceTitle(item)}</p>
                     <span style={{ color: '#94a3b8', fontSize: '12px' }}>{item.processed_at ? formatTimestamp(new Date(item.processed_at)) : '-'}</span>
                   </div>
-                  <p style={{ color: '#cbd5e1', fontSize: '12px', margin: 0 }}>
-                    {describeAutoProgressItem(item)}
-                  </p>
+                  <p style={{ color: '#7dd3fc', fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 4px' }}>History Event</p>
+                  <p style={{ color: '#cbd5e1', fontSize: '12px', margin: '0 0 6px' }}>{describeAutoProgressItem(item)}</p>
+                  <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{describeAutoProgressOutcome(item)}</p>
                 </article>
               ))}
             </div>
@@ -9403,6 +9430,32 @@ function describeAutoProgressItem(item: PMAutoProgressItem & { processed_at?: st
     return `${meetingLabelForWorkspace(item.workspace_key)}: accepted automatically and continued into the next PM lane.${successor}`;
   }
   return `${meetingLabelForWorkspace(item.workspace_key)}: accepted automatically and closed as routine system work.`;
+}
+
+function autoProgressSourceTitle(item: PMAutoProgressItem & { processed_at?: string }) {
+  return `Source card: ${item.title}`;
+}
+
+function describeAutoProgressOutcome(item: PMAutoProgressItem & { processed_at?: string }) {
+  if (item.action === 'return') {
+    return 'Outcome: sent back into execution. This is a past automatic decision, not a live task.';
+  }
+  if (item.action === 'blocked') {
+    return 'Outcome: escalated for human attention after the automatic path failed. This entry is history, not the action surface.';
+  }
+  if (item.host_action_card_title) {
+    return `Outcome: spawned host step "${item.host_action_card_title}". Work that card from What Needs You if it appears there.`;
+  }
+  if (item.resolution_mode === 'close_and_spawn_next') {
+    if (item.successor_card_title && item.successor_card_title !== item.title) {
+      return `Outcome: spawned successor lane "${item.successor_card_title}". This row records the prior automatic decision only.`;
+    }
+    if (item.successor_card_title) {
+      return 'Outcome: spawned a successor lane with the same title. This row is the earlier resolved event, not the current task.';
+    }
+    return 'Outcome: continued into the next PM lane. This row is history only.';
+  }
+  return 'Outcome: closed automatically as routine system work.';
 }
 
 function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
