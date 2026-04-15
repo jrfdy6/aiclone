@@ -819,10 +819,28 @@ def _build_pending_owner_review_card_payload(
     return payload
 
 
+def _pending_owner_review_card_is_current(
+    existing: Any,
+    *,
+    title: str,
+    payload: dict[str, Any],
+) -> bool:
+    return (
+        str(getattr(existing, "title", "") or "") == title
+        and str(getattr(existing, "owner", "") or "") == "Neo"
+        and str(getattr(existing, "status", "") or "") == "review"
+        and str(getattr(existing, "source", "") or "") == OWNER_REVIEW_CARD_SOURCE
+        and str(getattr(existing, "link_type", "") or "") == OWNER_REVIEW_LINK_TYPE
+        and getattr(existing, "link_id", None) == _owner_review_link_id()
+        and dict(getattr(existing, "payload", {}) or {}) == payload
+    )
+
+
 def sync_owner_review_pm_cards() -> dict[str, Any]:
     payload = list_owner_review_items()
     created_card_ids: list[str] = []
     updated_card_ids: list[str] = []
+    skipped_card_ids: list[str] = []
     pending_queue_ids: list[str] = []
 
     for item in payload.get("items", []):
@@ -853,6 +871,9 @@ def sync_owner_review_pm_cards() -> dict[str, Any]:
             )
             created_card_ids.append(card.id)
             continue
+        if _pending_owner_review_card_is_current(existing, title=card_title, payload=card_payload):
+            skipped_card_ids.append(existing.id)
+            continue
         updated = pm_card_service.update_card(
             existing.id,
             PMCardUpdate(
@@ -873,6 +894,7 @@ def sync_owner_review_pm_cards() -> dict[str, Any]:
         "pending_queue_ids": pending_queue_ids,
         "created_card_ids": created_card_ids,
         "updated_card_ids": updated_card_ids,
+        "skipped_card_ids": skipped_card_ids,
     }
 
 

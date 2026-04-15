@@ -1259,6 +1259,81 @@ This is another latent first pass.
         )
         self.assertIn(pending_card.id, sync_payload.get("created_card_ids") or [])
 
+    def test_pm_owner_review_sync_skips_unchanged_pending_cards(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        draft_path = drafts_dir / "2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md"
+
+        draft_path.write_text(
+            """---
+title: "Claude Dispatch and the Power of Interfaces"
+draft_kind: owner_review
+source_kind: latent_transform
+idea_id: idea-456
+lane: ai
+publish_posture: owner_review_required
+source_url: https://example.com/claude-dispatch
+source_path: workspaces/linkedin-content-os/research/claude-dispatch.md
+latent_reason: needs_context_translation
+transform_type: context_translation
+---
+
+# Claude Dispatch and the Power of Interfaces
+
+## Source signal
+- Source file: `workspaces/linkedin-content-os/research/claude-dispatch.md`
+- Source URL: https://example.com/claude-dispatch
+- Source summary: Interface quality changes whether AI is actually useful.
+- Why it matters: AI workflow design and operator judgment signals
+
+## Transform brief
+- Proposed angle: Interface quality decides whether capability becomes leverage.
+- Owner question: What concrete change should operators notice if this is true?
+- Proof prompt: AI Clone / Brain System rebuild notes
+- Promotion rule: Promote only after one lived proof line and one audience consequence.
+
+## First-pass transformed draft
+
+This is another latent first pass.
+""",
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/api/workspace/linkedin-os-owner-review")
+        self.assertEqual(response.status_code, 200)
+        latent_item = next(
+            item
+            for item in (response.json().get("items") or [])
+            if item.get("draft_path") == "drafts/2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md"
+        )
+        existing_payload = linkedin_owner_review_module._build_pending_owner_review_card_payload(latent_item)
+        existing_card = PMCard(
+            id="owner-review-sync-noop",
+            title="Owner review - Latent transform - Claude Dispatch and the Power of Interfaces",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload=existing_payload,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=existing_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "update_card") as update_card_mock,
+            patch.object(linkedin_owner_review_module.pm_card_service, "create_card") as create_card_mock,
+        ):
+            sync_response = self.client.post("/api/pm/owner-review/sync")
+
+        self.assertEqual(sync_response.status_code, 200)
+        sync_payload = sync_response.json()
+        self.assertEqual(sync_payload.get("updated_card_ids"), [])
+        self.assertIn(existing_card.id, sync_payload.get("skipped_card_ids") or [])
+        update_card_mock.assert_not_called()
+        create_card_mock.assert_not_called()
+
     def test_owner_review_list_falls_back_to_pending_pm_cards_when_workspace_artifacts_are_empty(self) -> None:
         pending_card = PMCard(
             id="pm-fallback-owner-review-1",
