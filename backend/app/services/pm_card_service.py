@@ -2053,6 +2053,41 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
             }
         )
 
+    # Normalize already-open legacy source host cards so they render as the real current host step.
+    for card in list(cards_by_id.values()):
+        if _is_closed_pm_status(card.status) or not _is_host_action_required_card(card):
+            continue
+        payload = dict(card.payload or {})
+        host_action_required = _normalize_host_action_payload(payload.get("host_action_required"))
+        if host_action_required is None:
+            continue
+        source_card_id = _optional_str(host_action_required.get("source_card_id"))
+        source_card = cards_by_id.get(source_card_id) if source_card_id else None
+        if source_card is not None and _is_host_action_required_card(source_card):
+            continue
+        host_action_followup = _resolved_host_action_phases(card).get("follow_up")
+        activation = _host_action_activation_status(card)
+        if host_action_followup is None or not isinstance(activation, dict) or str(activation.get("state") or "").strip() != "waiting_on_prerequisite":
+            continue
+        normalized_payload = persist_resolved_host_action_phases(card, dict(payload))
+        normalized_payload.pop("host_action_followup_pending", None)
+        normalized_payload["legacy_host_repair"] = {
+            "action": "normalize_open_source_host_step",
+            "repaired_at": datetime.now(timezone.utc).isoformat(),
+            "repaired_by": requested_by,
+            "required_state_key": activation.get("required_state_key"),
+            "reason": "Normalized an already-open legacy host step so the current host action no longer inherits the delayed follow-up state.",
+        }
+        apply_card_update(card, status=card.status, payload=normalized_payload)
+        repaired.append(
+            {
+                "card_id": card.id,
+                "title": card.title,
+                "action": "normalized_open_source_host_step",
+                "workspace_key": _workspace_key_from_card(card),
+            }
+        )
+
     # Then, activate any delayed follow-up that is now ready from explicit external state.
     for card in list(cards_by_id.values()):
         if not _is_closed_pm_status(card.status) or not _is_host_action_required_card(card):

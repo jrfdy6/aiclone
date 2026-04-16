@@ -2191,6 +2191,76 @@ class PMCardServiceTests(unittest.TestCase):
             any(item.get("action") == "reopened_legacy_source_host_step" for item in result.get("host_followup_repaired", []))
         )
 
+    def test_repair_execution_contracts_normalizes_open_legacy_source_host_card(self) -> None:
+        now = datetime.now(timezone.utc)
+        source_card = PMCard(
+            id="open-legacy-source-card",
+            title="Host action required - Schedule FEEZIE-002",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule FEEZIE-002 in LinkedIn's native scheduler and, within 24 hours of publish, log first-24h metrics.",
+                    "steps": [
+                        "Schedule FEEZIE-002 in LinkedIn's native scheduler.",
+                        "Within 24 hours of publish, log first-24h metrics in the analytics template.",
+                    ],
+                    "proof_required": [
+                        "Record the scheduled timestamp.",
+                        "First-24h analytics recorded in the analytics template.",
+                    ],
+                    "source_card_id": "pm-review-source-card",
+                },
+                "host_action_completion": {
+                    "completed_at": now.isoformat(),
+                    "completed_by": "Neo",
+                    "proof_items": [],
+                    "proof_required": ["Record the scheduled timestamp."],
+                    "external_state": {},
+                    "host_confirmation_mode": "confirmed_without_context",
+                },
+                "execution": {
+                    "state": "host_step_only",
+                    "manager_attention_required": False,
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        current = {source_card.id: source_card}
+
+        def fake_update(card_id: str, patch: PMCardUpdate) -> PMCard:
+            base = current[card_id]
+            updated = base.model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else base.status,
+                    "payload": patch.payload if patch.payload is not None else base.payload,
+                    "updated_at": now,
+                }
+            )
+            current[card_id] = updated
+            return updated
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[source_card]),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+        ):
+            result = pm_card_service.repair_execution_contracts(limit=20, workspace_key="linkedin-os")
+
+        decorated = pm_card_service.decorate_card_for_client(current["open-legacy-source-card"])
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        policy = decorated.payload.get("pm_review_policy") or {}
+        self.assertEqual(policy.get("attention_class"), "needs_host")
+        self.assertTrue(
+            any(item.get("action") == "normalized_open_source_host_step" for item in result.get("host_followup_repaired", []))
+        )
+
     def test_decorate_card_for_client_marks_feezie_alias_review_as_autonomous(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
