@@ -336,6 +336,70 @@ def _build_owner_review_assessment(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_owner_decision_scaffold(item: dict[str, Any], assessment: dict[str, Any]) -> dict[str, Any]:
+    title = str(item.get("title") or item.get("queue_id") or "this draft").strip()
+    core_angle = str(item.get("core_angle") or "").strip()
+    why_now = str(item.get("why_now") or "").strip()
+    draft_owner_notes = [str(note).strip() for note in (item.get("draft_owner_notes") or []) if str(note).strip()]
+    revision_goals = [str(goal).strip() for goal in (item.get("revision_goals") or []) if str(goal).strip()]
+    missing_items = [str(entry).strip() for entry in (assessment.get("missing_items") or []) if str(entry).strip()]
+    suggested_decision = str(assessment.get("suggested_decision") or "revise").strip() or "revise"
+
+    must_verify = [
+        "Read the first-pass draft, not just the PM summary or recommendation.",
+    ]
+    if core_angle:
+        must_verify.append(f"Confirm the draft clearly lands the stated angle: {core_angle}")
+    if why_now:
+        must_verify.append(f"Confirm the draft makes the current stakes or audience consequence legible: {why_now}")
+    if item.get("proof_anchors"):
+        must_verify.append("Check that at least one proof anchor or lived proof line is strong enough to defend publicly.")
+
+    approve_when = [
+        "The draft is publishable on one clean read without adding anything material.",
+        "The claim, proof, and audience consequence feel publicly defensible as written.",
+    ]
+    if core_angle:
+        approve_when.append("The first paragraph and close still support the named core angle.")
+    if not missing_items:
+        approve_when.append("No obvious gaps remain in the current owner packet.")
+
+    revise_when = [
+        "You want one more concrete proof line, story beat, or audience consequence before this moves forward.",
+    ]
+    revise_when.extend(missing_items[:3])
+    revise_when.extend(revision_goals[:3])
+
+    optional_strengtheners = list(dict.fromkeys(draft_owner_notes[:3]))
+    if optional_strengtheners:
+        revise_when.append("The current draft is close, but you want one of the optional strengtheners applied first.")
+
+    park_when = [
+        "You do not want to say this publicly right now, even after a revision pass.",
+        "The angle is strategically weak enough that it should leave the active queue instead of consuming more iteration.",
+    ]
+    if suggested_decision == "park":
+        park_when.insert(0, "The current packet already leans toward parking rather than advancing this draft.")
+
+    if suggested_decision == "approve":
+        neo_answer_contract = "Approve if it feels publishable on one clean read; otherwise revise with one concrete reason."
+    elif suggested_decision == "park":
+        neo_answer_contract = "Park unless you already know the concrete proof, timing, or angle change that would rescue it."
+    else:
+        neo_answer_contract = "Revise unless you can already defend the claim, proof, and audience consequence without adding anything material."
+
+    return {
+        "decision_question": f"Should `{title}` move forward now, be revised, or be parked?",
+        "recommended_decision": suggested_decision,
+        "must_verify": must_verify[:4],
+        "approve_when": list(dict.fromkeys(approve_when))[:4],
+        "revise_when": list(dict.fromkeys(revise_when))[:4],
+        "park_when": list(dict.fromkeys(park_when))[:3],
+        "optional_strengtheners": optional_strengtheners,
+        "neo_answer_contract": neo_answer_contract,
+    }
+
+
 def _serialize_item(root: Path, queue_id: str, title: str, fields: dict[str, str], list_fields: dict[str, list[str]], packet_path: Path | None) -> dict[str, Any]:
     status_value = fields.get("status", "")
     draft_rel_path, draft_path = _draft_path_from_status(root, status_value)
@@ -378,6 +442,7 @@ def _serialize_item(root: Path, queue_id: str, title: str, fields: dict[str, str
         "idea_id": frontmatter.get("idea_id") or None,
     }
     item["system_assessment"] = _build_owner_review_assessment(item)
+    item["decision_scaffold"] = _build_owner_decision_scaffold(item, item["system_assessment"])
     return item
 
 
@@ -448,6 +513,7 @@ def _serialize_supplemental_owner_review_item(root: Path, draft_path: Path) -> d
         "generated_by": frontmatter.get("generated_by") or None,
     }
     item["system_assessment"] = _build_owner_review_assessment(item)
+    item["decision_scaffold"] = _build_owner_decision_scaffold(item, item["system_assessment"])
     return item
 
 
@@ -499,6 +565,10 @@ def _item_from_owner_review_payload(owner_review_payload: dict[str, Any]) -> dic
     }
     system_assessment = owner_review_payload.get("system_assessment")
     item["system_assessment"] = system_assessment if isinstance(system_assessment, dict) else _build_owner_review_assessment(item)
+    decision_scaffold = owner_review_payload.get("decision_scaffold")
+    item["decision_scaffold"] = (
+        decision_scaffold if isinstance(decision_scaffold, dict) else _build_owner_decision_scaffold(item, item["system_assessment"])
+    )
     return item
 
 
@@ -832,6 +902,7 @@ def _build_pending_owner_review_card_payload(
                 "latent_reason": item.get("latent_reason"),
                 "transform_type": item.get("transform_type"),
                 "system_assessment": item.get("system_assessment"),
+                "decision_scaffold": item.get("decision_scaffold"),
             },
         }
     )

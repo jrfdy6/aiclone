@@ -804,6 +804,8 @@ This is the first pass.
         self.assertIsNone(items[0].get("current_notes"))
         self.assertIn("This is the first pass.", items[0].get("first_pass_draft") or "")
         self.assertEqual((items[0].get("system_assessment") or {}).get("suggested_decision"), "approve")
+        self.assertEqual((items[0].get("decision_scaffold") or {}).get("recommended_decision"), "approve")
+        self.assertTrue((items[0].get("decision_scaffold") or {}).get("approve_when"))
 
         created_card = PMCard(
             id="owner-review-card-1",

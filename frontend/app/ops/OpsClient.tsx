@@ -440,6 +440,17 @@ type OwnerReviewSystemAssessment = {
   fallback_action?: string;
 };
 
+type OwnerDecisionScaffold = {
+  decision_question?: string;
+  recommended_decision?: OwnerReviewDecision | string;
+  must_verify?: string[];
+  approve_when?: string[];
+  revise_when?: string[];
+  park_when?: string[];
+  optional_strengtheners?: string[];
+  neo_answer_contract?: string;
+};
+
 type OwnerReviewCardPayload = {
   queue_id?: string;
   title?: string;
@@ -468,6 +479,7 @@ type OwnerReviewCardPayload = {
   latent_reason?: string | null;
   transform_type?: string | null;
   system_assessment?: OwnerReviewSystemAssessment | null;
+  decision_scaffold?: OwnerDecisionScaffold | null;
 };
 
 type HostActionRequiredPayload = {
@@ -3084,6 +3096,10 @@ function PMCardDetailModal({
     ownerReviewPayload?.system_assessment && typeof ownerReviewPayload.system_assessment === 'object'
       ? ownerReviewPayload.system_assessment
       : null;
+  const ownerDecisionScaffold =
+    ownerReviewPayload?.decision_scaffold && typeof ownerReviewPayload.decision_scaffold === 'object'
+      ? ownerReviewPayload.decision_scaffold
+      : null;
   const executionPacketPath =
     typeof boardItem.queueEntry?.execution_packet_path === 'string' && boardItem.queueEntry.execution_packet_path.trim()
       ? boardItem.queueEntry.execution_packet_path.trim()
@@ -3535,6 +3551,35 @@ function PMCardDetailModal({
           lines.push(`  - ${resolved && resolved !== raw ? `${raw} (resolved: ${resolved})` : raw}`),
         );
       }
+      if (ownerDecisionScaffold) {
+        lines.push(
+          '',
+          'Owner decision scaffold:',
+          ownerDecisionScaffold.decision_question ? `- Decision question: ${ownerDecisionScaffold.decision_question}` : '',
+          ownerDecisionScaffold.recommended_decision ? `- Recommended decision: ${ownerDecisionScaffold.recommended_decision}` : '',
+          ownerDecisionScaffold.neo_answer_contract ? `- Neo answer contract: ${ownerDecisionScaffold.neo_answer_contract}` : '',
+        );
+        if (ownerDecisionScaffold.must_verify?.length) {
+          lines.push('- Must verify first:');
+          ownerDecisionScaffold.must_verify.forEach((entry) => lines.push(`  - ${entry}`));
+        }
+        if (ownerDecisionScaffold.approve_when?.length) {
+          lines.push('- Approve when:');
+          ownerDecisionScaffold.approve_when.forEach((entry) => lines.push(`  - ${entry}`));
+        }
+        if (ownerDecisionScaffold.revise_when?.length) {
+          lines.push('- Revise when:');
+          ownerDecisionScaffold.revise_when.forEach((entry) => lines.push(`  - ${entry}`));
+        }
+        if (ownerDecisionScaffold.park_when?.length) {
+          lines.push('- Park when:');
+          ownerDecisionScaffold.park_when.forEach((entry) => lines.push(`  - ${entry}`));
+        }
+        if (ownerDecisionScaffold.optional_strengtheners?.length) {
+          lines.push('- Optional strengtheners:');
+          ownerDecisionScaffold.optional_strengtheners.forEach((entry) => lines.push(`  - ${entry}`));
+        }
+      }
     }
 
     if (isHostActionCard) {
@@ -3636,6 +3681,7 @@ function PMCardDetailModal({
     linkType,
     meetingLabelForWorkspace,
     ownerReviewAssessment?.confidence,
+    ownerDecisionScaffold,
     ownerReviewAssessment?.missing_items,
     ownerReviewAssessment?.reasons,
     ownerReviewAssessment?.summary,
@@ -4622,6 +4668,58 @@ function PMCardDetailModal({
                 ) : null}
                 {ownerReviewAssessment.fallback_action ? (
                   <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{ownerReviewAssessment.fallback_action}</p>
+                ) : null}
+              </section>
+            ) : null}
+
+            {ownerDecisionScaffold ? (
+              <section style={{ borderRadius: '16px', border: '1px solid rgba(16,185,129,0.28)', backgroundColor: 'rgba(16,185,129,0.08)', padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
+                  <p style={{ color: '#34d399', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', margin: 0 }}>Owner Decision Scaffold</p>
+                  {ownerDecisionScaffold.recommended_decision ? (
+                    <span style={{ borderRadius: '999px', border: '1px solid rgba(16,185,129,0.4)', backgroundColor: '#08101f', color: '#d1fae5', padding: '6px 10px', fontSize: '12px', fontWeight: 700 }}>
+                      Default: {humanizeStatusLabel(ownerDecisionScaffold.recommended_decision)}
+                    </span>
+                  ) : null}
+                </div>
+                {ownerDecisionScaffold.decision_question ? (
+                  <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: '0 0 10px' }}>{ownerDecisionScaffold.decision_question}</p>
+                ) : null}
+                {ownerDecisionScaffold.neo_answer_contract ? (
+                  <p style={{ color: '#d1fae5', fontSize: '13px', lineHeight: 1.6, margin: '0 0 12px' }}>{ownerDecisionScaffold.neo_answer_contract}</p>
+                ) : null}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                  {[
+                    { label: 'Must Verify First', items: ownerDecisionScaffold.must_verify, tone: '#a7f3d0' },
+                    { label: 'Approve When', items: ownerDecisionScaffold.approve_when, tone: '#d1fae5' },
+                    { label: 'Revise When', items: ownerDecisionScaffold.revise_when, tone: '#fef3c7' },
+                    { label: 'Park When', items: ownerDecisionScaffold.park_when, tone: '#fecaca' },
+                  ]
+                    .filter((section) => Array.isArray(section.items) && section.items.length > 0)
+                    .map((section) => (
+                      <div key={`${card.id}-scaffold-${section.label}`} style={{ borderRadius: '12px', border: '1px solid rgba(15,23,42,0.6)', backgroundColor: '#08101f', padding: '12px' }}>
+                        <p style={{ color: section.tone, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 8px' }}>{section.label}</p>
+                        <div style={{ display: 'grid', gap: '6px' }}>
+                          {(section.items ?? []).map((entry) => (
+                            <p key={`${card.id}-scaffold-entry-${section.label}-${entry}`} style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                              {entry}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                {Array.isArray(ownerDecisionScaffold.optional_strengtheners) && ownerDecisionScaffold.optional_strengtheners.length > 0 ? (
+                  <div style={{ marginTop: '12px' }}>
+                    <p style={{ color: '#93c5fd', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Optional Strengtheners</p>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      {ownerDecisionScaffold.optional_strengtheners.map((entry) => (
+                        <p key={`${card.id}-scaffold-optional-${entry}`} style={{ color: '#dbeafe', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                          {entry}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
                 ) : null}
               </section>
             ) : null}
