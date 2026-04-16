@@ -7,6 +7,17 @@ import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
 
 const API_URL = getApiUrl();
+const REPO_ROOT = '/Users/neo/.openclaw/workspace';
+const WORKSPACE_ROOT_BY_KEY: Record<string, string> = {
+  'linkedin-os': `${REPO_ROOT}/workspaces/linkedin-content-os`,
+  'fusion-os': `${REPO_ROOT}/workspaces/fusion-os`,
+  easyoutfitapp: `${REPO_ROOT}/workspaces/easy-outfit`,
+  'ai-swag-store': `${REPO_ROOT}/workspaces/ai-swag-store`,
+  agc: `${REPO_ROOT}/workspaces/agc`,
+  shared_ops: `${REPO_ROOT}/workspaces/shared-ops`,
+};
+const REPO_RELATIVE_PREFIXES = ['knowledge/', 'memory/', 'workspaces/', 'frontend/', 'backend/', 'scripts/', 'automations/'];
+const WORKSPACE_RELATIVE_PREFIXES = ['drafts/', 'docs/', 'analytics/', 'plans/', 'research/', 'briefings/', 'dispatch/', 'memory/'];
 
 function pickWorkspacePath(files: WorkspaceFile[], workspaceKey?: string): string | null {
   if (!workspaceKey) {
@@ -3423,14 +3434,32 @@ function PMCardDetailModal({
     }
     return 'follow_card_guidance';
   }, [boardItem.lane, isHostActionCard, isPendingOwnerReview, likelyStaleBoardItem, ownerReviewAssessment?.suggested_decision, pmReviewPolicy?.recommended_resolution_mode]);
+  const codexWorkspaceRoot = useMemo(() => workspaceRootForKey(boardItem.workspaceKey), [boardItem.workspaceKey]);
+  const ownerReviewResolvedDraftPath = useMemo(
+    () => (ownerReviewPayload?.draft_path ? resolveCodexArtifactPath(String(ownerReviewPayload.draft_path), boardItem.workspaceKey) : null),
+    [boardItem.workspaceKey, ownerReviewPayload?.draft_path],
+  );
+  const ownerReviewResolvedPacketPath = useMemo(
+    () => (ownerReviewPayload?.owner_packet_path ? resolveCodexArtifactPath(String(ownerReviewPayload.owner_packet_path), boardItem.workspaceKey) : null),
+    [boardItem.workspaceKey, ownerReviewPayload?.owner_packet_path],
+  );
+  const ownerReviewResolvedProofAnchors = useMemo(
+    () =>
+      ownerReviewProofAnchors.map((anchor) => {
+        const resolved = resolveCodexArtifactPath(anchor, boardItem.workspaceKey);
+        return resolved && resolved !== anchor ? { raw: anchor, resolved } : { raw: anchor, resolved: null };
+      }),
+    [boardItem.workspaceKey, ownerReviewProofAnchors],
+  );
   const codexPacket = useMemo(() => {
-    const workspacePath = '/Users/neo/.openclaw/workspace';
     const lines: string[] = [
-      `You are working from a PM card in ${workspacePath}.`,
+      `You are working from a PM card in ${REPO_ROOT}.`,
       '',
       `Mode: ${codexPacketMode}`,
       `Card kind: ${codexCardKind}`,
       `Default action: ${codexDefaultAction}`,
+      `Repo root: ${REPO_ROOT}`,
+      `Workspace root: ${codexWorkspaceRoot}`,
       '',
       'Guardrails:',
       '- Treat the PM card as the source of truth.',
@@ -3483,8 +3512,12 @@ function PMCardDetailModal({
         ownerReviewPayload?.core_angle ? `- Core angle: ${ownerReviewPayload.core_angle}` : '',
         ownerReviewPayload?.why_now ? `- Why now: ${ownerReviewPayload.why_now}` : '',
         ownerReviewPayload?.packet_recommendation ? `- Packet recommendation: ${ownerReviewPayload.packet_recommendation}` : '',
-        ownerReviewPayload?.draft_path ? `- Draft path: ${ownerReviewPayload.draft_path}` : '',
-        ownerReviewPayload?.owner_packet_path ? `- Owner packet path: ${ownerReviewPayload.owner_packet_path}` : '',
+        ownerReviewPayload?.draft_path
+          ? `- Draft path: ${ownerReviewPayload.draft_path}${ownerReviewResolvedDraftPath && ownerReviewResolvedDraftPath !== ownerReviewPayload.draft_path ? ` (resolved: ${ownerReviewResolvedDraftPath})` : ''}`
+          : '',
+        ownerReviewPayload?.owner_packet_path
+          ? `- Owner packet path: ${ownerReviewPayload.owner_packet_path}${ownerReviewResolvedPacketPath && ownerReviewResolvedPacketPath !== ownerReviewPayload.owner_packet_path ? ` (resolved: ${ownerReviewResolvedPacketPath})` : ''}`
+          : '',
         ownerReviewAssessment?.summary ? `- System read: ${ownerReviewAssessment.summary}` : '',
         ownerReviewAssessment?.confidence ? `- System confidence: ${ownerReviewAssessment.confidence}` : '',
       );
@@ -3496,9 +3529,11 @@ function PMCardDetailModal({
         lines.push('- Missing items:');
         ownerReviewAssessment.missing_items.forEach((item) => lines.push(`  - ${item}`));
       }
-      if (ownerReviewProofAnchors.length > 0) {
+      if (ownerReviewResolvedProofAnchors.length > 0) {
         lines.push('- Proof anchors:');
-        ownerReviewProofAnchors.forEach((anchor) => lines.push(`  - ${anchor}`));
+        ownerReviewResolvedProofAnchors.forEach(({ raw, resolved }) =>
+          lines.push(`  - ${resolved && resolved !== raw ? `${raw} (resolved: ${resolved})` : raw}`),
+        );
       }
     }
 
@@ -3611,7 +3646,9 @@ function PMCardDetailModal({
     ownerReviewPayload?.queue_id,
     ownerReviewPayload?.summary,
     ownerReviewPayload?.why_now,
-    ownerReviewProofAnchors,
+    ownerReviewResolvedDraftPath,
+    ownerReviewResolvedPacketPath,
+    ownerReviewResolvedProofAnchors,
     pmReviewPolicy?.attention_class,
     pmReviewPolicy?.attention_reason,
     rawRecord,
@@ -3620,6 +3657,7 @@ function PMCardDetailModal({
     storyboardDecisionDetail,
     storyboardFallbackText,
     storyboardWhyText,
+    codexWorkspaceRoot,
   ]);
   const pmEventChainItems = [
     {
@@ -9851,6 +9889,54 @@ function summarizePathForDisplay(path: string) {
     return path;
   }
   return `.../${parts.slice(-3).join('/')}`;
+}
+
+function normalizePathSegments(path: string) {
+  const absolute = path.startsWith('/');
+  const segments = path.split('/').filter((segment) => segment.length > 0 && segment !== '.');
+  const normalized: string[] = [];
+  segments.forEach((segment) => {
+    if (segment === '..') {
+      if (normalized.length > 0) {
+        normalized.pop();
+      }
+      return;
+    }
+    normalized.push(segment);
+  });
+  return `${absolute ? '/' : ''}${normalized.join('/')}`;
+}
+
+function stripLeadingRelativeSegments(path: string) {
+  return path.replace(/^(?:\.\.\/|\.\/)+/, '');
+}
+
+function workspaceRootForKey(workspaceKey?: string | null) {
+  return WORKSPACE_ROOT_BY_KEY[normalizeWorkspaceBoardKey(workspaceKey)] ?? REPO_ROOT;
+}
+
+function resolveCodexArtifactPath(path: string, workspaceKey?: string | null) {
+  const trimmed = path.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed.startsWith('/')) {
+    return normalizePathSegments(trimmed);
+  }
+
+  const stripped = stripLeadingRelativeSegments(trimmed);
+  if (REPO_RELATIVE_PREFIXES.some((prefix) => stripped.startsWith(prefix))) {
+    return normalizePathSegments(`${REPO_ROOT}/${stripped}`);
+  }
+  if (WORKSPACE_RELATIVE_PREFIXES.some((prefix) => trimmed.startsWith(prefix) || stripped.startsWith(prefix))) {
+    return normalizePathSegments(`${workspaceRootForKey(workspaceKey)}/${stripped}`);
+  }
+
+  if (trimmed.startsWith('../') || trimmed.startsWith('./')) {
+    return normalizePathSegments(`${REPO_ROOT}/${stripped}`);
+  }
+
+  return normalizePathSegments(`${workspaceRootForKey(workspaceKey)}/${trimmed}`);
 }
 
 function extractPmSnapshotLines(snapshot: unknown) {
