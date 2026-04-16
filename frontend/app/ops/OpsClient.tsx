@@ -2420,18 +2420,31 @@ function PMBoardPanel({
     { key: 'queued', label: 'Queued', detail: 'opened and waiting on pickup' },
     { key: 'running', label: 'Running', detail: 'actively being worked' },
     { key: 'review', label: 'Review', detail: 'result returned, waiting on judgment' },
-    { key: 'failed', label: 'Blocked', detail: 'needs intervention or reroute' },
+    { key: 'failed', label: 'System Recovery', detail: 'failed automation and execution retries' },
     { key: 'done', label: 'Done', detail: 'closed and kept for history' },
   ];
-  const activeBoardColumns = useMemo(() => boardColumns.filter((column) => column.key !== 'done'), [boardColumns]);
-  const hiddenOwnerReviewCount = hiddenOwnerReviewItems.length;
-  const visibleActiveCardCount = useMemo(
-    () => activeBoardColumns.reduce((sum, column) => sum + unifiedBoard[column.key].length, 0),
-    [activeBoardColumns, unifiedBoard],
+  const humanBoardColumns = useMemo(
+    () => boardColumns.filter((column) => column.key !== 'failed' && column.key !== 'done'),
+    [boardColumns],
   );
+  const systemRecoveryColumn = useMemo(
+    () =>
+      boardColumns.find((column) => column.key === 'failed') ?? {
+        key: 'failed' as const,
+        label: 'System Recovery',
+        detail: 'failed automation and execution retries',
+      },
+    [boardColumns],
+  );
+  const hiddenOwnerReviewCount = hiddenOwnerReviewItems.length;
+  const visibleHumanCardCount = useMemo(
+    () => humanBoardColumns.reduce((sum, column) => sum + unifiedBoard[column.key].length, 0),
+    [humanBoardColumns, unifiedBoard],
+  );
+  const systemRecoveryCount = unifiedBoard.failed.length;
   const visibleReviewCount = unifiedBoard.review.length;
   const opsSummaryBullets = [
-    `Board: ${visibleActiveCardCount} active card${visibleActiveCardCount === 1 ? '' : 's'} visible, ${executionBuckets.running.length} running, ${visibleReviewCount} waiting on review${hiddenOwnerReviewCount > 0 ? ` (${hiddenOwnerReviewCount} more owner-review card${hiddenOwnerReviewCount === 1 ? '' : 's'} held in backlog)` : ''}.`,
+    `Board: ${visibleHumanCardCount} human-action card${visibleHumanCardCount === 1 ? '' : 's'} visible, ${systemRecoveryCount} system-recovery lane${systemRecoveryCount === 1 ? '' : 's'}, ${executionBuckets.running.length} running, ${visibleReviewCount} waiting on review${hiddenOwnerReviewCount > 0 ? ` (${hiddenOwnerReviewCount} more owner-review card${hiddenOwnerReviewCount === 1 ? '' : 's'} held in backlog)` : ''}.`,
     `Meetings: ${healthyRoomCount}/${meetingOps.rooms.length} healthy lanes, ${meetingOps.orphanStandupCount} orphan standup${meetingOps.orphanStandupCount === 1 ? '' : 's'}, ${missingRoomCount} missing room${missingRoomCount === 1 ? '' : 's'}.`,
     `Automation: ${automationCounts.total} visible job${automationCounts.total === 1 ? '' : 's'}, ${automationCounts.launchd} launchd-driven, latest meeting ${latestMeetingAt ? formatTimestamp(latestMeetingAt) : 'not recorded yet'}.`,
     staleLaneCount > 0
@@ -2439,7 +2452,8 @@ function PMBoardPanel({
       : 'Attention: no stale ready/review/running execution lanes are currently visible.',
   ];
   const compactOverview = [
-    { label: 'Active', value: `${visibleActiveCardCount}`, detail: hiddenOwnerReviewCount > 0 ? `${hiddenOwnerReviewCount} owner-review held` : 'open PM cards' },
+    { label: 'Human Action', value: `${visibleHumanCardCount}`, detail: hiddenOwnerReviewCount > 0 ? `${hiddenOwnerReviewCount} owner-review held` : 'owner + host work' },
+    { label: 'System Recovery', value: `${systemRecoveryCount}`, detail: 'failed automation lanes' },
     { label: 'Closed', value: `${buckets.done.length}`, detail: 'resolved history' },
     { label: 'Standup Queue', value: `${recommendationItems.length}`, detail: 'pending promotion' },
     { label: 'Ready', value: `${executionBuckets.ready.length}`, detail: 'Jean-Claude can open now' },
@@ -2557,6 +2571,82 @@ function PMBoardPanel({
     liveSelectedBoardCard,
     liveSelectedBoardLinkedStandups,
   ]);
+
+  const renderOperationalBoardCard = useCallback(
+    (item: UnifiedBoardItem, laneKey: UnifiedBoardLaneKey) => {
+      const theme = workspaceBoardTheme(item.workspaceKey);
+      return (
+        <article
+          key={`${laneKey}-${item.id}`}
+          role="button"
+          tabIndex={0}
+          onClick={() => setSelectedBoardCardId(item.cardId)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setSelectedBoardCardId(item.cardId);
+            }
+          }}
+          style={{
+            borderRadius: '10px',
+            border: `1px solid ${theme.border}`,
+            backgroundColor: theme.background,
+            boxShadow: `inset 0 3px 0 0 ${theme.accent}`,
+            padding: '10px',
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
+            <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{item.title}</p>
+            {statusBadge(item.executionState ? displayExecutionStateLabel(item.executionState) : displayPmStatusLabel(item.pmStatus, item.lane, item.executionState))}
+          </div>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '11px', color: '#cbd5e1', marginBottom: '6px' }}>
+            <span style={{ padding: '3px 8px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent }}>
+              {meetingLabelForWorkspace(item.workspaceKey)}
+            </span>
+            {item.executionState && statusBadge(displayPmStatusLabel(item.pmStatus, item.lane, item.executionState))}
+            {!item.executionState && item.owner ? <span>{item.owner}</span> : null}
+          </div>
+          {item.reason && <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.45, margin: '0 0 8px' }}>{item.reason}</p>}
+          <div style={{ color: '#94a3b8', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            {item.queueEntry?.front_door_agent ? <span>Intake: {item.queueEntry.front_door_agent}</span> : null}
+            {item.queueEntry ? <span>Manager: {displayManagerAgent(item.workspaceKey, item.managerAgent)}</span> : null}
+            {item.queueEntry ? <span>Target: {displayTargetAgent(item.workspaceKey, item.targetAgent)}</span> : null}
+            {item.workspaceAgent ? <span>Agent: {displayWorkspaceAgent(item.workspaceKey, item.workspaceAgent)}</span> : null}
+            {item.executionMode ? <span>Mode: {item.executionMode}</span> : null}
+            {displayWorkerStatusLabel(item.queueEntry) ? <span>Worker: {displayWorkerStatusLabel(item.queueEntry)}</span> : null}
+            {item.queueEntry?.manager_attention_required ? <span>Manager attention: required</span> : null}
+            <span>Updated: {item.updatedAt ? formatTimestamp(new Date(item.updatedAt)) : '-'}</span>
+          </div>
+          {laneKey === 'ready' && item.queueEntry ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleDispatch(item.queueEntry as ExecutionQueueEntry);
+              }}
+              disabled={dispatchingCardId === item.cardId}
+              style={{
+                marginTop: '10px',
+                width: '100%',
+                borderRadius: '999px',
+                border: `1px solid ${theme.border}`,
+                backgroundColor: dispatchingCardId === item.cardId ? '#0f172a' : '#0f3d37',
+                color: '#d1fae5',
+                padding: '8px 10px',
+                cursor: dispatchingCardId === item.cardId ? 'wait' : 'pointer',
+                fontWeight: 600,
+                fontSize: '12px',
+              }}
+            >
+              {dispatchingCardId === item.cardId ? 'Queueing...' : 'Open SOP'}
+            </button>
+          ) : null}
+        </article>
+      );
+    },
+    [dispatchingCardId, handleDispatch],
+  );
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2806,29 +2896,33 @@ function PMBoardPanel({
         <div style={{ marginBottom: '10px' }}>
           <p style={{ color: '#22c55e', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Operational Board</p>
           <h3 style={{ fontSize: '20px', color: 'white', margin: '4px 0' }}>One board for PM + execution</h3>
-          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Active lanes stay visible here. Closed cards fall out of the main board and stay in collapsed history.</p>
+          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Human-action lanes stay visible first. System recovery is separated below. Closed and cancelled cards fall out of the main board and stay in collapsed history.</p>
         </div>
         {queueError && <SectionAlert message={`${TELEMETRY_LABELS.executionQueue}: ${queueError}`} />}
         {dispatchError && <SectionAlert message={dispatchError} />}
         {dispatchFeedback && <SectionAlert message={dispatchFeedback} />}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          {activeBoardColumns.map((column) => (
+          {humanBoardColumns.map((column) => (
             <div key={`board-meta-${column.key}`} style={{ borderRadius: '999px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '7px 11px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
               <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{column.label}</span>
               <span style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 700 }}>{unifiedBoard[column.key].length}</span>
             </div>
           ))}
+          <div style={{ borderRadius: '999px', border: '1px solid rgba(248,113,113,0.24)', backgroundColor: 'rgba(248,113,113,0.08)', padding: '7px 11px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ color: '#fecaca', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{systemRecoveryColumn.label}</span>
+            <span style={{ color: '#fee2e2', fontSize: '15px', fontWeight: 700 }}>{systemRecoveryCount}</span>
+          </div>
         </div>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${activeBoardColumns.length}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${humanBoardColumns.length}, minmax(0, 1fr))`,
             gap: '10px',
             marginTop: '12px',
             alignItems: 'start',
           }}
         >
-          {activeBoardColumns.map((column) => (
+          {humanBoardColumns.map((column) => (
             <div
               key={column.key}
               style={{
@@ -2853,82 +2947,25 @@ function PMBoardPanel({
               ) : null}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {unifiedBoard[column.key].length === 0 && <p style={{ color: '#475569', fontSize: '12px' }}>Nothing in this lane yet.</p>}
-                {unifiedBoard[column.key].map((item) => {
-                  const theme = workspaceBoardTheme(item.workspaceKey);
-                  return (
-                    <article
-                      key={`${column.key}-${item.id}`}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setSelectedBoardCardId(item.cardId)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setSelectedBoardCardId(item.cardId);
-                        }
-                      }}
-                      style={{
-                        borderRadius: '10px',
-                        border: `1px solid ${theme.border}`,
-                        backgroundColor: theme.background,
-                        boxShadow: `inset 0 3px 0 0 ${theme.accent}`,
-                        padding: '10px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-                        <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{item.title}</p>
-                        {statusBadge(item.executionState ? displayExecutionStateLabel(item.executionState) : displayPmStatusLabel(item.pmStatus, item.lane, item.executionState))}
-                      </div>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '11px', color: '#cbd5e1', marginBottom: '6px' }}>
-                        <span style={{ padding: '3px 8px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent }}>
-                          {meetingLabelForWorkspace(item.workspaceKey)}
-                        </span>
-                        {item.executionState && statusBadge(displayPmStatusLabel(item.pmStatus, item.lane, item.executionState))}
-                        {!item.executionState && item.owner ? <span>{item.owner}</span> : null}
-                      </div>
-                      {item.reason && <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.45, margin: '0 0 8px' }}>{item.reason}</p>}
-                      <div style={{ color: '#94a3b8', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                        {item.queueEntry?.front_door_agent ? <span>Intake: {item.queueEntry.front_door_agent}</span> : null}
-                        {item.queueEntry ? <span>Manager: {displayManagerAgent(item.workspaceKey, item.managerAgent)}</span> : null}
-                        {item.queueEntry ? <span>Target: {displayTargetAgent(item.workspaceKey, item.targetAgent)}</span> : null}
-                        {item.workspaceAgent ? <span>Agent: {displayWorkspaceAgent(item.workspaceKey, item.workspaceAgent)}</span> : null}
-                        {item.executionMode ? <span>Mode: {item.executionMode}</span> : null}
-                        {displayWorkerStatusLabel(item.queueEntry) ? <span>Worker: {displayWorkerStatusLabel(item.queueEntry)}</span> : null}
-                        {item.queueEntry?.manager_attention_required ? <span>Manager attention: required</span> : null}
-                        <span>Updated: {item.updatedAt ? formatTimestamp(new Date(item.updatedAt)) : '-'}</span>
-                      </div>
-                      {column.key === 'ready' && item.queueEntry ? (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDispatch(item.queueEntry as ExecutionQueueEntry);
-                          }}
-                          disabled={dispatchingCardId === item.cardId}
-                          style={{
-                            marginTop: '10px',
-                            width: '100%',
-                            borderRadius: '999px',
-                            border: `1px solid ${theme.border}`,
-                            backgroundColor: dispatchingCardId === item.cardId ? '#0f172a' : '#0f3d37',
-                            color: '#d1fae5',
-                            padding: '8px 10px',
-                            cursor: dispatchingCardId === item.cardId ? 'wait' : 'pointer',
-                            fontWeight: 600,
-                            fontSize: '12px',
-                          }}
-                        >
-                          {dispatchingCardId === item.cardId ? 'Queueing...' : 'Open SOP'}
-                        </button>
-                      ) : null}
-                    </article>
-                  );
-                })}
+                {unifiedBoard[column.key].map((item) => renderOperationalBoardCard(item, column.key))}
               </div>
             </div>
           ))}
         </div>
+        <section style={{ marginTop: '12px', borderRadius: '14px', border: '1px solid rgba(248,113,113,0.22)', backgroundColor: 'rgba(127,29,29,0.12)', padding: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
+            <p style={{ color: '#fee2e2', fontWeight: 700, margin: 0, fontSize: '14px' }}>{systemRecoveryColumn.label}</p>
+            <span style={{ color: '#fecaca', fontSize: '11px' }}>{systemRecoveryCount}</span>
+          </div>
+          <p style={{ color: '#fca5a5', fontSize: '11px', margin: '0 0 10px' }}>{systemRecoveryColumn.detail}</p>
+          <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.55, margin: '0 0 10px' }}>
+            These are failed autonomous or execution lanes. They stay visible for deliberate recovery work, not because they are ordinary owner approvals or host confirmations.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {systemRecoveryCount === 0 ? <p style={{ color: '#475569', fontSize: '12px', margin: 0 }}>Nothing in system recovery right now.</p> : null}
+            {unifiedBoard.failed.map((item) => renderOperationalBoardCard(item, systemRecoveryColumn.key))}
+          </div>
+        </section>
         <details style={{ marginTop: '12px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '12px 14px' }}>
           <summary style={{ cursor: 'pointer', color: 'white', fontWeight: 700, listStyle: 'none' }}>
             Recent closed cards
@@ -2964,11 +3001,11 @@ function PMBoardPanel({
                       padding: '10px',
                       cursor: 'pointer',
                     }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
-                      <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{item.title}</p>
-                      {statusBadge('Done')}
-                    </div>
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                        <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{item.title}</p>
+                        {statusBadge(item.executionState ? displayExecutionStateLabel(item.executionState) : displayPmStatusLabel(item.pmStatus, item.lane, item.executionState))}
+                      </div>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '11px', color: '#cbd5e1' }}>
                       <span style={{ padding: '3px 8px', borderRadius: '999px', backgroundColor: `${theme.accent}22`, color: theme.accent }}>
                         {meetingLabelForWorkspace(item.workspaceKey)}
@@ -9512,9 +9549,9 @@ function buildOwnerAttentionItems(items: UnifiedBoardItem[]): OwnerAttentionItem
         summary = 'This review card is visible for context, but PM did not mark it as a required human decision.';
         nextAction = 'Ignore it unless you want to inspect the result or override the default workflow.';
       } else if (item.lane === 'failed') {
-        kind = 'decision';
-        summary = 'This lane hit a blocker and needs a human call.';
-        nextAction = 'Open it and decide whether to reroute it or keep it blocked.';
+        kind = 'update';
+        summary = 'This is a system-recovery lane, not a fresh owner decision.';
+        nextAction = 'Ignore it unless you want to work the recovery path directly.';
       } else if (item.lane === 'ready') {
         kind = 'update';
         summary = 'This card is ready to start, but nothing is broken if you leave it alone.';
@@ -9673,9 +9710,9 @@ function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
       };
     case 'failed':
       return {
-        summary: 'The execution lane hit a blocker, error, or required manager intervention and fell out of the happy path.',
-        userRole: 'Resolve ambiguity, missing context, or ownership problems so the card can move again.',
-        nextAction: 'Clarify the blockage, then reroute it back to Jean-Claude or the correct workspace lane.',
+        summary: 'This is a failed autonomous or execution lane. It belongs on the system-recovery surface, not in the normal owner inbox.',
+        userRole: 'Use it when you intentionally want to recover a broken lane by clarifying the blocker or rerunning repo-side work.',
+        nextAction: 'Open it only if you want to work recovery directly; otherwise leave it visible as system recovery.',
       };
     case 'done':
       return {
@@ -10816,6 +10853,7 @@ function normalizeStatus(status: string) {
   const normalized = status.toLowerCase();
   if (normalized === 'in_progress' || normalized === 'in-progress') return 'in_progress';
   if (normalized === 'review') return 'review';
+  if (normalized === 'cancelled' || normalized === 'canceled') return 'done';
   if (normalized === 'done') return 'done';
   if (normalized === 'failed' || normalized === 'blocked' || normalized === 'error') return 'blocked';
   return 'todo';
@@ -10912,8 +10950,10 @@ function displayPmStatusLabel(
     return 'held';
   }
   const normalized = normalizeStatus(pmStatus ?? 'todo');
+  const raw = (pmStatus ?? '').toLowerCase();
   if (normalized === 'in_progress') return 'in progress';
   if (normalized === 'blocked') return 'blocked';
+  if (raw === 'cancelled' || raw === 'canceled') return 'cancelled';
   if (normalized === 'done') return 'done';
   if (normalized === 'review') return 'review';
   return humanizeStatusLabel(pmStatus ?? 'todo');
@@ -11185,7 +11225,7 @@ function statusBadge(status?: string) {
     color = '#f87171';
   } else if (normalized === 'warning' || normalized === 'review' || normalized === 'stale' || normalized === 'thin' || normalized === 'held') {
     color = '#fbbf24';
-  } else if (normalized === 'planned') {
+  } else if (normalized === 'planned' || normalized === 'cancelled' || normalized === 'canceled') {
     color = '#64748b';
   }
   return (
