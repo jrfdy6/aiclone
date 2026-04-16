@@ -2109,11 +2109,6 @@ class PMCardServiceTests(unittest.TestCase):
                     ],
                     "source_card_id": "pm-review-source-card",
                 },
-                "host_action_followup": {
-                    "summary": "Within 24 hours of publish, log first-24h metrics in the analytics template.",
-                    "steps": ["Within 24 hours of publish, log first-24h metrics in the analytics template."],
-                    "proof_required": ["First-24h analytics recorded in the analytics template."],
-                },
                 "host_action_completion": {
                     "completed_at": now.isoformat(),
                     "completed_by": "Neo",

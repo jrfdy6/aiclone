@@ -1877,17 +1877,18 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
         if host_action_required is None:
             continue
         current_completion = dict(payload.get("host_action_completion") or {})
+        current_follow_up = _resolved_host_action_phases(current).get("follow_up")
         required_state_key = _optional_str(activation.get("required_state_key"))
         source_card_id = _optional_str(host_action_required.get("source_card_id"))
         source_card = cards_by_id.get(source_card_id) if source_card_id else None
         source_is_host_action = source_card is not None and _is_host_action_required_card(source_card)
-        has_follow_up_context = _normalize_host_action_payload(payload.get("host_action_followup")) is not None or bool(
+        has_follow_up_context = current_follow_up is not None or bool(
             _optional_str(current_completion.get("follow_up_card_id"))
         ) or bool(dict(payload.get("host_action_followup_spawned") or {}))
         if not source_is_host_action and has_follow_up_context:
             continue
         source_payload = dict(source_card.payload or {}) if source_card is not None else {}
-        source_follow_up = _normalize_host_action_payload(source_payload.get("host_action_followup")) if source_card is not None else None
+        source_follow_up = _resolved_host_action_phases(source_card).get("follow_up") if source_card is not None else None
         source_completion = dict(source_payload.get("host_action_completion") or {}) if source_card is not None else {}
         follow_up_gate = (
             _evaluate_host_action_followup_readiness(source_follow_up, source_completion)
@@ -1990,7 +1991,7 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
         if not _is_closed_pm_status(card.status) or not _is_host_action_required_card(card):
             continue
         payload = dict(card.payload or {})
-        host_action_followup = _normalize_host_action_payload(payload.get("host_action_followup"))
+        host_action_followup = _resolved_host_action_phases(card).get("follow_up")
         if host_action_followup is None:
             continue
         completion = dict(payload.get("host_action_completion") or {})
@@ -2040,7 +2041,7 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
         pending_gate = dict(payload.get("host_action_followup_pending") or {})
         if not pending_gate:
             continue
-        host_action_followup = _normalize_host_action_payload(payload.get("host_action_followup"))
+        host_action_followup = _resolved_host_action_phases(card).get("follow_up")
         if host_action_followup is None:
             continue
         completion = dict(payload.get("host_action_completion") or {})
