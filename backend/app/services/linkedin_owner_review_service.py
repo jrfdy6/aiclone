@@ -43,6 +43,7 @@ OWNER_REVIEW_CARD_SOURCE = "openclaw:workspace-owner-review"
 OWNER_REVIEW_LINK_TYPE = "owner_review"
 SUPPLEMENTAL_OWNER_REVIEW_SOURCE_KINDS = {"latent_transform"}
 SUPPLEMENTAL_OWNER_REVIEW_ID_PREFIX = "LATENT"
+ACTIVE_OWNER_REVIEW_CARD_STATUSES = {"review", "todo", "in_progress"}
 
 
 def _owner_review_link_id() -> str | None:
@@ -570,6 +571,82 @@ def _item_from_owner_review_payload(owner_review_payload: dict[str, Any]) -> dic
         decision_scaffold if isinstance(decision_scaffold, dict) else _build_owner_decision_scaffold(item, item["system_assessment"])
     )
     return item
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _list_pm_active_owner_review_decisions() -> dict[str, dict[str, Any]]:
+    decisions: dict[str, dict[str, Any]] = {}
+    try:
+        cards = pm_card_service.list_cards(limit=250)
+    except Exception:
+        return decisions
+    for card in cards:
+        if str(card.source or "") != OWNER_REVIEW_CARD_SOURCE:
+            continue
+        if str(card.link_type or "") != OWNER_REVIEW_LINK_TYPE:
+            continue
+        if str(card.status or "").lower() not in ACTIVE_OWNER_REVIEW_CARD_STATUSES:
+            continue
+        payload = dict(card.payload or {})
+        owner_review_payload = payload.get("owner_review") if isinstance(payload.get("owner_review"), dict) else {}
+        if not isinstance(owner_review_payload, dict):
+            continue
+        queue_id = str(owner_review_payload.get("queue_id") or "").strip()
+        decision = str(owner_review_payload.get("decision") or "").strip().lower()
+        if not queue_id or decision not in STATUS_MAP:
+            continue
+        reviewed_at = _parse_iso_datetime(owner_review_payload.get("reviewed_at"))
+        card_updated_at = getattr(card, "updated_at", None)
+        sort_key = reviewed_at or (card_updated_at if isinstance(card_updated_at, datetime) else None) or datetime.min.replace(tzinfo=timezone.utc)
+        current = decisions.get(queue_id)
+        if current is not None and sort_key <= current["_sort_key"]:
+            continue
+        decisions[queue_id] = {
+            "decision": decision,
+            "notes": str(owner_review_payload.get("notes") or "").strip() or None,
+            "reviewed_at": owner_review_payload.get("reviewed_at"),
+            "_sort_key": sort_key,
+        }
+    return decisions
+
+
+def _apply_pm_owner_review_decision_overrides(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    overrides = _list_pm_active_owner_review_decisions()
+    if not overrides:
+        return items
+    updated_items: list[dict[str, Any]] = []
+    for item in items:
+        queue_id = str(item.get("queue_id") or "").strip()
+        override = overrides.get(queue_id)
+        if override is None:
+            updated_items.append(item)
+            continue
+        decision = str(override.get("decision") or "").strip().lower()
+        updated = dict(item)
+        updated["current_decision"] = decision
+        updated["approval_status"] = APPROVAL_STATUS_MAP.get(decision, updated.get("approval_status"))
+        updated["publish_posture"] = PUBLISH_POSTURE_MAP.get(decision, updated.get("publish_posture"))
+        updated["status"] = STATUS_MAP.get(decision, updated.get("status"))
+        if override.get("notes"):
+            updated["current_notes"] = override.get("notes")
+        if override.get("reviewed_at"):
+            updated["reviewed_at"] = override.get("reviewed_at")
+        updated_items.append(updated)
+    return updated_items
 
 
 def _list_pm_pending_owner_review_items() -> list[dict[str, Any]]:
@@ -1137,6 +1214,7 @@ def list_owner_review_items(*, include_resolved: bool = False) -> dict[str, Any]
         supplemental_items = _list_supplemental_owner_review_items(root)
         if not supplemental_items:
             supplemental_items = _list_pm_pending_owner_review_items()
+        supplemental_items = _apply_pm_owner_review_decision_overrides(supplemental_items)
         pending_items, resolved_items = _split_pending_owner_review_items(supplemental_items)
         selected_items = supplemental_items if include_resolved else pending_items
         return {
@@ -1158,6 +1236,7 @@ def list_owner_review_items(*, include_resolved: bool = False) -> dict[str, Any]
     items.extend(_list_supplemental_owner_review_items(root))
     if not items:
         items.extend(_list_pm_pending_owner_review_items())
+    items = _apply_pm_owner_review_decision_overrides(items)
     pending_items, resolved_items = _split_pending_owner_review_items(items)
     selected_items = items if include_resolved else pending_items
     return {

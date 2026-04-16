@@ -1032,6 +1032,206 @@ This is the second first pass.
         self.assertIn("- [x] Approve for scheduling", updated_packet)
         self.assertIn("Use this one next.", updated_packet)
 
+    def test_owner_review_list_overlays_active_pm_followup_decision(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        queue_path = drafts_dir / "queue_01.md"
+        draft_path = drafts_dir / "feezie-008_saying-the-plan-breaks-in-execution.md"
+        packet_path = drafts_dir / "feezie_owner_review_packet_20260401_overlay.md"
+
+        queue_path.write_text(
+            """# FEEZIE Draft Queue 01
+
+## Queue
+
+### FEEZIE-008 - Saying the plan breaks in execution
+- Lane: `program-leadership`
+- Format: contrarian leadership post
+- Core angle: Real leadership sometimes means calmly naming where a good-sounding plan breaks in execution.
+- Proof anchors:
+  - `../../knowledge/persona/feeze/history/story_bank.md`
+- Why now: this sharpens Feeze's voice as a practical operator.
+- Status: owner_review_draft (`drafts/feezie-008_saying-the-plan-breaks-in-execution.md`)
+- Owner packet: latest `drafts/feezie_owner_review_packet_YYYYMMDD.md` entry for `FEEZIE-008`
+- Approval status: `owner_review_required`
+""",
+            encoding="utf-8",
+        )
+        draft_path.write_text(
+            """---
+title: "Saying the plan breaks in execution"
+lane: program-leadership
+publish_posture: owner_review_required
+---
+
+# Saying the plan breaks in execution
+
+## Why this draft exists
+- Queue item: `FEEZIE-008`
+
+## First-pass draft
+
+This is the first pass.
+
+## Owner notes
+- Add sharper metrics if desired.
+""",
+            encoding="utf-8",
+        )
+        packet_path.write_text(
+            """# FEEZIE Owner Review Packet
+
+## FEEZIE-008 — Saying the plan breaks in execution
+- **Lane / Format:** `program-leadership` | contrarian leadership post
+- **Recommended action:** **Approve; add sprint numbers if we want sharper proof.**
+
+**Owner decision**
+- [ ] Approve for scheduling
+- [ ] Revise (note specifics below)
+- [ ] Park for later
+
+**Draft copy**
+> This is the first pass.
+""",
+            encoding="utf-8",
+        )
+
+        followup_card = PMCard(
+            id="active-owner-followup-008",
+            title="Schedule approved FEEZIE draft - FEEZIE-008",
+            owner="Neo",
+            status="in_progress",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "FEEZIE-008",
+                    "title": "Saying the plan breaks in execution",
+                    "decision": "approve",
+                    "notes": "Package this next.",
+                    "reviewed_at": "2026-04-16T02:06:53.744864+00:00",
+                },
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch.object(linkedin_owner_review_module, "_latest_owner_packet", return_value=packet_path),
+            patch.object(linkedin_owner_review_module.pm_card_service, "list_cards", return_value=[followup_card]),
+        ):
+            response = self.client.get("/api/workspace/linkedin-os-owner-review?include_resolved=true")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        item = next(entry for entry in (payload.get("items") or []) if entry.get("queue_id") == "FEEZIE-008")
+        self.assertEqual(item.get("current_decision"), "approve")
+        self.assertEqual(item.get("current_notes"), "Package this next.")
+        self.assertEqual(item.get("approval_status"), "owner_approved")
+        self.assertEqual(item.get("publish_posture"), "approved")
+        self.assertEqual(item.get("status"), "approved")
+        self.assertEqual(payload.get("pending_count"), 0)
+        self.assertGreaterEqual(payload.get("resolved_count") or 0, 1)
+
+    def test_owner_review_sync_skips_item_when_active_pm_followup_already_records_decision(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        queue_path = drafts_dir / "queue_01.md"
+        draft_path = drafts_dir / "feezie-007_coffee-and-convo-as-operating-philosophy.md"
+        packet_path = drafts_dir / "feezie_owner_review_packet_20260401_sync.md"
+
+        queue_path.write_text(
+            """# FEEZIE Draft Queue 01
+
+## Queue
+
+### FEEZIE-007 - Coffee and Convo as operating philosophy
+- Lane: `referral`
+- Format: relationship-first post
+- Core angle: Coffee and Convo works because it is a working session, not a showcase.
+- Proof anchors:
+  - `../../knowledge/persona/feeze/history/story_bank.md`
+- Why now: the referral-system proof is live.
+- Status: owner_review_draft (`drafts/feezie-007_coffee-and-convo-as-operating-philosophy.md`)
+- Owner packet: latest `drafts/feezie_owner_review_packet_YYYYMMDD.md` entry for `FEEZIE-007`
+- Approval status: `owner_review_required`
+""",
+            encoding="utf-8",
+        )
+        draft_path.write_text(
+            """---
+title: "Coffee and Convo as operating philosophy"
+lane: referral
+publish_posture: owner_review_required
+---
+
+# Coffee and Convo as operating philosophy
+
+## Why this draft exists
+- Queue item: `FEEZIE-007`
+
+## First-pass draft
+
+This is another first pass.
+""",
+            encoding="utf-8",
+        )
+        packet_path.write_text(
+            """# FEEZIE Owner Review Packet
+
+## FEEZIE-007 — Coffee and Convo as operating philosophy
+- **Lane / Format:** `referral` | relationship-first post
+- **Recommended action:** **Approve for scheduling**
+
+**Owner decision**
+- [ ] Approve for scheduling
+- [ ] Revise (note specifics below)
+- [ ] Park for later
+""",
+            encoding="utf-8",
+        )
+
+        followup_card = PMCard(
+            id="active-owner-followup-007",
+            title="Schedule approved FEEZIE draft - FEEZIE-007",
+            owner="Neo",
+            status="todo",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "FEEZIE-007",
+                    "title": "Coffee and Convo as operating philosophy",
+                    "decision": "approve",
+                    "reviewed_at": "2026-04-16T01:49:40.000000+00:00",
+                },
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        with (
+            patch.object(linkedin_owner_review_module, "_latest_owner_packet", return_value=packet_path),
+            patch.object(linkedin_owner_review_module.pm_card_service, "list_cards", return_value=[followup_card]),
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key") as find_card_mock,
+            patch.object(linkedin_owner_review_module.pm_card_service, "create_card") as create_card_mock,
+            patch.object(linkedin_owner_review_module.pm_card_service, "update_card") as update_card_mock,
+        ):
+            response = self.client.post("/api/pm/owner-review/sync")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("pending_count"), 0)
+        self.assertEqual(payload.get("created_card_ids"), [])
+        self.assertEqual(payload.get("updated_card_ids"), [])
+        find_card_mock.assert_not_called()
+        create_card_mock.assert_not_called()
+        update_card_mock.assert_not_called()
+
     def test_linkedin_owner_review_route_reads_and_updates_latent_transform_drafts(self) -> None:
         drafts_dir = self.fixture_root / "drafts"
         drafts_dir.mkdir(parents=True, exist_ok=True)
