@@ -1887,6 +1887,204 @@ class PMCardServiceTests(unittest.TestCase):
         pending = result.card.payload.get("host_action_followup_pending") or {}
         self.assertEqual(pending.get("required_state_key"), "published_at")
 
+    def test_repair_execution_contracts_reopens_legacy_host_step_and_cancels_invalid_followup(self) -> None:
+        now = datetime.now(timezone.utc)
+        source_card = PMCard(
+            id="legacy-source-host-card",
+            title="Host action required - Schedule FEEZIE-002",
+            owner="Neo",
+            status="done",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule FEEZIE-002 in LinkedIn's native scheduler.",
+                    "steps": ["Schedule FEEZIE-002 in LinkedIn's native scheduler."],
+                    "proof_required": ["Record the scheduled timestamp."],
+                },
+                "host_action_followup": {
+                    "summary": "Within 24 hours of publish, log first-24h metrics in the analytics template.",
+                    "steps": ["Within 24 hours of publish, log first-24h metrics in the analytics template."],
+                    "proof_required": ["First-24h analytics recorded in the analytics template."],
+                },
+                "host_action_completion": {
+                    "completed_at": now.isoformat(),
+                    "completed_by": "Neo",
+                    "proof_items": [],
+                    "proof_required": ["Record the scheduled timestamp."],
+                    "external_state": {},
+                    "host_confirmation_mode": "confirmed_without_context",
+                    "follow_up_card_id": "legacy-delayed-followup-card",
+                },
+                "host_action_followup_spawned": {
+                    "card_id": "legacy-delayed-followup-card",
+                    "title": "Host action required - Within 24 hours of publish",
+                    "created_at": now.isoformat(),
+                    "workspace_key": "linkedin-os",
+                },
+                "execution": {
+                    "state": "done",
+                    "manager_attention_required": False,
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        followup_card = PMCard(
+            id="legacy-delayed-followup-card",
+            title="Host action required - Within 24 hours of publish, log first-24h metrics",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Within 24 hours of publish, log first-24h metrics in the analytics template.",
+                    "steps": ["Within 24 hours of publish, log first-24h metrics in the analytics template."],
+                    "proof_required": ["First-24h analytics recorded in the analytics template."],
+                    "source_card_id": "legacy-source-host-card",
+                    "source_card_title": "Host action required - Schedule FEEZIE-002",
+                },
+                "execution": {
+                    "state": "host_step_only",
+                    "manager_attention_required": False,
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        current = {
+            source_card.id: source_card,
+            followup_card.id: followup_card,
+        }
+
+        def fake_update(card_id: str, patch: PMCardUpdate) -> PMCard:
+            base = current[card_id]
+            updated = base.model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else base.status,
+                    "payload": patch.payload if patch.payload is not None else base.payload,
+                    "updated_at": now,
+                }
+            )
+            current[card_id] = updated
+            return updated
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[source_card, followup_card]),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+        ):
+            result = pm_card_service.repair_execution_contracts(limit=20, workspace_key="linkedin-os")
+
+        self.assertEqual(result.get("host_followup_repaired_count"), 1)
+        self.assertEqual(current["legacy-delayed-followup-card"].status, "cancelled")
+        self.assertEqual(current["legacy-source-host-card"].status, "todo")
+        source_execution = current["legacy-source-host-card"].payload.get("execution") or {}
+        self.assertEqual(source_execution.get("state"), "host_step_only")
+        source_completion = current["legacy-source-host-card"].payload.get("host_action_completion") or {}
+        self.assertIsNone(source_completion.get("follow_up_card_id"))
+        self.assertNotIn("host_action_followup_spawned", current["legacy-source-host-card"].payload)
+
+    def test_repair_execution_contracts_activates_ready_pending_host_followup(self) -> None:
+        now = datetime.now(timezone.utc)
+        source_card = PMCard(
+            id="ready-source-host-card",
+            title="Host action required - Confirm publish",
+            owner="Neo",
+            status="done",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Confirm FEEZIE-002 published.",
+                    "steps": ["Confirm FEEZIE-002 published."],
+                    "proof_required": ["Record the published timestamp."],
+                },
+                "host_action_followup": {
+                    "summary": "Within 24 hours of publish, log first-24h metrics in the analytics template.",
+                    "steps": ["Within 24 hours of publish, log first-24h metrics in the analytics template."],
+                    "proof_required": ["First-24h analytics recorded in the analytics template."],
+                },
+                "host_action_completion": {
+                    "completed_at": now.isoformat(),
+                    "completed_by": "Neo",
+                    "proof_items": ["Published at 2026-04-15 09:00 AM ET."],
+                    "proof_required": ["Record the published timestamp."],
+                    "external_state": {
+                        "published_at": "2026-04-15T13:00:00+00:00",
+                    },
+                    "host_confirmation_mode": "confirmed_with_context",
+                },
+                "host_action_followup_pending": {
+                    "ready": False,
+                    "required_state_key": "published_at",
+                    "reason": "Waiting on explicit `published_at` before the delayed host follow-up can exist.",
+                },
+                "execution": {
+                    "state": "done",
+                    "manager_attention_required": False,
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        current = {source_card.id: source_card}
+        created_payloads: list[PMCardCreate] = []
+
+        def fake_update(card_id: str, patch: PMCardUpdate) -> PMCard:
+            base = current[card_id]
+            updated = base.model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else base.status,
+                    "payload": patch.payload if patch.payload is not None else base.payload,
+                    "updated_at": now,
+                }
+            )
+            current[card_id] = updated
+            return updated
+
+        def fake_create(payload: PMCardCreate) -> PMCard:
+            created_payloads.append(payload)
+            created = PMCard(
+                id="activated-followup-card",
+                title=payload.title,
+                owner=payload.owner,
+                status=payload.status,
+                source=payload.source,
+                link_type=payload.link_type,
+                link_id=payload.link_id,
+                due_at=payload.due_at,
+                payload=payload.payload,
+                created_at=now,
+                updated_at=now,
+            )
+            current[created.id] = created
+            return created
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[source_card]),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(pm_card_service, "create_card", side_effect=fake_create),
+        ):
+            result = pm_card_service.repair_execution_contracts(limit=20, workspace_key="linkedin-os")
+
+        self.assertEqual(result.get("host_followup_repaired_count"), 1)
+        self.assertEqual(len(created_payloads), 1)
+        source_completion = current["ready-source-host-card"].payload.get("host_action_completion") or {}
+        self.assertEqual(source_completion.get("follow_up_card_id"), "activated-followup-card")
+        self.assertNotIn("host_action_followup_pending", current["ready-source-host-card"].payload)
+        spawned = current["ready-source-host-card"].payload.get("host_action_followup_spawned") or {}
+        self.assertEqual(spawned.get("card_id"), "activated-followup-card")
+
     def test_decorate_card_for_client_marks_feezie_alias_review_as_autonomous(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

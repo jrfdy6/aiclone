@@ -1745,6 +1745,7 @@ def _is_execution_candidate(card: PMCard) -> bool:
 def repair_execution_contracts(limit: int = 250, workspace_key: str | None = None) -> dict[str, Any]:
     cards = list_cards(limit=limit, workspace_key=workspace_key)
     deduped = _dedupe_active_pm_review_resolution_cards(cards)
+    host_followup_repairs = _repair_legacy_host_action_cards(cards)
     closed_duplicate_ids = {str(item.get("card_id")) for item in deduped}
     cards = [card for card in cards if card.id not in closed_duplicate_ids]
     repaired: list[dict[str, Any]] = []
@@ -1769,9 +1770,267 @@ def repair_execution_contracts(limit: int = 250, workspace_key: str | None = Non
     return {
         "deduped_count": len(deduped),
         "deduped": deduped,
+        "host_followup_repaired_count": len(host_followup_repairs),
+        "host_followup_repaired": host_followup_repairs,
         "repaired_count": len(repaired),
         "repaired": repaired,
     }
+
+
+def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]]:
+    cards_by_id = {card.id: card for card in cards}
+    repaired: list[dict[str, Any]] = []
+    requested_by = "PM Host Action Repair"
+
+    def apply_card_update(card: PMCard, *, status: str | None = None, payload: dict[str, Any] | None = None) -> PMCard:
+        updated = update_card(card.id, PMCardUpdate(status=status, payload=payload))
+        effective = updated or card.model_copy(
+            update={
+                "status": status if status is not None else card.status,
+                "payload": payload if payload is not None else dict(card.payload or {}),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+        cards_by_id[effective.id] = effective
+        return effective
+
+    def clear_source_followup_references(source_payload: dict[str, Any], follow_up_card_id: str) -> dict[str, Any]:
+        completion = dict(source_payload.get("host_action_completion") or {})
+        if _optional_str(completion.get("follow_up_card_id")) == follow_up_card_id:
+            completion.pop("follow_up_card_id", None)
+            completion.pop("follow_up_card_title", None)
+        if completion:
+            source_payload["host_action_completion"] = completion
+        else:
+            source_payload.pop("host_action_completion", None)
+        spawned = dict(source_payload.get("host_action_followup_spawned") or {})
+        if _optional_str(spawned.get("card_id")) == follow_up_card_id:
+            source_payload.pop("host_action_followup_spawned", None)
+        return source_payload
+
+    def build_host_execution_payload(
+        current_execution: dict[str, Any],
+        *,
+        state: str,
+        event: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        history = list(current_execution.get("history") or [])
+        history.append(
+            {
+                "event": event,
+                "state": state,
+                "requested_by": requested_by,
+                "at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        return {
+            **current_execution,
+            "state": state,
+            "requested_by": requested_by,
+            "manager_attention_required": False,
+            "executor_status": None,
+            "executor_worker_id": None,
+            "executor_last_error": None,
+            "execution_packet_path": None,
+            "executor_started_at": None,
+            "executor_finished_at": None,
+            "briefing_path": None,
+            "sop_path": None,
+            "reason": reason,
+            "last_transition_at": datetime.now(timezone.utc).isoformat(),
+            "history": history[-12:],
+        }
+
+    def should_reopen_source(
+        source_card: PMCard,
+        *,
+        required_state_key: str | None,
+        follow_up_card_id: str,
+    ) -> bool:
+        if not _is_closed_pm_status(source_card.status):
+            return False
+        payload = dict(source_card.payload or {})
+        completion = dict(payload.get("host_action_completion") or {})
+        if _optional_str(completion.get("host_confirmation_mode")) != "confirmed_without_context":
+            return False
+        external_state = dict(completion.get("external_state") or {})
+        if required_state_key and _optional_str(external_state.get(required_state_key)):
+            return False
+        spawned = dict(payload.get("host_action_followup_spawned") or {})
+        references_followup = _optional_str(completion.get("follow_up_card_id")) == follow_up_card_id or _optional_str(
+            spawned.get("card_id")
+        ) == follow_up_card_id
+        return references_followup
+
+    # First, cancel legacy delayed follow-up cards that should not exist yet.
+    for card in cards:
+        current = cards_by_id.get(card.id, card)
+        if _is_closed_pm_status(current.status) or not _is_host_action_required_card(current):
+            continue
+        activation = _host_action_activation_status(current)
+        if not isinstance(activation, dict) or str(activation.get("state") or "").strip() != "waiting_on_prerequisite":
+            continue
+
+        payload = dict(current.payload or {})
+        host_action_required = _normalize_host_action_payload(payload.get("host_action_required"))
+        if host_action_required is None:
+            continue
+        required_state_key = _optional_str(activation.get("required_state_key"))
+        source_card_id = _optional_str(host_action_required.get("source_card_id"))
+        source_card = cards_by_id.get(source_card_id) if source_card_id else None
+        source_payload = dict(source_card.payload or {}) if source_card is not None else {}
+        source_follow_up = _normalize_host_action_payload(source_payload.get("host_action_followup")) if source_card is not None else None
+        source_completion = dict(source_payload.get("host_action_completion") or {}) if source_card is not None else {}
+        follow_up_gate = (
+            _evaluate_host_action_followup_readiness(source_follow_up, source_completion)
+            if source_card is not None and source_follow_up is not None
+            else None
+        )
+
+        cancel_reason = (
+            f"Cancelled legacy delayed host follow-up because `{required_state_key}` was never recorded upstream."
+            if required_state_key
+            else "Cancelled legacy delayed host follow-up because its prerequisite state was missing upstream."
+        )
+        cancel_payload = dict(payload)
+        cancel_payload["execution"] = build_host_execution_payload(
+            dict(cancel_payload.get("execution") or {}),
+            state="cancelled",
+            event="legacy_host_followup_cancelled",
+            reason=cancel_reason,
+        )
+        cancel_payload["legacy_host_repair"] = {
+            "action": "cancel_invalid_delayed_followup",
+            "repaired_at": datetime.now(timezone.utc).isoformat(),
+            "repaired_by": requested_by,
+            "required_state_key": required_state_key,
+            "source_card_id": source_card_id,
+            "reason": cancel_reason,
+        }
+        apply_card_update(current, status="cancelled", payload=cancel_payload)
+
+        reopened_source: PMCard | None = None
+        replacement_followup: PMCard | None = None
+
+        if source_card is not None:
+            source_payload = clear_source_followup_references(dict(source_payload), current.id)
+            if should_reopen_source(source_card, required_state_key=required_state_key, follow_up_card_id=current.id):
+                source_payload.pop("host_action_followup_pending", None)
+                source_payload["execution"] = build_host_execution_payload(
+                    dict(source_payload.get("execution") or {}),
+                    state="host_step_only",
+                    event="legacy_host_source_reopened",
+                    reason="Reopened host step because a delayed follow-up had been spawned without any recorded external state.",
+                )
+                source_payload["legacy_host_repair"] = {
+                    "action": "reopen_source_host_step",
+                    "repaired_at": datetime.now(timezone.utc).isoformat(),
+                    "repaired_by": requested_by,
+                    "cancelled_followup_card_id": current.id,
+                    "required_state_key": required_state_key,
+                    "reason": "Reopened the source host step because it had been confirmed without context and no prerequisite external state was recorded.",
+                }
+                reopened_source = apply_card_update(source_card, status="todo", payload=source_payload)
+            else:
+                if isinstance(follow_up_gate, dict):
+                    source_payload["host_action_followup_pending"] = follow_up_gate
+                source_payload["legacy_host_repair"] = {
+                    "action": "normalize_followup_pending",
+                    "repaired_at": datetime.now(timezone.utc).isoformat(),
+                    "repaired_by": requested_by,
+                    "cancelled_followup_card_id": current.id,
+                    "required_state_key": required_state_key,
+                    "reason": "Removed a legacy delayed host follow-up and restored the pending gate on the source host step.",
+                }
+                source_card = apply_card_update(source_card, status=source_card.status, payload=source_payload)
+                cards_by_id[source_card.id] = source_card
+                if isinstance(follow_up_gate, dict) and bool(follow_up_gate.get("ready")) and source_follow_up is not None:
+                    replacement_followup = _create_host_action_required_card(
+                        source_card,
+                        requested_by=requested_by,
+                        host_action_required=source_follow_up,
+                        due_at=follow_up_gate.get("due_at"),
+                    )
+                    replacement_payload = dict(source_card.payload or {})
+                    completion = dict(replacement_payload.get("host_action_completion") or {})
+                    completion["follow_up_card_id"] = replacement_followup.id
+                    completion["follow_up_card_title"] = replacement_followup.title
+                    replacement_payload["host_action_completion"] = completion
+                    replacement_payload["host_action_followup_spawned"] = {
+                        "card_id": replacement_followup.id,
+                        "title": replacement_followup.title,
+                        "created_at": _datetime_to_iso(replacement_followup.created_at),
+                        "workspace_key": _workspace_key_from_card(replacement_followup),
+                    }
+                    replacement_payload.pop("host_action_followup_pending", None)
+                    source_card = apply_card_update(source_card, status=source_card.status, payload=replacement_payload)
+
+        repaired.append(
+            {
+                "card_id": current.id,
+                "title": current.title,
+                "action": "cancelled_invalid_delayed_followup",
+                "workspace_key": _workspace_key_from_card(current),
+                "source_card_id": source_card_id,
+                "reopened_source_card_id": reopened_source.id if reopened_source is not None else None,
+                "replacement_followup_card_id": replacement_followup.id if replacement_followup is not None else None,
+            }
+        )
+
+    # Then, activate any delayed follow-up that is now ready from explicit external state.
+    for card in list(cards_by_id.values()):
+        if not _is_closed_pm_status(card.status) or not _is_host_action_required_card(card):
+            continue
+        payload = dict(card.payload or {})
+        pending_gate = dict(payload.get("host_action_followup_pending") or {})
+        if not pending_gate:
+            continue
+        host_action_followup = _normalize_host_action_payload(payload.get("host_action_followup"))
+        if host_action_followup is None:
+            continue
+        completion = dict(payload.get("host_action_completion") or {})
+        follow_up_gate = _evaluate_host_action_followup_readiness(host_action_followup, completion)
+        if not bool(follow_up_gate.get("ready")):
+            continue
+        successor_card = _create_host_action_required_card(
+            card,
+            requested_by=requested_by,
+            host_action_required=host_action_followup,
+            due_at=follow_up_gate.get("due_at"),
+        )
+        updated_payload = dict(payload)
+        completion["follow_up_card_id"] = successor_card.id
+        completion["follow_up_card_title"] = successor_card.title
+        updated_payload["host_action_completion"] = completion
+        updated_payload["host_action_followup_spawned"] = {
+            "card_id": successor_card.id,
+            "title": successor_card.title,
+            "created_at": _datetime_to_iso(successor_card.created_at),
+            "workspace_key": _workspace_key_from_card(successor_card),
+        }
+        updated_payload.pop("host_action_followup_pending", None)
+        updated_payload["legacy_host_repair"] = {
+            "action": "activate_ready_delayed_followup",
+            "repaired_at": datetime.now(timezone.utc).isoformat(),
+            "repaired_by": requested_by,
+            "spawned_followup_card_id": successor_card.id,
+            "required_state_key": follow_up_gate.get("required_state_key"),
+            "reason": "Activated a delayed host follow-up because the prerequisite external state is now recorded.",
+        }
+        apply_card_update(card, status=card.status, payload=updated_payload)
+        cards_by_id[successor_card.id] = successor_card
+        repaired.append(
+            {
+                "card_id": card.id,
+                "title": card.title,
+                "action": "activated_ready_delayed_followup",
+                "workspace_key": _workspace_key_from_card(card),
+                "spawned_followup_card_id": successor_card.id,
+            }
+        )
+
+    return repaired
 
 
 def _build_missing_execution_contract_payload(card: PMCard) -> dict[str, Any] | None:
