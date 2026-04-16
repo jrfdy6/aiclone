@@ -1808,6 +1808,24 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
             source_payload.pop("host_action_followup_spawned", None)
         return source_payload
 
+    def persist_resolved_host_action_phases(card: PMCard, payload: dict[str, Any]) -> dict[str, Any]:
+        phases = _resolved_host_action_phases(card)
+        current_phase = phases.get("current")
+        follow_up_phase = phases.get("follow_up")
+        if current_phase is not None:
+            payload["host_action_required"] = {
+                **current_phase,
+                "proof_fields": _build_host_action_proof_fields(_dedupe_nonempty_strings(current_phase.get("proof_required"))),
+            }
+        if follow_up_phase is not None:
+            payload["host_action_followup"] = {
+                **follow_up_phase,
+                "proof_fields": _build_host_action_proof_fields(_dedupe_nonempty_strings(follow_up_phase.get("proof_required"))),
+            }
+        else:
+            payload.pop("host_action_followup", None)
+        return payload
+
     def build_host_execution_payload(
         current_execution: dict[str, Any],
         *,
@@ -1925,6 +1943,7 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
             source_payload = clear_source_followup_references(dict(source_payload), current.id)
             if should_reopen_source(source_card, required_state_key=required_state_key, follow_up_card_id=current.id):
                 source_payload.pop("host_action_followup_pending", None)
+                source_payload = persist_resolved_host_action_phases(source_card, source_payload)
                 source_payload["execution"] = build_host_execution_payload(
                     dict(source_payload.get("execution") or {}),
                     state="host_step_only",
@@ -2008,6 +2027,7 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
             continue
         reopened_payload = clear_source_followup_references(dict(payload), follow_up_card_id or "")
         reopened_payload.pop("host_action_followup_pending", None)
+        reopened_payload = persist_resolved_host_action_phases(card, reopened_payload)
         reopened_payload["execution"] = build_host_execution_payload(
             dict(reopened_payload.get("execution") or {}),
             state="host_step_only",

@@ -2182,6 +2182,11 @@ class PMCardServiceTests(unittest.TestCase):
         completion = current["malformed-legacy-source-card"].payload.get("host_action_completion") or {}
         self.assertIsNone(completion.get("follow_up_card_id"))
         self.assertNotIn("host_action_followup_spawned", current["malformed-legacy-source-card"].payload)
+        decorated = pm_card_service.decorate_card_for_client(current["malformed-legacy-source-card"])
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        policy = decorated.payload.get("pm_review_policy") or {}
+        self.assertEqual(policy.get("attention_class"), "needs_host")
         self.assertTrue(
             any(item.get("action") == "reopened_legacy_source_host_step" for item in result.get("host_followup_repaired", []))
         )
