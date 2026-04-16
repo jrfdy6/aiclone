@@ -1876,9 +1876,16 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
         host_action_required = _normalize_host_action_payload(payload.get("host_action_required"))
         if host_action_required is None:
             continue
+        current_completion = dict(payload.get("host_action_completion") or {})
         required_state_key = _optional_str(activation.get("required_state_key"))
         source_card_id = _optional_str(host_action_required.get("source_card_id"))
         source_card = cards_by_id.get(source_card_id) if source_card_id else None
+        source_is_host_action = source_card is not None and _is_host_action_required_card(source_card)
+        has_follow_up_context = _normalize_host_action_payload(payload.get("host_action_followup")) is not None or bool(
+            _optional_str(current_completion.get("follow_up_card_id"))
+        ) or bool(dict(payload.get("host_action_followup_spawned") or {}))
+        if not source_is_host_action and has_follow_up_context:
+            continue
         source_payload = dict(source_card.payload or {}) if source_card is not None else {}
         source_follow_up = _normalize_host_action_payload(source_payload.get("host_action_followup")) if source_card is not None else None
         source_completion = dict(source_payload.get("host_action_completion") or {}) if source_card is not None else {}
@@ -1975,6 +1982,53 @@ def _repair_legacy_host_action_cards(cards: list[PMCard]) -> list[dict[str, Any]
                 "source_card_id": source_card_id,
                 "reopened_source_card_id": reopened_source.id if reopened_source is not None else None,
                 "replacement_followup_card_id": replacement_followup.id if replacement_followup is not None else None,
+            }
+        )
+
+    # Then, reopen malformed legacy source host cards that were closed without any usable external state.
+    for card in list(cards_by_id.values()):
+        if not _is_closed_pm_status(card.status) or not _is_host_action_required_card(card):
+            continue
+        payload = dict(card.payload or {})
+        host_action_followup = _normalize_host_action_payload(payload.get("host_action_followup"))
+        if host_action_followup is None:
+            continue
+        completion = dict(payload.get("host_action_completion") or {})
+        if _optional_str(completion.get("host_confirmation_mode")) != "confirmed_without_context":
+            continue
+        required_state_key = _host_action_required_state_key(host_action_followup)
+        external_state = dict(completion.get("external_state") or {})
+        if required_state_key and _optional_str(external_state.get(required_state_key)):
+            continue
+        spawned = dict(payload.get("host_action_followup_spawned") or {})
+        follow_up_card_id = _optional_str(completion.get("follow_up_card_id")) or _optional_str(spawned.get("card_id"))
+        follow_up_card = cards_by_id.get(follow_up_card_id) if follow_up_card_id else None
+        if follow_up_card is not None and not _is_closed_pm_status(follow_up_card.status):
+            continue
+        reopened_payload = clear_source_followup_references(dict(payload), follow_up_card_id or "")
+        reopened_payload.pop("host_action_followup_pending", None)
+        reopened_payload["execution"] = build_host_execution_payload(
+            dict(reopened_payload.get("execution") or {}),
+            state="host_step_only",
+            event="legacy_host_source_reopened",
+            reason="Reopened host step because the legacy closure did not record the external state needed for follow-through.",
+        )
+        reopened_payload["legacy_host_repair"] = {
+            "action": "reopen_source_host_step",
+            "repaired_at": datetime.now(timezone.utc).isoformat(),
+            "repaired_by": requested_by,
+            "cancelled_followup_card_id": follow_up_card_id,
+            "required_state_key": required_state_key,
+            "reason": "Reopened the source host step because it had been confirmed without context and no prerequisite external state was recorded.",
+        }
+        apply_card_update(card, status="todo", payload=reopened_payload)
+        repaired.append(
+            {
+                "card_id": card.id,
+                "title": card.title,
+                "action": "reopened_legacy_source_host_step",
+                "workspace_key": _workspace_key_from_card(card),
+                "followup_card_id": follow_up_card_id,
             }
         )
 
