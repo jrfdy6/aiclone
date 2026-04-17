@@ -5,6 +5,7 @@ import { Suspense, type CSSProperties, useCallback, useEffect, useMemo, useState
 import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
+import { formatUiDate, formatUiDateWithWeekday, formatUiNumber, formatUiTime, formatUiTimestamp } from '@/lib/ui-dates';
 
 const API_URL = getApiUrl();
 const REPO_ROOT = '/Users/neo/.openclaw/workspace';
@@ -1836,7 +1837,7 @@ export default function OpsClient({
             <p style={{ color: '#8ea0bd', maxWidth: '760px' }}>Runtime health, live telemetry, team surfaces, and the control-center shell from the March 20 reference screenshots.</p>
           </div>
           <div style={{ textAlign: 'right', color: '#94a3b8', fontSize: '13px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-            <p>Last check: {checkedAt ? checkedAt.toLocaleTimeString() : loading ? 'Checking...' : '-'}</p>
+            <p>Last check: {checkedAt ? formatUiTime(checkedAt) : loading ? 'Checking...' : '-'}</p>
             <p>Refresh cadence: 60s poll + manual trigger</p>
             <button
               onClick={loadTelemetry}
@@ -5474,8 +5475,10 @@ function StandupsPanel({
       </div>
       <div style={{ display: 'grid', gap: '14px' }}>
         {entries.length === 0 && <EmptyPanel message="No live standup API entries recorded yet. The new local standup-prep packets are ready to seed the first meetings." />}
-        {entries.map((entry) => (
-          <article key={entry.id} style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '18px' }}>
+        {entries.map((entry) => {
+          const sections = extractStandupSections(entry.payload);
+          return (
+            <article key={entry.id} style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '18px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
               <div>
                 <h3 style={{ fontSize: '20px', color: 'white', margin: 0 }}>{entry.owner}</h3>
@@ -5489,6 +5492,9 @@ function StandupsPanel({
             <PanelList title="Captured PM Snapshot" items={extractPmSnapshotLines(entry.payload?.pm_snapshot)} emptyLabel="No PM snapshot captured." />
             <PanelList title="Current Linked PM Cards" items={liveLinkedCardItems(entry, pmCards)} emptyLabel="No live PM cards linked to this standup." />
             <PanelList title="Agenda" items={extractStandupList(entry.payload, 'agenda')} emptyLabel="No agenda captured." />
+            {sections.map((section) => (
+              <PanelList key={`${entry.id}-${section.key}`} title={section.title} items={section.items} emptyLabel={`No ${section.title.toLowerCase()} captured.`} />
+            ))}
             <PanelList title="Discussion" items={extractStandupDiscussion(entry.payload)} emptyLabel="No executive discussion captured." />
             <PanelList title="Decisions" items={extractStandupList(entry.payload, 'decisions')} emptyLabel="No decisions captured." />
             <PanelList title="Owners" items={extractStandupList(entry.payload, 'owners')} emptyLabel="No owners captured." />
@@ -5496,8 +5502,9 @@ function StandupsPanel({
             <PanelList title="Blockers" items={entry.blockers} emptyLabel="No blockers captured." />
             <PanelList title="Commitments" items={entry.commitments} emptyLabel="No commitments captured." />
             <PanelList title="Needs" items={entry.needs} emptyLabel="No cross-team needs captured." />
-          </article>
-        ))}
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -5543,6 +5550,7 @@ function MeetingReaderView({
   const decisions = extractStandupList(selectedEntry.payload, 'decisions');
   const owners = extractStandupList(selectedEntry.payload, 'owners');
   const artifactDeltas = extractStandupList(selectedEntry.payload, 'artifact_deltas');
+  const standupSections = extractStandupSections(selectedEntry.payload);
   const provenance = standupRecordProvenance(selectedEntry);
   const participantBuckets = standupParticipantBuckets(selectedEntry);
   const payload = selectedEntry.payload ?? {};
@@ -5820,6 +5828,23 @@ function MeetingReaderView({
                   <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>No structured discussion rounds were captured for this meeting yet.</p>
                 </section>
               )}
+
+            {standupSections.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                {standupSections.map((section) => (
+                  <section key={`${selectedEntry.id}-${section.key}`} style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
+                    <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>{section.title}</p>
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      {section.items.map((item) => (
+                        <p key={`${selectedEntry.id}-${section.key}-${item}`} style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>
+                          - {item}
+                        </p>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#111827', padding: '14px' }}>
@@ -7370,11 +7395,11 @@ function WorkspacePanel({
         throw new Error(detail || 'Unable to queue feed refresh.');
       }
       const data = await res.json();
-      setRefreshStatus(`Refresh queued${data.started_at ? ` at ${new Date(data.started_at).toLocaleTimeString()}` : ''}`);
+      setRefreshStatus(`Refresh queued${data.started_at ? ` at ${formatUiTime(data.started_at)}` : ''}`);
       const finalStatus = await waitForFeedRefresh();
       await onReloadLiveSnapshot();
       setRefreshStatus(
-        `Feed updated${finalStatus.last_run ? ` at ${new Date(finalStatus.last_run).toLocaleTimeString()}` : ''}`,
+        `Feed updated${finalStatus.last_run ? ` at ${formatUiTime(finalStatus.last_run)}` : ''}`,
       );
     } catch (error) {
       setRefreshStatus(error instanceof Error ? error.message : 'Refresh failed.');
@@ -8648,7 +8673,7 @@ function WorkspacePanel({
                     ) : null}
                     {asset.wordCount ? (
                       <span style={{ borderRadius: '999px', border: '1px solid #374151', padding: '4px 10px', color: '#94a3b8', fontSize: '12px' }}>
-                        {asset.wordCount.toLocaleString()} words
+                        {formatUiNumber(asset.wordCount)} words
                       </span>
                     ) : null}
                   </div>
@@ -10206,6 +10231,25 @@ function extractStandupList(payload: Record<string, unknown> | undefined, key: s
   return Array.isArray(items) ? items.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
 }
 
+function extractStandupSections(payload: Record<string, unknown> | undefined) {
+  const raw = payload?.standup_sections;
+  const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const sectionConfig = [
+    ['signals_captured', 'Signals Captured'],
+    ['content_produced', 'Content Produced'],
+    ['audience_response', 'Audience Response'],
+    ['opportunities_created', 'Opportunities Created'],
+    ['next_focus', 'Next Focus'],
+  ] as const;
+  return sectionConfig
+    .map(([key, title]) => ({
+      key,
+      title,
+      items: extractStandupList(record, key),
+    }))
+    .filter((section) => section.items.length > 0);
+}
+
 function standupParticipants(entry: StandupEntry) {
   return standupParticipantBuckets(entry).merged;
 }
@@ -11429,7 +11473,7 @@ function buildRecentDayBuckets(entries: StandupEntry[], days: number) {
     const key = date.toISOString().slice(0, 10);
     buckets.push({
       key,
-      label: date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+      label: formatUiDateWithWeekday(date),
       entries: (byDay.get(key) ?? []).sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime()),
     });
   }
@@ -11457,7 +11501,7 @@ function buildMonthBuckets(entries: StandupEntry[]) {
     const key = current.toISOString().slice(0, 10);
     buckets.push({
       key,
-      label: current.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      label: formatUiDate(current),
       entries: (byDay.get(key) ?? []).sort((left, right) => standupCreatedAt(right).getTime() - standupCreatedAt(left).getTime()),
     });
   }
@@ -11490,7 +11534,7 @@ function statusBadge(status?: string) {
 }
 
 function formatTimestamp(value: Date) {
-  return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+  return formatUiTimestamp(value);
 }
 
 function humanizeBeliefRelation(value: string | null | undefined) {

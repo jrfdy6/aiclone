@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
+import { formatUiTimestamp } from '@/lib/ui-dates';
 
 const API_URL = getApiUrl();
 
@@ -1942,7 +1943,7 @@ function BuildLogCard({ automations, expanded = false }: { automations: Automati
 }
 
 function formatTimestamp(value: Date) {
-  return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+  return formatUiTimestamp(value);
 }
 
 function formatMetric(metricId: string, value: number | null | undefined) {

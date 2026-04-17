@@ -11,6 +11,9 @@ import OpsClient, {
   WorkspaceFile,
 } from './OpsClient';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const OPENCLAW_WORKSPACE_ROOT = path.join(process.cwd(), '.openclaw/workspace');
 const OPENCLAW_MEMORY_ROOT = path.join(OPENCLAW_WORKSPACE_ROOT, 'memory');
 

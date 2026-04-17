@@ -20,6 +20,7 @@ import {
   humanizeBrainTargetLabel,
 } from '@/app/workspace/generatedFragmentUtils';
 import PromotableInlineText from '@/app/workspace/PromotableInlineText';
+import { formatUiTime, formatUiTimestamp } from '@/lib/ui-dates';
 
 type FeedLensId =
   | 'admissions'
@@ -613,12 +614,7 @@ function formatTimestamp(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(date);
+  return formatUiTimestamp(date);
 }
 
 function ownerReviewKindLabel(item?: Pick<OwnerReviewItem, 'entry_kind' | 'source_kind'> | null) {
@@ -1044,10 +1040,10 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         skip_fetch: false,
         sources: 'safe',
       });
-      setRefreshStatus(`Refresh queued${data.started_at ? ` at ${new Date(data.started_at).toLocaleTimeString()}` : ''}`);
+      setRefreshStatus(`Refresh queued${data.started_at ? ` at ${formatUiTime(data.started_at)}` : ''}`);
       const finalStatus = await waitForFeedRefresh();
       await loadSnapshot();
-      setRefreshStatus(`Feed updated${finalStatus.last_run ? ` at ${new Date(finalStatus.last_run).toLocaleTimeString()}` : ''}`);
+      setRefreshStatus(`Feed updated${finalStatus.last_run ? ` at ${formatUiTime(finalStatus.last_run)}` : ''}`);
     } catch (error) {
       setRefreshStatus(error instanceof Error ? error.message : 'Refresh failed.');
     } finally {

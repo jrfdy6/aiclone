@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getApiUrl } from '@/lib/api-client';
 import NavHeader from '@/components/NavHeader';
+import { formatUiDate } from '@/lib/ui-dates';
 
 type FollowUpEvent = {
   id: string;
@@ -26,7 +27,7 @@ type CalendarDay = {
 };
 
 export default function CalendarPage() {
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState<Date | null>(null);
   const [events, setEvents] = useState<FollowUpEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<FollowUpEvent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,14 @@ export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
 
   useEffect(() => {
+    setCurrentDate(new Date());
+  }, []);
+
+  useEffect(() => {
+    if (!currentDate) {
+      return;
+    }
+
     const loadEvents = async () => {
       const apiUrl = getApiUrl();
       if (!apiUrl) {
@@ -130,6 +139,17 @@ export default function CalendarPage() {
     void loadEvents();
   }, [currentDate]);
 
+  if (!currentDate) {
+    return (
+      <main style={{ minHeight: '100vh', backgroundColor: '#0f172a' }}>
+        <NavHeader />
+        <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
+          <p className="text-sm text-slate-300">Loading calendar...</p>
+        </div>
+      </main>
+    );
+  }
+
   const getDaysInMonth = (date: Date): CalendarDay[] => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -213,8 +233,9 @@ export default function CalendarPage() {
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setMonth(prev.getMonth() + (direction === 'next' ? 1 : -1));
+      const baseDate = prev ?? new Date();
+      const newDate = new Date(baseDate);
+      newDate.setMonth(baseDate.getMonth() + (direction === 'next' ? 1 : -1));
       return newDate;
     });
   };
@@ -406,7 +427,7 @@ export default function CalendarPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Scheduled Date</label>
-                    <p className="text-gray-900">{new Date(selectedEvent.scheduled_date).toLocaleDateString()}</p>
+                    <p className="text-gray-900">{formatUiDate(selectedEvent.scheduled_date)}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Type</label>

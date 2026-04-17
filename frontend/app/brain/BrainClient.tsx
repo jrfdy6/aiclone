@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
+import { formatUiTimestamp, parseUiDate } from '@/lib/ui-dates';
 
 export type DocEntry = {
   name: string;
@@ -1135,7 +1136,7 @@ function BrainControlPlanePanel({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
             <TelemetryMeta
               label="Last Sync"
-              value={brainMemorySync?.generated_at ? formatTimestamp(new Date(brainMemorySync.generated_at)) : '—'}
+              value={brainMemorySync?.generated_at ? formatTimestamp(brainMemorySync.generated_at) : '—'}
               detail="Latest status published into the control plane"
             />
             <TelemetryMeta
@@ -1540,7 +1541,7 @@ function WorkspaceMirrorsPanel({ workspaceSnapshot }: { workspaceSnapshot: Brain
         <WorkspaceMirrorCard
           title="Weekly Plan"
           meta={[
-            weeklyPlan?.generated_at ? `Updated ${formatTimestamp(new Date(weeklyPlan.generated_at))}` : 'No plan timestamp',
+            weeklyPlan?.generated_at ? `Updated ${formatTimestamp(weeklyPlan.generated_at)}` : 'No plan timestamp',
             `Recommendations ${numberMeta(weeklyPlan?.recommendations?.length)}`,
             `Media ${numberMeta(weeklyPlan?.source_counts?.media)}`,
           ]}
@@ -1581,7 +1582,7 @@ function WorkspaceMirrorsPanel({ workspaceSnapshot }: { workspaceSnapshot: Brain
         <WorkspaceMirrorCard
           title="Reaction Queue"
           meta={[
-            reactionQueue?.generated_at ? `Updated ${formatTimestamp(new Date(reactionQueue.generated_at))}` : 'No queue timestamp',
+            reactionQueue?.generated_at ? `Updated ${formatTimestamp(reactionQueue.generated_at)}` : 'No queue timestamp',
             `Comments ${numberMeta(reactionQueue?.counts?.comment_opportunities)}`,
             `Post seeds ${numberMeta(reactionQueue?.counts?.post_seeds)}`,
           ]}
@@ -1603,7 +1604,7 @@ function WorkspaceMirrorsPanel({ workspaceSnapshot }: { workspaceSnapshot: Brain
         <WorkspaceMirrorCard
           title="Social Feed + Tuning"
           meta={[
-            socialFeed?.generated_at ? `Updated ${formatTimestamp(new Date(socialFeed.generated_at))}` : 'No feed timestamp',
+            socialFeed?.generated_at ? `Updated ${formatTimestamp(socialFeed.generated_at)}` : 'No feed timestamp',
             `Items ${numberMeta(socialFeed?.items?.length)}`,
             `Feedback ${numberMeta(feedbackSummary?.total_events)}`,
           ]}
@@ -1682,10 +1683,10 @@ function WorkspaceMirrorCard({
           color: 'white',
         }}
       >
-        <div>
-          <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>{title}</p>
-          <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>{meta.filter(Boolean).join(' · ')}</p>
-        </div>
+        <span style={{ display: 'grid', gap: '4px', minWidth: 0 }}>
+          <span style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600 }}>{title}</span>
+          <span style={{ color: '#64748b', fontSize: '12px' }}>{meta.filter(Boolean).join(' · ')}</span>
+        </span>
         <span style={{ color: '#38bdf8', fontSize: '12px', whiteSpace: 'nowrap' }}>Expand</span>
       </summary>
       <div style={{ padding: '0 16px 16px', display: 'grid', gap: '12px' }}>{children}</div>
@@ -1868,7 +1869,7 @@ function BriefSystemChainPanel({
     },
     {
       title: 'Live Source Layer',
-      value: overlay?.generated_at ? formatTimestamp(new Date(overlay.generated_at)) : 'No live overlay',
+      value: overlay?.generated_at ? formatTimestamp(overlay.generated_at) : 'No live overlay',
       detail: overlay ? 'Current upstream source pressure layered onto the latest brief.' : 'No source overlay attached to this brief.',
       tone: '#38bdf8',
     },
@@ -1939,7 +1940,7 @@ function BriefSourceIntelligencePanel({ overlay }: { overlay: BriefSourceIntelli
           </p>
         </div>
         <div style={{ color: '#64748b', fontSize: '12px', textAlign: 'right' }}>
-          <div>{overlay.generated_at ? formatTimestamp(new Date(overlay.generated_at)) : 'No live timestamp'}</div>
+          <div>{overlay.generated_at ? formatTimestamp(overlay.generated_at) : 'No live timestamp'}</div>
           {overlay.base_generated_at && <div>Base plan {overlay.base_generated_at}</div>}
         </div>
       </div>
@@ -2440,7 +2441,7 @@ function PersonaPanel({
             score: personaDeltaPriorityScore(delta, promotionCandidateCount, muted),
           };
         })
-        .sort((left, right) => new Date(right.delta.created_at).getTime() - new Date(left.delta.created_at).getTime()),
+        .sort((left, right) => timestampMs(right.delta.created_at) - timestampMs(left.delta.created_at)),
     [activeReviewDeltas],
   );
   const primaryActiveReviewDeltas = useMemo(() => scoredActiveReviewDeltas.filter((item) => !item.muted), [scoredActiveReviewDeltas]);
@@ -2450,7 +2451,7 @@ function PersonaPanel({
       return mutedActiveReviewDeltas;
     }
     const combined = showMutedActive ? [...primaryActiveReviewDeltas, ...mutedActiveReviewDeltas] : primaryActiveReviewDeltas;
-    return [...combined].sort((left, right) => new Date(right.delta.created_at).getTime() - new Date(left.delta.created_at).getTime());
+    return [...combined].sort((left, right) => timestampMs(right.delta.created_at) - timestampMs(left.delta.created_at));
   }, [mutedActiveReviewDeltas, primaryActiveReviewDeltas, showMutedActive]);
   const reviewQueue = useMemo(() => visibleActiveReviewDeltas.map((item) => item.delta), [visibleActiveReviewDeltas]);
   const [selectedDeltaId, setSelectedDeltaId] = useState<string>(reviewQueue[0]?.id ?? '');
@@ -3525,7 +3526,7 @@ function PersonaPanel({
                         {muted && <InlineBadge label="muted" tone="#64748b" />}
                       </div>
                       <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                        {formatTimestamp(new Date(delta.created_at))}
+                        {formatTimestamp(delta.created_at)}
                       </p>
                     </button>
                   );
@@ -3815,7 +3816,7 @@ function PersonaPanel({
                         const checked = selectedPromotionItemIds.includes(item.id);
                         const suggestedTarget = bestTargetForPromotionItem(item, targetFile);
                         return (
-                          <label
+                          <div
                             key={item.id}
                             style={{
                               width: '100%',
@@ -3905,7 +3906,7 @@ function PersonaPanel({
                                 </div>
                               </div>
                             </div>
-                          </label>
+                          </div>
                         );
                       })}
                     </div>
@@ -4661,7 +4662,7 @@ function PersonaPanel({
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '6px' }}>
                       <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>{truncateText(item.trait, 140)}</p>
-                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(new Date(item.created_at))}</span>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>{formatTimestamp(item.created_at)}</span>
                     </div>
                     {(isRecentlyQueued || isRecentlyCommitted || lifecycleItems.length > 0) && (
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
@@ -4672,7 +4673,7 @@ function PersonaPanel({
                           <InlineBadge label={humanizeGateDecision(gateSummary.decision)} tone={gateDecisionTone(gateSummary.decision)} />
                         )}
                         {activeLifecycleGroup.key === 'committed' && committedAt && (
-                          <InlineBadge label={`Committed ${formatTimestamp(new Date(committedAt))}`} tone="#22c55e" />
+                          <InlineBadge label={`Committed ${formatTimestamp(committedAt)}`} tone="#22c55e" />
                         )}
                         {routeHistoryCount > 0 && <InlineBadge label={`${routeHistoryCount} routed`} tone="#38bdf8" />}
                         {activeLifecycleGroup.key === 'committed' && (
@@ -4826,7 +4827,7 @@ function PersonaPanel({
                         )}
                         {bundleSync?.synced_at && (
                           <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: bundleResultSummary ? '6px 0 0' : 0 }}>
-                            Synced locally at {formatTimestamp(new Date(bundleSync.synced_at))}
+                            Synced locally at {formatTimestamp(bundleSync.synced_at)}
                           </p>
                         )}
                         {bundleSync?.error && (
@@ -4992,7 +4993,7 @@ function CaptureTelemetryPanel({
         <TelemetryStat label="Overdue" value={metrics?.vectors.overdue ?? 0} tone="#f87171" detail="Needs cleanup" />
         <div style={{ padding: '12px 14px', borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617' }}>
           <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Last refresh run</p>
-          <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600 }}>{metrics?.vectors.last_refresh_at ? formatTimestamp(new Date(metrics.vectors.last_refresh_at)) : '—'}</p>
+          <p style={{ color: '#cbd5f5', fontSize: '18px', fontWeight: 600 }}>{metrics?.vectors.last_refresh_at ? formatTimestamp(metrics.vectors.last_refresh_at) : '—'}</p>
           <p style={{ color: '#475569', fontSize: '12px' }}>memory_vectors.last_refreshed_at</p>
         </div>
       </div>
@@ -5018,7 +5019,7 @@ function CaptureTelemetryPanel({
                   <td style={{ padding: '10px 0', color: '#e2e8f0', fontWeight: 600 }}>{capture.source ?? '—'}</td>
                   <td style={{ padding: '10px 0', color: '#cbd5f5' }}>{(capture.topics ?? []).join(', ') || '—'}</td>
                   <td style={{ padding: '10px 0', color: '#e2e8f0' }}>{capture.chunk_count}</td>
-                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{capture.created_at ? formatTimestamp(new Date(capture.created_at)) : '—'}</td>
+                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{capture.created_at ? formatTimestamp(capture.created_at) : '—'}</td>
                 </tr>
               ))
             )}
@@ -5108,7 +5109,7 @@ function AutomationsPanel({
                   <td style={{ padding: '10px 0', color: '#94a3b8' }}>{job.schedule}</td>
                   <td style={{ padding: '10px 0' }}>{statusBadge(job.status)}</td>
                   <td style={{ padding: '10px 0', color: '#cbd5f5' }}>{job.channel}</td>
-                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{job.last_run_at ? formatTimestamp(new Date(job.last_run_at)) : '—'}</td>
+                  <td style={{ padding: '10px 0', color: '#94a3b8' }}>{job.last_run_at ? formatTimestamp(job.last_run_at) : '—'}</td>
                 </tr>
               ))}
           </tbody>
@@ -5268,7 +5269,7 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
                 <h2 style={{ color: 'white', fontSize: '24px', marginBottom: '6px' }}>{selectedDoc.name}</h2>
                 <p style={{ color: '#64748b', fontSize: '12px' }}>{selectedDoc.path}</p>
               </div>
-              {selectedDoc.updatedAt && <p style={{ color: '#64748b', fontSize: '12px' }}>Updated {formatTimestamp(new Date(selectedDoc.updatedAt))}</p>}
+              {selectedDoc.updatedAt && <p style={{ color: '#64748b', fontSize: '12px' }}>Updated {formatTimestamp(selectedDoc.updatedAt)}</p>}
             </div>
             <div
               style={{
@@ -5995,7 +5996,7 @@ function targetPriority(targetFile: string | null) {
 }
 
 function recencyPriority(createdAt: string) {
-  const ageMs = Date.now() - new Date(createdAt).getTime();
+  const ageMs = Date.now() - timestampMs(createdAt);
   const dayMs = 24 * 60 * 60 * 1000;
   if (ageMs <= dayMs) return 4;
   if (ageMs <= 3 * dayMs) return 3;
@@ -6398,16 +6399,17 @@ function buildReflectionCaptureText({
   return lines.join('\n');
 }
 
-function formatTimestamp(value: Date) {
-  return value.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+function formatTimestamp(value: Date | string) {
+  return formatUiTimestamp(value);
 }
 
 function formatTimestampValue(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return formatTimestamp(parsed);
+  return formatTimestamp(value);
+}
+
+function timestampMs(value: string) {
+  const parsed = parseUiDate(value);
+  return parsed ? parsed.getTime() : 0;
 }
 
 function humanizeReviewSource(source: string | null) {
