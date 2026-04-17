@@ -69,6 +69,25 @@ type FeedVariant = {
   };
 };
 
+type FeedRecommendationMode = 'comment' | 'repost' | 'post_seed';
+
+type FeedEditorialSummary = {
+  mode: FeedRecommendationMode;
+  recommendation: string;
+  why: string[];
+  bestAngle: string;
+  draft: string;
+  draftTone: string;
+  draftLabel: string;
+  optionalLabel?: string;
+  optionalDraft?: string;
+  laneFit: 'high' | 'medium' | 'low';
+  voiceFit: 'high' | 'medium' | 'low';
+  specificityRisk: 'high' | 'medium' | 'low';
+  bestUse: string;
+  avoid: string;
+};
+
 type SocialFeedItem = {
   id: string;
   platform: string;
@@ -425,6 +444,161 @@ function createRepostDraft(item: SocialFeedItem, lens: FeedLensId) {
   const variant = getFeedVariant(item, lens);
   if (variant?.repost?.trim()) return variant.repost.trim();
   return item.repost_draft?.trim() || item.summary?.trim() || '';
+}
+
+function splitIntoSentences(text: string) {
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function shortenToSentenceCount(text: string, sentenceCount: number) {
+  const sentences = splitIntoSentences(text);
+  if (sentences.length === 0) return '';
+  return sentences.slice(0, sentenceCount).join(' ').trim();
+}
+
+function sanitizeFeedDraft(text: string, title?: string) {
+  const normalizedTitle = title?.trim().toLowerCase() ?? '';
+  const sentences = splitIntoSentences(text).filter((sentence) => {
+    const normalized = sentence.replace(/[.!?]+$/, '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalizedTitle && normalized === normalizedTitle) return false;
+    if (/^(belief|anchor|source contract|expression):/i.test(sentence)) return false;
+    if (/^(fusion academy market development|ai clone \/ brain system|easy outfit metadata and validation layer)\b/i.test(sentence)) return false;
+    return true;
+  });
+  return sentences.join(' ').trim();
+}
+
+function scoreBand(value?: number | null, mediumFloor = 6.5, highFloor = 8) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'medium';
+  if (value >= highFloor) return 'high';
+  if (value >= mediumFloor) return 'medium';
+  return 'low';
+}
+
+function looksBroadConversation(item: SocialFeedItem, sourceClass: string, unitKind: string) {
+  const title = item.title.toLowerCase();
+  const commaCount = (item.title.match(/,/g) ?? []).length;
+  return sourceClass === 'long_form_media' || unitKind === 'section' || commaCount >= 2 || title.includes('podcast') || title.includes('show:') || title.includes(' + ');
+}
+
+function buildFeedEditorialSummary(item: SocialFeedItem, lens: FeedLensId): FeedEditorialSummary {
+  const variant = getFeedVariant(item, lens);
+  const evaluation = variant?.evaluation ?? item.evaluation;
+  const sourceClass = deriveSourceClass(item);
+  const unitKind = deriveUnitKind(item, sourceClass);
+  const responseModes = deriveResponseModes(item, sourceClass, unitKind);
+  const quickReply = sanitizeFeedDraft(createShortCommentDraft(item, lens), item.title);
+  const commentDraft = sanitizeFeedDraft(createCommentDraft(item, lens), item.title);
+  const repostDraft = sanitizeFeedDraft(createRepostDraft(item, lens), item.title);
+  const broadConversation = looksBroadConversation(item, sourceClass, unitKind);
+  const sourceSpecificity = evaluation?.source_expression_quality ?? null;
+  const specificityRisk =
+    broadConversation || (typeof sourceSpecificity === 'number' && sourceSpecificity < 6.8)
+      ? 'high'
+      : typeof sourceSpecificity === 'number' && sourceSpecificity < 7.5
+        ? 'medium'
+        : 'low';
+  const commentAllowed = responseModes.includes('comment') && Boolean(commentDraft);
+  const repostAllowed = responseModes.includes('repost') && Boolean(repostDraft);
+  const postSeedAllowed = responseModes.includes('post_seed');
+
+  let mode: FeedRecommendationMode = 'comment';
+  if (postSeedAllowed && (broadConversation || specificityRisk === 'high' || !commentAllowed)) {
+    mode = 'post_seed';
+  } else if (commentAllowed && typeof sourceSpecificity === 'number' && sourceSpecificity >= 7.2) {
+    mode = 'comment';
+  } else if (repostAllowed) {
+    mode = 'repost';
+  } else if (commentAllowed) {
+    mode = 'comment';
+  } else if (postSeedAllowed) {
+    mode = 'post_seed';
+  }
+
+  const laneFit = scoreBand(evaluation?.lane_distinctiveness, 6.7, 8.2);
+  const voiceFit = scoreBand(evaluation?.voice_match, 6.7, 8.2);
+  const bestAngle = shortenToSentenceCount(
+    quickReply || item.standout_lines?.[0] || variant?.why_this_angle || item.summary || item.why_it_matters || 'No clear angle yet.',
+    1,
+  );
+
+  if (mode === 'post_seed') {
+    const draft = shortenToSentenceCount(repostDraft || commentDraft || quickReply || item.summary || item.why_it_matters || '', 4);
+    const optionalDraft = shortenToSentenceCount(quickReply || commentDraft, 1);
+    return {
+      mode,
+      recommendation: 'Save as post seed, not a direct comment.',
+      why: [
+        broadConversation
+          ? 'Broad conversation with multiple threads, so a direct reaction is likely to read generic.'
+          : 'The source is useful, but not specific enough to earn a source-native comment.',
+        'You have a better shot extracting a builder lesson than pretending to respond to every topic in the source.',
+      ],
+      bestAngle,
+      draft: draft || bestAngle,
+      draftTone: '#fb923c',
+      draftLabel: 'Draft',
+      optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional quick take' : undefined,
+      optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+      laneFit,
+      voiceFit,
+      specificityRisk,
+      bestUse: 'original post seed',
+      avoid: 'generic contrarian comment',
+    };
+  }
+
+  if (mode === 'repost') {
+    const draft = shortenToSentenceCount(repostDraft || commentDraft || quickReply || item.summary || '', 4);
+    const optionalDraft = shortenToSentenceCount(commentDraft || quickReply, 2);
+    return {
+      mode,
+      recommendation: 'Use as repost angle, not a direct reply.',
+      why: [
+        'There is enough signal here to echo and reframe, but not enough source specificity for a strong direct comment.',
+        'Your value is the operator framing you add on top of the source, not acting like the source itself is your lane.',
+      ],
+      bestAngle,
+      draft: draft || bestAngle,
+      draftTone: '#f472b6',
+      draftLabel: 'Draft',
+      optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional direct reply' : undefined,
+      optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+      laneFit,
+      voiceFit,
+      specificityRisk,
+      bestUse: 'repost with commentary',
+      avoid: 'over-claiming source-level specificity',
+    };
+  }
+
+  const draft = shortenToSentenceCount(commentDraft || quickReply || repostDraft || item.summary || '', 4);
+  const optionalDraft = shortenToSentenceCount(repostDraft || quickReply, 2);
+  return {
+    mode: 'comment',
+    recommendation: 'Comment directly.',
+    why: [
+      'This is specific enough to answer without sounding detached from the source.',
+      'The current angle has enough lane and voice fit to say something useful in public.',
+    ],
+    bestAngle,
+    draft: draft || bestAngle,
+    draftTone: '#38bdf8',
+    draftLabel: 'Draft',
+    optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional repost angle' : undefined,
+    optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+    laneFit,
+    voiceFit,
+    specificityRisk,
+    bestUse: 'direct public comment',
+    avoid: 'turning this into a broad manifesto',
+  };
 }
 
 function humanizeSnakeCase(value: string) {
@@ -1948,6 +2122,10 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
             {feedItems.map((item) => {
               const selectedLens = resolveFeedLens(item);
               const activeVariant = getFeedVariant(item, selectedLens);
+              const rawQuickReply = createShortCommentDraft(item, selectedLens);
+              const rawCommentDraft = createCommentDraft(item, selectedLens);
+              const rawRepostDraft = createRepostDraft(item, selectedLens);
+              const editorial = buildFeedEditorialSummary(item, selectedLens);
               const evaluation = activeVariant?.evaluation ?? item.evaluation;
               const beliefAssessment = activeVariant ?? item.belief_assessment;
               const techniqueAssessment = activeVariant ?? item.technique_assessment;
@@ -1955,9 +2133,6 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
               const sourceContractClass = deriveSourceClass(item);
               const sourceContractUnit = deriveUnitKind(item, sourceContractClass);
               const sourceContractModes = deriveResponseModes(item, sourceContractClass, sourceContractUnit);
-              const quickReply = createShortCommentDraft(item, selectedLens);
-              const commentDraft = createCommentDraft(item, selectedLens);
-              const repostDraft = createRepostDraft(item, selectedLens);
 
               return (
                 <article key={item.id} style={{ ...feedCardStyle, border: item.id === selectedFeedId ? '1px solid #38bdf8' : '1px solid #1f2937' }}>
@@ -1967,193 +2142,126 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                   </div>
                   <h3 style={{ color: 'white', fontSize: '24px', margin: '0 0 4px' }}>{item.title}</h3>
                   <p style={{ color: '#94a3b8', margin: 0 }}>{item.author}</p>
-                  {item.source_url && (
-                    <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px' }}>
-                      Open original post
-                    </a>
-                  )}
-                  {item.why_it_matters && <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.why_it_matters}</p>}
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    <span
-                      style={{
-                        alignSelf: 'center',
-                        color: '#64748b',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        letterSpacing: '0.12em',
-                        textTransform: 'uppercase',
-                        marginRight: '2px',
-                      }}
-                    >
-                      Response lens
-                    </span>
-                    {POST_MODE_OPTIONS.map((mode) => (
-                      <button
-                        key={`${item.id}-${mode.id}`}
-                        onClick={() => {
-                          setFeedLensSelections((current) => ({ ...current, [item.id]: mode.id }));
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: 0 }}>Angle</p>
+                      <select
+                        value={selectedLens}
+                        onChange={(event) => {
+                          const nextLens = event.target.value as FeedLensId;
+                          setFeedLensSelections((current) => ({ ...current, [item.id]: nextLens }));
                           if (item.id === selectedFeedId) {
                             setTopic(item.title);
-                            setContext(buildPipelineContext(item, mode.id));
-                            setAudience(mapAudienceFromLane(mode.id));
+                            setContext(buildPipelineContext(item, nextLens));
+                            setAudience(mapAudienceFromLane(nextLens));
                           }
                         }}
-                        style={{
-                          borderRadius: '999px',
-                          border: selectedLens === mode.id ? '1px solid #fbbf24' : '1px solid #334155',
-                          padding: '6px 12px',
-                          background: selectedLens === mode.id ? 'rgba(251,191,36,0.14)' : 'transparent',
-                          color: selectedLens === mode.id ? '#fbbf24' : '#cbd5f5',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                        }}
+                        style={editorialSelectStyle}
                       >
-                        {mode.label}
-                      </button>
-                    ))}
+                        {POST_MODE_OPTIONS.map((mode) => (
+                          <option key={`${item.id}-${mode.id}`} value={mode.id}>
+                            {mode.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {item.source_url && (
+                      <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                        Open source
+                      </a>
+                    )}
                   </div>
 
-                  <div style={systemReadoutStyle}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-                      <p style={{ color: '#cbd5f5', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>System readout</p>
-                      <span style={{ color: '#93c5fd', fontSize: '12px' }}>overall {evaluation?.overall?.toFixed(1) ?? 'n/a'}</span>
+                  {item.why_it_matters && (
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Why this is in your feed</p>
+                      <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.why_it_matters}</p>
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {beliefAssessment?.stance && <MiniReadoutChip label={`stance: ${beliefAssessment.stance}`} tone="#93c5fd" />}
-                      {beliefAssessment?.role_safety && <MiniReadoutChip label={`role safety: ${beliefAssessment.role_safety}`} tone="#fde68a" />}
-                      {(techniqueAssessment?.techniques ?? []).map((technique) => (
-                        <MiniReadoutChip key={`${item.id}-${selectedLens}-${technique}`} label={technique} tone="#86efac" />
+                  )}
+
+                  <div style={editorialSummaryStyle}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Recommendation</p>
+                      <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{editorial.recommendation}</p>
+                    </div>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Why</p>
+                      {editorial.why.map((reason) => (
+                        <p key={`${item.id}-${reason}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                          {reason}
+                        </p>
                       ))}
                     </div>
-                    {activeVariant?.why_this_angle && <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{activeVariant.why_this_angle}</p>}
-                    {(beliefAssessment as { belief_summary?: string } | undefined)?.belief_summary && (
-                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
-                        <span style={{ color: '#94a3b8' }}>Belief:</span> {(beliefAssessment as { belief_summary?: string }).belief_summary}
-                      </p>
-                    )}
-                    {(beliefAssessment as { experience_summary?: string } | undefined)?.experience_summary && (
-                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
-                        <span style={{ color: '#94a3b8' }}>Anchor:</span> {(beliefAssessment as { experience_summary?: string }).experience_summary}
-                      </p>
-                    )}
-                    <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
-                      <span style={{ color: '#94a3b8' }}>Source contract:</span> {sourceContractClass} · {sourceContractUnit} · {sourceContractModes.join(', ')}
-                    </p>
-                    {expressionAssessment?.strategy && (
-                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
-                        <span style={{ color: '#94a3b8' }}>Expression:</span> {expressionAssessment.strategy} · {expressionAssessment.output_structure ?? 'plain'}
-                      </p>
-                    )}
-                    {evaluation && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: '6px' }}>
-                        <span style={evalCellStyle}>Lane {evaluation.lane_distinctiveness?.toFixed(1) ?? 'n/a'}</span>
-                        <span style={evalCellStyle}>Belief {evaluation.belief_clarity?.toFixed(1) ?? 'n/a'}</span>
-                        <span style={evalCellStyle}>Voice {evaluation.voice_match?.toFixed(1) ?? 'n/a'}</span>
-                        <span style={evalCellStyle}>Expr {evaluation.expression_quality?.toFixed(1) ?? 'n/a'}</span>
-                        <span style={evalCellStyle}>Src {evaluation.source_expression_quality?.toFixed(1) ?? 'n/a'}</span>
-                        <span style={evalCellStyle}>Δ {evaluation.expression_delta?.toFixed(1) ?? '0.0'}</span>
-                      </div>
-                    )}
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Best angle</p>
+                      <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>{editorial.bestAngle}</p>
+                    </div>
                   </div>
 
-                  {item.standout_lines?.map((line) => (
-                    <div key={`${item.id}-${line}`} style={approveLineRowStyle}>
-                      <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
-                      <button onClick={() => void approveFeedLine(item, line, selectedLens)} disabled={isApprovingQuote} style={secondaryActionStyle('#fbbf24')}>
-                        {isApprovingQuote ? 'Approving…' : 'Approve line'}
-                      </button>
-                    </div>
-                  ))}
-
-                  <DraftBlock
-                    title="Quick reply"
-                    text={quickReply || 'No quick reply available.'}
-                    promotableText={quickReply || commentDraft}
-                    tone="#22c55e"
-                    onCopy={() => void handleCopy(quickReply || commentDraft, 'Quick reply')}
-                    onCanon={(fragment, fullText) =>
-                      promoteWorkspaceFragment({
-                        fragmentText: fragment,
-                        optionText: fullText,
-                        fragmentKey: `${item.id}:quick-reply:${fragment}`,
-                        topicValue: item.title || topic || 'operator insight',
-                        audienceValue: mapAudienceFromLane(selectedLens),
-                        categoryValue: activeCategory,
-                        contentTypeValue: 'linkedin_post',
-                        sourceModeValue: 'selected_source',
-                        supportItems: [
-                          {
-                            title: item.title,
-                            text: fullText,
-                            source_path: item.source_path,
-                            source_url: item.source_url,
-                          },
-                        ],
-                      })
-                    }
-                    onUndo={undoWorkspaceFragment}
-                  />
-                  <DraftBlock
-                    title="Suggested comment"
-                    text={commentDraft || 'No suggested comment available.'}
-                    promotableText={commentDraft}
-                    tone="#38bdf8"
-                    onCopy={() => void handleCopy(commentDraft, 'Suggested comment')}
-                    onCanon={(fragment, fullText) =>
-                      promoteWorkspaceFragment({
-                        fragmentText: fragment,
-                        optionText: fullText,
-                        fragmentKey: `${item.id}:comment:${fragment}`,
-                        topicValue: item.title || topic || 'operator insight',
-                        audienceValue: mapAudienceFromLane(selectedLens),
-                        categoryValue: activeCategory,
-                        contentTypeValue: 'linkedin_post',
-                        sourceModeValue: 'selected_source',
-                        supportItems: [
-                          {
-                            title: item.title,
-                            text: fullText,
-                            source_path: item.source_path,
-                            source_url: item.source_url,
-                          },
-                        ],
-                      })
-                    }
-                    onUndo={undoWorkspaceFragment}
-                  />
-                  <DraftBlock
-                    title="Suggested repost"
-                    text={repostDraft || 'No repost draft available.'}
-                    promotableText={repostDraft}
-                    tone="#f472b6"
-                    onCopy={() => void handleCopy(repostDraft, 'Suggested repost')}
-                    onCanon={(fragment, fullText) =>
-                      promoteWorkspaceFragment({
-                        fragmentText: fragment,
-                        optionText: fullText,
-                        fragmentKey: `${item.id}:repost:${fragment}`,
-                        topicValue: item.title || topic || 'operator insight',
-                        audienceValue: mapAudienceFromLane(selectedLens),
-                        categoryValue: activeCategory,
-                        contentTypeValue: 'linkedin_post',
-                        sourceModeValue: 'selected_source',
-                        supportItems: [
-                          {
-                            title: item.title,
-                            text: fullText,
-                            source_path: item.source_path,
-                            source_url: item.source_url,
-                          },
-                        ],
-                      })
-                    }
-                    onUndo={undoWorkspaceFragment}
-                  />
+                  <div style={editorialDraftRowStyle}>
+                    <DraftBlock
+                      title={editorial.draftLabel}
+                      text={editorial.draft || 'No draft available yet.'}
+                      promotableText={editorial.draft}
+                      tone={editorial.draftTone}
+                      onCopy={() => void handleCopy(editorial.draft, editorial.draftLabel)}
+                      onCanon={(fragment, fullText) =>
+                        promoteWorkspaceFragment({
+                          fragmentText: fragment,
+                          optionText: fullText,
+                          fragmentKey: `${item.id}:${editorial.mode}:${fragment}`,
+                          topicValue: item.title || topic || 'operator insight',
+                          audienceValue: mapAudienceFromLane(selectedLens),
+                          categoryValue: activeCategory,
+                          contentTypeValue: 'linkedin_post',
+                          sourceModeValue: 'selected_source',
+                          supportItems: [
+                            {
+                              title: item.title,
+                              text: fullText,
+                              source_path: item.source_path,
+                              source_url: item.source_url,
+                            },
+                          ],
+                        })
+                      }
+                      onUndo={undoWorkspaceFragment}
+                    />
+                    {editorial.optionalDraft && editorial.optionalLabel && (
+                      <DraftBlock
+                        title={editorial.optionalLabel}
+                        text={editorial.optionalDraft}
+                        promotableText={editorial.optionalDraft}
+                        tone="#22c55e"
+                        onCopy={() => void handleCopy(editorial.optionalDraft ?? '', editorial.optionalLabel ?? 'Optional draft')}
+                        onCanon={(fragment, fullText) =>
+                          promoteWorkspaceFragment({
+                            fragmentText: fragment,
+                            optionText: fullText,
+                            fragmentKey: `${item.id}:optional:${fragment}`,
+                            topicValue: item.title || topic || 'operator insight',
+                            audienceValue: mapAudienceFromLane(selectedLens),
+                            categoryValue: activeCategory,
+                            contentTypeValue: 'linkedin_post',
+                            sourceModeValue: 'selected_source',
+                            supportItems: [
+                              {
+                                title: item.title,
+                                text: fullText,
+                                source_path: item.source_path,
+                                source_url: item.source_url,
+                              },
+                            ],
+                          })
+                        }
+                        onUndo={undoWorkspaceFragment}
+                      />
+                    )}
+                  </div>
 
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                     <button onClick={() => selectSignalForPipeline(item, selectedLens)} style={primaryActionStyle('#fb923c')}>
-                      Use in pipeline
+                      {editorial.mode === 'post_seed' ? 'Save as seed' : 'Use in pipeline'}
                     </button>
                     <Link href={buildPostingWorkspaceHref(item, selectedLens)} style={secondaryLinkStyle('#fb923c')}>
                       Write post
@@ -2172,8 +2280,163 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
                     <button onClick={() => void recordFeedback(item, 'dislike', selectedLens)} disabled={feedbackLoading[item.id]} style={feedbackButtonStyle('#f87171')}>
                       👎 Dislike
                     </button>
-                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? 'Select a preference to train the feed.'}</p>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? 'Tell the feed if this recommendation felt right.'}</p>
                   </div>
+
+                  <details style={editorialDetailsStyle}>
+                    <summary style={{ color: '#cbd5f5', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>See why</summary>
+                    <div style={{ display: 'grid', gap: '10px', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        <MiniReadoutChip label={`lane fit: ${editorial.laneFit}`} tone="#93c5fd" />
+                        <MiniReadoutChip label={`voice fit: ${editorial.voiceFit}`} tone="#c4b5fd" />
+                        <MiniReadoutChip label={`specificity risk: ${editorial.specificityRisk}`} tone={editorial.specificityRisk === 'high' ? '#fca5a5' : '#86efac'} />
+                        {beliefAssessment?.role_safety && <MiniReadoutChip label={`role safety: ${beliefAssessment.role_safety}`} tone="#fde68a" />}
+                        {(techniqueAssessment?.techniques ?? []).map((technique) => (
+                          <MiniReadoutChip key={`${item.id}-${selectedLens}-${technique}`} label={technique} tone="#86efac" />
+                        ))}
+                      </div>
+                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                        <span style={{ color: '#94a3b8' }}>Best use:</span> {editorial.bestUse}
+                      </p>
+                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                        <span style={{ color: '#94a3b8' }}>Avoid:</span> {editorial.avoid}
+                      </p>
+                      {activeVariant?.why_this_angle && <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{activeVariant.why_this_angle}</p>}
+                      {(beliefAssessment as { belief_summary?: string } | undefined)?.belief_summary && (
+                        <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                          <span style={{ color: '#94a3b8' }}>Belief:</span> {(beliefAssessment as { belief_summary?: string }).belief_summary}
+                        </p>
+                      )}
+                      {(beliefAssessment as { experience_summary?: string } | undefined)?.experience_summary && (
+                        <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                          <span style={{ color: '#94a3b8' }}>Anchor:</span> {(beliefAssessment as { experience_summary?: string }).experience_summary}
+                        </p>
+                      )}
+                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                        <span style={{ color: '#94a3b8' }}>Source contract:</span> {sourceContractClass} · {sourceContractUnit} · {sourceContractModes.join(', ')}
+                      </p>
+                      {expressionAssessment?.strategy && (
+                        <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                          <span style={{ color: '#94a3b8' }}>Expression:</span> {expressionAssessment.strategy} · {expressionAssessment.output_structure ?? 'plain'}
+                        </p>
+                      )}
+                      {evaluation && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: '6px' }}>
+                          <span style={evalCellStyle}>Lane {evaluation.lane_distinctiveness?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Belief {evaluation.belief_clarity?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Voice {evaluation.voice_match?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Expr {evaluation.expression_quality?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Src {evaluation.source_expression_quality?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Δ {evaluation.expression_delta?.toFixed(1) ?? '0.0'}</span>
+                        </div>
+                      )}
+                      {(rawQuickReply || rawCommentDraft || rawRepostDraft) && (
+                        <details style={{ ...editorialDetailsStyle, padding: '8px 10px' }}>
+                          <summary style={{ color: '#cbd5f5', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Raw variants</summary>
+                          <div style={{ ...editorialDraftRowStyle, marginTop: '10px' }}>
+                            {rawQuickReply && (
+                              <DraftBlock
+                                title="Quick reply"
+                                text={rawQuickReply}
+                                promotableText={rawQuickReply || rawCommentDraft}
+                                tone="#22c55e"
+                                onCopy={() => void handleCopy(rawQuickReply || rawCommentDraft, 'Quick reply')}
+                                onCanon={(fragment, fullText) =>
+                                  promoteWorkspaceFragment({
+                                    fragmentText: fragment,
+                                    optionText: fullText,
+                                    fragmentKey: `${item.id}:quick-reply:${fragment}`,
+                                    topicValue: item.title || topic || 'operator insight',
+                                    audienceValue: mapAudienceFromLane(selectedLens),
+                                    categoryValue: activeCategory,
+                                    contentTypeValue: 'linkedin_post',
+                                    sourceModeValue: 'selected_source',
+                                    supportItems: [
+                                      {
+                                        title: item.title,
+                                        text: fullText,
+                                        source_path: item.source_path,
+                                        source_url: item.source_url,
+                                      },
+                                    ],
+                                  })
+                                }
+                                onUndo={undoWorkspaceFragment}
+                              />
+                            )}
+                            {rawCommentDraft && (
+                              <DraftBlock
+                                title="Suggested comment"
+                                text={rawCommentDraft}
+                                promotableText={rawCommentDraft}
+                                tone="#38bdf8"
+                                onCopy={() => void handleCopy(rawCommentDraft, 'Suggested comment')}
+                                onCanon={(fragment, fullText) =>
+                                  promoteWorkspaceFragment({
+                                    fragmentText: fragment,
+                                    optionText: fullText,
+                                    fragmentKey: `${item.id}:comment:${fragment}`,
+                                    topicValue: item.title || topic || 'operator insight',
+                                    audienceValue: mapAudienceFromLane(selectedLens),
+                                    categoryValue: activeCategory,
+                                    contentTypeValue: 'linkedin_post',
+                                    sourceModeValue: 'selected_source',
+                                    supportItems: [
+                                      {
+                                        title: item.title,
+                                        text: fullText,
+                                        source_path: item.source_path,
+                                        source_url: item.source_url,
+                                      },
+                                    ],
+                                  })
+                                }
+                                onUndo={undoWorkspaceFragment}
+                              />
+                            )}
+                            {rawRepostDraft && (
+                              <DraftBlock
+                                title="Suggested repost"
+                                text={rawRepostDraft}
+                                promotableText={rawRepostDraft}
+                                tone="#f472b6"
+                                onCopy={() => void handleCopy(rawRepostDraft, 'Suggested repost')}
+                                onCanon={(fragment, fullText) =>
+                                  promoteWorkspaceFragment({
+                                    fragmentText: fragment,
+                                    optionText: fullText,
+                                    fragmentKey: `${item.id}:repost:${fragment}`,
+                                    topicValue: item.title || topic || 'operator insight',
+                                    audienceValue: mapAudienceFromLane(selectedLens),
+                                    categoryValue: activeCategory,
+                                    contentTypeValue: 'linkedin_post',
+                                    sourceModeValue: 'selected_source',
+                                    supportItems: [
+                                      {
+                                        title: item.title,
+                                        text: fullText,
+                                        source_path: item.source_path,
+                                        source_url: item.source_url,
+                                      },
+                                    ],
+                                  })
+                                }
+                                onUndo={undoWorkspaceFragment}
+                              />
+                            )}
+                          </div>
+                        </details>
+                      )}
+                      {item.standout_lines?.map((line) => (
+                        <div key={`${item.id}-${line}`} style={approveLineRowStyle}>
+                          <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
+                          <button onClick={() => void approveFeedLine(item, line, selectedLens)} disabled={isApprovingQuote} style={secondaryActionStyle('#fbbf24')}>
+                            {isApprovingQuote ? 'Approving…' : 'Approve line'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 </article>
               );
             })}
@@ -2661,7 +2924,7 @@ const scoreBadgeStyle = {
   fontSize: '12px',
 } as const;
 
-const systemReadoutStyle = {
+const editorialSummaryStyle = {
   borderRadius: '12px',
   border: '1px solid #273449',
   backgroundColor: '#06101f',
@@ -2674,6 +2937,26 @@ const systemReadoutStyle = {
 const evalCellStyle = {
   color: '#94a3b8',
   fontSize: '11px',
+} as const;
+
+const editorialDraftRowStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: '12px',
+} as const;
+
+const editorialDetailsStyle = {
+  borderRadius: '12px',
+  border: '1px solid #273449',
+  backgroundColor: '#030712',
+  padding: '10px 12px',
+} as const;
+
+const editorialSelectStyle = {
+  ...fieldStyle,
+  width: '220px',
+  padding: '10px 12px',
+  fontSize: '13px',
 } as const;
 
 const approveLineRowStyle = {
