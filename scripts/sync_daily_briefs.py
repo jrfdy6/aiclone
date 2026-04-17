@@ -8,6 +8,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from datetime import date
 from pathlib import Path
 
 
@@ -20,6 +21,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+from app.services.daily_brief_parser import parse_briefs_markdown
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source", default="workspace_markdown")
     parser.add_argument("--source-ref", default=None)
     parser.add_argument("--sync-origin", default="morning_daily_brief_automation")
+    parser.add_argument("--expected-latest-date", default=None)
+    parser.add_argument("--allow-stale", action="store_true")
     return parser.parse_args()
 
 
@@ -55,6 +59,32 @@ def main() -> int:
         print(json.dumps({"success": False, "error": f"Brief file is empty: {brief_path}"}))
         return 1
 
+    expected_latest_date = None
+    if not args.allow_stale:
+        expected_latest_date = args.expected_latest_date or date.today().isoformat()
+    elif args.expected_latest_date:
+        expected_latest_date = args.expected_latest_date
+
+    if expected_latest_date:
+        parsed = parse_briefs_markdown(raw_markdown, source_ref=str(brief_path))
+        if not parsed:
+            print(json.dumps({"success": False, "error": f"No daily brief entries found in: {brief_path}"}))
+            return 1
+        latest_brief_date = max(entry.brief_date for entry in parsed).isoformat()
+        if latest_brief_date != expected_latest_date:
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": (
+                            f"Latest brief date {latest_brief_date} does not match expected {expected_latest_date}"
+                        ),
+                        "brief_file": str(brief_path),
+                    }
+                )
+            )
+            return 1
+
     payload = {
         "raw_markdown": raw_markdown,
         "source": args.source,
@@ -63,6 +93,7 @@ def main() -> int:
             "sync_origin": args.sync_origin,
             "synced_via": "scripts/sync_daily_briefs.py",
         },
+        "expected_latest_brief_date": expected_latest_date,
     }
     request = urllib.request.Request(
         f"{args.api_url.rstrip('/')}/api/briefs/sync",

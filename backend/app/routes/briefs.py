@@ -25,7 +25,10 @@ async def sync_daily_briefs(payload: DailyBriefSyncRequest):
             source=payload.source,
             source_ref=payload.source_ref,
             metadata=payload.metadata,
+            expected_latest_brief_date=payload.expected_latest_brief_date,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

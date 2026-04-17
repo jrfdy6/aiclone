@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, time
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, List
 from uuid import uuid4
@@ -65,13 +65,21 @@ def sync_daily_briefs_from_markdown(
     source: str = "workspace_markdown",
     source_ref: str | None = None,
     metadata: dict[str, Any] | None = None,
+    expected_latest_brief_date: date | None = None,
 ) -> List[DailyBrief]:
     if not raw_markdown.strip():
-        return []
+        raise ValueError("Daily brief markdown is empty.")
 
     parsed = parse_briefs_markdown(raw_markdown, source_ref=source_ref)
     if not parsed:
-        return []
+        raise ValueError("No daily brief entries were found in the provided markdown.")
+
+    latest_brief_date = max(entry.brief_date for entry in parsed)
+    if expected_latest_brief_date and latest_brief_date != expected_latest_brief_date:
+        raise ValueError(
+            "Latest brief date "
+            f"{latest_brief_date.isoformat()} does not match expected {expected_latest_brief_date.isoformat()}."
+        )
 
     try:
         from app.services.open_brain_db import get_pool

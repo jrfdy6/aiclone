@@ -24,3 +24,4 @@ class DailyBriefSyncRequest(BaseModel):
     source: str = "workspace_markdown"
     source_ref: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
+    expected_latest_brief_date: Optional[date] = None

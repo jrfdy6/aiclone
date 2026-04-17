@@ -305,6 +305,8 @@ SNAPSHOT_SOURCE_ASSETS = "source_assets"
 SNAPSHOT_PERSONA_REVIEW_SUMMARY = "persona_review_summary"
 SNAPSHOT_LONG_FORM_ROUTES = "long_form_routes"
 SNAPSHOT_CONTENT_RESERVOIR = "content_reservoir"
+SNAPSHOT_WORKSPACE_FILES = "workspace_files"
+SNAPSHOT_DOC_ENTRIES = "doc_entries"
 SNAPSHOT_OPERATOR_STORY_SIGNALS = "operator_story_signals"
 SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS = "content_safe_operator_lessons"
 
@@ -408,6 +410,15 @@ def _load_doc_entries() -> list[dict[str, str]]:
     entries = list(entries_by_path.values())
     entries.sort(key=lambda item: item["path"])
     return entries
+
+
+def _snapshot_collection_payload(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "workspace": WORKSPACE_KEY,
+        "items": items,
+        "counts": {"total": len(items)},
+    }
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -1148,6 +1159,10 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
         return _build_long_form_routes_payload()
     if snapshot_type == SNAPSHOT_CONTENT_RESERVOIR:
         return _build_content_reservoir_payload()
+    if snapshot_type == SNAPSHOT_WORKSPACE_FILES:
+        return _snapshot_collection_payload(_load_workspace_files())
+    if snapshot_type == SNAPSHOT_DOC_ENTRIES:
+        return _snapshot_collection_payload(_load_doc_entries())
     if snapshot_type == SNAPSHOT_OPERATOR_STORY_SIGNALS:
         return _load_operator_story_signals_payload()
     if snapshot_type == SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS:
@@ -1199,6 +1214,10 @@ def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
         return isinstance(payload.get("route_counts"), dict) and isinstance(payload.get("candidates"), list)
     if snapshot_type == SNAPSHOT_CONTENT_RESERVOIR:
         return isinstance(payload.get("counts"), dict) and isinstance(payload.get("items"), list)
+    if snapshot_type in {SNAPSHOT_WORKSPACE_FILES, SNAPSHOT_DOC_ENTRIES}:
+        items = payload.get("items")
+        counts = payload.get("counts")
+        return isinstance(items, list) and bool(items) and isinstance(counts, dict)
     if snapshot_type == SNAPSHOT_OPERATOR_STORY_SIGNALS:
         return isinstance(payload.get("counts"), dict) and isinstance(payload.get("signals"), list)
     if snapshot_type == SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS:
@@ -1293,6 +1312,26 @@ def _source_assets_count(payload: dict[str, Any] | None) -> int:
             return int(total)
     items = payload.get("items")
     return len(items) if isinstance(items, list) else 0
+
+
+def _snapshot_collection_signature(payload: dict[str, Any]) -> tuple[tuple[str, str, str, str], ...]:
+    items = payload.get("items") or []
+    if not isinstance(items, list):
+        return ()
+
+    signature: list[tuple[str, str, str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        signature.append(
+            (
+                str(item.get("path") or ""),
+                str(item.get("group") or ""),
+                str(item.get("updatedAt") or ""),
+                str(item.get("name") or ""),
+            )
+        )
+    return tuple(signature)
 
 
 def _content_reservoir_signature(payload: dict[str, Any]) -> tuple[Any, ...]:
@@ -1540,6 +1579,17 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
         if persisted and _snapshot_is_usable(snapshot_type, persisted):
             return persisted
         return None
+    if snapshot_type in {SNAPSHOT_WORKSPACE_FILES, SNAPSHOT_DOC_ENTRIES}:
+        runtime = _runtime_snapshot_payload(snapshot_type)
+        if runtime and _snapshot_is_usable(snapshot_type, runtime):
+            if not (persisted and _snapshot_is_usable(snapshot_type, persisted)):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_bootstrap")
+            if _snapshot_collection_signature(persisted) != _snapshot_collection_signature(runtime):
+                return _persist_snapshot(snapshot_type, runtime, "runtime_refresh")
+            return runtime
+        if persisted and _snapshot_is_usable(snapshot_type, persisted):
+            return persisted
+        return None
     if snapshot_type == SNAPSHOT_OPERATOR_STORY_SIGNALS:
         runtime = _runtime_snapshot_payload(snapshot_type)
         if runtime:
@@ -1587,6 +1637,11 @@ def _load_persisted_snapshot(
 class WorkspaceSnapshotService:
     def refresh_persisted_linkedin_os_state(self) -> dict[str, Any]:
         refreshed: dict[str, Any] = {}
+        for snapshot_type in (SNAPSHOT_WORKSPACE_FILES, SNAPSHOT_DOC_ENTRIES):
+            payload = _runtime_snapshot_payload(snapshot_type)
+            if payload and _snapshot_is_usable(snapshot_type, payload):
+                refreshed[snapshot_type] = _persist_snapshot(snapshot_type, payload, "refresh")
+
         source_assets = _runtime_snapshot_payload(SNAPSHOT_SOURCE_ASSETS)
         if source_assets:
             refreshed[SNAPSHOT_SOURCE_ASSETS] = _persist_snapshot(SNAPSHOT_SOURCE_ASSETS, source_assets, "refresh")
@@ -1655,6 +1710,8 @@ class WorkspaceSnapshotService:
             except KeyError:
                 return None
 
+        workspace_files_payload = safe_load_snapshot(SNAPSHOT_WORKSPACE_FILES) if include_workspace_files else None
+        doc_entries_payload = safe_load_snapshot(SNAPSHOT_DOC_ENTRIES) if include_doc_entries else None
         source_assets = safe_load_snapshot(SNAPSHOT_SOURCE_ASSETS)
         content_reservoir = safe_load_snapshot(SNAPSHOT_CONTENT_RESERVOIR)
         long_form_routes = safe_load_snapshot(SNAPSHOT_LONG_FORM_ROUTES)
@@ -1667,8 +1724,8 @@ class WorkspaceSnapshotService:
         operator_story_signals = safe_load_snapshot(SNAPSHOT_OPERATOR_STORY_SIGNALS)
         content_safe_operator_lessons = safe_load_snapshot(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
         return {
-            "workspace_files": _load_workspace_files() if include_workspace_files else [],
-            "doc_entries": _load_doc_entries() if include_doc_entries else [],
+            "workspace_files": (workspace_files_payload or {}).get("items") if isinstance(workspace_files_payload, dict) else [],
+            "doc_entries": (doc_entries_payload or {}).get("items") if isinstance(doc_entries_payload, dict) else [],
             "weekly_plan": weekly_plan,
             "reaction_queue": reaction_queue,
             "social_feed": social_feed,
