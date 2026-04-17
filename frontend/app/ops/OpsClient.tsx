@@ -1253,12 +1253,13 @@ const FEED_LENS_VARIANT_KEYS: Record<FeedLensId, string[]> = {
 };
 
 type WorkspaceHubKey = 'linkedin-os' | 'fusion-os' | 'easyoutfitapp' | 'ai-swag-store' | 'agc';
+type WorkspaceHubStatus = 'live' | 'standing_up' | 'planned';
 
 const WORKSPACE_HUBS: Array<{
   id: WorkspaceHubKey;
   label: string;
   shortLabel: string;
-  status: 'live' | 'planned';
+  status: WorkspaceHubStatus;
   accent: string;
   description: string;
   agent: string;
@@ -1284,7 +1285,7 @@ const WORKSPACE_HUBS: Array<{
     id: 'fusion-os',
     label: 'Fusion OS',
     shortLabel: 'Fusion',
-    status: 'planned',
+    status: 'standing_up',
     accent: '#22c55e',
     description: 'Admissions, enrollment, school operations, referral systems, and leadership execution for Fusion-adjacent work.',
     agent: 'Fusion Systems Operator',
@@ -1337,6 +1338,91 @@ const WORKSPACE_HUBS: Array<{
     ],
   },
 ];
+
+function workspaceLifecycleLabel(status: WorkspaceHubStatus) {
+  switch (status) {
+    case 'live':
+      return 'Live';
+    case 'standing_up':
+      return 'Standing up';
+    default:
+      return 'Planned';
+  }
+}
+
+function workspaceLifecycleDetail(status: WorkspaceHubStatus) {
+  switch (status) {
+    case 'live':
+      return 'Dedicated interface and active execution lane';
+    case 'standing_up':
+      return 'Backend lane is active and accumulating artifacts';
+    default:
+      return 'Portfolio slot is defined but still waiting on activity';
+  }
+}
+
+function timestampMs(value?: string | null) {
+  if (!value) {
+    return 0;
+  }
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sortByTimestampDesc<T>(items: readonly T[], getValue: (item: T) => string | null | undefined): T[] {
+  return [...items].sort((left, right) => timestampMs(getValue(right)) - timestampMs(getValue(left)));
+}
+
+function workspaceDirectoryName(workspaceKey: WorkspaceHubKey) {
+  const root = WORKSPACE_ROOT_BY_KEY[workspaceKey] ?? '';
+  const segments = root.split('/').filter(Boolean);
+  return segments[segments.length - 1] ?? workspaceKey;
+}
+
+function workspaceFileBelongsToHub(file: WorkspaceFile, workspaceKey: WorkspaceHubKey) {
+  const normalizedPath = file.path.replace(/\\/g, '/');
+  const directoryName = workspaceDirectoryName(workspaceKey);
+  return normalizedPath.includes(`/workspaces/${directoryName}/`) || file.group.includes(directoryName);
+}
+
+function workspaceRelativeFilePath(filePath: string, workspaceKey: WorkspaceHubKey) {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const directoryName = workspaceDirectoryName(workspaceKey);
+  const marker = `/workspaces/${directoryName}/`;
+  const markerIndex = normalizedPath.indexOf(marker);
+  if (markerIndex >= 0) {
+    return normalizedPath.slice(markerIndex + marker.length);
+  }
+  return normalizedPath.split('/').slice(-2).join('/');
+}
+
+function workspaceFileSection(file: WorkspaceFile, workspaceKey: WorkspaceHubKey) {
+  const relative = workspaceRelativeFilePath(file.path, workspaceKey);
+  return relative.split('/')[0] || 'root';
+}
+
+function workspaceFilePriority(file: WorkspaceFile, workspaceKey: WorkspaceHubKey) {
+  switch (workspaceFileSection(file, workspaceKey)) {
+    case 'docs':
+      return 0;
+    case 'standups':
+      return 1;
+    case 'analytics':
+      return 2;
+    case 'memory':
+      return 3;
+    case 'briefings':
+      return 4;
+    case 'root':
+      return 5;
+    case 'agent-ledgers':
+      return 6;
+    case 'dispatch':
+      return 99;
+    default:
+      return 7;
+  }
+}
 
 export default function OpsClient({
   workspaceFiles,
@@ -1920,6 +2006,10 @@ export default function OpsClient({
           files={effectiveWorkspaceFiles}
           selected={selectedWorkspace}
           onSelect={setSelectedWorkspacePath}
+          cards={pmCards}
+          executionQueue={executionQueue}
+          standups={standups}
+          executiveFeed={executiveFeed}
           plan={effectiveWeeklyPlan}
           reactionQueue={effectiveReactionQueue}
           socialFeed={effectiveSocialFeed}
@@ -6666,6 +6756,10 @@ function WorkspaceHubPanel({
   files,
   selected,
   onSelect,
+  cards,
+  executionQueue,
+  standups,
+  executiveFeed,
   plan,
   reactionQueue,
   socialFeed,
@@ -6681,6 +6775,10 @@ function WorkspaceHubPanel({
   files: WorkspaceFile[];
   selected: WorkspaceFile | null;
   onSelect: (path: string) => void;
+  cards: PMCard[];
+  executionQueue: ExecutionQueueEntry[];
+  standups: StandupEntry[];
+  executiveFeed: ExecutiveFeed;
   plan: WeeklyPlan | null;
   reactionQueue: ReactionQueue | null;
   socialFeed: SocialFeed | null;
@@ -6696,6 +6794,292 @@ function WorkspaceHubPanel({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<WorkspaceHubKey>('linkedin-os');
   const [selectorOpen, setSelectorOpen] = useState(true);
   const activeWorkspace = WORKSPACE_HUBS.find((item) => item.id === selectedWorkspaceId) ?? WORKSPACE_HUBS[0];
+  const workspaceFiles = useMemo(
+    () => files.filter((file) => workspaceFileBelongsToHub(file, selectedWorkspaceId)),
+    [files, selectedWorkspaceId],
+  );
+  const workspaceFileCounts = useMemo(() => {
+    const counts = {
+      docs: 0,
+      briefings: 0,
+      dispatch: 0,
+      analytics: 0,
+      memory: 0,
+      standups: 0,
+      root: 0,
+      other: 0,
+    };
+    workspaceFiles.forEach((file) => {
+      const section = workspaceFileSection(file, selectedWorkspaceId);
+      if (section === 'docs') {
+        counts.docs += 1;
+      } else if (section === 'briefings') {
+        counts.briefings += 1;
+      } else if (section === 'dispatch') {
+        counts.dispatch += 1;
+      } else if (section === 'analytics') {
+        counts.analytics += 1;
+      } else if (section === 'memory') {
+        counts.memory += 1;
+      } else if (section === 'standups') {
+        counts.standups += 1;
+      } else if (section === 'root') {
+        counts.root += 1;
+      } else {
+        counts.other += 1;
+      }
+    });
+    return counts;
+  }, [workspaceFiles, selectedWorkspaceId]);
+  const visibleWorkspaceFiles = useMemo(() => {
+    const ordered = [...workspaceFiles].sort((left, right) => {
+      const priorityDelta = workspaceFilePriority(left, selectedWorkspaceId) - workspaceFilePriority(right, selectedWorkspaceId);
+      if (priorityDelta !== 0) {
+        return priorityDelta;
+      }
+      return timestampMs(right.updatedAt) - timestampMs(left.updatedAt);
+    });
+    const curated = ordered.filter((file) => workspaceFilePriority(file, selectedWorkspaceId) < 90);
+    return (curated.length > 0 ? curated : ordered).slice(0, 12);
+  }, [workspaceFiles, selectedWorkspaceId]);
+  const selectedWorkspaceFile = useMemo(() => {
+    if (selected && workspaceFileBelongsToHub(selected, selectedWorkspaceId)) {
+      return selected;
+    }
+    return visibleWorkspaceFiles[0] ?? workspaceFiles[0] ?? null;
+  }, [selected, selectedWorkspaceId, visibleWorkspaceFiles, workspaceFiles]);
+  const sidebarWorkspaceFiles = useMemo(() => {
+    const ordered: WorkspaceFile[] = [];
+    const seen = new Set<string>();
+
+    const push = (file: WorkspaceFile | null | undefined) => {
+      if (!file || seen.has(file.path)) {
+        return;
+      }
+      seen.add(file.path);
+      ordered.push(file);
+    };
+
+    push(selectedWorkspaceFile);
+    visibleWorkspaceFiles.forEach(push);
+    return ordered;
+  }, [selectedWorkspaceFile, visibleWorkspaceFiles]);
+  const workspaceStandups = useMemo(
+    () => sortByTimestampDesc(standups.filter((entry) => normalizeWorkspaceBoardKey(entry.workspace_key ?? 'shared_ops') === selectedWorkspaceId), (entry) => entry.created_at),
+    [standups, selectedWorkspaceId],
+  );
+  const workspacePmCards = useMemo(
+    () => sortByTimestampDesc(cards.filter((card) => workspaceKeyFromCard(card) === selectedWorkspaceId), (card) => card.updated_at ?? card.created_at),
+    [cards, selectedWorkspaceId],
+  );
+  const workspaceOpenCards = useMemo(
+    () => workspacePmCards.filter((card) => normalizeStatus(card.status) !== 'done'),
+    [workspacePmCards],
+  );
+  const workspaceExecutionEntries = useMemo(
+    () =>
+      sortByTimestampDesc(
+        executionQueue.filter((entry) => normalizeWorkspaceBoardKey(entry.workspace_key) === selectedWorkspaceId),
+        (entry) => entry.last_transition_at ?? entry.queued_at,
+      ),
+    [executionQueue, selectedWorkspaceId],
+  );
+  const workspaceActiveExecution = useMemo(
+    () => workspaceExecutionEntries.filter((entry) => normalizeExecutionState(entry.execution_state) !== 'done'),
+    [workspaceExecutionEntries],
+  );
+  const workspaceChronicleEntries = useMemo(
+    () =>
+      sortByTimestampDesc(
+        executiveFeed.chronicleEntries.filter((entry) => normalizeWorkspaceBoardKey(entry.workspaceKey) === selectedWorkspaceId),
+        (entry) => entry.createdAt,
+      ),
+    [executiveFeed.chronicleEntries, selectedWorkspaceId],
+  );
+  const workspaceStandupPreps = useMemo(
+    () =>
+      sortByTimestampDesc(
+        executiveFeed.standupPreps.filter((entry) => normalizeWorkspaceBoardKey(entry.workspaceKey) === selectedWorkspaceId),
+        (entry) => entry.generatedAt,
+      ),
+    [executiveFeed.standupPreps, selectedWorkspaceId],
+  );
+  const workspacePmRecommendations = useMemo(
+    () =>
+      sortByTimestampDesc(
+        executiveFeed.pmRecommendations.filter(
+          (entry) =>
+            normalizeWorkspaceBoardKey(entry.workspaceKey) === selectedWorkspaceId ||
+            entry.items.some((item) => normalizeWorkspaceBoardKey(item.workspaceKey) === selectedWorkspaceId),
+        ),
+        (entry) => entry.createdAt,
+      ),
+    [executiveFeed.pmRecommendations, selectedWorkspaceId],
+  );
+  const workspaceHasActivity =
+    workspaceFiles.length > 0 ||
+    workspaceStandups.length > 0 ||
+    workspacePmCards.length > 0 ||
+    workspaceExecutionEntries.length > 0 ||
+    workspaceChronicleEntries.length > 0 ||
+    workspaceStandupPreps.length > 0 ||
+    workspacePmRecommendations.length > 0;
+  const latestWorkspaceActivity = useMemo(() => {
+    const latest = Math.max(
+      ...[
+        ...workspaceFiles.map((file) => timestampMs(file.updatedAt)),
+        ...workspaceStandups.map((entry) => timestampMs(entry.created_at)),
+        ...workspacePmCards.map((card) => timestampMs(card.updated_at ?? card.created_at)),
+        ...workspaceExecutionEntries.map((entry) => timestampMs(entry.last_transition_at ?? entry.queued_at)),
+        ...workspaceChronicleEntries.map((entry) => timestampMs(entry.createdAt)),
+        ...workspaceStandupPreps.map((entry) => timestampMs(entry.generatedAt)),
+        ...workspacePmRecommendations.map((entry) => timestampMs(entry.createdAt)),
+      ],
+      0,
+    );
+    return latest > 0 ? formatTimestamp(new Date(latest)) : 'No activity yet';
+  }, [
+    workspaceChronicleEntries,
+    workspaceExecutionEntries,
+    workspaceFiles,
+    workspacePmCards,
+    workspacePmRecommendations,
+    workspaceStandupPreps,
+    workspaceStandups,
+  ]);
+  const workspaceSummaryCards = useMemo(
+    () => [
+      {
+        label: 'Status',
+        value: workspaceLifecycleLabel(activeWorkspace.status),
+        detail: workspaceLifecycleDetail(activeWorkspace.status),
+      },
+      {
+        label: 'Last Activity',
+        value: latestWorkspaceActivity,
+        detail: workspaceHasActivity ? 'latest workspace file, standup, or execution update' : 'no visible workspace artifacts yet',
+      },
+      {
+        label: 'Workspace Files',
+        value: `${workspaceFiles.length}`,
+        detail: `${workspaceFileCounts.docs} docs · ${workspaceFileCounts.briefings} briefings · ${workspaceFileCounts.analytics} analytics`,
+      },
+      {
+        label: 'Standups',
+        value: `${workspaceStandups.length}`,
+        detail: `${workspaceStandupPreps.length} prep packet${workspaceStandupPreps.length === 1 ? '' : 's'} captured`,
+      },
+      {
+        label: 'Open PM',
+        value: `${workspaceOpenCards.length}`,
+        detail: `${workspacePmCards.length} total card${workspacePmCards.length === 1 ? '' : 's'} in this lane`,
+      },
+      {
+        label: 'Execution',
+        value: `${workspaceActiveExecution.length}`,
+        detail: `${workspaceExecutionEntries.length} queue entr${workspaceExecutionEntries.length === 1 ? 'y' : 'ies'} tied to this workspace`,
+      },
+      {
+        label: 'Dispatch',
+        value: `${workspaceFileCounts.dispatch}`,
+        detail: `${workspaceChronicleEntries.length} Chronicle entr${workspaceChronicleEntries.length === 1 ? 'y' : 'ies'} routed here`,
+      },
+      {
+        label: 'Memory',
+        value: `${workspaceFileCounts.memory}`,
+        detail: `${workspacePmRecommendations.length} PM recommendation packet${workspacePmRecommendations.length === 1 ? '' : 's'}`,
+      },
+    ],
+    [
+      activeWorkspace.status,
+      latestWorkspaceActivity,
+      workspaceActiveExecution.length,
+      workspaceChronicleEntries.length,
+      workspaceExecutionEntries.length,
+      workspaceFileCounts.analytics,
+      workspaceFileCounts.briefings,
+      workspaceFileCounts.dispatch,
+      workspaceFileCounts.docs,
+      workspaceFileCounts.memory,
+      workspaceFiles.length,
+      workspaceHasActivity,
+      workspaceOpenCards.length,
+      workspacePmCards.length,
+      workspacePmRecommendations.length,
+      workspaceStandupPreps.length,
+      workspaceStandups.length,
+    ],
+  );
+  const workspaceActivityCopy = useMemo(() => {
+    if (!workspaceHasActivity) {
+      return activeWorkspace.status === 'planned'
+        ? `${activeWorkspace.label} is defined in the portfolio registry, but no dedicated artifacts are visible yet. When the backend starts writing files, standups, or execution traces here, this surface will expose them.`
+        : `${activeWorkspace.label} is standing up. The backend lane exists, but visible artifacts have not accumulated yet. As soon as they do, they will render here instead of being hidden behind scaffold copy.`;
+    }
+    const clauses = [
+      `${workspaceFiles.length} tracked file${workspaceFiles.length === 1 ? '' : 's'}`,
+      `${workspaceStandups.length} standup${workspaceStandups.length === 1 ? '' : 's'}`,
+      `${workspaceOpenCards.length} open PM card${workspaceOpenCards.length === 1 ? '' : 's'}`,
+    ];
+    if (workspaceActiveExecution.length > 0) {
+      clauses.push(`${workspaceActiveExecution.length} active execution item${workspaceActiveExecution.length === 1 ? '' : 's'}`);
+    }
+    const joined = clauses.join(', ');
+    if (activeWorkspace.status === 'standing_up') {
+      return `${activeWorkspace.label} is still marked as standing up in the backend, but it is already generating ${joined}. This surface now reflects that real activity instead of treating the workspace like an empty placeholder.`;
+    }
+    return `${activeWorkspace.label} is generating ${joined}. This surface mirrors those backend signals directly.`;
+  }, [
+    activeWorkspace.label,
+    activeWorkspace.status,
+    workspaceActiveExecution.length,
+    workspaceFiles.length,
+    workspaceHasActivity,
+    workspaceOpenCards.length,
+    workspaceStandups.length,
+  ]);
+  const workspaceStandupItems = useMemo(
+    () =>
+      workspaceStandups.slice(0, 4).map((entry) => {
+        const createdAt = entry.created_at ? formatTimestamp(new Date(entry.created_at)) : 'No timestamp';
+        return `${standupLabel(entry)} · ${createdAt} · ${entry.commitments.length} commitments · ${entry.blockers.length} blockers`;
+      }),
+    [workspaceStandups],
+  );
+  const workspacePmItems = useMemo(
+    () =>
+      workspaceOpenCards.slice(0, 4).map((card) => {
+        const updatedAt = card.updated_at ?? card.created_at;
+        const timestamp = updatedAt ? formatTimestamp(new Date(updatedAt)) : 'No timestamp';
+        return `${summarize(card.title, 84)} · ${humanizeStatusLabel(card.status)} · ${timestamp}`;
+      }),
+    [workspaceOpenCards],
+  );
+  const workspaceExecutionItems = useMemo(
+    () =>
+      workspaceActiveExecution.slice(0, 4).map((entry) => {
+        const updatedAt = entry.last_transition_at ?? entry.queued_at;
+        const timestamp = updatedAt ? formatTimestamp(new Date(updatedAt)) : 'No timestamp';
+        return `${summarize(entry.title, 84)} · ${humanizeStatusLabel(entry.execution_state)} · ${timestamp}`;
+      }),
+    [workspaceActiveExecution],
+  );
+  const workspaceRoutingItems = useMemo(() => {
+    const items: string[] = [];
+    workspaceChronicleEntries.slice(0, 2).forEach((entry) => {
+      items.push(`Chronicle · ${entry.createdAt ? formatTimestamp(new Date(entry.createdAt)) : 'No timestamp'} · ${summarize(entry.summary, 92)}`);
+    });
+    workspaceStandupPreps.slice(0, 2).forEach((entry) => {
+      items.push(`Standup prep · ${entry.generatedAt ? formatTimestamp(new Date(entry.generatedAt)) : 'No timestamp'} · ${summarize(entry.summary, 92)}`);
+    });
+    workspacePmRecommendations.slice(0, 2).forEach((entry) => {
+      const leadItem = entry.items.find((item) => normalizeWorkspaceBoardKey(item.workspaceKey) === selectedWorkspaceId) ?? entry.items[0];
+      items.push(
+        `PM packet · ${entry.createdAt ? formatTimestamp(new Date(entry.createdAt)) : 'No timestamp'} · ${summarize(leadItem?.title ?? entry.path, 92)}`,
+      );
+    });
+    return items.slice(0, 6);
+  }, [selectedWorkspaceId, workspaceChronicleEntries, workspacePmRecommendations, workspaceStandupPreps]);
 
   const linkedinSummary = useMemo(
     () => [
@@ -6723,9 +7107,6 @@ function WorkspaceHubPanel({
     [feedbackSummary?.total_events, reactionQueue?.counts?.post_seeds, socialFeed?.generated_at, socialFeed?.items?.length, workspaceSnapshotError, workspaceSnapshotState],
   );
 
-  void files;
-  void selected;
-  void onSelect;
   void sourceAssets;
   void personaReviewSummary;
   void longFormRoutes;
@@ -6738,7 +7119,7 @@ function WorkspaceHubPanel({
         <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspaces</p>
         <h2 style={{ fontSize: '30px', margin: '4px 0', color: 'white' }}>Workspace Hub</h2>
         <p style={{ color: '#94a3b8', maxWidth: '820px' }}>
-          Each workspace gets its own operating system, agent, and principles. FEEZIE OS is live now. The others are scaffold slots so you can expand without collapsing everything into one project surface.
+          Each workspace keeps its own operating system, agent, and execution lane. The frontend now reflects the backend state directly: live workspaces stay rich, standing-up workspaces show their actual artifacts, and planned slots stay clearly empty.
         </p>
       </div>
 
@@ -6795,13 +7176,20 @@ function WorkspaceHubPanel({
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '18px' }}>
           <MiniMeta label="Workspace" value={activeWorkspace.shortLabel} detail={activeWorkspace.agent} />
-          <MiniMeta label="Status" value={activeWorkspace.status === 'live' ? 'Live' : 'Planned'} detail="selector-driven workspace slot" />
+          <MiniMeta label="Status" value={workspaceLifecycleLabel(activeWorkspace.status)} detail={workspaceLifecycleDetail(activeWorkspace.status)} />
           <MiniMeta label="Operating Rules" value={`${activeWorkspace.operatingPrinciples.length}`} detail="separate principles per workspace" />
           {selectedWorkspaceId === 'linkedin-os' && (
             <>
               <MiniMeta label="Recommendations" value={`${plan?.recommendations?.length ?? 0}`} detail="live weekly plan candidates" />
               <MiniMeta label="Comments" value={`${reactionQueue?.counts?.comment_opportunities ?? 0}`} detail="reaction queue opportunities" />
               <MiniMeta label="Signals" value={`${socialFeed?.items?.length ?? 0}`} detail="shared feed cards" />
+            </>
+          )}
+          {selectedWorkspaceId !== 'linkedin-os' && (
+            <>
+              <MiniMeta label="Workspace Files" value={`${workspaceFiles.length}`} detail={`${workspaceFileCounts.docs} docs · ${workspaceFileCounts.briefings} briefings`} />
+              <MiniMeta label="Standups" value={`${workspaceStandups.length}`} detail={`${workspaceOpenCards.length} open PM cards`} />
+              <MiniMeta label="Execution" value={`${workspaceActiveExecution.length}`} detail={`${workspaceFileCounts.dispatch} dispatch packets captured`} />
             </>
           )}
         </div>
@@ -6843,7 +7231,7 @@ function WorkspaceHubPanel({
                         textTransform: 'uppercase',
                       }}
                     >
-                      {workspace.status}
+                      {workspaceLifecycleLabel(workspace.status)}
                     </span>
                   </div>
                   <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{workspace.description}</p>
@@ -6873,37 +7261,149 @@ function WorkspaceHubPanel({
           </Suspense>
         </section>
       ) : (
-        <section
-          style={{
-            borderRadius: '18px',
-            border: '1px solid #1f2937',
-            backgroundColor: '#050b19',
-            padding: '24px',
-            display: 'grid',
-            gap: '18px',
-          }}
-        >
-          <div>
-            <p style={{ color: activeWorkspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace Scaffold</p>
-            <h3 style={{ fontSize: '26px', color: 'white', margin: '4px 0' }}>{activeWorkspace.label}</h3>
-            <p style={{ color: '#94a3b8', maxWidth: '760px', lineHeight: 1.6 }}>
-              This workspace slot is reserved and modeled, but the dedicated UI and execution flow are not built yet. The agent and operating principles are now explicit so it can be developed as a separate system instead of being squeezed into FEEZIE OS.
-            </p>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-            <MiniMeta label="Agent" value={activeWorkspace.agent} detail="separate workspace agent" />
-            <MiniMeta label="Status" value={activeWorkspace.status === 'live' ? 'Live' : 'Planned'} detail="ready for dedicated build-out" />
-            <MiniMeta label="Principles" value={`${activeWorkspace.operatingPrinciples.length}`} detail="distinct operating rules" />
-          </div>
-          <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px', display: 'grid', gap: '10px' }}>
-            <p style={{ color: '#cbd5f5', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Operating Principles</p>
-            {activeWorkspace.operatingPrinciples.map((principle) => (
-              <p key={principle} style={{ color: '#e2e8f0', fontSize: '14px', margin: 0 }}>
-                • {principle}
-              </p>
-            ))}
-          </div>
-        </section>
+        <WorkspaceActivitySurface
+          workspace={activeWorkspace}
+          summaryCards={workspaceSummaryCards}
+          activityCopy={workspaceActivityCopy}
+          sidebarFiles={sidebarWorkspaceFiles}
+          selectedFile={selectedWorkspaceFile}
+          onSelect={onSelect}
+          workspaceStandupItems={workspaceStandupItems}
+          workspacePmItems={workspacePmItems}
+          workspaceExecutionItems={workspaceExecutionItems}
+          workspaceRoutingItems={workspaceRoutingItems}
+          hasActivity={workspaceHasActivity}
+        />
+      )}
+    </section>
+  );
+}
+
+function WorkspaceActivitySurface({
+  workspace,
+  summaryCards,
+  activityCopy,
+  sidebarFiles,
+  selectedFile,
+  onSelect,
+  workspaceStandupItems,
+  workspacePmItems,
+  workspaceExecutionItems,
+  workspaceRoutingItems,
+  hasActivity,
+}: {
+  workspace: (typeof WORKSPACE_HUBS)[number];
+  summaryCards: Array<{ label: string; value: string; detail: string }>;
+  activityCopy: string;
+  sidebarFiles: WorkspaceFile[];
+  selectedFile: WorkspaceFile | null;
+  onSelect: (path: string) => void;
+  workspaceStandupItems: string[];
+  workspacePmItems: string[];
+  workspaceExecutionItems: string[];
+  workspaceRoutingItems: string[];
+  hasActivity: boolean;
+}) {
+  return (
+    <section
+      style={{
+        borderRadius: '18px',
+        border: '1px solid #1f2937',
+        backgroundColor: '#050b19',
+        padding: '24px',
+        display: 'grid',
+        gap: '18px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ color: workspace.accent, letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Workspace Activity</p>
+          <h3 style={{ fontSize: '26px', color: 'white', margin: '4px 0' }}>{workspace.label}</h3>
+          <p style={{ color: '#94a3b8', maxWidth: '760px', lineHeight: 1.6 }}>{activityCopy}</p>
+        </div>
+        <div style={{ alignSelf: 'flex-start' }}>{statusBadge(workspace.status)}</div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+        {summaryCards.map((item) => (
+          <MiniMeta key={`${workspace.id}-${item.label}`} label={item.label} value={item.value} detail={item.detail} />
+        ))}
+      </div>
+
+      {sidebarFiles.length > 0 ? (
+        <SplitPane
+          sidebar={
+            <div style={{ display: 'grid', gap: '10px' }}>
+              <div>
+                <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.14em', marginBottom: '6px' }}>Workspace Files</p>
+                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>
+                  Prioritized docs, standups, analytics, and memory artifacts for {workspace.label}. Dispatch packets are counted above but deprioritized here so the sidebar stays readable.
+                </p>
+              </div>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {sidebarFiles.map((file) => {
+                  const active = selectedFile?.path === file.path;
+                  const section = workspaceFileSection(file, workspace.id);
+                  return (
+                    <button
+                      key={file.path}
+                      onClick={() => onSelect(file.path)}
+                      style={{
+                        textAlign: 'left',
+                        borderRadius: '14px',
+                        border: active ? `1px solid ${workspace.accent}` : '1px solid #1f2937',
+                        backgroundColor: active ? `${workspace.accent}14` : '#020617',
+                        padding: '12px',
+                        cursor: 'pointer',
+                        display: 'grid',
+                        gap: '6px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+                        <span style={{ color: workspace.accent, fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{humanizeStatusLabel(section)}</span>
+                        <span style={{ color: '#64748b', fontSize: '11px' }}>{formatTimestamp(new Date(file.updatedAt))}</span>
+                      </div>
+                      <p style={{ color: 'white', fontSize: '13px', fontWeight: 600, margin: 0 }}>{workspaceRelativeFilePath(file.path, workspace.id)}</p>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{summarize(file.snippet || 'No preview captured.', 96)}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          }
+          content={
+            selectedFile ? (
+              <MarkdownSurface title={selectedFile.name} path={selectedFile.path} updatedAt={selectedFile.updatedAt} content={selectedFile.content} />
+            ) : (
+              <EmptyPanel message="Select a workspace file to inspect." />
+            )
+          }
+        />
+      ) : (
+        <div style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#0b1324', padding: '20px' }}>
+          <EmptyPanel message="No workspace files are visible yet. This section will populate as the backend writes docs, briefs, and memory artifacts into the workspace root." />
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+          <PanelList title="Recent Standups" items={workspaceStandupItems} emptyLabel="No standups recorded yet." />
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+          <PanelList title="Open PM Lane" items={workspacePmItems} emptyLabel="No open PM cards in this workspace." />
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+          <PanelList title="Execution Queue" items={workspaceExecutionItems} emptyLabel="No active execution queue entries." />
+        </div>
+        <div style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '16px' }}>
+          <PanelList title="Routing + Prep" items={workspaceRoutingItems} emptyLabel="No routed Chronicle or prep artifacts yet." />
+        </div>
+      </div>
+
+      {!hasActivity && (
+        <div style={{ borderRadius: '14px', border: '1px dashed rgba(148,163,184,0.22)', padding: '16px', color: '#94a3b8', lineHeight: 1.6 }}>
+          The workspace definition, agent, and principles remain visible even before artifacts exist, but the empty-state copy is now explicit instead of implying the backend has no workspace lane.
+        </div>
       )}
     </section>
   );
@@ -11521,7 +12021,7 @@ function statusBadge(status?: string) {
     color = '#38bdf8';
   } else if (normalized === 'failed' || normalized === 'blocked' || normalized === 'error' || normalized === 'missing') {
     color = '#f87171';
-  } else if (normalized === 'warning' || normalized === 'review' || normalized === 'stale' || normalized === 'thin' || normalized === 'held') {
+  } else if (normalized === 'warning' || normalized === 'review' || normalized === 'stale' || normalized === 'thin' || normalized === 'held' || normalized === 'standing_up') {
     color = '#fbbf24';
   } else if (normalized === 'planned' || normalized === 'cancelled' || normalized === 'canceled') {
     color = '#64748b';
