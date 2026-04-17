@@ -4360,10 +4360,6 @@ Teams create fragility when they stack tools before they define ownership and ha
             persona_promotion_module.persona_delta_service,
             "update_delta",
             side_effect=fake_update,
-        ), patch.object(
-            persona_promotion_module,
-            "write_promotion_items_to_bundle",
-            return_value={"bundle_root": "/tmp/persona", "written_files": ["identity/claims.md"], "file_results": {"identity/claims.md": {"added": 1, "skipped": 0}}},
         ):
             updated = persona_promotion_module.promote_delta_to_canon("delta-promote")
 
@@ -4371,7 +4367,7 @@ Teams create fragility when they stack tools before they define ownership and ha
         self.assertEqual(updated.status, "committed")
         self.assertFalse((updated.metadata or {}).get("pending_promotion"))
         self.assertEqual((updated.metadata or {}).get("committed_item_count"), 1)
-        self.assertEqual((updated.metadata or {}).get("bundle_written_files"), ["identity/claims.md"])
+        self.assertIsNone((updated.metadata or {}).get("bundle_written_files"))
         self.assertEqual(((updated.metadata or {}).get("local_bundle_sync") or {}).get("state"), "pending")
 
     def test_promote_delta_to_canon_blocks_initiative_without_artifact_anchor(self) -> None:

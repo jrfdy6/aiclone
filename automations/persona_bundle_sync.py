@@ -67,6 +67,9 @@ def update_local_sync_state(
     synced_at = datetime.now(timezone.utc).isoformat()
     payload = {
         "metadata": {
+            "bundle_root": (bundle_write or {}).get("bundle_root") if state == "synced" else None,
+            "bundle_written_files": (bundle_write or {}).get("written_files") or [],
+            "bundle_file_results": (bundle_write or {}).get("file_results") or {},
             "local_bundle_sync": {
                 "state": state,
                 "host": LOCAL_SYNC_HOST,

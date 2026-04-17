@@ -5,7 +5,6 @@ from typing import Any
 
 from app.models import PersonaDelta, PersonaDeltaUpdate
 from app.services import persona_delta_service
-from app.services.persona_bundle_writer import write_promotion_items_to_bundle
 from app.services.persona_promotion_extractor import TARGET_INITIATIVES, extract_canonical_promotion_items
 from app.services.persona_promotion_utils import (
     metadata_array,
@@ -97,7 +96,6 @@ def promote_delta_to_canon(delta_id: str) -> PersonaDelta | None:
         reasons = sorted({str(item.get("gate_reason") or "Initiatives canon requires artifact-backed proof.") for item in blocked_initiatives})
         raise ValueError("Cannot commit to initiatives canon: " + " ".join(reasons))
 
-    bundle_write = write_promotion_items_to_bundle(extracted_items)
     committed_at = datetime.now(timezone.utc).isoformat()
     update_metadata = {
         "pending_promotion": False,
@@ -108,9 +106,6 @@ def promote_delta_to_canon(delta_id: str) -> PersonaDelta | None:
         "selected_promotion_items": selected_items,
         "selected_promotion_item_ids": [item["id"] for item in extracted_items if item.get("id")],
         "committed_promotion_items": extracted_items,
-        "bundle_root": bundle_write.get("bundle_root"),
-        "bundle_written_files": bundle_write.get("written_files") or [],
-        "bundle_file_results": bundle_write.get("file_results") or {},
         "local_bundle_sync": {
             "state": "pending",
             "updated_at": committed_at,

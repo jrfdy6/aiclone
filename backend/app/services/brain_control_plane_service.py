@@ -13,11 +13,7 @@ def build_brain_control_plane() -> dict[str, Any]:
     automations = list_automations()
     telemetry = open_brain_metrics.fetch_metrics()
     telemetry_health = open_brain_service.fetch_health().model_dump()
-    workspace_snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(
-        persisted_only=True,
-        include_workspace_files=False,
-        include_doc_entries=False,
-    )
+    workspace_snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
     brain_memory_sync = get_snapshot_payload("shared_ops", "brain_memory_sync")
     persona_counts = ((workspace_snapshot.get("persona_review_summary") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
     source_asset_counts = ((workspace_snapshot.get("source_assets") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
