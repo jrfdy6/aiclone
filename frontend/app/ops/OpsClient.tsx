@@ -689,6 +689,24 @@ type FeedVariant = {
   evaluation?: VariantEvaluation;
 };
 
+type FeedRecommendationMode = 'comment' | 'repost' | 'post_seed';
+
+type FeedEditorialSummary = {
+  mode: FeedRecommendationMode;
+  recommendation: string;
+  why: string[];
+  bestAngle: string;
+  draft: string;
+  draftTone: string;
+  optionalLabel?: string;
+  optionalDraft?: string;
+  laneFit: 'high' | 'medium' | 'low';
+  voiceFit: 'high' | 'medium' | 'low';
+  specificityRisk: 'high' | 'medium' | 'low';
+  bestUse: string;
+  avoid: string;
+};
+
 type SocialFeedItem = {
   id: string;
   platform: string;
@@ -7115,6 +7133,177 @@ function WorkspacePanel({
     }
     return `${item.repost_draft ?? item.summary ?? ''}`.trim();
   }, [getFeedVariant]);
+  const splitIntoSentences = useCallback((text: string) => {
+    return text
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(/(?<=[.!?])\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }, []);
+  const shortenToSentenceCount = useCallback((text: string, sentenceCount: number) => {
+    const sentences = splitIntoSentences(text);
+    if (sentences.length === 0) {
+      return '';
+    }
+    return sentences.slice(0, sentenceCount).join(' ').trim();
+  }, [splitIntoSentences]);
+  const sanitizeFeedDraft = useCallback((text: string, title?: string) => {
+    const normalizedTitle = title?.trim().toLowerCase() ?? '';
+    const sentences = splitIntoSentences(text).filter((sentence) => {
+      const normalized = sentence.replace(/[.!?]+$/, '').trim().toLowerCase();
+      if (!normalized) {
+        return false;
+      }
+      if (normalizedTitle && normalized === normalizedTitle) {
+        return false;
+      }
+      if (/^(belief|anchor|source contract|expression):/i.test(sentence)) {
+        return false;
+      }
+      if (/^(fusion academy market development|ai clone \/ brain system|easy outfit metadata and validation layer)\b/i.test(sentence)) {
+        return false;
+      }
+      return true;
+    });
+    return sentences.join(' ').trim();
+  }, [splitIntoSentences]);
+  const scoreBand = useCallback((value?: number | null, mediumFloor = 6.5, highFloor = 8) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return 'medium';
+    }
+    if (value >= highFloor) {
+      return 'high';
+    }
+    if (value >= mediumFloor) {
+      return 'medium';
+    }
+    return 'low';
+  }, []);
+  const looksBroadConversation = useCallback((item: SocialFeedItem, sourceClass: string, unitKind: string) => {
+    const title = item.title.toLowerCase();
+    const commaCount = (item.title.match(/,/g) ?? []).length;
+    return sourceClass === 'long_form_media' || unitKind === 'section' || commaCount >= 2 || title.includes('podcast') || title.includes('show:') || title.includes(' + ');
+  }, []);
+  const buildFeedEditorialSummary = useCallback((item: SocialFeedItem, lens: FeedLensId): FeedEditorialSummary => {
+    const variant = getFeedVariant(item, lens);
+    const evaluation = variant?.evaluation ?? item.evaluation;
+    const sourceClass = item.source_class ?? deriveSourceClass(item);
+    const unitKind = item.unit_kind ?? deriveUnitKind(item, sourceClass);
+    const responseModes = item.response_modes ?? deriveResponseModes(item, sourceClass, unitKind);
+    const quickReply = sanitizeFeedDraft(createShortCommentDraft(item, lens), item.title);
+    const commentDraft = sanitizeFeedDraft(createCommentDraft(item, lens), item.title);
+    const repostDraft = sanitizeFeedDraft(createRepostDraft(item, lens), item.title);
+    const broadConversation = looksBroadConversation(item, sourceClass, unitKind);
+    const sourceSpecificity = evaluation?.source_expression_quality ?? null;
+    const specificityRisk =
+      broadConversation || (typeof sourceSpecificity === 'number' && sourceSpecificity < 6.8)
+        ? 'high'
+        : typeof sourceSpecificity === 'number' && sourceSpecificity < 7.5
+          ? 'medium'
+          : 'low';
+    const commentAllowed = responseModes.includes('comment') && Boolean(commentDraft);
+    const repostAllowed = responseModes.includes('repost') && Boolean(repostDraft);
+    const postSeedAllowed = responseModes.includes('post_seed');
+
+    let mode: FeedRecommendationMode = 'comment';
+    if (postSeedAllowed && (broadConversation || specificityRisk === 'high' || !commentAllowed)) {
+      mode = 'post_seed';
+    } else if (commentAllowed && typeof sourceSpecificity === 'number' && sourceSpecificity >= 7.2) {
+      mode = 'comment';
+    } else if (repostAllowed) {
+      mode = 'repost';
+    } else if (commentAllowed) {
+      mode = 'comment';
+    } else if (postSeedAllowed) {
+      mode = 'post_seed';
+    }
+
+    const laneFit = scoreBand(evaluation?.lane_distinctiveness, 6.7, 8.2);
+    const voiceFit = scoreBand(evaluation?.voice_match, 6.7, 8.2);
+    const bestAngle = shortenToSentenceCount(
+      quickReply || item.standout_lines?.[0] || variant?.why_this_angle || item.summary || item.why_it_matters || 'No clear angle yet.',
+      1,
+    );
+
+    if (mode === 'post_seed') {
+      const draft = shortenToSentenceCount(repostDraft || commentDraft || quickReply || item.summary || item.why_it_matters || '', 4);
+      const optionalDraft = shortenToSentenceCount(quickReply || commentDraft, 1);
+      return {
+        mode,
+        recommendation: 'Save as post seed, not a direct comment.',
+        why: [
+          broadConversation
+            ? 'Broad conversation with multiple threads, so a direct reaction is likely to read generic.'
+            : 'The source is useful, but not specific enough to earn a source-native comment.',
+          'You have a better shot extracting a builder lesson than pretending to respond to every topic in the source.',
+        ],
+        bestAngle,
+        draft: draft || bestAngle,
+        draftTone: '#fb923c',
+        optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional quick take' : undefined,
+        optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+        laneFit,
+        voiceFit,
+        specificityRisk,
+        bestUse: 'original post seed',
+        avoid: 'generic contrarian comment',
+      };
+    }
+
+    if (mode === 'repost') {
+      const draft = shortenToSentenceCount(repostDraft || commentDraft || quickReply || item.summary || '', 4);
+      const optionalDraft = shortenToSentenceCount(commentDraft || quickReply, 2);
+      return {
+        mode,
+        recommendation: 'Use as repost angle, not a direct reply.',
+        why: [
+          'There is enough signal here to echo and reframe, but not enough source specificity for a strong direct comment.',
+          'Your value is the operator framing you add on top of the source, not acting like the source itself is your lane.',
+        ],
+        bestAngle,
+        draft: draft || bestAngle,
+        draftTone: '#f472b6',
+        optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional direct reply' : undefined,
+        optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+        laneFit,
+        voiceFit,
+        specificityRisk,
+        bestUse: 'repost with commentary',
+        avoid: 'over-claiming source-level specificity',
+      };
+    }
+
+    const draft = shortenToSentenceCount(commentDraft || quickReply || repostDraft || item.summary || '', 4);
+    const optionalDraft = shortenToSentenceCount(repostDraft || quickReply, 2);
+    return {
+      mode: 'comment',
+      recommendation: 'Comment directly.',
+      why: [
+        'This is specific enough to answer without sounding detached from the source.',
+        'The current angle has enough lane and voice fit to say something useful in public.',
+      ],
+      bestAngle,
+      draft: draft || bestAngle,
+      draftTone: '#38bdf8',
+      optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional repost angle' : undefined,
+      optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+      laneFit,
+      voiceFit,
+      specificityRisk,
+      bestUse: 'direct public comment',
+      avoid: 'turning this into a broad manifesto',
+    };
+  }, [
+    createCommentDraft,
+    createRepostDraft,
+    createShortCommentDraft,
+    getFeedVariant,
+    looksBroadConversation,
+    sanitizeFeedDraft,
+    scoreBand,
+    shortenToSentenceCount,
+  ]);
   const copyToClipboard = useCallback(async (
     text: string,
     label: string,
@@ -7695,9 +7884,10 @@ function WorkspacePanel({
           {visibleFeedItems.slice(0, 5).map((item) => {
             const selectedFeedLens = resolveFeedLens(item);
             const activeVariant = getFeedVariant(item, selectedFeedLens);
-            const shortCommentDraft = createShortCommentDraft(item, selectedFeedLens);
-            const commentDraft = createCommentDraft(item, selectedFeedLens);
-            const repostDraft = createRepostDraft(item, selectedFeedLens);
+            const rawQuickReply = createShortCommentDraft(item, selectedFeedLens);
+            const rawCommentDraft = createCommentDraft(item, selectedFeedLens);
+            const rawRepostDraft = createRepostDraft(item, selectedFeedLens);
+            const editorial = buildFeedEditorialSummary(item, selectedFeedLens);
             const evaluation = activeVariant?.evaluation ?? item.evaluation;
             const beliefAssessment = activeVariant ?? item.belief_assessment;
             const techniqueAssessment = activeVariant ?? item.technique_assessment;
@@ -7713,141 +7903,78 @@ function WorkspacePanel({
               </div>
               <h4 style={{ color: 'white', fontSize: '18px', margin: '0' }}>{item.title}</h4>
               <p style={{ color: '#94a3b8', margin: 0 }}>{item.author}</p>
-              {item.source_url && (
-                <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px' }}>
-                  Open original post
-                </a>
-              )}
-              {item.why_it_matters && <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.why_it_matters}</p>}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {POST_MODE_OPTIONS.map((mode) => (
-                  <button
-                    key={`${item.id}-${mode.id}`}
-                    onClick={() => setFeedLensSelections((current) => ({ ...current, [item.id]: mode.id }))}
-                    style={{
-                      borderRadius: '999px',
-                      border: selectedFeedLens === mode.id ? '1px solid #fbbf24' : '1px solid #334155',
-                      padding: '6px 12px',
-                      background: selectedFeedLens === mode.id ? 'rgba(251,191,36,0.14)' : 'transparent',
-                      color: selectedFeedLens === mode.id ? '#fbbf24' : '#cbd5f5',
-                      fontSize: '11px',
-                      cursor: 'pointer',
-                    }}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div style={{ display: 'grid', gap: '4px' }}>
+                  <p style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: 0 }}>Angle</p>
+                  <select
+                    value={selectedFeedLens}
+                    onChange={(event) => setFeedLensSelections((current) => ({ ...current, [item.id]: event.target.value as FeedLensId }))}
+                    style={{ width: '220px', padding: '10px 12px', borderRadius: '8px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', fontSize: '13px' }}
                   >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
-              <div style={{ borderRadius: '12px', border: '1px solid #273449', backgroundColor: '#06101f', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-                  <p style={{ color: '#cbd5f5', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>System readout</p>
-                  <span style={{ color: '#93c5fd', fontSize: '12px' }}>
-                    overall {evaluation?.overall?.toFixed(1) ?? 'n/a'}
-                  </span>
+                    {POST_MODE_OPTIONS.map((mode) => (
+                      <option key={`${item.id}-${mode.id}`} value={mode.id}>
+                        {mode.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  {beliefAssessment?.stance && (
-                    <span style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(96,165,250,0.35)', color: '#93c5fd', fontSize: '11px' }}>
-                      stance: {beliefAssessment.stance}
-                    </span>
-                  )}
-                  {beliefAssessment?.role_safety && (
-                    <span style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(250,204,21,0.35)', color: '#fde68a', fontSize: '11px' }}>
-                      role safety: {beliefAssessment.role_safety}
-                    </span>
-                  )}
-                  {(techniqueAssessment?.techniques ?? []).map((technique) => (
-                    <span key={`${item.id}-${selectedFeedLens}-${technique}`} style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(52,211,153,0.35)', color: '#86efac', fontSize: '11px' }}>
-                      {technique}
-                    </span>
+                {item.source_url && (
+                  <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                    Open source
+                  </a>
+                )}
+              </div>
+              {item.why_it_matters && (
+                <div style={{ display: 'grid', gap: '4px' }}>
+                  <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Why this is in your feed</p>
+                  <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.why_it_matters}</p>
+                </div>
+              )}
+              <div style={{ borderRadius: '12px', border: '1px solid #273449', backgroundColor: '#06101f', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'grid', gap: '4px' }}>
+                  <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Recommendation</p>
+                  <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{editorial.recommendation}</p>
+                </div>
+                <div style={{ display: 'grid', gap: '4px' }}>
+                  <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Why</p>
+                  {editorial.why.map((reason) => (
+                    <p key={`${item.id}-${reason}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                      {reason}
+                    </p>
                   ))}
                 </div>
-                {activeVariant?.why_this_angle && <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{activeVariant.why_this_angle}</p>}
-                {beliefAssessment?.belief_summary && (
-                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
-                    <span style={{ color: '#94a3b8' }}>Belief:</span> {beliefAssessment.belief_summary}
-                  </p>
-                )}
-                {beliefAssessment?.experience_summary && (
-                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
-                    <span style={{ color: '#94a3b8' }}>Anchor:</span> {beliefAssessment.experience_summary}
-                  </p>
-                )}
-                <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
-                  <span style={{ color: '#94a3b8' }}>Source contract:</span> {sourceContractClass} · {sourceContractUnit} · {sourceContractModes.join(', ')}
-                </p>
-                {expressionAssessment?.strategy && expressionAssessment?.output_text && (
-                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
-                    <span style={{ color: '#94a3b8' }}>Expression:</span> {expressionAssessment.strategy} · {expressionAssessment.output_structure ?? 'plain'}
-                  </p>
-                )}
-                {evaluation && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Lane {evaluation.lane_distinctiveness?.toFixed(1)}</span>
-                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Belief {evaluation.belief_clarity?.toFixed(1)}</span>
-                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Voice {evaluation.voice_match?.toFixed(1)}</span>
-                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Expr {evaluation.expression_quality?.toFixed(1) ?? 'n/a'}</span>
-                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Src {evaluation.source_expression_quality?.toFixed(1) ?? 'n/a'}</span>
-                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>Δ {evaluation.expression_delta?.toFixed(1) ?? '0.0'}</span>
+                <div style={{ display: 'grid', gap: '4px' }}>
+                  <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Best angle</p>
+                  <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>{editorial.bestAngle}</p>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+                <div>
+                  <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Draft</p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: `1px solid ${editorial.draftTone}`, margin: 0, color: '#e2e8f0', lineHeight: 1.55 }}>{editorial.draft}</p>
+                    <button
+                      onClick={() => copyToClipboard(editorial.draft, 'draft', { item, lens: selectedFeedLens, variant: activeVariant })}
+                      style={{ borderRadius: '10px', border: `1px solid ${editorial.draftTone}`, background: 'transparent', color: editorial.draftTone, padding: '4px 10px', fontSize: '12px' }}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
+                {editorial.optionalDraft && editorial.optionalLabel && (
+                  <div>
+                    <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>{editorial.optionalLabel}</p>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0, color: '#e2e8f0', lineHeight: 1.55 }}>{editorial.optionalDraft}</p>
+                      <button
+                        onClick={() => copyToClipboard(editorial.optionalDraft ?? '', editorial.optionalLabel ?? 'optional draft', { item, lens: selectedFeedLens, variant: activeVariant })}
+                        style={{ borderRadius: '10px', border: '1px solid #34d399', background: 'transparent', color: '#34d399', padding: '4px 10px', fontSize: '12px' }}
+                      >
+                        Copy
+                      </button>
+                    </div>
                   </div>
                 )}
-                {(evaluation?.warnings?.length ?? 0) > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {evaluation?.warnings?.map((warning) => (
-                      <p key={`${item.id}-${selectedFeedLens}-${warning}`} style={{ color: '#fca5a5', fontSize: '11px', margin: 0 }}>
-                        {warning}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {item.standout_lines?.map((line: string) => (
-                <div key={`${item.id}-${line}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', borderRadius: '12px', border: '1px solid rgba(148,163,184,0.4)', padding: '8px', backgroundColor: '#030712' }}>
-                  <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
-                  <button
-                    onClick={() => approveFeedLine(item, line)}
-                    disabled={isApprovingQuote}
-                    style={{ borderRadius: '10px', border: '1px solid #fbbf24', padding: '4px 10px', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: isApprovingQuote ? 'not-allowed' : 'pointer' }}
-                  >
-                    {isApprovingQuote ? 'Approving…' : 'Approve line'}
-                  </button>
-                </div>
-              ))}
-              <div>
-                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Quick reply</p>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{shortCommentDraft}</p>
-                  <button
-                    onClick={() => copyToClipboard(shortCommentDraft, 'quick reply', { item, lens: selectedFeedLens, variant: activeVariant })}
-                    style={{ borderRadius: '10px', border: '1px solid #34d399', background: 'transparent', color: '#34d399', padding: '4px 10px', fontSize: '12px' }}
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-              <div>
-                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Suggested comment</p>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{commentDraft}</p>
-                  <button
-                    onClick={() => copyToClipboard(commentDraft, 'comment', { item, lens: selectedFeedLens, variant: activeVariant })}
-                    style={{ borderRadius: '10px', border: '1px solid #38bdf8', background: 'transparent', color: '#38bdf8', padding: '4px 10px', fontSize: '12px' }}
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-              <div>
-                <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Suggested repost</p>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0 }}>{repostDraft}</p>
-                  <button
-                    onClick={() => copyToClipboard(repostDraft, 'repost', { item, lens: selectedFeedLens, variant: activeVariant })}
-                    style={{ borderRadius: '10px', border: '1px solid #f472b6', background: 'transparent', color: '#f472b6', padding: '4px 10px', fontSize: '12px' }}
-                  >
-                    Copy
-                  </button>
-                </div>
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button
@@ -7880,8 +8007,135 @@ function WorkspacePanel({
                 >
                   👎 Dislike
                 </button>
-                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? 'Select a preference to train the feed.'}</p>
+                <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? 'Tell the feed if this recommendation felt right.'}</p>
               </div>
+              <details style={{ borderRadius: '12px', border: '1px solid #273449', backgroundColor: '#030712', padding: '10px 12px' }}>
+                <summary style={{ color: '#cbd5f5', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>See why</summary>
+                <div style={{ display: 'grid', gap: '10px', marginTop: '10px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(96,165,250,0.35)', color: '#93c5fd', fontSize: '11px' }}>lane fit: {editorial.laneFit}</span>
+                    <span style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(196,181,253,0.35)', color: '#c4b5fd', fontSize: '11px' }}>voice fit: {editorial.voiceFit}</span>
+                    <span style={{ borderRadius: '999px', padding: '4px 8px', border: `1px solid ${editorial.specificityRisk === 'high' ? 'rgba(248,113,113,0.4)' : 'rgba(52,211,153,0.35)'}`, color: editorial.specificityRisk === 'high' ? '#fca5a5' : '#86efac', fontSize: '11px' }}>
+                      specificity risk: {editorial.specificityRisk}
+                    </span>
+                    {beliefAssessment?.role_safety && (
+                      <span style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(250,204,21,0.35)', color: '#fde68a', fontSize: '11px' }}>
+                        role safety: {beliefAssessment.role_safety}
+                      </span>
+                    )}
+                    {(techniqueAssessment?.techniques ?? []).map((technique) => (
+                      <span key={`${item.id}-${selectedFeedLens}-${technique}`} style={{ borderRadius: '999px', padding: '4px 8px', border: '1px solid rgba(52,211,153,0.35)', color: '#86efac', fontSize: '11px' }}>
+                        {technique}
+                      </span>
+                    ))}
+                  </div>
+                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Best use:</span> {editorial.bestUse}
+                  </p>
+                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Avoid:</span> {editorial.avoid}
+                  </p>
+                  {activeVariant?.why_this_angle && <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{activeVariant.why_this_angle}</p>}
+                  {beliefAssessment?.belief_summary && (
+                    <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                      <span style={{ color: '#94a3b8' }}>Belief:</span> {beliefAssessment.belief_summary}
+                    </p>
+                  )}
+                  {beliefAssessment?.experience_summary && (
+                    <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                      <span style={{ color: '#94a3b8' }}>Anchor:</span> {beliefAssessment.experience_summary}
+                    </p>
+                  )}
+                  <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                    <span style={{ color: '#94a3b8' }}>Source contract:</span> {sourceContractClass} · {sourceContractUnit} · {sourceContractModes.join(', ')}
+                  </p>
+                  {expressionAssessment?.strategy && expressionAssessment?.output_text && (
+                    <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                      <span style={{ color: '#94a3b8' }}>Expression:</span> {expressionAssessment.strategy} · {expressionAssessment.output_structure ?? 'plain'}
+                    </p>
+                  )}
+                  {evaluation && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px' }}>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>Lane {evaluation.lane_distinctiveness?.toFixed(1)}</span>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>Belief {evaluation.belief_clarity?.toFixed(1)}</span>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>Voice {evaluation.voice_match?.toFixed(1)}</span>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>Expr {evaluation.expression_quality?.toFixed(1) ?? 'n/a'}</span>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>Src {evaluation.source_expression_quality?.toFixed(1) ?? 'n/a'}</span>
+                      <span style={{ color: '#94a3b8', fontSize: '11px' }}>Δ {evaluation.expression_delta?.toFixed(1) ?? '0.0'}</span>
+                    </div>
+                  )}
+                  {(evaluation?.warnings?.length ?? 0) > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {evaluation?.warnings?.map((warning) => (
+                        <p key={`${item.id}-${selectedFeedLens}-${warning}`} style={{ color: '#fca5a5', fontSize: '11px', margin: 0 }}>
+                          {warning}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {(rawQuickReply || rawCommentDraft || rawRepostDraft) && (
+                    <details style={{ borderRadius: '12px', border: '1px solid #273449', backgroundColor: '#020617', padding: '8px 10px' }}>
+                      <summary style={{ color: '#cbd5f5', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Raw variants</summary>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                        {rawQuickReply && (
+                          <div>
+                            <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Quick reply</p>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0, color: '#e2e8f0', lineHeight: 1.55 }}>{rawQuickReply}</p>
+                              <button
+                                onClick={() => copyToClipboard(rawQuickReply, 'quick reply', { item, lens: selectedFeedLens, variant: activeVariant })}
+                                style={{ borderRadius: '10px', border: '1px solid #34d399', background: 'transparent', color: '#34d399', padding: '4px 10px', fontSize: '12px' }}
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {rawCommentDraft && (
+                          <div>
+                            <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Suggested comment</p>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0, color: '#e2e8f0', lineHeight: 1.55 }}>{rawCommentDraft}</p>
+                              <button
+                                onClick={() => copyToClipboard(rawCommentDraft, 'comment', { item, lens: selectedFeedLens, variant: activeVariant })}
+                                style={{ borderRadius: '10px', border: '1px solid #38bdf8', background: 'transparent', color: '#38bdf8', padding: '4px 10px', fontSize: '12px' }}
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {rawRepostDraft && (
+                          <div>
+                            <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>Suggested repost</p>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <p style={{ background: '#030712', padding: '8px 10px', borderRadius: '10px', border: '1px solid #334155', margin: 0, color: '#e2e8f0', lineHeight: 1.55 }}>{rawRepostDraft}</p>
+                              <button
+                                onClick={() => copyToClipboard(rawRepostDraft, 'repost', { item, lens: selectedFeedLens, variant: activeVariant })}
+                                style={{ borderRadius: '10px', border: '1px solid #f472b6', background: 'transparent', color: '#f472b6', padding: '4px 10px', fontSize: '12px' }}
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                  {item.standout_lines?.map((line: string) => (
+                    <div key={`${item.id}-${line}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', borderRadius: '12px', border: '1px solid rgba(148,163,184,0.4)', padding: '8px', backgroundColor: '#030712' }}>
+                      <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
+                      <button
+                        onClick={() => approveFeedLine(item, line)}
+                        disabled={isApprovingQuote}
+                        style={{ borderRadius: '10px', border: '1px solid #fbbf24', padding: '4px 10px', background: 'transparent', color: '#fbbf24', fontSize: '12px', cursor: isApprovingQuote ? 'not-allowed' : 'pointer' }}
+                      >
+                        {isApprovingQuote ? 'Approving…' : 'Approve line'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </article>
           );
           })}
