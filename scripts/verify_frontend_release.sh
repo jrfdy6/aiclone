@@ -21,10 +21,10 @@ echo "[1/5] Frontend home route"
 check_route "/" "home" "Ops is the homepage."
 
 echo "[2/5] Ops route"
-check_route "/ops" "ops" "Loading mission control"
+check_route "/ops" "ops" "Mission Control"
 
 echo "[3/5] Brain route"
-check_route "/brain" "brain" "Loading live control surfaces"
+check_route "/brain" "brain" "One surface for the AI clone brain"
 
 echo "[4/5] Workspace route"
 check_route "/workspace" "workspace" "Loading workspace"

@@ -4,15 +4,19 @@ import Link from 'next/link';
 import { Suspense, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { getApiUrl } from '@/lib/api-client';
+import { apiGet, apiPost, getApiUrl } from '@/lib/api-client';
 import { formatUiDate, formatUiDateWithWeekday, formatUiNumber, formatUiTime, formatUiTimestamp } from '@/lib/ui-dates';
 
 const API_URL = getApiUrl();
+const API_NO_STORE: RequestCache = 'no-store';
+const TELEMETRY_TIMEOUT_MS = 40_000;
+const SNAPSHOT_TIMEOUT_MS = 40_000;
+const PM_MAINTENANCE_TIMEOUT_MS = 12_000;
 const REPO_ROOT = '/Users/neo/.openclaw/workspace';
 const WORKSPACE_ROOT_BY_KEY: Record<string, string> = {
   'linkedin-os': `${REPO_ROOT}/workspaces/linkedin-content-os`,
   'fusion-os': `${REPO_ROOT}/workspaces/fusion-os`,
-  easyoutfitapp: `${REPO_ROOT}/workspaces/easy-outfit`,
+  easyoutfitapp: `${REPO_ROOT}/workspaces/easyoutfitapp`,
   'ai-swag-store': `${REPO_ROOT}/workspaces/ai-swag-store`,
   agc: `${REPO_ROOT}/workspaces/agc`,
   shared_ops: `${REPO_ROOT}/workspaces/shared-ops`,
@@ -1297,44 +1301,45 @@ const WORKSPACE_HUBS: Array<{
   },
   {
     id: 'easyoutfitapp',
-    label: 'EasyOutfitApp',
+    label: 'Easy Outfit App',
     shortLabel: 'Easy Outfit',
-    status: 'planned',
+    status: 'standing_up',
     accent: '#f472b6',
-    description: 'Product, outfit logic, metadata quality, user feedback, and style-system refinement for the Easy Outfit app.',
-    agent: 'Easy Outfit Product Agent',
+    description: 'Context-aware wardrobe decision engine for restoring, improving, and growing Easy Outfit App with trustworthy closet-first recommendations.',
+    agent: 'Easy Outfit App Operator Agent',
     operatingPrinciples: [
-      'Metadata before vibes',
-      'Validate every outfit against context',
-      'Make recommendation quality obvious to the user',
+      'Reduce decision fatigue with context-aware outfit help',
+      'Prioritize owned-wardrobe trust over shopping pressure',
+      'Make recommendation quality and reasoning legible',
     ],
   },
   {
     id: 'ai-swag-store',
     label: 'AI Swag Store',
     shortLabel: 'Swag Store',
-    status: 'planned',
+    status: 'standing_up',
     accent: '#f59e0b',
-    description: 'Commerce, merchandising, product drops, and demand testing for AI-branded physical goods.',
-    agent: 'Commerce Growth Agent',
+    description: 'Differentiated merch and storefront operating system for AI swag that learns from traffic and demand before scaling the catalog.',
+    agent: 'AI Swag Store Operator Agent',
     operatingPrinciples: [
       'Test demand before expanding catalog',
-      'Use signal-backed creative, not generic merch',
-      'Keep ops simple enough to repeat',
+      'Use differentiated creative instead of generic AI merch filler',
+      'Optimize for traffic and learning before catalog breadth',
+      'Keep fulfillment and operations simple enough to repeat',
     ],
   },
   {
     id: 'agc',
     label: 'AGC',
     shortLabel: 'AGC',
-    status: 'planned',
+    status: 'standing_up',
     accent: '#a78bfa',
-    description: 'Dedicated operating system slot for AGC work with its own agent, memory, and execution rules.',
-    agent: 'AGC Strategy Agent',
+    description: 'Government-contracting-first operating system for AGC, starting with AI consulting and optimizing for qualified inbound conversations.',
+    agent: 'AGC Operator Agent',
     operatingPrinciples: [
-      'Separate the mission from the noise',
-      'Use a distinct operating model per initiative',
-      'Keep decisions traceable back to goals',
+      'Lead with a government-contracting-first AI consulting posture',
+      'Earn credibility without inventing capability claims',
+      'Optimize for qualified inbound conversations from real buyers',
     ],
   },
 ];
@@ -1518,7 +1523,10 @@ export default function OpsClient({
 
   const loadWorkspaceSnapshot = useCallback(async () => {
     try {
-      const snapshot = await fetchJson<WorkspaceSnapshot>(`${API_URL}/api/workspace/linkedin-os-snapshot`);
+      const snapshot = await apiGet<WorkspaceSnapshot>('/api/workspace/linkedin-os-snapshot', {
+        cache: API_NO_STORE,
+        timeoutMs: SNAPSHOT_TIMEOUT_MS,
+      });
       if (snapshot.workspace_files?.length) {
         setLiveWorkspaceFiles(snapshot.workspace_files);
       }
@@ -1564,9 +1572,15 @@ export default function OpsClient({
     pmMaintenanceInFlightRef.current = true;
     try {
       const [autoResolveResp, ownerReviewSyncResp, autoProgressResp] = await Promise.allSettled([
-        postJson<PMReviewHygieneResult>(`${API_URL}/api/pm/review-hygiene/auto-resolve`),
-        postJson<Record<string, unknown>>(`${API_URL}/api/pm/owner-review/sync`),
-        postJson<PMAutoProgressResult>(`${API_URL}/api/pm/review-hygiene/auto-progress`),
+        apiPost<PMReviewHygieneResult>('/api/pm/review-hygiene/auto-resolve', undefined, {
+          timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
+        }),
+        apiPost<Record<string, unknown>>('/api/pm/owner-review/sync', undefined, {
+          timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
+        }),
+        apiPost<PMAutoProgressResult>('/api/pm/review-hygiene/auto-progress', undefined, {
+          timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
+        }),
       ]);
 
       if (autoResolveResp.status === 'fulfilled') {
@@ -1611,7 +1625,7 @@ export default function OpsClient({
 
     const requests = await Promise.all([
       trackRequest(
-        fetchJson<ComplianceMetrics>(`${API_URL}/api/analytics/compliance`),
+        apiGet<ComplianceMetrics>('/api/analytics/compliance', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setMetrics(value ?? null);
           updateSectionError('metrics', null);
@@ -1619,7 +1633,7 @@ export default function OpsClient({
         (error) => updateSectionError('metrics', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<LogsResponse>(`${API_URL}/api/system/logs/?limit=40`),
+        apiGet<LogsResponse>('/api/system/logs/?limit=40', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setLogs(normalizeLogs(value));
           updateSectionError('logs', null);
@@ -1627,7 +1641,7 @@ export default function OpsClient({
         (error) => updateSectionError('logs', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<HealthPayload>(`${API_URL}/health`),
+        apiGet<HealthPayload>('/health', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setHealth(value ?? null);
           updateSectionError('health', null);
@@ -1635,7 +1649,7 @@ export default function OpsClient({
         (error) => updateSectionError('health', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<AutomationsResponse>(`${API_URL}/api/automations/`),
+        apiGet<AutomationsResponse>('/api/automations/', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setAutomations(normalizeAutomations(value));
           setAutomationRuns(normalizeAutomationRuns(value));
@@ -1644,7 +1658,7 @@ export default function OpsClient({
         (error) => updateSectionError('automations', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<OpenBrainTelemetry>(`${API_URL}/api/analytics/open-brain`),
+        apiGet<OpenBrainTelemetry>('/api/analytics/open-brain', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setBrainMetrics(value ?? null);
           updateSectionError('brain', null);
@@ -1652,7 +1666,7 @@ export default function OpsClient({
         (error) => updateSectionError('brain', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<OpenBrainHealth>(`${API_URL}/api/open-brain/health`),
+        apiGet<OpenBrainHealth>('/api/open-brain/health', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setBrainHealth(value ?? null);
           updateSectionError('brainHealth', null);
@@ -1660,7 +1674,7 @@ export default function OpsClient({
         (error) => updateSectionError('brainHealth', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<PMCard[]>(`${API_URL}/api/pm/cards?limit=50`),
+        apiGet<PMCard[]>('/api/pm/cards?limit=50', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setPmCards(Array.isArray(value) ? value : []);
           updateSectionError('pmCards', null);
@@ -1668,7 +1682,7 @@ export default function OpsClient({
         (error) => updateSectionError('pmCards', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<ExecutionQueueEntry[]>(`${API_URL}/api/pm/execution-queue?limit=50`),
+        apiGet<ExecutionQueueEntry[]>('/api/pm/execution-queue?limit=50', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setExecutionQueue(Array.isArray(value) ? value : []);
           updateSectionError('executionQueue', null);
@@ -1676,7 +1690,7 @@ export default function OpsClient({
         (error) => updateSectionError('executionQueue', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<StandupEntry[]>(`${API_URL}/api/standups/?limit=20`),
+        apiGet<StandupEntry[]>('/api/standups/?limit=20', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setStandups(Array.isArray(value) ? value : []);
           updateSectionError('standups', null);
@@ -1684,7 +1698,10 @@ export default function OpsClient({
         (error) => updateSectionError('standups', toErrorMessage(error)),
       ),
       trackRequest(
-        fetchJson<PMAutoProgressAuditReport>(`${API_URL}/api/pm/review-hygiene/audit?limit=8&hours=24`),
+        apiGet<PMAutoProgressAuditReport>('/api/pm/review-hygiene/audit?limit=8&hours=24', {
+          cache: API_NO_STORE,
+          timeoutMs: TELEMETRY_TIMEOUT_MS,
+        }),
         (value) => setReviewProgressAudit(value ?? null),
         () => setReviewProgressAudit(null),
       ),
@@ -2420,26 +2437,26 @@ const STANDUP_ROOMS: {
   },
   {
     key: 'easyoutfitapp',
-    label: 'EasyOutfitApp Standup',
+    label: 'Easy Outfit App Standup',
     workspaceKey: 'easyoutfitapp',
-    description: 'Workspace meeting lane where Jean-Claude manages and Easy Outfit Product Agent executes inside EasyOutfitApp only.',
-    participants: ['Jean-Claude', 'Easy Outfit Product Agent'],
+    description: 'Workspace meeting lane where Jean-Claude manages and Easy Outfit App Operator Agent executes inside Easy Outfit App only.',
+    participants: ['Jean-Claude', 'Easy Outfit App Operator Agent'],
     sources: ['Chronicle', 'PM Board', 'Workspace Docs'],
   },
   {
     key: 'ai-swag-store',
     label: 'AI Swag Store Standup',
     workspaceKey: 'ai-swag-store',
-    description: 'Workspace meeting lane where Jean-Claude manages and Commerce Growth Agent executes inside AI Swag Store only.',
-    participants: ['Jean-Claude', 'Commerce Growth Agent'],
+    description: 'Workspace meeting lane where Jean-Claude manages and AI Swag Store Operator Agent executes inside AI Swag Store only.',
+    participants: ['Jean-Claude', 'AI Swag Store Operator Agent'],
     sources: ['Chronicle', 'PM Board', 'Workspace Docs'],
   },
   {
     key: 'agc',
     label: 'AGC Standup',
     workspaceKey: 'agc',
-    description: 'Workspace meeting lane where Jean-Claude manages and AGC Strategy Agent executes inside AGC only.',
-    participants: ['Jean-Claude', 'AGC Strategy Agent'],
+    description: 'Workspace meeting lane where Jean-Claude manages and AGC Operator Agent executes inside AGC only.',
+    participants: ['Jean-Claude', 'AGC Operator Agent'],
     sources: ['Chronicle', 'PM Board', 'Workspace Docs'],
   },
 ];
@@ -7860,7 +7877,7 @@ function WorkspacePanel({
   }, []);
   const waitForFeedRefresh = useCallback(async () => {
     for (let attempt = 0; attempt < 12; attempt += 1) {
-      const status = await fetchJson<FeedRefreshStatus>(`${API_URL}/api/workspace/refresh-social-feed`);
+      const status = await apiGet<FeedRefreshStatus>('/api/workspace/refresh-social-feed', { cache: API_NO_STORE });
       if (!status.running) {
         if (status.error) {
           throw new Error(status.error);
@@ -10067,19 +10084,19 @@ const WORKSPACE_RUNTIME_DISPLAY: Record<string, { targetAgent: string; workspace
     legacyAliases: ['Fusion Agent'],
   },
   easyoutfitapp: {
-    targetAgent: 'Easy Outfit Product Agent',
-    workspaceAgent: 'Easy Outfit Product Agent',
-    legacyAliases: ['Easy Outfit Agent'],
+    targetAgent: 'Easy Outfit App Operator Agent',
+    workspaceAgent: 'Easy Outfit App Operator Agent',
+    legacyAliases: ['Easy Outfit Product Agent', 'Easy Outfit Agent'],
   },
   'ai-swag-store': {
-    targetAgent: 'Commerce Growth Agent',
-    workspaceAgent: 'Commerce Growth Agent',
-    legacyAliases: ['AI Swag Store Agent', 'Commerce Agent'],
+    targetAgent: 'AI Swag Store Operator Agent',
+    workspaceAgent: 'AI Swag Store Operator Agent',
+    legacyAliases: ['AI Swag Store Agent', 'Commerce Growth Agent', 'Commerce Agent'],
   },
   agc: {
-    targetAgent: 'AGC Strategy Agent',
-    workspaceAgent: 'AGC Strategy Agent',
-    legacyAliases: ['AGC Agent'],
+    targetAgent: 'AGC Operator Agent',
+    workspaceAgent: 'AGC Operator Agent',
+    legacyAliases: ['AGC Strategy Agent', 'AGC Agent'],
   },
 };
 
@@ -10643,9 +10660,9 @@ function buildStandupOwners(prep: StandupPrepPacket, includeYoda: boolean) {
   const owners = ['Jean-Claude — update the PM board, open the next SOP, and carry the lane summary back to leadership.'];
   const workspaceOwners: Record<string, string> = {
     'fusion-os': 'Fusion Systems Operator',
-    easyoutfitapp: 'Easy Outfit Product Agent',
-    'ai-swag-store': 'Commerce Growth Agent',
-    agc: 'AGC Strategy Agent',
+    easyoutfitapp: 'Easy Outfit App Operator Agent',
+    'ai-swag-store': 'AI Swag Store Operator Agent',
+    agc: 'AGC Operator Agent',
   };
   if (!['shared_ops', 'linkedin-os'].includes(prep.workspaceKey)) {
     owners.push(`${workspaceOwners[prep.workspaceKey] ?? 'Workspace Agent'} — execute inside ${prep.workspaceKey} only and report back through workspace memory plus the PM card.`);
@@ -10725,10 +10742,10 @@ function extractStandupSections(payload: Record<string, unknown> | undefined) {
   const raw = payload?.standup_sections;
   const record = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const sectionConfig = [
-    ['signals_captured', 'Signals Captured'],
-    ['content_produced', 'Content Produced'],
-    ['audience_response', 'Audience Response'],
-    ['opportunities_created', 'Opportunities Created'],
+    ['signals_captured', 'Signal'],
+    ['content_produced', 'Work Produced'],
+    ['audience_response', 'Traction'],
+    ['opportunities_created', 'Opportunities'],
     ['next_focus', 'Next Focus'],
   ] as const;
   return sectionConfig
@@ -11899,7 +11916,7 @@ function buildMeetingOps(
     const liveEntries = sortedEntries.filter((entry) => standupKind(entry) === room.key && entry.workspace_key === room.workspaceKey);
     const latestEntry = liveEntries[0] ?? null;
     const roundCount = latestEntry ? standupDiscussion(latestEntry).length : 0;
-    const isExpected = !['easyoutfitapp', 'ai-swag-store', 'agc'].includes(room.key);
+    const isExpected = true;
     let status = 'planned';
     let reason = 'Reserved lane. No meeting transcript expected yet.';
 
@@ -12064,28 +12081,6 @@ function ownerReviewDisplayTitle(card: PMCard, ownerReview?: OwnerReviewCardPayl
     return `Owner review - ${ownerReview.title}`;
   }
   return card.title;
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: 'no-store' });
-  if (!response.ok) {
-    const text = await response.text().catch(() => response.statusText);
-    throw new Error(`${response.status} ${response.statusText}: ${text}`);
-  }
-  return response.json();
-}
-
-async function postJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    cache: 'no-store',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => response.statusText);
-    throw new Error(`${response.status} ${response.statusText}: ${text}`);
-  }
-  return response.json();
 }
 
 function normalizeLogs(payload: LogsResponse | undefined): SystemLog[] {
