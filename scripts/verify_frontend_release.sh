@@ -17,20 +17,23 @@ check_route() {
   echo "$label ok"
 }
 
-echo "[1/5] Frontend home route"
+echo "[1/6] Frontend home route"
 check_route "/" "home" "Ops is the homepage."
 
-echo "[2/5] Ops route"
+echo "[2/6] Ops route"
 check_route "/ops" "ops" "Mission Control"
 
-echo "[3/5] Brain route"
+echo "[3/6] Brain route"
 check_route "/brain" "brain" "One surface for the AI clone brain"
 
-echo "[4/5] Workspace route"
+echo "[4/6] Workspace route"
 check_route "/workspace" "workspace" "Loading workspace"
 
-echo "[5/5] Posting workspace route"
+echo "[5/6] Posting workspace route"
 check_route "/workspace/posting" "workspace_posting" "Loading posting workspace"
+
+echo "[6/6] Inbox route"
+check_route "/inbox" "inbox" "Portfolio email routing"
 
 echo
 echo "verify_frontend_release.sh passed"

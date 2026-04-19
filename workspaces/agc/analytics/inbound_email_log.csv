@@ -1,0 +1,2 @@
+email_id,received_date,from_type,organization,subject_theme,linked_opportunity_id,qualification_status,next_action,response_deadline,evidence_path,notes
+AGC-EMAIL-000,2026-04-17,none,none,No qualified inbound buyer email yet,AGC-OPP-000,signal_only,Log the first qualifying message and link it to a real opportunity,none,analytics/2026-04-17_baseline.md,Foundation row only

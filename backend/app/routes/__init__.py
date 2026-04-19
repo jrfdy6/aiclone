@@ -8,6 +8,7 @@ __all__ = [
     "calendar",
     "capture",
     "content_generation",
+    "email_ops",
     "ingest_drive",
     "knowledge",
     "lab",

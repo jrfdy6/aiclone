@@ -30,6 +30,18 @@ from .brain import (
 from .brief_reactions import BriefReaction, BriefReactionCreate, BriefReactionCreateResponse, BriefReactionPersonaContext
 from .build_reviews import BuildReview, BuildReviewUpdate, BuildReviewUpsert
 from .daily_briefs import DailyBrief, DailyBriefSyncRequest
+from .email_ops import (
+    EmailMessage,
+    EmailProviderStatusResponse,
+    EmailSyncResponse,
+    EmailThread,
+    EmailThreadDraftRequest,
+    EmailThreadDraftResponse,
+    EmailThreadEscalateRequest,
+    EmailThreadEscalateResponse,
+    EmailThreadListResponse,
+    EmailThreadRouteRequest,
+)
 from .open_brain import OpenBrainHealth, OpenBrainSearchHit, OpenBrainSearchRequest, OpenBrainSearchResponse
 from .persona import PersonaDelta, PersonaDeltaCreate, PersonaDeltaResolve, PersonaDeltaUpdate
 from .pm_board import (
@@ -93,6 +105,16 @@ __all__ = [
     "BuildReviewUpsert",
     "DailyBrief",
     "DailyBriefSyncRequest",
+    "EmailMessage",
+    "EmailProviderStatusResponse",
+    "EmailSyncResponse",
+    "EmailThread",
+    "EmailThreadDraftRequest",
+    "EmailThreadDraftResponse",
+    "EmailThreadEscalateRequest",
+    "EmailThreadEscalateResponse",
+    "EmailThreadListResponse",
+    "EmailThreadRouteRequest",
     "OpenBrainHealth",
     "OpenBrainSearchHit",
     "OpenBrainSearchRequest",

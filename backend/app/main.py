@@ -18,6 +18,7 @@ from app.routes import (
     calendar,
     capture,
     content_generation,
+    email_ops,
     ingest_drive,
     knowledge,
     lab,
@@ -146,6 +147,7 @@ app.include_router(knowledge.router, prefix="/api/knowledge")
 app.include_router(lab.router)
 app.include_router(capture.router, prefix="/api/capture")
 app.include_router(content_generation.router, prefix="/api/content-generation")
+app.include_router(email_ops.router)
 app.include_router(ingest_drive.router, prefix="/api")
 app.include_router(automations.router, prefix="/api/automations")
 app.include_router(briefs.router)

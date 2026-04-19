@@ -4,6 +4,8 @@ openai>=1.0.0
 firebase-admin
 google-api-python-client
 google-auth
+google-auth-httplib2
+google-auth-oauthlib
 google-cloud-firestore
 numpy
 pdfminer.six

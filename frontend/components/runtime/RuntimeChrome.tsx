@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { BookOpenText, BrainCircuit, FlaskConical, FolderKanban, RadioTower } from 'lucide-react';
+import { BookOpenText, BrainCircuit, FlaskConical, FolderKanban, Inbox, RadioTower } from 'lucide-react';
 
 export type RuntimeModule = 'ops' | 'brain' | 'lab';
 
@@ -33,6 +33,14 @@ const workspaceLink = {
   href: '/ops#workspace',
   icon: FolderKanban,
   tone: '#fb923c',
+};
+
+const inboxLink = {
+  id: 'inbox',
+  label: 'Inbox',
+  href: '/inbox',
+  icon: Inbox,
+  tone: '#60a5fa',
 };
 
 export function RuntimePage({
@@ -137,6 +145,7 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
   const currentPath = pathname ?? '';
   const [hash, setHash] = useState('');
   const WorkspaceIcon = workspaceLink.icon;
+  const InboxIcon = inboxLink.icon;
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -184,6 +193,13 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
         >
           <WorkspaceIcon size={18} />
           <span style={{ fontSize: '11px', fontWeight: 700 }}>{workspaceLink.label}</span>
+        </Link>
+        <Link
+          href={inboxLink.href}
+          style={dockButtonStyle(currentPath === '/inbox' || currentPath.startsWith('/inbox/'), inboxLink.tone)}
+        >
+          <InboxIcon size={18} />
+          <span style={{ fontSize: '11px', fontWeight: 700 }}>{inboxLink.label}</span>
         </Link>
       </div>
     </div>
