@@ -3,7 +3,7 @@
 1. Generate the heartbeat sensor snapshot before thinking:
    - `python3 scripts/heartbeat_report.py` (pass `--json` if you need the raw fields).
    - `python3 scripts/heartbeat_report.py --summary` to capture the one-line snippet you will post to Discord.
-   - Use those outputs to cite the most recent heartbeat run, Discord churn, and artifact ages. The summary helper already includes concrete timestamps; add extra context only when something changed.
+   - Use those outputs to cite the latest gateway activity, Discord churn, and artifact ages. The summary helper already includes concrete timestamps; add extra context only when something changed.
 2. Review `memory/heartbeat-state.json` only after running the report so you know which categories were already checked. Re-run checks only when a timestamp is null or older than one hour.
 3. Update canonical heartbeat state with the helper script. Do not hand-edit `memory/heartbeat-state.json` or `memory/YYYY-MM-DD.md`.
    - Calm / no blocker:

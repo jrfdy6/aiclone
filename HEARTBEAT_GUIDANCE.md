@@ -17,13 +17,13 @@ Keep heartbeat calls lean by limiting what they check and how often they run. Fo
 
 ## Diagnostic helper
 - Run `python3 scripts/heartbeat_report.py` before you think or reply. It surfaces:
-  - the latest `[heartbeat] started` entries from `~/.openclaw/logs/gateway.log`
+  - the latest gateway log activity plus the most recent `[heartbeat] started` bootstrap from `~/.openclaw/logs/gateway.log`
   - Discord gateway closes/reconnects during the last N hours (default 36h)
   - the latest modification time for `memory/cron-prune.md`, `memory/daily-briefs.md`, `workspaces/shared-ops/memory/execution_log.md`, and today’s `memory/YYYY-MM-DD.md`
   - the current `memory/heartbeat-state.json` timestamps
 - Include at least one concrete timestamp or metric from that output in every heartbeat summary so Discord logs stay diagnosable.
 - Use `python3 scripts/heartbeat_report.py --summary` to generate the exact status line you will post to Discord; keep that line intact so the metrics remain machine-readable.
-- If the report shows stale data (e.g., age > 120 minutes for the last heartbeat run), escalate instead of rubber-stamping `HEARTBEAT_OK`.
+- If the report shows stale data (e.g., age > 120 minutes for the latest gateway activity), escalate instead of rubber-stamping `HEARTBEAT_OK`.
 
 ## What to check (rotate 2–4×/day)
 - Emails (urgent unread messages)

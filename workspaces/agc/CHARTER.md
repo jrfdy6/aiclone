@@ -2,18 +2,20 @@
 
 ## Mission
 
-Hold a dedicated operating system slot for AGC work with its own agent, memory, and execution rules.
+Build `Acorn Global Collective` as a government-contracting-first AI consulting business that converts credible market signal into qualified inbound conversations and capture-ready next steps.
 
 ## Outcomes
 
-- A distinct operating model for each AGC initiative
-- Decisions that stay traceable back to goals
-- Cleaner separation between AGC priorities and unrelated workspace noise
+- More qualified inbound email conversations
+- Clearer capability positioning for agencies, prime contractors, and adjacent buyers
+- Better capture and qualification notes
+- Decisions that stay traceable back to real engagement
 - Local memory and execution history that actually belong to AGC
 
 ## Constraints
 
-- Separate the mission from the noise.
-- Do not collapse every initiative into one generic workflow.
-- Keep decisions traceable back to goals.
+- Keep the business government-contracting first.
+- Do not invent certifications, contracts, or past performance.
+- Do not let adjacent consulting erase the primary positioning.
+- Keep decisions traceable back to goals and engagement.
 - No cross-workspace bleed.

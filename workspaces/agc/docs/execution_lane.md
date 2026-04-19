@@ -1,16 +1,61 @@
 # AGC Execution Lane
 
-This lane keeps AGC work bounded to `workspaces/agc/` while preserving the standard control chain:
+AGC executes one recurring business loop:
 
-`You -> Neo -> Jean-Claude -> AGC Strategy Agent or Codex -> PM write-back`
+Signal -> Positioning -> Capability -> Surface -> Inbound Email -> Qualified Conversation -> Capture
+
+Automation, PM cards, SOPs, and write-back exist to support this loop.
+They are not the loop itself.
+
+## Purpose
+
+Turn credible market and procurement signal into qualified inbound conversations and clearer capture moves without letting the lane drift into unsupported consulting claims.
+
+## Lane Responsibilities
+
+- Capture opportunity signal from agencies, prime contractors, and adjacent buyers
+- Turn signal into clearer AI consulting positioning
+- Build or refine capability materials tied to real opportunity surfaces
+- Qualify inbound email conversations and record what they mean
+- Prepare standups around `Signal`, `Work Produced`, `Traction`, `Opportunities`, and `Next Focus`
+
+## Valid Work Types
+
+- Opportunity-signal review
+- Capability and positioning refinement
+- Capture-note updates
+- Response drafting
+- Qualification summaries
+- Standup preparation tied to opportunity movement
+
+## Invalid Work Types
+
+- Invented certifications, past performance, or contract claims
+- Legal or compliance advice presented as fact
+- Broad consulting brainstorming with no market signal
+- Cross-workspace planning
+- Automation validation as the primary deliverable
+
+## Machine Cadence
+
+- `5-minute` execution polling
+- `30-minute` internal sync and standup-prep loop
+
+## Dispatch Path
+
+This lane stays on the delegated workspace pattern:
+
+`You -> Neo -> Jean-Claude -> AGC Operator Agent or Codex -> PM write-back`
 
 ## Roles
+
 - `Neo`: intake only
 - `Jean-Claude`: execution manager
-- `AGC Strategy Agent`: delegated workspace executor
+- `AGC Operator Agent`: delegated workspace executor
 - `Codex workspace runner`: optional direct executor when Jean-Claude needs a bounded local run
 
 ## Standard flow
+
 1. Create or update the PM card through the thin trigger path.
    ```bash
    cd /Users/neo/.openclaw/workspace
@@ -41,8 +86,16 @@ This lane keeps AGC work bounded to `workspaces/agc/` while preserving the stand
      --api-url https://aiclone-production-32dc.up.railway.app
    ```
 
-## Guardrails
-- Keep code, docs, and notes inside `workspaces/agc/`.
-- Read `dispatch/`, `briefings/`, and `memory/execution_log.md` before changing scope.
-- Prefer delegated execution through `AGC Strategy Agent`; use direct Codex only when Jean-Claude explicitly owns the packet.
-- Every real run ends with standard write-back so the PM card and memory stay aligned.
+## Support Layer
+
+PM cards, SOPs, workspace briefings, analytics snapshots, and standups should describe the work above in traceable form.
+They should not become the main subject of the lane unless a system failure blocks output or visibility.
+
+## Escalation Rule
+
+Escalate only when one of these is true:
+
+- the packet requires unsupported capability or compliance claims
+- opportunity signal is too weak to justify the next capture move
+- the work would cross workspace boundaries
+- automation failure prevents the lane from qualifying or tracking the next step

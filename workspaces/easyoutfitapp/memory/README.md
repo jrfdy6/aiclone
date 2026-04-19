@@ -1,4 +1,4 @@
-# EasyOutfitApp Memory
+# Easy Outfit App Memory
 
 Keep workspace-local memory here.
 

@@ -1,5 +1,7 @@
 # AI Clone
 
+Note: Rolling Docs refreshed on 2026-04-19. See memory/doc-updates.md for details.
+
 AI Clone is an AI-powered **knowledge + prospecting workspace** built with **FastAPI (backend)** + **Next.js 14 (frontend)**.
 
 The AI Clone is designed to: 

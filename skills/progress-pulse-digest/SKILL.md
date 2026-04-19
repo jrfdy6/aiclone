@@ -9,15 +9,15 @@ description: Summarize only net-new Codex handoff plus maintenance signals for A
 Produce a concise checkpoint grounded in net-new Codex handoff entries and maintenance signals, covering AI Clone/Railway/workspace updates, context limits, and blockers while preserving durable lessons.
 
 ## Workflow
-1. **Gate Delivery First**
-   - Run `python3 /Users/neo/.openclaw/workspace/scripts/progress_pulse_gate.py --json`.
-   - If `should_deliver` is false, return EXACTLY `NO_REPLY`.
+1. **Build The Deterministic Digest First**
+   - Run `python3 /Users/neo/.openclaw/workspace/scripts/build_progress_pulse_digest.py`.
+   - If it returns `NO_REPLY`, return EXACTLY `NO_REPLY`.
+   - If it returns markdown, treat that markdown as the final answer. Do not paraphrase it.
    - Do not emit a routine digest when nothing materially changed.
-2. **Gather Context**
-   - Read the latest entries from `memory/codex_session_handoff.jsonl` first.
-   - Use `memory/cron-prune.md`, `memory/persistent_state.md`, and maintenance run context to ground the digest.
+2. **Verify Only When Needed**
+   - Read the latest entries from `memory/codex_session_handoff.jsonl` only if you need to verify a cited blocker, route, or artifact reference from the builder output.
+   - Use `memory/cron-prune.md`, `memory/persistent_state.md`, and maintenance run context only to confirm the builder's evidence, not to rewrite its structure.
    - Only fall back to `agent:main:main` or `openclaw-control-ui` traces if you need OpenClaw-specific cleanup context.
-   - Identify AI Clone, Railway, workspace, and system-maintenance signals since the last delivered digest.
 3. **Trim Responses Only When Relevant**
    - If a live OpenClaw session was actually part of the evidence, keep the latest three assistant responses in that active context and archive older ones as needed.
    - Otherwise, skip the pruning language and focus on Codex handoff plus maintenance signals.
@@ -25,12 +25,10 @@ Produce a concise checkpoint grounded in net-new Codex handoff entries and maint
 4. **Document Lessons**
    - Write durable decisions/insights into `memory/cron-prune.md` using `python3 /Users/neo/.openclaw/workspace/scripts/append_markdown_block.py`.
    - Treat `memory/LEARNINGS.md` as read-only during cron rehab; if a durable guardrail matters, note it in `memory/cron-prune.md` for later human promotion.
-5. **Compose Summary**
-   - Include only net-new status changes, new blockers, blocker resolutions, or concrete new follow-up actions.
-   - Use the current UTC time from `date -u '+%Y-%m-%d %H:%M UTC'` for the timestamp.
-   - Do not repeat old boilerplate just because the job ran again.
-   - Mention whether the evidence came from Codex handoff, persistent state, OpenClaw session context, or a combination.
-   - Do not assign a generic owner unless the evidence supports a real owner/action pair.
+5. **Respect The Delivery Contract**
+   - Every delivered digest must answer: what changed, why it matters, what action is now required, where it was routed, and which source artifact or PM card supports it.
+   - Never send boilerplate like "no further action needed", "latest signal", or raw sync counts as the main value.
+   - If the builder output would be invalid or low-value, return `NO_REPLY` instead of improvising.
 6. **Deliver**
    - Return the summary in the final answer only.
    - Do not call the message tool; cron delivery is automatic.
@@ -41,9 +39,18 @@ Produce a concise checkpoint grounded in net-new Codex handoff entries and maint
 ```
 Progress Pulse — <timestamp>
 Status: <green/yellow/red>
-Highlights:
+What Changed:
 - ...
-Blockers:
+Why It Matters:
 - ...
-Follow-up: <yes/no + owner>
+Action Now:
+- Owner: ...
+- Next: ...
+Routing:
+- Workspace: ...
+- Route: ...
+Source:
+- ...
+Alerts:
+- ...
 ```

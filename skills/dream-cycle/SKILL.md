@@ -20,25 +20,20 @@ description: Roll the current day into a durable persistent-state snapshot, appe
 
 ## Workflow
 1. **Collect The Day**
-   - Run `build_cron_memory_contract.py` first and treat its JSON as the canonical merged memory view for the run.
-   - Read today's daily log, `chronicle_entries`, `durable_memory_context`, recent cron outputs, and the latest health/report artifacts.
-   - Resolve wildcard inputs to a concrete file path first; do not try to read `memory_health_*.md` literally.
-   - Resolve placeholder paths to concrete current-date files first; do not try to read `memory/YYYY-MM-DD.md` literally.
-   - If knowledge ingestions matter, list recent files under `knowledge/` and inspect specific files; do not try to read the `knowledge/` directory itself.
-   - If heartbeat freshness, Discord summary quality, or automation drift is in question, run `heartbeat_report.py` and use the concrete timestamps in the snapshot.
-   - If older markdown memory materially changes today's interpretation, cite the specific durable recall result instead of relying only on the recent Chronicle tail.
+   - The canonical Dream Cycle writer is `python3 /Users/neo/.openclaw/workspace/scripts/build_dream_cycle_snapshot.py --write`.
+   - Use that builder instead of manually composing markdown or hand-editing memory files.
+   - The builder already grounds the snapshot in Chronicle, PM context, automation state, heartbeat diagnostics, and current memory tails.
 2. **Update Persistent State**
-   - Overwrite `memory/persistent_state.md` with a compact operator snapshot:
-     - Snapshot
-     - Automation Health
-     - Findings
-     - Actions
+   - The builder must write the same snapshot to:
+     - `memory/runtime/persistent_state.md`
+     - `memory/persistent_state.md`
+   - The runtime file is the live read lane; the top-level file is the human-readable mirror.
 3. **Append Narrative**
-   - Append a dated entry to `memory/dream_cycle_log.md` capturing what changed and what matters next.
+   - The builder must upsert the dated `memory/dream_cycle_log.md` entry for the current day.
 4. **Surface Actions**
    - Call out blockers, automation drift, or repair work that should be promoted to the next day.
 5. **Report**
-   - Keep the outgoing summary short and action-oriented.
+   - Return the builder output exactly; do not paraphrase it.
 
 ## Output Template
 ```

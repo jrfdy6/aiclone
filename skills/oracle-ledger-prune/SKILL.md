@@ -27,6 +27,8 @@ Keep the brain grounded by consolidating the latest Codex work into canonical me
    - When live markdown files are missing, use the fallback-resolved paths from the memory contract instead of pretending the files were empty.
 4. **Summarize**
    - Briefly describe what came from Codex handoff versus live OpenClaw session cleanup, mentioning message IDs only if you actually used session history.
+   - Do not narrate generic system health, "continuous monitoring," or "no issues found" boilerplate.
+   - If there was no real prune and no manual cleanup required, say that plainly and stop.
 5. **Deliver**
    - Return the summary in the final answer only.
    - Do not call the message tool.

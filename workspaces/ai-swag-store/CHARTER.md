@@ -2,18 +2,20 @@
 
 ## Mission
 
-Run merchandising, product drops, and demand testing for AI-branded physical goods with enough discipline to learn from each cycle.
+Build a differentiated AI swag store that learns from each cycle, grows from real traffic signal, and discovers its competitive advantage through repeatable tests.
 
 ## Outcomes
 
-- Clear demand signals before catalog expansion
-- Better merch concepts grounded in real audience response
+- Rising qualified website visits
+- Clearer demand signals before catalog expansion
+- Better offers and listings grounded in real behavior
 - Repeatable drop and operations patterns
-- Simpler commerce execution with cleaner learnings
+- Competitive insight that can guide the next offer or store move
 
 ## Constraints
 
 - Do not expand the catalog without signal.
 - Do not ship generic merch just to have more items.
 - Keep operations simple enough to repeat.
+- Do not let social publishing become the primary deliverable before the rhythm is stable.
 - No cross-workspace drift.
