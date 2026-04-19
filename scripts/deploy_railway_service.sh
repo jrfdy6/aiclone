@@ -118,6 +118,7 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   )
   mkdir -p "$STAGE_DIR/knowledge/persona" "$STAGE_DIR/knowledge/aiclone" "$STAGE_DIR/knowledge/ingestions" "$STAGE_DIR/workspaces" "$STAGE_DIR/scripts"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/knowledge/persona" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions" "$STAGE_DIR/$CHILD_DIR/workspaces" "$STAGE_DIR/$CHILD_DIR/scripts"
+  mkdir -p "$STAGE_DIR/memory" "$STAGE_DIR/$CHILD_DIR/memory"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona" "$STAGE_DIR/$CHILD_DIR/app/knowledge/source-intelligence"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/SOPs" "$STAGE_DIR/$CHILD_DIR/deliverables" "$STAGE_DIR/$CHILD_DIR/docs"
   rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/knowledge/persona/feeze/"
@@ -128,6 +129,8 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   stage_source_intelligence "$STAGE_DIR"
   stage_source_intelligence "$STAGE_DIR/$CHILD_DIR"
   stage_source_intelligence "$STAGE_DIR/$CHILD_DIR/app"
+  rsync_if_exists "$DATA_ROOT/memory/brain_signals.jsonl" "$STAGE_DIR/memory/brain_signals.jsonl"
+  rsync_if_exists "$DATA_ROOT/memory/brain_signals.jsonl" "$STAGE_DIR/$CHILD_DIR/memory/brain_signals.jsonl"
   if [ -d "$DATA_ROOT/knowledge/ingestions" ]; then
     rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"
     rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions/"
