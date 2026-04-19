@@ -62,12 +62,12 @@ class ProviderTraceFallbackTests(unittest.TestCase):
         provider = ContentLLMProvider(
             name="codex",
             client=object(),
-            fast_model="gpt-5.1-codex",
-            editor_model="gpt-5.1-codex",
+            fast_model="gpt-5.4-mini",
+            editor_model="gpt-5.4-mini",
         )
 
-        self.assertEqual(_resolve_provider_model(provider, "gpt-4o-mini"), "gpt-5.1-codex")
-        self.assertEqual(_resolve_provider_model(provider, "gpt-4o"), "gpt-5.1-codex")
+        self.assertEqual(_resolve_provider_model(provider, "gpt-4o-mini"), "gpt-5.4-mini")
+        self.assertEqual(_resolve_provider_model(provider, "gpt-4o"), "gpt-5.4-mini")
 
     def test_provider_order_parser_accepts_codex(self) -> None:
         self.assertEqual(_parse_provider_order("codex,gemini,openai"), ["codex", "gemini", "openai"])

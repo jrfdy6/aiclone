@@ -61,7 +61,7 @@ def _fake_result_payload(provider: str = "local_template") -> dict:
             "llm_provider_trace": [
                 {
                     "provider": provider,
-                    "actual_model": "local-template-v1" if provider == "local_template" else "gpt-5.1-codex",
+                    "actual_model": "local-template-v1" if provider == "local_template" else "gpt-5.4-mini",
                     "status": "success",
                 }
             ]
@@ -443,7 +443,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             options=[
                 "Prompting alone stalled every tech_ai workflow I touched.\n\nDuring the AI Clone / Brain System rebuild we forced Brain, Ops, daily briefs, planner, persona review, and long-form routing to execute from one routed workspace snapshot.\n\nQuiet Inefficiency Cleanup.\n\nAgent orchestration or bust."
             ],
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             raw_output='{"options":[]}',
             command_stdout="",
             command_stderr="",
@@ -487,7 +487,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
                 "Prompting alone stalled every tech_ai workflow I touched.\n\nDuring the AI Clone / Brain System rebuild we forced Brain, Ops, daily briefs, planner, persona review, and long-form routing to execute from one routed workspace snapshot.\n\nQuiet Inefficiency Cleanup.\n\nAgent orchestration or bust."
             ],
             provider="codex_terminal",
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             quality_gate={"passed": False},
             raw_output='{"options":[]}',
             command_stdout="",
@@ -565,7 +565,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             options=[
                 "Johnnie is building at the intersection of education, AI systems, entrepreneurship, and style.\n\nThe same tooling lands very differently when the operating playbook is clear."
             ],
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             raw_output='{\"options\":[]}',
             command_stdout="",
             command_stderr="",
@@ -613,7 +613,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             options=[
                 "ai is not making every market meaner.\n\nNot more reporting.\n\nClearer action.\n\nThe same tooling lands differently when buyer ownership is clear.\n\nThat is the operating model."
             ],
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             raw_output='{\"options\":[]}',
             command_stdout="",
             command_stderr="",
@@ -666,7 +666,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             options=[
                 "Operator lesson: workflow clarity stays fragile until tech_ai leads replace scattered context with one shared source of truth.\n\nThat is the operating model.\n\nFusion Academy Dashboard Transformation made territory coordination easier to trust.\n\nQuiet Inefficiency Cleanup is usually the real drag.\n\nOtherwise it's just another tab."
             ],
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             raw_output='{\"options\":[]}',
             command_stdout="",
             command_stderr="",
@@ -722,7 +722,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             options=[
                 "Warning from the build log: if the workflow is unclear, AI just scales confusion.\n\nNot more reporting. Clearer action.\n\nOne shared source of truth made planning, execution, and follow-through easier to trust."
             ],
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             raw_output='{\"options\":[]}',
             command_stdout="",
             command_stderr="",
@@ -772,7 +772,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             options=[
                 "Prompting without agent orchestration just recreates the mess you already have.\n\nThe Fusion Academy Dashboard Transformation worked because prompts were aimed into one Salesforce command center, not a dozen ad hoc outputs.\n\nThe operator lesson: map the system, then let automation run.\n\nThat is when the work slips."
             ],
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             raw_output='{\"options\":[]}',
             command_stdout="",
             command_stderr="",
@@ -824,7 +824,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             options=[
                 "AI is not making every market meaner.\n\nNot more reporting.\n\nClearer action.\n\nTeams that can see the field move faster.\n\nThat is the operating model."
             ],
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             raw_output='{\"options\":[]}',
             command_stdout="",
             command_stderr="",
@@ -876,7 +876,7 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
             options=[
                 "AI is not making every market meaner.\n\nThat discipline came while Easy Outfit and the AI Clone were still learning on weaker, cheaper models.\n\nFusion Academy Dashboard Transformation kept territory coordination clear."
             ],
-            model="gpt-5.1-codex",
+            model="gpt-5.4-mini",
             raw_output='{\"options\":[]}',
             command_stdout="",
             command_stderr="",

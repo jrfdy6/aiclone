@@ -2035,7 +2035,7 @@ FINAL RESPONSE CONTRACT:
     return {
         "workspace_slug": req.workspace_slug,
         "prompt": prompt.strip(),
-        "requested_model": os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.1-codex"),
+        "requested_model": os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.4-mini"),
         "expected_option_count": 3,
         "grounding_mode": content_context.grounding_mode,
         "grounding_reason": content_context.grounding_reason,
@@ -2256,7 +2256,7 @@ def _build_local_codex_result_payload(
             "llm_provider_trace": [
                 {
                     "provider": "codex_terminal",
-                    "actual_model": model or str(packet.get("requested_model") or "gpt-5.1-codex"),
+                    "actual_model": model or str(packet.get("requested_model") or "gpt-5.4-mini"),
                     "status": "success",
                 }
             ],
@@ -2445,10 +2445,10 @@ def get_openai_client():
                 ContentLLMProvider(
                     name="codex",
                     client=openai.OpenAI(**client_kwargs),
-                    fast_model=os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.1-codex"),
+                    fast_model=os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.4-mini"),
                     editor_model=os.getenv(
                         "CONTENT_GENERATION_CODEX_EDITOR_MODEL",
-                        os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.1-codex"),
+                        os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.4-mini"),
                     ),
                 )
             )

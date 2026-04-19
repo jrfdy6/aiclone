@@ -476,7 +476,7 @@ def parse_args() -> argparse.Namespace:
         "--goal",
         default="Open one queued PM card into a Jean-Claude SOP and route it to the correct execution lane.",
     )
-    parser.add_argument("--model", default="openai/gpt-5.3-codex")
+    parser.add_argument("--model", default="gpt-5.4")
     parser.add_argument("--time-budget-minutes", type=int, default=25)
     parser.add_argument("--api-url", default=DEFAULT_API_URL)
     parser.add_argument("--mode", choices=["api", "service"], default="api")

@@ -20,7 +20,7 @@ DEFAULT_API_BASE = os.getenv(
     "https://aiclone-production-32dc.up.railway.app/api/content-generation",
 )
 DEFAULT_WORKSPACE_ROOT = os.getenv("LOCAL_CODEX_BRIDGE_WORKSPACE_ROOT", "/Users/neo/.openclaw/workspace")
-DEFAULT_MODEL = os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.1-codex")
+DEFAULT_MODEL = os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.4-mini")
 DEFAULT_REASONING_EFFORT = os.getenv("LOCAL_CODEX_BRIDGE_REASONING_EFFORT", "medium")
 DEFAULT_POLL_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_POLL_SECONDS", "4"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LOCAL_CODEX_BRIDGE_TIMEOUT_SECONDS", "420"))

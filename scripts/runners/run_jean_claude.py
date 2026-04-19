@@ -686,7 +686,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default="openai/gpt-5.3-codex",
+        default="gpt-5.4",
         help="Target Codex-family model label for the runner contract.",
     )
     parser.add_argument("--time-budget-minutes", type=int, default=30)
