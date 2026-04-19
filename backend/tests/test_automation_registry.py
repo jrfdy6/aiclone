@@ -5,7 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -475,6 +475,40 @@ class AutomationRegistryTests(unittest.TestCase):
         kinds = [item.kind for item in report.mismatches]
         self.assertIn("delivery_failure", kinds)
         self.assertIn("run_error", kinds)
+
+    def test_mismatch_report_uses_latest_run_per_automation(self) -> None:
+        now = datetime.now(timezone.utc)
+        runs = [
+            AutomationRun(
+                id="launchd_health_audit::old",
+                automation_id="launchd_health_audit",
+                automation_name="Launchd Health Audit",
+                status="error",
+                run_at=now - timedelta(minutes=5),
+                action_required=True,
+                error="1 local launchd issue(s) detected.",
+            ),
+            AutomationRun(
+                id="launchd_health_audit::new",
+                automation_id="launchd_health_audit",
+                automation_name="Launchd Health Audit",
+                status="ok",
+                run_at=now,
+                action_required=False,
+            ),
+        ]
+
+        with (
+            patch.object(automation_mismatch_service, "automation_source_of_truth", return_value="static_registry+local_launchd_registry"),
+            patch.object(automation_mismatch_service, "openclaw_jobs_snapshot", return_value=[]),
+            patch.object(automation_mismatch_service, "list_automations", return_value=[]),
+            patch.object(automation_mismatch_service, "list_runs", return_value=runs),
+        ):
+            report = automation_mismatch_service.build_mismatch_report()
+
+        self.assertEqual(report.run_count, 2)
+        self.assertEqual(report.action_required_count, 0)
+        self.assertEqual(report.mismatch_count, 0)
 
     def test_mismatch_report_ignores_no_reply_non_delivery(self) -> None:
         mirrored = [

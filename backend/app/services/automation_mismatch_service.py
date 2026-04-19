@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.models.automations import AutomationMismatch, AutomationMismatchReport
 from app.services.automation_run_service import list_runs
 from app.services.automation_service import (
@@ -10,18 +12,40 @@ from app.services.automation_service import (
 )
 
 
+def _run_timestamp(run) -> datetime:
+    value = run.run_at or run.finished_at
+    if value is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _latest_runs_by_automation(runs: list) -> list:
+    latest: dict[str, object] = {}
+    for run in runs:
+        automation_id = str(getattr(run, "automation_id", "") or "")
+        if not automation_id:
+            continue
+        current = latest.get(automation_id)
+        if current is None or _run_timestamp(run) > _run_timestamp(current):
+            latest[automation_id] = run
+    return list(latest.values())
+
+
 def build_mismatch_report() -> AutomationMismatchReport:
     source = automation_source_of_truth()
     jobs = openclaw_jobs_snapshot()
     automations = list_automations()
-    runs = list_runs(limit=max(200, len(automations) + 20))
+    all_runs = list_runs(limit=max(200, len(automations) + 20))
+    latest_runs = _latest_runs_by_automation(all_runs)
 
     mismatches: list[AutomationMismatch] = []
 
     openclaw_ids = {str(job.get("id") or "") for job in jobs if str(job.get("id") or "").strip()}
     mirrored = [item for item in automations if item.source == "openclaw_jobs_json"]
     mirrored_ids = {item.id for item in mirrored}
-    run_ids = {item.automation_id for item in runs if item.automation_id}
+    run_ids = {item.automation_id for item in latest_runs if item.automation_id}
 
     if "openclaw_jobs_json" in source:
         for missing_id in sorted(openclaw_ids - mirrored_ids):
@@ -68,7 +92,7 @@ def build_mismatch_report() -> AutomationMismatchReport:
                 )
             )
 
-    for run in runs:
+    for run in latest_runs:
         has_observed_run = bool((run.metadata or {}).get("has_observed_run")) or run.run_at is not None
         if not has_observed_run:
             mismatches.append(
@@ -113,12 +137,12 @@ def build_mismatch_report() -> AutomationMismatchReport:
                 )
             )
 
-    action_required_count = sum(1 for run in runs if run.action_required)
+    action_required_count = sum(1 for run in latest_runs if run.action_required)
     return AutomationMismatchReport(
         source_of_truth=source,
         openclaw_job_count=len(jobs),
         mirrored_openclaw_automation_count=len(mirrored),
-        run_count=len(runs),
+        run_count=len(all_runs),
         mismatch_count=len(mismatches),
         action_required_count=action_required_count,
         mismatches=mismatches,
