@@ -1,0 +1,29 @@
+[
+  {
+    "id": "podcasts_ai_strategy",
+    "label": "Podcasts - AI strategy & org design",
+    "query": "AI strategy podcast OR \"AI org design\" interview",
+    "platform": "podcasts",
+    "angle": "long-form thinking",
+    "max_calls_per_day": 3,
+    "enabled": true
+  },
+  {
+    "id": "youtube_systems_architecture",
+    "label": "YouTube - systems architecture breakdowns",
+    "query": "AI infrastructure systems architecture breakdown latest",
+    "platform": "youtube",
+    "angle": "visual walkthrough",
+    "max_calls_per_day": 3,
+    "enabled": true
+  },
+  {
+    "id": "x_trending_founder_ops",
+    "label": "X - trending founder ops threads",
+    "query": "trending AI ops playbook site:twitter.com",
+    "platform": "x",
+    "angle": "real-time sentiment",
+    "max_calls_per_day": 4,
+    "enabled": true
+  }
+]
