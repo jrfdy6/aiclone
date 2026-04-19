@@ -135,7 +135,7 @@ class BrainControlPlaneServiceTests(unittest.TestCase):
 
     def test_source_intelligence_index_loader_uses_fallback_candidates(self) -> None:
         with TemporaryDirectory() as temp_dir:
-            index_path = Path(temp_dir) / "knowledge" / "source-intelligence" / "index.json"
+            index_path = Path(temp_dir) / "knowledge" / "source-intelligence" / "index.json.txt"
             index_path.parent.mkdir(parents=True)
             index_path.write_text(
                 """

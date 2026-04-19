@@ -16,6 +16,7 @@ from app.services.workspace_snapshot_service import workspace_snapshot_service
 
 ROOT = REPO_ROOT
 SOURCE_INTELLIGENCE_INDEX_PATH = ROOT / "knowledge" / "source-intelligence" / "index.json"
+SOURCE_INTELLIGENCE_INDEX_FILENAMES = ("index.json", "index.json.txt")
 SOURCE_ASSET_PREVIEW_LIMIT = 12
 SOCIAL_FEED_PREVIEW_LIMIT = 6
 WEEKLY_RECOMMENDATION_PREVIEW_LIMIT = 6
@@ -210,28 +211,29 @@ def _compact_workspace_snapshot(snapshot: Any) -> dict[str, Any]:
 
 
 def _source_intelligence_index_candidates() -> list[Path]:
-    paths = [
-        SOURCE_INTELLIGENCE_INDEX_PATH,
-        ROOT / "app" / "knowledge" / "source-intelligence" / "index.json",
-        ROOT / "backend" / "knowledge" / "source-intelligence" / "index.json",
-        ROOT / "backend" / "app" / "knowledge" / "source-intelligence" / "index.json",
-        Path.cwd() / "knowledge" / "source-intelligence" / "index.json",
-        Path.cwd().parent / "knowledge" / "source-intelligence" / "index.json",
-        Path("/app/knowledge/source-intelligence/index.json"),
-        Path("/app/app/knowledge/source-intelligence/index.json"),
-        Path("/app/backend/knowledge/source-intelligence/index.json"),
-        Path("/app/backend/app/knowledge/source-intelligence/index.json"),
-        Path("/knowledge/source-intelligence/index.json"),
+    roots = [
+        ROOT,
+        ROOT / "app",
+        ROOT / "backend",
+        ROOT / "backend" / "app",
+        Path.cwd(),
+        Path.cwd().parent,
+        Path("/app"),
+        Path("/app/app"),
+        Path("/app/backend"),
+        Path("/app/backend/app"),
+        Path("/"),
     ]
     for parent in Path(__file__).resolve().parents:
-        paths.extend(
+        roots.extend(
             [
-                parent / "knowledge" / "source-intelligence" / "index.json",
-                parent / "app" / "knowledge" / "source-intelligence" / "index.json",
-                parent / "backend" / "knowledge" / "source-intelligence" / "index.json",
-                parent / "backend" / "app" / "knowledge" / "source-intelligence" / "index.json",
+                parent,
+                parent / "app",
+                parent / "backend",
+                parent / "backend" / "app",
             ]
         )
+    paths = [root / "knowledge" / "source-intelligence" / filename for root in roots for filename in SOURCE_INTELLIGENCE_INDEX_FILENAMES]
     return list(dict.fromkeys(paths))
 
 
