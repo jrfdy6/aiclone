@@ -116,6 +116,8 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona/feeze/"
   rsync_if_exists "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/knowledge/aiclone/transcripts/"
   rsync_if_exists "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone/transcripts/"
+  rsync_if_exists "$DATA_ROOT/knowledge/source-intelligence/" "$STAGE_DIR/knowledge/source-intelligence/"
+  rsync_if_exists "$DATA_ROOT/knowledge/source-intelligence/" "$STAGE_DIR/$CHILD_DIR/knowledge/source-intelligence/"
   if [ -d "$DATA_ROOT/knowledge/ingestions" ]; then
     rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"
     rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions/"
