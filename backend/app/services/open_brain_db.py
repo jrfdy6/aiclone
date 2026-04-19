@@ -9,14 +9,13 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from app.services.embedders import VECTOR_DIM
-
 _DB_KEYS = [
     "OPEN_BRAIN_DATABASE_URL",
     "BRAIN_VECTOR_DATABASE_URL",
     "DATABASE_URL",
     "DATABASE_PUBLIC_URL",
 ]
+DEFAULT_VECTOR_DIM = 1024
 
 _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
 
@@ -416,8 +415,9 @@ def initialize_schema_on_connection(conn: Connection[Any]) -> None:
 
     if vector_enabled:
         try:
+            vector_dim = DEFAULT_VECTOR_DIM
             with conn.cursor() as cur:
-                cur.execute(f"ALTER TABLE memory_vectors ADD COLUMN IF NOT EXISTS embedding vector({VECTOR_DIM})")
+                cur.execute(f"ALTER TABLE memory_vectors ADD COLUMN IF NOT EXISTS embedding vector({vector_dim})")
             conn.commit()
         except Exception:
             conn.rollback()
