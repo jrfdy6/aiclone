@@ -6,7 +6,6 @@ const TODO_MARKERS = ['_TODO:', 'TODO:'];
 
 const frontendRoot = path.resolve(__dirname, '..');
 const workspaceRoot = path.resolve(frontendRoot, '..');
-const docsRoot = path.join(workspaceRoot, 'knowledge', 'aiclone');
 const bundleRoot = path.join(workspaceRoot, 'knowledge', 'persona', 'feeze');
 const brainOutputPath = path.join(frontendRoot, 'app', 'brain', 'workspaceSnapshot.ts');
 const linkedinWorkspaceRoot = path.join(workspaceRoot, 'workspaces', 'linkedin-content-os');
@@ -15,6 +14,30 @@ const linkedinReactionQueuePath = path.join(linkedinWorkspaceRoot, 'plans', 'rea
 const linkedinSocialFeedPath = path.join(linkedinWorkspaceRoot, 'plans', 'social_feed.json');
 const editorialMixPath = path.join(linkedinWorkspaceRoot, 'docs', 'editorial_mix.md');
 const contentOutputPath = path.join(frontendRoot, 'legacy', 'content-pipeline', 'workspaceSnapshot.ts');
+
+const docRoots = [
+  { relDir: 'knowledge/aiclone', group: 'Knowledge Docs' },
+  { relDir: 'knowledge/source-intelligence', group: 'Source Intelligence' },
+  { relDir: 'docs', group: 'System Docs' },
+  { relDir: 'SOPs', group: 'Operating Docs' },
+  { relDir: 'knowledge/persona/feeze', group: 'Persona Bundle' },
+  { relDir: 'workspaces/shared-ops/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/linkedin-content-os/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/fusion-os/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/easyoutfitapp/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/ai-swag-store/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/agc/docs', group: 'Workspace Reference' },
+];
+
+const explicitDocs = [
+  { relPath: 'memory/persistent_state.md', group: 'Canonical Memory' },
+  { relPath: 'memory/LEARNINGS.md', group: 'Canonical Memory' },
+  { relPath: 'memory/daily-briefs.md', group: 'Canonical Memory' },
+  { relPath: 'memory/cron-prune.md', group: 'Canonical Memory' },
+  { relPath: 'memory/dream_cycle_log.md', group: 'Canonical Memory' },
+  { relPath: 'memory/codex_session_handoff.jsonl', group: 'Canonical Memory', name: 'codex_session_handoff' },
+  { relPath: 'memory/reports/brain_canonical_memory_sync_latest.md', group: 'Canonical Memory', name: 'brain_canonical_memory_sync_latest' },
+];
 
 function stripFrontmatter(text) {
   if (!text.startsWith(FRONTMATTER_MARK)) return text.trim();
@@ -27,23 +50,80 @@ function hasFrontmatter(text) {
   return text.startsWith(FRONTMATTER_MARK);
 }
 
+function walkMarkdownFiles(dir) {
+  const files = [];
+  if (!fs.existsSync(dir)) return files;
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue;
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        files.push(fullPath);
+      }
+    }
+  }
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+function firstMeaningfulLine(raw) {
+  return raw.split('\n').find((line) => line.trim().length > 0) ?? '';
+}
+
+function toDoc(fullPath, group, name) {
+  const raw = fs.readFileSync(fullPath, 'utf-8');
+  const relPath = path.relative(workspaceRoot, fullPath).replace(/\\/g, '/');
+  const stat = fs.statSync(fullPath);
+  return {
+    name: name ?? path.basename(fullPath, path.extname(fullPath)),
+    path: relPath,
+    snippet: firstMeaningfulLine(raw),
+    content: raw,
+    group,
+    updatedAt: stat.mtime.toISOString(),
+  };
+}
+
 function loadDocs() {
-  if (!fs.existsSync(docsRoot)) return [];
-  return fs
-    .readdirSync(docsRoot)
-    .filter((file) => file.endsWith('.md') && file !== 'README.md')
-    .sort()
-    .slice(0, 8)
-    .map((file) => {
-      const fullPath = path.join(docsRoot, file);
-      const raw = fs.readFileSync(fullPath, 'utf-8');
-      const snippet = raw.split('\n').find((line) => line.trim().length > 0) ?? '';
-      return {
-        name: file.replace('.md', ''),
-        path: path.relative(frontendRoot, fullPath),
-        snippet,
-      };
-    });
+  const docs = [];
+  const seen = new Set();
+
+  const pushDoc = (doc) => {
+    if (seen.has(doc.path)) return;
+    seen.add(doc.path);
+    docs.push(doc);
+  };
+
+  for (const source of docRoots) {
+    const dir = path.join(workspaceRoot, source.relDir);
+    for (const fullPath of walkMarkdownFiles(dir)) {
+      pushDoc(toDoc(fullPath, source.group));
+    }
+  }
+
+  for (const source of explicitDocs) {
+    const fullPath = path.join(workspaceRoot, source.relPath);
+    if (fs.existsSync(fullPath)) {
+      pushDoc(toDoc(fullPath, source.group, source.name));
+    }
+  }
+
+  const memoryDir = path.join(workspaceRoot, 'memory');
+  if (fs.existsSync(memoryDir)) {
+    const latestDailyLog = fs
+      .readdirSync(memoryDir)
+      .filter((file) => /^\d{4}-\d{2}-\d{2}\.md$/.test(file))
+      .sort()
+      .pop();
+    if (latestDailyLog) {
+      pushDoc(toDoc(path.join(memoryDir, latestDailyLog), 'Canonical Memory', latestDailyLog.replace('.md', '')));
+    }
+  }
+
+  return docs.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function loadPersonaWorkspace() {
@@ -172,7 +252,7 @@ function writeModule(outputPath, source) {
 }
 
 function main() {
-  const brainSourcesReady = fs.existsSync(bundleRoot) || fs.existsSync(docsRoot);
+  const brainSourcesReady = fs.existsSync(bundleRoot) || docRoots.some((source) => fs.existsSync(path.join(workspaceRoot, source.relDir)));
   if (!brainSourcesReady && fs.existsSync(brainOutputPath)) {
     console.log(`brain snapshot source not found; keeping existing snapshot at ${brainOutputPath}`);
   } else {

@@ -18,8 +18,13 @@ const ROOTS = [
   { relDir: 'knowledge/source-intelligence', group: 'Source Intelligence' },
   { relDir: 'docs', group: 'System Docs' },
   { relDir: 'SOPs', group: 'Operating Docs' },
-  { relDir: 'knowledge/persona/feeze/identity', group: 'Persona Bundle' },
+  { relDir: 'knowledge/persona/feeze', group: 'Persona Bundle' },
+  { relDir: 'workspaces/shared-ops/docs', group: 'Workspace Reference' },
   { relDir: 'workspaces/linkedin-content-os/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/fusion-os/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/easyoutfitapp/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/ai-swag-store/docs', group: 'Workspace Reference' },
+  { relDir: 'workspaces/agc/docs', group: 'Workspace Reference' },
 ];
 
 const EXPLICIT_FILES = [
@@ -33,13 +38,29 @@ const EXPLICIT_FILES = [
   { relPath: 'docs/brain_truth_lanes_and_promotion_flow.md', group: 'System Docs' },
 ];
 
-function workspaceRoot() {
+function candidateWorkspaceRoots() {
   const cwd = process.cwd();
-  return fs.existsSync(path.join(cwd, 'memory')) ? cwd : path.join(cwd, '..');
+  const candidates = [
+    process.env.OPENCLAW_WORKSPACE_ROOT,
+    cwd,
+    path.join(cwd, '..'),
+    path.join(cwd, '..', '..'),
+    '/app',
+    '/app/frontend',
+  ].filter((candidate): candidate is string => Boolean(candidate && candidate.trim().length > 0));
+
+  return Array.from(new Set(candidates.map((candidate) => path.resolve(candidate)))).filter((candidate) => {
+    return (
+      fs.existsSync(path.join(candidate, 'docs')) ||
+      fs.existsSync(path.join(candidate, 'knowledge')) ||
+      fs.existsSync(path.join(candidate, 'memory')) ||
+      fs.existsSync(path.join(candidate, 'workspaces'))
+    );
+  });
 }
 
-function searchRoots(root: string) {
-  return Array.from(new Set([process.cwd(), root]));
+function primaryWorkspaceRoot() {
+  return candidateWorkspaceRoots()[0] ?? process.cwd();
 }
 
 function firstMeaningfulLine(raw: string) {
@@ -55,6 +76,30 @@ function readSnippet(fullPath: string) {
   } finally {
     fs.closeSync(fd);
   }
+}
+
+function walkMarkdownFiles(dir: string) {
+  const files: string[] = [];
+  if (!fs.existsSync(dir)) {
+    return files;
+  }
+
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue;
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        files.push(fullPath);
+      }
+    }
+  }
+
+  return files.sort((left, right) => left.localeCompare(right));
 }
 
 function latestSnapshotId(root: string) {
@@ -107,7 +152,8 @@ export function resolveMemoryReadTarget(root: string, relPath: string) {
 }
 
 function collectDocRecords(): DocRecord[] {
-  const root = workspaceRoot();
+  const roots = candidateWorkspaceRoots();
+  const primaryRoot = roots[0] ?? process.cwd();
   const seen = new Set<string>();
   const docs: DocRecord[] = [];
 
@@ -115,9 +161,9 @@ function collectDocRecords(): DocRecord[] {
     fullPath: string,
     group: string,
     nameOverride?: string,
-    options: { displayPath?: string; readMode?: DocEntry['readMode']; resolvedPath?: string } = {},
+    options: { displayPath?: string; displayRoot?: string; readMode?: DocEntry['readMode']; resolvedPath?: string } = {},
   ) => {
-    const relPath = options.displayPath ?? path.relative(root, fullPath);
+    const relPath = (options.displayPath ?? path.relative(options.displayRoot ?? primaryRoot, fullPath)).replace(/\\/g, '/');
     if (seen.has(relPath)) return;
     if (!fs.existsSync(fullPath)) return;
     seen.add(relPath);
@@ -135,35 +181,37 @@ function collectDocRecords(): DocRecord[] {
   };
 
   for (const entry of ROOTS) {
-    for (const baseRoot of searchRoots(root)) {
+    for (const baseRoot of roots) {
       const dir = path.join(baseRoot, entry.relDir);
       if (!fs.existsSync(dir)) continue;
-      for (const file of fs.readdirSync(dir)) {
-        if (!file.endsWith('.md')) continue;
-        pushDoc(path.join(dir, file), entry.group);
+      for (const fullPath of walkMarkdownFiles(dir)) {
+        pushDoc(fullPath, entry.group, undefined, { displayRoot: baseRoot });
       }
     }
   }
 
   for (const entry of EXPLICIT_FILES) {
     if (entry.relPath.startsWith('memory/')) {
-      const resolved = resolveMemoryReadTarget(root, entry.relPath);
-      pushDoc(resolved.fullPath, entry.group, entry.name, {
-        displayPath: entry.relPath,
-        readMode: resolved.readMode,
-        resolvedPath: resolved.resolvedPath,
-      });
+      for (const root of roots) {
+        const resolved = resolveMemoryReadTarget(root, entry.relPath);
+        pushDoc(resolved.fullPath, entry.group, entry.name, {
+          displayPath: entry.relPath,
+          readMode: resolved.readMode,
+          resolvedPath: resolved.resolvedPath,
+        });
+      }
     } else {
-      for (const baseRoot of searchRoots(root)) {
+      for (const baseRoot of roots) {
         const fullPath = path.join(baseRoot, entry.relPath);
         if (!fs.existsSync(fullPath)) continue;
-        pushDoc(fullPath, entry.group, entry.name);
+        pushDoc(fullPath, entry.group, entry.name, { displayRoot: baseRoot });
       }
     }
   }
 
-  const memoryDir = path.join(root, 'memory');
-  if (fs.existsSync(memoryDir)) {
+  for (const root of roots) {
+    const memoryDir = path.join(root, 'memory');
+    if (!fs.existsSync(memoryDir)) continue;
     const latestDailyLog = fs
       .readdirSync(memoryDir)
       .filter((file) => /^\d{4}-\d{2}-\d{2}\.md$/.test(file))
