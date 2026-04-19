@@ -93,6 +93,24 @@ def build_mismatch_report() -> AutomationMismatchReport:
             )
 
     for run in latest_runs:
+        launchd_issues = (run.metadata or {}).get("launchd_issues")
+        if run.automation_id == "launchd_health_audit" and isinstance(launchd_issues, list):
+            for issue in launchd_issues:
+                if not isinstance(issue, dict):
+                    continue
+                mismatches.append(
+                    AutomationMismatch(
+                        kind=str(issue.get("kind") or "local_launchd_audit_issue"),
+                        severity=str(issue.get("severity") or "warn"),
+                        automation_id=str(issue.get("automation_id") or "") or None,
+                        automation_name=str(issue.get("label") or issue.get("automation_name") or "") or None,
+                        message=str(issue.get("message") or "Local launchd audit found an issue."),
+                        metadata=issue,
+                    )
+                )
+            if launchd_issues:
+                continue
+
         has_observed_run = bool((run.metadata or {}).get("has_observed_run")) or run.run_at is not None
         if not has_observed_run:
             mismatches.append(

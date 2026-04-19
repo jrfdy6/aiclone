@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.neo.watchtranscripts</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/neo/.openclaw/workspace/watcher-env/bin/python</string>
+      <string>/Users/neo/.openclaw/workspace/scripts/watch_transcripts.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/neo/.openclaw/workspace</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.openclaw/workspace/logs/watch_transcripts.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.openclaw/workspace/logs/watch_transcripts.log</string>
+  </dict>
+</plist>

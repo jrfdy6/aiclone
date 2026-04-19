@@ -214,6 +214,74 @@ youtube_auto_ingest:
         called_urls = [call.kwargs.get("url") for call in ingest_video.call_args_list]
         self.assertEqual(called_urls, ["https://www.youtube.com/watch?v=nate1", "https://www.youtube.com/watch?v=champ1"])
 
+    def test_sync_watchlist_auto_ingest_treats_channel_fetch_failure_as_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir) / "linkedin-content-os"
+            (workspace_root / "research").mkdir(parents=True, exist_ok=True)
+            (workspace_root / "research" / "watchlists.yaml").write_text(
+                """
+youtube_channels:
+  - name: Nate B Jones
+    url: https://www.youtube.com/feeds/videos.xml?channel_id=STALE
+    priority_lane: program-leadership
+    auto_ingest: true
+  - name: Champion Leadership
+    url: https://www.youtube.com/@championleadership
+    priority_lane: program-leadership
+    auto_ingest: true
+youtube_auto_ingest:
+  enabled: true
+  max_videos_per_run: 2
+  per_channel_limit: 1
+""".strip(),
+                encoding="utf-8",
+            )
+
+            def fake_fetch(channel: dict[str, object], *, limit: int, existing_urls: set[str]) -> dict[str, object]:
+                name = channel.get("name")
+                if name == "Nate B Jones":
+                    return {"name": name, "error": "HTTP Error 404: Not Found", "videos": []}
+                if name == "Champion Leadership":
+                    return {
+                        "name": name,
+                        "videos": [
+                            {
+                                "title": "Newest Champion",
+                                "url": "https://www.youtube.com/watch?v=champ1",
+                                "published_at": "2026-03-29T12:00:00+00:00",
+                                "priority_lane": "program-leadership",
+                                "channel_name": name,
+                                "author": name,
+                                "already_ingested": False,
+                            }
+                        ],
+                    }
+                raise AssertionError(f"Unexpected channel fetch: {name}")
+
+            with patch.object(youtube_watchlist_service, "_extract_existing_source_urls", return_value=set()), patch.object(
+                youtube_watchlist_service,
+                "_fetch_channel_entries",
+                side_effect=fake_fetch,
+            ), patch.object(
+                youtube_watchlist_service,
+                "backfill_pending_youtube_transcripts",
+                return_value={"backfilled": [], "skipped": [], "errors": [], "counts": {"pending_total": 0, "selected": 0, "backfilled": 0, "skipped": 0, "errors": 0}},
+            ), patch.object(
+                youtube_watchlist_service,
+                "_ingest_watchlist_video",
+                return_value={"asset_id": "asset-champion", "ingestion_mode": "url_only"},
+            ) as ingest_video:
+                result = youtube_watchlist_service.sync_watchlist_auto_ingest(workspace_root=workspace_root)
+
+        self.assertEqual(result.get("counts", {}).get("ingested"), 1)
+        self.assertEqual(result.get("counts", {}).get("warnings"), 1)
+        self.assertEqual(result.get("counts", {}).get("errors"), 0)
+        warning = (result.get("warnings") or [{}])[0]
+        self.assertEqual(warning.get("kind"), "channel_fetch_failed")
+        self.assertEqual(warning.get("channel_name"), "Nate B Jones")
+        called_urls = [call.kwargs.get("url") for call in ingest_video.call_args_list]
+        self.assertEqual(called_urls, ["https://www.youtube.com/watch?v=champ1"])
+
     def test_backfill_pending_youtube_transcripts_rewrites_pending_asset(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)

@@ -58,6 +58,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 from automation_run_mirror import build_run_payload, mirror_runs
 from chronicle_memory_contract import build_workspace_memory_contract
+from runner_lock import execute_with_runner_lock
 
 
 def _now() -> datetime:
@@ -1219,6 +1220,16 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        raise SystemExit(
+            execute_with_runner_lock(
+                lock_name="codex_workspace_execution",
+                automation_id="codex_workspace_execution",
+                automation_name="Codex Workspace Execution",
+                default_api_url=DEFAULT_API_URL,
+                main_func=main,
+                owner_agent="Jean-Claude",
+                scope="workspace",
+            )
+        )
     except urllib.error.URLError as exc:
         raise SystemExit(f"Failed to reach PM API at {DEFAULT_API_URL}: {exc}") from exc

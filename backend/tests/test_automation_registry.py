@@ -31,10 +31,12 @@ class AutomationRegistryTests(unittest.TestCase):
         automations = list_automations()
         expected_ids = {
             "brain_canonical_memory_sync",
+            "launchd_health_audit",
             "codex_chronicle_sync",
             "operator_story_signals",
             "content_safe_operator_lessons",
             "meeting_watchdog",
+            "portfolio_standup_prep",
             "fallback_watchdog",
             "post_sync_dispatch",
             "accountability_sweep",
@@ -43,6 +45,8 @@ class AutomationRegistryTests(unittest.TestCase):
             "codex_workspace_execution",
             "pm_review_resolution",
             "feezie_codex_bridge",
+            "watchtranscripts",
+            "weekly_memory_hygiene",
         }
 
         seen = {item.id for item in automations}
@@ -70,12 +74,37 @@ class AutomationRegistryTests(unittest.TestCase):
         self.assertEqual(codex_executor.owner_agent, None)
         self.assertEqual(codex_executor.cron, "*/5 * * * *")
 
+        launchd_audit = next((item for item in automations if item.id == "launchd_health_audit"), None)
+        self.assertIsNotNone(launchd_audit)
+        assert launchd_audit is not None
+        self.assertEqual(launchd_audit.runtime, "launchd")
+        self.assertEqual(launchd_audit.channel, "ops/launchd-health")
+        self.assertEqual(launchd_audit.metrics.get("script"), "scripts/ops/audit_launchd_jobs.py")
+
         review_worker = next((item for item in automations if item.id == "pm_review_resolution"), None)
         self.assertIsNotNone(review_worker)
         assert review_worker is not None
         self.assertEqual(review_worker.runtime, "launchd")
         self.assertEqual(review_worker.owner_agent, "Codex Review Worker")
         self.assertEqual(review_worker.cron, "*/5 * * * *")
+
+        transcript_watcher = next((item for item in automations if item.id == "watchtranscripts"), None)
+        self.assertIsNotNone(transcript_watcher)
+        assert transcript_watcher is not None
+        self.assertEqual(transcript_watcher.type, "daemon")
+        self.assertEqual(transcript_watcher.metrics.get("python"), "watcher-env/bin/python")
+
+        weekly_hygiene = next((item for item in automations if item.id == "weekly_memory_hygiene"), None)
+        self.assertIsNotNone(weekly_hygiene)
+        assert weekly_hygiene is not None
+        self.assertEqual(weekly_hygiene.runtime, "launchd")
+        self.assertEqual(weekly_hygiene.channel, "brain/memory-hygiene")
+
+        portfolio_standup = next((item for item in automations if item.id == "portfolio_standup_prep"), None)
+        self.assertIsNotNone(portfolio_standup)
+        assert portfolio_standup is not None
+        self.assertEqual(portfolio_standup.runtime, "launchd")
+        self.assertEqual(portfolio_standup.channel, "ops/portfolio-standups")
 
     def test_includes_local_youtube_watchlist_auto_ingest(self) -> None:
         automations = list_automations()
@@ -476,6 +505,45 @@ class AutomationRegistryTests(unittest.TestCase):
         self.assertIn("delivery_failure", kinds)
         self.assertIn("run_error", kinds)
 
+    def test_mismatch_report_expands_launchd_health_audit_issues(self) -> None:
+        runs = [
+            AutomationRun(
+                id="launchd_health_audit::1",
+                automation_id="launchd_health_audit",
+                automation_name="Launchd Health Audit",
+                status="error",
+                run_at=datetime.now(timezone.utc),
+                action_required=True,
+                metadata={
+                    "launchd_issues": [
+                        {
+                            "kind": "local_launchd_missing_program",
+                            "severity": "error",
+                            "label": "com.neo.sessionmetrics",
+                            "automation_id": "sessionmetrics",
+                            "message": "Installed com.neo launchd job points at a missing workspace script.",
+                            "missing_path": "/Users/neo/.openclaw/workspace/scripts/session_metrics_bootstrap.sh",
+                        }
+                    ]
+                },
+            )
+        ]
+
+        with (
+            patch.object(automation_mismatch_service, "automation_source_of_truth", return_value="static_registry+local_launchd_registry"),
+            patch.object(automation_mismatch_service, "openclaw_jobs_snapshot", return_value=[]),
+            patch.object(automation_mismatch_service, "list_automations", return_value=[]),
+            patch.object(automation_mismatch_service, "list_runs", return_value=runs),
+        ):
+            report = automation_mismatch_service.build_mismatch_report()
+
+        self.assertEqual(report.action_required_count, 1)
+        self.assertEqual(report.mismatch_count, 1)
+        mismatch = report.mismatches[0]
+        self.assertEqual(mismatch.kind, "local_launchd_missing_program")
+        self.assertEqual(mismatch.automation_id, "sessionmetrics")
+        self.assertIn("missing workspace script", mismatch.message)
+
     def test_mismatch_report_uses_latest_run_per_automation(self) -> None:
         now = datetime.now(timezone.utc)
         runs = [
@@ -487,6 +555,17 @@ class AutomationRegistryTests(unittest.TestCase):
                 run_at=now - timedelta(minutes=5),
                 action_required=True,
                 error="1 local launchd issue(s) detected.",
+                metadata={
+                    "launchd_issues": [
+                        {
+                            "kind": "local_launchd_nonzero_last_exit",
+                            "severity": "error",
+                            "label": "com.neo.youtube_watchlist_auto_ingest",
+                            "automation_id": "youtube_watchlist_auto_ingest",
+                            "message": "launchctl reports a nonzero last exit status for this com.neo job.",
+                        }
+                    ]
+                },
             ),
             AutomationRun(
                 id="launchd_health_audit::new",
@@ -495,6 +574,7 @@ class AutomationRegistryTests(unittest.TestCase):
                 status="ok",
                 run_at=now,
                 action_required=False,
+                metadata={"launchd_issues": [], "has_observed_run": True},
             ),
         ]
 

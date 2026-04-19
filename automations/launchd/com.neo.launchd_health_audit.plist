@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.neo.launchd_health_audit</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/neo/.openclaw/workspace/.venv-main-safe/bin/python</string>
+      <string>/Users/neo/.openclaw/workspace/scripts/ops/audit_launchd_jobs.py</string>
+      <string>--api-url</string>
+      <string>https://aiclone-production-32dc.up.railway.app</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/neo/.openclaw/workspace</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.openclaw/logs/launchd_health_audit.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.openclaw/logs/launchd_health_audit.log</string>
+  </dict>
+</plist>

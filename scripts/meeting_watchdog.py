@@ -30,11 +30,11 @@ ROOM_SPECS: tuple[RoomSpec, ...] = (
     RoomSpec("operations", "Operations Standup", "shared_ops", 36),
     RoomSpec("weekly_review", "Weekly Review", "shared_ops", 8 * 24),
     RoomSpec("saturday_vision", "Saturday Vision Sync", "shared_ops", 8 * 24),
-    RoomSpec("linkedin-os", "FEEZIE OS Standup", "linkedin-os", 36),
-    RoomSpec("fusion-os", "Fusion Standup", "fusion-os", 72),
-    RoomSpec("easyoutfitapp", "Easy Outfit App Standup", "easyoutfitapp", 72),
-    RoomSpec("ai-swag-store", "AI Swag Store Standup", "ai-swag-store", 72),
-    RoomSpec("agc", "AGC Standup", "agc", 72),
+    RoomSpec("workspace_sync", "FEEZIE OS Standup", "linkedin-os", 36),
+    RoomSpec("workspace_sync", "Fusion Standup", "fusion-os", 72),
+    RoomSpec("workspace_sync", "Easy Outfit App Standup", "easyoutfitapp", 72),
+    RoomSpec("workspace_sync", "AI Swag Store Standup", "ai-swag-store", 72),
+    RoomSpec("workspace_sync", "AGC Standup", "agc", 72),
 )
 
 
@@ -98,6 +98,18 @@ def _summary_text(entry: dict[str, Any]) -> str:
     return str(summary).strip() if isinstance(summary, str) else ""
 
 
+def _is_standup_prep(entry: dict[str, Any]) -> bool:
+    payload = entry.get("payload") or {}
+    source = str(entry.get("source") or "").strip()
+    return source == "codex-chronicle-standup-prep" or bool((payload or {}).get("prep_json_path"))
+
+
+def _prep_is_nontrivial(entry: dict[str, Any]) -> bool:
+    payload = entry.get("payload") or {}
+    agenda = payload.get("agenda")
+    return bool(_summary_text(entry)) and isinstance(agenda, list) and len(agenda) > 0
+
+
 def _match_entry(entry: dict[str, Any], spec: RoomSpec) -> bool:
     return _standup_kind(entry) == spec.key and str(entry.get("workspace_key") or "shared_ops") == spec.workspace_key
 
@@ -110,13 +122,19 @@ def _status_for(spec: RoomSpec, entry: dict[str, Any] | None, now: datetime) -> 
     created_at = _parse_datetime(entry.get("created_at"))
     rounds = len(_discussion_rounds(entry))
     summary = _summary_text(entry)
-    if rounds < 3 or not summary:
+    is_prep = _is_standup_prep(entry)
+    if is_prep:
+        if not _prep_is_nontrivial(entry):
+            return "thin", "Standup prep exists but does not include a non-trivial summary and agenda."
+    elif rounds < 3 or not summary:
         return "thin", "Transcript exists but does not yet satisfy the three-round, non-trivial standard."
     if created_at is None:
         return "warning", "Transcript exists but timestamp data is incomplete."
     age = now - created_at
     if age > timedelta(hours=spec.max_age_hours):
         return "stale", f"Latest transcript is older than the {spec.max_age_hours}h freshness window."
+    if is_prep:
+        return "ok", "Standup prep is fresh enough and includes a non-trivial summary and agenda."
     return "ok", "Transcript is fresh enough and includes a real discussion."
 
 

@@ -1703,6 +1703,8 @@ def main() -> int:
             "conversation_path": str(md_path),
             "workspace_key": args.workspace_key,
             "payload": {
+                "standup_kind": resolved_standup_kind,
+                "summary": " ".join(summary_parts) or "Standup prep generated.",
                 "prep_json_path": str(json_path),
                 "chronicle_path": str(CODEX_CHRONICLE_PATH),
                 "durable_memory_context": durable_memory_context,

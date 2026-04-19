@@ -25,6 +25,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from automation_run_mirror import build_run_payload, mirror_runs
+from runner_lock import execute_with_runner_lock
 
 
 def _now() -> datetime:
@@ -160,4 +161,14 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        execute_with_runner_lock(
+            lock_name=AUTOMATION_ID,
+            automation_id=AUTOMATION_ID,
+            automation_name=AUTOMATION_NAME,
+            default_api_url=DEFAULT_API_URL,
+            main_func=main,
+            owner_agent="Codex Review Worker",
+            scope="shared_ops",
+        )
+    )

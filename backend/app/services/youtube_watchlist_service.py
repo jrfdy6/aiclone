@@ -830,6 +830,7 @@ def sync_watchlist_auto_ingest(
 
     discovered: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     ingested: list[dict[str, Any]] = []
     backfill_result = backfill_pending_youtube_transcripts(run_refresh=False)
@@ -848,7 +849,14 @@ def sync_watchlist_auto_ingest(
         payload = _fetch_channel_entries(channel, limit=WATCHLIST_LIMIT_PER_CHANNEL, existing_urls=existing_urls)
         channel_name = _clean_text(payload.get("name")) or "YouTube channel"
         if payload.get("error"):
-            errors.append({"channel_name": channel_name, "reason": payload.get("error")})
+            warnings.append(
+                {
+                    "kind": "channel_fetch_failed",
+                    "channel_name": channel_name,
+                    "url": _clean_text(channel.get("url")),
+                    "reason": _clean_text(payload.get("error")),
+                }
+            )
             continue
         fresh_videos = [video for video in payload.get("videos") or [] if isinstance(video, dict) and not bool(video.get("already_ingested"))]
         fresh_videos.sort(key=lambda item: _clean_text(item.get("published_at")), reverse=True)
@@ -907,12 +915,14 @@ def sync_watchlist_auto_ingest(
         "backfill": backfill_result,
         "ingested": ingested,
         "skipped": skipped,
+        "warnings": warnings,
         "errors": errors,
         "counts": {
             "discovered": len(discovered),
             "ingested": len(ingested),
             "backfilled": len(backfill_result.get("backfilled") or []),
             "skipped": len(skipped),
+            "warnings": len(warnings),
             "errors": len(errors),
         },
     }
