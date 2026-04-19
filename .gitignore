@@ -30,6 +30,7 @@ keys/
 !tsconfig.json
 !next.config.js
 !docs/runtime_snapshots/core_memory/**/*.json
+!knowledge/source-intelligence/index.json
 *.service-account*.json
 *service-account*.json
 firebase-service-account*.json

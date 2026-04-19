@@ -64,9 +64,11 @@ class StandupPromotionRequest(BaseModel):
     blockers: List[str] = Field(default_factory=list)
     commitments: List[str] = Field(default_factory=list)
     needs: List[str] = Field(default_factory=list)
+    audience_response: List[str] = Field(default_factory=list)
     decisions: List[str] = Field(default_factory=list)
     owners: List[str] = Field(default_factory=list)
     artifact_deltas: List[str] = Field(default_factory=list)
+    standup_sections: dict = Field(default_factory=dict)
     source: Optional[str] = "standup_prep"
     conversation_path: Optional[str] = None
     source_paths: List[str] = Field(default_factory=list)

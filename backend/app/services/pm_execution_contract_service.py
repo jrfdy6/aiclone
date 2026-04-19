@@ -22,6 +22,9 @@ def build_execution_contract(
         instruction_list = [
             f"Advance `{normalized_title}` inside `{normalized_workspace}` without expanding scope beyond the PM card.",
             "Use the PM card and linked standup context as the source of truth while executing.",
+            "If wider AI Clone context matters, explain why it matters to this workspace now instead of forwarding it raw.",
+            "Cite the latest local briefing or execution log when you report back, or state clearly when one is missing.",
+            "State the lane or trust constraint that governed your decision.",
             "Write back a concrete result with outcomes, blockers, and follow-up actions through the execution-result writer.",
         ]
 
@@ -29,6 +32,8 @@ def build_execution_contract(
     if not acceptance_list:
         acceptance_list = [
             f"`{normalized_title}` advances to a concrete next state instead of remaining a placeholder.",
+            "The result cites the latest local artifact context or explicitly states what was missing.",
+            "The result states the lane or trust constraint that shaped the decision.",
             "PM write-back includes a bounded summary, concrete outcomes, and any blockers or follow-up actions.",
         ]
 
@@ -50,6 +55,9 @@ def build_execution_contract(
             "require_outcome_or_artifact": True,
             "require_writeback": True,
             "allow_blockers": False,
+            "require_local_artifact_citation": True,
+            "require_lane_constraint": True,
+            "require_relevance_explanation_for_global_context": True,
         },
         "done_when": acceptance_list[:6],
     }

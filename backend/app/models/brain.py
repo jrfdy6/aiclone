@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class BrainLongFormIngestRequest(BaseModel):
@@ -35,6 +36,92 @@ class BrainYouTubeWatchlistIngestRequest(BaseModel):
     def ensure_url(self) -> "BrainYouTubeWatchlistIngestRequest":
         if not (self.url or "").strip():
             raise ValueError("Provide url.")
+        return self
+
+
+BrainSignalReviewStatus = Literal["new", "in_review", "reviewed", "routed", "ignored"]
+BrainSignalRouteTarget = Literal["source_only", "canonical_memory", "persona_canon", "standup", "pm", "workspace_local", "ignore"]
+
+
+class BrainSignal(BaseModel):
+    id: str
+    source_kind: str
+    source_ref: str | None = None
+    source_workspace_key: str = "shared_ops"
+    raw_summary: str
+    digest: str | None = None
+    signal_types: list[str] = Field(default_factory=list)
+    durability: str = "unknown"
+    confidence: str = "unknown"
+    actionability: str = "unknown"
+    identity_relevance: str = "unknown"
+    workspace_candidates: list[str] = Field(default_factory=list)
+    executive_interpretation: dict[str, str] = Field(default_factory=dict)
+    route_decision: dict[str, Any] = Field(default_factory=dict)
+    review_status: BrainSignalReviewStatus = "new"
+    created_at: datetime
+    updated_at: datetime
+
+
+class BrainSignalCreateRequest(BaseModel):
+    source_kind: str
+    source_ref: str | None = None
+    source_workspace_key: str = "shared_ops"
+    raw_summary: str
+    digest: str | None = None
+    signal_types: list[str] = Field(default_factory=list)
+    durability: str = "unknown"
+    confidence: str = "unknown"
+    actionability: str = "unknown"
+    identity_relevance: str = "unknown"
+    workspace_candidates: list[str] = Field(default_factory=list)
+    executive_interpretation: dict[str, str] = Field(default_factory=dict)
+    route_decision: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ensure_signal_content(self) -> "BrainSignalCreateRequest":
+        if not (self.source_kind or "").strip():
+            raise ValueError("Provide source_kind.")
+        if not (self.raw_summary or "").strip() and not (self.digest or "").strip():
+            raise ValueError("Provide raw_summary or digest.")
+        return self
+
+
+class BrainSignalReviewRequest(BaseModel):
+    digest: str | None = None
+    signal_types: list[str] | None = None
+    durability: str | None = None
+    confidence: str | None = None
+    actionability: str | None = None
+    identity_relevance: str | None = None
+    workspace_candidates: list[str] | None = None
+    executive_interpretation: dict[str, str] | None = None
+    route_decision: dict[str, Any] | None = None
+    review_status: BrainSignalReviewStatus | None = None
+
+    @model_validator(mode="after")
+    def ensure_review_update(self) -> "BrainSignalReviewRequest":
+        if not self.model_dump(exclude_none=True):
+            raise ValueError("Provide at least one review update.")
+        return self
+
+
+class BrainSignalRouteRequest(BaseModel):
+    route: BrainSignalRouteTarget
+    workspace_key: str = "shared_ops"
+    summary: str | None = None
+    route_reason: str | None = None
+    canonical_memory_targets: list[str] = Field(default_factory=list)
+    standup_kind: str = "auto"
+    pm_title: str | None = None
+    executive_interpretation: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ensure_route_content(self) -> "BrainSignalRouteRequest":
+        if self.route != "ignore" and not (self.summary or self.route_reason or "").strip():
+            raise ValueError("Provide summary or route_reason.")
+        if self.route == "pm" and not (self.pm_title or "").strip():
+            raise ValueError("Provide pm_title for PM routes.")
         return self
 
 

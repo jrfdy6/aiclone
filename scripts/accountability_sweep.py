@@ -27,6 +27,12 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from automation_run_mirror import build_run_payload, mirror_runs
 from app.services.pm_execution_contract_service import build_execution_contract
+from brain_automation_context import (
+    brain_signal_lines,
+    build_brain_automation_context,
+    portfolio_attention_lines,
+    source_intelligence_lines,
+)
 
 
 def _now() -> datetime:
@@ -407,8 +413,15 @@ def build_report(
     sync_live: bool,
     *,
     fetch_json: Callable[..., Any] = _fetch_json,
+    brain_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = _now()
+    brain_context = brain_context or build_brain_automation_context(signal_limit=5)
+    brain_context_lines = [
+        *portfolio_attention_lines(brain_context, limit=2),
+        *brain_signal_lines(brain_context, limit=3),
+        *source_intelligence_lines(brain_context, limit=1),
+    ]
     queue = fetch_json(f"{api_url.rstrip('/')}/api/pm/execution-queue?limit=200")
     rows = [item for item in queue if isinstance(item, dict)]
     cards = _load_cards(api_url, fetch_json)
@@ -521,6 +534,17 @@ def build_report(
         "stale_running_cards": stale_running,
         "rerouted_cards": rerouted_cards,
         "executive_followup_card": executive_followup_card,
+        "brain_context": brain_context,
+        "brain_context_lines": brain_context_lines,
+        "source_paths": list(
+            dict.fromkeys(
+                [
+                    f"{api_url.rstrip('/')}/api/pm/execution-queue?limit=200",
+                    f"{api_url.rstrip('/')}/api/pm/cards?limit=400",
+                    *(brain_context.get("source_paths") or []),
+                ]
+            )
+        ),
     }
 
 
@@ -572,6 +596,10 @@ def _markdown_report(report: dict[str, Any]) -> str:
             f"- `{followup.get('title', FOLLOWUP_TITLE)}` -> `{followup.get('action', 'tracked')}` "
             f"(`{followup.get('status', 'unknown')}`)"
         )
+    lines.extend(["", "## Brain Context"])
+    brain_context_lines = report.get("brain_context_lines") or ["No active Brain Signal or portfolio blocker changed this sweep."]
+    for item in brain_context_lines:
+        lines.append(f"- {item}")
     return "\n".join(lines) + "\n"
 
 
@@ -618,6 +646,7 @@ def main() -> int:
                         "rerouted_count": report["rerouted_count"],
                         "executive_followup_action": followup.get("action") if isinstance(followup, dict) else None,
                         "executive_followup_card_id": followup.get("card_id") if isinstance(followup, dict) else None,
+                        "brain_context_source_paths": report.get("source_paths") or [],
                     },
                 )
             ],

@@ -17,6 +17,11 @@ The goal is to make sure the system can:
 - route it to the right place
 - act on it without creating split-brain behavior
 
+Brain must observe every active workspace, not only the public-facing `FEEZIE OS` lane. Workspaces return local state and execution proof to Brain; Brain returns digested context, standup decisions, PM work, and canonical-memory promotions through the shared exchange protocol.
+
+Reference:
+- [brain_workspace_exchange_protocol.md](/Users/neo/.openclaw/workspace/docs/brain_workspace_exchange_protocol.md)
+
 ## 1. What The Brain Is
 
 The brain is not one file and not one agent.
@@ -28,6 +33,8 @@ The brain is the operating pipeline that decides:
 - what becomes work
 - what stays advisory
 - what should shape identity, strategy, or execution
+
+A generic `Brain Signal` is the review object for source, workspace, cron, Chronicle, PM, or meeting signal that is not automatically persona canon. Persona deltas remain a downstream identity lane, not the whole Brain substrate.
 
 ## 2. Brain Layers
 

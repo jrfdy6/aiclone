@@ -7,8 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-      <string>/usr/bin/env</string>
-      <string>python3</string>
+      <string>/Users/neo/.openclaw/workspace/.venv-main-safe/bin/python</string>
       <string>/Users/neo/.openclaw/workspace/scripts/sync_codex_chronicle.py</string>
       <string>--initial-tail</string>
       <string>40</string>

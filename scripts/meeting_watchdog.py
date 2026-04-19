@@ -31,10 +31,10 @@ ROOM_SPECS: tuple[RoomSpec, ...] = (
     RoomSpec("weekly_review", "Weekly Review", "shared_ops", 8 * 24),
     RoomSpec("saturday_vision", "Saturday Vision Sync", "shared_ops", 8 * 24),
     RoomSpec("linkedin-os", "FEEZIE OS Standup", "linkedin-os", 36),
-    RoomSpec("fusion-os", "Fusion Standup", "fusion-os", 72, expected=False),
-    RoomSpec("easyoutfitapp", "EasyOutfitApp Standup", "easyoutfitapp", 72, expected=False),
-    RoomSpec("ai-swag-store", "AI Swag Store Standup", "ai-swag-store", 72, expected=False),
-    RoomSpec("agc", "AGC Standup", "agc", 72, expected=False),
+    RoomSpec("fusion-os", "Fusion Standup", "fusion-os", 72),
+    RoomSpec("easyoutfitapp", "Easy Outfit App Standup", "easyoutfitapp", 72),
+    RoomSpec("ai-swag-store", "AI Swag Store Standup", "ai-swag-store", 72),
+    RoomSpec("agc", "AGC Standup", "agc", 72),
 )
 
 

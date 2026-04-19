@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/anaconda3/bin/python3</string>
+        <string>/Users/neo/.openclaw/workspace/.venv-main-safe/bin/python</string>
         <string>/Users/neo/.openclaw/workspace/automations/persona_bundle_sync.py</string>
         <string>--api-url</string>
         <string>https://aiclone-production-32dc.up.railway.app</string>

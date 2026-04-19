@@ -161,6 +161,8 @@ def promote_standup(payload: StandupPromotionRequest) -> StandupPromotionResult:
                 "decisions": payload.decisions,
                 "owners": payload.owners,
                 "artifact_deltas": payload.artifact_deltas,
+                "audience_response": payload.audience_response,
+                "standup_sections": payload.standup_sections,
                 "pm_snapshot": payload.pm_snapshot,
                 "participants": payload.participants,
                 "source_paths": payload.source_paths,

@@ -1,13 +1,31 @@
 # Brain Truth Lanes And Promotion Flow
 
 This document explains the difference between:
+- Brain signal
 - persona canon
 - canonical memory
 - PM truth
 
 It also explains how `Neo`, `Jean-Claude`, and `Yoda` should reason over source material before it becomes durable system state or work.
 
-## 1. The Three Truth Lanes
+## 1. The Brain Signal Layer
+
+Brain Signal is the upstream review object.
+
+It exists so the system can review signal from:
+- source intelligence
+- workspace execution
+- crons
+- Chronicle
+- standups
+- PM write-back
+- owner reactions
+
+without forcing every item into `persona_deltas`.
+
+Persona deltas are still valid when a signal affects identity, voice, stories, principles, or content posture. They are one downstream route from Brain Signal, not the root object for all system interpretation.
+
+## 2. The Three Truth Lanes
 
 ### Persona canon
 
@@ -62,7 +80,7 @@ It exists so the system can track:
 
 This is the board and execution state, not the identity layer and not the memory layer.
 
-## 2. Current Brain UI Reality
+## 3. Current Brain UI Reality
 
 Today the Brain user-facing review flow is strongest for persona canon.
 
@@ -77,7 +95,7 @@ That is why the current promotion interface feels real.
 
 But it is still mostly a `persona canon` console, not yet a unified router for the whole system brain.
 
-## 3. What A Persona Delta Is
+## 4. What A Persona Delta Is
 
 A persona delta is a candidate change to persona understanding.
 
@@ -99,7 +117,7 @@ Common lifecycle states include:
 - `committed`
 - `resolved`
 
-## 4. Where Yoda, Neo, And Jean-Claude Fit
+## 5. Where Yoda, Neo, And Jean-Claude Fit
 
 ### Yoda
 
@@ -149,7 +167,7 @@ He decides whether a signal becomes:
 - a memory promotion
 - a no-action advisory note
 
-## 5. When That Conversation Happens
+## 6. When That Conversation Happens
 
 The executive conversation should happen in:
 - executive standups
@@ -164,7 +182,7 @@ For strategic or system-shaping inputs, the default conversation should be:
 
 That means Yoda should not be reasoning alone, and Neo should not be absent from these decisions.
 
-## 6. Can One Source Route To Multiple Places
+## 7. Can One Source Route To Multiple Places
 
 Yes.
 
@@ -182,7 +200,7 @@ The rule is:
 
 `one source -> one executive interpretation -> one or more justified routes`
 
-## 7. Routing Matrix
+## 8. Routing Matrix
 
 ### Default route for a strong signal
 

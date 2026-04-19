@@ -30,8 +30,8 @@ WORKSPACE_CONFIG: dict[str, dict[str, str]] = {
         "root": "fusion-os",
     },
     "easyoutfitapp": {
-        "display_name": "EasyOutfitApp",
-        "brief_heading": "EasyOutfitApp",
+        "display_name": "Easy Outfit App",
+        "brief_heading": "Easy Outfit App",
         "root": "easyoutfitapp",
     },
     "ai-swag-store": {
@@ -49,9 +49,9 @@ FALLBACK_CONTRACT_TEXT: dict[str, str] = {
     "shared_ops": "Executive review interprets strong signals across Neo, Yoda, and Jean-Claude before broad downstream changes are made.",
     "linkedin-os": "FEEZIE OS is the public-facing operating system for visibility, personal brand, career signal, and thought leadership rooted in real work.",
     "fusion-os": "Fusion OS covers admissions, enrollment, school operations, referral systems, families, students, and leadership execution with trust and clarity.",
-    "easyoutfitapp": "EasyOutfitApp focuses on fashion, outfit logic, closet organization, metadata quality, personal style, and recommendation quality grounded in context.",
-    "ai-swag-store": "AI Swag Store owns merchandising, product drops, accessories, commerce validation, catalog decisions, and demand-testing for AI-branded physical goods.",
-    "agc": "AGC is a protected operating lane for AGC initiatives with separate mission clarity, traceable goals, local memory, and distinct execution rules.",
+    "easyoutfitapp": "Easy Outfit App focuses on reducing daily decision fatigue with context-aware, closet-first outfit recommendations and trustworthy product execution.",
+    "ai-swag-store": "AI Swag Store owns differentiated AI merchandise discovery, offer testing, traffic learning, and disciplined catalog decisions inside its workspace.",
+    "agc": "AGC is a government-contracting-first lane for AI consulting, capability positioning, inbound opportunity qualification, and traceable capture work.",
 }
 AI_PORTFOLIO_HINTS = (
     "ai",
@@ -68,6 +68,63 @@ AI_PORTFOLIO_HINTS = (
     "claude",
     "prompt",
     "prompts",
+)
+ROUTING_SCORE_DIMENSIONS = (
+    "domain_match",
+    "execution_relevance",
+    "strategic_relevance",
+    "identity_relevance",
+    "urgency",
+    "confidence",
+)
+AI_EXECUTIVE_HINTS = (
+    "automation",
+    "automations",
+    "brain",
+    "canonical memory",
+    "control plane",
+    "cross-workspace",
+    "execution",
+    "memory",
+    "multiple active projects",
+    "operating system",
+    "portfolio",
+    "pm",
+    "routing",
+    "second brain",
+    "standup",
+    "system",
+    "teams operate",
+    "workflow",
+)
+EXECUTION_RELEVANCE_HINTS = (
+    "build",
+    "customer",
+    "execute",
+    "execution",
+    "handoff",
+    "implementation",
+    "operate",
+    "operating",
+    "process",
+    "result",
+    "ship",
+    "workflow",
+)
+URGENCY_HINTS = (
+    "blocked",
+    "blocker",
+    "critical",
+    "immediately",
+    "now",
+    "priority",
+    "urgent",
+)
+EXPLICIT_WORKSPACE_CANDIDATE_KEYS = (
+    "brain_workspace_candidates",
+    "brain_suggested_workspace_keys",
+    "route_workspace_keys",
+    "workspace_candidates",
 )
 WORKSPACE_DOMAIN_HINTS: dict[str, dict[str, tuple[str, ...]]] = {
     "fusion-os": {
@@ -108,17 +165,21 @@ WORKSPACE_DOMAIN_HINTS: dict[str, dict[str, tuple[str, ...]]] = {
             "digital closet",
             "digital organization",
             "personal style",
+            "decision fatigue",
+            "what to wear",
         ),
         "weak": (
             "style",
             "recommendation quality",
             "metadata quality",
+            "styling",
         ),
     },
     "ai-swag-store": {
         "strong": (
             "ai swag",
             "swag",
+            "swag store",
             "merch",
             "merchandise",
             "accessory",
@@ -129,22 +190,40 @@ WORKSPACE_DOMAIN_HINTS: dict[str, dict[str, tuple[str, ...]]] = {
             "fulfillment",
             "demand signal",
             "demand test",
+            "website visit",
+            "website visits",
         ),
         "weak": (
             "commerce",
             "shop",
             "shopify",
+            "merch consumer",
         ),
     },
     "agc": {
         "strong": (
             "agc",
+            "acorn global collective",
             "agc initiative",
             "agc initiatives",
             "agc work",
             "agc mission",
+            "government contracting",
+            "government contract",
+            "prime contractor",
+            "subcontractor",
+            "public sector",
+            "rfp",
+            "rfq",
+            "proposal",
+            "capability statement",
+            "procurement",
         ),
-        "weak": (),
+        "weak": (
+            "ai consulting",
+            "inbound email",
+            "capture",
+        ),
     },
 }
 
@@ -152,9 +231,12 @@ WORKSPACE_DOMAIN_HINTS: dict[str, dict[str, tuple[str, ...]]] = {
 def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
     scored: dict[str, dict[str, Any]] = {}
 
-    def add_score(workspace_key: str, points: int, reason: str) -> None:
-        entry = scored.setdefault(workspace_key, {"score": 0, "reasons": []})
+    def add_score(workspace_key: str, points: int, reason: str, dimension: str = "strategic_relevance") -> None:
+        entry = scored.setdefault(workspace_key, {"score": 0, "reasons": [], "dimensions": _blank_dimensions()})
         entry["score"] = int(entry.get("score") or 0) + points
+        dimensions = entry.setdefault("dimensions", _blank_dimensions())
+        if dimension in ROUTING_SCORE_DIMENSIONS:
+            dimensions[dimension] = int(dimensions.get(dimension) or 0) + points
         reasons = entry.setdefault("reasons", [])
         if reason not in reasons:
             reasons.append(reason)
@@ -182,26 +264,55 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
         ]
     )
 
-    add_score("linkedin-os", 5, "FEEZIE OS stays in the loop by default.")
+    add_score("linkedin-os", 5, "FEEZIE OS stays in the loop by default.", "identity_relevance")
 
     persona_target = _normalize_text(delta.persona_target)
     if "feeze" in persona_target or "linkedin" in persona_target:
-        add_score("linkedin-os", 3, "The persona target is explicitly aligned to Feeze / LinkedIn.")
+        add_score("linkedin-os", 3, "The persona target is explicitly aligned to Feeze / LinkedIn.", "identity_relevance")
 
-    metadata_workspace = _normalize_text(metadata.get("workspace_key"))
+    metadata_workspace = _normalize_workspace_key(metadata.get("workspace_key"))
     if metadata_workspace in WORKSPACE_KEYS:
-        add_score(metadata_workspace, 4, "The review item metadata already points at this workspace.")
+        add_score(metadata_workspace, 6, "The review item metadata already points at this workspace.", "confidence")
 
     for prior_workspace in _metadata_string_array(metadata, "last_brain_route_workspace_keys"):
-        if prior_workspace in WORKSPACE_KEYS:
-            add_score(prior_workspace, 2, "This signal has already been routed here before.")
+        normalized_prior = _normalize_workspace_key(prior_workspace)
+        if normalized_prior in WORKSPACE_KEYS:
+            add_score(normalized_prior, 2, "This signal has already been routed here before.", "confidence")
+
+    explicit_workspace_candidates = _metadata_workspace_candidates(metadata)
+    has_explicit_interpretation = _has_explicit_executive_interpretation(metadata)
+    if explicit_workspace_candidates and has_explicit_interpretation:
+        add_score(
+            "shared_ops",
+            3,
+            "Explicit executive interpretation is present, so the route stays visible to executive review.",
+            "strategic_relevance",
+        )
+        for workspace_key in explicit_workspace_candidates:
+            add_score(
+                workspace_key,
+                6,
+                "Explicit executive interpretation selected this workspace.",
+                "confidence",
+            )
 
     has_ai_signal = _count_matches(primary_blob, AI_PORTFOLIO_HINTS) > 0
+    has_cross_portfolio_ai_signal = has_ai_signal and _count_matches(primary_blob, AI_EXECUTIVE_HINTS) > 0
     if has_ai_signal:
-        add_score("linkedin-os", 2, "AI is always relevant to FEEZIE OS.")
-        for workspace_key in PROJECT_WORKSPACE_KEYS:
-            add_score(workspace_key, 3, "AI is a portfolio-wide signal across the active project stack.")
-        add_score("shared_ops", 3, "AI touches multiple workspaces, so executive review should stay in the loop.")
+        add_score("linkedin-os", 2, "AI is relevant to FEEZIE OS by default.", "identity_relevance")
+        add_score(
+            "shared_ops",
+            3,
+            "Generic AI signal defaults to executive review before any project-workspace fanout.",
+            "strategic_relevance",
+        )
+        if has_cross_portfolio_ai_signal:
+            add_score(
+                "shared_ops",
+                2,
+                "The AI signal has cross-portfolio operating implications, so standup should decide any fanout.",
+                "execution_relevance",
+            )
 
     for workspace_key, hint_groups in WORKSPACE_DOMAIN_HINTS.items():
         contract_blob = _workspace_contract_blob(workspace_key)
@@ -219,18 +330,21 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
                 workspace_key,
                 6 if contract_match_count > 0 else 5,
                 f"Multiple strong source cues align with {WORKSPACE_CONFIG[workspace_key]['display_name']}{' and its workspace contract' if contract_match_count > 0 else ''}. {contract_excerpt}",
+                "domain_match",
             )
         elif primary_strong_matches == 1:
             add_score(
                 workspace_key,
                 4 if contract_match_count > 0 else 3,
                 f"A strong source cue aligns with {WORKSPACE_CONFIG[workspace_key]['display_name']}{' and its workspace contract' if contract_match_count > 0 else ''}. {contract_excerpt}",
+                "domain_match",
             )
         elif primary_weak_matches >= 2:
             add_score(
                 workspace_key,
                 3 if contract_match_count > 0 else 2,
                 f"Multiple weaker source cues still align with {WORKSPACE_CONFIG[workspace_key]['display_name']}{' and its workspace contract' if contract_match_count > 0 else ''}. {contract_excerpt}",
+                "domain_match",
             )
 
         if secondary_strong_matches > 0 or secondary_weak_matches >= 2:
@@ -238,19 +352,42 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
                 workspace_key,
                 1,
                 f"A weaker experience/context anchor also overlaps {WORKSPACE_CONFIG[workspace_key]['display_name']}.",
+                "strategic_relevance",
             )
+
+        if primary_strong_matches > 0 or primary_weak_matches >= 2:
+            add_score(
+                workspace_key,
+                min(primary_strong_matches + primary_weak_matches, 2),
+                "The route has enough textual evidence to increase confidence.",
+                "confidence",
+            )
+            if _count_matches(primary_blob, EXECUTION_RELEVANCE_HINTS) > 0:
+                add_score(
+                    workspace_key,
+                    1,
+                    "The signal mentions execution or operating movement, not only abstract interest.",
+                    "execution_relevance",
+                )
+            if _count_matches(primary_blob, URGENCY_HINTS) > 0:
+                add_score(workspace_key, 1, "The signal carries urgency or blocker language.", "urgency")
 
     fusion_score = int(scored.get("fusion-os", {}).get("score") or 0)
     merch_score = int(scored.get("ai-swag-store", {}).get("score") or 0)
     if fusion_score >= 3 and merch_score >= 3:
-        add_score("fusion-os", 2, "This looks like a Fusion + merchandise crossover.")
-        add_score("ai-swag-store", 2, "This looks like a Fusion + merchandise crossover.")
-        add_score("shared_ops", 2, "This signal spans multiple operating lanes and should stay visible to executive review.")
+        add_score("fusion-os", 2, "This looks like a Fusion + merchandise crossover.", "strategic_relevance")
+        add_score("ai-swag-store", 2, "This looks like a Fusion + merchandise crossover.", "strategic_relevance")
+        add_score(
+            "shared_ops",
+            2,
+            "This signal spans multiple operating lanes and should stay visible to executive review.",
+            "strategic_relevance",
+        )
 
     selected_project_workspaces = [
         workspace_key
         for workspace_key in PROJECT_WORKSPACE_KEYS
-        if int(scored.get(workspace_key, {}).get("score") or 0) >= 3
+        if _project_workspace_confirmed(scored.get(workspace_key), has_ai_signal=has_ai_signal)
     ]
     if not selected_project_workspaces:
         add_score("shared_ops", 2, "No other workspace crossed the confirmation threshold, so this should stay in executive review.")
@@ -270,8 +407,10 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
             "workspace_key": workspace_key,
             "label": WORKSPACE_CONFIG[workspace_key]["display_name"],
             "score": int(scored.get(workspace_key, {}).get("score") or 0),
+            "scoring_dimensions": dict(scored.get(workspace_key, {}).get("dimensions") or _blank_dimensions()),
             "reasons": list(scored.get(workspace_key, {}).get("reasons") or []),
             "contract_excerpt": _workspace_contract_excerpt(workspace_key),
+            "routing_posture": _routing_posture(scored.get(workspace_key), has_ai_signal=has_ai_signal),
         }
         for workspace_key in selected_keys
     ]
@@ -279,8 +418,89 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
     return {
         "workspace_keys": selected_keys,
         "suggestion_details": suggestion_details,
-        "contract_version": "brain_workspace_contract_v2",
+        "contract_version": "brain_workspace_contract_v3",
+        "routing_policy": "generic_ai_to_executive_and_feezie_domain_evidence_required_for_project_workspaces",
     }
+
+
+def _blank_dimensions() -> dict[str, int]:
+    return {dimension: 0 for dimension in ROUTING_SCORE_DIMENSIONS}
+
+
+def _normalize_workspace_key(value: Any) -> str:
+    normalized = _normalize_text(value)
+    aliases = {
+        "feezie": "linkedin-os",
+        "feezie os": "linkedin-os",
+        "feezie-os": "linkedin-os",
+        "linkedin": "linkedin-os",
+        "linkedin content os": "linkedin-os",
+        "linkedin-content-os": "linkedin-os",
+        "shared-ops": "shared_ops",
+        "shared ops": "shared_ops",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _metadata_workspace_candidates(metadata: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+    for key in EXPLICIT_WORKSPACE_CANDIDATE_KEYS:
+        for value in _metadata_string_array(metadata, key):
+            workspace_key = _normalize_workspace_key(value)
+            if workspace_key in WORKSPACE_KEYS and workspace_key not in candidates:
+                candidates.append(workspace_key)
+
+    route_decision = metadata.get("route_decision")
+    if isinstance(route_decision, dict):
+        for key in ("workspace_key", "target_workspace", "target_workspace_key"):
+            workspace_key = _normalize_workspace_key(route_decision.get(key))
+            if workspace_key in WORKSPACE_KEYS and workspace_key not in candidates:
+                candidates.append(workspace_key)
+        for key in ("workspace_candidates", "target_workspace_keys", "workspace_keys"):
+            values = route_decision.get(key)
+            if isinstance(values, list):
+                for value in values:
+                    workspace_key = _normalize_workspace_key(value)
+                    if workspace_key in WORKSPACE_KEYS and workspace_key not in candidates:
+                        candidates.append(workspace_key)
+    return candidates
+
+
+def _has_explicit_executive_interpretation(metadata: dict[str, Any]) -> bool:
+    executive_interpretation = metadata.get("executive_interpretation")
+    if isinstance(executive_interpretation, dict) and any(_normalize_text(value) for value in executive_interpretation.values()):
+        return True
+    route_decision = metadata.get("route_decision")
+    return isinstance(route_decision, dict) and any(_normalize_text(value) for value in route_decision.values())
+
+
+def _project_workspace_confirmed(entry: dict[str, Any] | None, *, has_ai_signal: bool) -> bool:
+    if not entry:
+        return False
+    dimensions = entry.get("dimensions") if isinstance(entry.get("dimensions"), dict) else {}
+    domain_match = int(dimensions.get("domain_match") or 0)
+    confidence = int(dimensions.get("confidence") or 0)
+    total_score = int(entry.get("score") or 0)
+    if confidence >= 6:
+        return True
+    if domain_match >= 4:
+        return True
+    if has_ai_signal:
+        return False
+    return total_score >= 3 and domain_match > 0
+
+
+def _routing_posture(entry: dict[str, Any] | None, *, has_ai_signal: bool) -> str:
+    if not entry:
+        return "not_selected"
+    dimensions = entry.get("dimensions") if isinstance(entry.get("dimensions"), dict) else {}
+    if int(dimensions.get("confidence") or 0) >= 6:
+        return "explicit"
+    if int(dimensions.get("domain_match") or 0) >= 4:
+        return "domain_confirmed"
+    if has_ai_signal:
+        return "executive_default"
+    return "fallback_review"
 
 
 def _normalize_text(value: Any) -> str:

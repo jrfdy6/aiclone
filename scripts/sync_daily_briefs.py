@@ -20,7 +20,7 @@ DEFAULT_BRIEF_FILE = WORKSPACE_ROOT / "memory" / "daily-briefs.md"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+from app.services.core_memory_snapshot_service import resolve_memory_read_target, resolve_snapshot_fallback_path
 from app.services.daily_brief_parser import parse_briefs_markdown
 
 
@@ -38,11 +38,14 @@ def parse_args() -> argparse.Namespace:
 
 def _resolve_brief_path(path_str: str) -> Path:
     brief_path = Path(path_str).expanduser()
-    if brief_path.exists():
-        return brief_path
     try:
         relative = brief_path.resolve().relative_to(WORKSPACE_ROOT.resolve()).as_posix()
     except ValueError:
+        return brief_path
+    if relative.startswith("memory/"):
+        resolution = resolve_memory_read_target(WORKSPACE_ROOT, relative)
+        return Path(str(resolution.get("resolved_path") or brief_path))
+    if brief_path.exists():
         return brief_path
     return resolve_snapshot_fallback_path(WORKSPACE_ROOT, relative)
 

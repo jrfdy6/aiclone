@@ -9,6 +9,45 @@ from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.workspace_runtime_contract_service import default_standup_kind_for_workspace, standup_participants_for
 
 
+ACTION_PM_PREFIXES = (
+    "align ",
+    "backfill ",
+    "build ",
+    "clarify ",
+    "create ",
+    "define ",
+    "document ",
+    "make ",
+    "operationalize ",
+    "package ",
+    "promote ",
+    "refine ",
+    "resolve ",
+    "run ",
+    "schedule ",
+    "standardize ",
+    "tighten ",
+    "turn ",
+    "validate ",
+    "verify ",
+    "wire ",
+)
+ADVISORY_PM_PREFIXES = (
+    "workspace execution should ",
+    "jean-claude should ",
+    "neo should ",
+    "yoda should ",
+    "keep ",
+    "complete ",
+    "review ",
+    "decide whether ",
+    "think about ",
+    "consider ",
+    "note ",
+    "remember ",
+)
+
+
 def route_delta_signal(
     delta_id: str,
     *,
@@ -196,14 +235,8 @@ def _create_pm_route(
 ) -> PMCard:
     source_signature = f"brain-triage:{delta.id}:{workspace_key}"
     title = (pm_title or "").strip() or _default_pm_title(delta)
-
-    existing = pm_card_service.find_card_by_signature(title, source_signature)
-    if existing is None:
-        existing = pm_card_service.find_active_card_by_title(title, workspace_key)
-    if existing is not None:
-        return existing
-
     execution_defaults = pm_card_service.execution_defaults_for_workspace(workspace_key)
+    owner = str(execution_defaults.get("manager_agent") or "Jean-Claude").strip() or "Jean-Claude"
     reason = f"Brain triage routed reviewed signal into executable work: {delta.trait}"
     contract = build_execution_contract(
         title=title,
@@ -224,10 +257,36 @@ def _create_pm_route(
             "bounded workspace artifact or execution memo tied to the routed signal",
         ],
     )
+    source_signal = {
+        "kind": "persona_delta",
+        "delta_id": delta.id,
+        "capture_id": delta.capture_id,
+        "trait": delta.trait,
+        "summary": summary,
+    }
+    validation = validate_brain_pm_route(
+        title=title,
+        workspace_key=workspace_key,
+        summary=summary,
+        owner=owner,
+        why_pm_now=reason,
+        acceptance_criteria=contract["acceptance_criteria"],
+        completion_contract=contract["completion_contract"],
+        source_signal=source_signal,
+    )
+    if not validation["ok"]:
+        raise ValueError(str(validation["reason"]))
+
+    existing = pm_card_service.find_card_by_signature(title, source_signature)
+    if existing is None:
+        existing = pm_card_service.find_active_card_by_title(title, workspace_key)
+    if existing is not None:
+        raise ValueError("Brain PM route rejected: duplicate active PM card already exists.")
+
     return pm_card_service.create_card(
         PMCardCreate(
             title=title,
-            owner="Jean-Claude",
+            owner=owner,
             status="todo",
             source=source_signature,
             link_type="persona_delta",
@@ -239,10 +298,14 @@ def _create_pm_route(
                 "triage_source_capture_id": delta.capture_id,
                 "triage_summary": summary,
                 "triage_selected_promotion_items": selected_items,
+                "source_signal": source_signal,
+                "why_pm_now": reason,
+                "route_guardrail": validation,
                 "instructions": contract["instructions"],
                 "acceptance_criteria": contract["acceptance_criteria"],
                 "artifacts_expected": contract["artifacts_expected"],
                 "completion_contract": contract["completion_contract"],
+                "writeback_requirements": contract["completion_contract"].get("result_requirements", {}),
                 "execution": {
                     "lane": "codex",
                     "state": "queued",
@@ -264,6 +327,124 @@ def _create_pm_route(
 
 def _default_pm_title(delta: PersonaDelta) -> str:
     return f"Operationalize reviewed signal: {delta.trait[:120]}".strip()
+
+
+def validate_brain_pm_route(
+    *,
+    title: str,
+    workspace_key: str,
+    summary: str,
+    owner: str | None = None,
+    why_pm_now: str | None = None,
+    acceptance_criteria: list[str] | None = None,
+    completion_contract: dict[str, Any] | None = None,
+    source_signal: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_title = " ".join(str(title or "").split()).strip()
+    normalized_summary = " ".join(str(summary or "").split()).strip()
+    normalized_workspace = " ".join(str(workspace_key or "").split()).strip()
+    normalized_owner = " ".join(str(owner or "").split()).strip()
+    normalized_why_pm_now = " ".join(str(why_pm_now or "").split()).strip()
+    if not normalized_title:
+        return {"ok": False, "reason": "PM title is required."}
+    if not normalized_workspace:
+        return {"ok": False, "reason": "Brain PM route rejected: workspace owner boundary is required."}
+    lowered = normalized_title.lower()
+    if lowered.startswith(ADVISORY_PM_PREFIXES):
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: title is advisory language, not executable work.",
+            "title": normalized_title,
+        }
+    if not lowered.startswith(ACTION_PM_PREFIXES):
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: title must start with an action-shaped verb.",
+            "title": normalized_title,
+        }
+    if len(normalized_title.split()) < 3:
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: title is too short to define bounded work.",
+            "title": normalized_title,
+        }
+    if not normalized_summary:
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: routing summary is required.",
+            "title": normalized_title,
+        }
+    if not normalized_owner:
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: workspace owner is required.",
+            "title": normalized_title,
+        }
+    if len(normalized_why_pm_now.split()) < 6:
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: why_pm_now must explain why this is executable now.",
+            "title": normalized_title,
+        }
+    criteria = [
+        " ".join(str(item or "").split()).strip()
+        for item in (acceptance_criteria or [])
+        if " ".join(str(item or "").split()).strip()
+    ]
+    if not criteria:
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: bounded acceptance criteria are required.",
+            "title": normalized_title,
+        }
+    if any(_looks_unbounded_criterion(item) for item in criteria):
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: acceptance criteria are advisory or unbounded.",
+            "title": normalized_title,
+        }
+    contract = completion_contract or {}
+    result_requirements = contract.get("result_requirements") if isinstance(contract.get("result_requirements"), dict) else {}
+    if not bool(contract.get("writeback_required")) or not bool(result_requirements.get("require_writeback")):
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: write-back requirements are missing.",
+            "title": normalized_title,
+        }
+    source_signal_payload = source_signal or {}
+    if not isinstance(source_signal_payload, dict) or not str(source_signal_payload.get("kind") or "").strip():
+        return {
+            "ok": False,
+            "reason": "Brain PM route rejected: source signal metadata is required.",
+            "title": normalized_title,
+        }
+    return {
+        "ok": True,
+        "reason": "Brain PM route accepted: action-shaped title, owner, why-now, bounded criteria, source signal, and write-back contract are present.",
+        "title": normalized_title,
+        "workspace_key": normalized_workspace,
+        "owner": normalized_owner,
+        "why_pm_now": normalized_why_pm_now,
+        "acceptance_criteria_count": len(criteria),
+        "writeback_required": True,
+    }
+
+
+def _looks_unbounded_criterion(value: str) -> bool:
+    lowered = value.strip().lower()
+    if len(lowered.split()) < 5:
+        return True
+    return lowered.startswith(
+        (
+            "review ",
+            "consider ",
+            "think about ",
+            "discuss ",
+            "keep in mind ",
+            "remember ",
+            "note ",
+        )
+    )
 
 
 def _participants_for(workspace_key: str, standup_kind: str) -> list[str]:

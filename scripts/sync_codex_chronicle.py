@@ -20,6 +20,14 @@ if str(BACKEND_ROOT) not in sys.path:
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 DEFAULT_HISTORY_PATH = Path("/Users/neo/.codex/history.jsonl")
 from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
+from chronicle_signal_quality import (
+    entry_has_material_signal,
+    is_low_signal_ack,
+    looks_like_action_request,
+    looks_like_blocker,
+    looks_like_digest_transcript,
+    looks_like_negated_blocker,
+)
 
 
 DEFAULT_CHRONICLE_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
@@ -103,6 +111,12 @@ NOISE_PATTERNS = (
     "manual follow-up needed",
     "follow-up status",
     "follow-up:",
+    "latest signal:",
+    "no additional maintenance signals to report",
+    "continue regular checks on crons and context",
+    "addressed blockers surrounding codex handoff entries",
+    "digest delivered based on new handoff signals",
+    "no further action needed",
     "utc:",
 )
 
@@ -167,6 +181,31 @@ def _normalize_text(text: str) -> str:
     return text
 
 
+def _canonicalize_discussion_signal(text: str) -> str:
+    normalized = _normalize_text(text)
+    lowered = normalized.lower()
+    if lowered.startswith("--- ## context") or "current fusion-os workspace is internally inconsistent" in lowered:
+        return "Fusion OS needed a coherent content-and-signal operating model before weekly automation could be trusted."
+    if "voice system" in lowered and "fusion academy dc" in lowered and "observation" in lowered and "guidance" in lowered:
+        return (
+            "Fusion content should use institutional voice, represent Fusion Academy DC, avoid first-person singular, "
+            "and follow Observation -> Clarification -> Guidance."
+        )
+    if lowered.startswith("excellent please let me know what you need to implement"):
+        return "Implement the approved Fusion operating model and audience-feedback loop."
+    if "ai clone" in lowered and "workspace" in lowered and ("stand up" in lowered or "standup" in lowered):
+        return "Jean-Claude should use whole-system AI Clone context to inform each workspace while only routing workspace-relevant signal into standups."
+    if "jean claude" in lowered and ("multiple wrkspaces" in lowered or "multiple workspaces" in lowered):
+        return "Jean-Claude needs a routing contract for using whole-system context across multiple workspaces."
+    if lowered.startswith("i think a great place to start") and "jean claude" in lowered:
+        return "Start with Jean-Claude's cross-workspace routing contract."
+    if lowered.startswith("so he will need") and "workspace" in lowered:
+        return "Jean-Claude should filter whole-system context down to the signals that matter for each workspace."
+    if lowered in {"yes please do that.", "yes please do that", "please execute on both.", "please execute on both"}:
+        return "Confirmed the next execution step."
+    return normalized
+
+
 def _split_sentences(text: str) -> list[str]:
     text = _normalize_text(text)
     if not text:
@@ -179,7 +218,7 @@ def _trim_items(items: Iterable[str], *, limit: int = 6, max_chars: int = 240) -
     seen: set[str] = set()
     trimmed: list[str] = []
     for item in items:
-        value = _normalize_text(item)
+        value = _canonicalize_discussion_signal(item)
         if not value:
             continue
         if len(value) > max_chars:
@@ -196,6 +235,8 @@ def _trim_items(items: Iterable[str], *, limit: int = 6, max_chars: int = 240) -
 
 def _is_noise(value: str) -> bool:
     lowered = value.lower()
+    if looks_like_digest_transcript(value):
+        return True
     if any(pattern in lowered for pattern in NOISE_PATTERNS):
         return True
     if value.count(":") >= 4 and len(value) > 120:
@@ -218,22 +259,51 @@ def _match_workspace_tags(records: list[dict[str, Any]], registry_terms: dict[st
     return tags, primary
 
 
-def _select_signal_items(records: list[dict[str, Any]], patterns: Iterable[str]) -> list[str]:
+def _matches_signal_category(sentence: str, patterns: Iterable[str], *, category: str) -> bool:
+    lowered = sentence.lower()
+    if is_low_signal_ack(sentence):
+        return False
+    if category == "blocker":
+        if looks_like_negated_blocker(sentence):
+            return False
+        return any(pattern in lowered for pattern in patterns)
+    if category == "outcome" and looks_like_blocker(sentence):
+        return False
+    return any(pattern in lowered for pattern in patterns)
+
+
+def _select_signal_items(records: list[dict[str, Any]], patterns: Iterable[str], *, category: str) -> list[str]:
     matched: list[str] = []
     for record in records:
         for sentence in _split_sentences(str(record.get("text") or "")):
             if _is_noise(sentence):
                 continue
-            lowered = sentence.lower()
-            if any(pattern in lowered for pattern in patterns):
-                matched.append(sentence)
+            if _matches_signal_category(sentence, patterns, category=category):
+                matched.append(_canonicalize_discussion_signal(sentence))
     return _trim_items(matched)
+
+
+def _select_project_updates(records: list[dict[str, Any]], workspace_tags: list[str]) -> list[str]:
+    matched: list[str] = []
+    workspace_terms = tuple(tag.replace("-", " ") for tag in workspace_tags)
+    for record in records:
+        for sentence in _split_sentences(str(record.get("text") or "")):
+            if _is_noise(sentence) or is_low_signal_ack(sentence):
+                continue
+            lowered = sentence.lower()
+            if any(term in lowered for term in workspace_terms) or looks_like_action_request(sentence) or looks_like_blocker(sentence):
+                matched.append(_canonicalize_discussion_signal(sentence))
+            elif len(sentence) >= 120:
+                matched.append(_canonicalize_discussion_signal(sentence))
+    return _trim_items(matched, limit=6, max_chars=200)
 
 
 def _extract_phrase_signals(records: list[dict[str, Any]]) -> list[str]:
     phrases: list[str] = []
     for record in records:
         text = str(record.get("text") or "")
+        if looks_like_digest_transcript(text):
+            continue
         for match in re.findall(r'"([^"]{8,120})"', text):
             if _is_noise(match):
                 continue
@@ -241,11 +311,25 @@ def _extract_phrase_signals(records: list[dict[str, Any]]) -> list[str]:
     return _trim_items(phrases, limit=4, max_chars=120)
 
 
-def _build_summary(records: list[dict[str, Any]], workspace_tags: list[str]) -> str:
+def _latest_material_signal(records: list[dict[str, Any]]) -> str:
+    for record in reversed(records):
+        for sentence in reversed(_split_sentences(str(record.get("text") or ""))):
+            if _is_noise(sentence) or is_low_signal_ack(sentence):
+                continue
+            if looks_like_action_request(sentence) or looks_like_blocker(sentence) or len(sentence) >= 80:
+                return _canonicalize_discussion_signal(sentence)
+    return ""
+
+
+def _build_summary(records: list[dict[str, Any]], workspace_tags: list[str], *, material_signal: str) -> str:
     session_count = len({str(item.get("session_id") or "") for item in records if item.get("session_id")})
-    latest_text = _normalize_text(str(records[-1].get("text") or "")) if records else ""
-    latest_text = latest_text[:160].rstrip() + ("..." if len(latest_text) > 160 else "")
     focus = ", ".join(workspace_tags[:3]) if workspace_tags else "shared_ops"
+    if not material_signal:
+        return (
+            f"Synced {len(records)} new Codex history entries across {session_count or 1} sessions, "
+            f"touching {focus}. No durable decision, blocker, or follow-up was extracted."
+        )
+    latest_text = material_signal[:160].rstrip() + ("..." if len(material_signal) > 160 else "")
     return (
         f"Synced {len(records)} new Codex history entries across {session_count or 1} sessions, "
         f"touching {focus}. Latest signal: {latest_text or 'No concise summary available.'}"
@@ -332,22 +416,14 @@ def main() -> int:
     tags, detected_workspace = _match_workspace_tags(records, registry_terms)
     workspace_key = args.workspace_key or detected_workspace or "shared_ops"
 
-    decisions = _select_signal_items(records, DECISION_PATTERNS)
-    blockers = _select_signal_items(records, BLOCKER_PATTERNS)
-    project_updates = _trim_items(
-        [
-            record["text"]
-            for record in records
-            if any(tag.replace("-", " ") in record["text"].lower() for tag in tags) and not _is_noise(record["text"])
-        ],
-        limit=6,
-        max_chars=200,
-    )
-    learning_updates = _select_signal_items(records, LEARNING_PATTERNS)
-    identity_signals = _select_signal_items(records, IDENTITY_PATTERNS)
-    mindset_signals = _select_signal_items(records, MINDSET_PATTERNS)
+    decisions = _select_signal_items(records, DECISION_PATTERNS, category="decision")
+    blockers = _select_signal_items(records, BLOCKER_PATTERNS, category="blocker")
+    project_updates = _select_project_updates(records, tags)
+    learning_updates = _select_signal_items(records, LEARNING_PATTERNS, category="learning")
+    identity_signals = _select_signal_items(records, IDENTITY_PATTERNS, category="identity")
+    mindset_signals = _select_signal_items(records, MINDSET_PATTERNS, category="mindset")
     phrase_signals = _extract_phrase_signals(records)
-    outcomes = _select_signal_items(records, OUTCOME_PATTERNS)
+    outcomes = _select_signal_items(records, OUTCOME_PATTERNS, category="outcome")
 
     signal_types: list[str] = []
     for name, values in (
@@ -365,14 +441,16 @@ def main() -> int:
 
     follow_ups = _trim_items(
         [item for item in decisions if "need to " in item.lower() or "make sure " in item.lower()]
+        + [item for item in project_updates if looks_like_action_request(item)]
         + [item for item in blockers if item],
         limit=6,
     )
     memory_promotions = _trim_items(identity_signals + learning_updates + mindset_signals, limit=6)
     pm_candidates = _trim_items(project_updates + follow_ups, limit=6)
 
-    summary = _build_summary(records, tags)
-    importance = "high" if blockers or identity_signals or memory_promotions else "medium"
+    material_signal = _latest_material_signal(records)
+    summary = _build_summary(records, tags, material_signal=material_signal)
+    importance = "high" if blockers or identity_signals or memory_promotions else ("medium" if material_signal else "low")
 
     payload = {
         "schema_version": "codex_chronicle/v1",
@@ -400,6 +478,8 @@ def main() -> int:
         "pm_candidates": pm_candidates,
         "artifacts": [],
         "tags": _trim_items(tags, limit=6, max_chars=60),
+        "material_signal": bool(material_signal),
+        "signal_quality": "material" if material_signal else "low_signal",
         "source_refs": [
             {
                 "session_id": item.get("session_id"),
@@ -413,8 +493,26 @@ def main() -> int:
         print(json.dumps(payload, indent=2))
         return 0
 
-    _append_jsonl(chronicle_path, payload)
     max_ts = max(int(item.get("ts") or 0) for item in records)
+    if args.source == "codex-history" and not entry_has_material_signal(payload):
+        _write_json(
+            state_path,
+            {
+                "last_synced_ts": max_ts,
+                "last_synced_at": _iso(_now()),
+                "history_path": str(history_path),
+                "chronicle_path": str(chronicle_path),
+                "records_synced": len(records),
+                "last_entry_id": state.get("last_entry_id"),
+                "workspace_key": workspace_key,
+                "skipped_low_signal_batch": True,
+            },
+        )
+        print("Skipped low-signal Codex history batch; state advanced without Chronicle write.")
+        print(f"State: {state_path}")
+        return 0
+
+    _append_jsonl(chronicle_path, payload)
     _write_json(
         state_path,
         {
@@ -425,6 +523,7 @@ def main() -> int:
             "records_synced": len(records),
             "last_entry_id": payload["entry_id"],
             "workspace_key": workspace_key,
+            "skipped_low_signal_batch": False,
         },
     )
     print(summary)

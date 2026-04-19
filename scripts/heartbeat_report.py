@@ -125,14 +125,20 @@ def analyze_gateway(now: datetime, hours: float) -> dict:
 
     cutoff = now.astimezone(timezone.utc) - timedelta(hours=hours)
     last_entry: dict | None = None
+    last_activity: dict | None = None
     window_count = 0
     for line in reversed(lines):
-        if not HEARTBEAT_PATTERN.search(line):
-            continue
         ts = _timestamp_from_line(line)
         if ts is None:
             continue
-        if last_entry is None:
+        if last_activity is None:
+            last_activity = {
+                "timestamp_local": _format_ts(ts),
+                "timestamp_utc": ts.astimezone(timezone.utc).isoformat(timespec="seconds"),
+                "age_minutes": _age_minutes(now, ts),
+                "line": line.strip(),
+            }
+        if last_entry is None and HEARTBEAT_PATTERN.search(line):
             last_entry = {
                 "timestamp_local": _format_ts(ts),
                 "timestamp_utc": ts.astimezone(timezone.utc).isoformat(timespec="seconds"),
@@ -141,13 +147,11 @@ def analyze_gateway(now: datetime, hours: float) -> dict:
             }
         if ts.astimezone(timezone.utc) >= cutoff:
             window_count += 1
-        else:
-            # Older than cutoff; remaining entries will also be older.
-            break
 
     return {
         "path": str(GATEWAY_LOG),
         "missing": False,
+        "last_activity": last_activity,
         "last_entry": last_entry,
         "entries_within_hours": window_count,
         "window_hours": hours,
@@ -278,15 +282,20 @@ def render_markdown(report: dict) -> str:
 
     lines.extend(["", "## Gateway Heartbeat" ])
     gateway = report.get("gateway") or {}
+    last_activity = gateway.get("last_activity")
+    if last_activity:
+        lines.append(
+            f"- Latest gateway activity: `{last_activity['timestamp_local']}` (age={last_activity['age_minutes']:.1f}m)"
+        )
     last_entry = gateway.get("last_entry")
     if last_entry:
         lines.append(
-            f"- Last `[heartbeat] started`: `{last_entry['timestamp_local']}` (age={last_entry['age_minutes']:.1f}m)"
+            f"- Latest `[heartbeat] started` bootstrap: `{last_entry['timestamp_local']}` (age={last_entry['age_minutes']:.1f}m)"
         )
-    else:
-        lines.append("- No heartbeat runs found in gateway log.")
+    elif not last_activity:
+        lines.append("- No heartbeat or gateway activity entries found in gateway log.")
     lines.append(
-        f"- Entries within last `{gateway.get('window_hours', 0)}`h: `{gateway.get('entries_within_hours', 0)}`"
+        f"- Gateway log entries within last `{gateway.get('window_hours', 0)}`h: `{gateway.get('entries_within_hours', 0)}`"
     )
 
     lines.extend(["", "## Discord Gateway" ])
@@ -367,11 +376,12 @@ def render_summary(report: dict) -> str:
         parts.append(f"checks {ts or 'never'} (age {age})")
 
     gateway = report.get("gateway") or {}
-    last_entry = gateway.get("last_entry")
-    if last_entry:
-        ts = _format_short_ts(last_entry.get("timestamp_local"))
-        age = _format_age(last_entry.get("age_minutes"))
-        parts.append(f"gateway run {ts or 'unknown'} (age {age})")
+    gateway_freshness = gateway.get("last_activity") or gateway.get("last_entry")
+    if gateway_freshness:
+        ts = _format_short_ts(gateway_freshness.get("timestamp_local"))
+        age = _format_age(gateway_freshness.get("age_minutes"))
+        label = "gateway activity" if gateway.get("last_activity") else "gateway run"
+        parts.append(f"{label} {ts or 'unknown'} (age {age})")
 
     discord = report.get("discord") or {}
     counts = discord.get("counts") or {}

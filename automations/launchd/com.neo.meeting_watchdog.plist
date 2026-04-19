@@ -7,8 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-      <string>/usr/bin/env</string>
-      <string>python3</string>
+      <string>/Users/neo/.openclaw/workspace/.venv-main-safe/bin/python</string>
       <string>/Users/neo/.openclaw/workspace/scripts/meeting_watchdog.py</string>
       <string>--api-url</string>
       <string>https://aiclone-production-32dc.up.railway.app</string>

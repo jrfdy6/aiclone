@@ -20,10 +20,18 @@ MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 REPORT_ROOT = MEMORY_ROOT / "reports"
 SCRIPT_DIR = WORKSPACE_ROOT / "scripts"
 
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
+from brain_automation_context import (
+    brain_signal_lines,
+    build_brain_automation_context,
+    portfolio_attention_lines,
+    source_intelligence_lines,
+)
 
 
 def _now() -> datetime:
@@ -171,6 +179,12 @@ def _memory_line(item: dict[str, Any]) -> str:
 
 def build_report(api_url: str, limit: int, sync_live: bool) -> dict[str, Any]:
     now = _now()
+    brain_context = build_brain_automation_context(signal_limit=5)
+    brain_context_lines = [
+        *portfolio_attention_lines(brain_context, limit=2),
+        *brain_signal_lines(brain_context, limit=3),
+        *source_intelligence_lines(brain_context, limit=1),
+    ]
     deltas = _fetch_json(f"{api_url.rstrip('/')}/api/persona/deltas?limit={limit}")
     rows = [item for item in deltas if isinstance(item, dict)]
 
@@ -315,6 +329,17 @@ def build_report(api_url: str, limit: int, sync_live: bool) -> dict[str, Any]:
         "processed_count": len(processed_items),
         "artifact_paths": artifact_paths,
         "processed_items": processed_items,
+        "brain_context": brain_context,
+        "brain_context_lines": brain_context_lines,
+        "source_paths": list(
+            dict.fromkeys(
+                [
+                    f"{api_url.rstrip('/')}/api/persona/deltas?limit={limit}",
+                    *(brain_context.get("source_paths") or []),
+                    *artifact_paths,
+                ]
+            )
+        ),
     }
 
 
@@ -342,6 +367,10 @@ def _markdown_report(report: dict[str, Any]) -> str:
     else:
         for path in report["artifact_paths"]:
             lines.append(f"- `{path}`")
+    lines.extend(["", "## Brain Context"])
+    brain_context_lines = report.get("brain_context_lines") or ["No active Brain Signal or portfolio blocker changed this sync run."]
+    for item in brain_context_lines:
+        lines.append(f"- {item}")
     lines.extend(["", "## Processed Items"])
     if not report.get("processed_items"):
         lines.append("- None.")

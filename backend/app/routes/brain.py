@@ -9,14 +9,20 @@ from app.models import (
     BrainOperatorStorySignalsSyncRequest,
     BrainPersonaReviewRequest,
     BrainPersonaRerouteRequest,
+    BrainSignal,
+    BrainSignalCreateRequest,
+    BrainSignalReviewRequest,
+    BrainSignalRouteRequest,
     BrainSystemRouteRequest,
     BrainYouTubeWatchlistIngestRequest,
     PersonaDelta,
 )
 from app.services import persona_delta_service
 from app.services.brain_long_form_ingest_service import brain_long_form_ingest_service
+from app.services.brain_signal_service import create_signal, get_signal, list_signals, review_signal, route_signal
 from app.services.brain_system_route_service import route_delta_signal
 from app.services.brain_control_plane_service import build_brain_control_plane
+from app.services.portfolio_workspace_snapshot_service import build_portfolio_workspace_snapshot
 from app.services.persona_promotion_service import build_committed_persona_overlay, promote_delta_to_canon, reroute_delta_promotion
 from app.services.persona_review_queue_service import annotate_for_brain_queue
 from app.services.social_belief_engine import load_persona_truth
@@ -34,6 +40,80 @@ async def get_brain_control_plane(response: Response):
         return build_brain_control_plane()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/portfolio-snapshot")
+async def get_portfolio_snapshot(response: Response):
+    try:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return build_portfolio_workspace_snapshot()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/signals", response_model=list[BrainSignal])
+async def get_brain_signals(limit: int = 50, review_status: str | None = None, workspace_key: str | None = None):
+    try:
+        return list_signals(limit=limit, review_status=review_status, workspace_key=workspace_key)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/signals", response_model=BrainSignal)
+async def post_brain_signal(payload: BrainSignalCreateRequest):
+    try:
+        return create_signal(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/signals/{signal_id}", response_model=BrainSignal)
+async def get_brain_signal(signal_id: str):
+    signal = get_signal(signal_id)
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Brain signal not found")
+    return signal
+
+
+@router.patch("/signals/{signal_id}", response_model=BrainSignal)
+async def patch_brain_signal(signal_id: str, payload: BrainSignalReviewRequest):
+    try:
+        signal = review_signal(signal_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Brain signal not found")
+    return signal
+
+
+@router.post("/signals/{signal_id}/review", response_model=BrainSignal)
+async def post_brain_signal_review(signal_id: str, payload: BrainSignalReviewRequest):
+    try:
+        signal = review_signal(signal_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Brain signal not found")
+    return signal
+
+
+@router.post("/signals/{signal_id}/route", response_model=BrainSignal)
+async def post_brain_signal_route(signal_id: str, payload: BrainSignalRouteRequest):
+    try:
+        signal = route_signal(signal_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Brain signal not found")
+    return signal
 
 
 @router.post("/ingest-long-form")

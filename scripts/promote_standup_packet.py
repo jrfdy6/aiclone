@@ -54,6 +54,21 @@ def _workspace_agent_name(workspace_key: str) -> str:
     return workspace_agent_name(workspace_key)
 
 
+def _strategy_signal(strategy_context: dict[str, Any], key: str, *, max_len: int = 150) -> str:
+    value = str(strategy_context.get(key) or "").strip()
+    return _summarize(value, max_len=max_len) if value else ""
+
+
+def _section_signal(prep: dict[str, Any], key: str, *, max_len: int = 160) -> str:
+    sections = dict(prep.get("standup_sections") or {})
+    values = sections.get(key) if isinstance(sections.get(key), list) else []
+    for item in values:
+        normalized = str(item).strip()
+        if normalized:
+            return _summarize(normalized, max_len=max_len)
+    return ""
+
+
 def _pm_updates_from(recommendation: dict[str, Any] | None, prep: dict[str, Any]) -> list[dict[str, Any]]:
     source = (recommendation or {}).get("pm_updates")
     if not isinstance(source, list) or not source:
@@ -117,6 +132,9 @@ def _jean_claude_note(prep: dict[str, Any]) -> str:
         summary_bits.append(f"Agenda starts with {agenda[0]}")
     if artifact:
         summary_bits.append(f"Latest delta: {artifact[0]}")
+    next_focus = _section_signal(prep, "next_focus", max_len=130)
+    if next_focus:
+        summary_bits.append(f"Next focus: {next_focus}")
     if strategy_lines:
         summary_bits.append(strategy_lines[0])
     return " ".join(summary_bits) or (prep.get("summary") or "PM-first standup is ready.")
@@ -141,12 +159,39 @@ def _workspace_agent_note(prep: dict[str, Any], decisions: list[str]) -> str:
     workspace_key = str(prep.get("workspace_key") or "shared_ops")
     workspace_agent = _workspace_agent_name(workspace_key)
     strategy_context = dict(prep.get("strategy_context") or {})
-    display_name = str(strategy_context.get("display_name") or workspace_key)
+    workspace_context = dict(prep.get("workspace_context") or {})
+    note_parts = [f"{workspace_agent} should execute inside `{workspace_key}` only."]
     if decisions:
-        return (
-            f"{workspace_agent} should execute inside `{workspace_key}` only. Start from {decisions[0]}, keep `{display_name}` inside its charter, and report back through workspace artifacts plus the PM card."
+        note_parts.append(f"Start from {decisions[0]}")
+    briefing_path = str(workspace_context.get("latest_briefing_path") or "").strip()
+    execution_log_path = str(workspace_context.get("execution_log_path") or "").strip()
+    audience_feedback_path = str(workspace_context.get("audience_feedback_path") or "").strip()
+    if briefing_path and execution_log_path:
+        note_parts.append(
+            f"Cite the latest briefing `{briefing_path}` and execution log `{execution_log_path}` before proposing new work."
         )
-    return f"{workspace_agent} should keep `{workspace_key}` clean, local, execution-focused, and inside `{display_name}` strategy until the next real board move appears."
+    elif briefing_path:
+        note_parts.append(f"Cite the latest briefing `{briefing_path}` before proposing new work.")
+    elif execution_log_path:
+        note_parts.append(f"Cite the latest execution log `{execution_log_path}` before proposing new work.")
+    else:
+        note_parts.append("Use the latest local artifact trail before proposing new work.")
+    if audience_feedback_path:
+        note_parts.append(f"Review the latest public audience feedback `{audience_feedback_path}` before changing narrative direction.")
+    next_focus = _section_signal(prep, "next_focus", max_len=130)
+    if next_focus:
+        note_parts.append(f"Current next focus: {next_focus}.")
+    lane_boundary = _strategy_signal(strategy_context, "lane_boundary", max_len=140)
+    if lane_boundary:
+        note_parts.append(f"Boundary: {lane_boundary}.")
+    trust_constraint = _strategy_signal(strategy_context, "trust_constraint", max_len=140)
+    if trust_constraint:
+        note_parts.append(f"Trust constraint: {trust_constraint}.")
+    execution_posture = _strategy_signal(strategy_context, "execution_posture", max_len=140)
+    if execution_posture:
+        note_parts.append(f"Report back in this posture: {execution_posture}.")
+    note_parts.append("End by naming the exact next artifact or blocker through workspace artifacts plus the PM card.")
+    return " ".join(note_parts)
 
 
 def _yoda_note(prep: dict[str, Any], chronicle_entry: dict[str, Any] | None) -> str:
@@ -274,6 +319,8 @@ def _build_payload(prep: dict[str, Any], recommendation: dict[str, Any] | None, 
         "decisions": decisions,
         "owners": owners,
         "artifact_deltas": list(prep.get("artifact_deltas") or []),
+        "audience_response": list(prep.get("audience_response") or []),
+        "standup_sections": dict(prep.get("standup_sections") or {}),
         "source": "standup_prep",
         "conversation_path": str(prep.get("standup_payload", {}).get("conversation_path") or ""),
         "source_paths": list(prep.get("source_paths") or []),

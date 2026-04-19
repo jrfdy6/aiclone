@@ -19,6 +19,48 @@ expected by Railway, then runs `railway up` against that staged path.
 EOF
 }
 
+rsync_if_exists() {
+  local source_path="$1"
+  local destination_path="$2"
+  if [ -e "$source_path" ]; then
+    mkdir -p "$(dirname "$destination_path")"
+    rsync -a "$source_path" "$destination_path"
+  fi
+}
+
+stage_frontend_brain_sources() {
+  local target_root="$1"
+
+  rsync_if_exists "$DATA_ROOT/knowledge/aiclone/" "$target_root/knowledge/aiclone/"
+  rsync_if_exists "$DATA_ROOT/knowledge/source-intelligence/" "$target_root/knowledge/source-intelligence/"
+  rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$target_root/knowledge/persona/feeze/"
+  rsync_if_exists "$DATA_ROOT/docs/" "$target_root/docs/"
+  rsync_if_exists "$DATA_ROOT/SOPs/" "$target_root/SOPs/"
+  for workspace_dir in shared-ops linkedin-content-os fusion-os easyoutfitapp ai-swag-store agc
+  do
+    rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/docs/" "$target_root/workspaces/$workspace_dir/docs/"
+    rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/analytics/" "$target_root/workspaces/$workspace_dir/analytics/"
+  done
+  rsync_if_exists "$DATA_ROOT/workspaces/linkedin-content-os/plans/" "$target_root/workspaces/linkedin-content-os/plans/"
+
+  for rel_path in \
+    memory/persistent_state.md \
+    memory/LEARNINGS.md \
+    memory/daily-briefs.md \
+    memory/cron-prune.md \
+    memory/dream_cycle_log.md \
+    memory/codex_session_handoff.jsonl \
+    memory/reports/brain_canonical_memory_sync_latest.md
+  do
+    rsync_if_exists "$DATA_ROOT/$rel_path" "$target_root/$rel_path"
+  done
+
+  latest_daily_log="$(find "$DATA_ROOT/memory" -maxdepth 1 -type f -name '????-??-??.md' 2>/dev/null | sort | tail -n 1 || true)"
+  if [ -n "$latest_daily_log" ]; then
+    rsync_if_exists "$latest_daily_log" "$target_root/memory/$(basename "$latest_daily_log")"
+  fi
+}
+
 if [ "${1:-}" = "" ]; then
   usage
   exit 1
@@ -49,6 +91,11 @@ rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/$CHILD_DIR"
 rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$SOURCE_DIR/" "$STAGE_DIR/$CHILD_DIR/"
 
+if [ "$SERVICE_NAME" = "aiclone-frontend" ]; then
+  stage_frontend_brain_sources "$STAGE_DIR"
+  stage_frontend_brain_sources "$STAGE_DIR/$CHILD_DIR"
+fi
+
 if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   INGEST_RSYNC_EXCLUDES=(
     --exclude raw/
@@ -71,8 +118,11 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   rsync -a "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone/transcripts/"
   rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"
   rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions/"
-  rsync -a "$DATA_ROOT/workspaces/linkedin-content-os/" "$STAGE_DIR/workspaces/linkedin-content-os/"
-  rsync -a "$DATA_ROOT/workspaces/linkedin-content-os/" "$STAGE_DIR/$CHILD_DIR/workspaces/linkedin-content-os/"
+  for workspace_dir in shared-ops linkedin-content-os fusion-os easyoutfitapp ai-swag-store agc
+  do
+    rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/" "$STAGE_DIR/workspaces/$workspace_dir/"
+    rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/" "$STAGE_DIR/$CHILD_DIR/workspaces/$workspace_dir/"
+  done
   rsync -a "$DATA_ROOT/scripts/personal-brand/" "$STAGE_DIR/scripts/personal-brand/"
   rsync -a "$DATA_ROOT/scripts/personal-brand/" "$STAGE_DIR/$CHILD_DIR/scripts/personal-brand/"
   rsync -a "$DATA_ROOT/SOPs/" "$STAGE_DIR/$CHILD_DIR/SOPs/"

@@ -299,6 +299,44 @@ class AccountabilitySweepTests(unittest.TestCase):
         self.assertEqual(execution["executor_worker_id"], "worker-123")
         self.assertEqual((followup_patch["payload"].get("completion_contract") or {}).get("source"), "accountability_sweep")
 
+    def test_report_carries_brain_context_sources(self) -> None:
+        brain_context = {
+            "brain_signals": [
+                {
+                    "id": "signal-1",
+                    "source_workspace_key": "shared_ops",
+                    "summary": "Accountability sweep should cite Brain context.",
+                    "review_status": "reviewed",
+                }
+            ],
+            "portfolio_snapshot": {"workspaces": []},
+            "source_intelligence": {
+                "available": True,
+                "counts": {"total": 1, "digested": 1, "reviewed": 0, "routed": 0},
+            },
+            "source_paths": ["/tmp/brain_signals.jsonl"],
+        }
+
+        def fake_fetch_json(url: str, *, method: str = "GET", payload: dict | None = None):
+            if method == "GET" and url.endswith("/api/pm/execution-queue?limit=200"):
+                return []
+            if method == "GET" and url.endswith("/api/pm/cards?limit=400"):
+                return []
+            raise AssertionError(f"Unexpected call: {method} {url}")
+
+        report = MODULE.build_report(
+            "https://example.test",
+            ready_age_minutes=90,
+            review_age_hours=24,
+            sync_live=False,
+            fetch_json=fake_fetch_json,
+            brain_context=brain_context,
+        )
+
+        self.assertIn("/tmp/brain_signals.jsonl", report["source_paths"])
+        self.assertTrue(any("Brain Signal" in item for item in report["brain_context_lines"]))
+        self.assertIn("## Brain Context", MODULE._markdown_report(report))
+
 
 if __name__ == "__main__":
     unittest.main()

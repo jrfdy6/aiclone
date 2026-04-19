@@ -119,21 +119,69 @@ def resolve_live_memory_write_path(workspace_root: Path, relative_path: str | Pa
     return workspace_root / runtime_relative_path(relative_path)
 
 
-def resolve_snapshot_fallback_path(workspace_root: Path, relative_path: str | Path) -> Path:
+def expected_memory_read_mode(relative_path: str | Path) -> str:
     relative = Path(relative_path)
-    runtime_path = resolve_live_memory_write_path(workspace_root, relative)
-    if runtime_path.exists():
-        return runtime_path
+    runtime_relative = runtime_relative_path(relative)
+    return "runtime" if runtime_relative != relative else "live"
+
+
+def resolve_memory_read_target(workspace_root: Path, relative_path: str | Path) -> dict[str, Any]:
+    relative = Path(relative_path)
     live_path = workspace_root / relative
-    if live_path.exists():
-        return live_path
+    runtime_path = resolve_live_memory_write_path(workspace_root, relative)
+    expected_mode = expected_memory_read_mode(relative)
+    expected_path = runtime_path if expected_mode == "runtime" else live_path
     snapshot_id = latest_snapshot_id(workspace_root)
-    if not snapshot_id:
-        return live_path
-    snapshot_copy = snapshot_dir(workspace_root, snapshot_id) / relative
-    if snapshot_copy.exists():
-        return snapshot_copy
-    return live_path
+    snapshot_path = snapshot_dir(workspace_root, snapshot_id) / relative if snapshot_id else None
+
+    if expected_path.exists():
+        resolved_mode = expected_mode
+        resolved_path = expected_path
+    elif expected_mode == "runtime" and live_path.exists():
+        resolved_mode = "live"
+        resolved_path = live_path
+    elif snapshot_path is not None and snapshot_path.exists():
+        resolved_mode = "snapshot"
+        resolved_path = snapshot_path
+    else:
+        resolved_mode = "missing"
+        resolved_path = expected_path
+
+    runtime_exists = runtime_path.exists()
+    live_exists = live_path.exists()
+    runtime_mtime = runtime_path.stat().st_mtime if runtime_exists else None
+    live_mtime = live_path.stat().st_mtime if live_exists else None
+    runtime_out_of_sync = bool(
+        expected_mode == "runtime"
+        and runtime_exists
+        and live_exists
+        and live_mtime is not None
+        and runtime_mtime is not None
+        and live_mtime > runtime_mtime + 1
+    )
+    live_newer_by_hours = None
+    if runtime_out_of_sync and live_mtime is not None and runtime_mtime is not None:
+        live_newer_by_hours = round((live_mtime - runtime_mtime) / 3600, 2)
+
+    return {
+        "relative_path": relative.as_posix(),
+        "expected_mode": expected_mode,
+        "expected_path": expected_path,
+        "resolved_mode": resolved_mode,
+        "resolved_path": resolved_path,
+        "fallback_active": resolved_mode != expected_mode,
+        "missing": resolved_mode == "missing",
+        "runtime_path": runtime_path,
+        "live_path": live_path,
+        "snapshot_path": snapshot_path,
+        "snapshot_id": snapshot_id,
+        "runtime_out_of_sync": runtime_out_of_sync,
+        "live_newer_by_hours": live_newer_by_hours,
+    }
+
+
+def resolve_snapshot_fallback_path(workspace_root: Path, relative_path: str | Path) -> Path:
+    return resolve_memory_read_target(workspace_root, relative_path)["resolved_path"]
 
 
 def build_core_memory_snapshot(

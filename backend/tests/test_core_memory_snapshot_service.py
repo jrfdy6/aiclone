@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +13,9 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.services.core_memory_snapshot_service import (  # noqa: E402
     build_core_memory_snapshot,
+    expected_memory_read_mode,
     latest_snapshot_id,
+    resolve_memory_read_target,
     resolve_live_memory_write_path,
     resolve_snapshot_fallback_path,
     restore_core_memory_snapshot,
@@ -59,6 +62,67 @@ class CoreMemorySnapshotServiceTest(unittest.TestCase):
             self.assertTrue(runtime_persistent.exists())
             self.assertIn("Current brief.", live_daily_briefs.read_text(encoding="utf-8"))
             self.assertIn("Current state.", runtime_persistent.read_text(encoding="utf-8"))
+
+    def test_resolve_memory_read_target_reports_expected_and_fallback_modes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            (workspace_root / "memory").mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = resolve_live_memory_write_path(workspace_root, "memory/persistent_state.md")
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text("runtime\n", encoding="utf-8")
+            live_daily_briefs = workspace_root / "memory" / "daily-briefs.md"
+            live_daily_briefs.write_text("live\n", encoding="utf-8")
+
+            runtime_target = resolve_memory_read_target(workspace_root, "memory/persistent_state.md")
+            self.assertEqual(expected_memory_read_mode("memory/persistent_state.md"), "runtime")
+            self.assertEqual(runtime_target["expected_mode"], "runtime")
+            self.assertEqual(runtime_target["resolved_mode"], "runtime")
+            self.assertFalse(runtime_target["fallback_active"])
+
+            build_core_memory_snapshot(
+                workspace_root,
+                snapshot_id="2026-04-17",
+                relative_paths=("memory/daily-briefs.md",),
+            )
+            live_daily_briefs.unlink()
+            snapshot_target = resolve_memory_read_target(workspace_root, "memory/daily-briefs.md")
+            self.assertEqual(expected_memory_read_mode("memory/daily-briefs.md"), "live")
+            self.assertEqual(snapshot_target["expected_mode"], "live")
+            self.assertEqual(snapshot_target["resolved_mode"], "snapshot")
+            self.assertTrue(snapshot_target["fallback_active"])
+            self.assertEqual(snapshot_target["snapshot_id"], "2026-04-17")
+
+            runtime_path.unlink()
+            missing_target = resolve_memory_read_target(workspace_root, "memory/persistent_state.md")
+            self.assertEqual(missing_target["resolved_mode"], "missing")
+            self.assertTrue(missing_target["fallback_active"])
+
+    def test_resolve_memory_read_target_flags_runtime_sync_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = resolve_live_memory_write_path(workspace_root, "memory/persistent_state.md")
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text("runtime\n", encoding="utf-8")
+            live_path = memory_root / "persistent_state.md"
+            live_path.write_text("live\n", encoding="utf-8")
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            target = resolve_memory_read_target(workspace_root, "memory/persistent_state.md")
+
+        self.assertEqual(target["resolved_mode"], "runtime")
+        self.assertFalse(target["fallback_active"])
+        self.assertTrue(target["runtime_out_of_sync"])
+        self.assertGreater(target["live_newer_by_hours"], 0)
 
 
 if __name__ == "__main__":

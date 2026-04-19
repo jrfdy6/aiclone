@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Iterable
@@ -54,7 +55,7 @@ WORKSPACE_HINTS = {
     "shared-ops": ["OpenClaw", "Codex", "shared ops", "canonical memory", "PM board"],
     "linkedin-os": ["linkedin-os", "linkedin content", "FEEZIE", "FEEZIE OS"],
     "fusion-os": ["fusion-os", "Fusion OS", "delegated execution", "workspace execution"],
-    "easyoutfitapp": ["easyoutfitapp", "EasyOutfitApp"],
+    "easyoutfitapp": ["easyoutfitapp", "Easy Outfit App", "EasyOutfitApp"],
     "ai-swag-store": ["ai-swag-store", "AI Swag Store"],
     "agc": ["agc"],
 }
@@ -135,7 +136,29 @@ def _qmd_env() -> dict[str, str]:
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(QMD_CONFIG_HOME)
     env["XDG_CACHE_HOME"] = str(QMD_CACHE_HOME)
+    path_entries = [
+        str(Path("/Users/neo/.bun/bin")),
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        env.get("PATH", ""),
+    ]
+    env["PATH"] = ":".join([entry for entry in path_entries if entry])
     return env
+
+
+def _resolve_qmd_binary() -> str | None:
+    discovered = shutil.which("qmd")
+    if discovered:
+        return discovered
+    candidates = []
+    env_candidate = os.environ.get("QMD_BIN")
+    if env_candidate:
+        candidates.append(Path(env_candidate))
+    candidates.extend([Path("/usr/local/bin/qmd"), Path("/opt/homebrew/bin/qmd")])
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
 
 
 def _parse_qmd_results(raw: str) -> list[dict[str, Any]]:
@@ -185,15 +208,21 @@ def _parse_qmd_results(raw: str) -> list[dict[str, Any]]:
 
 
 def _run_qmd_search(query: str, collection: str, limit: int) -> tuple[list[dict[str, Any]], str | None]:
-    command = ["qmd", "search", query, "-c", collection, "-n", str(limit)]
+    qmd_binary = _resolve_qmd_binary()
+    if not qmd_binary:
+        return [], "qmd search failed: qmd binary not found"
+    command = [qmd_binary, "search", query, "-c", collection, "-n", str(limit)]
     last_error = None
     for _ in range(3):
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            env=_qmd_env(),
-        )
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                env=_qmd_env(),
+            )
+        except OSError as exc:
+            return [], f"qmd search failed: {exc}"
         if result.returncode == 0:
             return _parse_qmd_results(result.stdout), None
         last_error = (result.stderr or result.stdout or "qmd search failed").strip()
@@ -292,6 +321,27 @@ def build_durable_memory_context(
             break
 
     results = _dedupe_results(collected, max_results)
+    qmd_result_count = sum(1 for item in results if item.get("source") == "qmd")
+    filesystem_result_count = sum(1 for item in results if item.get("source") == "filesystem")
+    fallback_reasons: list[str] = []
+    if warnings:
+        fallback_reasons.append("qmd_warning")
+    if filesystem_result_count:
+        fallback_reasons.append("filesystem_scan")
+    if warnings and filesystem_result_count:
+        retrieval_mode = "qmd_warning+filesystem_fallback"
+    elif warnings and qmd_result_count:
+        retrieval_mode = "qmd_warning"
+    elif warnings:
+        retrieval_mode = "warning_only"
+    elif filesystem_result_count and qmd_result_count:
+        retrieval_mode = "qmd+filesystem_fallback"
+    elif filesystem_result_count:
+        retrieval_mode = "filesystem_fallback"
+    elif qmd_result_count:
+        retrieval_mode = "qmd_only"
+    else:
+        retrieval_mode = "empty"
     return {
         "available": bool(results),
         "workspace_key": workspace_key,
@@ -300,6 +350,11 @@ def build_durable_memory_context(
         "results": results,
         "source_paths": [str(WORKSPACE_ROOT / item["path"]) for item in results],
         "warnings": warnings,
+        "qmd_result_count": qmd_result_count,
+        "filesystem_result_count": filesystem_result_count,
+        "retrieval_mode": retrieval_mode,
+        "fallback_active": bool(fallback_reasons),
+        "fallback_reasons": fallback_reasons,
     }
 
 

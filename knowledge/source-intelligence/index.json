@@ -1,0 +1,3329 @@
+{
+  "counts": {
+    "digested": 78,
+    "ignored": 0,
+    "promoted": 0,
+    "raw": 0,
+    "reviewed": 4,
+    "routed": 9,
+    "total": 91
+  },
+  "generated_at": "2026-04-19T13:23:02Z",
+  "roots": {
+    "ingestions": "knowledge/ingestions",
+    "source_intelligence": "knowledge/source-intelligence",
+    "transcripts": "knowledge/aiclone/transcripts"
+  },
+  "schema_version": "source_intelligence_index/v1",
+  "sources": [
+    {
+      "captured_at": "",
+      "digest_path": "knowledge/aiclone/transcripts/2026-03-30_user-provided-voice-proof-draft.shared_source_packet.json",
+      "metadata_path": "knowledge/aiclone/transcripts/2026-03-30_user-provided-voice-proof-draft.shared_source_packet.json",
+      "normalized_path": "knowledge/aiclone/transcripts/2026-03-30_user-provided-voice-proof-draft.shared_source_packet.json",
+      "promotions": [],
+      "published_at": "",
+      "raw_path": "knowledge/aiclone/transcripts/2026-03-30_user-provided-voice-proof-draft.md",
+      "raw_paths": [
+        "knowledge/aiclone/transcripts/2026-03-30_user-provided-voice-proof-draft.md"
+      ],
+      "route_decision": {
+        "path": "knowledge/aiclone/transcripts/2026-03-30_user-provided-voice-proof-draft.shared_source_packet.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        }
+      },
+      "source_channel": "manual",
+      "source_class": "long_form_media",
+      "source_id": "2026-03-30_user-provided-voice-proof-draft",
+      "source_kind": "transcript_library",
+      "source_type": "transcript_note",
+      "source_url": "",
+      "status": "routed",
+      "summary": "Date: 2026-03-30",
+      "title": "2026-03-30 user-provided-voice-proof-draft"
+    },
+    {
+      "captured_at": "2026-03",
+      "digest_path": "knowledge/ingestions/2026/03/ai_could_be_a_viable_romantic_partner_c7c0195310/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/03/ai_could_be_a_viable_romantic_partner_c7c0195310/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/03/ai_could_be_a_viable_romantic_partner_c7c0195310/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/03/ai_could_be_a_viable_romantic_partner_c7c0195310/raw/source.url",
+        "knowledge/ingestions/2026/03/ai_could_be_a_viable_romantic_partner_c7c0195310/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/03/ai_could_be_a_viable_romantic_partner_c7c0195310/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_could_be_a_viable_romantic_partner_c7c0195310",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-01T04:15:41.538970+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-03-ai_could_be_a_viable_romantic_partner_c7c0195310",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=y71L1skYZYo",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-03",
+      "digest_path": "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/build_review.md",
+      "metadata_path": "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/review_packets.json",
+      "normalized_path": "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/raw/From_Pilot_to_Payoff_-_7_Pattern-Matched_Traits_of_AI_Systems_That_Actually_Work__P5yznR8dUj4.json",
+      "raw_paths": [
+        "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/raw/From_Pilot_to_Payoff_-_7_Pattern-Matched_Traits_of_AI_Systems_That_Actually_Work__P5yznR8dUj4.json",
+        "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/raw/From_Pilot_to_Payoff_-_7_Pattern-Matched_Traits_of_AI_Systems_That_Actually_Work__P5yznR8dUj4.url",
+        "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/raw/From_Pilot_to_Payoff_-_7_Pattern-Matched_Traits_of_AI_Systems_That_Actually_Work__P5yznR8dUj4.webm",
+        "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/raw/From_Pilot_to_Payoff_-_7_Pattern-Matched_Traits_of_AI_Systems_That_Actually_Work__P5yznR8dUj4_transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "build_review": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "review_id": "8ac8c0f2-fc65-5ab7-9c37-1bf42d26a687",
+            "status": "ok",
+            "synced_at": "2026-03-22T12:29:52Z"
+          },
+          "capture": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "capture_id": "12",
+            "status": "ok",
+            "synced_at": "2026-03-22T12:29:53Z"
+          },
+          "local_artifacts": {
+            "build_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/build_review.md",
+            "linkedin_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/linkedin_review.md",
+            "persona_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/persona_review.md",
+            "review_packets": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/review_packets.json"
+          },
+          "normalized_path": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4/normalized.md",
+          "persona_delta": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "delta_id": "ba0a4ac7-900e-5c46-a889-ab340470c093",
+            "status": "ok",
+            "synced_at": "2026-03-22T12:29:54Z",
+            "target_file": "history/initiatives.md"
+          },
+          "quality_flags": [],
+          "summary_origin": "provided",
+          "updated_at": "2026-03-22T12:29:51Z"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-03-from_pilot_to_payoff_7_pattern_matched_traits_of_ai_systems_that_actually_work_p5yznr8duj4",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=P5yznR8dUj4",
+      "status": "reviewed",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-03",
+      "digest_path": "knowledge/ingestions/2026/03/persona_bundle_spec/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/03/persona_bundle_spec/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/03/persona_bundle_spec/raw/PERSONA_BUNDLE_SPEC.md",
+      "raw_paths": [
+        "knowledge/ingestions/2026/03/persona_bundle_spec/raw/PERSONA_BUNDLE_SPEC.md"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/03/persona_bundle_spec/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "summary_origin": "provided"
+        }
+      },
+      "source_channel": "manual",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-03-persona_bundle_spec",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-03",
+      "digest_path": "knowledge/ingestions/2026/03/queue_test_transcript/build_review.md",
+      "metadata_path": "knowledge/ingestions/2026/03/queue_test_transcript/review_packets.json",
+      "normalized_path": "knowledge/ingestions/2026/03/queue_test_transcript/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/03/queue_test_transcript/raw/queue_test_transcript.json",
+      "raw_paths": [
+        "knowledge/ingestions/2026/03/queue_test_transcript/raw/queue_test_transcript.json",
+        "knowledge/ingestions/2026/03/queue_test_transcript/raw/queue_test_transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/03/queue_test_transcript/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "build_review": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "message": "POST /api/build-reviews failed: [Errno 8] nodename nor servname provided, or not known",
+            "review_id": "e6f8a299-4617-50b9-8a18-955304c55594",
+            "status": "error"
+          },
+          "capture": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "capture_id": null,
+            "message": "POST /api/capture/ failed: [Errno 8] nodename nor servname provided, or not known",
+            "status": "error"
+          },
+          "local_artifacts": {
+            "build_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/queue_test_transcript/build_review.md",
+            "persona_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/queue_test_transcript/persona_review.md",
+            "review_packets": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/queue_test_transcript/review_packets.json"
+          },
+          "normalized_path": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/queue_test_transcript/normalized.md",
+          "persona_delta": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "delta_id": null,
+            "message": "Capture sync failed; persona delta not created.",
+            "status": "pending",
+            "target_file": "identity/philosophy.md"
+          },
+          "quality_flags": [],
+          "summary_origin": "provided",
+          "updated_at": "2026-03-22T10:50:53Z"
+        }
+      },
+      "source_channel": "manual",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-03-queue_test_transcript",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "status": "reviewed",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-03",
+      "digest_path": "knowledge/ingestions/2026/03/queue_test_transcript_2/build_review.md",
+      "metadata_path": "knowledge/ingestions/2026/03/queue_test_transcript_2/review_packets.json",
+      "normalized_path": "knowledge/ingestions/2026/03/queue_test_transcript_2/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/03/queue_test_transcript_2/raw/queue_test_transcript_2.json",
+      "raw_paths": [
+        "knowledge/ingestions/2026/03/queue_test_transcript_2/raw/queue_test_transcript_2.json",
+        "knowledge/ingestions/2026/03/queue_test_transcript_2/raw/queue_test_transcript_2.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/03/queue_test_transcript_2/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "build_review": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "message": "POST /api/build-reviews failed: [Errno 8] nodename nor servname provided, or not known",
+            "review_id": "89147068-3249-5467-be0e-2e6e04a5446b",
+            "status": "error"
+          },
+          "capture": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "capture_id": null,
+            "message": "POST /api/capture/ failed: [Errno 8] nodename nor servname provided, or not known",
+            "status": "error"
+          },
+          "local_artifacts": {
+            "build_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/queue_test_transcript_2/build_review.md",
+            "persona_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/queue_test_transcript_2/persona_review.md",
+            "review_packets": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/queue_test_transcript_2/review_packets.json"
+          },
+          "normalized_path": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/queue_test_transcript_2/normalized.md",
+          "persona_delta": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "delta_id": null,
+            "message": "Capture sync failed; persona delta not created.",
+            "status": "pending",
+            "target_file": "history/initiatives.md"
+          },
+          "quality_flags": [
+            "anecdotes_missing",
+            "quotes_missing"
+          ],
+          "summary_origin": "provided",
+          "updated_at": "2026-03-22T10:51:34Z"
+        }
+      },
+      "source_channel": "manual",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-03-queue_test_transcript_2",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "status": "reviewed",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-03",
+      "digest_path": "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/build_review.md",
+      "metadata_path": "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/review_packets.json",
+      "normalized_path": "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/raw/Real-World_Impact_of_AI_-_Opportunities_Risks_and_Intellectual_Property_Oh_My__QpNjVaS2gzo.json",
+      "raw_paths": [
+        "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/raw/Real-World_Impact_of_AI_-_Opportunities_Risks_and_Intellectual_Property_Oh_My__QpNjVaS2gzo.json",
+        "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/raw/Real-World_Impact_of_AI_-_Opportunities_Risks_and_Intellectual_Property_Oh_My__QpNjVaS2gzo.url",
+        "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/raw/Real-World_Impact_of_AI_-_Opportunities_Risks_and_Intellectual_Property_Oh_My__QpNjVaS2gzo.webm",
+        "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/raw/Real-World_Impact_of_AI_-_Opportunities_Risks_and_Intellectual_Property_Oh_My__QpNjVaS2gzo_transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "build_review": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "review_id": "059b2d06-11e0-5c74-9bd3-d36232dcb469",
+            "status": "ok",
+            "synced_at": "2026-03-22T12:30:04Z"
+          },
+          "capture": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "capture_id": "14",
+            "status": "ok",
+            "synced_at": "2026-03-22T12:30:05Z"
+          },
+          "local_artifacts": {
+            "build_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/build_review.md",
+            "linkedin_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/linkedin_review.md",
+            "persona_review": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/persona_review.md",
+            "review_packets": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/review_packets.json"
+          },
+          "normalized_path": "/Users/neo/.openclaw/workspace/knowledge/ingestions/2026/03/real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo/normalized.md",
+          "persona_delta": {
+            "api_base": "https://aiclone-production-32dc.up.railway.app",
+            "delta_id": "c07819f1-cd94-4e5e-87f5-986a0b2c27ea",
+            "status": "ok",
+            "synced_at": "2026-03-22T12:30:05Z",
+            "target_file": "history/resume.md"
+          },
+          "quality_flags": [],
+          "summary_origin": "provided",
+          "updated_at": "2026-03-22T12:30:03Z"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-03-real_world_impact_of_ai_opportunities_risks_and_intellectual_property_oh_my_qpnjvas2gzo",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=QpNjVaS2gzo",
+      "status": "reviewed",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-03",
+      "digest_path": "knowledge/ingestions/2026/03/saas_debt_crisis_what_happens_when_companies_can_t_repay_f6b7fed1f2/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/03/saas_debt_crisis_what_happens_when_companies_can_t_repay_f6b7fed1f2/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/03/saas_debt_crisis_what_happens_when_companies_can_t_repay_f6b7fed1f2/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/03/saas_debt_crisis_what_happens_when_companies_can_t_repay_f6b7fed1f2/raw/source.url",
+        "knowledge/ingestions/2026/03/saas_debt_crisis_what_happens_when_companies_can_t_repay_f6b7fed1f2/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/03/saas_debt_crisis_what_happens_when_companies_can_t_repay_f6b7fed1f2/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "saas_debt_crisis_what_happens_when_companies_can_t_repay_f6b7fed1f2",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-01T04:16:50.438273+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-03-saas_debt_crisis_what_happens_when_companies_can_t_repay_f6b7fed1f2",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=7ZZ_vLqLFNE",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-03",
+      "digest_path": "knowledge/ingestions/2026/03/your_brain_isn_t_storage_let_ai_handle_it_ai_futureofwork_fd51713cb5/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/03/your_brain_isn_t_storage_let_ai_handle_it_ai_futureofwork_fd51713cb5/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/03/your_brain_isn_t_storage_let_ai_handle_it_ai_futureofwork_fd51713cb5/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/03/your_brain_isn_t_storage_let_ai_handle_it_ai_futureofwork_fd51713cb5/raw/source.url",
+        "knowledge/ingestions/2026/03/your_brain_isn_t_storage_let_ai_handle_it_ai_futureofwork_fd51713cb5/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/03/your_brain_isn_t_storage_let_ai_handle_it_ai_futureofwork_fd51713cb5/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "your_brain_isn_t_storage_let_ai_handle_it_ai_futureofwork_fd51713cb5",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-01T04:15:51.543457+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-03-your_brain_isn_t_storage_let_ai_handle_it_ai_futureofwork_fd51713cb5",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=5I5Y6fVSqrk",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-03-05",
+      "digest_path": "knowledge/aiclone/transcripts/2026-03-06_goat-os-episode-1.shared_source_packet.json",
+      "metadata_path": "knowledge/aiclone/transcripts/2026-03-06_goat-os-episode-1.shared_source_packet.json",
+      "normalized_path": "knowledge/aiclone/transcripts/2026-03-06_goat-os-episode-1.shared_source_packet.json",
+      "promotions": [],
+      "published_at": "2026-03-05",
+      "raw_path": "knowledge/aiclone/transcripts/2026-03-06_goat-os-episode-1.md",
+      "raw_paths": [
+        "knowledge/aiclone/transcripts/2026-03-06_goat-os-episode-1.md"
+      ],
+      "route_decision": {
+        "path": "knowledge/aiclone/transcripts/2026-03-06_goat-os-episode-1.shared_source_packet.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "2026-03-06_goat-os-episode-1",
+      "source_kind": "transcript_library",
+      "source_type": "transcript_note",
+      "source_url": "https://www.youtube.com/live/jf9D4Oh7RwI",
+      "status": "routed",
+      "summary": "Episode 1 is all about bootstrapping a fresh Goat OS agent: set SOUL/USER/Memory, light up Ops/Brain/Lab, and resist adding polish before the foundation is real.",
+      "title": "Goat OS Bootcamp \u2013 Episode 1 (Bedrock)"
+    },
+    {
+      "captured_at": "2026-03-30",
+      "digest_path": "knowledge/aiclone/transcripts/2026-03-30_external-reference-batch-ai-entrepreneurship-media.shared_source_packet.json",
+      "metadata_path": "knowledge/aiclone/transcripts/2026-03-30_external-reference-batch-ai-entrepreneurship-media.shared_source_packet.json",
+      "normalized_path": "knowledge/aiclone/transcripts/2026-03-30_external-reference-batch-ai-entrepreneurship-media.shared_source_packet.json",
+      "promotions": [],
+      "published_at": "2026-03-30",
+      "raw_path": "knowledge/aiclone/transcripts/2026-03-30_external-reference-batch-ai-entrepreneurship-media.md",
+      "raw_paths": [
+        "knowledge/aiclone/transcripts/2026-03-30_external-reference-batch-ai-entrepreneurship-media.md"
+      ],
+      "route_decision": {
+        "path": "knowledge/aiclone/transcripts/2026-03-30_external-reference-batch-ai-entrepreneurship-media.shared_source_packet.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        }
+      },
+      "source_channel": "manual",
+      "source_class": "long_form_media",
+      "source_id": "2026-03-30_external-reference-batch-ai-entrepreneurship-media",
+      "source_kind": "transcript_library",
+      "source_type": "transcript_note",
+      "source_url": "",
+      "status": "routed",
+      "summary": "This batch contains three high-signal external references: an AI/futurist interview, a women entrepreneurs panel, and a Gary Vee interview on AI, collecting, and entrepreneurship.",
+      "title": "External Reference Batch \u2013 AI, Entrepreneurship, and Media Voice"
+    },
+    {
+      "captured_at": "2026-03-30",
+      "digest_path": "knowledge/aiclone/transcripts/2026-03-30_persona-interview-experience-and-voice.shared_source_packet.json",
+      "metadata_path": "knowledge/aiclone/transcripts/2026-03-30_persona-interview-experience-and-voice.shared_source_packet.json",
+      "normalized_path": "knowledge/aiclone/transcripts/2026-03-30_persona-interview-experience-and-voice.shared_source_packet.json",
+      "promotions": [],
+      "published_at": "2026-03-30",
+      "raw_path": "knowledge/aiclone/transcripts/2026-03-30_persona-interview-experience-and-voice.md",
+      "raw_paths": [
+        "knowledge/aiclone/transcripts/2026-03-30_persona-interview-experience-and-voice.md"
+      ],
+      "route_decision": {
+        "path": "knowledge/aiclone/transcripts/2026-03-30_persona-interview-experience-and-voice.shared_source_packet.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        }
+      },
+      "source_channel": "manual",
+      "source_class": "long_form_media",
+      "source_id": "2026-03-30_persona-interview-experience-and-voice",
+      "source_kind": "transcript_library",
+      "source_type": "transcript_note",
+      "source_url": "",
+      "status": "routed",
+      "summary": "Johnnie identifies first as a hard-working, team-oriented operator shaped by athletics, humility, and learning to follow before leading.",
+      "title": "Persona Interview \u2013 Experience Relevance and Deep Voice Match"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931/shared_source_packet.json",
+      "metadata_path": "knowledge/ingestions/2026/04/i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931/shared_source_packet.json",
+      "normalized_path": "knowledge/ingestions/2026/04/i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931/normalized.md",
+      "promotions": [],
+      "published_at": "2026-04-04T15:38:16.063708Z",
+      "raw_path": "knowledge/ingestions/2026/04/i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931/raw/source.url",
+        "knowledge/ingestions/2026/04/i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931/routing_status.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "routing_status": {
+          "asset_id": "i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-04T15:38:16.063708+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "i_tested_4_ai_agents_that_promise_to_do_my_work_the_best_scored_1_out_of_bf22003931",
+      "source_kind": "machine_ingestion",
+      "source_type": "youtube_transcript",
+      "source_url": "https://www.youtube.com/watch?v=D-Ww1wLIp60",
+      "status": "routed",
+      "summary": "My site: https://natebjones.com Full Story w/ Prompts: https://natesnewsletter.substack.com/p/every-ai-agent-you-use-has-the-same?r=1z4sm5&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true ___________________ What's really happening with AI agents that claim to do the w...",
+      "title": "I Tested 4 AI Agents That Promise to Do My Work. The Best Scored 1 Out of 3."
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/5_years_left_before_everything_changes_ai_future_08a1e4a34d/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/5_years_left_before_everything_changes_ai_future_08a1e4a34d/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/5_years_left_before_everything_changes_ai_future_08a1e4a34d/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/5_years_left_before_everything_changes_ai_future_08a1e4a34d/raw/source.url",
+        "knowledge/ingestions/2026/04/5_years_left_before_everything_changes_ai_future_08a1e4a34d/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/5_years_left_before_everything_changes_ai_future_08a1e4a34d/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "5_years_left_before_everything_changes_ai_future_08a1e4a34d",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-02T23:28:24.209084+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-5_years_left_before_everything_changes_ai_future_08a1e4a34d",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=53zk_BeQGdY",
+      "status": "digested",
+      "summary": "--",
+      "title": "Clean Transcript / Document"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/66_of_companies_are_cutting_entry_level_jobs_for_ai_nextgenai_artificial_8ebd5ddf1b/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/66_of_companies_are_cutting_entry_level_jobs_for_ai_nextgenai_artificial_8ebd5ddf1b/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/66_of_companies_are_cutting_entry_level_jobs_for_ai_nextgenai_artificial_8ebd5ddf1b/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/66_of_companies_are_cutting_entry_level_jobs_for_ai_nextgenai_artificial_8ebd5ddf1b/raw/source.url",
+        "knowledge/ingestions/2026/04/66_of_companies_are_cutting_entry_level_jobs_for_ai_nextgenai_artificial_8ebd5ddf1b/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/66_of_companies_are_cutting_entry_level_jobs_for_ai_nextgenai_artificial_8ebd5ddf1b/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "66_of_companies_are_cutting_entry_level_jobs_for_ai_nextgenai_artificial_8ebd5ddf1b",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-13T00:24:41.047140+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-66_of_companies_are_cutting_entry_level_jobs_for_ai_nextgenai_artificial_8ebd5ddf1b",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=F368zITpbeI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/a_3_trillion_ipo_is_coming_your_retirement_account_pays_for_it_90e58a5222/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/a_3_trillion_ipo_is_coming_your_retirement_account_pays_for_it_90e58a5222/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/a_3_trillion_ipo_is_coming_your_retirement_account_pays_for_it_90e58a5222/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/a_3_trillion_ipo_is_coming_your_retirement_account_pays_for_it_90e58a5222/raw/source.url",
+        "knowledge/ingestions/2026/04/a_3_trillion_ipo_is_coming_your_retirement_account_pays_for_it_90e58a5222/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/a_3_trillion_ipo_is_coming_your_retirement_account_pays_for_it_90e58a5222/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "a_3_trillion_ipo_is_coming_your_retirement_account_pays_for_it_90e58a5222",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-09T16:01:55.423542+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-a_3_trillion_ipo_is_coming_your_retirement_account_pays_for_it_90e58a5222",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=9N7qXkmntlU",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/a_polymarket_bot_made_438_000_in_30_days_your_industry_is_next_here_s_wh_19fb9976dd/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/a_polymarket_bot_made_438_000_in_30_days_your_industry_is_next_here_s_wh_19fb9976dd/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/a_polymarket_bot_made_438_000_in_30_days_your_industry_is_next_here_s_wh_19fb9976dd/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/a_polymarket_bot_made_438_000_in_30_days_your_industry_is_next_here_s_wh_19fb9976dd/raw/source.url",
+        "knowledge/ingestions/2026/04/a_polymarket_bot_made_438_000_in_30_days_your_industry_is_next_here_s_wh_19fb9976dd/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/a_polymarket_bot_made_438_000_in_30_days_your_industry_is_next_here_s_wh_19fb9976dd/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "a_polymarket_bot_made_438_000_in_30_days_your_industry_is_next_here_s_wh_19fb9976dd",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-07T15:56:47.669155+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-a_polymarket_bot_made_438_000_in_30_days_your_industry_is_next_here_s_wh_19fb9976dd",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=BiqG3it0gY0",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/adaptive_teams_evolving_founders_and_why_they_re_underrated_f2b5b2cdcf/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/adaptive_teams_evolving_founders_and_why_they_re_underrated_f2b5b2cdcf/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/adaptive_teams_evolving_founders_and_why_they_re_underrated_f2b5b2cdcf/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/adaptive_teams_evolving_founders_and_why_they_re_underrated_f2b5b2cdcf/raw/source.url",
+        "knowledge/ingestions/2026/04/adaptive_teams_evolving_founders_and_why_they_re_underrated_f2b5b2cdcf/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/adaptive_teams_evolving_founders_and_why_they_re_underrated_f2b5b2cdcf/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "adaptive_teams_evolving_founders_and_why_they_re_underrated_f2b5b2cdcf",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-03T07:30:17.981897+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-adaptive_teams_evolving_founders_and_why_they_re_underrated_f2b5b2cdcf",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=lTpOMV0lIWY",
+      "status": "digested",
+      "summary": "--",
+      "title": "Clean Transcript / Document"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ai_agents_just_turned_your_service_into_a_utility_saas_ai_startup_a36a3b50c5/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ai_agents_just_turned_your_service_into_a_utility_saas_ai_startup_a36a3b50c5/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ai_agents_just_turned_your_service_into_a_utility_saas_ai_startup_a36a3b50c5/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ai_agents_just_turned_your_service_into_a_utility_saas_ai_startup_a36a3b50c5/raw/source.url",
+        "knowledge/ingestions/2026/04/ai_agents_just_turned_your_service_into_a_utility_saas_ai_startup_a36a3b50c5/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ai_agents_just_turned_your_service_into_a_utility_saas_ai_startup_a36a3b50c5/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_agents_just_turned_your_service_into_a_utility_saas_ai_startup_a36a3b50c5",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-02T01:23:17.560598+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ai_agents_just_turned_your_service_into_a_utility_saas_ai_startup_a36a3b50c5",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=QqVGp3hN3pE",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ai_and_emotional_intelligence_finding_the_balance_in_modern_research_ad3bf8ea2c/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ai_and_emotional_intelligence_finding_the_balance_in_modern_research_ad3bf8ea2c/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ai_and_emotional_intelligence_finding_the_balance_in_modern_research_ad3bf8ea2c/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ai_and_emotional_intelligence_finding_the_balance_in_modern_research_ad3bf8ea2c/raw/source.url",
+        "knowledge/ingestions/2026/04/ai_and_emotional_intelligence_finding_the_balance_in_modern_research_ad3bf8ea2c/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ai_and_emotional_intelligence_finding_the_balance_in_modern_research_ad3bf8ea2c/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_and_emotional_intelligence_finding_the_balance_in_modern_research_ad3bf8ea2c",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-07T09:55:33.619092+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ai_and_emotional_intelligence_finding_the_balance_in_modern_research_ad3bf8ea2c",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=NGaDu4VEUgI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ai_can_t_replace_human_emotion_so_let_s_protect_it_b816148a27/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ai_can_t_replace_human_emotion_so_let_s_protect_it_b816148a27/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ai_can_t_replace_human_emotion_so_let_s_protect_it_b816148a27/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ai_can_t_replace_human_emotion_so_let_s_protect_it_b816148a27/raw/source.url",
+        "knowledge/ingestions/2026/04/ai_can_t_replace_human_emotion_so_let_s_protect_it_b816148a27/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ai_can_t_replace_human_emotion_so_let_s_protect_it_b816148a27/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_can_t_replace_human_emotion_so_let_s_protect_it_b816148a27",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-07T11:55:43.880366+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ai_can_t_replace_human_emotion_so_let_s_protect_it_b816148a27",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=BPUup2BH5B8",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ai_data_centers_must_bring_their_own_power_now_ai_futureofwork_72f2ecec3e/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ai_data_centers_must_bring_their_own_power_now_ai_futureofwork_72f2ecec3e/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ai_data_centers_must_bring_their_own_power_now_ai_futureofwork_72f2ecec3e/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ai_data_centers_must_bring_their_own_power_now_ai_futureofwork_72f2ecec3e/raw/source.url",
+        "knowledge/ingestions/2026/04/ai_data_centers_must_bring_their_own_power_now_ai_futureofwork_72f2ecec3e/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ai_data_centers_must_bring_their_own_power_now_ai_futureofwork_72f2ecec3e/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_data_centers_must_bring_their_own_power_now_ai_futureofwork_72f2ecec3e",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-08T03:58:26.782718+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ai_data_centers_must_bring_their_own_power_now_ai_futureofwork_72f2ecec3e",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=nJnx4Da9Xt4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ai_in_marketing_what_to_automate_and_what_to_never_hand_off_22388ef564/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ai_in_marketing_what_to_automate_and_what_to_never_hand_off_22388ef564/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ai_in_marketing_what_to_automate_and_what_to_never_hand_off_22388ef564/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ai_in_marketing_what_to_automate_and_what_to_never_hand_off_22388ef564/raw/source.url",
+        "knowledge/ingestions/2026/04/ai_in_marketing_what_to_automate_and_what_to_never_hand_off_22388ef564/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ai_in_marketing_what_to_automate_and_what_to_never_hand_off_22388ef564/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_in_marketing_what_to_automate_and_what_to_never_hand_off_22388ef564",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-02T07:24:50.490523+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ai_in_marketing_what_to_automate_and_what_to_never_hand_off_22388ef564",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=GYjfrz1cqAM",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ai_is_splitting_the_economy_which_side_are_you_on_4d3353c0fb/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ai_is_splitting_the_economy_which_side_are_you_on_4d3353c0fb/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ai_is_splitting_the_economy_which_side_are_you_on_4d3353c0fb/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ai_is_splitting_the_economy_which_side_are_you_on_4d3353c0fb/raw/source.url",
+        "knowledge/ingestions/2026/04/ai_is_splitting_the_economy_which_side_are_you_on_4d3353c0fb/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ai_is_splitting_the_economy_which_side_are_you_on_4d3353c0fb/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_is_splitting_the_economy_which_side_are_you_on_4d3353c0fb",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-11T22:07:37.131465+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ai_is_splitting_the_economy_which_side_are_you_on_4d3353c0fb",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=jGd5NY5KVN4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb/raw/source.url",
+        "knowledge/ingestions/2026/04/anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-01T04:30:12.435814+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=0cVuMHaYEHE",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/big_firms_are_safe_startups_are_weak_the_middle_is_doomed_a451ddd509/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/big_firms_are_safe_startups_are_weak_the_middle_is_doomed_a451ddd509/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/big_firms_are_safe_startups_are_weak_the_middle_is_doomed_a451ddd509/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/big_firms_are_safe_startups_are_weak_the_middle_is_doomed_a451ddd509/raw/source.url",
+        "knowledge/ingestions/2026/04/big_firms_are_safe_startups_are_weak_the_middle_is_doomed_a451ddd509/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/big_firms_are_safe_startups_are_weak_the_middle_is_doomed_a451ddd509/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "big_firms_are_safe_startups_are_weak_the_middle_is_doomed_a451ddd509",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "lessons_missing",
+            "anecdotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-12T04:08:14.237899+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-big_firms_are_safe_startups_are_weak_the_middle_is_doomed_a451ddd509",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=f_OmLWjWgNA",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/don_t_flip_a_switch_build_a_bridge_6fc18d4c32/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/don_t_flip_a_switch_build_a_bridge_6fc18d4c32/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/don_t_flip_a_switch_build_a_bridge_6fc18d4c32/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/don_t_flip_a_switch_build_a_bridge_6fc18d4c32/raw/source.url",
+        "knowledge/ingestions/2026/04/don_t_flip_a_switch_build_a_bridge_6fc18d4c32/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/don_t_flip_a_switch_build_a_bridge_6fc18d4c32/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "don_t_flip_a_switch_build_a_bridge_6fc18d4c32",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-10T08:03:56.240003+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-don_t_flip_a_switch_build_a_bridge_6fc18d4c32",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=TkiNDd-RSA4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/every_tech_giant_is_building_the_same_thing_right_now_ai_agents_infrastr_231cdc0389/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/every_tech_giant_is_building_the_same_thing_right_now_ai_agents_infrastr_231cdc0389/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/every_tech_giant_is_building_the_same_thing_right_now_ai_agents_infrastr_231cdc0389/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/every_tech_giant_is_building_the_same_thing_right_now_ai_agents_infrastr_231cdc0389/raw/source.url",
+        "knowledge/ingestions/2026/04/every_tech_giant_is_building_the_same_thing_right_now_ai_agents_infrastr_231cdc0389/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/every_tech_giant_is_building_the_same_thing_right_now_ai_agents_infrastr_231cdc0389/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "every_tech_giant_is_building_the_same_thing_right_now_ai_agents_infrastr_231cdc0389",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-18T08:22:12.195190+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-every_tech_giant_is_building_the_same_thing_right_now_ai_agents_infrastr_231cdc0389",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=7wmoB-J1fFE",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/everyone_s_using_ai_wrong_ai_shorts_24307336d2/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/everyone_s_using_ai_wrong_ai_shorts_24307336d2/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/everyone_s_using_ai_wrong_ai_shorts_24307336d2/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/everyone_s_using_ai_wrong_ai_shorts_24307336d2/raw/source.url",
+        "knowledge/ingestions/2026/04/everyone_s_using_ai_wrong_ai_shorts_24307336d2/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/everyone_s_using_ai_wrong_ai_shorts_24307336d2/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "everyone_s_using_ai_wrong_ai_shorts_24307336d2",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-10T16:04:49.451836+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-everyone_s_using_ai_wrong_ai_shorts_24307336d2",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=0_0x6cxEBZA",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/excuses_vs_reality_which_are_you_choosing_mindset_success_transformation_14afb52710/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/excuses_vs_reality_which_are_you_choosing_mindset_success_transformation_14afb52710/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/excuses_vs_reality_which_are_you_choosing_mindset_success_transformation_14afb52710/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/excuses_vs_reality_which_are_you_choosing_mindset_success_transformation_14afb52710/raw/source.url",
+        "knowledge/ingestions/2026/04/excuses_vs_reality_which_are_you_choosing_mindset_success_transformation_14afb52710/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/excuses_vs_reality_which_are_you_choosing_mindset_success_transformation_14afb52710/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "excuses_vs_reality_which_are_you_choosing_mindset_success_transformation_14afb52710",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-01T21:35:46.452146+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-excuses_vs_reality_which_are_you_choosing_mindset_success_transformation_14afb52710",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=RytvB9qYjzs",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/google_s_chief_scientist_says_infinitely_fast_ai_won_t_help_you_dea65f6221/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/google_s_chief_scientist_says_infinitely_fast_ai_won_t_help_you_dea65f6221/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/google_s_chief_scientist_says_infinitely_fast_ai_won_t_help_you_dea65f6221/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/google_s_chief_scientist_says_infinitely_fast_ai_won_t_help_you_dea65f6221/raw/source.url",
+        "knowledge/ingestions/2026/04/google_s_chief_scientist_says_infinitely_fast_ai_won_t_help_you_dea65f6221/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/google_s_chief_scientist_says_infinitely_fast_ai_won_t_help_you_dea65f6221/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "google_s_chief_scientist_says_infinitely_fast_ai_won_t_help_you_dea65f6221",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-16T14:18:20.497780+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-google_s_chief_scientist_says_infinitely_fast_ai_won_t_help_you_dea65f6221",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=XlfumXPPrLY",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/google_s_new_quantization_is_a_game_changer_3a214618c6/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/google_s_new_quantization_is_a_game_changer_3a214618c6/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/google_s_new_quantization_is_a_game_changer_3a214618c6/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/google_s_new_quantization_is_a_game_changer_3a214618c6/raw/source.url",
+        "knowledge/ingestions/2026/04/google_s_new_quantization_is_a_game_changer_3a214618c6/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/google_s_new_quantization_is_a_game_changer_3a214618c6/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "google_s_new_quantization_is_a_game_changer_3a214618c6",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-11T16:06:58.842752+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-google_s_new_quantization_is_a_game_changer_3a214618c6",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=erV_8yrGMA8",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/how_tech_professionals_can_avoid_concentration_risk_and_build_financial__bbb05b772e/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/how_tech_professionals_can_avoid_concentration_risk_and_build_financial__bbb05b772e/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/how_tech_professionals_can_avoid_concentration_risk_and_build_financial__bbb05b772e/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/how_tech_professionals_can_avoid_concentration_risk_and_build_financial__bbb05b772e/raw/source.url",
+        "knowledge/ingestions/2026/04/how_tech_professionals_can_avoid_concentration_risk_and_build_financial__bbb05b772e/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/how_tech_professionals_can_avoid_concentration_risk_and_build_financial__bbb05b772e/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "how_tech_professionals_can_avoid_concentration_risk_and_build_financial__bbb05b772e",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-09T08:05:40.053249+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-how_tech_professionals_can_avoid_concentration_risk_and_build_financial__bbb05b772e",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=Rvap4PuJh6A",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/how_the_red_queen_memo_exposed_who_will_actually_survive_tech_ai_6c68e1d958/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/how_the_red_queen_memo_exposed_who_will_actually_survive_tech_ai_6c68e1d958/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/how_the_red_queen_memo_exposed_who_will_actually_survive_tech_ai_6c68e1d958/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/how_the_red_queen_memo_exposed_who_will_actually_survive_tech_ai_6c68e1d958/raw/source.url",
+        "knowledge/ingestions/2026/04/how_the_red_queen_memo_exposed_who_will_actually_survive_tech_ai_6c68e1d958/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/how_the_red_queen_memo_exposed_who_will_actually_survive_tech_ai_6c68e1d958/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "how_the_red_queen_memo_exposed_who_will_actually_survive_tech_ai_6c68e1d958",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "lessons_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-16T08:17:37.624240+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-how_the_red_queen_memo_exposed_who_will_actually_survive_tech_ai_6c68e1d958",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=WcH97reWDMQ",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/how_to_actually_reduce_customer_churn_saas_retention_1ccc7750b8/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/how_to_actually_reduce_customer_churn_saas_retention_1ccc7750b8/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/how_to_actually_reduce_customer_churn_saas_retention_1ccc7750b8/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/how_to_actually_reduce_customer_churn_saas_retention_1ccc7750b8/raw/source.url",
+        "knowledge/ingestions/2026/04/how_to_actually_reduce_customer_churn_saas_retention_1ccc7750b8/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/how_to_actually_reduce_customer_churn_saas_retention_1ccc7750b8/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "how_to_actually_reduce_customer_churn_saas_retention_1ccc7750b8",
+          "has_transcript": true,
+          "quality_flags": [
+            "anecdotes_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-15T08:40:22.292179+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-how_to_actually_reduce_customer_churn_saas_retention_1ccc7750b8",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=eth7vjik0i8",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811/raw/source.url",
+        "knowledge/ingestions/2026/04/how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-14T06:33:37.182717+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=N-mboHqr_hw",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/how_top_performers_dodge_ai_replacement_ai_careerstrategy_02d371937e/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/how_top_performers_dodge_ai_replacement_ai_careerstrategy_02d371937e/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/how_top_performers_dodge_ai_replacement_ai_careerstrategy_02d371937e/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/how_top_performers_dodge_ai_replacement_ai_careerstrategy_02d371937e/raw/source.url",
+        "knowledge/ingestions/2026/04/how_top_performers_dodge_ai_replacement_ai_careerstrategy_02d371937e/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/how_top_performers_dodge_ai_replacement_ai_careerstrategy_02d371937e/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "how_top_performers_dodge_ai_replacement_ai_careerstrategy_02d371937e",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-15T08:15:02.939396+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-how_top_performers_dodge_ai_replacement_ai_careerstrategy_02d371937e",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=ku94gbN7lNo",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/i_analyzed_512_000_lines_of_leaked_code_it_shows_what_s_coming_for_your__65704dd0f8/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/i_analyzed_512_000_lines_of_leaked_code_it_shows_what_s_coming_for_your__65704dd0f8/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/i_analyzed_512_000_lines_of_leaked_code_it_shows_what_s_coming_for_your__65704dd0f8/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/i_analyzed_512_000_lines_of_leaked_code_it_shows_what_s_coming_for_your__65704dd0f8/raw/source.url",
+        "knowledge/ingestions/2026/04/i_analyzed_512_000_lines_of_leaked_code_it_shows_what_s_coming_for_your__65704dd0f8/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/i_analyzed_512_000_lines_of_leaked_code_it_shows_what_s_coming_for_your__65704dd0f8/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "i_analyzed_512_000_lines_of_leaked_code_it_shows_what_s_coming_for_your__65704dd0f8",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-08T16:02:17.482484+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-i_analyzed_512_000_lines_of_leaked_code_it_shows_what_s_coming_for_your__65704dd0f8",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=ro5jpbi5uYc",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/i_broke_down_anthropic_s_2_5_billion_leak_your_agent_is_missing_12_criti_bf7fb41596/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/i_broke_down_anthropic_s_2_5_billion_leak_your_agent_is_missing_12_criti_bf7fb41596/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/i_broke_down_anthropic_s_2_5_billion_leak_your_agent_is_missing_12_criti_bf7fb41596/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/i_broke_down_anthropic_s_2_5_billion_leak_your_agent_is_missing_12_criti_bf7fb41596/raw/source.url",
+        "knowledge/ingestions/2026/04/i_broke_down_anthropic_s_2_5_billion_leak_your_agent_is_missing_12_criti_bf7fb41596/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/i_broke_down_anthropic_s_2_5_billion_leak_your_agent_is_missing_12_criti_bf7fb41596/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "i_broke_down_anthropic_s_2_5_billion_leak_your_agent_is_missing_12_criti_bf7fb41596",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-03T15:32:09.494067+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-i_broke_down_anthropic_s_2_5_billion_leak_your_agent_is_missing_12_criti_bf7fb41596",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=FtCdYhspm7w",
+      "status": "digested",
+      "summary": "--",
+      "title": "Clean Transcript / Document"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/i_watched_3_companies_lay_off_their_managers_all_3_hit_the_same_wall_1804d51178/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/i_watched_3_companies_lay_off_their_managers_all_3_hit_the_same_wall_1804d51178/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/i_watched_3_companies_lay_off_their_managers_all_3_hit_the_same_wall_1804d51178/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/i_watched_3_companies_lay_off_their_managers_all_3_hit_the_same_wall_1804d51178/raw/source.url",
+        "knowledge/ingestions/2026/04/i_watched_3_companies_lay_off_their_managers_all_3_hit_the_same_wall_1804d51178/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/i_watched_3_companies_lay_off_their_managers_all_3_hit_the_same_wall_1804d51178/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "i_watched_3_companies_lay_off_their_managers_all_3_hit_the_same_wall_1804d51178",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-12T18:09:24.500248+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-i_watched_3_companies_lay_off_their_managers_all_3_hit_the_same_wall_1804d51178",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=zhXgkQ3nYeE",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/if_your_value_is_judgment_and_taste_ai_actually_helps_you_33c4e7c3f7/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/if_your_value_is_judgment_and_taste_ai_actually_helps_you_33c4e7c3f7/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/if_your_value_is_judgment_and_taste_ai_actually_helps_you_33c4e7c3f7/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/if_your_value_is_judgment_and_taste_ai_actually_helps_you_33c4e7c3f7/raw/source.url",
+        "knowledge/ingestions/2026/04/if_your_value_is_judgment_and_taste_ai_actually_helps_you_33c4e7c3f7/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/if_your_value_is_judgment_and_taste_ai_actually_helps_you_33c4e7c3f7/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "if_your_value_is_judgment_and_taste_ai_actually_helps_you_33c4e7c3f7",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "anecdotes_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-10T08:04:05.722569+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-if_your_value_is_judgment_and_taste_ai_actually_helps_you_33c4e7c3f7",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=_H6lbAgBjUo",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/investor_vs_gambler_the_one_difference_that_matters_1574c08055/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/investor_vs_gambler_the_one_difference_that_matters_1574c08055/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/investor_vs_gambler_the_one_difference_that_matters_1574c08055/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/investor_vs_gambler_the_one_difference_that_matters_1574c08055/raw/source.url",
+        "knowledge/ingestions/2026/04/investor_vs_gambler_the_one_difference_that_matters_1574c08055/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/investor_vs_gambler_the_one_difference_that_matters_1574c08055/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "investor_vs_gambler_the_one_difference_that_matters_1574c08055",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-09T10:01:16.756920+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-investor_vs_gambler_the_one_difference_that_matters_1574c08055",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=DVCpPN1A7UQ",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/karpathy_s_agent_ran_700_experiments_while_he_slept_it_s_coming_for_you_afc96cfd8f/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/karpathy_s_agent_ran_700_experiments_while_he_slept_it_s_coming_for_you_afc96cfd8f/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/karpathy_s_agent_ran_700_experiments_while_he_slept_it_s_coming_for_you_afc96cfd8f/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/karpathy_s_agent_ran_700_experiments_while_he_slept_it_s_coming_for_you_afc96cfd8f/raw/source.url",
+        "knowledge/ingestions/2026/04/karpathy_s_agent_ran_700_experiments_while_he_slept_it_s_coming_for_you_afc96cfd8f/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/karpathy_s_agent_ran_700_experiments_while_he_slept_it_s_coming_for_you_afc96cfd8f/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "karpathy_s_agent_ran_700_experiments_while_he_slept_it_s_coming_for_you_afc96cfd8f",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-18T16:23:21.085338+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-karpathy_s_agent_ran_700_experiments_while_he_slept_it_s_coming_for_you_afc96cfd8f",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=xnG8h3UnNFI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/marketers_cracked_the_code_after_apple_destroyed_everything_ads_ios_7f0488694e/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/marketers_cracked_the_code_after_apple_destroyed_everything_ads_ios_7f0488694e/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/marketers_cracked_the_code_after_apple_destroyed_everything_ads_ios_7f0488694e/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/marketers_cracked_the_code_after_apple_destroyed_everything_ads_ios_7f0488694e/raw/source.url",
+        "knowledge/ingestions/2026/04/marketers_cracked_the_code_after_apple_destroyed_everything_ads_ios_7f0488694e/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/marketers_cracked_the_code_after_apple_destroyed_everything_ads_ios_7f0488694e/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "marketers_cracked_the_code_after_apple_destroyed_everything_ads_ios_7f0488694e",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-03T19:33:10.873197+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-marketers_cracked_the_code_after_apple_destroyed_everything_ads_ios_7f0488694e",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=5z1DkU3l-_Q",
+      "status": "digested",
+      "summary": "--",
+      "title": "Clean Transcript / Document"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/microsoft_s_grid_play_is_redefining_ai_advantage_ai_futureofwork_microso_6facae0335/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/microsoft_s_grid_play_is_redefining_ai_advantage_ai_futureofwork_microso_6facae0335/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/microsoft_s_grid_play_is_redefining_ai_advantage_ai_futureofwork_microso_6facae0335/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/microsoft_s_grid_play_is_redefining_ai_advantage_ai_futureofwork_microso_6facae0335/raw/source.url",
+        "knowledge/ingestions/2026/04/microsoft_s_grid_play_is_redefining_ai_advantage_ai_futureofwork_microso_6facae0335/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/microsoft_s_grid_play_is_redefining_ai_advantage_ai_futureofwork_microso_6facae0335/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "microsoft_s_grid_play_is_redefining_ai_advantage_ai_futureofwork_microso_6facae0335",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-03T03:29:21.281882+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-microsoft_s_grid_play_is_redefining_ai_advantage_ai_futureofwork_microso_6facae0335",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=p0Wif7VJC9c",
+      "status": "digested",
+      "summary": "--",
+      "title": "Clean Transcript / Document"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/most_people_miss_the_entire_point_of_ai_ai_tech_00397aa2f7/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/most_people_miss_the_entire_point_of_ai_ai_tech_00397aa2f7/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/most_people_miss_the_entire_point_of_ai_ai_tech_00397aa2f7/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/most_people_miss_the_entire_point_of_ai_ai_tech_00397aa2f7/raw/source.url",
+        "knowledge/ingestions/2026/04/most_people_miss_the_entire_point_of_ai_ai_tech_00397aa2f7/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/most_people_miss_the_entire_point_of_ai_ai_tech_00397aa2f7/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "most_people_miss_the_entire_point_of_ai_ai_tech_00397aa2f7",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-04T01:34:43.746567+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-most_people_miss_the_entire_point_of_ai_ai_tech_00397aa2f7",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=bHzyiKGnx6s",
+      "status": "digested",
+      "summary": "--",
+      "title": "Clean Transcript / Document"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4/raw/source.url",
+        "knowledge/ingestions/2026/04/nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-13T02:10:08.025202+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=1tLQC-i3c7Y",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109/raw/source.url",
+        "knowledge/ingestions/2026/04/openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-18T22:24:07.674340+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=diXrk5gp4XI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/price_what_your_ai_is_worth_not_what_it_costs_ai_entrepreneur_mindset_5e1195f84c/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/price_what_your_ai_is_worth_not_what_it_costs_ai_entrepreneur_mindset_5e1195f84c/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/price_what_your_ai_is_worth_not_what_it_costs_ai_entrepreneur_mindset_5e1195f84c/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/price_what_your_ai_is_worth_not_what_it_costs_ai_entrepreneur_mindset_5e1195f84c/raw/source.url",
+        "knowledge/ingestions/2026/04/price_what_your_ai_is_worth_not_what_it_costs_ai_entrepreneur_mindset_5e1195f84c/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/price_what_your_ai_is_worth_not_what_it_costs_ai_entrepreneur_mindset_5e1195f84c/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "price_what_your_ai_is_worth_not_what_it_costs_ai_entrepreneur_mindset_5e1195f84c",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-11T02:05:49.356192+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-price_what_your_ai_is_worth_not_what_it_costs_ai_entrepreneur_mindset_5e1195f84c",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=uhhlq0Og9-M",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/price_wrong_lose_everything_pricing_brutal_aca10a4058/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/price_wrong_lose_everything_pricing_brutal_aca10a4058/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/price_wrong_lose_everything_pricing_brutal_aca10a4058/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/price_wrong_lose_everything_pricing_brutal_aca10a4058/raw/source.url",
+        "knowledge/ingestions/2026/04/price_wrong_lose_everything_pricing_brutal_aca10a4058/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/price_wrong_lose_everything_pricing_brutal_aca10a4058/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "price_wrong_lose_everything_pricing_brutal_aca10a4058",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-14T00:12:17.754538+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-price_wrong_lose_everything_pricing_brutal_aca10a4058",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=VsVY8IiXqe4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/recurring_revenue_without_recurring_relevance_is_dangerous_6ac789a28d/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/recurring_revenue_without_recurring_relevance_is_dangerous_6ac789a28d/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/recurring_revenue_without_recurring_relevance_is_dangerous_6ac789a28d/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/recurring_revenue_without_recurring_relevance_is_dangerous_6ac789a28d/raw/source.url",
+        "knowledge/ingestions/2026/04/recurring_revenue_without_recurring_relevance_is_dangerous_6ac789a28d/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/recurring_revenue_without_recurring_relevance_is_dangerous_6ac789a28d/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "recurring_revenue_without_recurring_relevance_is_dangerous_6ac789a28d",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-01T07:18:01.845810+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-recurring_revenue_without_recurring_relevance_is_dangerous_6ac789a28d",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=XYhe85T2B_Y",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/reposition_now_or_fall_behind_forever_ai_startup_523272f25b/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/reposition_now_or_fall_behind_forever_ai_startup_523272f25b/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/reposition_now_or_fall_behind_forever_ai_startup_523272f25b/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/reposition_now_or_fall_behind_forever_ai_startup_523272f25b/raw/source.url",
+        "knowledge/ingestions/2026/04/reposition_now_or_fall_behind_forever_ai_startup_523272f25b/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/reposition_now_or_fall_behind_forever_ai_startup_523272f25b/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "reposition_now_or_fall_behind_forever_ai_startup_523272f25b",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-03T07:41:30.786833+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-reposition_now_or_fall_behind_forever_ai_startup_523272f25b",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=YmgF4ZGu3rc",
+      "status": "digested",
+      "summary": "--",
+      "title": "Clean Transcript / Document"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/sales_reps_are_about_to_get_replaced_by_this_ai_automation_future_c5f7c695ee/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/sales_reps_are_about_to_get_replaced_by_this_ai_automation_future_c5f7c695ee/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/sales_reps_are_about_to_get_replaced_by_this_ai_automation_future_c5f7c695ee/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/sales_reps_are_about_to_get_replaced_by_this_ai_automation_future_c5f7c695ee/raw/source.url",
+        "knowledge/ingestions/2026/04/sales_reps_are_about_to_get_replaced_by_this_ai_automation_future_c5f7c695ee/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/sales_reps_are_about_to_get_replaced_by_this_ai_automation_future_c5f7c695ee/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "sales_reps_are_about_to_get_replaced_by_this_ai_automation_future_c5f7c695ee",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-16T18:48:59.300155+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-sales_reps_are_about_to_get_replaced_by_this_ai_automation_future_c5f7c695ee",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=jLREy5WWe8Q",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ship_learn_repeat_the_real_growth_strategy_for_startup_founders_c90e479650/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ship_learn_repeat_the_real_growth_strategy_for_startup_founders_c90e479650/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ship_learn_repeat_the_real_growth_strategy_for_startup_founders_c90e479650/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ship_learn_repeat_the_real_growth_strategy_for_startup_founders_c90e479650/raw/source.url",
+        "knowledge/ingestions/2026/04/ship_learn_repeat_the_real_growth_strategy_for_startup_founders_c90e479650/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ship_learn_repeat_the_real_growth_strategy_for_startup_founders_c90e479650/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ship_learn_repeat_the_real_growth_strategy_for_startup_founders_c90e479650",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-16T08:46:21.223966+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ship_learn_repeat_the_real_growth_strategy_for_startup_founders_c90e479650",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=2YYLE1qioJ0",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/static_templates_dead_deals_coldemail_startup_b0332e84c4/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/static_templates_dead_deals_coldemail_startup_b0332e84c4/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/static_templates_dead_deals_coldemail_startup_b0332e84c4/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/static_templates_dead_deals_coldemail_startup_b0332e84c4/raw/source.url",
+        "knowledge/ingestions/2026/04/static_templates_dead_deals_coldemail_startup_b0332e84c4/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/static_templates_dead_deals_coldemail_startup_b0332e84c4/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "static_templates_dead_deals_coldemail_startup_b0332e84c4",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-15T20:16:32.239951+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-static_templates_dead_deals_coldemail_startup_b0332e84c4",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=JIfJ21KC9lE",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/stop_building_tools_nobody_keeps_using_startup_productdesign_89fbd59d3c/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/stop_building_tools_nobody_keeps_using_startup_productdesign_89fbd59d3c/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/stop_building_tools_nobody_keeps_using_startup_productdesign_89fbd59d3c/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/stop_building_tools_nobody_keeps_using_startup_productdesign_89fbd59d3c/raw/source.url",
+        "knowledge/ingestions/2026/04/stop_building_tools_nobody_keeps_using_startup_productdesign_89fbd59d3c/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/stop_building_tools_nobody_keeps_using_startup_productdesign_89fbd59d3c/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "stop_building_tools_nobody_keeps_using_startup_productdesign_89fbd59d3c",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-01T04:16:11.853906+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-stop_building_tools_nobody_keeps_using_startup_productdesign_89fbd59d3c",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=BM15ZgIr9p4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/stop_shifting_blame_and_start_taking_power_mindset_performance_cdb532f7f0/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/stop_shifting_blame_and_start_taking_power_mindset_performance_cdb532f7f0/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/stop_shifting_blame_and_start_taking_power_mindset_performance_cdb532f7f0/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/stop_shifting_blame_and_start_taking_power_mindset_performance_cdb532f7f0/raw/source.url",
+        "knowledge/ingestions/2026/04/stop_shifting_blame_and_start_taking_power_mindset_performance_cdb532f7f0/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/stop_shifting_blame_and_start_taking_power_mindset_performance_cdb532f7f0/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "stop_shifting_blame_and_start_taking_power_mindset_performance_cdb532f7f0",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-01T04:30:03.154383+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-stop_shifting_blame_and_start_taking_power_mindset_performance_cdb532f7f0",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=7QbRhOu4N_8",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c/raw/source.url",
+        "knowledge/ingestions/2026/04/tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-17T04:52:34.707847+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=PcmFGurjfFo",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_1_startup_rule_don_t_run_outta_money_03c045f5d1/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_1_startup_rule_don_t_run_outta_money_03c045f5d1/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_1_startup_rule_don_t_run_outta_money_03c045f5d1/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_1_startup_rule_don_t_run_outta_money_03c045f5d1/raw/source.url",
+        "knowledge/ingestions/2026/04/the_1_startup_rule_don_t_run_outta_money_03c045f5d1/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_1_startup_rule_don_t_run_outta_money_03c045f5d1/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_1_startup_rule_don_t_run_outta_money_03c045f5d1",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-16T08:17:27.799661+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_1_startup_rule_don_t_run_outta_money_03c045f5d1",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=mn7IeNVAIXk",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_ai_twist_customers_just_want_a_human_7166176ee7/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_ai_twist_customers_just_want_a_human_7166176ee7/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_ai_twist_customers_just_want_a_human_7166176ee7/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_ai_twist_customers_just_want_a_human_7166176ee7/raw/source.url",
+        "knowledge/ingestions/2026/04/the_ai_twist_customers_just_want_a_human_7166176ee7/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_ai_twist_customers_just_want_a_human_7166176ee7/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_ai_twist_customers_just_want_a_human_7166176ee7",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-02T07:37:48.747783+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_ai_twist_customers_just_want_a_human_7166176ee7",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=2tCmHOBu7vo",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_ai_workflow_that_replaces_your_to_do_list_ai_futureofwork_e4e5d69bf6/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_ai_workflow_that_replaces_your_to_do_list_ai_futureofwork_e4e5d69bf6/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_ai_workflow_that_replaces_your_to_do_list_ai_futureofwork_e4e5d69bf6/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_ai_workflow_that_replaces_your_to_do_list_ai_futureofwork_e4e5d69bf6/raw/source.url",
+        "knowledge/ingestions/2026/04/the_ai_workflow_that_replaces_your_to_do_list_ai_futureofwork_e4e5d69bf6/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_ai_workflow_that_replaces_your_to_do_list_ai_futureofwork_e4e5d69bf6/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_ai_workflow_that_replaces_your_to_do_list_ai_futureofwork_e4e5d69bf6",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-01T04:16:03.085613+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_ai_workflow_that_replaces_your_to_do_list_ai_futureofwork_e4e5d69bf6",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=hFRQb2e5cJs",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_b2b_marketing_approach_everyone_gets_wrong_b2bsaas_marketing_shorts_746ad4cbc8/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_b2b_marketing_approach_everyone_gets_wrong_b2bsaas_marketing_shorts_746ad4cbc8/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_b2b_marketing_approach_everyone_gets_wrong_b2bsaas_marketing_shorts_746ad4cbc8/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_b2b_marketing_approach_everyone_gets_wrong_b2bsaas_marketing_shorts_746ad4cbc8/raw/source.url",
+        "knowledge/ingestions/2026/04/the_b2b_marketing_approach_everyone_gets_wrong_b2bsaas_marketing_shorts_746ad4cbc8/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_b2b_marketing_approach_everyone_gets_wrong_b2bsaas_marketing_shorts_746ad4cbc8/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_b2b_marketing_approach_everyone_gets_wrong_b2bsaas_marketing_shorts_746ad4cbc8",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing",
+            "anecdotes_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-09T00:00:09.494867+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_b2b_marketing_approach_everyone_gets_wrong_b2bsaas_marketing_shorts_746ad4cbc8",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=L8v24v2ing4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_biggest_mistake_business_owners_make_with_their_assets_business_fina_f5bd2e2a0f/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_biggest_mistake_business_owners_make_with_their_assets_business_fina_f5bd2e2a0f/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_biggest_mistake_business_owners_make_with_their_assets_business_fina_f5bd2e2a0f/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_biggest_mistake_business_owners_make_with_their_assets_business_fina_f5bd2e2a0f/raw/source.url",
+        "knowledge/ingestions/2026/04/the_biggest_mistake_business_owners_make_with_their_assets_business_fina_f5bd2e2a0f/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_biggest_mistake_business_owners_make_with_their_assets_business_fina_f5bd2e2a0f/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_biggest_mistake_business_owners_make_with_their_assets_business_fina_f5bd2e2a0f",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-07T19:57:28.889157+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_biggest_mistake_business_owners_make_with_their_assets_business_fina_f5bd2e2a0f",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=ftzljxfnmbs",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_business_layer_ai_can_t_touch_and_it_s_not_what_you_think_d6bea4c150/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_business_layer_ai_can_t_touch_and_it_s_not_what_you_think_d6bea4c150/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_business_layer_ai_can_t_touch_and_it_s_not_what_you_think_d6bea4c150/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_business_layer_ai_can_t_touch_and_it_s_not_what_you_think_d6bea4c150/raw/source.url",
+        "knowledge/ingestions/2026/04/the_business_layer_ai_can_t_touch_and_it_s_not_what_you_think_d6bea4c150/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_business_layer_ai_can_t_touch_and_it_s_not_what_you_think_d6bea4c150/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_business_layer_ai_can_t_touch_and_it_s_not_what_you_think_d6bea4c150",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-08T15:59:32.182517+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_business_layer_ai_can_t_touch_and_it_s_not_what_you_think_d6bea4c150",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=I7X2XoYR3jQ",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_first_ad_just_appeared_inside_chatgpt_do_they_work_98cc904ed3/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_first_ad_just_appeared_inside_chatgpt_do_they_work_98cc904ed3/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_first_ad_just_appeared_inside_chatgpt_do_they_work_98cc904ed3/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_first_ad_just_appeared_inside_chatgpt_do_they_work_98cc904ed3/raw/source.url",
+        "knowledge/ingestions/2026/04/the_first_ad_just_appeared_inside_chatgpt_do_they_work_98cc904ed3/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_first_ad_just_appeared_inside_chatgpt_do_they_work_98cc904ed3/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_first_ad_just_appeared_inside_chatgpt_do_they_work_98cc904ed3",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-14T14:35:52.451113+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_first_ad_just_appeared_inside_chatgpt_do_they_work_98cc904ed3",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=0vdlwOK_Qdk",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0/raw/source.url",
+        "knowledge/ingestions/2026/04/the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0",
+          "has_transcript": true,
+          "quality_flags": [
+            "anecdotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-17T08:19:36.242769+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=56BsoWXAtdI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_hidden_sign_someone_has_a_real_growth_mindset_psychology_mindset_sel_ffb3cb50b4/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_hidden_sign_someone_has_a_real_growth_mindset_psychology_mindset_sel_ffb3cb50b4/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_hidden_sign_someone_has_a_real_growth_mindset_psychology_mindset_sel_ffb3cb50b4/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_hidden_sign_someone_has_a_real_growth_mindset_psychology_mindset_sel_ffb3cb50b4/raw/source.url",
+        "knowledge/ingestions/2026/04/the_hidden_sign_someone_has_a_real_growth_mindset_psychology_mindset_sel_ffb3cb50b4/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_hidden_sign_someone_has_a_real_growth_mindset_psychology_mindset_sel_ffb3cb50b4/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_hidden_sign_someone_has_a_real_growth_mindset_psychology_mindset_sel_ffb3cb50b4",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-07T01:51:51.720986+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_hidden_sign_someone_has_a_real_growth_mindset_psychology_mindset_sel_ffb3cb50b4",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=C_reJ-R1QHc",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_next_why_that_builds_customer_trust_523836ceb4/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_next_why_that_builds_customer_trust_523836ceb4/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_next_why_that_builds_customer_trust_523836ceb4/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_next_why_that_builds_customer_trust_523836ceb4/raw/source.url",
+        "knowledge/ingestions/2026/04/the_next_why_that_builds_customer_trust_523836ceb4/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_next_why_that_builds_customer_trust_523836ceb4/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_next_why_that_builds_customer_trust_523836ceb4",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-14T06:13:15.030400+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_next_why_that_builds_customer_trust_523836ceb4",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=xb9T1V-Txgw",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a/raw/source.url",
+        "knowledge/ingestions/2026/04/the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-15T14:15:55.276902+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=2PWJu6uAaoU",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_sales_secret_nobody_teaches_sales_shorts_ac6425411b/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_sales_secret_nobody_teaches_sales_shorts_ac6425411b/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_sales_secret_nobody_teaches_sales_shorts_ac6425411b/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_sales_secret_nobody_teaches_sales_shorts_ac6425411b/raw/source.url",
+        "knowledge/ingestions/2026/04/the_sales_secret_nobody_teaches_sales_shorts_ac6425411b/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_sales_secret_nobody_teaches_sales_shorts_ac6425411b/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_sales_secret_nobody_teaches_sales_shorts_ac6425411b",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-09T20:02:22.853896+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_sales_secret_nobody_teaches_sales_shorts_ac6425411b",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=el7reUP4im0",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_secret_to_10m_token_ai_at_speed_and_scale_ai_futureofwork_nvidia_53fa1de605/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_secret_to_10m_token_ai_at_speed_and_scale_ai_futureofwork_nvidia_53fa1de605/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_secret_to_10m_token_ai_at_speed_and_scale_ai_futureofwork_nvidia_53fa1de605/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_secret_to_10m_token_ai_at_speed_and_scale_ai_futureofwork_nvidia_53fa1de605/raw/source.url",
+        "knowledge/ingestions/2026/04/the_secret_to_10m_token_ai_at_speed_and_scale_ai_futureofwork_nvidia_53fa1de605/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_secret_to_10m_token_ai_at_speed_and_scale_ai_futureofwork_nvidia_53fa1de605/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_secret_to_10m_token_ai_at_speed_and_scale_ai_futureofwork_nvidia_53fa1de605",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-04T03:35:32.251465+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_secret_to_10m_token_ai_at_speed_and_scale_ai_futureofwork_nvidia_53fa1de605",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=rEHVyGi0owo",
+      "status": "digested",
+      "summary": "--",
+      "title": "Clean Transcript / Document"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_simplest_definition_of_network_effects_e859cc40ed/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_simplest_definition_of_network_effects_e859cc40ed/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_simplest_definition_of_network_effects_e859cc40ed/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_simplest_definition_of_network_effects_e859cc40ed/raw/source.url",
+        "knowledge/ingestions/2026/04/the_simplest_definition_of_network_effects_e859cc40ed/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_simplest_definition_of_network_effects_e859cc40ed/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_simplest_definition_of_network_effects_e859cc40ed",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-09T08:00:48.937853+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_simplest_definition_of_network_effects_e859cc40ed",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=lAJhJ-eJ6nQ",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_vertical_ai_playbook_pick_one_industry_and_go_all_in_d78f4542c8/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_vertical_ai_playbook_pick_one_industry_and_go_all_in_d78f4542c8/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_vertical_ai_playbook_pick_one_industry_and_go_all_in_d78f4542c8/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_vertical_ai_playbook_pick_one_industry_and_go_all_in_d78f4542c8/raw/source.url",
+        "knowledge/ingestions/2026/04/the_vertical_ai_playbook_pick_one_industry_and_go_all_in_d78f4542c8/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_vertical_ai_playbook_pick_one_industry_and_go_all_in_d78f4542c8/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_vertical_ai_playbook_pick_one_industry_and_go_all_in_d78f4542c8",
+          "has_transcript": true,
+          "quality_flags": [
+            "anecdotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-18T08:22:21.109308+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_vertical_ai_playbook_pick_one_industry_and_go_all_in_d78f4542c8",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=6Kle0mOMnfs",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_web_is_about_to_look_completely_different_ai_webdevelopment_futureof_8c9205d4da/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_web_is_about_to_look_completely_different_ai_webdevelopment_futureof_8c9205d4da/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_web_is_about_to_look_completely_different_ai_webdevelopment_futureof_8c9205d4da/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_web_is_about_to_look_completely_different_ai_webdevelopment_futureof_8c9205d4da/raw/source.url",
+        "knowledge/ingestions/2026/04/the_web_is_about_to_look_completely_different_ai_webdevelopment_futureof_8c9205d4da/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_web_is_about_to_look_completely_different_ai_webdevelopment_futureof_8c9205d4da/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_web_is_about_to_look_completely_different_ai_webdevelopment_futureof_8c9205d4da",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "anecdotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-19T07:06:54.558793+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_web_is_about_to_look_completely_different_ai_webdevelopment_futureof_8c9205d4da",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=Gmbj8sTJsRo",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/there_are_only_5_safe_places_to_build_in_ai_right_now_are_you_in_one_d9535f43dd/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/there_are_only_5_safe_places_to_build_in_ai_right_now_are_you_in_one_d9535f43dd/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/there_are_only_5_safe_places_to_build_in_ai_right_now_are_you_in_one_d9535f43dd/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/there_are_only_5_safe_places_to_build_in_ai_right_now_are_you_in_one_d9535f43dd/raw/source.url",
+        "knowledge/ingestions/2026/04/there_are_only_5_safe_places_to_build_in_ai_right_now_are_you_in_one_d9535f43dd/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/there_are_only_5_safe_places_to_build_in_ai_right_now_are_you_in_one_d9535f43dd/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "there_are_only_5_safe_places_to_build_in_ai_right_now_are_you_in_one_d9535f43dd",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-10T16:05:05.987326+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-there_are_only_5_safe_places_to_build_in_ai_right_now_are_you_in_one_d9535f43dd",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=ib2m9HVX7as",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/this_is_why_you_re_creating_content_the_hard_way_ai_automation_16834f977d/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/this_is_why_you_re_creating_content_the_hard_way_ai_automation_16834f977d/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/this_is_why_you_re_creating_content_the_hard_way_ai_automation_16834f977d/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/this_is_why_you_re_creating_content_the_hard_way_ai_automation_16834f977d/raw/source.url",
+        "knowledge/ingestions/2026/04/this_is_why_you_re_creating_content_the_hard_way_ai_automation_16834f977d/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/this_is_why_you_re_creating_content_the_hard_way_ai_automation_16834f977d/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "this_is_why_you_re_creating_content_the_hard_way_ai_automation_16834f977d",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-13T18:11:40.666535+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-this_is_why_you_re_creating_content_the_hard_way_ai_automation_16834f977d",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=BCqVnL1DbF8",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/trust_vs_churn_which_one_actually_protects_you_business_moat_strategy_fa94cc6e86/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/trust_vs_churn_which_one_actually_protects_you_business_moat_strategy_fa94cc6e86/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/trust_vs_churn_which_one_actually_protects_you_business_moat_strategy_fa94cc6e86/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/trust_vs_churn_which_one_actually_protects_you_business_moat_strategy_fa94cc6e86/raw/source.url",
+        "knowledge/ingestions/2026/04/trust_vs_churn_which_one_actually_protects_you_business_moat_strategy_fa94cc6e86/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/trust_vs_churn_which_one_actually_protects_you_business_moat_strategy_fa94cc6e86/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "trust_vs_churn_which_one_actually_protects_you_business_moat_strategy_fa94cc6e86",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-07T07:54:17.339216+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-trust_vs_churn_which_one_actually_protects_you_business_moat_strategy_fa94cc6e86",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=BmVLdErWwP0",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/when_ai_success_makes_you_less_money_ce68f5078c/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/when_ai_success_makes_you_less_money_ce68f5078c/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/when_ai_success_makes_you_less_money_ce68f5078c/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/when_ai_success_makes_you_less_money_ce68f5078c/raw/source.url",
+        "knowledge/ingestions/2026/04/when_ai_success_makes_you_less_money_ce68f5078c/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/when_ai_success_makes_you_less_money_ce68f5078c/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "when_ai_success_makes_you_less_money_ce68f5078c",
+          "has_transcript": true,
+          "quality_flags": [
+            "anecdotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-15T08:14:53.201328+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-when_ai_success_makes_you_less_money_ce68f5078c",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=wWld0w8y9Is",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/why_ai_crushes_some_businesses_but_protects_others_ai_futureofwork_7a9077a244/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/why_ai_crushes_some_businesses_but_protects_others_ai_futureofwork_7a9077a244/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/why_ai_crushes_some_businesses_but_protects_others_ai_futureofwork_7a9077a244/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/why_ai_crushes_some_businesses_but_protects_others_ai_futureofwork_7a9077a244/raw/source.url",
+        "knowledge/ingestions/2026/04/why_ai_crushes_some_businesses_but_protects_others_ai_futureofwork_7a9077a244/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/why_ai_crushes_some_businesses_but_protects_others_ai_futureofwork_7a9077a244/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "why_ai_crushes_some_businesses_but_protects_others_ai_futureofwork_7a9077a244",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-06T07:48:09.522101+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-why_ai_crushes_some_businesses_but_protects_others_ai_futureofwork_7a9077a244",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=TKG1V7pNWbs",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/why_ai_skills_are_now_table_stakes_ai_work_future_fae877c0e9/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/why_ai_skills_are_now_table_stakes_ai_work_future_fae877c0e9/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/why_ai_skills_are_now_table_stakes_ai_work_future_fae877c0e9/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/why_ai_skills_are_now_table_stakes_ai_work_future_fae877c0e9/raw/source.url",
+        "knowledge/ingestions/2026/04/why_ai_skills_are_now_table_stakes_ai_work_future_fae877c0e9/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/why_ai_skills_are_now_table_stakes_ai_work_future_fae877c0e9/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "why_ai_skills_are_now_table_stakes_ai_work_future_fae877c0e9",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-14T04:12:50.315770+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-why_ai_skills_are_now_table_stakes_ai_work_future_fae877c0e9",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=e3inUUQsKsc",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/why_judgment_and_taste_are_now_your_only_real_edge_ai_futureofwork_5fcc7da47e/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/why_judgment_and_taste_are_now_your_only_real_edge_ai_futureofwork_5fcc7da47e/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/why_judgment_and_taste_are_now_your_only_real_edge_ai_futureofwork_5fcc7da47e/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/why_judgment_and_taste_are_now_your_only_real_edge_ai_futureofwork_5fcc7da47e/raw/source.url",
+        "knowledge/ingestions/2026/04/why_judgment_and_taste_are_now_your_only_real_edge_ai_futureofwork_5fcc7da47e/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/why_judgment_and_taste_are_now_your_only_real_edge_ai_futureofwork_5fcc7da47e/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "why_judgment_and_taste_are_now_your_only_real_edge_ai_futureofwork_5fcc7da47e",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "anecdotes_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-07T03:53:15.548561+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-why_judgment_and_taste_are_now_your_only_real_edge_ai_futureofwork_5fcc7da47e",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=Bx-fhbBXL5E",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0/raw/source.url",
+        "knowledge/ingestions/2026/04/you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-06T15:50:06.743413+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=7HP1jFJ9W1c",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/you_re_paying_2_000_month_for_ai_that_should_cost_250_e8bae88d4f/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/you_re_paying_2_000_month_for_ai_that_should_cost_250_e8bae88d4f/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/you_re_paying_2_000_month_for_ai_that_should_cost_250_e8bae88d4f/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/you_re_paying_2_000_month_for_ai_that_should_cost_250_e8bae88d4f/raw/source.url",
+        "knowledge/ingestions/2026/04/you_re_paying_2_000_month_for_ai_that_should_cost_250_e8bae88d4f/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/you_re_paying_2_000_month_for_ai_that_should_cost_250_e8bae88d4f/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "you_re_paying_2_000_month_for_ai_that_should_cost_250_e8bae88d4f",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-02T15:26:43.679816+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-you_re_paying_2_000_month_for_ai_that_should_cost_250_e8bae88d4f",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=5ztI_dbj6ek",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/your_ai_knows_you_better_than_your_boss_does_it_s_not_coming_with_you_6f1e3ade61/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/your_ai_knows_you_better_than_your_boss_does_it_s_not_coming_with_you_6f1e3ade61/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/your_ai_knows_you_better_than_your_boss_does_it_s_not_coming_with_you_6f1e3ade61/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/your_ai_knows_you_better_than_your_boss_does_it_s_not_coming_with_you_6f1e3ade61/raw/source.url",
+        "knowledge/ingestions/2026/04/your_ai_knows_you_better_than_your_boss_does_it_s_not_coming_with_you_6f1e3ade61/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/your_ai_knows_you_better_than_your_boss_does_it_s_not_coming_with_you_6f1e3ade61/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "your_ai_knows_you_better_than_your_boss_does_it_s_not_coming_with_you_6f1e3ade61",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-17T14:20:25.732811+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-your_ai_knows_you_better_than_your_boss_does_it_s_not_coming_with_you_6f1e3ade61",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=4KAF72BTyCE",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/your_ai_system_gets_worse_every_time_the_model_gets_better_c759269c66/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/your_ai_system_gets_worse_every_time_the_model_gets_better_c759269c66/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/your_ai_system_gets_worse_every_time_the_model_gets_better_c759269c66/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/your_ai_system_gets_worse_every_time_the_model_gets_better_c759269c66/raw/source.url",
+        "knowledge/ingestions/2026/04/your_ai_system_gets_worse_every_time_the_model_gets_better_c759269c66/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/your_ai_system_gets_worse_every_time_the_model_gets_better_c759269c66/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "your_ai_system_gets_worse_every_time_the_model_gets_better_c759269c66",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-01T15:20:03.362817+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-your_ai_system_gets_worse_every_time_the_model_gets_better_c759269c66",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=hV5_XSEBZNg",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/your_codebase_has_a_dark_code_problem_and_you_just_don_t_know_it_yet_her_f296f7add7/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/your_codebase_has_a_dark_code_problem_and_you_just_don_t_know_it_yet_her_f296f7add7/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/your_codebase_has_a_dark_code_problem_and_you_just_don_t_know_it_yet_her_f296f7add7/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/your_codebase_has_a_dark_code_problem_and_you_just_don_t_know_it_yet_her_f296f7add7/raw/source.url",
+        "knowledge/ingestions/2026/04/your_codebase_has_a_dark_code_problem_and_you_just_don_t_know_it_yet_her_f296f7add7/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/your_codebase_has_a_dark_code_problem_and_you_just_don_t_know_it_yet_her_f296f7add7/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "your_codebase_has_a_dark_code_problem_and_you_just_don_t_know_it_yet_her_f296f7add7",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-13T14:11:09.529613+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-your_codebase_has_a_dark_code_problem_and_you_just_don_t_know_it_yet_her_f296f7add7",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=E1idsrv79tI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/your_iphone_is_about_to_control_every_ai_app_you_use_here_s_what_this_me_979790c27a/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/your_iphone_is_about_to_control_every_ai_app_you_use_here_s_what_this_me_979790c27a/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/your_iphone_is_about_to_control_every_ai_app_you_use_here_s_what_this_me_979790c27a/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/your_iphone_is_about_to_control_every_ai_app_you_use_here_s_what_this_me_979790c27a/raw/source.url",
+        "knowledge/ingestions/2026/04/your_iphone_is_about_to_control_every_ai_app_you_use_here_s_what_this_me_979790c27a/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/your_iphone_is_about_to_control_every_ai_app_you_use_here_s_what_this_me_979790c27a/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "your_iphone_is_about_to_control_every_ai_app_you_use_here_s_what_this_me_979790c27a",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-01T04:17:01.566249+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-your_iphone_is_about_to_control_every_ai_app_you_use_here_s_what_this_me_979790c27a",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=BhXNtvZvziY",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d/shared_source_packet.json",
+      "metadata_path": "knowledge/ingestions/2026/04/the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d/shared_source_packet.json",
+      "normalized_path": "knowledge/ingestions/2026/04/the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d/normalized.md",
+      "promotions": [],
+      "published_at": "2026-04-05T03:42:15.639246Z",
+      "raw_path": "knowledge/ingestions/2026/04/the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d/raw/source.url",
+        "knowledge/ingestions/2026/04/the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d/routing_status.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "routing_status": {
+          "asset_id": "the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-05T03:42:15.639246+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "the_3_layers_ai_can_and_cannot_replace_in_business_ai_futureofwork_5c1c31099d",
+      "source_kind": "machine_ingestion",
+      "source_type": "youtube_transcript",
+      "source_url": "https://www.youtube.com/watch?v=suNE_u6fBVQ",
+      "status": "routed",
+      "summary": "My site: https://natebjones.com Full Story w/ Prompts & Guide:https://natesnewsletter.substack.com/p/executive-briefing-the-bifurcated?r=1z4sm5&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true ___________________ What's really happening inside AI's impact on competitiv...",
+      "title": "The 3 layers AI can and cannot replace in business! #ai #futureofwork"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87/shared_source_packet.json",
+      "metadata_path": "knowledge/ingestions/2026/04/the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87/shared_source_packet.json",
+      "normalized_path": "knowledge/ingestions/2026/04/the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87/normalized.md",
+      "promotions": [],
+      "published_at": "2026-04-05T21:47:13.031191Z",
+      "raw_path": "knowledge/ingestions/2026/04/the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87/raw/source.url",
+        "knowledge/ingestions/2026/04/the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87/routing_status.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "routing_status": {
+          "asset_id": "the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-05T21:47:13.031191+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "the_ai_squeeze_killing_mid_tier_firms_no_one_s_watching_ai_futureofwork_455fc85b87",
+      "source_kind": "machine_ingestion",
+      "source_type": "youtube_transcript",
+      "source_url": "https://www.youtube.com/watch?v=7xuCYbsp-xI",
+      "status": "routed",
+      "summary": "My site: https://natebjones.com Full Story w/ Prompts & Guide:https://natesnewsletter.substack.com/p/executive-briefing-the-bifurcated?r=1z4sm5&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true ___________________ What's really happening inside AI's impact on competitiv...",
+      "title": "The AI squeeze killing mid tier firms no one's watching! #ai #futureofwork"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7/shared_source_packet.json",
+      "metadata_path": "knowledge/ingestions/2026/04/why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7/shared_source_packet.json",
+      "normalized_path": "knowledge/ingestions/2026/04/why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7/normalized.md",
+      "promotions": [],
+      "published_at": "2026-04-04T21:40:37.465549Z",
+      "raw_path": "knowledge/ingestions/2026/04/why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7/raw/source.url",
+        "knowledge/ingestions/2026/04/why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7/routing_status.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "routing_status": {
+          "asset_id": "why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-04T21:40:37.465549+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "why_ai_agents_will_always_be_a_security_target_ai_futureofwork_da6c30b3e7",
+      "source_kind": "machine_ingestion",
+      "source_type": "youtube_transcript",
+      "source_url": "https://www.youtube.com/watch?v=azCR7oG3Rgw",
+      "status": "routed",
+      "summary": "My site: https://natebjones.com Full Story w/ Prompts & Guide: https://natesnewsletter.substack.com/p/ai-news-that-matters-for-builders?r=1z4sm5&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true ___________________ What's really happening inside AI infrastructure headin...",
+      "title": "Why AI agents will always be a security target! #ai #futureofwork"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa/shared_source_packet.json",
+      "metadata_path": "knowledge/ingestions/2026/04/your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa/shared_source_packet.json",
+      "normalized_path": "knowledge/ingestions/2026/04/your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa/normalized.md",
+      "promotions": [],
+      "published_at": "2026-04-05T19:45:32.249107Z",
+      "raw_path": "knowledge/ingestions/2026/04/your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa/raw/source.url",
+        "knowledge/ingestions/2026/04/your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa/routing_status.json",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "routing_status": {
+          "asset_id": "your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa",
+          "has_transcript": true,
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "updated_at": "2026-04-05T19:45:32.249107+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "your_agent_produces_at_100x_your_org_reviews_at_3x_that_s_the_problem_44957ac5aa",
+      "source_kind": "machine_ingestion",
+      "source_type": "youtube_transcript",
+      "source_url": "https://www.youtube.com/watch?v=kVPVmz0qJvY",
+      "status": "routed",
+      "summary": "My site: https://natebjones.com Full Story w/ Prompts: https://natesnewsletter.substack.com/p/executive-briefing-your-agent-produces?r=1z4sm5&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true ___________________ What's really happening inside AI agent deployments that l...",
+      "title": "Your Agent Produces at 100x. Your Org Reviews at 3x. That's the Problem."
+    }
+  ],
+  "states": [
+    "raw",
+    "digested",
+    "reviewed",
+    "routed",
+    "promoted",
+    "ignored"
+  ]
+}

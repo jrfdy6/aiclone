@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { getApiUrl } from '@/lib/api-client';
+import { apiGet, getApiUrl } from '@/lib/api-client';
 import { formatUiTimestamp, parseUiDate } from '@/lib/ui-dates';
 
 export type DocEntry = {
@@ -14,6 +14,8 @@ export type DocEntry = {
   content?: string;
   group?: string;
   updatedAt?: string;
+  readMode?: 'runtime' | 'live' | 'snapshot' | 'missing';
+  resolvedPath?: string;
 };
 
 export type PersonaBundleHealth = {
@@ -400,6 +402,125 @@ export type BrainWorkspaceSnapshot = {
   persona_review_summary?: PersonaReviewSummary | null;
 };
 
+type PortfolioPathSummary = {
+  path?: string;
+  updated_at?: string;
+  snippet?: string;
+  tail?: string;
+};
+
+type PortfolioPMCardSummary = {
+  id?: string;
+  title?: string;
+  status?: string;
+  owner?: string | null;
+  source?: string | null;
+  workspace_key?: string;
+  updated_at?: string | null;
+};
+
+type PortfolioStandupSummary = {
+  id?: string;
+  status?: string | null;
+  workspace_key?: string;
+  standup_kind?: string | null;
+  summary?: string | null;
+  blockers?: string[];
+  needs?: string[];
+  created_at?: string | null;
+};
+
+type PortfolioWorkspaceSummary = {
+  workspace_key: string;
+  display_name?: string;
+  short_label?: string;
+  kind?: string;
+  status?: string;
+  portfolio_visible?: boolean;
+  priority_order?: number;
+  workspace_root?: string;
+  description?: string;
+  manager_agent?: string | null;
+  target_agent?: string | null;
+  workspace_agent?: string | null;
+  execution_mode?: string | null;
+  default_standup_kind?: string | null;
+  pack_status?: { name?: string; exists?: boolean; path?: string; snippet?: string }[];
+  local_contracts?: PortfolioPathSummary[];
+  latest_briefing?: PortfolioPathSummary | null;
+  latest_dispatch?: PortfolioPathSummary | null;
+  latest_analytics?: PortfolioPathSummary | null;
+  execution_log?: PortfolioPathSummary | null;
+  active_pm_cards?: PortfolioPMCardSummary[];
+  latest_standups?: PortfolioStandupSummary[];
+  persisted_snapshot_types?: Record<string, string[]>;
+  counts?: {
+    pack_files_present?: number;
+    local_contracts?: number;
+    active_pm_cards?: number;
+    attention_pm_cards?: number;
+    latest_standups?: number;
+    standup_blockers?: number;
+  };
+  needs_brain_attention?: boolean;
+  source_paths?: string[];
+};
+
+type PortfolioWorkspaceSnapshot = {
+  generated_at?: string;
+  schema_version?: string;
+  source?: string;
+  workspaces?: PortfolioWorkspaceSummary[];
+  counts?: {
+    workspaces?: number;
+    needs_brain_attention?: number;
+    active_pm_cards?: number;
+    standup_blockers?: number;
+  };
+};
+
+type BrainSignalEntry = {
+  id: string;
+  source_kind: string;
+  source_ref?: string | null;
+  source_workspace_key?: string;
+  raw_summary?: string;
+  digest?: string | null;
+  signal_types?: string[];
+  workspace_candidates?: string[];
+  executive_interpretation?: Record<string, string>;
+  route_decision?: Record<string, unknown>;
+  review_status?: string;
+  updated_at?: string;
+  created_at?: string;
+};
+
+type SourceIntelligenceIndexSummary = {
+  schema_version?: string;
+  generated_at?: string;
+  counts?: {
+    total?: number;
+    raw?: number;
+    digested?: number;
+    reviewed?: number;
+    routed?: number;
+    promoted?: number;
+    ignored?: number;
+  };
+  recent_sources?: {
+    source_id?: string;
+    source_kind?: string;
+    source_class?: string;
+    source_channel?: string;
+    source_type?: string;
+    title?: string;
+    status?: string;
+    raw_path?: string;
+    normalized_path?: string;
+    digest_path?: string;
+  }[];
+};
+
 export type BrainControlPlanePayload = {
   generated_at?: string;
   automations?: Automation[];
@@ -421,6 +542,9 @@ export type BrainControlPlanePayload = {
     }>;
   } | null;
   workspace_snapshot?: BrainWorkspaceSnapshot | null;
+  portfolio_snapshot?: PortfolioWorkspaceSnapshot | null;
+  brain_signals?: BrainSignalEntry[];
+  source_intelligence_index?: SourceIntelligenceIndexSummary | null;
   summary?: {
     automation_count?: number;
     active_automation_count?: number;
@@ -431,6 +555,11 @@ export type BrainControlPlanePayload = {
     workspace_saved_count?: number;
     source_asset_count?: number;
     brain_memory_sync_queue_count?: number;
+    portfolio_workspace_count?: number;
+    portfolio_attention_count?: number;
+    brain_signal_count?: number;
+    source_intelligence_total?: number;
+    source_intelligence_routed?: number;
   };
 };
 
@@ -572,6 +701,12 @@ type PendingCanonicalMemoryRouteEntry = {
 type Tab = 'dashboard' | 'briefs' | 'persona' | 'automations' | 'docs';
 
 const API_URL = getApiUrl();
+const BRAIN_BRIEFS_TIMEOUT_MS = 12_000;
+const BRAIN_PERSONA_TIMEOUT_MS = 45_000;
+const BRAIN_CONTROL_PLANE_TIMEOUT_MS = 20_000;
+const BRAIN_YOUTUBE_WATCHLIST_TIMEOUT_MS = 20_000;
+const BRAIN_YOUTUBE_JOBS_TIMEOUT_MS = 8_000;
+const BRAIN_DOC_CONTENT_TIMEOUT_MS = 12_000;
 const brainInputStyle = {
   width: '100%',
   boxSizing: 'border-box',
@@ -598,18 +733,54 @@ const brainLinkButtonStyle = {
   fontSize: '12px',
   fontWeight: 600,
 } as const;
+const brainFieldLabelStyle = {
+  display: 'grid',
+  gap: '6px',
+  color: '#94a3b8',
+  fontSize: '12px',
+  fontWeight: 700,
+} as const;
+function brainSmallButtonStyle(disabled: boolean) {
+  return {
+    borderRadius: '10px',
+    border: '1px solid #334155',
+    padding: '8px 12px',
+    backgroundColor: disabled ? '#0f172a' : '#020617',
+    color: disabled ? '#64748b' : '#cbd5f5',
+    cursor: disabled ? 'progress' : 'pointer',
+    fontSize: '12px',
+    fontWeight: 700,
+  } as const;
+}
 const canonicalMemoryRouteOptions = ['persistent_state', 'learnings', 'chronicle'] as const;
 const brainStandupKindOptions = ['auto', 'executive_ops', 'operations', 'weekly_review', 'saturday_vision', 'workspace_sync'] as const;
+const brainSignalReviewStatusOptions = ['new', 'in_review', 'reviewed', 'routed', 'ignored'] as const;
+const brainSignalRouteOptions = ['source_only', 'canonical_memory', 'persona_canon', 'standup', 'pm', 'workspace_local', 'ignore'] as const;
+type BrainSignalRouteTarget = (typeof brainSignalRouteOptions)[number];
 const brainWorkspaceOptions = [
   { key: 'shared_ops', label: 'Executive' },
   { key: 'linkedin-os', label: 'FEEZIE OS' },
   { key: 'fusion-os', label: 'Fusion OS' },
-  { key: 'easyoutfitapp', label: 'EasyOutfitApp' },
+  { key: 'easyoutfitapp', label: 'Easy Outfit App' },
   { key: 'ai-swag-store', label: 'AI Swag Store' },
   { key: 'agc', label: 'AGC' },
 ] as const;
 type BrainWorkspaceKey = (typeof brainWorkspaceOptions)[number]['key'];
 type BrainWorkspaceSignalKey = Exclude<BrainWorkspaceKey, 'shared_ops' | 'linkedin-os'>;
+type BrainSignalRouteDraft = {
+  reviewStatus: string;
+  digest: string;
+  route: BrainSignalRouteTarget;
+  workspaceKey: string;
+  summary: string;
+  routeReason: string;
+  standupKind: string;
+  pmTitle: string;
+  canonicalTargets: string[];
+  yodaMeaning: string;
+  neoSystemImpact: string;
+  jeanClaudeOperationalTranslation: string;
+};
 
 const brainTriagePresetOptions = [
   { key: 'canon_only', label: 'Canon + Memory' },
@@ -762,76 +933,107 @@ export default function BrainClient({
     [activeTab, navigateToSection],
   );
 
-  const fetchFreshJson = useCallback(async function fetchFreshJson<T>(path: string): Promise<T> {
-    const separator = path.includes('?') ? '&' : '?';
-    const response = await fetch(`${API_URL}${path}${separator}brain_ts=${Date.now()}`, {
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-store' },
-    });
-    return response.json() as Promise<T>;
+  const applyControlPlanePayload = useCallback((payload: BrainControlPlanePayload | null) => {
+    setControlPlane(payload);
+    setAutomations(Array.isArray(payload?.automations) ? payload.automations : []);
+    setTelemetry(payload?.telemetry ?? null);
+    setTelemetryHealth(payload?.telemetry_health ?? null);
+    setWorkspaceSnapshot(payload?.workspace_snapshot ?? null);
   }, []);
 
-  const loadData = useCallback(async function loadData(cancelled = false) {
-      const [briefsRes, personaRes, controlPlaneRes, youtubeWatchlistRes, youtubeJobsRes] = await Promise.allSettled([
-        fetchFreshJson<DailyBriefEntry[]>('/api/briefs/?limit=50'),
-        fetchFreshJson<PersonaDeltaEntry[]>('/api/persona/deltas?limit=100&view=brain_queue'),
-        fetchFreshJson<BrainControlPlanePayload>('/api/brain/control-plane'),
-        fetchFreshJson<YouTubeWatchlistPayload>('/api/brain/youtube-watchlist'),
-        fetchFreshJson<{ jobs?: YouTubeIngestJob[] }>('/api/brain/youtube-watchlist/jobs'),
-      ]);
+  const fetchFreshJson = useCallback(async function fetchFreshJson<T>(path: string, timeoutMs: number): Promise<T> {
+    const separator = path.includes('?') ? '&' : '?';
+    return apiGet<T>(`${path}${separator}brain_ts=${Date.now()}`, { timeoutMs });
+  }, []);
 
-      if (cancelled) {
-        return;
-      }
-
-      if (briefsRes.status === 'fulfilled' && Array.isArray(briefsRes.value)) {
-        setBriefs(briefsRes.value);
-        setSelectedBrief((current) => current ?? briefsRes.value[0] ?? null);
+  const loadData = useCallback(function loadData(isCancelled: () => boolean = () => false): Promise<void> {
+    void fetchFreshJson<DailyBriefEntry[]>('/api/briefs/?limit=50', BRAIN_BRIEFS_TIMEOUT_MS)
+      .then((items) => {
+        if (isCancelled() || !Array.isArray(items)) {
+          return;
+        }
+        setBriefs(items);
+        setSelectedBrief((current) => items.find((entry) => entry.id === current?.id) ?? items[0] ?? null);
         setBriefsError(null);
-      } else {
-        console.error('Failed to load daily briefs', briefsRes.status === 'rejected' ? briefsRes.reason : briefsRes.value);
+      })
+      .catch((error) => {
+        if (isCancelled()) {
+          return;
+        }
+        console.error('Failed to load daily briefs', error);
         setBriefsError('Unable to load daily briefs right now.');
-      }
+      });
 
-      if (personaRes.status === 'fulfilled' && Array.isArray(personaRes.value)) {
-        setPersonaDeltas(personaRes.value);
+    void fetchFreshJson<PersonaDeltaEntry[]>(
+      '/api/persona/deltas?limit=50&view=brain_queue',
+      BRAIN_PERSONA_TIMEOUT_MS,
+    )
+      .then((items) => {
+        if (isCancelled() || !Array.isArray(items)) {
+          return;
+        }
+        setPersonaDeltas(items);
         setPersonaDeltasError(null);
-      } else {
-        console.error('Failed to load persona deltas', personaRes.status === 'rejected' ? personaRes.reason : personaRes.value);
+      })
+      .catch((error) => {
+        if (isCancelled()) {
+          return;
+        }
+        console.error('Failed to load persona deltas', error);
         setPersonaDeltasError('Unable to load persona deltas right now.');
-      }
+      });
 
-      if (controlPlaneRes.status === 'fulfilled') {
-        const payload = controlPlaneRes.value ?? null;
-        setControlPlane(payload);
-        setAutomations(Array.isArray(payload?.automations) ? payload.automations : []);
-        setTelemetry(payload?.telemetry ?? null);
-        setTelemetryHealth(payload?.telemetry_health ?? null);
-        setWorkspaceSnapshot(payload?.workspace_snapshot ?? null);
+    void fetchFreshJson<BrainControlPlanePayload>('/api/brain/control-plane', BRAIN_CONTROL_PLANE_TIMEOUT_MS)
+      .then((payload) => {
+        if (isCancelled()) {
+          return;
+        }
+        applyControlPlanePayload(payload ?? null);
         setAutomationsError(null);
         setWorkspaceSnapshotError(null);
         setTelemetryError(null);
-      } else {
-        console.error('Failed to load Brain control plane', controlPlaneRes.reason);
+      })
+      .catch((error) => {
+        if (isCancelled()) {
+          return;
+        }
+        console.error('Failed to load Brain control plane', error);
         setAutomationsError('Unable to load automations right now.');
         setWorkspaceSnapshotError('Unable to load shared source intelligence right now.');
         setTelemetryError('Unable to load full Open Brain telemetry.');
-      }
+      });
 
-      if (youtubeWatchlistRes.status === 'fulfilled') {
-        setYoutubeWatchlist(youtubeWatchlistRes.value ?? null);
+    void fetchFreshJson<YouTubeWatchlistPayload>('/api/brain/youtube-watchlist', BRAIN_YOUTUBE_WATCHLIST_TIMEOUT_MS)
+      .then((payload) => {
+        if (isCancelled()) {
+          return;
+        }
+        setYoutubeWatchlist(payload ?? null);
         setYoutubeWatchlistError(null);
-      } else {
-        console.error('Failed to load YouTube watchlist', youtubeWatchlistRes.reason);
+      })
+      .catch((error) => {
+        if (isCancelled()) {
+          return;
+        }
+        console.error('Failed to load YouTube watchlist', error);
         setYoutubeWatchlistError('Unable to load tracked YouTube channels right now.');
-      }
+      });
 
-      if (youtubeJobsRes.status === 'fulfilled') {
-        setYoutubeIngestJobs(Array.isArray(youtubeJobsRes.value?.jobs) ? youtubeJobsRes.value.jobs : []);
-      } else {
-        console.error('Failed to load YouTube ingest jobs', youtubeJobsRes.reason);
-      }
-  }, [fetchFreshJson]);
+    void fetchFreshJson<{ jobs?: YouTubeIngestJob[] }>('/api/brain/youtube-watchlist/jobs', BRAIN_YOUTUBE_JOBS_TIMEOUT_MS)
+      .then((payload) => {
+        if (isCancelled()) {
+          return;
+        }
+        setYoutubeIngestJobs(Array.isArray(payload?.jobs) ? payload.jobs : []);
+      })
+      .catch((error) => {
+        if (isCancelled()) {
+          return;
+        }
+        console.error('Failed to load YouTube ingest jobs', error);
+      });
+    return Promise.resolve();
+  }, [applyControlPlanePayload, fetchFreshJson]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -848,8 +1050,9 @@ export default function BrainClient({
 
   useEffect(() => {
     let cancelled = false;
-    loadData();
-    const interval = setInterval(loadData, 60_000);
+    const isCancelled = () => cancelled;
+    loadData(isCancelled);
+    const interval = setInterval(() => loadData(isCancelled), 60_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -992,6 +1195,11 @@ function DashboardPanel({
         workspaceSnapshot={workspaceSnapshot}
         workspaceSnapshotError={workspaceSnapshotError}
       />
+      <BrainPortfolioPanel
+        portfolioSnapshot={controlPlane?.portfolio_snapshot ?? null}
+        brainSignals={controlPlane?.brain_signals ?? []}
+        refreshBrainData={refreshBrainData}
+      />
       <WorkspaceMirrorsPanel workspaceSnapshot={workspaceSnapshot} />
       <BrainLongFormIngestPanel
         value={longFormIngest}
@@ -1033,6 +1241,7 @@ function BrainControlPlanePanel({
   const personaCounts = workspaceSnapshot?.persona_review_summary?.counts;
   const relationCounts = workspaceSnapshot?.persona_review_summary?.belief_relation_counts ?? {};
   const brainMemorySync = controlPlane?.brain_memory_sync ?? null;
+  const sourceIndex = controlPlane?.source_intelligence_index ?? null;
   const memorySyncItems = (brainMemorySync?.processed_items ?? []).slice(0, 4);
   const truthLanes = [
     {
@@ -1093,6 +1302,25 @@ function BrainControlPlanePanel({
         <TelemetryStat label="Captures" value={telemetry?.captures.total ?? 0} tone="#818cf8" detail="Open Brain all time" />
         <TelemetryStat label="Pending Review" value={personaCounts?.brain_pending_review ?? 0} tone="#f97316" detail="Brain queue" />
         <TelemetryStat label="Workspace Saved" value={personaCounts?.workspace_saved ?? 0} tone="#22c55e" detail="Already approved" />
+        <TelemetryStat
+          label="Workspaces"
+          value={controlPlane?.summary?.portfolio_workspace_count ?? 0}
+          tone="#a78bfa"
+          detail="Visible in portfolio snapshot"
+        />
+        <TelemetryStat
+          label="Need Attention"
+          value={controlPlane?.summary?.portfolio_attention_count ?? 0}
+          tone={(controlPlane?.summary?.portfolio_attention_count ?? 0) > 0 ? '#f97316' : '#22c55e'}
+          detail="PM review, blockers, or failed work"
+        />
+        <TelemetryStat label="Brain Signals" value={controlPlane?.summary?.brain_signal_count ?? 0} tone="#38bdf8" detail="Recent review objects" />
+        <TelemetryStat
+          label="Source Index"
+          value={controlPlane?.summary?.source_intelligence_total ?? sourceIndex?.counts?.total ?? 0}
+          tone="#34d399"
+          detail="Registered source-intelligence assets"
+        />
         <TelemetryStat
           label="Memory Queue"
           value={brainMemorySync?.queued_route_count ?? 0}
@@ -1166,11 +1394,21 @@ function BrainControlPlanePanel({
           title="Shared Source System"
           items={[
             `Source assets: ${numberMeta(sourceCounts?.total)}`,
+            `Registry: ${numberMeta(sourceIndex?.counts?.total)} total / ${numberMeta(sourceIndex?.counts?.routed)} routed`,
+            `Digested: ${numberMeta(sourceIndex?.counts?.digested)} / reviewed: ${numberMeta(sourceIndex?.counts?.reviewed)}`,
             `Long-form media: ${numberMeta(sourceCounts?.long_form_media)}`,
             `Pending segmentation: ${numberMeta(sourceCounts?.pending_segmentation)}`,
             `Feed-ready: ${numberMeta(sourceCounts?.feed_ready)}`,
           ]}
           emptyLabel="No shared source data yet."
+        />
+        <BriefOverlayBlock
+          title="Source Registry"
+          items={(sourceIndex?.recent_sources ?? []).slice(0, 5).map(
+            (source) =>
+              `${humanizeSnakeCase(source.status || 'raw')} · ${source.source_channel || source.source_kind || 'source'} · ${truncateText(source.title || source.source_id || 'Untitled source', 96)}`,
+          )}
+          emptyLabel="No source-intelligence registry entries are visible yet."
         />
         <BriefOverlayBlock
           title="Primary Routes"
@@ -1184,6 +1422,529 @@ function BrainControlPlanePanel({
         />
       </div>
     </section>
+  );
+}
+
+function BrainPortfolioPanel({
+  portfolioSnapshot,
+  brainSignals,
+  refreshBrainData,
+}: {
+  portfolioSnapshot: PortfolioWorkspaceSnapshot | null;
+  brainSignals: BrainSignalEntry[];
+  refreshBrainData: () => Promise<void>;
+}) {
+  const workspaces = portfolioSnapshot?.workspaces ?? [];
+  const recentSignals = brainSignals.slice(0, 8);
+  const [routingSignalId, setRoutingSignalId] = useState<string | null>(null);
+  const [reviewingSignalId, setReviewingSignalId] = useState<string | null>(null);
+  const [routeStatus, setRouteStatus] = useState<string | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const [signalDrafts, setSignalDrafts] = useState<Record<string, Partial<BrainSignalRouteDraft>>>({});
+
+  function defaultSignalDraft(signal: BrainSignalEntry): BrainSignalRouteDraft {
+    const interpretation = signal.executive_interpretation ?? {};
+    const summary = signal.digest || signal.raw_summary || signal.source_kind;
+    return {
+      reviewStatus: signal.review_status === 'new' ? 'reviewed' : signal.review_status || 'reviewed',
+      digest: signal.digest || signal.raw_summary || '',
+      route: 'standup',
+      workspaceKey: signal.source_workspace_key || signal.workspace_candidates?.[0] || 'shared_ops',
+      summary,
+      routeReason: '',
+      standupKind: 'auto',
+      pmTitle: '',
+      canonicalTargets: ['persistent_state'],
+      yodaMeaning: interpretation.yoda_meaning || '',
+      neoSystemImpact: interpretation.neo_system_impact || '',
+      jeanClaudeOperationalTranslation: interpretation.jean_claude_operational_translation || '',
+    };
+  }
+
+  function signalDraft(signal: BrainSignalEntry): BrainSignalRouteDraft {
+    return {
+      ...defaultSignalDraft(signal),
+      ...(signalDrafts[signal.id] ?? {}),
+    };
+  }
+
+  function updateSignalDraft(signal: BrainSignalEntry, patch: Partial<BrainSignalRouteDraft>) {
+    setSignalDrafts((current) => ({
+      ...current,
+      [signal.id]: {
+        ...(current[signal.id] ?? {}),
+        ...patch,
+      },
+    }));
+  }
+
+  function toggleSignalCanonicalTarget(signal: BrainSignalEntry, target: string) {
+    const draft = signalDraft(signal);
+    const next = draft.canonicalTargets.includes(target)
+      ? draft.canonicalTargets.filter((item) => item !== target)
+      : [...draft.canonicalTargets, target];
+    updateSignalDraft(signal, { canonicalTargets: next });
+  }
+
+  async function reviewBrainSignal(signal: BrainSignalEntry) {
+    const draft = signalDraft(signal);
+    setReviewingSignalId(signal.id);
+    setRouteStatus(null);
+    setRouteError(null);
+    try {
+      const response = await fetch(`${API_URL}/api/brain/signals/${encodeURIComponent(signal.id)}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          digest: draft.digest,
+          review_status: draft.reviewStatus,
+          workspace_candidates: [draft.workspaceKey],
+          executive_interpretation: {
+            yoda_meaning: draft.yodaMeaning,
+            neo_system_impact: draft.neoSystemImpact,
+            jean_claude_operational_translation: draft.jeanClaudeOperationalTranslation,
+          },
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || payload?.message || 'Unable to review Brain Signal.');
+      }
+      setRouteStatus('Brain Signal review saved.');
+      await refreshBrainData();
+    } catch (error) {
+      setRouteError(error instanceof Error ? error.message : 'Unable to review Brain Signal.');
+    } finally {
+      setReviewingSignalId(null);
+    }
+  }
+
+  async function routeBrainSignal(signal: BrainSignalEntry) {
+    const draft = signalDraft(signal);
+    setRoutingSignalId(signal.id);
+    setRouteStatus(null);
+    setRouteError(null);
+    if (draft.route === 'pm' && !draft.pmTitle.trim()) {
+      setRouteError('PM routes require a bounded action title.');
+      setRoutingSignalId(null);
+      return;
+    }
+    if (draft.route === 'canonical_memory' && draft.canonicalTargets.length === 0) {
+      setRouteError('Choose at least one memory target before routing to canonical memory.');
+      setRoutingSignalId(null);
+      return;
+    }
+    try {
+      const response = await fetch(`${API_URL}/api/brain/signals/${encodeURIComponent(signal.id)}/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          route: draft.route,
+          workspace_key: draft.workspaceKey,
+          summary: draft.summary || draft.digest || signal.digest || signal.raw_summary || signal.source_kind,
+          route_reason: draft.routeReason || defaultBrainSignalRouteReason(draft.route),
+          canonical_memory_targets: draft.route === 'canonical_memory' ? draft.canonicalTargets : [],
+          standup_kind: draft.standupKind,
+          pm_title: draft.route === 'pm' ? draft.pmTitle : null,
+          executive_interpretation: {
+            yoda_meaning: draft.yodaMeaning,
+            neo_system_impact: draft.neoSystemImpact,
+            jean_claude_operational_translation: draft.jeanClaudeOperationalTranslation,
+          },
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || payload?.message || 'Unable to route Brain Signal.');
+      }
+      setRouteStatus(`Brain Signal routed to ${humanizeSnakeCase(draft.route)}.`);
+      await refreshBrainData();
+    } catch (error) {
+      setRouteError(error instanceof Error ? error.message : 'Unable to route Brain Signal.');
+    } finally {
+      setRoutingSignalId(null);
+    }
+  }
+
+  return (
+    <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '14px' }}>
+        <div>
+          <p style={{ color: '#a78bfa', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Portfolio Control Plane</p>
+          <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, maxWidth: '860px' }}>
+            Brain reads local workspace proof, PM truth, standups, and persisted snapshots here before deciding whether signal belongs in memory, persona, standup, PM, workspace-local follow-up, or no action.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <InlineBadge label={`Updated ${portfolioSnapshot?.generated_at ? formatTimestamp(portfolioSnapshot.generated_at) : 'not yet'}`} tone="#64748b" />
+          <InlineBadge label={`Schema ${portfolioSnapshot?.schema_version ?? 'pending'}`} tone="#818cf8" />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+        <TelemetryStat label="Workspaces" value={portfolioSnapshot?.counts?.workspaces ?? workspaces.length} tone="#a78bfa" detail="Visible portfolio workspaces" />
+        <TelemetryStat
+          label="Attention"
+          value={portfolioSnapshot?.counts?.needs_brain_attention ?? workspaces.filter((workspace) => workspace.needs_brain_attention).length}
+          tone={(portfolioSnapshot?.counts?.needs_brain_attention ?? 0) > 0 ? '#f97316' : '#22c55e'}
+          detail="Review, blockers, or failed work"
+        />
+        <TelemetryStat label="PM Cards" value={portfolioSnapshot?.counts?.active_pm_cards ?? 0} tone="#fbbf24" detail="Active workspace work" />
+        <TelemetryStat label="Blockers" value={portfolioSnapshot?.counts?.standup_blockers ?? 0} tone="#f87171" detail="Latest standup blockers" />
+        <TelemetryStat label="Signals" value={recentSignals.length} tone="#38bdf8" detail="Recent Brain Signal objects" />
+      </div>
+
+      {workspaces.length > 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+          {workspaces.map((workspace) => {
+            const blockers = workspace.latest_standups?.flatMap((standup) => standup.blockers ?? []).slice(0, 3) ?? [];
+            const latestStandup = workspace.latest_standups?.[0] ?? null;
+            const latestState =
+              workspace.latest_briefing?.snippet ||
+              workspace.latest_analytics?.snippet ||
+              latestStandup?.summary ||
+              workspace.description ||
+              'No workspace state published yet.';
+            const lastExecution =
+              workspace.execution_log?.tail ||
+              workspace.execution_log?.snippet ||
+              workspace.latest_dispatch?.snippet ||
+              'No execution result visible yet.';
+            const snapshotTypes = Object.entries(workspace.persisted_snapshot_types ?? {})
+              .flatMap(([workspaceKey, types]) => types.map((type) => `${workspaceKey}:${type}`))
+              .slice(0, 4);
+            return (
+              <div
+                key={workspace.workspace_key}
+                style={{
+                  borderRadius: '14px',
+                  border: `1px solid ${workspace.needs_brain_attention ? 'rgba(249,115,22,0.45)' : '#1f2937'}`,
+                  backgroundColor: workspace.needs_brain_attention ? 'rgba(67,20,7,0.35)' : '#020617',
+                  padding: '14px',
+                  display: 'grid',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ color: 'white', fontSize: '15px', fontWeight: 700, margin: 0 }}>{workspace.display_name ?? workspace.workspace_key}</p>
+                    <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>
+                      {workspace.execution_mode ? humanizeSnakeCase(workspace.execution_mode) : 'workspace'} · {workspace.status ?? 'planned'}
+                    </p>
+                  </div>
+                  <InlineBadge
+                    label={workspace.needs_brain_attention ? 'Needs Brain' : 'No blocker'}
+                    tone={workspace.needs_brain_attention ? '#f97316' : '#22c55e'}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
+                  <TelemetryMeta label="Pack" value={`${workspace.counts?.pack_files_present ?? 0}/5`} detail="Identity files" />
+                  <TelemetryMeta label="PM" value={String(workspace.counts?.active_pm_cards ?? 0)} detail="Active cards" />
+                  <TelemetryMeta label="Blockers" value={String(workspace.counts?.standup_blockers ?? blockers.length)} detail="Standup blockers" />
+                </div>
+
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <PortfolioFact label="Latest State" value={truncateText(latestState, 190)} />
+                  <PortfolioFact label="Last Execution Result" value={truncateText(lastExecution, 190)} />
+                  <PortfolioFact
+                    label="Active Blockers"
+                    value={blockers.length > 0 ? blockers.map((blocker) => truncateText(blocker, 90)).join(' · ') : 'No active blockers reported.'}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {(workspace.local_contracts ?? []).slice(0, 3).map((contract) => (
+                    <InlineBadge key={`${workspace.workspace_key}-${contract.path}`} label={contract.path?.split('/').pop() ?? 'contract'} tone="#38bdf8" />
+                  ))}
+                  {snapshotTypes.map((snapshotType) => (
+                    <InlineBadge key={`${workspace.workspace_key}-${snapshotType}`} label={snapshotType} tone="#64748b" />
+                  ))}
+                  {(workspace.local_contracts ?? []).length === 0 && snapshotTypes.length === 0 && <InlineBadge label="No local proof yet" tone="#64748b" />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <MirrorEmptyState message="No portfolio workspace snapshot is visible in the current Brain control-plane payload." />
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.85fr) minmax(0, 1.15fr)', gap: '12px' }}>
+        <BriefOverlayBlock
+          title="Workspace Attention"
+          items={workspaces
+            .filter((workspace) => workspace.needs_brain_attention)
+            .map((workspace) => `${workspace.display_name ?? workspace.workspace_key}: ${numberMeta(workspace.counts?.attention_pm_cards)} PM review/blocked cards, ${numberMeta(workspace.counts?.standup_blockers)} blockers`)}
+          emptyLabel="No workspace currently requires Brain attention."
+        />
+        <BriefOverlayBlock
+          title="Recent Brain Signals"
+          items={recentSignals.map((signal) => {
+            const workspace = signal.source_workspace_key || signal.workspace_candidates?.[0] || 'shared_ops';
+            return `${humanizeSnakeCase(signal.review_status || 'new')} · ${workspace} · ${truncateText(signal.digest || signal.raw_summary || signal.source_kind, 120)}`;
+          })}
+          emptyLabel="No Brain Signals have been registered yet."
+        />
+      </div>
+
+      {(routeStatus || routeError || recentSignals.length > 0) && (
+        <div style={{ marginTop: '14px', display: 'grid', gap: '10px' }}>
+          {routeStatus && <p style={{ color: '#22c55e', fontSize: '12px', margin: 0 }}>{routeStatus}</p>}
+          {routeError && <p style={{ color: '#f87171', fontSize: '12px', margin: 0 }}>{routeError}</p>}
+          {recentSignals.map((signal) => (
+            <BrainSignalReviewCard
+              key={signal.id}
+              signal={signal}
+              draft={signalDraft(signal)}
+              disabled={routingSignalId === signal.id || reviewingSignalId === signal.id}
+              routing={routingSignalId === signal.id}
+              reviewing={reviewingSignalId === signal.id}
+              onDraftChange={(patch) => updateSignalDraft(signal, patch)}
+              onToggleMemoryTarget={(target) => toggleSignalCanonicalTarget(signal, target)}
+              onReview={() => void reviewBrainSignal(signal)}
+              onRoute={() => void routeBrainSignal(signal)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BrainSignalReviewCard({
+  signal,
+  draft,
+  disabled,
+  reviewing,
+  routing,
+  onDraftChange,
+  onToggleMemoryTarget,
+  onReview,
+  onRoute,
+}: {
+  signal: BrainSignalEntry;
+  draft: BrainSignalRouteDraft;
+  disabled: boolean;
+  reviewing: boolean;
+  routing: boolean;
+  onDraftChange: (patch: Partial<BrainSignalRouteDraft>) => void;
+  onToggleMemoryTarget: (target: string) => void;
+  onReview: () => void;
+  onRoute: () => void;
+}) {
+  const routeHistory = brainSignalRouteHistory(signal);
+  const latestRoute = brainSignalLatestRoute(signal);
+  const routeRequiresPMTitle = draft.route === 'pm';
+  const routeRequiresMemoryTarget = draft.route === 'canonical_memory';
+  const routeDisabled = disabled || (routeRequiresPMTitle && !draft.pmTitle.trim()) || (routeRequiresMemoryTarget && draft.canonicalTargets.length === 0);
+  return (
+    <div style={{ borderRadius: '12px', border: '1px solid #1e293b', backgroundColor: '#020617', padding: '12px', display: 'grid', gap: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0, maxWidth: '760px' }}>
+          <p style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 700, margin: 0 }}>
+            {humanizeSnakeCase(signal.source_kind)} · {humanizeSnakeCase(signal.review_status || 'new')}
+          </p>
+          <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.5, margin: '6px 0 0' }}>
+            {truncateText(signal.digest || signal.raw_summary || 'No signal summary saved.', 220)}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <InlineBadge label={signal.source_workspace_key || 'shared_ops'} tone="#38bdf8" />
+          {latestRoute && <InlineBadge label={`latest ${humanizeSnakeCase(readRecordString(latestRoute, 'route') || 'route')}`} tone="#a78bfa" />}
+          {signal.source_ref && <InlineBadge label={truncateText(signal.source_ref, 36)} tone="#64748b" />}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' }}>
+        <label style={brainFieldLabelStyle}>
+          Review status
+          <select value={draft.reviewStatus} onChange={(event) => onDraftChange({ reviewStatus: event.target.value })} style={brainInputStyle}>
+            {brainSignalReviewStatusOptions.map((status) => (
+              <option key={status} value={status}>
+                {humanizeSnakeCase(status)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={brainFieldLabelStyle}>
+          Workspace
+          <select value={draft.workspaceKey} onChange={(event) => onDraftChange({ workspaceKey: event.target.value })} style={brainInputStyle}>
+            {brainWorkspaceOptions.map((workspace) => (
+              <option key={workspace.key} value={workspace.key}>
+                {workspace.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={brainFieldLabelStyle}>
+          Route
+          <select value={draft.route} onChange={(event) => onDraftChange({ route: event.target.value as BrainSignalRouteTarget })} style={brainInputStyle}>
+            {brainSignalRouteOptions.map((route) => (
+              <option key={route} value={route}>
+                {humanizeSnakeCase(route)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={brainFieldLabelStyle}>
+          Standup kind
+          <select value={draft.standupKind} onChange={(event) => onDraftChange({ standupKind: event.target.value })} style={brainInputStyle} disabled={draft.route !== 'standup'}>
+            {brainStandupKindOptions.map((kind) => (
+              <option key={kind} value={kind}>
+                {humanizeSnakeCase(kind)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <label style={brainFieldLabelStyle}>
+        Digest
+        <textarea value={draft.digest} onChange={(event) => onDraftChange({ digest: event.target.value })} style={{ ...brainTextareaStyle, minHeight: '72px' }} />
+      </label>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+        <label style={brainFieldLabelStyle}>
+          Route summary
+          <textarea value={draft.summary} onChange={(event) => onDraftChange({ summary: event.target.value })} style={{ ...brainTextareaStyle, minHeight: '72px' }} />
+        </label>
+        <label style={brainFieldLabelStyle}>
+          Why route now
+          <textarea value={draft.routeReason} onChange={(event) => onDraftChange({ routeReason: event.target.value })} placeholder={defaultBrainSignalRouteReason(draft.route)} style={{ ...brainTextareaStyle, minHeight: '72px' }} />
+        </label>
+      </div>
+
+      {draft.route === 'pm' && (
+        <label style={brainFieldLabelStyle}>
+          PM action title
+          <input value={draft.pmTitle} onChange={(event) => onDraftChange({ pmTitle: event.target.value })} placeholder="Resolve bounded workspace issue" style={brainInputStyle} />
+        </label>
+      )}
+
+      {draft.route === 'canonical_memory' && (
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {canonicalMemoryRouteOptions.map((target) => {
+            const active = draft.canonicalTargets.includes(target);
+            return (
+              <button key={target} type="button" onClick={() => onToggleMemoryTarget(target)} style={triageToggleButtonStyle(active)}>
+                {humanizeSnakeCase(target)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+        <label style={brainFieldLabelStyle}>
+          Yoda meaning
+          <input value={draft.yodaMeaning} onChange={(event) => onDraftChange({ yodaMeaning: event.target.value })} style={brainInputStyle} />
+        </label>
+        <label style={brainFieldLabelStyle}>
+          Neo system impact
+          <input value={draft.neoSystemImpact} onChange={(event) => onDraftChange({ neoSystemImpact: event.target.value })} style={brainInputStyle} />
+        </label>
+        <label style={brainFieldLabelStyle}>
+          Jean-Claude translation
+          <input
+            value={draft.jeanClaudeOperationalTranslation}
+            onChange={(event) => onDraftChange({ jeanClaudeOperationalTranslation: event.target.value })}
+            style={brainInputStyle}
+          />
+        </label>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ color: '#64748b', fontSize: '12px' }}>
+          {routeHistory.length > 0 ? `${routeHistory.length} route event${routeHistory.length === 1 ? '' : 's'} recorded.` : 'No route history yet.'}
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button type="button" onClick={onReview} disabled={disabled} style={brainSmallButtonStyle(disabled)}>
+            {reviewing ? 'Saving...' : 'Save Review'}
+          </button>
+          <button type="button" onClick={onRoute} disabled={routeDisabled} style={brainSmallButtonStyle(routeDisabled)}>
+            {routing ? 'Routing...' : `Route to ${humanizeSnakeCase(draft.route)}`}
+          </button>
+        </div>
+      </div>
+
+      {routeHistory.length > 0 && (
+        <div style={{ borderRadius: '10px', border: '1px solid #1e293b', backgroundColor: '#030712', padding: '10px', display: 'grid', gap: '8px' }}>
+          <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Route History</p>
+          {routeHistory.slice(-3).map((entry, index) => (
+            <div key={`${signal.id}-route-${index}`} style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.45 }}>
+              <strong style={{ color: '#e2e8f0' }}>{humanizeSnakeCase(readRecordString(entry, 'route') || 'route')}</strong>
+              {' · '}
+              {readRecordString(entry, 'workspace_key') || 'shared_ops'}
+              {readRecordString(entry, 'routed_at') ? ` · ${formatTimestamp(readRecordString(entry, 'routed_at'))}` : ''}
+              {readRecordString(entry, 'summary') ? ` · ${truncateText(readRecordString(entry, 'summary'), 120)}` : ''}
+              <BrainSignalRouteWriteback entry={entry} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function brainSignalRouteHistory(signal: BrainSignalEntry) {
+  const history = signal.route_decision?.history;
+  if (Array.isArray(history)) {
+    return history.filter((entry): entry is Record<string, unknown> => isUnknownRecord(entry));
+  }
+  const latest = brainSignalLatestRoute(signal);
+  return latest ? [latest] : [];
+}
+
+function brainSignalLatestRoute(signal: BrainSignalEntry) {
+  const latest = signal.route_decision?.latest;
+  return isUnknownRecord(latest) ? latest : null;
+}
+
+function BrainSignalRouteWriteback({ entry }: { entry: Record<string, unknown> }) {
+  const standup = isUnknownRecord(entry.standup) ? entry.standup : null;
+  const pmCard = isUnknownRecord(entry.pm_card) ? entry.pm_card : null;
+  const memoryTargets = Array.isArray(entry.canonical_memory_targets)
+    ? entry.canonical_memory_targets.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  if (!standup && !pmCard && memoryTargets.length === 0 && !readRecordString(entry, 'ignored_reason')) {
+    return null;
+  }
+  return (
+    <span style={{ display: 'block', color: '#64748b', marginTop: '4px' }}>
+      {standup && `Standup ${readRecordString(standup, 'id') || 'queued'}. `}
+      {pmCard && `PM ${readRecordString(pmCard, 'id') || readRecordString(pmCard, 'title') || 'queued'}. `}
+      {memoryTargets.length > 0 && `Memory ${memoryTargets.join(', ')}. `}
+      {readRecordString(entry, 'ignored_reason') && `Ignored: ${truncateText(readRecordString(entry, 'ignored_reason'), 100)}`}
+    </span>
+  );
+}
+
+function defaultBrainSignalRouteReason(route: BrainSignalRouteTarget) {
+  if (route === 'ignore') return 'Operator marked this Brain Signal as no-action.';
+  if (route === 'standup') return 'Operator routed this Brain Signal for standup interpretation.';
+  if (route === 'pm') return 'Operator confirmed this Brain Signal is action-shaped and should become bounded PM work now.';
+  if (route === 'canonical_memory') return 'Operator confirmed this Brain Signal should update canonical memory.';
+  if (route === 'persona_canon') return 'Operator confirmed this Brain Signal should be considered for persona canon.';
+  if (route === 'workspace_local') return 'Operator confirmed this Brain Signal belongs in the selected workspace local context.';
+  return 'Operator kept this Brain Signal in source intelligence only.';
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readRecordString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function PortfolioFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ borderRadius: '10px', border: '1px solid #1e293b', backgroundColor: '#030712', padding: '10px' }}>
+      <p style={{ color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>{label}</p>
+      <p style={{ color: '#dbe7ff', fontSize: '13px', lineHeight: 1.45, margin: 0 }}>{value}</p>
+    </div>
   );
 }
 
@@ -5123,16 +5884,20 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
   const [docQuery, setDocQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('all');
   const [recentDocPaths, setRecentDocPaths] = useState<string[]>([]);
+  const [docContentByPath, setDocContentByPath] = useState<Record<string, DocEntry>>({});
+  const [loadingDocPath, setLoadingDocPath] = useState<string | null>(null);
+  const [docContentError, setDocContentError] = useState<string | null>(null);
   const filteredDocs = useMemo(() => {
     const query = docQuery.trim().toLowerCase();
     return docs.filter((doc) => {
       const group = doc.group ?? inferDocGroup(doc.path);
       const matchesGroup = selectedGroup === 'all' || group === selectedGroup;
-      const haystack = `${doc.name}\n${doc.path}\n${doc.snippet}\n${doc.content ?? ''}`.toLowerCase();
+      const loadedContent = docContentByPath[doc.path]?.content ?? doc.content ?? '';
+      const haystack = `${doc.name}\n${doc.path}\n${doc.snippet}\n${loadedContent}`.toLowerCase();
       const matchesQuery = query.length === 0 || haystack.includes(query);
       return matchesGroup && matchesQuery;
     });
-  }, [docQuery, docs, selectedGroup]);
+  }, [docContentByPath, docQuery, docs, selectedGroup]);
   const groupedDocs = useMemo(() => {
     const groups = new Map<string, DocEntry[]>();
     for (const doc of filteredDocs) {
@@ -5165,6 +5930,52 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
       setSelectedDocPath(groupedDocs[0].items[0].path);
     }
   }, [groupedDocs, selectedDoc]);
+  const selectedDocContent = selectedDoc ? docContentByPath[selectedDoc.path]?.content ?? selectedDoc.content ?? null : null;
+  const selectedDocIsLoading = selectedDoc ? loadingDocPath === selectedDoc.path : false;
+
+  useEffect(() => {
+    if (!selectedDoc || selectedDoc.content || docContentByPath[selectedDoc.path]) {
+      return;
+    }
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), BRAIN_DOC_CONTENT_TIMEOUT_MS);
+    setLoadingDocPath(selectedDoc.path);
+    setDocContentError(null);
+
+    fetch(`/api/brain-docs?path=${encodeURIComponent(selectedDoc.path)}`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const text = await response.text().catch(() => response.statusText);
+          throw new Error(`${response.status} ${response.statusText}: ${text}`);
+        }
+        return response.json() as Promise<DocEntry>;
+      })
+      .then((doc) => {
+        setDocContentByPath((current) => ({
+          ...current,
+          [selectedDoc.path]: doc,
+        }));
+      })
+      .catch((error) => {
+        if (error instanceof Error && error.name === 'AbortError') {
+          setDocContentError(`Document load timed out after ${BRAIN_DOC_CONTENT_TIMEOUT_MS}ms.`);
+          return;
+        }
+        setDocContentError(error instanceof Error ? error.message : 'Unable to load document content.');
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+        setLoadingDocPath((current) => (current === selectedDoc.path ? null : current));
+      });
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [docContentByPath, selectedDoc]);
 
   return (
     <section style={{ display: 'flex', gap: '18px', borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', minHeight: '560px' }}>
@@ -5251,7 +6062,10 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
                       cursor: 'pointer',
                     }}
                   >
-                    <p style={{ fontSize: '13px', fontWeight: 600 }}>{doc.name}</p>
+                    <p style={{ fontSize: '13px', fontWeight: 600 }}>
+                      {doc.name}
+                      {doc.readMode && doc.readMode !== 'live' ? ` (${doc.readMode})` : ''}
+                    </p>
                     <p style={{ fontSize: '12px', color: '#94a3b8', lineHeight: 1.45 }}>{doc.snippet}</p>
                   </button>
                 );
@@ -5267,7 +6081,11 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
               <div>
                 <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{selectedDoc.group ?? inferDocGroup(selectedDoc.path)}</p>
                 <h2 style={{ color: 'white', fontSize: '24px', marginBottom: '6px' }}>{selectedDoc.name}</h2>
-                <p style={{ color: '#64748b', fontSize: '12px' }}>{selectedDoc.path}</p>
+                <p style={{ color: '#64748b', fontSize: '12px' }}>
+                  {selectedDoc.path}
+                  {selectedDoc.readMode && ` · ${selectedDoc.readMode}`}
+                  {selectedDoc.resolvedPath && selectedDoc.resolvedPath !== selectedDoc.path ? ` · reads ${selectedDoc.resolvedPath}` : ''}
+                </p>
               </div>
               {selectedDoc.updatedAt && <p style={{ color: '#64748b', fontSize: '12px' }}>Updated {formatTimestamp(selectedDoc.updatedAt)}</p>}
             </div>
@@ -5285,7 +6103,7 @@ function DocsPanel({ docs }: { docs: DocEntry[] }) {
                 overflowY: 'auto',
               }}
             >
-              {selectedDoc.content?.trim() || selectedDoc.snippet}
+              {selectedDocIsLoading ? 'Loading document content...' : docContentError ? docContentError : selectedDocContent?.trim() || selectedDoc.snippet}
             </div>
           </div>
         ) : (
@@ -6523,9 +7341,9 @@ function executionModelForBrainWorkspace(workspaceKey: string) {
   }
   const workspaceAgents: Record<string, string> = {
     'fusion-os': 'Fusion Systems Operator',
-    easyoutfitapp: 'Easy Outfit Product Agent',
-    'ai-swag-store': 'Commerce Growth Agent',
-    agc: 'AGC Strategy Agent',
+    easyoutfitapp: 'Easy Outfit App Operator Agent',
+    'ai-swag-store': 'AI Swag Store Operator Agent',
+    agc: 'AGC Operator Agent',
   };
   return {
     manager: 'Jean-Claude',

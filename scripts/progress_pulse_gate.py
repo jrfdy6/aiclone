@@ -18,6 +18,9 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+from chronicle_memory_contract import inspect_memory_path
+from chronicle_signal_quality import entry_has_material_signal, entry_primary_signal
+from app.services.core_memory_snapshot_service import resolve_memory_read_target
 
 
 HANDOFF_LOG = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
@@ -82,21 +85,44 @@ def _persistent_state_newer(since_ms: int | None) -> bool:
     return int(PERSISTENT_STATE.stat().st_mtime * 1000) > since_ms
 
 
+def _persistent_state_diagnostics() -> dict[str, Any]:
+    path = Path(str(PERSISTENT_STATE))
+    resolution: dict[str, Any] | None = None
+    try:
+        path.resolve().relative_to(WORKSPACE_ROOT.resolve())
+    except ValueError:
+        resolution = None
+    else:
+        resolution = resolve_memory_read_target(WORKSPACE_ROOT, "memory/persistent_state.md")
+    return inspect_memory_path(path, relative_path="memory/persistent_state.md", resolution=resolution)
+
+
 def build_report() -> dict[str, Any]:
     last_delivered_run_ms = _latest_delivered_run_ms()
     new_handoffs = _new_handoff_entries(last_delivered_run_ms)
+    material_handoffs = [row for row in new_handoffs if entry_has_material_signal(row)]
     persistent_state_newer = _persistent_state_newer(last_delivered_run_ms)
+    persistent_state_diagnostics = _persistent_state_diagnostics()
+    persistent_state_material = bool(
+        persistent_state_newer
+        and not persistent_state_diagnostics.get("snapshot_heading_stale")
+        and not persistent_state_diagnostics.get("boilerplate_flags")
+        and not persistent_state_diagnostics.get("runtime_out_of_sync")
+    )
 
     reasons: list[str] = []
-    if last_delivered_run_ms is None:
+    if last_delivered_run_ms is None and (material_handoffs or persistent_state_material):
         reasons.append("no prior delivered Progress Pulse run found")
-    if new_handoffs:
-        reasons.append(f"{len(new_handoffs)} new handoff entries landed since the last delivered digest")
-    if persistent_state_newer:
+    if material_handoffs:
+        reasons.append(f"{len(material_handoffs)} material handoff entries landed since the last delivered digest")
+    if persistent_state_material:
         reasons.append("persistent_state.md changed since the last delivered digest")
 
     should_deliver = bool(reasons)
-    latest_handoff = new_handoffs[-1] if new_handoffs else None
+    latest_handoff = material_handoffs[-1] if material_handoffs else (new_handoffs[-1] if new_handoffs else None)
+    latest_handoff_is_material = bool(latest_handoff and material_handoffs)
+    delivery_fallback_active = bool(persistent_state_material and not material_handoffs)
+    reporting_fallback_active = bool(latest_handoff and not latest_handoff_is_material)
     latest_handoff_created_at = latest_handoff.get("created_at") if latest_handoff else None
     latest_handoff_summary = latest_handoff.get("summary") if latest_handoff else None
     report = {
@@ -104,9 +130,22 @@ def build_report() -> dict[str, Any]:
         "reasons": reasons,
         "last_delivered_run_at_ms": last_delivered_run_ms,
         "new_handoff_count": len(new_handoffs),
+        "material_handoff_count": len(material_handoffs),
         "latest_handoff_created_at": latest_handoff_created_at,
         "latest_handoff_summary": latest_handoff_summary,
+        "latest_handoff_is_material": latest_handoff_is_material,
+        "latest_material_signal": entry_primary_signal(latest_handoff) if latest_handoff else None,
         "persistent_state_newer": persistent_state_newer,
+        "persistent_state_material": persistent_state_material,
+        "persistent_state_diagnostics": {
+            "snapshot_heading_stale": bool(persistent_state_diagnostics.get("snapshot_heading_stale")),
+            "boilerplate_flags": persistent_state_diagnostics.get("boilerplate_flags") or [],
+            "runtime_out_of_sync": bool(persistent_state_diagnostics.get("runtime_out_of_sync")),
+            "live_newer_by_hours": persistent_state_diagnostics.get("live_newer_by_hours"),
+            "modified_at_utc": persistent_state_diagnostics.get("modified_at_utc"),
+        },
+        "delivery_fallback_active": delivery_fallback_active,
+        "reporting_fallback_active": reporting_fallback_active,
         "checked_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     }
     return report
