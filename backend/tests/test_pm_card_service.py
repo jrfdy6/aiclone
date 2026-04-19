@@ -699,6 +699,50 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual((processed or {}).get("successor_card_id"), "auto-progress-feezie-next")
         self.assertEqual((processed or {}).get("successor_card_title"), successor.title)
 
+    def test_auto_progress_review_cards_closes_repeated_feezie_successor_without_spawning(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-feezie-repeat",
+            title="Turn seeded FEEZIE backlog into first draft batch",
+            owner="Jean-Claude",
+            status="review",
+            source="pm_review_resolution",
+            link_type="owner_review",
+            link_id="owner-review-repeat",
+            payload={
+                "workspace_key": "linkedin-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "last_transition_at": now.isoformat(),
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "The first draft batch is already closed; future work should select the next draft wave.",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+            patch.object(pm_card_service, "create_card") as create_card_mock,
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        create_card_mock.assert_not_called()
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("closed_count"), 1)
+        self.assertEqual(result.get("continued_count"), 0)
+        processed = (result.get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("card_id"), "auto-progress-feezie-repeat")
+        self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_close_repeated_successor")
+
     def test_auto_progress_review_cards_skips_owner_review_gate(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

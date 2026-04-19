@@ -1231,6 +1231,15 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
         suggestion = _suggest_review_followup(card, workspace_policy)
         if suggestion is None or not str(suggestion.get("title") or "").strip():
             return None
+        if _is_repeated_review_followup(card, suggestion):
+            return {
+                "action": "approve",
+                "rule": "workspace_policy_accept_and_close_repeated_successor",
+                "reason": "Codex review worker accepted this routine review result and closed it because the suggested follow-up repeats the current PM lane.",
+                "resolution_mode": "close_only",
+                "worker_action": "close_only",
+                "contract_assessment": contract_assessment,
+            }
         next_title = str(suggestion.get("title") or "").strip()
         next_reason = str(suggestion.get("reason") or "").strip() or None
 
@@ -1801,7 +1810,9 @@ def _build_client_review_policy(card: PMCard) -> dict[str, Any]:
 
     if recommended_resolution_mode == "close_and_spawn_next":
         suggestion = _suggest_review_followup(card, workspace_policy)
-        if suggestion is not None:
+        if suggestion is not None and _is_repeated_review_followup(card, suggestion):
+            recommended_resolution_mode = "close_only"
+        elif suggestion is not None:
             suggested_next_title = suggestion.get("title")
             suggested_next_reason = suggestion.get("reason")
 
@@ -2632,6 +2643,14 @@ def _valid_resolution_mode(value: object) -> str | None:
     if normalized in {"close_only", "close_and_spawn_next"}:
         return normalized
     return None
+
+
+def _is_repeated_review_followup(card: PMCard, suggestion: dict[str, str] | None) -> bool:
+    if not isinstance(suggestion, dict):
+        return False
+    suggested_title = _optional_str(suggestion.get("title"))
+    current_title = str(card.title or "").strip()
+    return bool(suggested_title and current_title and suggested_title.lower() == current_title.lower())
 
 
 def _suggest_review_followup(card: PMCard, workspace_policy: dict[str, object]) -> dict[str, str] | None:
