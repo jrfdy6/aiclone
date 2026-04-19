@@ -51,7 +51,41 @@ function loadPersonaWorkspace() {
     return { packs: [], pendingMarkdown: '', health: null };
   }
 
-  const manifest = JSON.parse(fs.readFileSync(path.join(bundleRoot, 'manifest.json'), 'utf-8'));
+  const manifestPath = path.join(bundleRoot, 'manifest.json');
+  const pendingPath = path.join(bundleRoot, 'inbox', 'pending_deltas.md');
+  const pendingMarkdown = fs.existsSync(pendingPath) ? fs.readFileSync(pendingPath, 'utf-8') : '';
+
+  if (!fs.existsSync(manifestPath)) {
+    return {
+      packs: [],
+      pendingMarkdown,
+      health: {
+        bundlePath: bundleRoot,
+        missingFiles: ['manifest.json'],
+        missingFrontmatter: [],
+        todoFiles: [],
+        status: 'error',
+      },
+    };
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+  } catch (error) {
+    return {
+      packs: [],
+      pendingMarkdown,
+      health: {
+        bundlePath: bundleRoot,
+        missingFiles: [],
+        missingFrontmatter: ['manifest.json'],
+        todoFiles: [{ path: 'manifest.json', markers: [`Invalid JSON: ${error.message}`] }],
+        status: 'error',
+      },
+    };
+  }
+
   const packs = Object.entries(manifest.content_packs ?? {}).map(([key, config]) => ({
     key,
     title: config.title ?? key,
@@ -90,9 +124,6 @@ function loadPersonaWorkspace() {
       todoFiles.push({ path: relPath, markers });
     }
   });
-
-  const pendingPath = path.join(bundleRoot, 'inbox', 'pending_deltas.md');
-  const pendingMarkdown = fs.existsSync(pendingPath) ? fs.readFileSync(pendingPath, 'utf-8') : '';
 
   return {
     packs,
