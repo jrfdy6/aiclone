@@ -212,13 +212,26 @@ def _compact_workspace_snapshot(snapshot: Any) -> dict[str, Any]:
 def _source_intelligence_index_candidates() -> list[Path]:
     paths = [
         SOURCE_INTELLIGENCE_INDEX_PATH,
+        ROOT / "app" / "knowledge" / "source-intelligence" / "index.json",
         ROOT / "backend" / "knowledge" / "source-intelligence" / "index.json",
+        ROOT / "backend" / "app" / "knowledge" / "source-intelligence" / "index.json",
         Path.cwd() / "knowledge" / "source-intelligence" / "index.json",
         Path.cwd().parent / "knowledge" / "source-intelligence" / "index.json",
         Path("/app/knowledge/source-intelligence/index.json"),
+        Path("/app/app/knowledge/source-intelligence/index.json"),
         Path("/app/backend/knowledge/source-intelligence/index.json"),
+        Path("/app/backend/app/knowledge/source-intelligence/index.json"),
         Path("/knowledge/source-intelligence/index.json"),
     ]
+    for parent in Path(__file__).resolve().parents:
+        paths.extend(
+            [
+                parent / "knowledge" / "source-intelligence" / "index.json",
+                parent / "app" / "knowledge" / "source-intelligence" / "index.json",
+                parent / "backend" / "knowledge" / "source-intelligence" / "index.json",
+                parent / "backend" / "app" / "knowledge" / "source-intelligence" / "index.json",
+            ]
+        )
     return list(dict.fromkeys(paths))
 
 
