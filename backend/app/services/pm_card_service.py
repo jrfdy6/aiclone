@@ -767,9 +767,41 @@ def auto_resolve_review_cards(limit: int = 250) -> dict[str, Any]:
 def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
     repair_result = repair_execution_contracts(limit=limit)
     cards = list_cards(limit=limit)
+    cards_by_id = {card.id: card for card in cards}
     processed: list[dict[str, Any]] = []
 
     for card in cards:
+        residue_policy = _auto_resolve_execution_residue_policy(card, cards_by_id)
+        if residue_policy is not None:
+            result = _apply_card_action(
+                card,
+                action="approve",
+                requested_by=AUTO_PROGRESS_REQUESTED_BY,
+                reason=residue_policy["reason"],
+                resolution_mode="close_only",
+                review_metadata={
+                    "auto_resolved": True,
+                    "auto_progressed": True,
+                    "policy_rule": residue_policy["rule"],
+                    "worker_action": "close_only",
+                    "worker_id": AUTO_PROGRESS_REQUESTED_BY,
+                },
+            )
+            if result is None:
+                continue
+            processed.append(
+                {
+                    "card_id": result.card.id,
+                    "title": result.card.title,
+                    "workspace_key": _workspace_key_from_card(result.card),
+                    "action": "approve",
+                    "resolution_mode": "close_only",
+                    "rule": residue_policy["rule"],
+                    "reason": residue_policy["reason"],
+                }
+            )
+            continue
+
         stale_policy = _auto_resolve_review_policy(card)
         if stale_policy is not None:
             result = _apply_card_action(
@@ -1066,6 +1098,62 @@ def _auto_resolve_review_policy(card: PMCard) -> dict[str, str] | None:
         }
 
     return None
+
+
+def _auto_resolve_execution_residue_policy(card: PMCard, cards_by_id: dict[str, PMCard]) -> dict[str, str] | None:
+    if _is_closed_pm_status(card.status):
+        return None
+
+    payload = dict(card.payload or {})
+    if card.source != "accountability_sweep:executive_followup" and not bool(payload.get("created_from_accountability_sweep")):
+        return None
+
+    execution = _execution_payload(card) or {}
+    normalized_state = str(execution.get("state") or "").strip().lower()
+    normalized_executor_status = str(execution.get("executor_status") or "").strip().lower()
+    if normalized_state != "failed" and normalized_executor_status != "failed":
+        return None
+
+    tracked_card_ids = _accountability_followup_tracked_card_ids(card)
+    if not tracked_card_ids:
+        return None
+    pending_card_ids = [
+        card_id
+        for card_id in tracked_card_ids
+        if not _accountability_tracked_card_is_healthy(cards_by_id.get(card_id))
+    ]
+    if pending_card_ids:
+        return None
+
+    return {
+        "rule": "accountability_followup_resolved_after_tracked_lanes_closed",
+        "reason": "Auto-closed failed accountability-sweep follow-up because every tracked stale PM lane is now back in review, done, or closed.",
+    }
+
+
+def _accountability_followup_tracked_card_ids(card: PMCard) -> list[str]:
+    payload = dict(card.payload or {})
+    tracked: list[str] = []
+    for key in ("rerouted_card_ids", "stale_card_ids", "stale_review_card_ids", "stale_running_card_ids"):
+        values = payload.get(key)
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            normalized = str(item or "").strip()
+            if normalized and normalized != card.id and normalized not in tracked:
+                tracked.append(normalized)
+    return tracked
+
+
+def _accountability_tracked_card_is_healthy(card: PMCard | None) -> bool:
+    if card is None:
+        return False
+    status = str(card.status or "").strip().lower()
+    if status in {"review", "done", "closed", "cancelled"}:
+        return True
+    execution = _execution_payload(card) or {}
+    state = str(execution.get("state") or "").strip().lower()
+    return state in {"review", "done"}
 
 
 def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:

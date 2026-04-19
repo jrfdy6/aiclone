@@ -426,6 +426,141 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual((resolved or {}).get("card_id"), "auto-resolve-feezie-alias-card")
         self.assertEqual((resolved or {}).get("rule"), "accountability_stale_review_autoclose")
 
+    def test_auto_progress_closes_failed_accountability_followup_when_tracked_lane_is_done(self) -> None:
+        now = datetime.now(timezone.utc)
+        tracked = PMCard(
+            id="tracked-stale-card",
+            title="Tracked stale lane",
+            owner="Jean-Claude",
+            status="done",
+            source="standup:test",
+            link_type="standup",
+            link_id="tracked-1",
+            payload={
+                "workspace_key": "fusion-os",
+                "execution": {
+                    "state": "done",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        followup = PMCard(
+            id="accountability-followup",
+            title="Executive review stale PM lanes from accountability sweep",
+            owner="Jean-Claude",
+            status="in_progress",
+            source="accountability_sweep:executive_followup",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "shared_ops",
+                "created_from_accountability_sweep": True,
+                "stale_card_ids": [tracked.id],
+                "rerouted_card_ids": [tracked.id],
+                "execution": {
+                    "lane": "codex",
+                    "state": "failed",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "executor_status": "failed",
+                    "manager_attention_required": True,
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        cards_by_id = {followup.id: followup, tracked.id: tracked}
+
+        def fake_update(card_id: str, patch: PMCardUpdate) -> PMCard:
+            updated = self._apply_update(cards_by_id[card_id], patch)
+            cards_by_id[card_id] = updated
+            return updated
+
+        with (
+            patch.object(pm_card_service, "repair_execution_contracts", return_value={"repaired_count": 0, "repaired": []}),
+            patch.object(pm_card_service, "list_cards", return_value=[followup, tracked]),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+            patch.object(pm_card_service, "record_review_hygiene_audit", return_value=None),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("closed_count"), 1)
+        processed = (result.get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("card_id"), "accountability-followup")
+        self.assertEqual(
+            (processed or {}).get("rule"),
+            "accountability_followup_resolved_after_tracked_lanes_closed",
+        )
+        self.assertEqual(cards_by_id[followup.id].status, "done")
+
+    def test_auto_progress_leaves_accountability_followup_open_when_tracked_lane_still_failed(self) -> None:
+        now = datetime.now(timezone.utc)
+        tracked = PMCard(
+            id="tracked-failed-card",
+            title="Tracked failed lane",
+            owner="Jean-Claude",
+            status="in_progress",
+            source="standup:test",
+            link_type="standup",
+            link_id="tracked-2",
+            payload={
+                "workspace_key": "fusion-os",
+                "execution": {
+                    "state": "failed",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                    "executor_status": "failed",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        followup = PMCard(
+            id="accountability-followup-open",
+            title="Executive review stale PM lanes from accountability sweep",
+            owner="Jean-Claude",
+            status="in_progress",
+            source="accountability_sweep:executive_followup",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "shared_ops",
+                "created_from_accountability_sweep": True,
+                "stale_card_ids": [tracked.id],
+                "execution": {
+                    "lane": "codex",
+                    "state": "failed",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "executor_status": "failed",
+                    "manager_attention_required": True,
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "repair_execution_contracts", return_value={"repaired_count": 0, "repaired": []}),
+            patch.object(pm_card_service, "list_cards", return_value=[followup, tracked]),
+            patch.object(pm_card_service, "update_card") as update_card_mock,
+            patch.object(pm_card_service, "record_review_hygiene_audit", return_value=None),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 0)
+        update_card_mock.assert_not_called()
+
     def test_auto_resolve_review_cards_skips_owner_review_gate(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
