@@ -73,6 +73,19 @@ def list_signals(
     review_status: str | None = None,
     workspace_key: str | None = None,
 ) -> list[BrainSignal]:
+    signals = _filtered_signals(review_status=review_status, workspace_key=workspace_key)
+    return sorted(signals, key=lambda signal: signal.updated_at, reverse=True)[: max(1, min(int(limit or 50), 500))]
+
+
+def count_signals(
+    *,
+    review_status: str | None = None,
+    workspace_key: str | None = None,
+) -> int:
+    return len(_filtered_signals(review_status=review_status, workspace_key=workspace_key))
+
+
+def _filtered_signals(*, review_status: str | None = None, workspace_key: str | None = None) -> list[BrainSignal]:
     normalized_status = _clean_text(review_status).lower()
     normalized_workspace = canonicalize_workspace_key(workspace_key, default="") if workspace_key else ""
     signals = _load_signals()
@@ -84,7 +97,7 @@ def list_signals(
             for signal in signals
             if signal.source_workspace_key == normalized_workspace or normalized_workspace in signal.workspace_candidates
         ]
-    return sorted(signals, key=lambda signal: signal.updated_at, reverse=True)[: max(1, min(int(limit or 50), 500))]
+    return signals
 
 
 def get_signal(signal_id: str) -> BrainSignal | None:

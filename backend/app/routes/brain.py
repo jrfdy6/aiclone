@@ -19,6 +19,7 @@ from app.models import (
 )
 from app.services import persona_delta_service
 from app.services.brain_long_form_ingest_service import brain_long_form_ingest_service
+from app.services.brain_signal_intake_service import run_brain_signal_intake
 from app.services.brain_signal_service import create_signal, get_signal, list_signals, review_signal, route_signal
 from app.services.brain_system_route_service import route_delta_signal
 from app.services.brain_control_plane_service import build_brain_control_plane
@@ -65,6 +66,26 @@ async def post_brain_signal(payload: BrainSignalCreateRequest):
         return create_signal(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/signals/intake")
+async def post_brain_signal_intake(
+    include_source_intelligence: bool = True,
+    include_workspace_attention: bool = True,
+    include_automation_outputs: bool = True,
+    source_limit: int | None = None,
+    include_quiet_automation: bool = False,
+):
+    try:
+        return run_brain_signal_intake(
+            include_source_intelligence=include_source_intelligence,
+            include_workspace_attention=include_workspace_attention,
+            include_automation_outputs=include_automation_outputs,
+            source_limit=source_limit,
+            include_quiet_automation=include_quiet_automation,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

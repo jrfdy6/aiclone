@@ -42,6 +42,10 @@ class BrainControlPlaneServiceTests(unittest.TestCase):
             brain_control_plane_service,
             "get_snapshot_payload",
             return_value=brain_memory_sync,
+        ), patch.object(
+            brain_control_plane_service,
+            "count_signals",
+            return_value=0,
         ):
             payload = brain_control_plane_service.build_brain_control_plane()
 
@@ -117,6 +121,10 @@ class BrainControlPlaneServiceTests(unittest.TestCase):
             brain_control_plane_service,
             "list_signals",
             return_value=[brain_signal],
+        ), patch.object(
+            brain_control_plane_service,
+            "count_signals",
+            return_value=1,
         ), patch.object(
             brain_control_plane_service,
             "_load_source_intelligence_index",

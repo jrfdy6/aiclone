@@ -7,7 +7,7 @@ from typing import Any
 
 from app.services import open_brain_metrics, open_brain_service
 from app.services.automation_service import list_automations
-from app.services.brain_signal_service import list_signals
+from app.services.brain_signal_service import count_signals, list_signals
 from app.services.portfolio_workspace_snapshot_service import build_portfolio_workspace_snapshot
 from app.services.workspace_registry_service import REPO_ROOT
 from app.services.workspace_snapshot_store import get_snapshot_payload
@@ -302,6 +302,7 @@ def build_brain_control_plane() -> dict[str, Any]:
     brain_memory_sync = get_snapshot_payload("shared_ops", "brain_memory_sync")
     portfolio_snapshot = build_portfolio_workspace_snapshot()
     recent_brain_signals = [signal.model_dump(mode="json") for signal in list_signals(limit=8)]
+    brain_signal_count = count_signals()
     source_intelligence_index = _load_source_intelligence_index()
     persona_counts = ((workspace_snapshot.get("persona_review_summary") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
     source_asset_counts = ((workspace_snapshot.get("source_assets") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
@@ -329,7 +330,7 @@ def build_brain_control_plane() -> dict[str, Any]:
             "brain_memory_sync_queue_count": int(((brain_memory_sync or {}).get("queued_route_count")) or 0),
             "portfolio_workspace_count": int(((portfolio_snapshot or {}).get("counts") or {}).get("workspaces") or 0),
             "portfolio_attention_count": int(((portfolio_snapshot or {}).get("counts") or {}).get("needs_brain_attention") or 0),
-            "brain_signal_count": len(recent_brain_signals),
+            "brain_signal_count": brain_signal_count,
             "source_intelligence_total": int(source_intelligence_counts.get("total") or 0),
             "source_intelligence_routed": int(source_intelligence_counts.get("routed") or 0),
         },
