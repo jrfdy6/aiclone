@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { getApiUrl } from '@/lib/api-client';
@@ -1467,6 +1467,7 @@ export default function OpsClient({
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const pmMaintenanceInFlightRef = useRef(false);
   const effectiveWorkspaceFiles = liveWorkspaceFiles ?? workspaceFiles;
   const effectiveDocEntries = liveDocEntries ?? docEntries;
   const effectiveWeeklyPlan = liveWeeklyPlan;
@@ -1556,152 +1557,140 @@ export default function OpsClient({
     loadWorkspaceSnapshot();
   }, [loadWorkspaceSnapshot]);
 
+  const runPmMaintenance = useCallback(async () => {
+    if (pmMaintenanceInFlightRef.current) {
+      return;
+    }
+    pmMaintenanceInFlightRef.current = true;
+    try {
+      const [autoResolveResp, ownerReviewSyncResp, autoProgressResp] = await Promise.allSettled([
+        postJson<PMReviewHygieneResult>(`${API_URL}/api/pm/review-hygiene/auto-resolve`),
+        postJson<Record<string, unknown>>(`${API_URL}/api/pm/owner-review/sync`),
+        postJson<PMAutoProgressResult>(`${API_URL}/api/pm/review-hygiene/auto-progress`),
+      ]);
+
+      if (autoResolveResp.status === 'fulfilled') {
+        setReviewHygieneSummary(autoResolveResp.value ?? null);
+      }
+      if (autoProgressResp.status === 'fulfilled') {
+        setReviewProgressSummary(autoProgressResp.value ?? null);
+      }
+
+      const maintenanceErrors = [autoResolveResp, ownerReviewSyncResp, autoProgressResp]
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map((result) => toErrorMessage(result.reason));
+      if (maintenanceErrors.length > 0) {
+        console.warn('PM maintenance skipped after telemetry load', maintenanceErrors.join(' | '));
+      }
+    } finally {
+      pmMaintenanceInFlightRef.current = false;
+    }
+  }, []);
+
   const loadTelemetry = useCallback(async () => {
     setIsRefreshing(true);
     setGlobalError(null);
-    let autoResolveError: string | null = null;
-    let ownerReviewSyncError: string | null = null;
-    let autoProgressError: string | null = null;
 
-    try {
-      const autoResolveResponse = await fetch(`${API_URL}/api/pm/review-hygiene/auto-resolve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!autoResolveResponse.ok) {
-        const text = await autoResolveResponse.text().catch(() => autoResolveResponse.statusText);
-        autoResolveError = `${autoResolveResponse.status} ${autoResolveResponse.statusText}: ${text}`;
-        setReviewHygieneSummary(null);
-      } else {
-        const payload = (await autoResolveResponse.json().catch(() => null)) as PMReviewHygieneResult | null;
-        setReviewHygieneSummary(payload);
+    const revealTelemetry = () => setLoading(false);
+    const trackRequest = async <T,>(
+      request: Promise<T>,
+      onSuccess: (value: T) => void,
+      onError?: (error: unknown) => void,
+    ): Promise<{ ok: boolean }> => {
+      try {
+        const value = await request;
+        onSuccess(value);
+        revealTelemetry();
+        return { ok: true };
+      } catch (error) {
+        onError?.(error);
+        revealTelemetry();
+        return { ok: false };
       }
-    } catch (error) {
-      autoResolveError = toErrorMessage(error);
-      setReviewHygieneSummary(null);
-    }
+    };
 
-    try {
-      const syncResponse = await fetch(`${API_URL}/api/pm/owner-review/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!syncResponse.ok) {
-        const text = await syncResponse.text().catch(() => syncResponse.statusText);
-        ownerReviewSyncError = `${syncResponse.status} ${syncResponse.statusText}: ${text}`;
-      }
-    } catch (error) {
-      ownerReviewSyncError = toErrorMessage(error);
-    }
-
-    try {
-      const autoProgressResponse = await fetch(`${API_URL}/api/pm/review-hygiene/auto-progress`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!autoProgressResponse.ok) {
-        const text = await autoProgressResponse.text().catch(() => autoProgressResponse.statusText);
-        autoProgressError = `${autoProgressResponse.status} ${autoProgressResponse.statusText}: ${text}`;
-        setReviewProgressSummary(null);
-      } else {
-        const payload = (await autoProgressResponse.json().catch(() => null)) as PMAutoProgressResult | null;
-        setReviewProgressSummary(payload);
-      }
-    } catch (error) {
-      autoProgressError = toErrorMessage(error);
-      setReviewProgressSummary(null);
-    }
-
-    const requests = await Promise.allSettled([
-      fetchJson<ComplianceMetrics>(`${API_URL}/api/analytics/compliance`),
-      fetchJson<LogsResponse>(`${API_URL}/api/system/logs/?limit=40`),
-      fetchJson<HealthPayload>(`${API_URL}/health`),
-      fetchJson<AutomationsResponse>(`${API_URL}/api/automations/`),
-      fetchJson<OpenBrainTelemetry>(`${API_URL}/api/analytics/open-brain`),
-      fetchJson<OpenBrainHealth>(`${API_URL}/api/open-brain/health`),
-      fetchJson<PMCard[]>(`${API_URL}/api/pm/cards?limit=50`),
-      fetchJson<ExecutionQueueEntry[]>(`${API_URL}/api/pm/execution-queue?limit=50`),
-      fetchJson<StandupEntry[]>(`${API_URL}/api/standups/?limit=20`),
-      fetchJson<PMAutoProgressAuditReport>(`${API_URL}/api/pm/review-hygiene/audit?limit=8&hours=24`),
+    const requests = await Promise.all([
+      trackRequest(
+        fetchJson<ComplianceMetrics>(`${API_URL}/api/analytics/compliance`),
+        (value) => {
+          setMetrics(value ?? null);
+          updateSectionError('metrics', null);
+        },
+        (error) => updateSectionError('metrics', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<LogsResponse>(`${API_URL}/api/system/logs/?limit=40`),
+        (value) => {
+          setLogs(normalizeLogs(value));
+          updateSectionError('logs', null);
+        },
+        (error) => updateSectionError('logs', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<HealthPayload>(`${API_URL}/health`),
+        (value) => {
+          setHealth(value ?? null);
+          updateSectionError('health', null);
+        },
+        (error) => updateSectionError('health', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<AutomationsResponse>(`${API_URL}/api/automations/`),
+        (value) => {
+          setAutomations(normalizeAutomations(value));
+          setAutomationRuns(normalizeAutomationRuns(value));
+          updateSectionError('automations', null);
+        },
+        (error) => updateSectionError('automations', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<OpenBrainTelemetry>(`${API_URL}/api/analytics/open-brain`),
+        (value) => {
+          setBrainMetrics(value ?? null);
+          updateSectionError('brain', null);
+        },
+        (error) => updateSectionError('brain', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<OpenBrainHealth>(`${API_URL}/api/open-brain/health`),
+        (value) => {
+          setBrainHealth(value ?? null);
+          updateSectionError('brainHealth', null);
+        },
+        (error) => updateSectionError('brainHealth', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<PMCard[]>(`${API_URL}/api/pm/cards?limit=50`),
+        (value) => {
+          setPmCards(Array.isArray(value) ? value : []);
+          updateSectionError('pmCards', null);
+        },
+        (error) => updateSectionError('pmCards', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<ExecutionQueueEntry[]>(`${API_URL}/api/pm/execution-queue?limit=50`),
+        (value) => {
+          setExecutionQueue(Array.isArray(value) ? value : []);
+          updateSectionError('executionQueue', null);
+        },
+        (error) => updateSectionError('executionQueue', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<StandupEntry[]>(`${API_URL}/api/standups/?limit=20`),
+        (value) => {
+          setStandups(Array.isArray(value) ? value : []);
+          updateSectionError('standups', null);
+        },
+        (error) => updateSectionError('standups', toErrorMessage(error)),
+      ),
+      trackRequest(
+        fetchJson<PMAutoProgressAuditReport>(`${API_URL}/api/pm/review-hygiene/audit?limit=8&hours=24`),
+        (value) => setReviewProgressAudit(value ?? null),
+        () => setReviewProgressAudit(null),
+      ),
     ]);
 
-    const [metricsResp, logsResp, healthResp, automationsResp, brainResp, brainHealthResp, pmResp, executionQueueResp, standupsResp, auditResp] =
-      requests;
-
-    if (metricsResp.status === 'fulfilled') {
-      setMetrics(metricsResp.value ?? null);
-      updateSectionError('metrics', null);
-    } else {
-      updateSectionError('metrics', toErrorMessage(metricsResp.reason));
-    }
-
-    if (logsResp.status === 'fulfilled') {
-      setLogs(normalizeLogs(logsResp.value));
-      updateSectionError('logs', null);
-    } else {
-      updateSectionError('logs', toErrorMessage(logsResp.reason));
-    }
-
-    if (healthResp.status === 'fulfilled') {
-      setHealth(healthResp.value ?? null);
-      updateSectionError('health', null);
-    } else {
-      updateSectionError('health', toErrorMessage(healthResp.reason));
-    }
-
-    if (automationsResp.status === 'fulfilled') {
-      setAutomations(normalizeAutomations(automationsResp.value));
-      setAutomationRuns(normalizeAutomationRuns(automationsResp.value));
-      updateSectionError('automations', null);
-    } else {
-      updateSectionError('automations', toErrorMessage(automationsResp.reason));
-    }
-
-    if (brainResp.status === 'fulfilled') {
-      setBrainMetrics(brainResp.value ?? null);
-      updateSectionError('brain', null);
-    } else {
-      updateSectionError('brain', toErrorMessage(brainResp.reason));
-    }
-
-    if (brainHealthResp.status === 'fulfilled') {
-      setBrainHealth(brainHealthResp.value ?? null);
-      updateSectionError('brainHealth', null);
-    } else {
-      updateSectionError('brainHealth', toErrorMessage(brainHealthResp.reason));
-    }
-
-    if (pmResp.status === 'fulfilled') {
-      setPmCards(Array.isArray(pmResp.value) ? pmResp.value : []);
-      updateSectionError('pmCards', [autoResolveError, ownerReviewSyncError, autoProgressError].filter(Boolean).join(' | ') || null);
-    } else {
-      updateSectionError(
-        'pmCards',
-        [autoResolveError, ownerReviewSyncError, autoProgressError, toErrorMessage(pmResp.reason)].filter(Boolean).join(' | ') || null,
-      );
-    }
-
-    if (executionQueueResp.status === 'fulfilled') {
-      setExecutionQueue(Array.isArray(executionQueueResp.value) ? executionQueueResp.value : []);
-      updateSectionError('executionQueue', null);
-    } else {
-      updateSectionError('executionQueue', toErrorMessage(executionQueueResp.reason));
-    }
-
-    if (standupsResp.status === 'fulfilled') {
-      setStandups(Array.isArray(standupsResp.value) ? standupsResp.value : []);
-      updateSectionError('standups', null);
-    } else {
-      updateSectionError('standups', toErrorMessage(standupsResp.reason));
-    }
-
-    if (auditResp.status === 'fulfilled') {
-      setReviewProgressAudit(auditResp.value ?? null);
-    } else {
-      setReviewProgressAudit(null);
-    }
-
-    const failures = requests.filter((result) => result.status === 'rejected');
+    const failures = requests.filter((result) => !result.ok);
     if (failures.length === requests.length) {
       setGlobalError('Unable to reach the production control APIs right now. Check backend health and Railway logs before trusting the UI.');
     }
@@ -1709,7 +1698,8 @@ export default function OpsClient({
     setCheckedAt(new Date());
     setLoading(false);
     setIsRefreshing(false);
-  }, [updateSectionError]);
+    void runPmMaintenance();
+  }, [runPmMaintenance, updateSectionError]);
 
   const promoteStandup = useCallback(
     async (prep: StandupPrepPacket, recommendationPacket: PMRecommendationPacket | null, chronicleEntry: ChronicleEntry | null) => {
@@ -12078,6 +12068,19 @@ function ownerReviewDisplayTitle(card: PMCard, ownerReview?: OwnerReviewCardPayl
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText);
+    throw new Error(`${response.status} ${response.statusText}: ${text}`);
+  }
+  return response.json();
+}
+
+async function postJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    cache: 'no-store',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
   if (!response.ok) {
     const text = await response.text().catch(() => response.statusText);
     throw new Error(`${response.status} ${response.statusText}: ${text}`);
