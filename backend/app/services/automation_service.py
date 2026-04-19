@@ -359,6 +359,35 @@ def _local_launchd_automations() -> List[Automation]:
             notes="Local-machine launchd automation. It validates meeting freshness, not execution closure.",
         ),
         Automation(
+            id="fallback_watchdog",
+            name="Fallback Watchdog",
+            description="Detects when canonical memory, durable retrieval, or delivery gates leave their expected source contract, then routes the issue into a report and maintained PM follow-up instead of silently degrading.",
+            type="scheduled",
+            status="active",
+            schedule="Every 30 minutes",
+            cron="every:1800",
+            channel="ops/fallback-watchdog",
+            isolation=True,
+            last_run_at=_dt(),
+            next_run_at=next_half_hour,
+            last_status="success",
+            source=LOCAL_LAUNCHD_SOURCE,
+            runtime="launchd",
+            scope="shared_ops",
+            metrics={
+                "runtime": "local_launchd",
+                "script": "scripts/fallback_watchdog.py",
+                "cadence_seconds": "1800",
+                "report": "memory/reports/fallback_watchdog_latest.json",
+            },
+            instructions=_instructions(
+                "Inspect canonical memory reads and detect when they resolved from fallback sources",
+                "Inspect durable retrieval and delivery gates for indexed-search or material-signal fallback use",
+                "Maintain one PM follow-up card while fallback alerts remain active and write the latest report into memory/reports",
+            ),
+            notes="Local-machine launchd automation. It turns hidden degraded reads into explicit operational work.",
+        ),
+        Automation(
             id="post_sync_dispatch",
             name="Post-Sync Dispatch",
             description="Scans completed standups and ensures they leave behind concrete PM artifacts and dispatch metadata.",
@@ -648,6 +677,56 @@ def _summary_is_no_reply(summary: Any) -> bool:
     return "NO_REPLY" in text
 
 
+def _job_allows_no_reply(job: dict[str, Any]) -> bool:
+    payload = job.get("payload") or {}
+    message = str(payload.get("message") or "").upper()
+    return "NO_REPLY" in message
+
+
+def _run_output_tokens(record: Optional[dict[str, Any]]) -> Optional[int]:
+    if not record:
+        return None
+    usage = record.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    value = usage.get("output_tokens")
+    return value if isinstance(value, int) else None
+
+
+def _infer_no_reply_from_contract(
+    job: dict[str, Any],
+    record: Optional[dict[str, Any]],
+    *,
+    status: str,
+    delivered: Optional[bool],
+    error_text: Optional[str],
+) -> bool:
+    if not record or not _job_allows_no_reply(job):
+        return False
+    if status not in {"ok", "success"} or delivered is not False:
+        return False
+    if error_text:
+        return False
+
+    summary = str(record.get("summary") or "").strip()
+    if summary:
+        return False
+
+    delivery_error = str(record.get("deliveryError") or "").strip()
+    if delivery_error:
+        return False
+
+    delivery_status = str(record.get("deliveryStatus") or "").strip().lower()
+    if delivery_status not in {"", "not-delivered", "unknown"}:
+        return False
+
+    output_tokens = _run_output_tokens(record)
+    if output_tokens is not None and output_tokens > 80:
+        return False
+
+    return True
+
+
 def _schedule_label(schedule: dict[str, Any]) -> str:
     kind = schedule.get("kind")
     if kind == "cron":
@@ -752,7 +831,14 @@ def _job_to_run(job: dict[str, Any]) -> AutomationRun:
     status = str((run_record or {}).get("status") or state.get("lastStatus") or state.get("lastRunStatus") or "unknown")
     has_observed_run = run_at is not None
     summary = str((run_record or {}).get("summary") or "")
-    no_reply = _summary_is_no_reply(summary)
+    inferred_no_reply = _infer_no_reply_from_contract(
+        job,
+        run_record,
+        status=status,
+        delivered=delivered,
+        error_text=error_text,
+    )
+    no_reply = _summary_is_no_reply(summary) or inferred_no_reply
     no_delivery = str(delivery.get("mode") or "").strip().lower() == "none"
     run_id_suffix = (run_record or {}).get("runAtMs") or state.get("lastRunAtMs") or "never"
     return AutomationRun(
@@ -785,6 +871,8 @@ def _job_to_run(job: dict[str, Any]) -> AutomationRun:
             "summary": summary,
             "delivery_status": (run_record or {}).get("deliveryStatus") or state.get("lastDeliveryStatus"),
             "no_reply": no_reply,
+            "no_reply_contract": _job_allows_no_reply(job),
+            "no_reply_inferred": inferred_no_reply,
             "no_delivery": no_delivery,
             "run_source": "cron_runs_jsonl" if run_record else "jobs_state",
         },

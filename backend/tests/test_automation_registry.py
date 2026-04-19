@@ -35,6 +35,7 @@ class AutomationRegistryTests(unittest.TestCase):
             "operator_story_signals",
             "content_safe_operator_lessons",
             "meeting_watchdog",
+            "fallback_watchdog",
             "post_sync_dispatch",
             "accountability_sweep",
             "jean_claude_execution_dispatch",
@@ -245,6 +246,63 @@ class AutomationRegistryTests(unittest.TestCase):
         self.assertIsNotNone(mirrored)
         assert mirrored is not None
         self.assertFalse(mirrored.last_delivered)
+
+    def test_infers_no_reply_when_run_log_omits_summary_for_no_reply_job(self) -> None:
+        payload = {
+            "jobs": [
+                {
+                    "id": "job-4",
+                    "agentId": "main",
+                    "name": "Context Guard",
+                    "enabled": True,
+                    "schedule": {"kind": "cron", "expr": "*/20 * * * *"},
+                    "sessionTarget": "isolated",
+                    "wakeMode": "now",
+                    "payload": {
+                        "kind": "agentTurn",
+                        "model": "openai/gpt-4o-mini",
+                        "message": "If below threshold, return EXACTLY NO_REPLY.",
+                    },
+                    "delivery": {"mode": "announce", "channel": "discord", "to": "chan-3"},
+                    "state": {
+                        "lastRunAtMs": 1774864800040,
+                        "nextRunAtMs": 1774866600040,
+                        "lastStatus": "ok",
+                        "lastDelivered": False,
+                        "lastDurationMs": 5000,
+                    },
+                }
+            ]
+        }
+        run_record = {
+            "jobId": "job-4",
+            "status": "ok",
+            "delivered": False,
+            "deliveryStatus": "not-delivered",
+            "runAtMs": 1774864801040,
+            "durationMs": 1250,
+            "ts": 1774864802290,
+            "usage": {"output_tokens": 39},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jobs_path = Path(tmpdir) / "jobs.json"
+            runs_dir = Path(tmpdir) / "runs"
+            runs_dir.mkdir()
+            jobs_path.write_text(json.dumps(payload))
+            (runs_dir / "job-4.jsonl").write_text(json.dumps(run_record) + "\n")
+            with (
+                patch.object(automation_service, "OPENCLAW_JOBS_PATH", jobs_path),
+                patch.object(automation_service, "OPENCLAW_RUNS_DIR", runs_dir),
+            ):
+                runs = list_automation_runs()
+
+        self.assertEqual(len(runs), 1)
+        run = runs[0]
+        self.assertFalse(run.action_required)
+        self.assertTrue(run.metadata.get("no_reply"))
+        self.assertTrue(run.metadata.get("no_reply_inferred"))
+        self.assertTrue(run.metadata.get("no_reply_contract"))
 
     def test_run_sync_uses_upsert_contract_against_pool(self) -> None:
         run = AutomationRun(
