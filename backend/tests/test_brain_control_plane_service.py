@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -131,6 +132,42 @@ class BrainControlPlaneServiceTests(unittest.TestCase):
         self.assertEqual((payload.get("summary") or {}).get("source_intelligence_total"), 91)
         self.assertEqual((payload.get("summary") or {}).get("source_intelligence_routed"), 9)
         self.assertEqual((payload.get("source_intelligence_index") or {}).get("recent_sources", [{}])[0].get("source_id"), "source-1")
+
+    def test_source_intelligence_index_loader_uses_fallback_candidates(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            index_path = Path(temp_dir) / "knowledge" / "source-intelligence" / "index.json"
+            index_path.parent.mkdir(parents=True)
+            index_path.write_text(
+                """
+                {
+                  "schema_version": "source_intelligence_index/v1",
+                  "generated_at": "2026-04-19T12:00:00Z",
+                  "counts": {"total": 2, "routed": 1},
+                  "sources": [
+                    {
+                      "source_id": "source-1",
+                      "title": "Fallback source",
+                      "status": "routed",
+                      "raw_path": "knowledge/source-intelligence/raw/source-1.md"
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            missing_path = Path(temp_dir) / "missing" / "index.json"
+
+            with patch.object(
+                brain_control_plane_service,
+                "_source_intelligence_index_candidates",
+                return_value=[missing_path, index_path],
+            ):
+                payload = brain_control_plane_service._load_source_intelligence_index()
+
+        self.assertEqual((payload or {}).get("schema_version"), "source_intelligence_index/v1")
+        self.assertEqual((payload or {}).get("source_ref"), str(index_path))
+        self.assertEqual(((payload or {}).get("counts") or {}).get("total"), 2)
+        self.assertEqual(((payload or {}).get("recent_sources") or [{}])[0].get("source_id"), "source-1")
 
     def test_compact_workspace_snapshot_keeps_brain_preview_fields_only(self) -> None:
         snapshot = {

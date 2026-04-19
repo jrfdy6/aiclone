@@ -209,11 +209,25 @@ def _compact_workspace_snapshot(snapshot: Any) -> dict[str, Any]:
     return {key: value for key, value in compacted.items() if value is not None}
 
 
+def _source_intelligence_index_candidates() -> list[Path]:
+    paths = [
+        SOURCE_INTELLIGENCE_INDEX_PATH,
+        ROOT / "backend" / "knowledge" / "source-intelligence" / "index.json",
+        Path.cwd() / "knowledge" / "source-intelligence" / "index.json",
+        Path.cwd().parent / "knowledge" / "source-intelligence" / "index.json",
+        Path("/app/knowledge/source-intelligence/index.json"),
+        Path("/app/backend/knowledge/source-intelligence/index.json"),
+        Path("/knowledge/source-intelligence/index.json"),
+    ]
+    return list(dict.fromkeys(paths))
+
+
 def _load_source_intelligence_index() -> dict[str, Any] | None:
-    if not SOURCE_INTELLIGENCE_INDEX_PATH.exists():
+    index_path = next((path for path in _source_intelligence_index_candidates() if path.exists()), None)
+    if index_path is None:
         return None
     try:
-        payload = json.loads(SOURCE_INTELLIGENCE_INDEX_PATH.read_text(encoding="utf-8", errors="ignore"))
+        payload = json.loads(index_path.read_text(encoding="utf-8", errors="ignore"))
     except Exception:
         return None
     if not isinstance(payload, dict):
@@ -244,6 +258,7 @@ def _load_source_intelligence_index() -> dict[str, Any] | None:
     return {
         "schema_version": payload.get("schema_version"),
         "generated_at": payload.get("generated_at"),
+        "source_ref": str(index_path),
         "counts": payload.get("counts") if isinstance(payload.get("counts"), dict) else {},
         "recent_sources": recent_sources,
     }
