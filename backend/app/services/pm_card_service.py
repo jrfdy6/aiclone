@@ -768,9 +768,13 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
     repair_result = repair_execution_contracts(limit=limit)
     cards = list_cards(limit=limit)
     cards_by_id = {card.id: card for card in cards}
+    owner_review_duplicates = _auto_close_stale_owner_review_duplicates(cards)
+    closed_owner_review_duplicate_ids = {str(item.get("card_id")) for item in owner_review_duplicates if item.get("card_id")}
     processed: list[dict[str, Any]] = []
 
     for card in cards:
+        if card.id in closed_owner_review_duplicate_ids:
+            continue
         residue_policy = _auto_resolve_execution_residue_policy(card, cards_by_id)
         if residue_policy is not None:
             result = _apply_card_action(
@@ -906,6 +910,8 @@ def auto_progress_review_cards(limit: int = 250) -> dict[str, Any]:
     result = {
         "repair_count": int(repair_result.get("repaired_count") or 0),
         "repaired": repair_result.get("repaired") or [],
+        "owner_review_duplicate_closed_count": len(owner_review_duplicates),
+        "owner_review_duplicates_closed": owner_review_duplicates,
         "processed_count": len(processed),
         "advanced_count": sum(1 for item in processed if item.get("action") == "approve"),
         "returned_count": sum(1 for item in processed if item.get("action") == "return"),
@@ -1129,6 +1135,113 @@ def _auto_resolve_execution_residue_policy(card: PMCard, cards_by_id: dict[str, 
         "rule": "accountability_followup_resolved_after_tracked_lanes_closed",
         "reason": "Auto-closed failed accountability-sweep follow-up because every tracked stale PM lane is now back in review, done, or closed.",
     }
+
+
+def _auto_close_stale_owner_review_duplicates(cards: list[PMCard]) -> list[dict[str, Any]]:
+    closed: list[dict[str, Any]] = []
+    completed = [card for card in cards if _is_closed_pm_status(card.status)]
+    for card in cards:
+        if _is_closed_pm_status(card.status):
+            continue
+        if not _is_workspace_owner_review_card(card):
+            continue
+        if _is_owner_decision_gate(card):
+            continue
+        if not _owner_review_has_decision(card):
+            continue
+        completed_sibling = _completed_owner_review_sibling(card, completed)
+        if completed_sibling is None:
+            continue
+        payload = dict(card.payload or {})
+        payload["duplicate_resolution"] = {
+            "rule": "owner_review_completed_sibling_autoclose",
+            "completed_card_id": completed_sibling.id,
+            "completed_card_title": completed_sibling.title,
+            "closed_at": datetime.now(timezone.utc).isoformat(),
+            "reason": "Closed stale owner-review duplicate because a completed sibling card already resolved the same owner-approved work.",
+        }
+        updated = update_card(card.id, PMCardUpdate(status="done", payload=payload))
+        effective = updated or card.model_copy(update={"status": "done", "payload": payload})
+        closed.append(
+            {
+                "card_id": effective.id,
+                "title": effective.title,
+                "workspace_key": _workspace_key_from_card(effective),
+                "completed_card_id": completed_sibling.id,
+                "completed_card_title": completed_sibling.title,
+                "rule": "owner_review_completed_sibling_autoclose",
+                "reason": payload["duplicate_resolution"]["reason"],
+            }
+        )
+    return closed
+
+
+def _is_workspace_owner_review_card(card: PMCard) -> bool:
+    return str(card.source or "").strip() == "openclaw:workspace-owner-review" or str(card.link_type or "").strip() == "owner_review"
+
+
+def _owner_review_has_decision(card: PMCard) -> bool:
+    owner_review = (card.payload or {}).get("owner_review")
+    if not isinstance(owner_review, dict):
+        return False
+    return bool(str(owner_review.get("decision") or "").strip())
+
+
+def _completed_owner_review_sibling(card: PMCard, completed_cards: list[PMCard]) -> PMCard | None:
+    workspace_key = _workspace_key_from_card(card)
+    tokens = _owner_review_match_tokens(card)
+    if not tokens:
+        return None
+    matches: list[PMCard] = []
+    for candidate in completed_cards:
+        if candidate.id == card.id:
+            continue
+        if _workspace_key_from_card(candidate) != workspace_key:
+            continue
+        candidate_text = _owner_review_search_text(candidate)
+        if any(token in candidate_text for token in tokens):
+            matches.append(candidate)
+    if not matches:
+        return None
+    return sorted(matches, key=lambda item: item.updated_at or item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)[0]
+
+
+def _owner_review_match_tokens(card: PMCard) -> list[str]:
+    payload = dict(card.payload or {})
+    owner_review = payload.get("owner_review") if isinstance(payload.get("owner_review"), dict) else {}
+    raw_tokens = [
+        owner_review.get("queue_id") if isinstance(owner_review, dict) else None,
+        owner_review.get("draft_path") if isinstance(owner_review, dict) else None,
+        owner_review.get("title") if isinstance(owner_review, dict) else None,
+        card.title,
+    ]
+    tokens: list[str] = []
+    for value in raw_tokens:
+        normalized = _normalize_owner_review_token(value)
+        if normalized and len(normalized) >= 6 and normalized not in tokens:
+            tokens.append(normalized)
+    return tokens
+
+
+def _owner_review_search_text(card: PMCard) -> str:
+    payload = dict(card.payload or {})
+    return _normalize_owner_review_token(
+        " ".join(
+            [
+                str(card.title or ""),
+                str(card.source or ""),
+                str(card.link_type or ""),
+                str(payload),
+            ]
+        )
+    )
+
+
+def _normalize_owner_review_token(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
 
 def _accountability_followup_tracked_card_ids(card: PMCard) -> list[str]:

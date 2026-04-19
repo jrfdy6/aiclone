@@ -778,6 +778,75 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(result.get("processed_count"), 0)
         update_card_mock.assert_not_called()
 
+    def test_auto_progress_closes_stale_owner_review_duplicate_with_completed_sibling(self) -> None:
+        now = datetime.now(timezone.utc)
+        duplicate = PMCard(
+            id="stale-owner-review-duplicate",
+            title="Schedule approved FEEZIE draft - FEEZIE-004",
+            owner="Neo",
+            status="todo",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "FEEZIE-004",
+                    "decision": "approve",
+                    "draft_path": "drafts/feezie-004_warm-then-sharp.md",
+                    "title": "Warm then sharp",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        completed = PMCard(
+            id="completed-scheduling-card",
+            title="Host action required - Schedule approved FEEZIE draft - FEEZIE-004",
+            owner="Neo",
+            status="done",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Schedule approved FEEZIE draft - FEEZIE-004.",
+                    "source_card_title": "Schedule approved FEEZIE draft - FEEZIE-004",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        updates: list[tuple[str, PMCardUpdate]] = []
+
+        def fake_update(card_id: str, patch: PMCardUpdate) -> PMCard:
+            updates.append((card_id, patch))
+            return duplicate.model_copy(
+                update={
+                    "status": patch.status,
+                    "payload": patch.payload,
+                    "updated_at": now,
+                }
+            )
+
+        with (
+            patch.object(pm_card_service, "repair_execution_contracts", return_value={"repaired_count": 0, "repaired": []}),
+            patch.object(pm_card_service, "list_cards", return_value=[duplicate, completed]),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+            patch.object(pm_card_service, "record_review_hygiene_audit", return_value=None),
+        ):
+            result = pm_card_service.auto_progress_review_cards(limit=10)
+
+        self.assertEqual(result.get("owner_review_duplicate_closed_count"), 1)
+        self.assertEqual(result.get("processed_count"), 0)
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0][0], "stale-owner-review-duplicate")
+        self.assertEqual(updates[0][1].status, "done")
+        duplicate_resolution = (updates[0][1].payload or {}).get("duplicate_resolution") or {}
+        self.assertEqual(duplicate_resolution.get("completed_card_id"), "completed-scheduling-card")
+        self.assertEqual(duplicate_resolution.get("rule"), "owner_review_completed_sibling_autoclose")
+
     def test_auto_progress_review_cards_returns_unmet_completion_contract_to_execution(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
