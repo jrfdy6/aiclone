@@ -9,11 +9,12 @@ from app.services import open_brain_metrics, open_brain_service
 from app.services.automation_service import list_automations
 from app.services.brain_signal_service import list_signals
 from app.services.portfolio_workspace_snapshot_service import build_portfolio_workspace_snapshot
+from app.services.workspace_registry_service import REPO_ROOT
 from app.services.workspace_snapshot_store import get_snapshot_payload
 from app.services.workspace_snapshot_service import workspace_snapshot_service
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = REPO_ROOT
 SOURCE_INTELLIGENCE_INDEX_PATH = ROOT / "knowledge" / "source-intelligence" / "index.json"
 SOURCE_ASSET_PREVIEW_LIMIT = 12
 SOCIAL_FEED_PREVIEW_LIMIT = 6

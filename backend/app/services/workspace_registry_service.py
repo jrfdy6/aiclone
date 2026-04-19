@@ -5,7 +5,17 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def resolve_repo_root() -> Path:
+    current = Path(__file__).resolve()
+    candidates = (current.parents[3], current.parents[2], Path.cwd())
+    for candidate in candidates:
+        if (candidate / "workspaces").exists() or (candidate / "knowledge").exists():
+            return candidate
+    return current.parents[3]
+
+
+REPO_ROOT = resolve_repo_root()
 WORKSPACES_ROOT = REPO_ROOT / "workspaces"
 
 WORKSPACE_STATUS_VALUES = ("live", "standing_up", "planned")

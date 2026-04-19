@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from app.models import PersonaDelta
+from app.services.workspace_registry_service import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = REPO_ROOT
 WORKSPACES_ROOT = ROOT / "workspaces"
 INFERRED_BRIEF_PATH = ROOT / "docs" / "inferred_workspace_operating_brief_2026-03-31.md"
 PACK_FILES = ("CHARTER.md", "IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md")

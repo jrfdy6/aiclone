@@ -11,10 +11,10 @@ from app.services import pm_card_service, standup_service
 from app.services.brain_system_route_service import validate_brain_pm_route
 from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.workspace_runtime_contract_service import default_standup_kind_for_workspace, standup_participants_for
-from app.services.workspace_registry_service import canonicalize_workspace_key
+from app.services.workspace_registry_service import REPO_ROOT, canonicalize_workspace_key
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = REPO_ROOT
 SIGNALS_PATH = ROOT / "memory" / "brain_signals.jsonl"
 
 
