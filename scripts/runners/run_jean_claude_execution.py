@@ -239,7 +239,7 @@ def _build_bundle(args: argparse.Namespace, run_id: str, selected_entry: dict[st
     workspace_root = _workspace_root(workspace_key, registry)
     workspace_pack = _load_pack(workspace_root)
     registry_item = _registry_item(workspace_key, registry)
-    memory_contract = build_workspace_memory_contract(
+    workspace_memory_contract = build_workspace_memory_contract(
         workspace_key,
         seed_texts=[
             selected_entry.get("title"),
@@ -255,7 +255,40 @@ def _build_bundle(args: argparse.Namespace, run_id: str, selected_entry: dict[st
             "memory/LEARNINGS.md",
             "memory/{today}.md",
         ),
+        include_shared_ops=False,
     )
+    executive_context: dict[str, Any] = {}
+    if workspace_key != "shared_ops":
+        executive_memory_contract = build_workspace_memory_contract(
+            "shared_ops",
+            seed_texts=[
+                selected_entry.get("title"),
+                selected_entry.get("reason"),
+                card.get("title"),
+                (card.get("payload") or {}).get("reason"),
+                registry_item.get("display_name"),
+                "Filter broader AI Clone context before routing it into the workspace.",
+            ],
+            chronicle_limit=4,
+            memory_paths=(
+                "memory/persistent_state.md",
+                "memory/cron-prune.md",
+                "memory/daily-briefs.md",
+                "memory/LEARNINGS.md",
+                "memory/{today}.md",
+            ),
+            include_shared_ops=False,
+        )
+        executive_context = {
+            "workspace_key": "shared_ops",
+            "usage_rule": (
+                "Jean-Claude can use whole-system AI Clone context to judge relevance, "
+                "but should only route it into this workspace when the SOP, PM card, or standup says why it matters now."
+            ),
+            "recent_chronicle_entries": executive_memory_contract["chronicle_entries"],
+            "durable_memory_context": executive_memory_contract["durable_memory_context"],
+            "source_paths": executive_memory_contract["source_paths"],
+        }
     return {
         "schema_version": "runner_input/v1",
         "run_id": run_id,
@@ -277,10 +310,11 @@ def _build_bundle(args: argparse.Namespace, run_id: str, selected_entry: dict[st
         "agent_pack": _load_pack(WORKSPACE_ROOT / "agents" / "jean-claude"),
         "workspace_pack": workspace_pack,
         "base_pack": _load_pack(WORKSPACE_ROOT),
-        "recent_chronicle_entries": memory_contract["chronicle_entries"],
-        "durable_memory_context": memory_contract["durable_memory_context"],
-        "memory_context": memory_contract["memory_context"],
-        "source_paths": memory_contract["source_paths"],
+        "recent_chronicle_entries": workspace_memory_contract["chronicle_entries"],
+        "durable_memory_context": workspace_memory_contract["durable_memory_context"],
+        "memory_context": workspace_memory_contract["memory_context"],
+        "source_paths": workspace_memory_contract["source_paths"],
+        "executive_context": executive_context,
     }
 
 
@@ -292,9 +326,9 @@ def _build_sop(bundle: dict[str, Any]) -> dict[str, Any]:
     display_name = str(registry_item.get("display_name") or workspace_key)
     workspace_label = _workspace_label(workspace_key, display_name)
     direct = str(queue_entry.get("execution_mode") or "direct") == "direct"
-    target_agent = str(queue_entry.get("target_agent") or "Jean-Claude")
+    target_agent = "Jean-Claude" if direct else str(queue_entry.get("target_agent") or "Jean-Claude")
     canonical_target = str(registry_item.get("target_agent") or "").strip()
-    if canonical_target:
+    if canonical_target and not direct:
         target_agent = canonical_target
     reason = str(queue_entry.get("reason") or ((card.get("payload") or {}).get("reason")) or "Advance the PM card.")
 
@@ -313,6 +347,7 @@ def _build_sop(bundle: dict[str, Any]) -> dict[str, Any]:
     steps = [
         "Stay inside the originating workspace lane.",
         "Use the PM card as the source of truth throughout execution.",
+        "Use broader AI Clone context to inform judgment, but only route signals into this workspace when their relevance to this card is explicit.",
         "Write results back through the execution-result writer so Chronicle, LEARNINGS, persistent_state, and PM state all update together.",
     ]
     if direct:
@@ -340,6 +375,11 @@ def _build_sop(bundle: dict[str, Any]) -> dict[str, Any]:
         "identity_sources": {
             "manager_pack": bundle.get("agent_pack"),
             "workspace_pack": bundle.get("workspace_pack"),
+        },
+        "context_policy": {
+            "manager_scope": "Jean-Claude reads whole-system AI Clone context before routing work.",
+            "workspace_scope": f"Execution stays inside {workspace_label}.",
+            "relevance_rule": "Only route broader system context into the workspace when this SOP, the PM card, or the standup can explain why it matters now.",
         },
         "steps": steps,
         "linked_standup_id": card.get("link_id"),
@@ -638,6 +678,7 @@ def main() -> int:
             "briefing_path": str(briefing_path),
             "read_order": list(sop["read_order"]),
             "identity_sources": dict(sop["identity_sources"]),
+            "context_policy": dict(sop.get("context_policy") or {}),
             "recent_chronicle_entries": bundle.get("recent_chronicle_entries") or [],
             "durable_memory_context": bundle.get("durable_memory_context") or {},
             "memory_context": bundle.get("memory_context") or {},
@@ -662,7 +703,11 @@ def main() -> int:
         "scope": bundle["scope"],
         "trigger": "sop_dispatch",
         "importance": "high",
-        "summary": f"Jean-Claude opened an SOP for `{sop['title']}` and routed it toward {sop['target_agent']}.",
+        "summary": (
+            f"Jean-Claude opened an SOP for `{sop['title']}` and kept direct execution with Jean-Claude inside `{bundle['primary_workspace_key']}`."
+            if sop["execution_mode"] == "direct"
+            else f"Jean-Claude opened an SOP for `{sop['title']}` and delegated it to {sop['target_agent']} inside `{bundle['primary_workspace_key']}`."
+        ),
         "signal_types": ["pm", "execution", "delegation", "sop"],
         "decisions": [f"Use `{sop['execution_mode']}` execution for this PM card."],
         "blockers": [],

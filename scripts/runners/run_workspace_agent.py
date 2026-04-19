@@ -142,6 +142,91 @@ def _workspace_root(workspace_key: str, registry: dict[str, dict[str, Any]]) -> 
     return base
 
 
+def _latest_file(directory: Path, suffix: str) -> Path | None:
+    if not directory.exists():
+        return None
+    matches = sorted(directory.glob(f"*{suffix}"))
+    return matches[-1] if matches else None
+
+
+def _merge_unique_strings(values: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = " ".join(str(value or "").split()).strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(normalized)
+    return merged
+
+
+def _build_workspace_execution_contract(
+    *,
+    workspace_key: str,
+    manager_briefing_path: str | None,
+    latest_workspace_briefing_path: str | None,
+    execution_log_path: str | None,
+    task_instructions: list[str],
+    acceptance_criteria: list[str],
+    completion_contract: dict[str, Any],
+) -> dict[str, Any]:
+    instructions = [
+        f"Execute only inside `{workspace_key}`.",
+        "Use the shared PM card as the source of truth.",
+        "Treat broader AI Clone context as advisory unless Jean-Claude tied it directly to this workspace card.",
+        "Use recent Chronicle plus durable markdown recall before deciding whether to start, unblock, or escalate.",
+        "State the lane or trust constraint from the workspace pack that governed your decision.",
+        "Name the exact next artifact changed or the blocker preventing it.",
+        "Leave PM and Chronicle write-back to the wrapper-owned result path; focus on bounded workspace artifacts and status content.",
+    ]
+    if manager_briefing_path:
+        instructions.append(f"Cite the current Jean-Claude briefing at `{manager_briefing_path}` when reporting status.")
+    else:
+        instructions.append("If the Jean-Claude briefing is missing, say that directly instead of inventing context.")
+    if latest_workspace_briefing_path:
+        instructions.append(f"Ground the handoff against the latest workspace briefing at `{latest_workspace_briefing_path}` before proposing new work.")
+    if execution_log_path:
+        instructions.append(f"Cite the latest workspace execution log at `{execution_log_path}` before proposing new scope.")
+    else:
+        instructions.append("If no workspace execution log exists yet, say that directly instead of inventing prior execution.")
+    instructions.extend(task_instructions)
+
+    base_acceptance = [
+        "Status cites the current Jean-Claude briefing or explicitly states that it was missing.",
+        "Status cites the latest workspace execution log or explicitly states that it was unavailable.",
+        "Status states the lane or trust constraint that governed the recommendation.",
+        "Status explains why any imported broader-system context matters to this workspace now.",
+        "Status names the exact next artifact updated or the blocker preventing it.",
+    ]
+    merged_acceptance = _merge_unique_strings(base_acceptance + acceptance_criteria)
+
+    completion_contract_payload = dict(completion_contract or {})
+    result_requirements = dict(completion_contract_payload.get("result_requirements") or {})
+    result_requirements.setdefault("require_briefing_citation", True)
+    result_requirements.setdefault("require_execution_log_citation", True)
+    result_requirements.setdefault("require_lane_constraint", True)
+    result_requirements.setdefault("require_relevance_explanation_for_global_context", True)
+    result_requirements.setdefault("require_exact_next_artifact_or_blocker", True)
+    completion_contract_payload["result_requirements"] = result_requirements
+    if not completion_contract_payload.get("done_when"):
+        completion_contract_payload["done_when"] = merged_acceptance[:6]
+
+    return {
+        "instructions": _merge_unique_strings(instructions)[:10],
+        "acceptance_criteria": merged_acceptance[:8],
+        "completion_contract": completion_contract_payload,
+        "local_artifact_context": {
+            "manager_briefing_path": manager_briefing_path,
+            "latest_workspace_briefing_path": latest_workspace_briefing_path,
+            "execution_log_path": execution_log_path,
+        },
+    }
+
+
 def _parse_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value
@@ -414,11 +499,14 @@ def main() -> int:
             "memory/daily-briefs.md",
             "memory/{today}.md",
         ),
+        include_shared_ops=False,
     )
     input_path = output_root / "runner-inputs" / _slug(target_agent) / f"{stamp}.json"
     work_order_path = workspace_root / "dispatch" / f"{stamp}_{_slug(target_agent)}_work_order.json"
     briefing_path = workspace_root / "briefings" / f"{stamp}_{_slug(target_agent)}_status.md"
     local_ledger_path = workspace_root / "agent-ledgers" / f"{_slug(target_agent)}.jsonl"
+    latest_workspace_briefing = _latest_file(workspace_root / "briefings", ".md")
+    execution_log_path = workspace_root / "memory" / "execution_log.md"
 
     bundle = {
         "schema_version": "workspace_agent_input/v1",
@@ -456,15 +544,15 @@ def main() -> int:
         for item in card_payload.get("artifacts_expected") or []
         if str(item).strip()
     ]
-    work_order_instructions = [
-        f"Execute only inside `{workspace_key}`.",
-        "Use the shared PM card as the source of truth.",
-        "Use recent Chronicle plus durable markdown recall before deciding whether to start, unblock, or escalate.",
-        "Leave PM and Chronicle write-back to the wrapper-owned result path; focus on bounded workspace artifacts and status content.",
-    ]
-    for item in task_instructions:
-        if item not in work_order_instructions:
-            work_order_instructions.append(item)
+    artifact_context = _build_workspace_execution_contract(
+        workspace_key=workspace_key,
+        manager_briefing_path=str(briefing_source) if briefing_source else None,
+        latest_workspace_briefing_path=str(latest_workspace_briefing) if latest_workspace_briefing else None,
+        execution_log_path=str(execution_log_path) if execution_log_path.exists() else None,
+        task_instructions=task_instructions,
+        acceptance_criteria=acceptance_criteria,
+        completion_contract=dict(card_payload.get("completion_contract") or {}),
+    )
     work_order = {
         "schema_version": "workspace_agent_work_order/v1",
         "run_id": run_id,
@@ -483,10 +571,10 @@ def main() -> int:
         "briefing_path": str(briefing_path),
         "pm_card_id": selected_entry["card_id"],
         "reason": selected_entry.get("reason"),
-        "instructions": work_order_instructions,
-        "acceptance_criteria": acceptance_criteria,
+        "instructions": artifact_context["instructions"],
+        "acceptance_criteria": artifact_context["acceptance_criteria"],
         "artifacts_expected": artifacts_expected,
-        "completion_contract": dict(card_payload.get("completion_contract") or {}),
+        "completion_contract": artifact_context["completion_contract"],
         "read_order": [
             "Read the local workspace pack first.",
             "Read Jean-Claude's SOP and briefing second.",
@@ -503,6 +591,12 @@ def main() -> int:
             "preferred_author_agent": target_agent,
             "next_state_on_result": "review",
         },
+        "context_policy": {
+            "manager_scope": "Jean-Claude may use whole-system AI Clone context before delegation.",
+            "workspace_scope": f"{target_agent} executes only inside `{workspace_key}`.",
+            "relevance_rule": "If wider-system context matters here, say why it matters to this workspace now.",
+        },
+        "local_artifact_context": artifact_context["local_artifact_context"],
         "recent_chronicle_entries": memory_contract["chronicle_entries"],
         "durable_memory_context": memory_contract["durable_memory_context"],
         "memory_context": memory_contract["memory_context"],
@@ -529,6 +623,8 @@ def main() -> int:
         f"- Workspace soul: `{workspace_root / 'SOUL.md'}`",
         f"- SOP: `{sop_path}`" if sop_path else "- SOP: `missing`",
         f"- Jean-Claude briefing: `{briefing_source}`" if briefing_source else "- Jean-Claude briefing: `missing`",
+        f"- Latest workspace briefing: `{latest_workspace_briefing}`" if latest_workspace_briefing else "- Latest workspace briefing: `missing`",
+        f"- Workspace execution log: `{execution_log_path}`" if execution_log_path.exists() else "- Workspace execution log: `missing`",
         f"- Recent Chronicle source: `{CODEX_HANDOFF_PATH}`",
         "",
         "## Recent Chronicle",
@@ -575,6 +671,8 @@ def main() -> int:
         "## Next",
         f"- Execute inside `{workspace_key}`.",
         "- Keep the PM card as the source of truth.",
+        "- Cite the latest briefing and execution log in the result, or say clearly when one is missing.",
+        "- If broader-system context matters, explain why it matters to this workspace now.",
         "- Write the result back with the execution-result writer before the next executive standup.",
     ])
     briefing_path.write_text("\n".join(briefing_lines).rstrip() + "\n", encoding="utf-8")
