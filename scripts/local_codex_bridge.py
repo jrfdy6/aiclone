@@ -20,7 +20,8 @@ DEFAULT_API_BASE = os.getenv(
     "https://aiclone-production-32dc.up.railway.app/api/content-generation",
 )
 DEFAULT_WORKSPACE_ROOT = os.getenv("LOCAL_CODEX_BRIDGE_WORKSPACE_ROOT", "/Users/neo/.openclaw/workspace")
-DEFAULT_MODEL = os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.4-mini")
+SAFE_CODEX_CLI_MODEL = "gpt-5.4-mini"
+DEFAULT_MODEL = os.getenv("LOCAL_CODEX_BRIDGE_MODEL", SAFE_CODEX_CLI_MODEL)
 DEFAULT_REASONING_EFFORT = os.getenv("LOCAL_CODEX_BRIDGE_REASONING_EFFORT", "medium")
 DEFAULT_POLL_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_POLL_SECONDS", "4"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LOCAL_CODEX_BRIDGE_TIMEOUT_SECONDS", "420"))
@@ -29,6 +30,16 @@ DEFAULT_HTTP_RETRIES = int(os.getenv("LOCAL_CODEX_BRIDGE_HTTP_RETRIES", "3"))
 DEFAULT_ERROR_BACKOFF_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_ERROR_BACKOFF_SECONDS", "8"))
 DEFAULT_MAX_ERROR_BACKOFF_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_MAX_ERROR_BACKOFF_SECONDS", "60"))
 RETRYABLE_HTTP_STATUS_CODES = {502, 503, 504}
+UNSUPPORTED_CODEX_CLI_MODELS = frozenset(
+    {
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+    }
+)
 
 
 def _headers(token: str | None) -> dict[str, str]:
@@ -72,6 +83,20 @@ def _request_json(
     if last_error is not None:
         raise last_error
     return None
+
+
+def _resolve_codex_cli_model(model: str | None, fallback_model: str = DEFAULT_MODEL) -> str:
+    fallback = str(fallback_model or "").strip() or SAFE_CODEX_CLI_MODEL
+    if fallback.startswith("openai/"):
+        fallback = fallback.split("/", 1)[1].strip()
+    if fallback.lower() in UNSUPPORTED_CODEX_CLI_MODELS:
+        fallback = SAFE_CODEX_CLI_MODEL
+    cleaned = str(model or "").strip() or fallback
+    if cleaned.startswith("openai/"):
+        cleaned = cleaned.split("/", 1)[1].strip()
+    if cleaned.lower() in UNSUPPORTED_CODEX_CLI_MODELS:
+        return fallback
+    return cleaned or fallback
 
 
 def _claim_next_job(*, api_base: str, token: str | None, worker_id: str, workspace_slug: str) -> dict[str, Any] | None:
@@ -160,6 +185,7 @@ def _run_codex_job(
     expected_option_count: int,
     timeout_seconds: int,
 ) -> tuple[list[str], str, str, str]:
+    resolved_model = _resolve_codex_cli_model(model)
     with tempfile.TemporaryDirectory(prefix="local-codex-job-") as temp_dir_str:
         temp_dir = Path(temp_dir_str)
         schema_path = temp_dir / "schema.json"
@@ -180,7 +206,7 @@ def _run_codex_job(
             "--output-last-message",
             str(output_path),
             "--model",
-            model,
+            resolved_model,
             "-",
         ]
         if not (workspace_root / ".git").exists():
@@ -235,7 +261,7 @@ def run_once(
     context_packet = job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}
     prompt = str(context_packet.get("prompt") or "").strip()
     expected_option_count = int(context_packet.get("expected_option_count") or 3)
-    requested_model = str(context_packet.get("requested_model") or model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    requested_model = _resolve_codex_cli_model(str(context_packet.get("requested_model") or model or DEFAULT_MODEL).strip() or DEFAULT_MODEL)
     repo_import_roots = [workspace_root / "backend", workspace_root]
     for candidate in repo_import_roots:
         if (candidate / "app").exists():

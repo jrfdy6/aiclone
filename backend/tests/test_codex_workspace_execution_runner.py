@@ -199,6 +199,62 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         self.assertIn("host_actions", schema["required"])
         self.assertIn("host_action_proof", schema["required"])
 
+    def test_resolve_codex_cli_model_falls_back_from_unsupported_labels(self) -> None:
+        self.assertEqual(self.runner._resolve_codex_cli_model("gpt-5.1-codex"), "gpt-5.4")
+        self.assertEqual(self.runner._resolve_codex_cli_model("openai/gpt-5.3-codex"), "gpt-5.4")
+        self.assertEqual(self.runner._resolve_codex_cli_model("openai/gpt-5.4"), "gpt-5.4")
+
+    def test_run_codex_uses_resolved_model_in_command(self) -> None:
+        packet = {
+            "repo_path": str(ROOT),
+            "path": "/tmp/work-order.json",
+            "pm_card_id": "pm-card-1",
+            "title": "Resolve model fallback",
+            "workspace_key": "shared_ops",
+            "owner_agent": "Jean-Claude",
+            "front_door_agent": "Jean-Claude",
+            "manager_agent": "Jean-Claude",
+            "target_agent": "Jean-Claude",
+            "objective": "Return structured output.",
+            "reason": "Exercise the Codex command builder.",
+            "sop_path": "",
+            "briefing_path": "",
+            "read_order": [],
+            "instructions": [],
+            "acceptance_criteria": [],
+            "artifacts_expected": [],
+        }
+
+        def fake_run(command, **kwargs):
+            output_path = Path(command[command.index("--output-last-message") + 1])
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "status": "review",
+                        "summary": "Returned structured output.",
+                        "decisions": [],
+                        "blockers": [],
+                        "learnings": [],
+                        "outcomes": ["Model fallback resolved."],
+                        "follow_ups": [],
+                        "host_actions": [],
+                        "host_action_proof": [],
+                        "project_updates": [],
+                        "memory_promotions": [],
+                        "persistent_state": [],
+                        "artifact_paths": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return self.runner.subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with mock.patch.object(self.runner.subprocess, "run", side_effect=fake_run) as mocked_run:
+            self.runner._run_codex(packet, model="gpt-5.1-codex", reasoning_effort="high", timeout_seconds=30)
+
+        command = mocked_run.call_args.args[0]
+        self.assertEqual(command[command.index("--model") + 1], "gpt-5.4")
+
     def test_sanitize_result_strips_wrapper_owned_host_action_noise(self) -> None:
         packet = {
             "title": "Package accepted FEEZIE draft into scheduling lane",

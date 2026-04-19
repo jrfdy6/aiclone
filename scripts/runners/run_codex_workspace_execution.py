@@ -24,9 +24,20 @@ BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
-DEFAULT_MODEL = "gpt-5.4"
+SAFE_CODEX_CLI_MODEL = "gpt-5.4"
+DEFAULT_MODEL = SAFE_CODEX_CLI_MODEL
 DEFAULT_REASONING_EFFORT = "high"
 RUNNER_ID = "codex-workspace-execution"
+UNSUPPORTED_CODEX_CLI_MODELS = frozenset(
+    {
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+    }
+)
 WRAPPER_STATUS_MARKERS = (
     "write_execution_result.py",
     "writer cli",
@@ -86,6 +97,20 @@ def _fetch_json(url: str, *, method: str = "GET", payload: dict[str, Any] | None
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _resolve_codex_cli_model(model: str | None, fallback_model: str = DEFAULT_MODEL) -> str:
+    fallback = str(fallback_model or "").strip() or SAFE_CODEX_CLI_MODEL
+    if fallback.startswith("openai/"):
+        fallback = fallback.split("/", 1)[1].strip()
+    if fallback.lower() in UNSUPPORTED_CODEX_CLI_MODELS:
+        fallback = SAFE_CODEX_CLI_MODEL
+    cleaned = str(model or "").strip() or fallback
+    if cleaned.startswith("openai/"):
+        cleaned = cleaned.split("/", 1)[1].strip()
+    if cleaned.lower() in UNSUPPORTED_CODEX_CLI_MODELS:
+        return fallback
+    return cleaned or fallback
 
 
 def _optional_backend_imports(mode: str) -> dict[str, Any]:
@@ -687,6 +712,7 @@ def _sanitize_result_for_wrapper_success(result: dict[str, Any], api_url: str, p
 
 def _run_codex(packet: dict[str, Any], *, model: str, reasoning_effort: str, timeout_seconds: int) -> tuple[dict[str, Any], str, str, str]:
     repo_path = Path(packet["repo_path"])
+    resolved_model = _resolve_codex_cli_model(model)
     with tempfile.TemporaryDirectory(prefix="codex-workspace-run-") as temp_dir_str:
         temp_dir = Path(temp_dir_str)
         schema_path = temp_dir / "schema.json"
@@ -706,7 +732,7 @@ def _run_codex(packet: dict[str, Any], *, model: str, reasoning_effort: str, tim
             "--output-last-message",
             str(output_path),
             "--model",
-            model,
+            resolved_model,
             "-",
         ]
         if not (repo_path / ".git").exists():
