@@ -111,22 +111,24 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   mkdir -p "$STAGE_DIR/$CHILD_DIR/knowledge/persona" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions" "$STAGE_DIR/$CHILD_DIR/workspaces" "$STAGE_DIR/$CHILD_DIR/scripts"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/SOPs" "$STAGE_DIR/$CHILD_DIR/deliverables" "$STAGE_DIR/$CHILD_DIR/docs"
-  rsync -a "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/knowledge/persona/feeze/"
-  rsync -a "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/knowledge/persona/feeze/"
-  rsync -a "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona/feeze/"
-  rsync -a "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/knowledge/aiclone/transcripts/"
-  rsync -a "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone/transcripts/"
-  rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"
-  rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions/"
+  rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/knowledge/persona/feeze/"
+  rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/knowledge/persona/feeze/"
+  rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona/feeze/"
+  rsync_if_exists "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/knowledge/aiclone/transcripts/"
+  rsync_if_exists "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone/transcripts/"
+  if [ -d "$DATA_ROOT/knowledge/ingestions" ]; then
+    rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"
+    rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions/"
+  fi
   for workspace_dir in shared-ops linkedin-content-os fusion-os easyoutfitapp ai-swag-store agc
   do
     rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/" "$STAGE_DIR/workspaces/$workspace_dir/"
     rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/" "$STAGE_DIR/$CHILD_DIR/workspaces/$workspace_dir/"
   done
-  rsync -a "$DATA_ROOT/scripts/personal-brand/" "$STAGE_DIR/scripts/personal-brand/"
-  rsync -a "$DATA_ROOT/scripts/personal-brand/" "$STAGE_DIR/$CHILD_DIR/scripts/personal-brand/"
-  rsync -a "$DATA_ROOT/SOPs/" "$STAGE_DIR/$CHILD_DIR/SOPs/"
-  rsync -a "$DATA_ROOT/deliverables/" "$STAGE_DIR/$CHILD_DIR/deliverables/"
+  rsync_if_exists "$DATA_ROOT/scripts/personal-brand/" "$STAGE_DIR/scripts/personal-brand/"
+  rsync_if_exists "$DATA_ROOT/scripts/personal-brand/" "$STAGE_DIR/$CHILD_DIR/scripts/personal-brand/"
+  rsync_if_exists "$DATA_ROOT/SOPs/" "$STAGE_DIR/$CHILD_DIR/SOPs/"
+  rsync_if_exists "$DATA_ROOT/deliverables/" "$STAGE_DIR/$CHILD_DIR/deliverables/"
   if [ -f "$DATA_ROOT/docs/persistent_memory_blueprint.md" ]; then
     rsync -a "$DATA_ROOT/docs/persistent_memory_blueprint.md" "$STAGE_DIR/$CHILD_DIR/docs/persistent_memory_blueprint.md"
   fi
