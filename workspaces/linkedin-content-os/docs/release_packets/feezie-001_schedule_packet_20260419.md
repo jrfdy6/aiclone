@@ -1,35 +1,16 @@
----
-title: "Cheap models, better systems"
-draft_kind: owner_review
-source_kind: feezie_queue
-lane: ai
-priority_lane: ai
-publish_posture: approved
-risk_level: low
-role_alignment: role_anchored
-source_path: workspaces/linkedin-content-os/drafts/queue_01.md
-created_at: 2026-04-01T04:52:39+00:00
-owner_decision: approve
-owner_reviewed_at: 2026-04-19T18:53:49Z
-owner_review_source: "PM card 2d6d367a-7ad8-4d7b-92f4-4a58098df574"
-owner_review_notes: "Approved; bank for host copy/paste into LinkedIn when ready."
-banked_post_packet: workspaces/linkedin-content-os/docs/release_packets/feezie-001_schedule_packet_20260419.md
----
+# FEEZIE-001 Banked LinkedIn Post
 
-# Cheap models, better systems
+This packet stores the approved copy for **FEEZIE-001 - Cheap models, better systems** so the host can post it later without another owner-review or scheduling workflow.
 
-## Why this draft exists
+## Status
 - Queue item: `FEEZIE-001`
-- Lane: `ai`
-- Why now: the AI Clone / Brain work is active and publicly legible.
+- Draft: `workspaces/linkedin-content-os/drafts/feezie-001_cheap-models-better-systems.md`
+- Owner decision: Approved on 2026-04-19 from PM card `2d6d367a-7ad8-4d7b-92f4-4a58098df574`.
+- Host action: Copy the post, open LinkedIn, paste it into the composer, then post or use LinkedIn's native scheduler when ready.
+- Confirmation: No separate screenshot or run-log ritual is required for the banked-post flow.
 
-## Proof anchors
-- ``../../knowledge/persona/feeze/history/story_bank.md``
-- ``../../knowledge/persona/feeze/history/initiatives.md``
-- ``../../knowledge/persona/feeze/history/wins.md``
-
-## First-pass draft
-
+## Final copy
+```text
 We restarted the AI Clone / Brain control plane on GPT-3.5 budgets. There was no promise of "GPT-X is coming," so reliability had to be engineered, not purchased.
 
 That constraint forced us to type the entire retrieval layer. Proof, story, and example live in separate packets, every chunk cites an artifact, and JSON validation kills the run if the schema falls apart. It is the reason Brain, Ops, daily briefs, persona review, and long-form routing now share one workspace snapshot instead of five brittle prompts.
@@ -39,8 +20,9 @@ Cheap models also surfaced every lazy instruction. Context Guard and the restart
 Working inside those constraints is what turned the system into an operating system, not a fragile demo. We debugged our instructions instead of blaming the model, we made outputs deterministic, and we kept proof packets attached so every response carries receipts.
 
 So when somebody says "just wait until we get GPT-X," I ask the same question we used on ourselves: if your workflow collapses on a cheaper model, do you really have a workflow or just a demo?
+```
 
-## Owner notes
-- Tighten the hook if needed.
-- Keep this grounded in real proof, not abstraction.
-- Do not publish without explicit owner approval.
+## Guardrails
+- Default to text-only.
+- Do not add runtime stats, cost claims, schema-failure counts, screenshots, or private artifact references unless they are separately verified and publication-safe.
+- If you change the copy materially, send it back through owner review before posting.

@@ -365,6 +365,7 @@ const AUDIENCE_OPTIONS = [
 ];
 
 const STORAGE_KEY = 'content_pipeline_911';
+const LINKEDIN_COMPOSER_URL = 'https://www.linkedin.com/feed/?shareActive=true';
 
 function workspaceTabs() {
   return [{ key: 'workspace', label: 'Workspace', active: true, onSelect: () => undefined }];
@@ -643,6 +644,21 @@ function coerceOwnerReviewItems(items?: unknown[] | null): OwnerReviewItem[] {
   });
 }
 
+function isBankedOwnerReviewItem(item: OwnerReviewItem) {
+  return (
+    item.current_decision === 'approve' ||
+    item.approval_status === 'owner_approved' ||
+    item.publish_posture === 'approved'
+  );
+}
+
+function splitOwnerReviewItems(items: OwnerReviewItem[]) {
+  return {
+    pending: items.filter((item) => !item.current_decision && !isBankedOwnerReviewItem(item)),
+    banked: items.filter(isBankedOwnerReviewItem),
+  };
+}
+
 function copyText(text: string) {
   if (!text.trim() || typeof navigator === 'undefined' || !navigator.clipboard) {
     return Promise.reject(new Error('Clipboard is not available.'));
@@ -730,7 +746,8 @@ export function LinkedinWorkspaceSurface({
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(initialSnapshot);
   const [snapshotState, setSnapshotState] = useState<'loading' | 'live' | 'error'>(initialSnapshot ? 'live' : 'loading');
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
-  const [ownerReviewItems, setOwnerReviewItems] = useState<OwnerReviewItem[]>(() => coerceOwnerReviewItems(initialOwnerReviewItems));
+  const [ownerReviewItems, setOwnerReviewItems] = useState<OwnerReviewItem[]>(() => splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems)).pending);
+  const [bankedPostItems, setBankedPostItems] = useState<OwnerReviewItem[]>(() => splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems)).banked);
   const [ownerReviewState, setOwnerReviewState] = useState<'loading' | 'live' | 'error'>(initialOwnerReviewItems ? 'live' : 'loading');
   const [ownerReviewError, setOwnerReviewError] = useState<string | null>(null);
   const [ownerReviewNotes, setOwnerReviewNotes] = useState<Record<string, string>>({});
@@ -836,11 +853,12 @@ export function LinkedinWorkspaceSurface({
 
   useEffect(() => {
     if (!initialOwnerReviewItems) return;
-    const nextItems = coerceOwnerReviewItems(initialOwnerReviewItems);
-    setOwnerReviewItems(nextItems);
+    const nextItems = splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems));
+    setOwnerReviewItems(nextItems.pending);
+    setBankedPostItems(nextItems.banked);
     setOwnerReviewNotes((current) => {
       const next = { ...current };
-      nextItems.forEach((item) => {
+      nextItems.pending.forEach((item) => {
         if (next[item.queue_id] === undefined) {
           next[item.queue_id] = item.current_notes ?? '';
         }
@@ -888,12 +906,13 @@ export function LinkedinWorkspaceSurface({
   const loadOwnerReview = useCallback(async () => {
     setOwnerReviewState((current) => (current === 'live' ? 'live' : 'loading'));
     try {
-      const payload = await apiGet<OwnerReviewPayload>('/api/workspace/linkedin-os-owner-review');
-      const items = payload.items ?? [];
-      setOwnerReviewItems(items);
+      const payload = await apiGet<OwnerReviewPayload>('/api/workspace/linkedin-os-owner-review?include_resolved=true');
+      const items = splitOwnerReviewItems(payload.items ?? []);
+      setOwnerReviewItems(items.pending);
+      setBankedPostItems(items.banked);
       setOwnerReviewNotes((current) => {
         const next = { ...current };
-        items.forEach((item) => {
+        items.pending.forEach((item) => {
           if (next[item.queue_id] === undefined) {
             next[item.queue_id] = item.current_notes ?? '';
           }
@@ -1492,11 +1511,12 @@ export function LinkedinWorkspaceSurface({
           decision,
           notes: ownerReviewNotes[item.queue_id] ?? '',
         });
-        const items = payload.items ?? [];
-        setOwnerReviewItems(items);
+        const items = splitOwnerReviewItems(payload.items ?? []);
+        setOwnerReviewItems(items.pending);
+        setBankedPostItems(items.banked);
         setOwnerReviewNotes((current) => {
           const next = { ...current };
-          items.forEach((entry) => {
+          items.pending.forEach((entry) => {
             next[entry.queue_id] = entry.current_notes ?? next[entry.queue_id] ?? '';
           });
           return next;
@@ -1504,6 +1524,7 @@ export function LinkedinWorkspaceSurface({
         setOwnerReviewError(null);
         setOwnerReviewState('live');
         setOwnerReviewStatus(payload.workflow?.message ?? `${item.queue_id} marked ${humanizeSnakeCase(decision)}.`);
+        await loadOwnerReview();
         await loadSnapshot();
       } catch (error) {
         setOwnerReviewStatus(error instanceof Error ? error.message : 'Unable to save the owner decision right now.');
@@ -1511,7 +1532,7 @@ export function LinkedinWorkspaceSurface({
         setOwnerReviewActioning(null);
       }
     },
-    [loadSnapshot, ownerReviewNotes],
+    [loadOwnerReview, loadSnapshot, ownerReviewNotes],
   );
 
   async function handleCopy(text: string, label: string) {
@@ -1520,6 +1541,19 @@ export function LinkedinWorkspaceSurface({
       setCopyStatus(`${label} copied.`);
     } catch (error) {
       setCopyStatus(error instanceof Error ? error.message : 'Unable to copy right now.');
+    }
+  }
+
+  async function handleOpenBankedPost(item: OwnerReviewItem) {
+    const copy = item.first_pass_draft?.trim() || '';
+    if (typeof window !== 'undefined') {
+      window.open(LINKEDIN_COMPOSER_URL, '_blank', 'noopener,noreferrer');
+    }
+    try {
+      await copyText(copy);
+      setCopyStatus(`${item.queue_id} copied. LinkedIn is open.`);
+    } catch (error) {
+      setCopyStatus(error instanceof Error ? error.message : 'Unable to copy the banked post right now.');
     }
   }
 
@@ -1772,6 +1806,51 @@ export function LinkedinWorkspaceSurface({
             </div>
           )}
         </section>
+
+        {bankedPostItems.length > 0 ? (
+          <section style={panelStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <p style={sectionLabelStyle('#22c55e')}>{bankedPostItems.length} Banked Post{bankedPostItems.length === 1 ? '' : 's'}</p>
+                <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 8px' }}>Ready when you are</h2>
+              </div>
+              <InlinePill label="copy/paste lane" tone="#22c55e" />
+            </div>
+
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {bankedPostItems.map((item) => {
+                const copy = item.first_pass_draft?.trim() || '';
+                return (
+                  <article key={`banked-${item.queue_id}`} style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{item.queue_id}</p>
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.lane || 'unknown lane')} tone="#38bdf8" />
+                          <InlinePill label="banked" tone="#22c55e" />
+                        </div>
+                        <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
+                        {item.reviewed_at ? <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Approved {formatTimestamp(item.reviewed_at)}</p> : null}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button type="button" onClick={() => void handleOpenBankedPost(item)} disabled={!copy} style={primaryActionStyle('#22c55e')}>
+                          Copy + open LinkedIn
+                        </button>
+                        <button type="button" onClick={() => void handleCopy(copy, item.queue_id)} disabled={!copy} style={secondaryActionStyle('#38bdf8')}>
+                          Copy only
+                        </button>
+                        <a href={LINKEDIN_COMPOSER_URL} target="_blank" rel="noreferrer" style={secondaryLinkStyle('#94a3b8')}>
+                          Open LinkedIn
+                        </a>
+                      </div>
+                    </div>
+                    <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: '180px' }}>{copy || 'No banked copy is attached yet.'}</pre>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <section style={panelStyle}>
           <div style={{ marginBottom: '18px' }}>

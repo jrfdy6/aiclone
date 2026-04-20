@@ -17,9 +17,12 @@ Every item in this queue requires explicit owner approval before public posting.
   - `../../knowledge/persona/feeze/history/initiatives.md`
   - `../../knowledge/persona/feeze/history/wins.md`
 - Why now: the AI Clone / Brain work is active and publicly legible.
-- Status: owner_review_draft (`drafts/feezie-001_cheap-models-better-systems.md`)
+- Status: approved (`drafts/feezie-001_cheap-models-better-systems.md`)
 - Owner packet: `drafts/feezie_owner_review_packet_20260410.md#feezie-001---cheap-models-better-systems`
-- Approval status: `owner_review_required`
+- Approval status: `owner_approved`
+- Banked copy: `docs/release_packets/feezie-001_schedule_packet_20260419.md`
+- Host action: Copy the banked post and open LinkedIn when ready; paste it into the composer and use LinkedIn's native schedule/post controls.
+- Banked status: Ready for host copy/paste; no separate confirmation screenshot or run-log ritual required.
 
 ### FEEZIE-002 - Quiet inefficiency is still failure
 - Lane: `ops-pm`
