@@ -87,6 +87,40 @@ def _workspace_snapshot_keys(workspace_key: str, root_slug: str) -> list[str]:
     return list(dict.fromkeys(key for key in keys if key))
 
 
+def _workspace_root_candidates(workspace_key: str, root_slug: str) -> list[Path]:
+    current = Path(__file__).resolve()
+    candidates = [workspace_root_path(workspace_key)]
+    bases = [*current.parents, Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/app/backend")]
+    for base in bases:
+        if not root_slug:
+            continue
+        candidates.append(base / "workspaces" / root_slug)
+        candidates.append(base / "backend" / "workspaces" / root_slug)
+
+    ordered: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = candidate.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(candidate)
+    return ordered
+
+
+def _resolve_workspace_root(workspace_key: str, root_slug: str) -> Path:
+    for candidate in _workspace_root_candidates(workspace_key, root_slug):
+        if candidate.exists():
+            return candidate
+    return workspace_root_path(workspace_key)
+
+
+def _repo_root_for_workspace_root(root: Path) -> Path:
+    if root.parent.name == "workspaces":
+        return root.parent.parent
+    return root.parents[1] if len(root.parents) > 1 else root
+
+
 def _is_workspace_root_missing_blocker(value: Any) -> bool:
     text = _clean_text(value).lower()
     return bool(text and "has no local artifact root yet" in text)
@@ -97,6 +131,35 @@ def _filter_resolved_workspace_root_blockers(blockers: list[Any], *, root_exists
     if not root_exists:
         return cleaned[:4]
     return [item for item in cleaned if not _is_workspace_root_missing_blocker(item)][:4]
+
+
+def _is_owner_review_pm_card(card: Any) -> bool:
+    payload = getattr(card, "payload", {}) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+    owner_review = payload.get("owner_review") if isinstance(payload, dict) else {}
+    if str(getattr(card, "source", "") or "").strip() == "openclaw:workspace-owner-review":
+        return True
+    if str(getattr(card, "link_type", "") or "").strip() == "owner_review":
+        return True
+    if isinstance(owner_review, dict) and str(owner_review.get("sync_state") or "").strip() == "pending_owner_review":
+        return True
+    if str(payload.get("trigger_origin") or "").strip() == "owner_review":
+        return True
+    return str(getattr(card, "title", "") or "").strip().lower().startswith("owner review -")
+
+
+def _pm_attention_kind(card: Any) -> str | None:
+    status = _clean_text(getattr(card, "status", "")).lower() or "todo"
+    if status not in ATTENTION_PM_STATUSES:
+        return None
+    if _is_owner_review_pm_card(card):
+        return "owner_review"
+    if status == "blocked":
+        return "blocked"
+    if status == "failed":
+        return "failed"
+    return "review"
 
 
 def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
@@ -119,6 +182,7 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
             payload.get("workspace_key") or payload.get("workspace") or workspace_key,
             default=workspace_key,
         )
+        attention_kind = _pm_attention_kind(card)
         compacted.append(
             {
                 "id": card_id,
@@ -126,6 +190,8 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
                 "status": status,
                 "owner": getattr(card, "owner", None),
                 "source": getattr(card, "source", None),
+                "link_type": getattr(card, "link_type", None),
+                "attention_kind": attention_kind,
                 "workspace_key": payload_workspace_key,
                 "updated_at": getattr(card, "updated_at", None).isoformat() if getattr(card, "updated_at", None) else None,
             }
@@ -179,6 +245,60 @@ def _safe_snapshot_types(workspace_key: str, root_slug: str) -> dict[str, list[s
     return result
 
 
+def _active_standup_blockers(latest_standups: list[dict[str, Any]]) -> list[str]:
+    if not latest_standups:
+        return []
+    return [_clean_text(blocker) for blocker in (latest_standups[0].get("blockers") or []) if _clean_text(blocker)]
+
+
+def _attention_summary(*, attention_cards: list[dict[str, Any]], active_blockers: list[str]) -> dict[str, Any]:
+    owner_review_cards = [card for card in attention_cards if card.get("attention_kind") == "owner_review"]
+    blocked_cards = [card for card in attention_cards if card.get("attention_kind") == "blocked"]
+    failed_cards = [card for card in attention_cards if card.get("attention_kind") == "failed"]
+    review_cards = [card for card in attention_cards if card.get("attention_kind") == "review"]
+
+    if active_blockers:
+        status = "blocked"
+        label = "Needs Brain"
+    elif failed_cards:
+        status = "failed_work"
+        label = "Failed Work"
+    elif blocked_cards:
+        status = "blocked"
+        label = "Blocked"
+    elif review_cards:
+        status = "pm_review"
+        label = "PM Review"
+    elif owner_review_cards:
+        status = "owner_review"
+        label = "Owner Review"
+    else:
+        status = "clear"
+        label = "No blocker"
+
+    reasons: list[str] = []
+    if active_blockers:
+        reasons.extend(active_blockers[:3])
+    if owner_review_cards:
+        reasons.append(f"{len(owner_review_cards)} owner-review PM card(s) need a decision.")
+    if review_cards:
+        reasons.append(f"{len(review_cards)} PM review card(s) need routing.")
+    if blocked_cards:
+        reasons.append(f"{len(blocked_cards)} PM card(s) are blocked.")
+    if failed_cards:
+        reasons.append(f"{len(failed_cards)} PM card(s) failed.")
+
+    return {
+        "status": status,
+        "label": label,
+        "reasons": reasons[:5],
+        "owner_review_pm_cards": len(owner_review_cards),
+        "review_pm_cards": len(review_cards),
+        "blocked_pm_cards": len(blocked_cards),
+        "failed_pm_cards": len(failed_cards),
+    }
+
+
 def _pack_status(root: Path, repo_root: Path) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for filename in PACK_FILES:
@@ -208,8 +328,8 @@ def _local_contracts(root: Path, repo_root: Path) -> list[dict[str, Any]]:
 def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_limit: int) -> dict[str, Any]:
     workspace_key = canonicalize_workspace_key(str(entry.get("key") or ""), default="shared_ops")
     root_slug = str(entry.get("workspace_root") or workspace_root_slug(workspace_key))
-    root = workspace_root_path(workspace_key)
-    repo_root = root.parents[1] if len(root.parents) > 1 else root
+    root = _resolve_workspace_root(workspace_key, root_slug)
+    repo_root = _repo_root_for_workspace_root(root)
     latest_briefing = _latest_file(root / "briefings", "*.md")
     latest_dispatch = _latest_file(root / "dispatch", "*.json")
     latest_analytics = _latest_file(root / "analytics", "*.md")
@@ -218,8 +338,10 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
         card for card in _safe_pm_cards(workspace_key, limit=pm_limit) if str(card.get("status") or "").lower() in ACTIVE_PM_STATUSES
     ]
     latest_standups = _safe_standups(workspace_key, limit=standup_limit, root_exists=root.exists())
-    blocker_count = sum(len(row.get("blockers") or []) for row in latest_standups)
+    active_blockers = _active_standup_blockers(latest_standups)
+    blocker_count = len(active_blockers)
     attention_cards = [card for card in active_cards if str(card.get("status") or "").lower() in ATTENTION_PM_STATUSES]
+    attention_summary = _attention_summary(attention_cards=attention_cards, active_blockers=active_blockers)
     source_paths = [
         value
         for value in [
@@ -261,9 +383,12 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
             "local_contracts": len(_local_contracts(root, repo_root)),
             "active_pm_cards": len(active_cards),
             "attention_pm_cards": len(attention_cards),
+            "owner_review_pm_cards": int(attention_summary.get("owner_review_pm_cards") or 0),
             "latest_standups": len(latest_standups),
             "standup_blockers": blocker_count,
         },
+        "active_blockers": active_blockers,
+        "attention": attention_summary,
         "needs_brain_attention": bool(attention_cards or blocker_count),
         "source_paths": source_paths,
     }

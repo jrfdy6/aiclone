@@ -415,6 +415,8 @@ type PortfolioPMCardSummary = {
   status?: string;
   owner?: string | null;
   source?: string | null;
+  link_type?: string | null;
+  attention_kind?: string | null;
   workspace_key?: string;
   updated_at?: string | null;
 };
@@ -459,8 +461,19 @@ type PortfolioWorkspaceSummary = {
     local_contracts?: number;
     active_pm_cards?: number;
     attention_pm_cards?: number;
+    owner_review_pm_cards?: number;
     latest_standups?: number;
     standup_blockers?: number;
+  };
+  active_blockers?: string[];
+  attention?: {
+    status?: string;
+    label?: string;
+    reasons?: string[];
+    owner_review_pm_cards?: number;
+    review_pm_cards?: number;
+    blocked_pm_cards?: number;
+    failed_pm_cards?: number;
   };
   needs_brain_attention?: boolean;
   source_paths?: string[];
@@ -1601,8 +1614,21 @@ function BrainPortfolioPanel({
       {workspaces.length > 0 ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '14px' }}>
           {workspaces.map((workspace) => {
-            const blockers = workspace.latest_standups?.flatMap((standup) => standup.blockers ?? []).slice(0, 3) ?? [];
+            const blockers =
+              workspace.active_blockers?.slice(0, 3) ??
+              workspace.latest_standups?.flatMap((standup) => standup.blockers ?? []).slice(0, 3) ??
+              [];
             const latestStandup = workspace.latest_standups?.[0] ?? null;
+            const attentionLabel = workspace.attention?.label ?? (workspace.needs_brain_attention ? 'Needs Brain' : 'No blocker');
+            const attentionStatus = workspace.attention?.status ?? (workspace.needs_brain_attention ? 'blocked' : 'clear');
+            const attentionTone =
+              attentionStatus === 'clear'
+                ? '#22c55e'
+                : attentionStatus === 'owner_review'
+                ? '#fbbf24'
+                : attentionStatus === 'pm_review'
+                ? '#38bdf8'
+                : '#f97316';
             const latestState =
               workspace.latest_briefing?.snippet ||
               workspace.latest_analytics?.snippet ||
@@ -1637,8 +1663,8 @@ function BrainPortfolioPanel({
                     </p>
                   </div>
                   <InlineBadge
-                    label={workspace.needs_brain_attention ? 'Needs Brain' : 'No blocker'}
-                    tone={workspace.needs_brain_attention ? '#f97316' : '#22c55e'}
+                    label={attentionLabel}
+                    tone={attentionTone}
                   />
                 </div>
 
