@@ -4,7 +4,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -77,6 +77,38 @@ class DailyBriefSyncContractTests(unittest.TestCase):
 
         self.assertEqual(resolved, runtime_path)
         resolver_mock.assert_called_once_with(workspace_root, "memory/daily-briefs.md")
+
+    def test_daily_brief_merge_normalizes_mixed_timezone_sources(self) -> None:
+        db_brief = daily_brief_service.DailyBrief(
+            id="db-2026-04-18",
+            brief_date=date(2026, 4, 18),
+            title="Morning Daily Brief — 2026-04-18",
+            summary="DB copy",
+            content_markdown="DB content",
+            source="cron_history",
+            source_ref="db://daily_briefs/2026-04-18",
+            metadata={},
+            created_at=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 4, 18, 12, 0, tzinfo=timezone.utc),
+        )
+        local_brief = daily_brief_service.DailyBrief(
+            id="local-2026-04-18",
+            brief_date=date(2026, 4, 18),
+            title="Morning Daily Brief — 2026-04-18",
+            summary="Local copy",
+            content_markdown="Local content",
+            source="workspace_markdown",
+            source_ref="/workspace/memory/daily-briefs.md",
+            metadata={},
+            created_at=datetime(2026, 4, 18, 13, 0),
+            updated_at=datetime(2026, 4, 18, 13, 0),
+        )
+
+        merged = daily_brief_service._merge_briefs([db_brief], [local_brief], limit=5)
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].id, "local-2026-04-18")
+        self.assertEqual(merged[0].updated_at.tzinfo, timezone.utc)
 
 
 if __name__ == "__main__":

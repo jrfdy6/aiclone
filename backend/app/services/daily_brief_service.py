@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any, List
 from uuid import uuid4
@@ -141,7 +141,13 @@ def _load_from_local_files(limit: int) -> List[DailyBrief]:
         if current_file.exists():
             stat = current_file.stat()
             parsed = parse_briefs_markdown(current_file.read_text(), source_ref=str(current_file))
-            entries.extend(_parsed_to_models(parsed, source="workspace_markdown", file_updated_at=datetime.fromtimestamp(stat.st_mtime)))
+            entries.extend(
+                _parsed_to_models(
+                    parsed,
+                    source="workspace_markdown",
+                    file_updated_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
+                )
+            )
             break
     entries.sort(key=lambda item: (item.brief_date, item.updated_at), reverse=True)
     return entries[:limit]
@@ -150,7 +156,7 @@ def _load_from_local_files(limit: int) -> List[DailyBrief]:
 def _parsed_to_models(parsed_entries: List[ParsedBrief], *, source: str, file_updated_at: datetime | None = None) -> List[DailyBrief]:
     models: List[DailyBrief] = []
     for entry in parsed_entries:
-        timestamp = file_updated_at or datetime.combine(entry.brief_date, time.min)
+        timestamp = _aware_utc(file_updated_at or datetime.combine(entry.brief_date, time.min))
         models.append(
             DailyBrief(
                 id=f"local-{entry.brief_date.isoformat()}",
@@ -174,15 +180,30 @@ def _merge_briefs(primary: List[DailyBrief], secondary: List[DailyBrief], *, lim
         key = entry.brief_date.isoformat()
         current = by_date.get(key)
         if current is None:
-            by_date[key] = entry
+            by_date[key] = _normalize_brief_datetimes(entry)
             continue
-        current_sort = (current.updated_at, current.source == "workspace_markdown")
-        entry_sort = (entry.updated_at, entry.source == "workspace_markdown")
+        normalized_entry = _normalize_brief_datetimes(entry)
+        current_sort = (_aware_utc(current.updated_at), current.source == "workspace_markdown")
+        entry_sort = (_aware_utc(normalized_entry.updated_at), normalized_entry.source == "workspace_markdown")
         if entry_sort > current_sort:
-            by_date[key] = entry
+            by_date[key] = normalized_entry
     merged = list(by_date.values())
-    merged.sort(key=lambda item: (item.brief_date, item.updated_at), reverse=True)
+    merged.sort(key=lambda item: (item.brief_date, _aware_utc(item.updated_at)), reverse=True)
     return merged[:limit]
+
+
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _normalize_brief_datetimes(entry: DailyBrief) -> DailyBrief:
+    created_at = _aware_utc(entry.created_at)
+    updated_at = _aware_utc(entry.updated_at)
+    if created_at == entry.created_at and updated_at == entry.updated_at:
+        return entry
+    return entry.model_copy(update={"created_at": created_at, "updated_at": updated_at})
 
 
 def _normalize_candidate_items(items: Any, *, limit: int = 3) -> list[dict[str, str]]:
@@ -412,6 +433,6 @@ def _row_to_brief(row: dict) -> DailyBrief:
         source=row.get("source") or "unknown",
         source_ref=row.get("source_ref"),
         metadata=row.get("metadata") or {},
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=_aware_utc(row["created_at"]),
+        updated_at=_aware_utc(row["updated_at"]),
     )
