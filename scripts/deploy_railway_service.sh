@@ -116,6 +116,8 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
     --exclude '*.wav'
     --exclude '*.mp3'
   )
+  stage_frontend_brain_sources "$STAGE_DIR"
+  stage_frontend_brain_sources "$STAGE_DIR/$CHILD_DIR"
   mkdir -p "$STAGE_DIR/knowledge/persona" "$STAGE_DIR/knowledge/aiclone" "$STAGE_DIR/knowledge/ingestions" "$STAGE_DIR/workspaces" "$STAGE_DIR/scripts"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/knowledge/persona" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions" "$STAGE_DIR/$CHILD_DIR/workspaces" "$STAGE_DIR/$CHILD_DIR/scripts"
   mkdir -p "$STAGE_DIR/memory" "$STAGE_DIR/$CHILD_DIR/memory"
