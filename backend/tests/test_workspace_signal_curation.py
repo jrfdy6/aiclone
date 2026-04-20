@@ -12,6 +12,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_ROOT = ROOT / "scripts"
+RUNNERS_ROOT = SCRIPTS_ROOT / "runners"
 BACKEND_ROOT = ROOT / "backend"
 
 
@@ -29,6 +30,8 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         if str(SCRIPTS_ROOT) not in sys.path:
             sys.path.insert(0, str(SCRIPTS_ROOT))
+        if str(RUNNERS_ROOT) not in sys.path:
+            sys.path.insert(0, str(RUNNERS_ROOT))
         if str(BACKEND_ROOT) not in sys.path:
             sys.path.insert(0, str(BACKEND_ROOT))
         cls.build_standup = _load_module("build_standup_prep", SCRIPTS_ROOT / "build_standup_prep.py")
@@ -371,6 +374,21 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
         self.assertTrue(context["audience_feedback_available"])
         self.assertEqual(context["audience_feedback_path"], str(summary_path))
         self.assertEqual(context["audience_feedback_markdown_path"], str(markdown_path))
+
+    def test_workspace_context_resolves_feezie_legacy_alias_without_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            workspace_root = repo_root / "workspaces" / "linkedin-content-os"
+            workspace_root.mkdir(parents=True)
+            (workspace_root / "memory").mkdir()
+            (workspace_root / "memory" / "execution_log.md").write_text("# Log\n\nFEEZIE proof exists.\n", encoding="utf-8")
+
+            with mock.patch.object(self.build_standup, "WORKSPACE_ROOT", repo_root):
+                context = self.build_standup._workspace_context("linkedin-os", {})
+
+        self.assertTrue(context["available"])
+        self.assertEqual(context["workspace_root"], str(workspace_root))
+        self.assertEqual(context["execution_log_path"], str(workspace_root / "memory" / "execution_log.md"))
 
     def test_build_audience_response_uses_public_feedback_snapshot(self) -> None:
         workspace_context = {

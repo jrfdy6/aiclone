@@ -169,6 +169,13 @@ def _workspace_key_candidates(workspace_key: str) -> list[str]:
     return [variant for variant in variants if variant]
 
 
+def _is_feezie_workspace_key(workspace_key: str) -> bool:
+    return bool(
+        set(_workspace_key_candidates(workspace_key))
+        & {"feezie-os", "feezie os", "feezie", "linkedin-os", "linkedin os", "linkedin-content-os", "linkedin content os"}
+    )
+
+
 def _canonical_workspace_key(workspace_key: str, registry: dict[str, dict[str, Any]]) -> str:
     candidates = set(_workspace_key_candidates(workspace_key))
     for key, item in registry.items():
@@ -190,7 +197,30 @@ def _workspace_root(workspace_key: str, registry: dict[str, dict[str, Any]]) -> 
     configured = item.get("filesystem_path")
     if isinstance(configured, str) and configured.strip():
         return Path(configured)
+    if _is_feezie_workspace_key(workspace_key):
+        return WORKSPACE_ROOT / "workspaces" / "linkedin-content-os"
     return None
+
+
+def _is_workspace_root_missing_blocker(value: Any) -> bool:
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    return bool(text and "has no local artifact root yet" in text)
+
+
+def _filter_resolved_workspace_root_blockers(
+    blockers: list[str],
+    *,
+    workspace_key: str,
+    registry: dict[str, dict[str, Any]],
+    workspace_context: dict[str, Any],
+) -> list[str]:
+    if not blockers:
+        return []
+    root = _workspace_root(workspace_key, registry)
+    root_exists = bool(workspace_context.get("available")) or bool(root and root.exists())
+    if not root_exists:
+        return blockers
+    return [item for item in blockers if not _is_workspace_root_missing_blocker(item)]
 
 
 def _latest_file(directory: Path, suffix: str) -> Path | None:
@@ -1619,6 +1649,12 @@ def main() -> int:
         if report_path:
             artifact_deltas.insert(1, f"Fallback watchdog report: {report_path}")
     strategy_context_lines = _strategy_lines(strategy_context)
+    blockers = _filter_resolved_workspace_root_blockers(
+        blockers,
+        workspace_key=args.workspace_key,
+        registry=registry,
+        workspace_context=workspace_context,
+    )
     agenda = _build_agenda(pm_snapshot, pm_updates, blockers, args.workspace_key, strategy_context, resolved_standup_kind)
 
     blockers = _dedupe_strings(blockers, limit=8)

@@ -87,6 +87,18 @@ def _workspace_snapshot_keys(workspace_key: str, root_slug: str) -> list[str]:
     return list(dict.fromkeys(key for key in keys if key))
 
 
+def _is_workspace_root_missing_blocker(value: Any) -> bool:
+    text = _clean_text(value).lower()
+    return bool(text and "has no local artifact root yet" in text)
+
+
+def _filter_resolved_workspace_root_blockers(blockers: list[Any], *, root_exists: bool) -> list[str]:
+    cleaned = [_clean_text(item) for item in blockers if _clean_text(item)]
+    if not root_exists:
+        return cleaned[:4]
+    return [item for item in cleaned if not _is_workspace_root_missing_blocker(item)][:4]
+
+
 def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
     cards: list[Any] = []
     seen: set[str] = set()
@@ -117,7 +129,7 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
     return compacted[:limit]
 
 
-def _safe_standups(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
+def _safe_standups(workspace_key: str, *, limit: int, root_exists: bool = False) -> list[dict[str, Any]]:
     rows: list[Any] = []
     seen: set[str] = set()
     for key in _workspace_snapshot_keys(workspace_key, workspace_root_slug(workspace_key)):
@@ -132,6 +144,10 @@ def _safe_standups(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
             continue
         seen.add(standup_id)
         payload = getattr(standup, "payload", {}) or {}
+        blockers = _filter_resolved_workspace_root_blockers(
+            list(getattr(standup, "blockers", []) or []),
+            root_exists=root_exists,
+        )
         compacted.append(
             {
                 "id": standup_id,
@@ -139,7 +155,7 @@ def _safe_standups(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
                 "workspace_key": getattr(standup, "workspace_key", workspace_key),
                 "standup_kind": payload.get("standup_kind"),
                 "summary": payload.get("summary"),
-                "blockers": list(getattr(standup, "blockers", []) or [])[:4],
+                "blockers": blockers,
                 "needs": list(getattr(standup, "needs", []) or [])[:4],
                 "created_at": getattr(standup, "created_at", None).isoformat() if getattr(standup, "created_at", None) else None,
             }
@@ -197,7 +213,7 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
     active_cards = [
         card for card in _safe_pm_cards(workspace_key, limit=pm_limit) if str(card.get("status") or "").lower() in ACTIVE_PM_STATUSES
     ]
-    latest_standups = _safe_standups(workspace_key, limit=standup_limit)
+    latest_standups = _safe_standups(workspace_key, limit=standup_limit, root_exists=root.exists())
     blocker_count = sum(len(row.get("blockers") or []) for row in latest_standups)
     attention_cards = [card for card in active_cards if str(card.get("status") or "").lower() in ATTENTION_PM_STATUSES]
     source_paths = [

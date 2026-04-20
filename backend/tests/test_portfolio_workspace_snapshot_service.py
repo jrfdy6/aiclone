@@ -91,6 +91,57 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
         self.assertEqual(workspace["local_contracts"][0]["name"], "operating_model.md")
         self.assertIn("fusion-os", workspace["persisted_snapshot_types"])
 
+    def test_build_snapshot_filters_resolved_workspace_root_blockers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            workspace_root = repo_root / "workspaces" / "linkedin-content-os"
+            workspace_root.mkdir(parents=True)
+
+            entry = {
+                "key": "feezie-os",
+                "kind": "workspace",
+                "display_name": "FEEZIE OS",
+                "workspace_root": "linkedin-content-os",
+                "status": "live",
+                "priority_order": 1,
+                "portfolio_visible": True,
+            }
+            standup = SimpleNamespace(
+                id="standup-legacy-root-blocker",
+                status="queued",
+                workspace_key="linkedin-os",
+                blockers=[
+                    "`linkedin-os` has no local artifact root yet.",
+                    "Automation drift remains: mismatch_count=1, action_required_count=1.",
+                ],
+                needs=[],
+                payload={"standup_kind": "workspace_sync", "summary": "Check FEEZIE proof."},
+                created_at=datetime(2026, 4, 19, tzinfo=timezone.utc),
+            )
+
+            with patch.object(service, "workspace_registry_entries", return_value=(entry,)), patch.object(
+                service,
+                "workspace_root_path",
+                return_value=workspace_root,
+            ), patch.object(service, "workspace_root_slug", return_value="linkedin-content-os"), patch.object(
+                service.pm_card_service,
+                "list_cards",
+                return_value=[],
+            ), patch.object(service.standup_service, "list_standups", return_value=[standup]), patch.object(
+                service,
+                "list_snapshot_payloads",
+                return_value={},
+            ):
+                snapshot = service.build_portfolio_workspace_snapshot()
+
+        workspace = snapshot["workspaces"][0]
+        self.assertEqual(workspace["counts"]["standup_blockers"], 1)
+        self.assertEqual(
+            workspace["latest_standups"][0]["blockers"],
+            ["Automation drift remains: mismatch_count=1, action_required_count=1."],
+        )
+        self.assertTrue(workspace["needs_brain_attention"])
+
 
 if __name__ == "__main__":
     unittest.main()
