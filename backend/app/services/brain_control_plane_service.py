@@ -21,6 +21,28 @@ SOURCE_ASSET_PREVIEW_LIMIT = 12
 SOCIAL_FEED_PREVIEW_LIMIT = 6
 WEEKLY_RECOMMENDATION_PREVIEW_LIMIT = 6
 REACTION_QUEUE_PREVIEW_LIMIT = 6
+BRAIN_DOC_ROOTS = (
+    "knowledge/aiclone",
+    "knowledge/source-intelligence",
+    "docs",
+    "SOPs",
+    "knowledge/persona/feeze",
+    "workspaces/shared-ops/docs",
+    "workspaces/linkedin-content-os/docs",
+    "workspaces/fusion-os/docs",
+    "workspaces/easyoutfitapp/docs",
+    "workspaces/ai-swag-store/docs",
+    "workspaces/agc/docs",
+)
+BRAIN_DOC_EXPLICIT_FILES = (
+    "memory/persistent_state.md",
+    "memory/LEARNINGS.md",
+    "memory/daily-briefs.md",
+    "memory/cron-prune.md",
+    "memory/dream_cycle_log.md",
+    "memory/codex_session_handoff.jsonl",
+    "memory/reports/brain_canonical_memory_sync_latest.md",
+)
 
 _WORKSPACE_SNAPSHOT_SIGNALS = (
     "weekly_plan",
@@ -279,6 +301,30 @@ def _load_source_intelligence_index() -> dict[str, Any] | None:
     }
 
 
+def _count_brain_docs() -> int:
+    paths: set[str] = set()
+    for relative_dir in BRAIN_DOC_ROOTS:
+        directory = ROOT / relative_dir
+        if not directory.exists() or not directory.is_dir():
+            continue
+        for path in directory.rglob("*.md"):
+            if path.is_file():
+                paths.add(path.resolve().as_posix())
+
+    for relative_path in BRAIN_DOC_EXPLICIT_FILES:
+        path = ROOT / relative_path
+        if path.exists() and path.is_file():
+            paths.add(path.resolve().as_posix())
+
+    memory_dir = ROOT / "memory"
+    if memory_dir.exists() and memory_dir.is_dir():
+        latest_daily_log = sorted(path for path in memory_dir.glob("????-??-??.md") if path.is_file())
+        if latest_daily_log:
+            paths.add(latest_daily_log[-1].resolve().as_posix())
+
+    return len(paths)
+
+
 def build_brain_control_plane() -> dict[str, Any]:
     automations = list_automations()
     telemetry = open_brain_metrics.fetch_metrics()
@@ -307,6 +353,9 @@ def build_brain_control_plane() -> dict[str, Any]:
     persona_counts = ((workspace_snapshot.get("persona_review_summary") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
     source_asset_counts = ((workspace_snapshot.get("source_assets") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
     source_intelligence_counts = (source_intelligence_index or {}).get("counts") or {}
+    doc_count = _count_brain_docs()
+    if not doc_count and isinstance(workspace_snapshot, dict):
+        doc_count = len(workspace_snapshot.get("doc_entries") or [])
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -322,7 +371,7 @@ def build_brain_control_plane() -> dict[str, Any]:
             "automation_count": len(automations),
             "active_automation_count": len([job for job in automations if str(getattr(job, "status", "")).lower() == "active"]),
             "capture_count": int(((telemetry.get("captures") or {}).get("total")) or 0),
-            "doc_count": len((workspace_snapshot.get("doc_entries") or [])) if isinstance(workspace_snapshot, dict) else 0,
+            "doc_count": doc_count,
             "workspace_file_count": len((workspace_snapshot.get("workspace_files") or [])) if isinstance(workspace_snapshot, dict) else 0,
             "pending_review_count": int(persona_counts.get("brain_pending_review") or 0),
             "workspace_saved_count": int(persona_counts.get("workspace_saved") or 0),

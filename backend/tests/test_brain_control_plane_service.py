@@ -46,6 +46,10 @@ class BrainControlPlaneServiceTests(unittest.TestCase):
             brain_control_plane_service,
             "count_signals",
             return_value=0,
+        ), patch.object(
+            brain_control_plane_service,
+            "_count_brain_docs",
+            return_value=1,
         ):
             payload = brain_control_plane_service.build_brain_control_plane()
 

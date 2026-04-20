@@ -39,7 +39,7 @@ TARGETS: tuple[StandupTarget, ...] = (
     StandupTarget("shared_ops", "operations", 36),
     StandupTarget("shared_ops", "weekly_review", 8 * 24),
     StandupTarget("shared_ops", "saturday_vision", 8 * 24),
-    StandupTarget("linkedin-os", "workspace_sync", 36),
+    StandupTarget("feezie-os", "workspace_sync", 36),
     StandupTarget("fusion-os", "workspace_sync", 72),
     StandupTarget("easyoutfitapp", "workspace_sync", 72),
     StandupTarget("ai-swag-store", "workspace_sync", 72),

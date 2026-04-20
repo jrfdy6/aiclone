@@ -1133,7 +1133,7 @@ export default function BrainClient({
           />
         </section>
         <section id="brain-section-automations" style={{ scrollMarginTop: '96px' }}>
-          <AutomationsPanel automations={automations} error={automationsError} controlPlane={controlPlane} />
+          <AutomationsPanel automations={automations} error={automationsError} controlPlane={controlPlane} docCount={mergedDocs.length} />
         </section>
         <section id="brain-section-docs" style={{ scrollMarginTop: '96px' }}>
           <DocsPanel docs={mergedDocs} />
@@ -5815,10 +5815,12 @@ function AutomationsPanel({
   automations,
   error,
   controlPlane,
+  docCount,
 }: {
   automations: Automation[];
   error: string | null;
   controlPlane: BrainControlPlanePayload | null;
+  docCount: number;
 }) {
   if (error) {
     return <p style={{ color: '#f87171' }}>{error}</p>;
@@ -5834,7 +5836,7 @@ function AutomationsPanel({
         </div>
         {summary && (
           <p style={{ color: '#94a3b8', fontSize: '12px' }}>
-            {summary.active_automation_count ?? automations.length} active · {summary.capture_count ?? 0} captures · {summary.doc_count ?? 0} docs
+            {summary.active_automation_count ?? automations.length} active · {summary.capture_count ?? 0} captures · {docCount} docs
           </p>
         )}
       </div>

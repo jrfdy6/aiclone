@@ -152,7 +152,38 @@ def _read_registry() -> dict[str, dict[str, Any]]:
     return registry
 
 
+def _workspace_key_candidates(workspace_key: str) -> list[str]:
+    normalized = str(workspace_key or "").strip()
+    if not normalized:
+        return []
+    lowered = normalized.lower()
+    variants = {
+        normalized,
+        lowered,
+        lowered.replace("_", "-"),
+        lowered.replace("-", " "),
+        lowered.replace("_", " "),
+    }
+    if lowered in {"linkedin-os", "linkedin os", "linkedin", "linkedin-content-os", "linkedin content os"}:
+        variants.update({"feezie-os", "feezie os", "feezie", "linkedin-content-os", "linkedin content os"})
+    return [variant for variant in variants if variant]
+
+
+def _canonical_workspace_key(workspace_key: str, registry: dict[str, dict[str, Any]]) -> str:
+    candidates = set(_workspace_key_candidates(workspace_key))
+    for key, item in registry.items():
+        item_candidates = set(_workspace_key_candidates(key))
+        for field in ("workspace_root", "display_name", "legacy_name", "future_name"):
+            value = item.get(field)
+            if isinstance(value, str) and value.strip():
+                item_candidates.update(_workspace_key_candidates(value))
+        if candidates & item_candidates:
+            return key
+    return workspace_key
+
+
 def _workspace_root(workspace_key: str, registry: dict[str, dict[str, Any]]) -> Path | None:
+    workspace_key = _canonical_workspace_key(workspace_key, registry)
     if workspace_key == "shared_ops":
         return WORKSPACE_ROOT / "workspaces" / "shared-ops"
     item = registry.get(workspace_key) or {}
@@ -210,6 +241,7 @@ def _workspace_context(workspace_key: str, registry: dict[str, dict[str, Any]]) 
 
 
 def _workspace_display_name(workspace_key: str, registry: dict[str, dict[str, Any]]) -> str:
+    workspace_key = _canonical_workspace_key(workspace_key, registry)
     if workspace_key == "shared_ops":
         return "Executive"
     item = registry.get(workspace_key) or {}
