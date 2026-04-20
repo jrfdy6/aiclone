@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Suspense, type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { apiGet, apiPost, getApiUrl } from '@/lib/api-client';
@@ -22,6 +22,8 @@ const WORKSPACE_ROOT_BY_KEY: Record<string, string> = {
   agc: `${REPO_ROOT}/workspaces/agc`,
   shared_ops: `${REPO_ROOT}/workspaces/shared-ops`,
 };
+const LINKEDIN_COMPOSER_URL = 'https://www.linkedin.com/feed/?shareActive=true';
+const FEEZIE_QUEUE_ID_PATTERN = /\bFEEZIE-\d{3}\b/i;
 const REPO_RELATIVE_PREFIXES = ['knowledge/', 'memory/', 'workspaces/', 'frontend/', 'backend/', 'scripts/', 'automations/'];
 const WORKSPACE_RELATIVE_PREFIXES = ['drafts/', 'docs/', 'analytics/', 'plans/', 'research/', 'briefings/', 'dispatch/', 'memory/'];
 
@@ -511,6 +513,14 @@ type HostActionProofField = {
   placeholder?: string | null;
   multiline?: boolean | null;
   requirement?: string | null;
+};
+
+type BankedLinkedInPost = {
+  queueId: string;
+  title: string;
+  copy: string;
+  sourcePath: string | null;
+  sourceLabel: string;
 };
 
 type OwnerReviewActionResult = {
@@ -2029,6 +2039,7 @@ export default function OpsClient({
           onActOnPmCard={actOnPmCard}
           onActOnOwnerReviewCard={actOnOwnerReviewCard}
           onOpenArtifactPath={openArtifactPath}
+          workspaceFiles={effectiveWorkspaceFiles}
         />
       )}
       {activePanel === 'standups' && (
@@ -2328,22 +2339,22 @@ function LocalWorkerHealthPanel({
   );
 }
 
-const opsHealthHeaderStyle: CSSProperties = {
+const opsHealthHeaderStyle = {
   textAlign: 'left',
   fontSize: '11px',
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
   color: '#64748b',
   padding: '0 0 10px',
-};
+} as const;
 
-const opsHealthCellStyle: CSSProperties = {
+const opsHealthCellStyle = {
   padding: '10px 0',
   borderTop: '1px solid rgba(30, 41, 59, 0.7)',
   color: '#cbd5f5',
   fontSize: '13px',
   verticalAlign: 'top',
-};
+} as const;
 
 function OpenBrainPanel({ metrics, health }: { metrics: OpenBrainTelemetry | null; health: OpenBrainHealth | null }) {
   const storageLabel = health?.storage_backend === 'pgvector' ? 'Native vector mode' : health?.storage_backend === 'jsonb' ? 'JSON fallback' : 'Unknown';
@@ -2516,6 +2527,7 @@ function PMBoardPanel({
   onActOnPmCard,
   onActOnOwnerReviewCard,
   onOpenArtifactPath,
+  workspaceFiles,
 }: {
   cards: PMCard[];
   reviewHygieneSummary: PMReviewHygieneResult | null;
@@ -2531,6 +2543,7 @@ function PMBoardPanel({
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
+  workspaceFiles: WorkspaceFile[];
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
   const executionBuckets = useMemo(() => groupExecutionQueue(executionQueue), [executionQueue]);
@@ -3188,6 +3201,7 @@ function PMBoardPanel({
           onActOnPmCard={onActOnPmCard}
           onActOnOwnerReviewCard={onActOnOwnerReviewCard}
           onOpenArtifactPath={onOpenArtifactPath}
+          workspaceFiles={workspaceFiles}
         />
       ) : null}
     </section>
@@ -3205,6 +3219,7 @@ function PMCardDetailModal({
   onActOnPmCard,
   onActOnOwnerReviewCard,
   onOpenArtifactPath,
+  workspaceFiles,
 }: {
   boardItem: UnifiedBoardItem;
   card: PMCard;
@@ -3216,11 +3231,13 @@ function PMCardDetailModal({
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
+  workspaceFiles: WorkspaceFile[];
 }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'outcomes' | 'raw'>('overview');
   const [actioningCardId, setActioningCardId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [bankedPostStatus, setBankedPostStatus] = useState<string | null>(null);
   const theme = workspaceBoardTheme(boardItem.workspaceKey);
   const guidance = boardItemGuidance(boardItem);
   const payload = card.payload ?? {};
@@ -3282,6 +3299,10 @@ function PMCardDetailModal({
   const hostActionSteps = Array.isArray(hostActionPayload?.steps)
     ? hostActionPayload.steps.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
+  const bankedLinkedInPost = useMemo(
+    () => buildBankedLinkedInPost(workspaceFiles, card, hostActionPayload, ownerReviewPayload),
+    [card, hostActionPayload, ownerReviewPayload, workspaceFiles],
+  );
   const ownerReviewProofAnchors = Array.isArray(ownerReviewPayload?.proof_anchors)
     ? ownerReviewPayload?.proof_anchors.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -4114,6 +4135,22 @@ function PMCardDetailModal({
     }
   };
 
+  const handlePrepareBankedLinkedInPost = async () => {
+    if (!bankedLinkedInPost?.copy) {
+      setBankedPostStatus('No banked post copy is attached to this card yet.');
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.open(LINKEDIN_COMPOSER_URL, '_blank', 'noopener,noreferrer');
+    }
+    try {
+      await copyPlainTextToClipboard(bankedLinkedInPost.copy);
+      setBankedPostStatus('Post copied. LinkedIn is open; paste it into the composer and use LinkedIn schedule when ready.');
+    } catch (error) {
+      setBankedPostStatus(toErrorMessage(error));
+    }
+  };
+
   return (
     <div
       onClick={onClose}
@@ -4474,12 +4511,82 @@ function PMCardDetailModal({
           ) : isHostActionCard && hostActionPayload ? (
             <div style={{ display: 'grid', gap: '12px' }}>
               <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
-                The system already finished the internal work. This card is only for the external host step that still needs to happen.
+                {bankedLinkedInPost
+                  ? 'This post is banked. Copy it, open LinkedIn, paste it into the composer, then mark the card done after you post or schedule it.'
+                  : 'The system already finished the internal work. This card is only for the external host step that still needs to happen.'}
               </p>
               {hostActionFollowupPayload?.summary ? (
                 <p style={{ color: '#93c5fd', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
                   Closing this card will spawn the next delayed host step: {hostActionFollowupPayload.summary}
                 </p>
+              ) : null}
+              {bankedLinkedInPost ? (
+                <section style={{ display: 'grid', gap: '10px', borderRadius: '12px', border: '1px solid rgba(34,197,94,0.32)', backgroundColor: 'rgba(22,101,52,0.12)', padding: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div>
+                      <p style={{ color: '#bbf7d0', fontSize: '12px', fontWeight: 700, margin: 0 }}>Banked LinkedIn Post</p>
+                      <p style={{ color: '#86efac', fontSize: '12px', margin: '4px 0 0' }}>
+                        {bankedLinkedInPost.queueId} · {bankedLinkedInPost.title}
+                      </p>
+                    </div>
+                    {bankedLinkedInPost.sourcePath ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenArtifactPath(bankedLinkedInPost.sourcePath as string)}
+                        style={meetingActionButtonStyle('secondary', false)}
+                      >
+                        Open saved copy
+                      </button>
+                    ) : null}
+                  </div>
+                  <pre
+                    style={{
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      borderRadius: '10px',
+                      border: '1px solid rgba(15,23,42,0.7)',
+                      backgroundColor: '#020617',
+                      color: '#e2e8f0',
+                      padding: '12px',
+                      margin: 0,
+                      fontSize: '12px',
+                      lineHeight: 1.55,
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace',
+                    }}
+                  >
+                    {bankedLinkedInPost.copy || 'No saved copy found for this post yet.'}
+                  </pre>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      disabled={!bankedLinkedInPost.copy}
+                      onClick={() => void handlePrepareBankedLinkedInPost()}
+                      style={meetingActionButtonStyle('success', !bankedLinkedInPost.copy)}
+                    >
+                      Copy post + open LinkedIn
+                    </button>
+                    <a
+                      href={LINKEDIN_COMPOSER_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        ...meetingActionButtonStyle('secondary', false),
+                        textDecoration: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      Open LinkedIn only
+                    </a>
+                  </div>
+                  {bankedPostStatus ? (
+                    <p style={{ color: bankedPostStatus.includes('copied') || bankedPostStatus.includes('open') ? '#86efac' : '#fca5a5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                      {bankedPostStatus}
+                    </p>
+                  ) : null}
+                </section>
               ) : null}
               {hostActionPayload.source_card_id ? (
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -4493,7 +4600,7 @@ function PMCardDetailModal({
                   </button>
                 </div>
               ) : null}
-              {hostActionProofRequired.length > 0 ? (
+              {hostActionProofRequired.length > 0 && !bankedLinkedInPost ? (
                 <div style={{ display: 'grid', gap: '6px', borderRadius: '12px', border: '1px solid #334155', backgroundColor: '#08101f', padding: '12px' }}>
                   <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 700, margin: 0 }}>Expected evidence</p>
                   {hostActionProofRequired.map((item, index) => (
@@ -4527,7 +4634,9 @@ function PMCardDetailModal({
                 />
               </label>
               <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
-                Use this card as a simple host confirmation. The evidence list is here for context, not as a form you have to fill out.
+                {bankedLinkedInPost
+                  ? 'No screenshot or run-log ritual is required from this card. Mark it done when the post has left the bank and is posted or scheduled in LinkedIn.'
+                  : 'Use this card as a simple host confirmation. The evidence list is here for context, not as a form you have to fill out.'}
               </p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
@@ -4536,7 +4645,7 @@ function PMCardDetailModal({
                   onClick={() => void handleHostActionComplete()}
                   style={meetingActionButtonStyle('success', actioningCardId === card.id)}
                 >
-                  {actioningCardId === card.id ? 'Saving…' : 'Yes, host step complete'}
+                  {actioningCardId === card.id ? 'Saving…' : bankedLinkedInPost ? 'Done, posted or queued' : 'Yes, host step complete'}
                 </button>
                 <button
                   type="button"
@@ -10908,6 +11017,102 @@ function normalizePathSegments(path: string) {
 
 function stripLeadingRelativeSegments(path: string) {
   return path.replace(/^(?:\.\.\/|\.\/)+/, '');
+}
+
+async function copyPlainTextToClipboard(text: string) {
+  if (typeof navigator === 'undefined' || !navigator.clipboard) {
+    throw new Error('Clipboard access is unavailable in this browser.');
+  }
+  await navigator.clipboard.writeText(text);
+}
+
+function buildBankedLinkedInPost(
+  files: WorkspaceFile[],
+  card: PMCard,
+  hostActionPayload?: HostActionRequiredPayload | null,
+  ownerReviewPayload?: OwnerReviewCardPayload | null,
+): BankedLinkedInPost | null {
+  const queueId = extractFeezieQueueId(
+    card.title,
+    hostActionPayload?.summary,
+    hostActionPayload?.source_card_title,
+    hostActionPayload?.source_result_summary,
+    ownerReviewPayload?.queue_id,
+    ownerReviewPayload?.title,
+    ...(hostActionPayload?.steps ?? []),
+    ...(hostActionPayload?.proof_required ?? []),
+  );
+  if (!queueId) {
+    return null;
+  }
+
+  const queueSlug = queueId.toLowerCase();
+  const releasePacket = [...files]
+    .filter((file) => {
+      const path = file.path.toLowerCase();
+      const name = file.name.toLowerCase();
+      return path.includes('/workspaces/linkedin-content-os/docs/release_packets/') && name.includes(`${queueSlug}_schedule_packet`);
+    })
+    .sort(compareWorkspaceFilesNewestFirst)[0];
+  const draft = [...files]
+    .filter((file) => {
+      const path = file.path.toLowerCase();
+      const name = file.name.toLowerCase();
+      return path.includes('/workspaces/linkedin-content-os/drafts/') && name.startsWith(`${queueSlug}_`) && name.endsWith('.md');
+    })
+    .sort(compareWorkspaceFilesNewestFirst)[0];
+
+  const copy = extractReleasePacketCopy(releasePacket?.content ?? '') || extractDraftPostCopy(draft?.content ?? '');
+  const title = ownerReviewPayload?.title || extractDraftPostTitle(draft?.content ?? '') || queueId;
+  return {
+    queueId,
+    title,
+    copy,
+    sourcePath: releasePacket?.path ?? draft?.path ?? null,
+    sourceLabel: releasePacket ? 'release packet' : draft ? 'draft' : 'workspace',
+  };
+}
+
+function compareWorkspaceFilesNewestFirst(a: WorkspaceFile, b: WorkspaceFile) {
+  return timestampMs(b.updatedAt) - timestampMs(a.updatedAt);
+}
+
+function extractFeezieQueueId(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const match = value.match(FEEZIE_QUEUE_ID_PATTERN);
+    if (match) {
+      return match[0].toUpperCase();
+    }
+  }
+  return null;
+}
+
+function extractReleasePacketCopy(content: string) {
+  const section = extractSection(content, 'Final copy (ready for scheduler)') || extractSection(content, 'Final copy');
+  if (!section) {
+    return '';
+  }
+  return extractFirstMarkdownCodeFence(section) || section.trim();
+}
+
+function extractDraftPostCopy(content: string) {
+  return extractSection(content, 'First-pass draft').trim();
+}
+
+function extractDraftPostTitle(content: string) {
+  const frontmatterTitle = content.match(/^title:\s*["']?(.+?)["']?\s*$/m)?.[1]?.trim();
+  if (frontmatterTitle) {
+    return frontmatterTitle;
+  }
+  return content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
+}
+
+function extractFirstMarkdownCodeFence(content: string) {
+  const match = content.match(/```(?:text)?\s*\n([\s\S]*?)\n```/i);
+  return match?.[1]?.trim() ?? '';
 }
 
 function workspaceRootForKey(workspaceKey?: string | null) {
