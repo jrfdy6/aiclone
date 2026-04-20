@@ -511,6 +511,10 @@ type HostActionAutomationPayload = {
   automation_id?: string | null;
   label?: string | null;
   state?: string | null;
+  autonomous?: boolean | string | null;
+  autostart?: boolean | string | null;
+  requires_host_confirmation?: boolean | string | null;
+  safety_class?: string | null;
   source_card_id?: string | null;
   report_path?: string | null;
   runner_id?: string | null;
@@ -3303,7 +3307,19 @@ function PMCardDetailModal({
       : null;
   const hostActionAutomationState = String(hostActionAutomation?.state ?? '').trim().toLowerCase();
   const canRunHostActionAutomation = hostActionAutomation?.automation_id === 'fallback_watchdog_writeback';
+  const hostActionAutomationAutostart =
+    canRunHostActionAutomation &&
+    (hostActionAutomation?.autostart === true || String(hostActionAutomation?.autostart ?? '').trim().toLowerCase() === 'true');
+  const hostActionAutomationNeedsConfirmation =
+    hostActionAutomation?.requires_host_confirmation === true ||
+    String(hostActionAutomation?.requires_host_confirmation ?? '').trim().toLowerCase() === 'true';
+  const hostActionAutomationPending =
+    canRunHostActionAutomation &&
+    hostActionAutomationAutostart &&
+    !hostActionAutomationNeedsConfirmation &&
+    (!hostActionAutomationState || hostActionAutomationState === 'ready');
   const hostActionAutomationQueued = canRunHostActionAutomation && ['queued', 'running'].includes(hostActionAutomationState);
+  const hostActionAutomationLocked = hostActionAutomationQueued || hostActionAutomationPending;
   const hostActionProofRequired = Array.isArray(hostActionPayload?.proof_required)
     ? hostActionPayload.proof_required.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -3425,6 +3441,8 @@ function PMCardDetailModal({
     ? canRunHostActionAutomation
       ? hostActionAutomationQueued
         ? `Host automation is ${hostActionAutomationState}. The local runner will refresh the watchdog report, run PM write-back, and close this host card with proof.`
+        : hostActionAutomationPending
+          ? 'This host step is marked autonomous. The local runner will refresh the watchdog report, write the PM result back, and close this host card with proof without host confirmation.'
         : 'This host step can be automated. Running it queues the local runner to refresh the watchdog report, write the PM result back, and close this host card with proof.'
       : hostActionFollowupPayload?.summary
       ? `If you mark this complete, PM will close this host-action card and create the next host step: "${hostActionFollowupPayload.summary}". If the step cannot happen yet, you can send it back into system work or block it.`
@@ -4706,9 +4724,9 @@ function PMCardDetailModal({
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  disabled={actioningCardId === card.id || hostActionAutomationQueued}
+                  disabled={actioningCardId === card.id || hostActionAutomationLocked}
                   onClick={() => void handleHostActionComplete()}
-                  style={meetingActionButtonStyle('success', actioningCardId === card.id || hostActionAutomationQueued)}
+                  style={meetingActionButtonStyle('success', actioningCardId === card.id || hostActionAutomationLocked)}
                 >
                   {actioningCardId === card.id
                     ? canRunHostActionAutomation
@@ -4719,6 +4737,8 @@ function PMCardDetailModal({
                         ? hostActionAutomationState === 'running'
                           ? 'Host automation running'
                           : 'Host automation queued'
+                        : hostActionAutomationPending
+                          ? 'Autonomous run pending'
                         : 'Run host automation'
                       : bankedLinkedInPost
                         ? 'Done, posted or queued'

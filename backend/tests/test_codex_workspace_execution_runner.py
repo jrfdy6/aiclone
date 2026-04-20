@@ -99,16 +99,18 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         self.assertEqual(entry["execution_packet_path"], "/tmp/target-card.json")
         self.assertEqual(entry["executor_status"], "queued")
 
-    def test_select_queued_host_action_automation_card_picks_oldest_queued_card(self) -> None:
+    def test_select_runnable_host_action_automation_card_picks_oldest_queued_card_first(self) -> None:
         cards = [
             {
-                "id": "ready-card",
+                "id": "ready-autostart-card",
                 "status": "todo",
+                "updated_at": "2026-04-20T07:00:00Z",
                 "payload": {
                     "host_action_automation": {
                         "automation_id": "fallback_watchdog_writeback",
                         "state": "ready",
-                        "queued_at": "2026-04-20T09:00:00Z",
+                        "autostart": True,
+                        "requires_host_confirmation": False,
                     }
                 },
             },
@@ -147,11 +149,59 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
             },
         ]
 
-        selected = self.runner._select_queued_host_action_automation_card(cards)
+        selected = self.runner._select_runnable_host_action_automation_card(cards)
 
         self.assertIsNotNone(selected)
         assert selected is not None
         self.assertEqual(selected["id"], "oldest-queued-card")
+
+    def test_select_runnable_host_action_automation_card_autostarts_ready_card(self) -> None:
+        cards = [
+            {
+                "id": "manual-ready-card",
+                "status": "todo",
+                "updated_at": "2026-04-20T07:00:00Z",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "fallback_watchdog_writeback",
+                        "state": "ready",
+                        "autostart": False,
+                    }
+                },
+            },
+            {
+                "id": "confirmation-required-card",
+                "status": "todo",
+                "updated_at": "2026-04-20T08:00:00Z",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "fallback_watchdog_writeback",
+                        "state": "ready",
+                        "autostart": True,
+                        "requires_host_confirmation": True,
+                    }
+                },
+            },
+            {
+                "id": "autostart-card",
+                "status": "todo",
+                "updated_at": "2026-04-20T09:00:00Z",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "fallback_watchdog_writeback",
+                        "state": "ready",
+                        "autostart": True,
+                        "requires_host_confirmation": False,
+                    }
+                },
+            },
+        ]
+
+        selected = self.runner._select_runnable_host_action_automation_card(cards)
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["id"], "autostart-card")
 
     def test_source_work_order_path_uses_latest_result_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -195,6 +245,105 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
             self.runner._latest_result_artifact(source_card, "_execution_result.md"),
             "/tmp/new-result_execution_result.md",
         )
+
+    def test_fallback_watchdog_automation_records_blocked_then_retries_to_done(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            memory_root = temp_root / "memory"
+            report_path = memory_root / "reports" / "fallback_watchdog_latest.json"
+            report_path.parent.mkdir(parents=True)
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "generated_at": "2026-04-20T21:27:47Z",
+                        "status": "action_required",
+                        "active_count": 1,
+                        "memory_alert_count": 1,
+                        "durable_retrieval_alert_count": 0,
+                        "delivery_alert_count": 0,
+                        "runtime_alert_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            work_order = temp_root / "dispatch" / "20260420T072334Z_jean_claude_work_order.json"
+            work_order.parent.mkdir(parents=True)
+            work_order.write_text("{}", encoding="utf-8")
+            writer_statuses: list[str] = []
+            watchdog_runs = 0
+
+            def fake_run(command, **_kwargs):
+                nonlocal watchdog_runs
+                script_name = Path(command[1]).name
+                if script_name == "fallback_watchdog.py":
+                    watchdog_runs += 1
+                    if watchdog_runs == 2:
+                        report_path.write_text(
+                            json.dumps(
+                                {
+                                    "generated_at": "2026-04-20T21:30:29Z",
+                                    "status": "ok",
+                                    "active_count": 0,
+                                    "memory_alert_count": 0,
+                                    "durable_retrieval_alert_count": 0,
+                                    "delivery_alert_count": 0,
+                                    "runtime_alert_count": 0,
+                                }
+                            ),
+                            encoding="utf-8",
+                        )
+                    return self.runner.subprocess.CompletedProcess(command, 0, stdout=f"watchdog {watchdog_runs}", stderr="")
+                if script_name == "write_execution_result.py":
+                    writer_statuses.append(command[command.index("--status") + 1])
+                    return self.runner.subprocess.CompletedProcess(command, 0, stdout="writer ok", stderr="")
+                raise AssertionError(f"Unexpected command: {command}")
+
+            def fake_load_card(_imports, _api_url, _card_id):
+                return {
+                    "id": "source-card",
+                    "payload": {
+                        "latest_execution_result": {
+                            "result_path": "/tmp/final-result.json",
+                            "memo_path": "/tmp/final-result_execution_result.md",
+                            "artifacts": [str(work_order)],
+                        }
+                    },
+                }
+
+            card = {
+                "id": "host-card",
+                "payload": {
+                    "workspace_key": "shared_ops",
+                    "host_action_required": {"source_card_id": "source-card"},
+                    "host_action_automation": {
+                        "automation_id": "fallback_watchdog_writeback",
+                        "source_card_id": "source-card",
+                    },
+                },
+            }
+
+            with mock.patch.object(self.runner, "WORKSPACE_ROOT", temp_root):
+                with mock.patch.object(self.runner, "MEMORY_ROOT", memory_root):
+                    with mock.patch.object(self.runner, "SCRIPTS_ROOT", temp_root / "scripts"):
+                        with mock.patch.object(self.runner, "_run_command", side_effect=fake_run):
+                            with mock.patch.object(self.runner, "_load_card", side_effect=fake_load_card):
+                                with mock.patch.object(self.runner, "_patch_host_action_automation", side_effect=lambda *_args, **_kwargs: card):
+                                    with mock.patch.object(
+                                        self.runner,
+                                        "_fetch_json",
+                                        return_value={"card": {"id": "host-card", "status": "done", "payload": {}}},
+                                    ):
+                                        result = self.runner._run_fallback_watchdog_writeback_automation(
+                                            {},
+                                            "https://api.example.test",
+                                            card,
+                                            worker_id="worker-1",
+                                            dry_run=False,
+                                        )
+
+        self.assertEqual(writer_statuses, ["blocked", "done"])
+        self.assertEqual(watchdog_runs, 2)
+        self.assertEqual(result["status"], "ok")
 
     def test_parse_work_order_supports_direct_and_workspace_packets(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

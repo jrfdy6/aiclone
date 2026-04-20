@@ -562,7 +562,7 @@ def _local_launchd_automations() -> List[Automation]:
         Automation(
             id="codex_workspace_execution",
             name="Codex Workspace Execution",
-            description="Polls running PM execution lanes with local work packets, executes the bounded work through Codex terminal, and writes the result back through the shared PM/result contract.",
+            description="Polls running PM execution lanes and autonomous host-action write-back cards, executes the bounded work through Codex terminal or the safe host automation path, and writes the result back through the shared PM/result contract.",
             type="scheduled",
             status="active",
             schedule="Every 5 minutes",
@@ -582,6 +582,7 @@ def _local_launchd_automations() -> List[Automation]:
             },
             instructions=_instructions(
                 "Read the next running PM execution lane that has a local Codex work packet",
+                "Drain host-action cards whose automation payload is marked autostart and does not require host confirmation",
                 "Execute the bounded packet inside the repo with Codex terminal",
                 "Write the result back through write_execution_result.py so PM, Chronicle, and durable memory stay aligned",
             ),

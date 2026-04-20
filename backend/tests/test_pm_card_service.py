@@ -1740,6 +1740,10 @@ class PMCardServiceTests(unittest.TestCase):
         automation = decorated.payload.get("host_action_automation") or {}
         self.assertEqual(automation.get("automation_id"), "fallback_watchdog_writeback")
         self.assertEqual(automation.get("state"), "ready")
+        self.assertIs(automation.get("autonomous"), True)
+        self.assertIs(automation.get("autostart"), True)
+        self.assertIs(automation.get("requires_host_confirmation"), False)
+        self.assertEqual(automation.get("safety_class"), "local_durable_writeback")
         self.assertEqual(automation.get("source_card_id"), "source-card-1")
         self.assertEqual(automation.get("runner_id"), "codex_workspace_execution")
         self.assertIsNone(build_execution_queue_entry(card))
@@ -1778,6 +1782,7 @@ class PMCardServiceTests(unittest.TestCase):
         automation = decorated.payload.get("host_action_automation") or {}
         self.assertEqual(automation.get("automation_id"), "fallback_watchdog_writeback")
         self.assertEqual(automation.get("source_card_id"), "12a16bba-8929-4986-852e-f84bb1ddfd2b")
+        self.assertIs(automation.get("autostart"), True)
 
     def test_external_host_action_does_not_expose_automation(self) -> None:
         now = datetime.now(timezone.utc)

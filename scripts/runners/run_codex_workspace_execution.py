@@ -204,25 +204,51 @@ def _host_action_automation(card: dict[str, Any]) -> dict[str, Any]:
     return dict(automation) if isinstance(automation, dict) else {}
 
 
-def _select_queued_host_action_automation_card(cards: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _automation_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def _is_runnable_host_action_automation(automation: dict[str, Any]) -> bool:
+    if str(automation.get("automation_id") or "") != "fallback_watchdog_writeback":
+        return False
+    state = str(automation.get("state") or "ready").strip().lower()
+    if state == "queued":
+        return True
+    if state != "ready":
+        return False
+    return _automation_truthy(automation.get("autostart")) and not _automation_truthy(
+        automation.get("requires_host_confirmation")
+    )
+
+
+def _select_runnable_host_action_automation_card(cards: list[dict[str, Any]]) -> dict[str, Any] | None:
     candidates: list[dict[str, Any]] = []
     for card in cards:
         if _is_closed_status(card.get("status")):
             continue
         automation = _host_action_automation(card)
-        if str(automation.get("automation_id") or "") != "fallback_watchdog_writeback":
-            continue
-        if str(automation.get("state") or "").strip().lower() != "queued":
+        if not _is_runnable_host_action_automation(automation):
             continue
         candidates.append(card)
     if not candidates:
         return None
     return sorted(
         candidates,
-        key=lambda card: _parse_datetime(_host_action_automation(card).get("queued_at"))
-        or _parse_datetime(card.get("updated_at"))
-        or datetime.max.replace(tzinfo=timezone.utc),
+        key=lambda card: (
+            0 if str(_host_action_automation(card).get("state") or "").strip().lower() == "queued" else 1,
+            _parse_datetime(_host_action_automation(card).get("queued_at"))
+            or _parse_datetime(card.get("updated_at"))
+            or datetime.max.replace(tzinfo=timezone.utc),
+        ),
     )[0]
+
+
+def _select_queued_host_action_automation_card(cards: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return _select_runnable_host_action_automation_card(cards)
 
 
 def _build_entry_from_card(imports: dict[str, Any], card: dict[str, Any]) -> dict[str, Any] | None:
@@ -410,6 +436,28 @@ def _load_saved_watchdog_report() -> dict[str, Any]:
     return json.loads(report_path.read_text(encoding="utf-8"))
 
 
+def _report_int(report: dict[str, Any], key: str) -> int:
+    try:
+        return int(report.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _watchdog_report_ok(report: dict[str, Any]) -> bool:
+    return str(report.get("status") or "").strip() == "ok" and _report_int(report, "active_count") == 0
+
+
+def _watchdog_report_proof_fragment(report: dict[str, Any]) -> str:
+    return (
+        f"generated_at={report.get('generated_at')}, status={report.get('status')}, "
+        f"active_count={_report_int(report, 'active_count')}, "
+        f"memory_alert_count={_report_int(report, 'memory_alert_count')}, "
+        f"durable_retrieval_alert_count={_report_int(report, 'durable_retrieval_alert_count')}, "
+        f"delivery_alert_count={_report_int(report, 'delivery_alert_count')}, "
+        f"runtime_alert_count={_report_int(report, 'runtime_alert_count')}"
+    )
+
+
 def _source_work_order_path(source_card: dict[str, Any]) -> Path:
     payload = dict(source_card.get("payload") or {})
     execution = dict(payload.get("execution") or {})
@@ -486,16 +534,77 @@ def _run_fallback_watchdog_writeback_automation(
     if watchdog.returncode != 0:
         raise RuntimeError((watchdog.stderr or watchdog.stdout or "fallback_watchdog.py failed").strip())
     report = _load_saved_watchdog_report()
-    if str(report.get("status") or "").strip() != "ok" or int(report.get("active_count") or 0) != 0:
-        raise RuntimeError(
-            "Fallback watchdog refresh did not clear: "
-            f"status={report.get('status')} active_count={report.get('active_count')}"
-        )
-
     source_card = _load_card(imports, api_url, source_card_id)
     work_order = _source_work_order_path(source_card)
-    generated_at = str(report.get("generated_at") or "").strip()
     report_path = str(MEMORY_ROOT / "reports" / "fallback_watchdog_latest.json")
+    blocked_writer_stdout = ""
+    retry_watchdog_stdout = ""
+    if not _watchdog_report_ok(report):
+        blocked_command = [
+            sys.executable,
+            str(SCRIPTS_ROOT / "runners" / "write_execution_result.py"),
+            "--force-api",
+            "--api-url",
+            api_url,
+            "--work-order",
+            str(work_order),
+            "--runner-id",
+            "jean-claude",
+            "--author-agent",
+            "Jean-Claude",
+            "--status",
+            "blocked",
+            "--summary",
+            (
+                f"Refreshed fallback watchdog write-back for PM card {source_card_id} is recorded as blocked because "
+                f"memory/reports/fallback_watchdog_latest.json {_watchdog_report_proof_fragment(report)}."
+            ),
+            "--blocker",
+            f"Fallback watchdog refresh did not clear: {_watchdog_report_proof_fragment(report)}.",
+            "--decision",
+            f"Do not close PM card {source_card_id} or its host confirmation card until a refreshed fallback watchdog report records status=ok with active_count=0.",
+            "--learning",
+            "Autonomous fallback watchdog host actions must write back the real refreshed artifact state before retrying or closing.",
+            "--outcome",
+            f"Ran fallback_watchdog.py through the host automation path; saved report {report_path} {_watchdog_report_proof_fragment(report)}.",
+            "--project-update",
+            f"PM card {source_card_id} has an explicit blocked execution-result write-back for the refreshed non-ok watchdog artifact.",
+            "--persistent-state",
+            f"shared_ops fallback watchdog PM card {source_card_id} stayed blocked after refreshed report {report_path} {_watchdog_report_proof_fragment(report)}.",
+            "--host-action-proof",
+            f"Refreshed watchdog report {report_path} {_watchdog_report_proof_fragment(report)}.",
+            "--artifact",
+            report_path,
+        ]
+        verification_doc = (
+            WORKSPACE_ROOT
+            / "workspaces"
+            / "shared-ops"
+            / "docs"
+            / f"fallback_watchdog_verification_{datetime.now().astimezone().date().isoformat()}.md"
+        )
+        if verification_doc.exists():
+            blocked_command.extend(["--artifact", str(verification_doc)])
+        blocked_writer = _run_command(blocked_command, timeout_seconds=240)
+        blocked_writer_stdout = blocked_writer.stdout[-2000:]
+        if blocked_writer.returncode != 0:
+            raise RuntimeError((blocked_writer.stderr or blocked_writer.stdout or "blocked write_execution_result.py failed").strip())
+
+        retry_watchdog = _run_command(
+            [sys.executable, str(SCRIPTS_ROOT / "fallback_watchdog.py"), "--api-url", api_url],
+            timeout_seconds=240,
+        )
+        retry_watchdog_stdout = retry_watchdog.stdout[-2000:]
+        if retry_watchdog.returncode != 0:
+            raise RuntimeError((retry_watchdog.stderr or retry_watchdog.stdout or "fallback_watchdog.py retry failed").strip())
+        report = _load_saved_watchdog_report()
+        if not _watchdog_report_ok(report):
+            raise RuntimeError(
+                "Fallback watchdog refresh did not clear after blocked write-back was recorded: "
+                f"{_watchdog_report_proof_fragment(report)}"
+            )
+
+    generated_at = str(report.get("generated_at") or "").strip()
     summary = (
         f"Refreshed fallback watchdog report is recorded for PM card {source_card_id}. "
         f"memory/reports/fallback_watchdog_latest.json generated at {generated_at} shows status=ok "
@@ -593,6 +702,8 @@ def _run_fallback_watchdog_writeback_automation(
             "source_card_id": source_card_id,
             "host_card_id": card["id"],
             "watchdog_stdout": watchdog.stdout[-2000:],
+            "blocked_writer_stdout": blocked_writer_stdout,
+            "retry_watchdog_stdout": retry_watchdog_stdout,
             "writer_stdout": writer.stdout[-2000:],
             "close_status": dict(close_result.get("card") or {}).get("status") if isinstance(close_result, dict) else None,
         },
@@ -1151,10 +1262,10 @@ def main() -> int:
     selected_host_action: dict[str, Any] | None = None
     if args.card_id:
         host_candidate = _load_card(imports, args.api_url.rstrip("/"), str(args.card_id))
-        if str(_host_action_automation(host_candidate).get("state") or "").strip().lower() == "queued":
+        if _is_runnable_host_action_automation(_host_action_automation(host_candidate)):
             selected_host_action = host_candidate
     else:
-        selected_host_action = _select_queued_host_action_automation_card(
+        selected_host_action = _select_runnable_host_action_automation_card(
             _load_host_action_automation_cards(imports, args.api_url.rstrip("/"), max(args.limit, 100))
         )
 
@@ -1222,7 +1333,7 @@ def main() -> int:
             "duration_ms": int((finished_at - started_at).total_seconds() * 1000),
             "status": status,
             "model": "host-action-automation",
-            "goal": "Run a queued host-action automation without invoking Codex.",
+            "goal": "Run a queued or autonomous host-action automation without invoking Codex.",
             "summary": str(automation_result.get("summary") or ""),
             "artifacts_written": [
                 {"kind": "file", "path": str(input_path), "workspace_key": workspace_key, "label": "runner input"},

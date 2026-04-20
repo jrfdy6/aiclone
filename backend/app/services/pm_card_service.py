@@ -2642,11 +2642,16 @@ def _infer_host_action_automation(card: PMCard) -> dict[str, Any] | None:
     if not is_watchdog_writeback:
         return None
 
+    requires_host_confirmation = _optional_bool(existing_payload.get("requires_host_confirmation"), False)
     return {
         **existing_payload,
         "automation_id": HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK,
         "label": "Run fallback watchdog refresh and PM write-back",
         "state": _optional_str(existing_payload.get("state")) or "ready",
+        "autonomous": _optional_bool(existing_payload.get("autonomous"), not requires_host_confirmation),
+        "autostart": _optional_bool(existing_payload.get("autostart"), not requires_host_confirmation),
+        "requires_host_confirmation": requires_host_confirmation,
+        "safety_class": _optional_str(existing_payload.get("safety_class")) or "local_durable_writeback",
         "source_card_id": source_card_id,
         "report_path": _optional_str(existing_payload.get("report_path"))
         or "/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json",
@@ -2871,6 +2876,20 @@ def _payload_value(payload: dict, key: str) -> Optional[str]:
 
 def _optional_str(value: object) -> Optional[str]:
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _optional_bool(value: object, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        cleaned = value.strip().lower()
+        if cleaned in {"1", "true", "yes", "y", "on"}:
+            return True
+        if cleaned in {"0", "false", "no", "n", "off"}:
+            return False
+    return bool(value)
 
 
 def _normalize_string_list(values: object) -> list[str]:
