@@ -523,6 +523,25 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
 
         self.assertEqual(normalized, "")
 
+    def test_standup_cleanup_drops_brain_debug_ui_text_from_blockers(self) -> None:
+        debug_text = (
+            "why does it say needs brain: FEEZIE OS Direct · live Needs Brain Pack 0/5 "
+            "Identity files PM 3 Active cards Blockers 6 Standup blockers Latest State "
+            "PM board shows 0 open scoped card(s) and sets the meeting agenda first."
+        )
+        stale_status_text = (
+            "Active Blockers Automation drift remains: mismatch_count=1, action_required_count=1."
+        )
+
+        self.assertEqual(self.build_standup._normalize_standup_signal_text(debug_text), "")
+        self.assertEqual(self.build_standup._normalize_standup_signal_text(stale_status_text), "")
+        self.assertEqual(
+            self.build_standup._normalize_standup_signal_text(
+                "Automation drift remains: mismatch_count=1, action_required_count=1."
+            ),
+            "Automation drift remains: mismatch_count=1, action_required_count=1.",
+        )
+
     def test_sync_chronicle_canonicalizes_cross_workspace_routing_signal(self) -> None:
         text = (
             "I think a great place to start is with jean claude he will be executing in multiple wrkspaces and that is only going to increase in the future."

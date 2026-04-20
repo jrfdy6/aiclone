@@ -130,11 +130,17 @@ def _is_non_actionable_status_surface(value: Any) -> bool:
     text = _clean_text(value).lower()
     if not text:
         return True
+    if "why does it say needs brain" in text:
+        return True
     if "no active blockers reported" in text:
         return True
     if "recent standups" in text and "0 blockers" in text and "no open pm cards" in text:
         return True
     if "open pm lane" in text and "no open pm cards" in text and "0 blockers" in text:
+        return True
+    if text.startswith("fallback watchdog found") and "last execution result" in text:
+        return True
+    if text.startswith("active blockers ") and ("automation drift remains" in text or "fallback watchdog" in text):
         return True
     return False
 

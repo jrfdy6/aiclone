@@ -285,6 +285,56 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
         self.assertEqual(workspace["counts"]["standup_blockers"], 0)
         self.assertEqual(workspace["attention"]["label"], "No blocker")
 
+    def test_build_snapshot_filters_brain_debug_ui_text_from_blockers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            workspace_root = repo_root / "workspaces" / "shared-ops"
+            workspace_root.mkdir(parents=True)
+
+            entry = {
+                "key": "shared_ops",
+                "kind": "executive",
+                "display_name": "Executive",
+                "workspace_root": "shared-ops",
+                "status": "live",
+                "priority_order": 0,
+                "portfolio_visible": False,
+            }
+            standup = SimpleNamespace(
+                id="standup-debug-ui-noise",
+                status="queued",
+                workspace_key="shared_ops",
+                blockers=[
+                    "why does it say needs brain: FEEZIE OS Direct · live Needs Brain Pack 0/5 "
+                    "Identity files PM 3 Active cards Blockers 6 Standup blockers Latest State.",
+                    "Fallback watchdog found 1 active fallback condition(s) … Last Execution Result No execution result visible yet.",
+                    "Active Blockers Automation drift remains: mismatch_count=1, action_required_count=1.",
+                    "Automation drift remains: mismatch_count=1, action_required_count=1.",
+                ],
+                needs=[],
+                payload={"standup_kind": "executive_ops", "summary": "Executive is current."},
+                created_at=datetime(2026, 4, 20, tzinfo=timezone.utc),
+            )
+
+            with patch.object(service, "workspace_registry_entries", return_value=(entry,)), patch.object(
+                service,
+                "workspace_root_path",
+                return_value=workspace_root,
+            ), patch.object(service, "workspace_root_slug", return_value="shared-ops"), patch.object(
+                service.pm_card_service,
+                "list_cards",
+                return_value=[],
+            ), patch.object(service.standup_service, "list_standups", return_value=[standup]), patch.object(
+                service,
+                "list_snapshot_payloads",
+                return_value={},
+            ):
+                snapshot = service.build_portfolio_workspace_snapshot()
+
+        workspace = snapshot["workspaces"][0]
+        self.assertEqual(workspace["active_blockers"], ["Automation drift remains: mismatch_count=1, action_required_count=1."])
+        self.assertEqual(workspace["counts"]["standup_blockers"], 1)
+
     def test_build_snapshot_labels_owner_review_attention(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
