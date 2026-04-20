@@ -616,6 +616,10 @@ function humanizeSnakeCase(value: string) {
     .join(' ');
 }
 
+function humanizeFeezieWorkspaceLabel(value: string) {
+  return humanizeSnakeCase(value).replace(/\blinkedin\b/gi, 'FEEZIE');
+}
+
 function formatTimestamp(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
@@ -1615,10 +1619,10 @@ export function LinkedinWorkspaceSurface({
                       <div style={{ display: 'grid', gap: '6px' }}>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                           <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{isSupplemental ? ownerReviewKindLabel(item) : item.queue_id}</p>
-                          <InlinePill label={humanizeSnakeCase(item.lane || 'unknown lane')} tone="#38bdf8" />
-                          {item.format && <InlinePill label={item.format} tone="#94a3b8" />}
-                          {isSupplemental && item.transform_type ? <InlinePill label={humanizeSnakeCase(item.transform_type)} tone="#fbbf24" /> : null}
-                          <InlinePill label={humanizeSnakeCase(item.status || 'pending')} tone={item.current_decision === 'approve' ? '#22c55e' : item.current_decision === 'park' ? '#f87171' : '#fbbf24'} />
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.lane || 'unknown lane')} tone="#38bdf8" />
+                          {item.format && <InlinePill label={humanizeFeezieWorkspaceLabel(item.format)} tone="#94a3b8" />}
+                          {isSupplemental && item.transform_type ? <InlinePill label={humanizeFeezieWorkspaceLabel(item.transform_type)} tone="#fbbf24" /> : null}
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.status || 'pending')} tone={item.current_decision === 'approve' ? '#22c55e' : item.current_decision === 'park' ? '#f87171' : '#fbbf24'} />
                         </div>
                         <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
                         {isSupplemental ? (
@@ -1634,7 +1638,7 @@ export function LinkedinWorkspaceSurface({
                         ) : null}
                         {isSupplemental && item.latent_reason ? (
                           <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-                            <span style={{ color: '#64748b' }}>Why it was preserved:</span> {humanizeSnakeCase(item.latent_reason)}
+                            <span style={{ color: '#64748b' }}>Why it was preserved:</span> {humanizeFeezieWorkspaceLabel(item.latent_reason)}
                           </p>
                         ) : null}
                         {item.why_now && (
@@ -1645,10 +1649,10 @@ export function LinkedinWorkspaceSurface({
                       </div>
                     <div style={{ display: 'grid', gap: '6px', justifyItems: 'end' }}>
                       {item.system_assessment?.suggested_decision ? (
-                        <InlinePill label={`System: ${humanizeSnakeCase(item.system_assessment.suggested_decision)}`} tone="#38bdf8" />
+                        <InlinePill label={`System: ${humanizeFeezieWorkspaceLabel(item.system_assessment.suggested_decision)}`} tone="#38bdf8" />
                       ) : null}
                       {item.packet_recommendation && <InlinePill label={item.packet_recommendation.replace(/\*\*/g, '')} tone="#fbbf24" />}
-                      {item.publish_posture && <InlinePill label={humanizeSnakeCase(item.publish_posture)} tone="#22c55e" />}
+                      {item.publish_posture && <InlinePill label={humanizeFeezieWorkspaceLabel(item.publish_posture)} tone="#22c55e" />}
                       {item.reviewed_at && <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Saved {formatTimestamp(item.reviewed_at)}</p>}
                     </div>
                   </div>
@@ -1702,10 +1706,10 @@ export function LinkedinWorkspaceSurface({
                           <p style={{ color: '#38bdf8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>System read</p>
                           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                             {item.system_assessment.suggested_decision ? (
-                              <InlinePill label={humanizeSnakeCase(item.system_assessment.suggested_decision)} tone="#38bdf8" />
+                              <InlinePill label={humanizeFeezieWorkspaceLabel(item.system_assessment.suggested_decision)} tone="#38bdf8" />
                             ) : null}
                             {item.system_assessment.confidence ? (
-                              <InlinePill label={`${humanizeSnakeCase(item.system_assessment.confidence)} confidence`} tone="#64748b" />
+                              <InlinePill label={`${humanizeFeezieWorkspaceLabel(item.system_assessment.confidence)} confidence`} tone="#64748b" />
                             ) : null}
                           </div>
                         </div>
@@ -1759,7 +1763,7 @@ export function LinkedinWorkspaceSurface({
                         {actioning ? 'Saving…' : 'Park'}
                       </button>
                       <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
-                        {isSupplemental ? 'Review status' : 'Queue status'}: {humanizeSnakeCase(item.approval_status || 'owner_review_required')}
+                        {isSupplemental ? 'Review status' : 'Queue status'}: {humanizeFeezieWorkspaceLabel(item.approval_status || 'owner_review_required')}
                       </p>
                     </div>
                   </article>
