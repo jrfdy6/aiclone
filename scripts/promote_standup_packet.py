@@ -110,7 +110,7 @@ def _build_decisions(prep: dict[str, Any], pm_updates: list[dict[str, Any]]) -> 
 def _build_owners(prep: dict[str, Any], include_yoda: bool) -> list[str]:
     workspace_key = str(prep.get("workspace_key") or "shared_ops")
     owners = ["Jean-Claude — update the PM board, open the next SOP, and carry the lane summary back to leadership."]
-    if workspace_key not in {"shared_ops", "linkedin-os"}:
+    if workspace_key not in {"shared_ops", "feezie-os", "linkedin-os"}:
         workspace_agent = _workspace_agent_name(workspace_key)
         owners.append(
             f"{workspace_agent} — execute inside `{workspace_key}` only and report back through workspace memory plus the PM card."
@@ -203,7 +203,7 @@ def _yoda_note(prep: dict[str, Any], chronicle_entry: dict[str, Any] | None) -> 
     workspace_key = str(prep.get("workspace_key") or "shared_ops")
     strategy_context = dict(prep.get("strategy_context") or {})
     inferred_excerpt = str(strategy_context.get("inferred_excerpt") or "").strip()
-    if workspace_key == "linkedin-os":
+    if workspace_key in {"feezie-os", "linkedin-os"}:
         note = f"Protect the North Star: FEEZIE OS should keep strengthening Johnnie's brand, career, and long-term public positioning. {chronicle_context}"
     else:
         note = f"Protect the why behind the system: this move should deepen the second-brain, preserve Johnnie's voice, and stay pointed at durable leverage instead of generic automation. {chronicle_context}"

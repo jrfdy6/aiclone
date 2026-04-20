@@ -12,7 +12,7 @@ ROOT = REPO_ROOT
 WORKSPACES_ROOT = ROOT / "workspaces"
 INFERRED_BRIEF_PATH = ROOT / "docs" / "inferred_workspace_operating_brief_2026-03-31.md"
 PACK_FILES = ("CHARTER.md", "IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md")
-WORKSPACE_KEYS = ("shared_ops", "linkedin-os", "fusion-os", "easyoutfitapp", "ai-swag-store", "agc")
+WORKSPACE_KEYS = ("shared_ops", "feezie-os", "fusion-os", "easyoutfitapp", "ai-swag-store", "agc")
 PROJECT_WORKSPACE_KEYS = ("fusion-os", "easyoutfitapp", "ai-swag-store", "agc")
 WORKSPACE_CONFIG: dict[str, dict[str, str]] = {
     "shared_ops": {
@@ -20,7 +20,7 @@ WORKSPACE_CONFIG: dict[str, dict[str, str]] = {
         "brief_heading": "Executive Interpretation Rule",
         "root": "shared-ops",
     },
-    "linkedin-os": {
+    "feezie-os": {
         "display_name": "FEEZIE OS",
         "brief_heading": "FEEZIE OS",
         "root": "linkedin-content-os",
@@ -48,7 +48,7 @@ WORKSPACE_CONFIG: dict[str, dict[str, str]] = {
 }
 FALLBACK_CONTRACT_TEXT: dict[str, str] = {
     "shared_ops": "Executive review interprets strong signals across Neo, Yoda, and Jean-Claude before broad downstream changes are made.",
-    "linkedin-os": "FEEZIE OS is the public-facing operating system for visibility, personal brand, career signal, and thought leadership rooted in real work.",
+    "feezie-os": "FEEZIE OS is the public-facing operating system for visibility, personal brand, career signal, and thought leadership rooted in real work.",
     "fusion-os": "Fusion OS covers admissions, enrollment, school operations, referral systems, families, students, and leadership execution with trust and clarity.",
     "easyoutfitapp": "Easy Outfit App focuses on reducing daily decision fatigue with context-aware, closet-first outfit recommendations and trustworthy product execution.",
     "ai-swag-store": "AI Swag Store owns differentiated AI merchandise discovery, offer testing, traffic learning, and disciplined catalog decisions inside its workspace.",
@@ -265,11 +265,11 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
         ]
     )
 
-    add_score("linkedin-os", 5, "FEEZIE OS stays in the loop by default.", "identity_relevance")
+    add_score("feezie-os", 5, "FEEZIE OS stays in the loop by default.", "identity_relevance")
 
     persona_target = _normalize_text(delta.persona_target)
     if "feeze" in persona_target or "linkedin" in persona_target:
-        add_score("linkedin-os", 3, "The persona target is explicitly aligned to Feeze / LinkedIn.", "identity_relevance")
+        add_score("feezie-os", 3, "The persona target is explicitly aligned to FEEZIE.", "identity_relevance")
 
     metadata_workspace = _normalize_workspace_key(metadata.get("workspace_key"))
     if metadata_workspace in WORKSPACE_KEYS:
@@ -300,7 +300,7 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
     has_ai_signal = _count_matches(primary_blob, AI_PORTFOLIO_HINTS) > 0
     has_cross_portfolio_ai_signal = has_ai_signal and _count_matches(primary_blob, AI_EXECUTIVE_HINTS) > 0
     if has_ai_signal:
-        add_score("linkedin-os", 2, "AI is relevant to FEEZIE OS by default.", "identity_relevance")
+        add_score("feezie-os", 2, "AI is relevant to FEEZIE OS by default.", "identity_relevance")
         add_score(
             "shared_ops",
             3,
@@ -398,7 +398,7 @@ def recommend_brain_workspaces(delta: PersonaDelta) -> dict[str, Any]:
     selected_keys = [
         workspace_key
         for workspace_key in WORKSPACE_KEYS
-        if workspace_key == "linkedin-os"
+        if workspace_key == "feezie-os"
         or (workspace_key == "shared_ops" and workspace_key in scored)
         or int(scored.get(workspace_key, {}).get("score") or 0) >= 3
     ]
@@ -431,12 +431,14 @@ def _blank_dimensions() -> dict[str, int]:
 def _normalize_workspace_key(value: Any) -> str:
     normalized = _normalize_text(value)
     aliases = {
-        "feezie": "linkedin-os",
-        "feezie os": "linkedin-os",
-        "feezie-os": "linkedin-os",
-        "linkedin": "linkedin-os",
-        "linkedin content os": "linkedin-os",
-        "linkedin-content-os": "linkedin-os",
+        "feezie": "feezie-os",
+        "feezie os": "feezie-os",
+        "feezie-os": "feezie-os",
+        "linkedin": "feezie-os",
+        "linkedin os": "feezie-os",
+        "linkedin-os": "feezie-os",
+        "linkedin content os": "feezie-os",
+        "linkedin-content-os": "feezie-os",
         "shared-ops": "shared_ops",
         "shared ops": "shared_ops",
     }

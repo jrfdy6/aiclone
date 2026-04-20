@@ -405,6 +405,7 @@ def _load_strategy_context(workspace_key: str, registry: dict[str, dict[str, Any
     )
 
     inferred_heading = {
+        "feezie-os": "FEEZIE OS",
         "linkedin-os": "FEEZIE OS",
         "fusion-os": "Fusion OS",
         "easyoutfitapp": "Easy Outfit App",
@@ -418,7 +419,7 @@ def _load_strategy_context(workspace_key: str, registry: dict[str, dict[str, Any
         inferred_excerpt = _compact_markdown_section(_extract_markdown_section(inferred_text, inferred_heading), max_lines=18)
 
     default_routing = "Strong signal should usually go to canonical memory plus standup before PM."
-    if workspace_key == "linkedin-os":
+    if _is_feezie_workspace_key(workspace_key):
         default_routing = "FEEZIE signal should usually go to canonical memory plus executive standup first, then persona canon or PM when justified."
     return {
         "workspace_key": workspace_key,
@@ -859,7 +860,7 @@ def _build_agenda(
 ) -> list[str]:
     agenda: list[str] = []
     display_name = str(strategy_context.get("display_name") or workspace_key)
-    if workspace_key == "linkedin-os":
+    if _is_feezie_workspace_key(workspace_key):
         agenda.append(
             "Check whether the next public move strengthens Feeze's brand, career narrative, and trust before optimizing for content output."
         )

@@ -30,7 +30,7 @@ ROOM_SPECS: tuple[RoomSpec, ...] = (
     RoomSpec("operations", "Operations Standup", "shared_ops", 36),
     RoomSpec("weekly_review", "Weekly Review", "shared_ops", 8 * 24),
     RoomSpec("saturday_vision", "Saturday Vision Sync", "shared_ops", 8 * 24),
-    RoomSpec("workspace_sync", "FEEZIE OS Standup", "linkedin-os", 36),
+    RoomSpec("workspace_sync", "FEEZIE OS Standup", "feezie-os", 36),
     RoomSpec("workspace_sync", "Fusion Standup", "fusion-os", 72),
     RoomSpec("workspace_sync", "Easy Outfit App Standup", "easyoutfitapp", 72),
     RoomSpec("workspace_sync", "AI Swag Store Standup", "ai-swag-store", 72),

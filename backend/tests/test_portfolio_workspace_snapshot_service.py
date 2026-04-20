@@ -136,6 +136,7 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
 
         workspace = snapshot["workspaces"][0]
         self.assertEqual(workspace["counts"]["standup_blockers"], 1)
+        self.assertEqual(workspace["latest_standups"][0]["workspace_key"], "feezie-os")
         self.assertEqual(
             workspace["latest_standups"][0]["blockers"],
             ["Automation drift remains: mismatch_count=1, action_required_count=1."],

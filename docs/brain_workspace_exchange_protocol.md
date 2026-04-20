@@ -21,7 +21,7 @@ Do not rebuild these surfaces:
 - PM card truth and execution queue: `backend/app/services/pm_card_service.py`
 - Standup queue and promotion: `backend/app/services/standup_service.py`
 - Shared source system: `SOPs/source_system_contract_sop.md`
-- LinkedIn/FEEZIE live source snapshot: `backend/app/services/workspace_snapshot_service.py`
+- FEEZIE live source snapshot: `backend/app/services/workspace_snapshot_service.py`
 - Snapshot persistence: `backend/app/services/workspace_snapshot_store.py`
 
 New Brain work should compose these systems instead of creating parallel registries, task stores, or source-ingest lanes.
@@ -98,7 +98,7 @@ FEEZIE OS remains identity-adjacent and public-facing, so it receives more strat
 The portfolio snapshot should include:
 
 - `shared_ops`
-- `feezie-os` / `linkedin-os`
+- `feezie-os` (canonical; `linkedin-os` is legacy alias only)
 - `fusion-os`
 - `easyoutfitapp`
 - `ai-swag-store`

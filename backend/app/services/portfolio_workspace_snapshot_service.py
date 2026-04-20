@@ -115,6 +115,10 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
         seen.add(card_id)
         status = _clean_text(getattr(card, "status", "")).lower() or "todo"
         payload = getattr(card, "payload", {}) or {}
+        payload_workspace_key = canonicalize_workspace_key(
+            payload.get("workspace_key") or payload.get("workspace") or workspace_key,
+            default=workspace_key,
+        )
         compacted.append(
             {
                 "id": card_id,
@@ -122,7 +126,7 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
                 "status": status,
                 "owner": getattr(card, "owner", None),
                 "source": getattr(card, "source", None),
-                "workspace_key": payload.get("workspace_key") or payload.get("workspace") or workspace_key,
+                "workspace_key": payload_workspace_key,
                 "updated_at": getattr(card, "updated_at", None).isoformat() if getattr(card, "updated_at", None) else None,
             }
         )
@@ -152,7 +156,7 @@ def _safe_standups(workspace_key: str, *, limit: int, root_exists: bool = False)
             {
                 "id": standup_id,
                 "status": getattr(standup, "status", None),
-                "workspace_key": getattr(standup, "workspace_key", workspace_key),
+                "workspace_key": canonicalize_workspace_key(getattr(standup, "workspace_key", workspace_key), default=workspace_key),
                 "standup_kind": payload.get("standup_kind"),
                 "summary": payload.get("summary"),
                 "blockers": blockers,

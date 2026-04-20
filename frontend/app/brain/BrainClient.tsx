@@ -759,14 +759,14 @@ const brainSignalRouteOptions = ['source_only', 'canonical_memory', 'persona_can
 type BrainSignalRouteTarget = (typeof brainSignalRouteOptions)[number];
 const brainWorkspaceOptions = [
   { key: 'shared_ops', label: 'Executive' },
-  { key: 'linkedin-os', label: 'FEEZIE OS' },
+  { key: 'feezie-os', label: 'FEEZIE OS' },
   { key: 'fusion-os', label: 'Fusion OS' },
   { key: 'easyoutfitapp', label: 'Easy Outfit App' },
   { key: 'ai-swag-store', label: 'AI Swag Store' },
   { key: 'agc', label: 'AGC' },
 ] as const;
 type BrainWorkspaceKey = (typeof brainWorkspaceOptions)[number]['key'];
-type BrainWorkspaceSignalKey = Exclude<BrainWorkspaceKey, 'shared_ops' | 'linkedin-os'>;
+type BrainWorkspaceSignalKey = Exclude<BrainWorkspaceKey, 'shared_ops' | 'feezie-os'>;
 type BrainSignalRouteDraft = {
   reviewStatus: string;
   digest: string;
@@ -1445,11 +1445,15 @@ function BrainPortfolioPanel({
   function defaultSignalDraft(signal: BrainSignalEntry): BrainSignalRouteDraft {
     const interpretation = signal.executive_interpretation ?? {};
     const summary = signal.digest || signal.raw_summary || signal.source_kind;
+    const workspaceKey =
+      canonicalBrainWorkspaceKey(signal.source_workspace_key) ??
+      canonicalBrainWorkspaceKey(signal.workspace_candidates?.[0]) ??
+      'shared_ops';
     return {
       reviewStatus: signal.review_status === 'new' ? 'reviewed' : signal.review_status || 'reviewed',
       digest: signal.digest || signal.raw_summary || '',
       route: 'standup',
-      workspaceKey: signal.source_workspace_key || signal.workspace_candidates?.[0] || 'shared_ops',
+      workspaceKey,
       summary,
       routeReason: '',
       standupKind: 'auto',
@@ -3362,7 +3366,7 @@ function PersonaPanel({
       : canonActionGate.reason || 'Finalize will save this canon selection for later promotion.'
     : 'Choose canon fragments or route targets to finalize. Use Save note if you only want to capture your judgment.';
   const backendSuggestedWorkspaceKeys = useMemo(
-    () => metadataStringArray(selectedDelta?.metadata, 'brain_suggested_workspace_keys').filter(isBrainWorkspaceKey),
+    () => canonicalBrainWorkspaceKeys(metadataStringArray(selectedDelta?.metadata, 'brain_suggested_workspace_keys')),
     [selectedDelta],
   );
   const conservativeFallbackWorkspaceKeys = useMemo(() => fallbackBrainWorkspaceKeys(selectedDelta), [selectedDelta]);
@@ -7297,6 +7301,37 @@ function isBrainWorkspaceKey(value: string): value is BrainWorkspaceKey {
   return brainWorkspaceOptions.some((option) => option.key === value);
 }
 
+function canonicalBrainWorkspaceKey(value: string | null | undefined): BrainWorkspaceKey | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (
+    normalized === 'feezie' ||
+    normalized === 'feezie os' ||
+    normalized === 'feezie-os' ||
+    normalized === 'linkedin' ||
+    normalized === 'linkedin os' ||
+    normalized === 'linkedin-os' ||
+    normalized === 'linkedin content os' ||
+    normalized === 'linkedin-content-os'
+  ) {
+    return 'feezie-os';
+  }
+  return isBrainWorkspaceKey(normalized) ? normalized : null;
+}
+
+function canonicalBrainWorkspaceKeys(values: string[]): BrainWorkspaceKey[] {
+  const keys: BrainWorkspaceKey[] = [];
+  for (const value of values) {
+    const key = canonicalBrainWorkspaceKey(value);
+    if (key && !keys.includes(key)) {
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
 function fallbackBrainWorkspaceKeys(delta: PersonaDeltaEntry | null): BrainWorkspaceKey[] {
   const keys: BrainWorkspaceKey[] = [];
   const push = (workspaceKey: BrainWorkspaceKey) => {
@@ -7305,16 +7340,18 @@ function fallbackBrainWorkspaceKeys(delta: PersonaDeltaEntry | null): BrainWorks
     }
   };
 
-  push('linkedin-os');
+  push('feezie-os');
 
   const metadataWorkspace = metadataText(delta?.metadata, 'workspace_key');
-  if (metadataWorkspace && isBrainWorkspaceKey(metadataWorkspace)) {
-    push(metadataWorkspace);
+  const canonicalMetadataWorkspace = canonicalBrainWorkspaceKey(metadataWorkspace);
+  if (canonicalMetadataWorkspace) {
+    push(canonicalMetadataWorkspace);
   }
 
   for (const priorWorkspace of metadataStringArray(delta?.metadata, 'last_brain_route_workspace_keys')) {
-    if (isBrainWorkspaceKey(priorWorkspace)) {
-      push(priorWorkspace);
+    const canonicalPriorWorkspace = canonicalBrainWorkspaceKey(priorWorkspace);
+    if (canonicalPriorWorkspace) {
+      push(canonicalPriorWorkspace);
     }
   }
 
@@ -7326,7 +7363,8 @@ function fallbackBrainWorkspaceKeys(delta: PersonaDeltaEntry | null): BrainWorks
 }
 
 function labelForBrainWorkspace(workspaceKey: string) {
-  return brainWorkspaceOptions.find((option) => option.key === workspaceKey)?.label ?? humanizeSnakeCase(workspaceKey);
+  const canonical = canonicalBrainWorkspaceKey(workspaceKey);
+  return brainWorkspaceOptions.find((option) => option.key === canonical)?.label ?? humanizeSnakeCase(workspaceKey);
 }
 
 function suggestStandupKindForWorkspace(workspaceKey: string) {
@@ -7334,7 +7372,8 @@ function suggestStandupKindForWorkspace(workspaceKey: string) {
 }
 
 function executionModelForBrainWorkspace(workspaceKey: string) {
-  if (workspaceKey === 'shared_ops' || workspaceKey === 'linkedin-os') {
+  const canonical = canonicalBrainWorkspaceKey(workspaceKey) ?? workspaceKey;
+  if (canonical === 'shared_ops' || canonical === 'feezie-os') {
     return {
       manager: 'Jean-Claude',
       executor: 'Jean-Claude',
@@ -7349,7 +7388,7 @@ function executionModelForBrainWorkspace(workspaceKey: string) {
   };
   return {
     manager: 'Jean-Claude',
-    executor: workspaceAgents[workspaceKey] || 'Workspace Agent',
+    executor: workspaceAgents[canonical] || 'Workspace Agent',
     mode: 'delegated' as const,
   };
 }
@@ -7361,10 +7400,11 @@ function participantsForBrainRoute(workspaceKey: string, standupKind: string) {
   if (standupKind === 'executive_ops' || standupKind === 'operations' || standupKind === 'weekly_review' || standupKind === 'saturday_vision') {
     return ['Jean-Claude', 'Neo', 'Yoda'];
   }
-  if (workspaceKey === 'shared_ops' || workspaceKey === 'linkedin-os') {
+  const canonical = canonicalBrainWorkspaceKey(workspaceKey) ?? workspaceKey;
+  if (canonical === 'shared_ops' || canonical === 'feezie-os') {
     return ['Jean-Claude', 'Neo', 'Yoda'];
   }
-  const executionModel = executionModelForBrainWorkspace(workspaceKey);
+  const executionModel = executionModelForBrainWorkspace(canonical);
   return executionModel.mode === 'delegated' ? ['Jean-Claude', executionModel.executor] : ['Jean-Claude'];
 }
 

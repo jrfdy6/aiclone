@@ -37,7 +37,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os"])
+        self.assertEqual(result["workspace_keys"], ["shared_ops", "feezie-os"])
         self.assertNotIn("fusion-os", result["workspace_keys"])
         self.assertEqual(
             result["routing_policy"],
@@ -52,7 +52,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["linkedin-os", "fusion-os"])
+        self.assertEqual(result["workspace_keys"], ["feezie-os", "fusion-os"])
 
     def test_fusion_merch_signal_routes_to_both_relevant_workspaces(self) -> None:
         delta = _delta(
@@ -62,7 +62,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os", "fusion-os", "ai-swag-store"])
+        self.assertEqual(result["workspace_keys"], ["shared_ops", "feezie-os", "fusion-os", "ai-swag-store"])
 
     def test_generic_store_language_does_not_false_positive_into_ai_swag_store(self) -> None:
         delta = _delta(
@@ -75,7 +75,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os"])
+        self.assertEqual(result["workspace_keys"], ["shared_ops", "feezie-os"])
         self.assertNotIn("ai-swag-store", result["workspace_keys"])
 
     def test_fashion_signal_prefers_feezie_and_easy_outfit(self) -> None:
@@ -86,7 +86,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["linkedin-os", "easyoutfitapp"])
+        self.assertEqual(result["workspace_keys"], ["feezie-os", "easyoutfitapp"])
 
     def test_agc_signal_prefers_feezie_and_agc(self) -> None:
         delta = _delta(
@@ -96,7 +96,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["linkedin-os", "agc"])
+        self.assertEqual(result["workspace_keys"], ["feezie-os", "agc"])
 
     def test_ambiguous_non_domain_signal_stays_feezie_and_executive(self) -> None:
         delta = _delta(
@@ -106,7 +106,18 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os"])
+        self.assertEqual(result["workspace_keys"], ["shared_ops", "feezie-os"])
+
+    def test_legacy_linkedin_alias_normalizes_to_feezie_key(self) -> None:
+        delta = _delta(
+            trait="Public visibility signal belongs in the FEEZIE lane.",
+            metadata={"workspace_key": "linkedin-os"},
+        )
+
+        result = recommend_brain_workspaces(delta)
+
+        self.assertIn("feezie-os", result["workspace_keys"])
+        self.assertNotIn("linkedin-os", result["workspace_keys"])
 
     def test_ai_plus_education_signal_routes_only_to_fusion(self) -> None:
         delta = _delta(
@@ -116,7 +127,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os", "fusion-os"])
+        self.assertEqual(result["workspace_keys"], ["shared_ops", "feezie-os", "fusion-os"])
         fusion = next(item for item in result["suggestion_details"] if item["workspace_key"] == "fusion-os")
         self.assertGreaterEqual(fusion["scoring_dimensions"]["domain_match"], 4)
 
@@ -128,7 +139,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os", "easyoutfitapp"])
+        self.assertEqual(result["workspace_keys"], ["shared_ops", "feezie-os", "easyoutfitapp"])
         easy_outfit = next(item for item in result["suggestion_details"] if item["workspace_key"] == "easyoutfitapp")
         self.assertEqual(easy_outfit["routing_posture"], "domain_confirmed")
 
@@ -146,7 +157,7 @@ class BrainWorkspaceContractServiceTests(unittest.TestCase):
 
         result = recommend_brain_workspaces(delta)
 
-        self.assertEqual(result["workspace_keys"], ["shared_ops", "linkedin-os", "agc"])
+        self.assertEqual(result["workspace_keys"], ["shared_ops", "feezie-os", "agc"])
         agc = next(item for item in result["suggestion_details"] if item["workspace_key"] == "agc")
         self.assertEqual(agc["routing_posture"], "explicit")
 

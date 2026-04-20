@@ -66,7 +66,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "execution_mode": "direct",
         "default_standup_kind": "workspace_sync",
         "workspace_sync_participants": ["Jean-Claude", "Neo", "Yoda"],
-        "description": "Public-signal execution system for source intake, reaction loops, content generation, and persona-grounded visibility, currently operating through the LinkedIn lane.",
+        "description": "Public-signal execution system for source intake, reaction loops, content generation, and persona-grounded FEEZIE visibility.",
         "operating_principles": [
             "Persona truth first, posting second",
             "Use live source signals before generic ideation",
