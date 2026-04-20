@@ -17,6 +17,23 @@ from app.services.workspace_registry_service import REPO_ROOT, canonicalize_work
 ROOT = REPO_ROOT
 SIGNALS_PATH = ROOT / "memory" / "brain_signals.jsonl"
 
+_WORKSPACE_KEY_FIELDS = frozenset(
+    {
+        "source_workspace_key",
+        "target_workspace_key",
+        "workspace_key",
+    }
+)
+_WORKSPACE_KEY_LIST_FIELDS = frozenset(
+    {
+        "brain_workspace_candidates",
+        "target_workspace_keys",
+        "workspace_candidates",
+        "workspace_keys",
+    }
+)
+_LEGACY_FEEZIE_LABELS = frozenset({"linkedin os", "linkedin content os"})
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -39,6 +56,91 @@ def _clean_list(values: list[str] | None) -> list[str]:
     return cleaned
 
 
+def _canonical_workspace_list(values: Any) -> list[Any]:
+    if not isinstance(values, list):
+        normalized = _normalize_signal_payload(values)
+        return normalized if isinstance(normalized, list) else []
+
+    cleaned: list[Any] = []
+    seen: set[str] = set()
+    for value in values:
+        if isinstance(value, str):
+            item = canonicalize_workspace_key(value, default=value)
+            key = item.lower()
+            if not item or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(item)
+            continue
+        cleaned.append(_normalize_signal_payload(value))
+    return cleaned
+
+
+def _normalize_feezie_route_text(value: str) -> str:
+    text = value
+    replacements = (
+        ("LinkedIn OS", "FEEZIE OS"),
+        ("Linkedin OS", "FEEZIE OS"),
+        ("LinkedIn/FEEZIE", "FEEZIE"),
+        ("Linkedin/FEEZIE", "FEEZIE"),
+        ("Feeze / LinkedIn", "Feeze / FEEZIE"),
+        ("Feeze / Linkedin", "Feeze / FEEZIE"),
+        ("LinkedIn lane", "FEEZIE lane"),
+        ("Linkedin lane", "FEEZIE lane"),
+        ("linkedin-os", "feezie-os"),
+    )
+    for old, new in replacements:
+        text = text.replace(old, new)
+    text = text.replace(
+        "starting with LinkedIn and expanding over time into a broader personal-brand and career-positioning lane",
+        "supporting identity-grounded public presence and career positioning",
+    )
+    return text
+
+
+def _normalize_signal_payload(value: Any, *, field_name: str | None = None) -> Any:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _WORKSPACE_KEY_FIELDS and isinstance(item, str):
+                normalized[key] = canonicalize_workspace_key(item, default=item)
+            elif key in _WORKSPACE_KEY_LIST_FIELDS:
+                normalized[key] = _canonical_workspace_list(item)
+            elif key in {"label", "workspace_label"} and isinstance(item, str):
+                normalized[key] = "FEEZIE OS" if _clean_text(item).lower() in _LEGACY_FEEZIE_LABELS else item
+            elif key in {"contract_excerpt", "reason", "route_reason"} and isinstance(item, str):
+                normalized[key] = _normalize_feezie_route_text(item)
+            elif key == "reasons" and isinstance(item, list):
+                normalized[key] = [
+                    _normalize_feezie_route_text(reason) if isinstance(reason, str) else _normalize_signal_payload(reason)
+                    for reason in item
+                ]
+            else:
+                normalized[key] = _normalize_signal_payload(item, field_name=key)
+        return normalized
+
+    if isinstance(value, list):
+        if field_name in _WORKSPACE_KEY_LIST_FIELDS:
+            return _canonical_workspace_list(value)
+        return [_normalize_signal_payload(item, field_name=field_name) for item in value]
+
+    return value
+
+
+def _normalize_signal(signal: BrainSignal) -> BrainSignal:
+    workspace_key = canonicalize_workspace_key(signal.source_workspace_key, default="shared_ops")
+    candidates = _canonical_workspace_list(signal.workspace_candidates)
+    if workspace_key and workspace_key not in candidates:
+        candidates.insert(0, workspace_key)
+    return signal.model_copy(
+        update={
+            "source_workspace_key": workspace_key,
+            "workspace_candidates": candidates,
+            "route_decision": _normalize_signal_payload(signal.route_decision or {}),
+        }
+    )
+
+
 def _load_signals() -> list[BrainSignal]:
     if not SIGNALS_PATH.exists():
         return []
@@ -48,7 +150,7 @@ def _load_signals() -> list[BrainSignal]:
             continue
         try:
             payload = json.loads(line)
-            signals.append(BrainSignal.model_validate(payload))
+            signals.append(_normalize_signal(BrainSignal.model_validate(payload)))
         except Exception:
             continue
     return signals
@@ -56,7 +158,7 @@ def _load_signals() -> list[BrainSignal]:
 
 def _write_signals(signals: list[BrainSignal]) -> None:
     SIGNALS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    text = "\n".join(json.dumps(signal.model_dump(mode="json"), sort_keys=True) for signal in signals)
+    text = "\n".join(json.dumps(_normalize_signal(signal).model_dump(mode="json"), sort_keys=True) for signal in signals)
     SIGNALS_PATH.write_text((text + "\n") if text else "", encoding="utf-8")
 
 
@@ -140,10 +242,10 @@ def create_signal(payload: BrainSignalCreateRequest) -> BrainSignal:
                     **(existing.executive_interpretation or {}),
                     **(payload.executive_interpretation or {}),
                 },
-                "route_decision": {
+                "route_decision": _normalize_signal_payload({
                     **(existing.route_decision or {}),
                     **(payload.route_decision or {}),
-                },
+                }),
                 "updated_at": now,
             }
         )
@@ -165,7 +267,7 @@ def create_signal(payload: BrainSignalCreateRequest) -> BrainSignal:
         identity_relevance=_clean_text(payload.identity_relevance) or "unknown",
         workspace_candidates=candidates,
         executive_interpretation=payload.executive_interpretation or {},
-        route_decision=payload.route_decision or {},
+        route_decision=_normalize_signal_payload(payload.route_decision or {}),
         review_status="new",
         created_at=now,
         updated_at=now,
@@ -205,7 +307,7 @@ def review_signal(signal_id: str, payload: BrainSignalReviewRequest) -> BrainSig
                 if _clean_text(key) and _clean_text(value)
             }
         if payload.route_decision is not None:
-            update["route_decision"] = payload.route_decision
+            update["route_decision"] = _normalize_signal_payload(payload.route_decision)
         updated = signal.model_copy(update=update)
         signals[index] = updated
         _write_signals(signals)
@@ -253,11 +355,11 @@ def route_signal(signal_id: str, payload: BrainSignalRouteRequest) -> BrainSigna
                 "source_workspace_key": workspace_key,
                 "workspace_candidates": _clean_list([*signal.workspace_candidates, workspace_key]),
                 "executive_interpretation": executive_interpretation,
-                "route_decision": {
+                "route_decision": _normalize_signal_payload({
                     **(signal.route_decision or {}),
                     "latest": route_result,
                     "history": [*(signal.route_decision or {}).get("history", []), route_result],
-                },
+                }),
                 "review_status": "ignored" if payload.route == "ignore" else "routed",
                 "updated_at": now,
             }

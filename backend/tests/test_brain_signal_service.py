@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -63,6 +64,69 @@ class BrainSignalServiceTests(unittest.TestCase):
                 self.assertEqual(reviewed.review_status, "reviewed")
                 self.assertEqual(reviewed.digest, "Route this through executive review before PM.")
                 self.assertEqual(len(brain_signal_service.list_signals()), 1)
+
+    def test_legacy_linkedin_route_metadata_normalizes_for_brain_signal_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            signals_path = Path(temp_dir) / "brain_signals.jsonl"
+            now = datetime.now(timezone.utc).isoformat()
+            legacy_signal = {
+                "id": "legacy-signal",
+                "source_kind": "source_intelligence",
+                "source_ref": "legacy-route",
+                "source_workspace_key": "linkedin-os",
+                "raw_summary": "Legacy route metadata should not leak the old workspace key.",
+                "digest": "Legacy route metadata should normalize at the Brain boundary.",
+                "signal_types": ["source_intelligence"],
+                "durability": "durable",
+                "confidence": "high",
+                "actionability": "medium",
+                "identity_relevance": "medium",
+                "workspace_candidates": ["shared_ops", "linkedin-os"],
+                "executive_interpretation": {},
+                "route_decision": {
+                    "workspace_routing": {
+                        "recommendation": {
+                            "workspace_keys": ["shared_ops", "linkedin-os"],
+                            "suggestion_details": [
+                                {
+                                    "workspace_key": "linkedin-os",
+                                    "label": "LinkedIn OS",
+                                    "contract_excerpt": (
+                                        "Run the public-facing operating system for Feeze's visibility, "
+                                        "starting with LinkedIn and expanding over time into a broader "
+                                        "personal-brand and career-positioning lane."
+                                    ),
+                                    "reasons": [
+                                        "FEEZIE OS stays in the loop by default.",
+                                        "The persona target is explicitly aligned to Feeze / LinkedIn.",
+                                    ],
+                                }
+                            ],
+                        },
+                        "workspace_keys": ["shared_ops", "linkedin-os"],
+                    },
+                    "source_paths": ["workspaces/linkedin-content-os/drafts/example.md"],
+                },
+                "review_status": "new",
+                "created_at": now,
+                "updated_at": now,
+            }
+            signals_path.write_text(json.dumps(legacy_signal) + "\n", encoding="utf-8")
+
+            with patch.object(brain_signal_service, "SIGNALS_PATH", signals_path):
+                [signal] = brain_signal_service.list_signals()
+
+            serialized = json.dumps(signal.model_dump(mode="json"), sort_keys=True)
+            self.assertEqual(signal.source_workspace_key, "feezie-os")
+            self.assertEqual(signal.workspace_candidates, ["shared_ops", "feezie-os"])
+            self.assertNotIn('"linkedin-os"', serialized)
+            self.assertNotIn("LinkedIn OS", serialized)
+            self.assertNotIn("Feeze / LinkedIn", serialized)
+            self.assertIn("workspaces/linkedin-content-os/drafts/example.md", serialized)
+            recommendation = signal.route_decision["workspace_routing"]["recommendation"]
+            self.assertEqual(recommendation["workspace_keys"], ["shared_ops", "feezie-os"])
+            self.assertEqual(recommendation["suggestion_details"][0]["workspace_key"], "feezie-os")
+            self.assertEqual(recommendation["suggestion_details"][0]["label"], "FEEZIE OS")
 
     def test_route_signal_to_pm_uses_guardrail_and_records_route_history(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
