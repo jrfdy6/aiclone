@@ -1617,6 +1617,51 @@ export function LinkedinWorkspaceSurface({
           </div>
         </section>
 
+        {bankedPostItems.length > 0 ? (
+          <section style={panelStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <p style={sectionLabelStyle('#22c55e')}>{bankedPostItems.length} Banked Post{bankedPostItems.length === 1 ? '' : 's'}</p>
+                <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 8px' }}>Ready when you are</h2>
+              </div>
+              <InlinePill label="copy/paste lane" tone="#22c55e" />
+            </div>
+
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {bankedPostItems.map((item) => {
+                const copy = item.first_pass_draft?.trim() || '';
+                return (
+                  <article key={`banked-${item.queue_id}`} style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{item.queue_id}</p>
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.lane || 'unknown lane')} tone="#38bdf8" />
+                          <InlinePill label="banked" tone="#22c55e" />
+                        </div>
+                        <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
+                        {item.reviewed_at ? <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Approved {formatTimestamp(item.reviewed_at)}</p> : null}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button type="button" onClick={() => void handleOpenBankedPost(item)} disabled={!copy} style={primaryActionStyle('#22c55e')}>
+                          Copy + open LinkedIn
+                        </button>
+                        <button type="button" onClick={() => void handleCopy(copy, item.queue_id)} disabled={!copy} style={secondaryActionStyle('#38bdf8')}>
+                          Copy only
+                        </button>
+                        <a href={LINKEDIN_COMPOSER_URL} target="_blank" rel="noreferrer" style={secondaryLinkStyle('#94a3b8')}>
+                          Open LinkedIn
+                        </a>
+                      </div>
+                    </div>
+                    <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: '180px' }}>{copy || 'No banked copy is attached yet.'}</pre>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         <section style={panelStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>
@@ -1806,51 +1851,6 @@ export function LinkedinWorkspaceSurface({
             </div>
           )}
         </section>
-
-        {bankedPostItems.length > 0 ? (
-          <section style={panelStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <div>
-                <p style={sectionLabelStyle('#22c55e')}>{bankedPostItems.length} Banked Post{bankedPostItems.length === 1 ? '' : 's'}</p>
-                <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 8px' }}>Ready when you are</h2>
-              </div>
-              <InlinePill label="copy/paste lane" tone="#22c55e" />
-            </div>
-
-            <div style={{ display: 'grid', gap: '14px' }}>
-              {bankedPostItems.map((item) => {
-                const copy = item.first_pass_draft?.trim() || '';
-                return (
-                  <article key={`banked-${item.queue_id}`} style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                      <div style={{ display: 'grid', gap: '6px' }}>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{item.queue_id}</p>
-                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.lane || 'unknown lane')} tone="#38bdf8" />
-                          <InlinePill label="banked" tone="#22c55e" />
-                        </div>
-                        <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
-                        {item.reviewed_at ? <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Approved {formatTimestamp(item.reviewed_at)}</p> : null}
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <button type="button" onClick={() => void handleOpenBankedPost(item)} disabled={!copy} style={primaryActionStyle('#22c55e')}>
-                          Copy + open LinkedIn
-                        </button>
-                        <button type="button" onClick={() => void handleCopy(copy, item.queue_id)} disabled={!copy} style={secondaryActionStyle('#38bdf8')}>
-                          Copy only
-                        </button>
-                        <a href={LINKEDIN_COMPOSER_URL} target="_blank" rel="noreferrer" style={secondaryLinkStyle('#94a3b8')}>
-                          Open LinkedIn
-                        </a>
-                      </div>
-                    </div>
-                    <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: '180px' }}>{copy || 'No banked copy is attached yet.'}</pre>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
 
         <section style={panelStyle}>
           <div style={{ marginBottom: '18px' }}>
