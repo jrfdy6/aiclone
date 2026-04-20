@@ -16,7 +16,7 @@ WORKSPACE_KEYS = ("shared_ops", "feezie-os", "fusion-os", "easyoutfitapp", "ai-s
 PROJECT_WORKSPACE_KEYS = ("fusion-os", "easyoutfitapp", "ai-swag-store", "agc")
 WORKSPACE_CONFIG: dict[str, dict[str, str]] = {
     "shared_ops": {
-        "display_name": "Executive",
+        "display_name": "Executive Standup",
         "brief_heading": "Executive Interpretation Rule",
         "root": "shared-ops",
     },

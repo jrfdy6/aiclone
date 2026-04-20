@@ -43,7 +43,7 @@ FEEZIE_RUNTIME_CONTRACT: dict[str, Any] = {
 
 WORKSPACE_RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
     "shared_ops": {
-        "display_name": "Executive",
+        "display_name": "Executive Standup",
         "manager_agent": "Jean-Claude",
         "target_agent": "Jean-Claude",
         "workspace_agent": None,

@@ -207,6 +207,19 @@ def _is_workspace_root_missing_blocker(value: Any) -> bool:
     return bool(text and "has no local artifact root yet" in text)
 
 
+def _is_non_actionable_status_surface(value: Any) -> bool:
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    if not text:
+        return True
+    if "no active blockers reported" in text:
+        return True
+    if "recent standups" in text and "0 blockers" in text and "no open pm cards" in text:
+        return True
+    if "open pm lane" in text and "no open pm cards" in text and "0 blockers" in text:
+        return True
+    return False
+
+
 def _filter_resolved_workspace_root_blockers(
     blockers: list[str],
     *,
@@ -1088,6 +1101,8 @@ def _normalize_memory_content(content: str) -> str:
 
 def _normalize_standup_signal_text(content: Any) -> str:
     normalized = _normalize_memory_content(" ".join(str(content or "").split()).strip())
+    if _is_non_actionable_status_surface(normalized):
+        return ""
     lowered = normalized.lower()
     if lowered.startswith("love it") and "plan" in lowered and "execute" in lowered:
         return "Recent Codex discussion tightened the execution plan."

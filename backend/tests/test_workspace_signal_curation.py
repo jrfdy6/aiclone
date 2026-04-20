@@ -512,6 +512,17 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
             "Implement the approved Fusion operating model and audience-feedback loop.",
         )
 
+    def test_standup_cleanup_drops_workspace_status_ui_noise_from_blockers(self) -> None:
+        ui_status_text = (
+            "Recent Standups workspace_sync · Apr 19, 4:49 PM · 2 commitments · 0 blockers "
+            "Easy Outfit App Standup · Apr 19, 4:47 PM · 2 commitments · 0 blockers "
+            "Open PM Lane No open PM cards in this workspace."
+        )
+
+        normalized = self.build_standup._normalize_standup_signal_text(ui_status_text)
+
+        self.assertEqual(normalized, "")
+
     def test_sync_chronicle_canonicalizes_cross_workspace_routing_signal(self) -> None:
         text = (
             "I think a great place to start is with jean claude he will be executing in multiple wrkspaces and that is only going to increase in the future."

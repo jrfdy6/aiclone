@@ -25,8 +25,8 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
     {
         "key": "shared_ops",
         "kind": "executive",
-        "display_name": "Executive",
-        "short_label": "Executive",
+        "display_name": "Executive Standup",
+        "short_label": "Exec Standup",
         "brief_heading": "Executive Interpretation Rule",
         "workspace_root": "shared-ops",
         "status": "live",
@@ -38,7 +38,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "execution_mode": "direct",
         "default_standup_kind": "executive_ops",
         "workspace_sync_participants": ["Jean-Claude", "Neo", "Yoda"],
-        "description": "Executive interpretation, operating review, and cross-workspace decision-making for the full portfolio.",
+        "description": "Portfolio executive standup for operating review, cross-workspace decisions, and system-level follow-through.",
         "operating_principles": [
             "Keep the portfolio legible before expanding it",
             "Let cross-workspace signals route through one executive lane",
@@ -66,7 +66,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "execution_mode": "direct",
         "default_standup_kind": "workspace_sync",
         "workspace_sync_participants": ["Jean-Claude", "Neo", "Yoda"],
-        "description": "Public-signal execution system for source intake, reaction loops, content generation, and persona-grounded FEEZIE visibility.",
+        "description": "Executive-facing public-signal execution workspace for source intake, reaction loops, content generation, and persona-grounded FEEZIE visibility.",
         "operating_principles": [
             "Persona truth first, posting second",
             "Use live source signals before generic ideation",

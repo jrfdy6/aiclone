@@ -19,6 +19,8 @@ The goal is to make sure the system can:
 
 Brain must observe every active workspace, not only the public-facing `FEEZIE OS` lane. Workspaces return local state and execution proof to Brain; Brain returns digested context, standup decisions, PM work, and canonical-memory promotions through the shared exchange protocol.
 
+`FEEZIE OS` is the direct, executive-facing public workspace. The actual portfolio executive standup remains `shared_ops`, because system health, PM truth, automation drift, memory sync, and cross-workspace routing need a neutral lane that is not also the public content workspace.
+
 Reference:
 - [brain_workspace_exchange_protocol.md](/Users/neo/.openclaw/workspace/docs/brain_workspace_exchange_protocol.md)
 

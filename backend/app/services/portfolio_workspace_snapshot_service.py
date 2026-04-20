@@ -126,8 +126,21 @@ def _is_workspace_root_missing_blocker(value: Any) -> bool:
     return bool(text and "has no local artifact root yet" in text)
 
 
+def _is_non_actionable_status_surface(value: Any) -> bool:
+    text = _clean_text(value).lower()
+    if not text:
+        return True
+    if "no active blockers reported" in text:
+        return True
+    if "recent standups" in text and "0 blockers" in text and "no open pm cards" in text:
+        return True
+    if "open pm lane" in text and "no open pm cards" in text and "0 blockers" in text:
+        return True
+    return False
+
+
 def _filter_resolved_workspace_root_blockers(blockers: list[Any], *, root_exists: bool) -> list[str]:
-    cleaned = [_clean_text(item) for item in blockers if _clean_text(item)]
+    cleaned = [_clean_text(item) for item in blockers if _clean_text(item) and not _is_non_actionable_status_surface(item)]
     if not root_exists:
         return cleaned[:4]
     return [item for item in cleaned if not _is_workspace_root_missing_blocker(item)][:4]

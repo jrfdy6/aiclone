@@ -93,12 +93,14 @@ PM is the narrowest route. It requires concrete work, a clear owner, and a bound
 
 Brain must observe every active workspace, not only FEEZIE OS.
 
-FEEZIE OS remains identity-adjacent and public-facing, so it receives more strategic attention. That does not make it the only workspace Brain should see.
+FEEZIE OS remains identity-adjacent, executive-facing, and public-facing, so it receives more strategic attention. It is still a workspace lane, not the portfolio executive standup.
+
+The portfolio executive standup is `shared_ops`. It exists so cross-workspace decisions, automation health, PM truth, memory drift, and routing questions have one executive review lane instead of being pushed into FEEZIE by default.
 
 The portfolio snapshot should include:
 
-- `shared_ops`
-- `feezie-os` (canonical; `linkedin-os` is legacy alias only)
+- `shared_ops` as the Executive Standup / portfolio operating lane
+- `feezie-os` as the FEEZIE OS public-signal workspace (`linkedin-os` is legacy alias only)
 - `fusion-os`
 - `easyoutfitapp`
 - `ai-swag-store`
