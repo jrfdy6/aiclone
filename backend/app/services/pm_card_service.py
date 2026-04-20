@@ -32,6 +32,7 @@ AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
 AUTO_PROGRESS_REQUESTED_BY = "Codex PM Review Worker"
 AUTO_CONTRACT_RETRY_LIMIT = 2
 HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK = "fallback_watchdog_writeback"
+HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK = "linkedin_scheduled_writeback"
 HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_MARKERS = (
     "fallback_watchdog_latest.json",
     "memory/reports/fallback_watchdog_latest.json",
@@ -46,6 +47,13 @@ HOST_ACTION_AUTOMATION_WRITEBACK_PATTERNS = (
 PM_CARD_UUID_PATTERN = re.compile(
     r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
     re.IGNORECASE,
+)
+FEEZIE_QUEUE_ID_PATTERN = re.compile(r"\bFEEZIE-\d{3}\b", re.IGNORECASE)
+HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULER_PATTERNS = (
+    re.compile(r"\blinkedin\b", re.IGNORECASE),
+    re.compile(r"\bnative\s+scheduler\b", re.IGNORECASE),
+    re.compile(r"\bschedule(?:d|r|ing)?\b", re.IGNORECASE),
+    re.compile(r"\bqueue\b", re.IGNORECASE),
 )
 HOST_ACTION_PREFIX = re.compile(r"^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:host(?:\s+action)?)\s*:\s*(.+?)\s*$", re.IGNORECASE)
 HOST_ACTION_DELAYED_PATTERNS = (
@@ -417,6 +425,11 @@ def queue_host_action_automation(
     *,
     requested_by: str = "Neo",
     reason: str | None = None,
+    proof_items: list[str] | None = None,
+    scheduled_at: str | None = None,
+    asset_decision: str | None = None,
+    confirmation_path: str | None = None,
+    queue_id: str | None = None,
 ) -> Optional[PMCardActionResult]:
     card = get_card(card_id)
     if card is None:
@@ -430,9 +443,29 @@ def queue_host_action_automation(
     payload = dict(card.payload or {})
     existing_execution = dict(_execution_payload(card) or {})
     now = datetime.now(timezone.utc).isoformat()
+    if proof_items:
+        automation["proof_items"] = _dedupe_nonempty_strings(proof_items)
+    if scheduled_at:
+        automation["scheduled_at"] = str(scheduled_at).strip()
+    if asset_decision:
+        automation["asset_decision"] = str(asset_decision).strip()
+    elif automation.get("automation_id") == HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK:
+        automation["asset_decision"] = _optional_str(automation.get("asset_decision")) or "text-only"
+    if confirmation_path:
+        automation["confirmation_path"] = str(confirmation_path).strip()
+    if queue_id:
+        requested_queue_id = _extract_feezie_queue_id(str(queue_id))
+        existing_queue_id = _optional_str(automation.get("queue_id"))
+        if requested_queue_id and existing_queue_id and requested_queue_id != existing_queue_id:
+            raise ValueError(f"Requested queue_id {requested_queue_id} does not match host-action queue_id {existing_queue_id}.")
+        if requested_queue_id:
+            automation["queue_id"] = requested_queue_id
+    if reason:
+        automation["queue_reason"] = reason
     current_state = str(automation.get("state") or "ready").strip().lower()
     if current_state in {"queued", "running"}:
-        updated = card
+        payload["host_action_automation"] = automation
+        updated = update_card(card.id, PMCardUpdate(status=card.status, payload=payload)) or card
     else:
         automation.update(
             {
@@ -442,8 +475,6 @@ def queue_host_action_automation(
                 "last_error": None,
             }
         )
-        if reason:
-            automation["queue_reason"] = reason
 
         history = list(existing_execution.get("history") or [])
         history.append(
@@ -2639,29 +2670,58 @@ def _infer_host_action_automation(card: PMCard) -> dict[str, Any] | None:
     )
     if existing_id == HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK and source_card_id:
         is_watchdog_writeback = True
-    if not is_watchdog_writeback:
-        return None
+    if is_watchdog_writeback:
+        requires_host_confirmation = _optional_bool(existing_payload.get("requires_host_confirmation"), False)
+        return {
+            **existing_payload,
+            "automation_id": HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK,
+            "label": "Run fallback watchdog refresh and PM write-back",
+            "state": _optional_str(existing_payload.get("state")) or "ready",
+            "autonomous": _optional_bool(existing_payload.get("autonomous"), not requires_host_confirmation),
+            "autostart": _optional_bool(existing_payload.get("autostart"), not requires_host_confirmation),
+            "requires_host_confirmation": requires_host_confirmation,
+            "safety_class": _optional_str(existing_payload.get("safety_class")) or "local_durable_writeback",
+            "source_card_id": source_card_id,
+            "report_path": _optional_str(existing_payload.get("report_path"))
+            or "/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json",
+            "runner_id": "codex_workspace_execution",
+        }
 
-    requires_host_confirmation = _optional_bool(existing_payload.get("requires_host_confirmation"), False)
-    return {
-        **existing_payload,
-        "automation_id": HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK,
-        "label": "Run fallback watchdog refresh and PM write-back",
-        "state": _optional_str(existing_payload.get("state")) or "ready",
-        "autonomous": _optional_bool(existing_payload.get("autonomous"), not requires_host_confirmation),
-        "autostart": _optional_bool(existing_payload.get("autostart"), not requires_host_confirmation),
-        "requires_host_confirmation": requires_host_confirmation,
-        "safety_class": _optional_str(existing_payload.get("safety_class")) or "local_durable_writeback",
-        "source_card_id": source_card_id,
-        "report_path": _optional_str(existing_payload.get("report_path"))
-        or "/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json",
-        "runner_id": "codex_workspace_execution",
-    }
+    queue_id = _optional_str(existing_payload.get("queue_id")) or _extract_feezie_queue_id(text)
+    mentions_linkedin_scheduler = (
+        bool(queue_id)
+        and HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULER_PATTERNS[0].search(text) is not None
+        and any(pattern.search(text) for pattern in HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULER_PATTERNS[1:])
+    )
+    if existing_id == HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK and queue_id:
+        mentions_linkedin_scheduler = True
+    if mentions_linkedin_scheduler and queue_id:
+        return {
+            **existing_payload,
+            "automation_id": HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK,
+            "label": "Record scheduled LinkedIn banked post",
+            "state": _optional_str(existing_payload.get("state")) or "ready",
+            "autonomous": False,
+            "autostart": False,
+            "requires_host_confirmation": True,
+            "safety_class": _optional_str(existing_payload.get("safety_class")) or "host_confirmed_external_schedule_writeback",
+            "queue_id": queue_id,
+            "source_card_id": source_card_id,
+            "runner_id": "codex_workspace_execution",
+            "asset_decision": _optional_str(existing_payload.get("asset_decision")) or "text-only",
+        }
+
+    return None
 
 
 def _extract_pm_card_id_from_text(text: str) -> str | None:
     match = PM_CARD_UUID_PATTERN.search(text)
     return match.group(0) if match else None
+
+
+def _extract_feezie_queue_id(text: str) -> str | None:
+    match = FEEZIE_QUEUE_ID_PATTERN.search(text)
+    return match.group(0).upper() if match else None
 
 
 def _create_host_action_required_card(

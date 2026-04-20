@@ -119,6 +119,11 @@ async def run_host_action(card_id: UUID, payload: PMHostActionRunRequest):
             str(card_id),
             requested_by=payload.requested_by,
             reason=payload.reason,
+            proof_items=payload.proof_items,
+            scheduled_at=payload.scheduled_at,
+            asset_decision=payload.asset_decision,
+            confirmation_path=payload.confirmation_path,
+            queue_id=payload.queue_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

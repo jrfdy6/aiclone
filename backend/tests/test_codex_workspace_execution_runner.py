@@ -203,6 +203,39 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         assert selected is not None
         self.assertEqual(selected["id"], "autostart-card")
 
+    def test_select_runnable_host_action_automation_card_requires_linkedin_queue(self) -> None:
+        cards = [
+            {
+                "id": "linkedin-ready-card",
+                "status": "todo",
+                "updated_at": "2026-04-20T07:00:00Z",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "linkedin_scheduled_writeback",
+                        "state": "ready",
+                    }
+                },
+            },
+            {
+                "id": "linkedin-queued-card",
+                "status": "in_progress",
+                "updated_at": "2026-04-20T08:00:00Z",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "linkedin_scheduled_writeback",
+                        "state": "queued",
+                        "queued_at": "2026-04-20T08:00:00Z",
+                    }
+                },
+            },
+        ]
+
+        selected = self.runner._select_runnable_host_action_automation_card(cards)
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["id"], "linkedin-queued-card")
+
     def test_source_work_order_path_uses_latest_result_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -344,6 +377,136 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         self.assertEqual(writer_statuses, ["blocked", "done"])
         self.assertEqual(watchdog_runs, 2)
         self.assertEqual(result["status"], "ok")
+
+    def test_linkedin_scheduled_writeback_records_receipt_docs_and_closes_card(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            linkedin_root = temp_root / "workspaces" / "linkedin-content-os"
+            schedule_path = linkedin_root / "docs" / "publishing_schedule_2026-04-11.md"
+            queue_path = linkedin_root / "drafts" / "queue_01.md"
+            analytics_log = linkedin_root / "analytics" / "2026-04-27_feezie-008" / "log_template.md"
+            release_packet = linkedin_root / "docs" / "release_packets" / "feezie-008_schedule_packet_20260419.md"
+            schedule_path.parent.mkdir(parents=True)
+            queue_path.parent.mkdir(parents=True)
+            analytics_log.parent.mkdir(parents=True)
+            release_packet.parent.mkdir(parents=True)
+            schedule_path.write_text(
+                "\n".join(
+                    [
+                        "### Slot 8 - FEEZIE-008 - Saying the plan breaks in execution",
+                        "#### Slot 8 run log (fill when scheduled)",
+                        "- Scheduled timestamp: __________________ (ET)",
+                        "- Asset decision: __________________ (text-only / approved leadership or planning media path)",
+                        "- LinkedIn confirmation saved to: `workspaces/linkedin-content-os/analytics/2026-04-27_feezie-008/confirmation.png`",
+                        "- Analytics note path: `workspaces/linkedin-content-os/analytics/2026-04-27_feezie-008/log_template.md`",
+                        "- Notes / drift: ______________________________________",
+                        "### Slot 9 - Next",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            queue_path.write_text(
+                "\n".join(
+                    [
+                        "### FEEZIE-008 - Saying the plan breaks in execution",
+                        "- Release packet: `docs/release_packets/feezie-008_schedule_packet_20260419.md`",
+                        "- Scheduling status: Packaged for scheduling; host should queue the LinkedIn post.",
+                        "- Prep checklist:",
+                        "  - Default to text-only.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            analytics_log.write_text(
+                "\n".join(
+                    [
+                        "# FEEZIE-008 Analytics Log - Template (Slot 8)",
+                        "",
+                        "## Publish details",
+                        "- Scheduled timestamp: __________________ (ET)",
+                        "- Actual go-live timestamp: __________________ (ET)",
+                        "- Asset decision: __________________ (text-only / approved leadership or planning media path)",
+                        "- Metric/proof decision: __________________ (copy unchanged / verified metric added / media added)",
+                        "- LinkedIn URL: ______________________________________________",
+                        "- Confirmation artifact: `workspaces/linkedin-content-os/analytics/2026-04-27_feezie-008/confirmation.png`",
+                        "",
+                        "## Hand-off checklist",
+                        "- [ ] Update `docs/publishing_schedule_2026-04-11.md` with the real timestamp + asset note.",
+                        "- [ ] Update `drafts/queue_01.md#feezie-008` with the same information.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            release_packet.write_text(
+                "\n".join(
+                    [
+                        "# FEEZIE-008 Scheduling Packet - Slot 8 (Mon 27 Apr 2026 - 09:35 ET)",
+                        "",
+                        "## Run-log placeholder (fill after scheduling)",
+                        "| Field | Value |",
+                        "| --- | --- |",
+                        "| Scheduled timestamp | _e.g., 2026-04-27 09:35 ET_ |",
+                        "| Asset decision | _Text only / approved leadership or planning media path_ |",
+                        "| LinkedIn confirmation file | _analytics/2026-04-27_feezie-008/confirmation.png_ |",
+                        "| Analytics note | _analytics/2026-04-27_feezie-008/log_template.md_ |",
+                        "| Notes | _Any slot drift, metric decision, or media decision_ |",
+                        "",
+                        "## Checklist",
+                        "- [ ] Asset decision recorded (text-only or approved leadership/planning media path).",
+                        "- [ ] Publishing schedule + queue entry updated with exact timestamp and asset note after scheduling.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            card = {
+                "id": "host-card",
+                "title": "Host action required - Schedule FEEZIE-008",
+                "payload": {
+                    "workspace_key": "linkedin-os",
+                    "host_action_required": {
+                        "summary": "Queue FEEZIE-008 in LinkedIn's native scheduler for Monday, April 27, 2026 at 09:35 ET.",
+                        "steps": ["After scheduling, update the publishing schedule and queue entry."],
+                        "source_card_id": "source-card",
+                    },
+                    "host_action_automation": {
+                        "automation_id": "linkedin_scheduled_writeback",
+                        "queue_id": "FEEZIE-008",
+                        "source_card_id": "source-card",
+                        "asset_decision": "text-only",
+                    },
+                },
+            }
+
+            with mock.patch.object(self.runner, "WORKSPACE_ROOT", temp_root):
+                with mock.patch.object(self.runner, "_patch_host_action_automation", side_effect=lambda *_args, **_kwargs: card):
+                    with mock.patch.object(
+                        self.runner,
+                        "_fetch_json",
+                        return_value={"card": {"id": "host-card", "status": "done", "payload": card["payload"]}},
+                    ) as fetch_mock:
+                        result = self.runner._run_linkedin_scheduled_writeback_automation(
+                            {},
+                            "https://api.example.test",
+                            card,
+                            worker_id="worker-1",
+                            dry_run=False,
+                        )
+
+            receipt_path = temp_root / "workspaces" / "linkedin-content-os" / "analytics" / "2026-04-27_feezie-008" / "scheduled_receipt.json"
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(receipt["queue_id"], "FEEZIE-008")
+            self.assertEqual(receipt["scheduled_at_et"], "2026-04-27 09:35 ET")
+            self.assertFalse(receipt["screenshot_present"])
+            self.assertIn("2026-04-27 09:35 ET", schedule_path.read_text(encoding="utf-8"))
+            self.assertIn("Scheduled in LinkedIn for 2026-04-27 09:35 ET", queue_path.read_text(encoding="utf-8"))
+            self.assertIn("- [x] Update `docs/publishing_schedule_2026-04-11.md`", analytics_log.read_text(encoding="utf-8"))
+            self.assertIn("| Scheduled timestamp | 2026-04-27 09:35 ET |", release_packet.read_text(encoding="utf-8"))
+            self.assertTrue(fetch_mock.called)
 
     def test_parse_work_order_supports_direct_and_workspace_packets(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

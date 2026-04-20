@@ -1784,7 +1784,7 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(automation.get("source_card_id"), "12a16bba-8929-4986-852e-f84bb1ddfd2b")
         self.assertIs(automation.get("autostart"), True)
 
-    def test_external_host_action_does_not_expose_automation(self) -> None:
+    def test_linkedin_scheduled_host_action_exposes_confirmation_writeback_automation(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
             id="linkedin-host-action",
@@ -1816,7 +1816,16 @@ class PMCardServiceTests(unittest.TestCase):
 
         self.assertIsNotNone(decorated)
         assert decorated is not None
-        self.assertNotIn("host_action_automation", decorated.payload)
+        automation = decorated.payload.get("host_action_automation") or {}
+        self.assertEqual(automation.get("automation_id"), "linkedin_scheduled_writeback")
+        self.assertEqual(automation.get("label"), "Record scheduled LinkedIn banked post")
+        self.assertEqual(automation.get("queue_id"), "FEEZIE-008")
+        self.assertEqual(automation.get("source_card_id"), "e548283a-ecac-48f3-b98f-7bcb48dcb35d")
+        self.assertIs(automation.get("autonomous"), False)
+        self.assertIs(automation.get("autostart"), False)
+        self.assertIs(automation.get("requires_host_confirmation"), True)
+        self.assertEqual(automation.get("safety_class"), "host_confirmed_external_schedule_writeback")
+        self.assertEqual(automation.get("asset_decision"), "text-only")
 
     def test_closed_watchdog_host_action_without_existing_automation_stays_historical(self) -> None:
         now = datetime.now(timezone.utc)
@@ -1895,6 +1904,68 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(automation.get("automation_id"), "fallback_watchdog_writeback")
         self.assertEqual(automation.get("state"), "queued")
         self.assertEqual(automation.get("queued_by"), "Neo")
+        self.assertEqual(execution.get("state"), "host_action_automation_queued")
+        self.assertEqual(execution.get("executor_status"), "queued")
+        self.assertEqual(execution.get("assigned_runner"), "codex_workspace_execution")
+
+    def test_queue_linkedin_scheduled_host_action_records_host_context(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="linkedin-host-action-queue",
+            title="Host action required - Schedule FEEZIE-008",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Queue FEEZIE-008 in LinkedIn's native scheduler for Monday, April 27, 2026 at 09:35 ET.",
+                    "steps": [
+                        "Queue FEEZIE-008 in LinkedIn's native scheduler.",
+                        "After scheduling, update the publishing schedule with the actual scheduled timestamp.",
+                    ],
+                    "source_card_id": "e548283a-ecac-48f3-b98f-7bcb48dcb35d",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        current = {"card": card}
+
+        def fake_update(_card_id: str, patch: PMCardUpdate) -> PMCard:
+            current["card"] = current["card"].model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else current["card"].status,
+                    "payload": patch.payload if patch.payload is not None else current["card"].payload,
+                    "updated_at": now,
+                }
+            )
+            return current["card"]
+
+        with patch.object(pm_card_service, "get_card", side_effect=lambda _card_id: current["card"]):
+            with patch.object(pm_card_service, "update_card", side_effect=fake_update):
+                result = pm_card_service.queue_host_action_automation(
+                    card.id,
+                    requested_by="Neo",
+                    reason="Host clicked Scheduled in LinkedIn for FEEZIE-008.",
+                    proof_items=["Host confirmed LinkedIn scheduling from the PM card."],
+                    asset_decision="text-only",
+                    queue_id="FEEZIE-008",
+                )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "in_progress")
+        automation = result.card.payload.get("host_action_automation") or {}
+        execution = result.card.payload.get("execution") or {}
+        self.assertEqual(automation.get("automation_id"), "linkedin_scheduled_writeback")
+        self.assertEqual(automation.get("state"), "queued")
+        self.assertEqual(automation.get("queue_id"), "FEEZIE-008")
+        self.assertEqual(automation.get("asset_decision"), "text-only")
+        self.assertEqual(automation.get("proof_items"), ["Host confirmed LinkedIn scheduling from the PM card."])
+        self.assertEqual(automation.get("queue_reason"), "Host clicked Scheduled in LinkedIn for FEEZIE-008.")
         self.assertEqual(execution.get("state"), "host_action_automation_queued")
         self.assertEqual(execution.get("executor_status"), "queued")
         self.assertEqual(execution.get("assigned_runner"), "codex_workspace_execution")

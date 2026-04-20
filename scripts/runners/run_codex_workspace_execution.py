@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
@@ -29,6 +30,11 @@ SAFE_CODEX_CLI_MODEL = "gpt-5.4"
 DEFAULT_MODEL = SAFE_CODEX_CLI_MODEL
 DEFAULT_REASONING_EFFORT = "high"
 RUNNER_ID = "codex-workspace-execution"
+HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK = "fallback_watchdog_writeback"
+HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK = "linkedin_scheduled_writeback"
+LINKEDIN_WORKSPACE_RELATIVE_ROOT = Path("workspaces/linkedin-content-os")
+FEEZIE_QUEUE_ID_PATTERN = re.compile(r"\bFEEZIE-\d{3}\b", re.IGNORECASE)
+EASTERN_TZ = ZoneInfo("America/New_York")
 UNSUPPORTED_CODEX_CLI_MODELS = frozenset(
     {
         "gpt-5.1-codex",
@@ -213,16 +219,19 @@ def _automation_truthy(value: Any) -> bool:
 
 
 def _is_runnable_host_action_automation(automation: dict[str, Any]) -> bool:
-    if str(automation.get("automation_id") or "") != "fallback_watchdog_writeback":
-        return False
+    automation_id = str(automation.get("automation_id") or "")
     state = str(automation.get("state") or "ready").strip().lower()
-    if state == "queued":
-        return True
-    if state != "ready":
-        return False
-    return _automation_truthy(automation.get("autostart")) and not _automation_truthy(
-        automation.get("requires_host_confirmation")
-    )
+    if automation_id == HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK:
+        return state == "queued"
+    if automation_id == HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK:
+        if state == "queued":
+            return True
+        if state != "ready":
+            return False
+        return _automation_truthy(automation.get("autostart")) and not _automation_truthy(
+            automation.get("requires_host_confirmation")
+        )
+    return False
 
 
 def _select_runnable_host_action_automation_card(cards: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -427,6 +436,520 @@ def _run_command(command: list[str], *, timeout_seconds: int = 180) -> subproces
         timeout=timeout_seconds,
         check=False,
     )
+
+
+def _relative_workspace_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(WORKSPACE_ROOT.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _linkedin_workspace_root() -> Path:
+    return WORKSPACE_ROOT / LINKEDIN_WORKSPACE_RELATIVE_ROOT
+
+
+def _extract_feezie_queue_id(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        match = FEEZIE_QUEUE_ID_PATTERN.search(str(value))
+        if match:
+            return match.group(0).upper()
+    return None
+
+
+def _host_action_text_blob(card: dict[str, Any]) -> str:
+    payload = dict(card.get("payload") or {})
+    host_action = dict(payload.get("host_action_required") or {})
+    automation = dict(payload.get("host_action_automation") or {})
+    values: list[Any] = [
+        card.get("title"),
+        host_action.get("summary"),
+        host_action.get("source_card_title"),
+        host_action.get("source_result_summary"),
+        automation.get("queue_id"),
+        automation.get("queue_reason"),
+        automation.get("scheduled_at"),
+    ]
+    for key in ("steps", "proof_required"):
+        item = host_action.get(key)
+        if isinstance(item, list):
+            values.extend(item)
+    return "\n".join(str(item).strip() for item in values if str(item).strip())
+
+
+def _scheduled_timestamp_candidates(value: Any) -> list[str]:
+    raw = " ".join(str(value or "").replace("`", "").split())
+    if not raw:
+        return []
+    candidates = [raw]
+    month_names = (
+        "January|February|March|April|May|June|July|August|September|October|November|December"
+    )
+    day_names = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday"
+    short_months = "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
+    short_days = "Mon|Tue|Wed|Thu|Fri|Sat|Sun"
+    patterns = [
+        rf"\b(?:{day_names}),?\s+(?:{month_names})\s+\d{{1,2}},\s+\d{{4}}\s+at\s+\d{{1,2}}:\d{{2}}\s*ET\b",
+        rf"\b(?:{short_days}),?\s+\d{{1,2}}\s+(?:{short_months})\s+\d{{4}}\s*-\s*\d{{1,2}}:\d{{2}}\s*ET\b",
+        r"\b\d{4}-\d{2}-\d{2}[T\s]\d{1,2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?\b",
+        r"\b\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}\s*(?:ET)?\b",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, raw, flags=re.IGNORECASE):
+            candidate = match.group(0).strip()
+            if candidate not in candidates:
+                candidates.append(candidate)
+    return candidates
+
+
+def _parse_scheduled_at_et(*values: Any) -> datetime | None:
+    formats = (
+        "%A, %B %d, %Y at %H:%M ET",
+        "%A %B %d, %Y at %H:%M ET",
+        "%a, %d %b %Y - %H:%M ET",
+        "%a %d %b %Y - %H:%M ET",
+        "%Y-%m-%d %H:%M ET",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+    )
+    for value in values:
+        for candidate in _scheduled_timestamp_candidates(value):
+            normalized = candidate.replace("Sept", "Sep").strip()
+            iso_candidate = normalized
+            if re.match(r"^\d{4}-\d{2}-\d{2}[T\s]\d{1,2}:\d{2}", iso_candidate):
+                try:
+                    parsed = datetime.fromisoformat(iso_candidate.replace("Z", "+00:00"))
+                    if parsed.tzinfo is None:
+                        return parsed.replace(tzinfo=EASTERN_TZ)
+                    return parsed.astimezone(EASTERN_TZ)
+                except ValueError:
+                    pass
+            for date_format in formats:
+                try:
+                    return datetime.strptime(normalized, date_format).replace(tzinfo=EASTERN_TZ)
+                except ValueError:
+                    continue
+    return None
+
+
+def _format_scheduled_et(dt: datetime) -> str:
+    return dt.astimezone(EASTERN_TZ).strftime("%Y-%m-%d %H:%M ET")
+
+
+def _find_linkedin_release_packet(queue_slug: str) -> Path | None:
+    release_dir = _linkedin_workspace_root() / "docs" / "release_packets"
+    if not release_dir.exists():
+        return None
+    matches = sorted(
+        release_dir.glob(f"{queue_slug}_schedule_packet*.md"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return matches[0] if matches else None
+
+
+def _extract_slot_number(*values: Any) -> str | None:
+    for value in values:
+        match = re.search(r"\bSlot\s+(\d+)\b", str(value or ""), flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _replace_first_line(content: str, pattern: str, replacement: str) -> tuple[str, bool]:
+    updated, count = re.subn(pattern, replacement, content, count=1, flags=re.MULTILINE)
+    return updated, count > 0
+
+
+def _update_linkedin_schedule_doc(
+    path: Path,
+    *,
+    slot_number: str | None,
+    scheduled_display: str,
+    asset_decision: str,
+    receipt_rel: str,
+    confirmation_rel: str,
+    analytics_rel: str,
+    screenshot_exists: bool,
+) -> bool:
+    if not path.exists():
+        return False
+    content = path.read_text(encoding="utf-8")
+    confirmation_note = f"`{confirmation_rel}`" if screenshot_exists else "not captured; host confirmed via PM scheduled button"
+    heading_slot = slot_number or ""
+    new_block = (
+        f"#### Slot {heading_slot} run log (scheduled)\n"
+        f"- Scheduled timestamp: {scheduled_display}\n"
+        f"- Asset decision: {asset_decision}\n"
+        f"- LinkedIn confirmation saved to: {confirmation_note}\n"
+        f"- Scheduling receipt: `{receipt_rel}`\n"
+        f"- Analytics note path: `{analytics_rel}`\n"
+        "- Notes / drift: Host confirmed scheduling from the PM banked-post card; no extra metrics or media were added unless listed above.\n"
+    )
+    if slot_number:
+        pattern = rf"^####\s+Slot\s+{re.escape(slot_number)}\s+run log[^\n]*\n(?:^- .*(?:\n|$))*"
+        updated, changed = re.subn(pattern, new_block, content, count=1, flags=re.MULTILINE)
+    else:
+        updated, changed = re.subn(
+            r"^####\s+Slot\s+\d+\s+run log[^\n]*\n(?:^- .*(?:\n|$))*",
+            new_block.replace("Slot  run", "Slot run"),
+            content,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    if not changed:
+        return False
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _update_linkedin_queue_doc(
+    path: Path,
+    *,
+    queue_id: str,
+    scheduled_display: str,
+    asset_decision: str,
+    receipt_rel: str,
+) -> bool:
+    if not path.exists():
+        return False
+    content = path.read_text(encoding="utf-8")
+    heading = re.search(rf"^###\s+{re.escape(queue_id)}\b.*$", content, flags=re.IGNORECASE | re.MULTILINE)
+    if heading is None:
+        return False
+    next_heading = re.search(r"^###\s+", content[heading.end() :], flags=re.MULTILINE)
+    section_end = heading.end() + next_heading.start() if next_heading else len(content)
+    section = content[heading.start() : section_end]
+    status_line = (
+        f"- Scheduling status: Scheduled in LinkedIn for {scheduled_display}; "
+        f"asset decision: {asset_decision}; receipt: `{receipt_rel}`."
+    )
+    if re.search(r"^- Scheduling status:.*$", section, flags=re.MULTILINE):
+        updated_section = re.sub(r"^- Scheduling status:.*$", status_line, section, count=1, flags=re.MULTILINE)
+    else:
+        updated_section = f"{section.rstrip()}\n{status_line}\n"
+    updated = content[: heading.start()] + updated_section + content[section_end:]
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _update_linkedin_analytics_log(
+    path: Path,
+    *,
+    queue_id: str,
+    scheduled_display: str,
+    asset_decision: str,
+    receipt_rel: str,
+    confirmation_rel: str,
+    screenshot_exists: bool,
+) -> bool:
+    if path.exists():
+        content = path.read_text(encoding="utf-8")
+    else:
+        content = (
+            f"# {queue_id} Analytics Log\n\n"
+            "## Publish details\n"
+            "- Scheduled timestamp: __________________ (ET)\n"
+            "- Actual go-live timestamp: __________________ (ET)\n"
+            "- Asset decision: __________________ (text-only / approved leadership or planning media path)\n"
+            "- Metric/proof decision: __________________ (copy unchanged / verified metric added / media added)\n"
+            "- LinkedIn URL: ______________________________________________\n"
+            f"- Confirmation artifact: `workspaces/linkedin-content-os/analytics/{queue_id.lower()}/confirmation.png`\n\n"
+            "## Hand-off checklist\n"
+            "- [ ] Update `docs/publishing_schedule_2026-04-11.md` with the real timestamp + asset note.\n"
+            f"- [ ] Update `drafts/queue_01.md#{queue_id.lower()}` with the same information.\n"
+            "- [ ] Capture high-signal takeaways for the next FEEZIE retro/result write-back.\n"
+        )
+    confirmation_note = (
+        f"`{confirmation_rel}`; scheduling receipt: `{receipt_rel}`"
+        if screenshot_exists
+        else f"scheduling receipt `{receipt_rel}`; screenshot not captured; host confirmed via PM scheduled button"
+    )
+    replacements = {
+        "Scheduled timestamp": scheduled_display,
+        "Asset decision": asset_decision,
+        "Metric/proof decision": "copy unchanged; no verified metric added",
+        "Confirmation artifact": confirmation_note,
+    }
+    updated = content
+    for label, value in replacements.items():
+        updated, _ = _replace_first_line(updated, rf"^- {re.escape(label)}:.*$", f"- {label}: {value}")
+    updated = updated.replace(
+        "- [ ] Update `docs/publishing_schedule_2026-04-11.md` with the real timestamp + asset note.",
+        "- [x] Update `docs/publishing_schedule_2026-04-11.md` with the real timestamp + asset note.",
+    )
+    updated = re.sub(
+        r"- \[ \] Update `drafts/queue_01\.md#[^`]+` with the same information\.",
+        f"- [x] Update `drafts/queue_01.md#{queue_id.lower()}` with the same information.",
+        updated,
+        count=1,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _update_linkedin_release_packet(
+    path: Path | None,
+    *,
+    scheduled_display: str,
+    asset_decision: str,
+    receipt_rel: str,
+    confirmation_rel: str,
+    analytics_rel: str,
+    screenshot_exists: bool,
+) -> bool:
+    if path is None or not path.exists():
+        return False
+    content = path.read_text(encoding="utf-8")
+    confirmation_note = f"`{confirmation_rel}`" if screenshot_exists else f"`{receipt_rel}` (host confirmed; screenshot not captured)"
+    row_updates = {
+        "Scheduled timestamp": scheduled_display,
+        "Asset decision": asset_decision,
+        "LinkedIn confirmation file": confirmation_note,
+        "Analytics note": f"`{analytics_rel}`",
+        "Notes": "Host confirmed via PM scheduled button; copy unchanged unless the asset decision says otherwise.",
+    }
+    updated = content
+    for field, value in row_updates.items():
+        updated = re.sub(
+            rf"^\| {re.escape(field)} \|.*\|$",
+            f"| {field} | {value} |",
+            updated,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    updated = updated.replace(
+        "- [ ] Asset decision recorded (text-only or approved leadership/planning media path).",
+        "- [x] Asset decision recorded (text-only or approved leadership/planning media path).",
+    )
+    updated = updated.replace(
+        "- [ ] Publishing schedule + queue entry updated with exact timestamp and asset note after scheduling.",
+        "- [x] Publishing schedule + queue entry updated with exact timestamp and asset note after scheduling.",
+    )
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def _resolve_linkedin_confirmation_path(raw_path: str | None, analytics_dir: Path) -> Path:
+    default_path = analytics_dir / "confirmation.png"
+    if not raw_path:
+        return default_path
+    candidate = Path(raw_path).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    cleaned = str(candidate)
+    if cleaned.startswith("workspaces/"):
+        return WORKSPACE_ROOT / cleaned
+    return _linkedin_workspace_root() / cleaned
+
+
+def _run_linkedin_scheduled_writeback_automation(
+    imports: dict[str, Any],
+    api_url: str,
+    card: dict[str, Any],
+    *,
+    worker_id: str,
+    dry_run: bool,
+) -> dict[str, Any]:
+    payload = dict(card.get("payload") or {})
+    automation = dict(payload.get("host_action_automation") or {})
+    host_action = dict(payload.get("host_action_required") or {})
+    text_blob = _host_action_text_blob(card)
+    queue_id = _extract_feezie_queue_id(automation.get("queue_id"), text_blob)
+    if not queue_id:
+        raise RuntimeError("LinkedIn scheduled write-back automation is missing a FEEZIE queue id.")
+    scheduled_at = _parse_scheduled_at_et(
+        automation.get("scheduled_at"),
+        automation.get("queue_reason"),
+        text_blob,
+    )
+    if scheduled_at is None:
+        raise RuntimeError(
+            f"Could not determine the scheduled timestamp for {queue_id}. Add the timestamp to the optional note and rerun."
+        )
+    scheduled_display = _format_scheduled_et(scheduled_at)
+    asset_decision = str(automation.get("asset_decision") or "text-only").strip() or "text-only"
+
+    if dry_run:
+        return {
+            "status": "ok",
+            "summary": f"Dry run selected LinkedIn scheduled write-back for {queue_id} at {scheduled_display}.",
+            "artifacts": [],
+            "proof_items": [],
+            "metadata": {"dry_run": True, "queue_id": queue_id, "scheduled_at": scheduled_display},
+        }
+
+    running_card = _patch_host_action_automation(
+        imports,
+        api_url,
+        card,
+        state="running",
+        worker_id=worker_id,
+        status="in_progress",
+    )
+
+    workspace_root = _linkedin_workspace_root()
+    queue_slug = queue_id.lower()
+    release_packet_path = _find_linkedin_release_packet(queue_slug)
+    release_text = release_packet_path.read_text(encoding="utf-8") if release_packet_path and release_packet_path.exists() else ""
+    slot_number = _extract_slot_number(release_text, text_blob)
+    analytics_dir = workspace_root / "analytics" / f"{scheduled_at.astimezone(EASTERN_TZ).date().isoformat()}_{queue_slug}"
+    analytics_log_path = analytics_dir / "log_template.md"
+    schedule_path = workspace_root / "docs" / "publishing_schedule_2026-04-11.md"
+    queue_path = workspace_root / "drafts" / "queue_01.md"
+    confirmation_path = _resolve_linkedin_confirmation_path(str(automation.get("confirmation_path") or ""), analytics_dir)
+    receipt_path = analytics_dir / "scheduled_receipt.json"
+
+    receipt_rel = _relative_workspace_path(receipt_path)
+    analytics_rel = _relative_workspace_path(analytics_log_path)
+    confirmation_rel = _relative_workspace_path(confirmation_path)
+    screenshot_exists = confirmation_path.exists()
+
+    updated_paths: list[str] = []
+    schedule_updated = _update_linkedin_schedule_doc(
+        schedule_path,
+        slot_number=slot_number,
+        scheduled_display=scheduled_display,
+        asset_decision=asset_decision,
+        receipt_rel=receipt_rel,
+        confirmation_rel=confirmation_rel,
+        analytics_rel=analytics_rel,
+        screenshot_exists=screenshot_exists,
+    )
+    if schedule_updated:
+        updated_paths.append(_relative_workspace_path(schedule_path))
+    queue_updated = _update_linkedin_queue_doc(
+        queue_path,
+        queue_id=queue_id,
+        scheduled_display=scheduled_display,
+        asset_decision=asset_decision,
+        receipt_rel=receipt_rel,
+    )
+    if queue_updated:
+        updated_paths.append(_relative_workspace_path(queue_path))
+    analytics_updated = _update_linkedin_analytics_log(
+        analytics_log_path,
+        queue_id=queue_id,
+        scheduled_display=scheduled_display,
+        asset_decision=asset_decision,
+        receipt_rel=receipt_rel,
+        confirmation_rel=confirmation_rel,
+        screenshot_exists=screenshot_exists,
+    )
+    if analytics_updated:
+        updated_paths.append(analytics_rel)
+    release_updated = _update_linkedin_release_packet(
+        release_packet_path,
+        scheduled_display=scheduled_display,
+        asset_decision=asset_decision,
+        receipt_rel=receipt_rel,
+        confirmation_rel=confirmation_rel,
+        analytics_rel=analytics_rel,
+        screenshot_exists=screenshot_exists,
+    )
+    if release_updated:
+        assert release_packet_path is not None
+        updated_paths.append(_relative_workspace_path(release_packet_path))
+
+    missing_writebacks: list[str] = []
+    if not schedule_updated:
+        missing_writebacks.append(_relative_workspace_path(schedule_path))
+    if not queue_updated:
+        missing_writebacks.append(_relative_workspace_path(queue_path))
+    if not analytics_updated:
+        missing_writebacks.append(analytics_rel)
+    if missing_writebacks:
+        raise RuntimeError(
+            "LinkedIn scheduled write-back did not update required evidence paths: "
+            + ", ".join(missing_writebacks)
+        )
+
+    receipt_payload = {
+        "schema_version": "linkedin_scheduled_writeback/v1",
+        "queue_id": queue_id,
+        "scheduled_at_et": scheduled_display,
+        "scheduled_at_utc": _iso(scheduled_at),
+        "asset_decision": asset_decision,
+        "source_card_id": str(automation.get("source_card_id") or host_action.get("source_card_id") or ""),
+        "host_card_id": str(card.get("id") or ""),
+        "host_confirmed_at": _iso(_now()),
+        "confirmation_method": "host_clicked_scheduled_button",
+        "confirmation_path": confirmation_rel,
+        "screenshot_present": screenshot_exists,
+        "release_packet_path": _relative_workspace_path(release_packet_path) if release_packet_path else None,
+        "publishing_schedule_path": _relative_workspace_path(schedule_path),
+        "queue_path": _relative_workspace_path(queue_path),
+        "analytics_log_path": analytics_rel,
+        "updated_paths": sorted(set(updated_paths + [receipt_rel])),
+        "note": "This receipt records host confirmation after the post was scheduled in LinkedIn; it does not claim autonomous LinkedIn UI access.",
+    }
+    _write_json(receipt_path, receipt_payload)
+
+    proof_items = [
+        f"{queue_id} scheduled in LinkedIn for {scheduled_display}; asset decision: {asset_decision}.",
+        f"Scheduling receipt: {receipt_rel}.",
+        f"Publishing schedule updated: {_relative_workspace_path(schedule_path)}.",
+        f"Queue entry updated: {_relative_workspace_path(queue_path)}.",
+        f"Analytics log updated: {analytics_rel}.",
+    ]
+    if release_packet_path:
+        proof_items.append(f"Release packet run log updated: {_relative_workspace_path(release_packet_path)}.")
+    if screenshot_exists:
+        proof_items.append(f"LinkedIn confirmation screenshot present: {confirmation_rel}.")
+    else:
+        proof_items.append("LinkedIn screenshot not captured; proof is the host-confirmed scheduled button plus the scheduling receipt.")
+    for item in automation.get("proof_items") or []:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in proof_items:
+            proof_items.append(cleaned)
+
+    close_result = _fetch_json(
+        f"{api_url}/api/pm/cards/{card['id']}/actions",
+        method="POST",
+        payload={
+            "action": "approve",
+            "requested_by": "Host Action Automation",
+            "reason": (
+                f"Host-confirmed LinkedIn schedule write-back complete for {queue_id}. "
+                f"Scheduled timestamp: {scheduled_display}. Asset decision: {asset_decision}. "
+                f"Scheduling receipt: {receipt_rel}."
+            ),
+            "resolution_mode": "close_only",
+            "proof_items": proof_items,
+        },
+    )
+    closed_card = dict(close_result.get("card") or {}) if isinstance(close_result, dict) else {}
+    _patch_host_action_automation(
+        imports,
+        api_url,
+        closed_card or running_card,
+        state="completed",
+        worker_id=worker_id,
+        proof_items=proof_items,
+        status="done",
+    )
+    artifacts = [str(receipt_path), str(schedule_path), str(queue_path), str(analytics_log_path)]
+    if release_packet_path:
+        artifacts.append(str(release_packet_path))
+    return {
+        "status": "ok",
+        "summary": f"Recorded host-confirmed LinkedIn schedule for {queue_id} at {scheduled_display} and closed the host card with proof.",
+        "artifacts": artifacts,
+        "proof_items": proof_items,
+        "metadata": {
+            "queue_id": queue_id,
+            "host_card_id": card.get("id"),
+            "source_card_id": receipt_payload["source_card_id"],
+            "scheduled_at_et": scheduled_display,
+            "receipt_path": receipt_rel,
+            "screenshot_present": screenshot_exists,
+            "close_status": dict(close_result.get("card") or {}).get("status") if isinstance(close_result, dict) else None,
+        },
+    }
 
 
 def _load_saved_watchdog_report() -> dict[str, Any]:
@@ -1285,13 +1808,25 @@ def main() -> int:
             },
         )
         try:
-            automation_result = _run_fallback_watchdog_writeback_automation(
-                imports,
-                args.api_url.rstrip("/"),
-                selected_host_action,
-                worker_id=args.worker_id,
-                dry_run=args.dry_run,
-            )
+            automation_id = str(automation.get("automation_id") or "")
+            if automation_id == HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK:
+                automation_result = _run_linkedin_scheduled_writeback_automation(
+                    imports,
+                    args.api_url.rstrip("/"),
+                    selected_host_action,
+                    worker_id=args.worker_id,
+                    dry_run=args.dry_run,
+                )
+            elif automation_id == HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK:
+                automation_result = _run_fallback_watchdog_writeback_automation(
+                    imports,
+                    args.api_url.rstrip("/"),
+                    selected_host_action,
+                    worker_id=args.worker_id,
+                    dry_run=args.dry_run,
+                )
+            else:
+                raise RuntimeError(f"Unsupported host action automation: {automation_id or 'missing'}")
             status = "ok"
             error = None
         except Exception as exc:

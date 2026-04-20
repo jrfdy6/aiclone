@@ -108,3 +108,8 @@ class PMCardActionResult(BaseModel):
 class PMHostActionRunRequest(BaseModel):
     requested_by: str = "Neo"
     reason: Optional[str] = None
+    proof_items: list[str] = Field(default_factory=list)
+    scheduled_at: Optional[str] = None
+    asset_decision: Optional[str] = None
+    confirmation_path: Optional[str] = None
+    queue_id: Optional[str] = None

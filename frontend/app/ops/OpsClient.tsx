@@ -441,6 +441,14 @@ type PMCardActionOptions = {
   proofItems?: string[];
 };
 
+type HostActionAutomationRunOptions = {
+  proofItems?: string[];
+  scheduledAt?: string;
+  assetDecision?: string;
+  confirmationPath?: string;
+  queueId?: string;
+};
+
 type OwnerReviewDecision = 'approve' | 'revise' | 'park';
 
 type OwnerReviewSystemAssessment = {
@@ -516,6 +524,11 @@ type HostActionAutomationPayload = {
   requires_host_confirmation?: boolean | string | null;
   safety_class?: string | null;
   source_card_id?: string | null;
+  queue_id?: string | null;
+  scheduled_at?: string | null;
+  asset_decision?: string | null;
+  confirmation_path?: string | null;
+  proof_items?: string[] | null;
   report_path?: string | null;
   runner_id?: string | null;
   queued_at?: string | null;
@@ -1868,13 +1881,18 @@ export default function OpsClient({
   );
 
   const runHostActionAutomation = useCallback(
-    async (cardId: string, reason?: string) => {
+    async (cardId: string, reason?: string, options?: HostActionAutomationRunOptions) => {
       const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/host-action/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           requested_by: 'Neo',
           reason,
+          proof_items: options?.proofItems ?? [],
+          scheduled_at: options?.scheduledAt,
+          asset_decision: options?.assetDecision,
+          confirmation_path: options?.confirmationPath,
+          queue_id: options?.queueId,
         }),
       });
       if (!response.ok) {
@@ -2581,7 +2599,7 @@ function PMBoardPanel({
   queueError: string | null;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
-  onRunHostActionAutomation: (cardId: string, reason?: string) => Promise<PMCardActionResult>;
+  onRunHostActionAutomation: (cardId: string, reason?: string, options?: HostActionAutomationRunOptions) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
   workspaceFiles: WorkspaceFile[];
@@ -3272,7 +3290,7 @@ function PMCardDetailModal({
   onSelectCard: (cardId: string | null) => void;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
-  onRunHostActionAutomation: (cardId: string, reason?: string) => Promise<PMCardActionResult>;
+  onRunHostActionAutomation: (cardId: string, reason?: string, options?: HostActionAutomationRunOptions) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
   workspaceFiles: WorkspaceFile[];
@@ -3306,15 +3324,17 @@ function PMCardDetailModal({
       ? (payload.host_action_automation as HostActionAutomationPayload)
       : null;
   const hostActionAutomationState = String(hostActionAutomation?.state ?? '').trim().toLowerCase();
-  const canRunHostActionAutomation = hostActionAutomation?.automation_id === 'fallback_watchdog_writeback';
+  const isFallbackWatchdogAutomation = hostActionAutomation?.automation_id === 'fallback_watchdog_writeback';
+  const isLinkedInScheduledWritebackAutomation = hostActionAutomation?.automation_id === 'linkedin_scheduled_writeback';
+  const canRunHostActionAutomation = isFallbackWatchdogAutomation || isLinkedInScheduledWritebackAutomation;
   const hostActionAutomationAutostart =
-    canRunHostActionAutomation &&
+    isFallbackWatchdogAutomation &&
     (hostActionAutomation?.autostart === true || String(hostActionAutomation?.autostart ?? '').trim().toLowerCase() === 'true');
   const hostActionAutomationNeedsConfirmation =
     hostActionAutomation?.requires_host_confirmation === true ||
     String(hostActionAutomation?.requires_host_confirmation ?? '').trim().toLowerCase() === 'true';
   const hostActionAutomationPending =
-    canRunHostActionAutomation &&
+    isFallbackWatchdogAutomation &&
     hostActionAutomationAutostart &&
     !hostActionAutomationNeedsConfirmation &&
     (!hostActionAutomationState || hostActionAutomationState === 'ready');
@@ -3439,11 +3459,15 @@ function PMCardDetailModal({
     !effectiveNextCardTitle;
   const validationOutcomeText = isHostActionCard
     ? canRunHostActionAutomation
-      ? hostActionAutomationQueued
-        ? `Host automation is ${hostActionAutomationState}. The local runner will refresh the watchdog report, run PM write-back, and close this host card with proof.`
-        : hostActionAutomationPending
-          ? 'This host step is marked autonomous. The local runner will refresh the watchdog report, write the PM result back, and close this host card with proof without host confirmation.'
-        : 'This host step can be automated. Running it queues the local runner to refresh the watchdog report, write the PM result back, and close this host card with proof.'
+      ? isLinkedInScheduledWritebackAutomation
+        ? hostActionAutomationQueued
+          ? `LinkedIn schedule write-back is ${hostActionAutomationState}. The local runner will record the receipt, update the run logs, and close this card with proof.`
+          : 'After this post is scheduled in LinkedIn, this queues the local runner to record the receipt, update the run logs, and close this card with proof.'
+        : hostActionAutomationQueued
+          ? `Host automation is ${hostActionAutomationState}. The local runner will refresh the watchdog report, run PM write-back, and close this host card with proof.`
+          : hostActionAutomationPending
+            ? 'This host step is marked autonomous. The local runner will refresh the watchdog report, write the PM result back, and close this host card with proof without host confirmation.'
+          : 'This host step can be automated. Running it queues the local runner to refresh the watchdog report, write the PM result back, and close this host card with proof.'
       : hostActionFollowupPayload?.summary
       ? `If you mark this complete, PM will close this host-action card and create the next host step: "${hostActionFollowupPayload.summary}". If the step cannot happen yet, you can send it back into system work or block it.`
       : 'If you mark this complete, PM will close this host-action card and remove it from active work. If the step cannot happen yet, you can send it back into system work or block it.'
@@ -4191,7 +4215,26 @@ function PMCardDetailModal({
       setActionError(null);
       setActionFeedback(null);
       if (canRunHostActionAutomation) {
-        const result = await onRunHostActionAutomation(card.id, resolutionNote.trim() || undefined);
+        const trimmedNote = resolutionNote.trim();
+        const automationOptions: HostActionAutomationRunOptions | undefined =
+          isLinkedInScheduledWritebackAutomation && bankedLinkedInPost
+            ? {
+                queueId: bankedLinkedInPost.queueId,
+                assetDecision: hostActionAutomation?.asset_decision || 'text-only',
+                proofItems: [
+                  `${bankedLinkedInPost.queueId} was host-confirmed as scheduled in LinkedIn from the PM banked-post card.`,
+                  bankedLinkedInPost.sourcePath ? `Banked source copy: ${bankedLinkedInPost.sourcePath}.` : '',
+                ].filter((item) => item.trim().length > 0),
+              }
+            : undefined;
+        const result = await onRunHostActionAutomation(
+          card.id,
+          trimmedNote ||
+            (isLinkedInScheduledWritebackAutomation && bankedLinkedInPost
+              ? `Host clicked Scheduled in LinkedIn for ${bankedLinkedInPost.queueId}.`
+              : undefined),
+          automationOptions,
+        );
         setResolutionInputsDirty(false);
         const nextState =
           result.card.payload?.host_action_automation && typeof result.card.payload.host_action_automation === 'object'
@@ -4199,7 +4242,9 @@ function PMCardDetailModal({
             : 'queued';
         setActionFeedback(
           nextState === 'queued' || nextState === 'running'
-            ? `Queued host automation for ${displayCardTitle}. The local runner will close this card with proof when it finishes.`
+            ? isLinkedInScheduledWritebackAutomation
+              ? `Queued LinkedIn schedule write-back for ${displayCardTitle}. The local runner will record the receipt and close this card with proof.`
+              : `Queued host automation for ${displayCardTitle}. The local runner will close this card with proof when it finishes.`
             : `Updated host automation for ${displayCardTitle}.`,
         );
         return;
@@ -4595,7 +4640,7 @@ function PMCardDetailModal({
             <div style={{ display: 'grid', gap: '12px' }}>
               <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
                 {bankedLinkedInPost
-                  ? 'This post is banked. Copy it, open LinkedIn, paste it into the composer, then mark the card done after you post or schedule it.'
+                  ? 'This post is banked. Copy it into LinkedIn, schedule it there, then queue the schedule write-back from this card.'
                   : 'The system already finished the internal work. This card is only for the external host step that still needs to happen.'}
               </p>
               {hostActionFollowupPayload?.summary ? (
@@ -4718,7 +4763,7 @@ function PMCardDetailModal({
               </label>
               <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
                 {bankedLinkedInPost
-                  ? 'No screenshot or run-log ritual is required from this card. Mark it done when the post has left the bank and is posted or scheduled in LinkedIn.'
+                  ? 'The runner records the scheduling receipt, updates the publishing schedule, queue, analytics log, and release packet, then closes this card with proof.'
                   : 'Use this card as a simple host confirmation. The evidence list is here for context, not as a form you have to fill out.'}
               </p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -4735,11 +4780,17 @@ function PMCardDetailModal({
                     : canRunHostActionAutomation
                       ? hostActionAutomationQueued
                         ? hostActionAutomationState === 'running'
-                          ? 'Host automation running'
-                          : 'Host automation queued'
+                          ? isLinkedInScheduledWritebackAutomation
+                            ? 'Schedule write-back running'
+                            : 'Host automation running'
+                          : isLinkedInScheduledWritebackAutomation
+                            ? 'Schedule write-back queued'
+                            : 'Host automation queued'
                         : hostActionAutomationPending
                           ? 'Autonomous run pending'
-                        : 'Run host automation'
+                        : isLinkedInScheduledWritebackAutomation
+                          ? 'Scheduled in LinkedIn'
+                          : 'Run host automation'
                       : bankedLinkedInPost
                         ? 'Done, posted or queued'
                         : 'Yes, host step complete'}
