@@ -99,6 +99,103 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         self.assertEqual(entry["execution_packet_path"], "/tmp/target-card.json")
         self.assertEqual(entry["executor_status"], "queued")
 
+    def test_select_queued_host_action_automation_card_picks_oldest_queued_card(self) -> None:
+        cards = [
+            {
+                "id": "ready-card",
+                "status": "todo",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "fallback_watchdog_writeback",
+                        "state": "ready",
+                        "queued_at": "2026-04-20T09:00:00Z",
+                    }
+                },
+            },
+            {
+                "id": "newer-queued-card",
+                "status": "in_progress",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "fallback_watchdog_writeback",
+                        "state": "queued",
+                        "queued_at": "2026-04-20T10:00:00Z",
+                    }
+                },
+            },
+            {
+                "id": "oldest-queued-card",
+                "status": "in_progress",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "fallback_watchdog_writeback",
+                        "state": "queued",
+                        "queued_at": "2026-04-20T08:00:00Z",
+                    }
+                },
+            },
+            {
+                "id": "closed-card",
+                "status": "done",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "fallback_watchdog_writeback",
+                        "state": "queued",
+                        "queued_at": "2026-04-20T07:00:00Z",
+                    }
+                },
+            },
+        ]
+
+        selected = self.runner._select_queued_host_action_automation_card(cards)
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["id"], "oldest-queued-card")
+
+    def test_source_work_order_path_uses_latest_result_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            work_order = temp_root / "dispatch" / "20260420T102400Z_jean_claude_work_order.json"
+            work_order.parent.mkdir(parents=True, exist_ok=True)
+            work_order.write_text("{}", encoding="utf-8")
+            source_card = {
+                "id": "source-card",
+                "payload": {
+                    "latest_execution_result": {
+                        "artifacts": [
+                            str(temp_root / "runner-result.json"),
+                            str(work_order),
+                        ]
+                    }
+                },
+            }
+
+            resolved = self.runner._source_work_order_path(source_card)
+
+        self.assertEqual(resolved, work_order)
+
+    def test_latest_result_artifact_prefers_explicit_result_paths(self) -> None:
+        source_card = {
+            "id": "source-card",
+            "payload": {
+                "latest_execution_result": {
+                    "result_path": "/tmp/new-result.json",
+                    "memo_path": "/tmp/new-result_execution_result.md",
+                    "artifacts": [
+                        "/tmp/source-work-order.json",
+                        "/tmp/older-result_execution_result.md",
+                    ],
+                }
+            },
+        }
+
+        self.assertEqual(self.runner._latest_result_artifact(source_card, ".json"), "/tmp/new-result.json")
+        self.assertEqual(
+            self.runner._latest_result_artifact(source_card, "_execution_result.md"),
+            "/tmp/new-result_execution_result.md",
+        )
+
     def test_parse_work_order_supports_direct_and_workspace_packets(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

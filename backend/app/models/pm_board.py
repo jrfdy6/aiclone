@@ -103,3 +103,8 @@ class PMCardActionResult(BaseModel):
     card: PMCard
     queue_entry: Optional[ExecutionQueueEntry] = None
     successor_card: Optional[PMCard] = None
+
+
+class PMHostActionRunRequest(BaseModel):
+    requested_by: str = "Neo"
+    reason: Optional[str] = None

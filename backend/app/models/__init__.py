@@ -52,6 +52,7 @@ from .pm_board import (
     PMCardCreate,
     PMCardDispatchRequest,
     PMCardDispatchResult,
+    PMHostActionRunRequest,
     PMCardUpdate,
 )
 from .standups import (
@@ -129,6 +130,7 @@ __all__ = [
     "PMCardCreate",
     "PMCardDispatchRequest",
     "PMCardDispatchResult",
+    "PMHostActionRunRequest",
     "PMCardUpdate",
     "ExecutionQueueEntry",
     "StandupCreate",

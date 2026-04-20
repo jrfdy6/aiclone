@@ -507,6 +507,19 @@ type HostActionRequiredPayload = {
   created_at?: string | null;
 };
 
+type HostActionAutomationPayload = {
+  automation_id?: string | null;
+  label?: string | null;
+  state?: string | null;
+  source_card_id?: string | null;
+  report_path?: string | null;
+  runner_id?: string | null;
+  queued_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  last_error?: string | null;
+};
+
 type HostActionProofField = {
   kind?: string | null;
   label?: string | null;
@@ -1850,6 +1863,27 @@ export default function OpsClient({
     [loadTelemetry],
   );
 
+  const runHostActionAutomation = useCallback(
+    async (cardId: string, reason?: string) => {
+      const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/host-action/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requested_by: 'Neo',
+          reason,
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => response.statusText);
+        throw new Error(`${response.status} ${response.statusText}: ${text}`);
+      }
+      const result = (await response.json()) as PMCardActionResult;
+      await loadTelemetry();
+      return result;
+    },
+    [loadTelemetry],
+  );
+
   const actOnOwnerReviewCard = useCallback(
     async (cardId: string, decision: OwnerReviewDecision, notes: string) => {
       const response = await fetch(`${API_URL}/api/pm/cards/${cardId}/owner-review`, {
@@ -2037,6 +2071,7 @@ export default function OpsClient({
           queueError={sectionErrors.executionQueue}
           onDispatch={dispatchPmCard}
           onActOnPmCard={actOnPmCard}
+          onRunHostActionAutomation={runHostActionAutomation}
           onActOnOwnerReviewCard={actOnOwnerReviewCard}
           onOpenArtifactPath={openArtifactPath}
           workspaceFiles={effectiveWorkspaceFiles}
@@ -2525,6 +2560,7 @@ function PMBoardPanel({
   queueError,
   onDispatch,
   onActOnPmCard,
+  onRunHostActionAutomation,
   onActOnOwnerReviewCard,
   onOpenArtifactPath,
   workspaceFiles,
@@ -2541,6 +2577,7 @@ function PMBoardPanel({
   queueError: string | null;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
+  onRunHostActionAutomation: (cardId: string, reason?: string) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
   workspaceFiles: WorkspaceFile[];
@@ -3199,6 +3236,7 @@ function PMBoardPanel({
           onSelectCard={(cardId) => setSelectedBoardCardId(cardId)}
           onDispatch={onDispatch}
           onActOnPmCard={onActOnPmCard}
+          onRunHostActionAutomation={onRunHostActionAutomation}
           onActOnOwnerReviewCard={onActOnOwnerReviewCard}
           onOpenArtifactPath={onOpenArtifactPath}
           workspaceFiles={workspaceFiles}
@@ -3217,6 +3255,7 @@ function PMCardDetailModal({
   onSelectCard,
   onDispatch,
   onActOnPmCard,
+  onRunHostActionAutomation,
   onActOnOwnerReviewCard,
   onOpenArtifactPath,
   workspaceFiles,
@@ -3229,6 +3268,7 @@ function PMCardDetailModal({
   onSelectCard: (cardId: string | null) => void;
   onDispatch: (cardId: string, targetAgent?: string) => Promise<PMCardDispatchResult>;
   onActOnPmCard: (cardId: string, action: 'approve' | 'return' | 'blocked', options?: PMCardActionOptions) => Promise<PMCardActionResult>;
+  onRunHostActionAutomation: (cardId: string, reason?: string) => Promise<PMCardActionResult>;
   onActOnOwnerReviewCard: (cardId: string, decision: OwnerReviewDecision, notes: string) => Promise<OwnerReviewActionResult>;
   onOpenArtifactPath: (path: string) => void;
   workspaceFiles: WorkspaceFile[];
@@ -3257,6 +3297,13 @@ function PMCardDetailModal({
     payload.host_action_followup && typeof payload.host_action_followup === 'object'
       ? (payload.host_action_followup as HostActionRequiredPayload)
       : null;
+  const hostActionAutomation =
+    payload.host_action_automation && typeof payload.host_action_automation === 'object'
+      ? (payload.host_action_automation as HostActionAutomationPayload)
+      : null;
+  const hostActionAutomationState = String(hostActionAutomation?.state ?? '').trim().toLowerCase();
+  const canRunHostActionAutomation = hostActionAutomation?.automation_id === 'fallback_watchdog_writeback';
+  const hostActionAutomationQueued = canRunHostActionAutomation && ['queued', 'running'].includes(hostActionAutomationState);
   const hostActionProofRequired = Array.isArray(hostActionPayload?.proof_required)
     ? hostActionPayload.proof_required.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -3375,7 +3422,11 @@ function PMCardDetailModal({
     effectiveResolutionMode === 'close_and_spawn_next' &&
     !effectiveNextCardTitle;
   const validationOutcomeText = isHostActionCard
-    ? hostActionFollowupPayload?.summary
+    ? canRunHostActionAutomation
+      ? hostActionAutomationQueued
+        ? `Host automation is ${hostActionAutomationState}. The local runner will refresh the watchdog report, run PM write-back, and close this host card with proof.`
+        : 'This host step can be automated. Running it queues the local runner to refresh the watchdog report, write the PM result back, and close this host card with proof.'
+      : hostActionFollowupPayload?.summary
       ? `If you mark this complete, PM will close this host-action card and create the next host step: "${hostActionFollowupPayload.summary}". If the step cannot happen yet, you can send it back into system work or block it.`
       : 'If you mark this complete, PM will close this host-action card and remove it from active work. If the step cannot happen yet, you can send it back into system work or block it.'
     : isPendingOwnerReview
@@ -4121,6 +4172,20 @@ function PMCardDetailModal({
       setActioningCardId(card.id);
       setActionError(null);
       setActionFeedback(null);
+      if (canRunHostActionAutomation) {
+        const result = await onRunHostActionAutomation(card.id, resolutionNote.trim() || undefined);
+        setResolutionInputsDirty(false);
+        const nextState =
+          result.card.payload?.host_action_automation && typeof result.card.payload.host_action_automation === 'object'
+            ? String((result.card.payload.host_action_automation as HostActionAutomationPayload).state ?? 'queued')
+            : 'queued';
+        setActionFeedback(
+          nextState === 'queued' || nextState === 'running'
+            ? `Queued host automation for ${displayCardTitle}. The local runner will close this card with proof when it finishes.`
+            : `Updated host automation for ${displayCardTitle}.`,
+        );
+        return;
+      }
       await onActOnPmCard(card.id, 'approve', {
         reason: resolutionNote.trim(),
         resolutionMode: 'close_only',
@@ -4641,11 +4706,23 @@ function PMCardDetailModal({
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  disabled={actioningCardId === card.id}
+                  disabled={actioningCardId === card.id || hostActionAutomationQueued}
                   onClick={() => void handleHostActionComplete()}
-                  style={meetingActionButtonStyle('success', actioningCardId === card.id)}
+                  style={meetingActionButtonStyle('success', actioningCardId === card.id || hostActionAutomationQueued)}
                 >
-                  {actioningCardId === card.id ? 'Saving…' : bankedLinkedInPost ? 'Done, posted or queued' : 'Yes, host step complete'}
+                  {actioningCardId === card.id
+                    ? canRunHostActionAutomation
+                      ? 'Queueing…'
+                      : 'Saving…'
+                    : canRunHostActionAutomation
+                      ? hostActionAutomationQueued
+                        ? hostActionAutomationState === 'running'
+                          ? 'Host automation running'
+                          : 'Host automation queued'
+                        : 'Run host automation'
+                      : bankedLinkedInPost
+                        ? 'Done, posted or queued'
+                        : 'Yes, host step complete'}
                 </button>
                 <button
                   type="button"

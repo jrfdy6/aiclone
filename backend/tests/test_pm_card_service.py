@@ -1705,6 +1705,195 @@ class PMCardServiceTests(unittest.TestCase):
 
         self.assertIsNone(build_execution_queue_entry(card))
 
+    def test_fallback_watchdog_host_action_exposes_automation(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="watchdog-host-action",
+            title="Host action required - Run the authorized fallback watchdog refresh",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "shared_ops",
+                "host_action_required": {
+                    "summary": "Run the authorized fallback watchdog refresh outside this bounded packet so `/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json` is regenerated from the current detector path.",
+                    "steps": [
+                        "Run the authorized fallback watchdog refresh outside this bounded packet so `/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json` is regenerated from the current detector path.",
+                        "Run the normal authorized execution-result/write-back path for PM card `source-card-1` so Chronicle, PM state, durable runner memos, and memory write-back record this recheck together.",
+                    ],
+                    "proof_required": [
+                        "Capture refreshed `/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json` showing `status=ok`."
+                    ],
+                    "source_card_id": "source-card-1",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        automation = decorated.payload.get("host_action_automation") or {}
+        self.assertEqual(automation.get("automation_id"), "fallback_watchdog_writeback")
+        self.assertEqual(automation.get("state"), "ready")
+        self.assertEqual(automation.get("source_card_id"), "source-card-1")
+        self.assertEqual(automation.get("runner_id"), "codex_workspace_execution")
+        self.assertIsNone(build_execution_queue_entry(card))
+
+    def test_fallback_watchdog_host_action_variants_expose_automation(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="watchdog-host-action-variant",
+            title="Host action required - Run result write-back after fallback refresh",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "shared_ops",
+                "host_action_required": {
+                    "summary": "Run the normal authorized result/write-back path for PM card `12a16bba-8929-4986-852e-f84bb1ddfd2b` so Chronicle, PM state, and durable runner memos record this repair.",
+                    "steps": [
+                        "Run the authorized fallback watchdog refresh outside this bounded Codex packet so `memory/reports/fallback_watchdog_latest.json` reflects the fixed code path.",
+                        "Run the normal authorized result/write-back path for PM card `12a16bba-8929-4986-852e-f84bb1ddfd2b` so Chronicle, PM state, durable runner memos, and memory write-back record this verification together.",
+                    ],
+                    "proof_required": [
+                        "Capture `memory/reports/fallback_watchdog_latest.json` after refresh showing `status=ok` and `active_count=0`."
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        automation = decorated.payload.get("host_action_automation") or {}
+        self.assertEqual(automation.get("automation_id"), "fallback_watchdog_writeback")
+        self.assertEqual(automation.get("source_card_id"), "12a16bba-8929-4986-852e-f84bb1ddfd2b")
+
+    def test_external_host_action_does_not_expose_automation(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="linkedin-host-action",
+            title="Host action required - Schedule FEEZIE-008",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "host_action_required": {
+                    "summary": "Queue FEEZIE-008 in LinkedIn's native scheduler for Monday, April 27, 2026 at 09:35 ET.",
+                    "steps": [
+                        "Queue FEEZIE-008 in LinkedIn's native scheduler.",
+                        "After scheduling, update the publishing schedule with the actual scheduled timestamp.",
+                    ],
+                    "proof_required": [
+                        "LinkedIn scheduler confirmation screenshot saved to the analytics folder."
+                    ],
+                    "source_card_id": "e548283a-ecac-48f3-b98f-7bcb48dcb35d",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        self.assertNotIn("host_action_automation", decorated.payload)
+
+    def test_closed_watchdog_host_action_without_existing_automation_stays_historical(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="closed-watchdog-host-action",
+            title="Host action required - Run result write-back after fallback refresh",
+            owner="Neo",
+            status="done",
+            source="pm_host_action_required",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "shared_ops",
+                "host_action_required": {
+                    "summary": "Run the authorized fallback watchdog refresh so `memory/reports/fallback_watchdog_latest.json` is regenerated.",
+                    "steps": [
+                        "Run the normal authorized result/write-back path for PM card `12a16bba-8929-4986-852e-f84bb1ddfd2b`."
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        self.assertNotIn("host_action_automation", decorated.payload)
+
+    def test_queue_host_action_automation_marks_card_for_runner(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="watchdog-host-action-queue",
+            title="Host action required - Run the authorized fallback watchdog refresh",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "shared_ops",
+                "host_action_required": {
+                    "summary": "Run the authorized fallback watchdog refresh outside this bounded packet so `/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json` is regenerated from the current detector path.",
+                    "steps": [
+                        "Run the authorized fallback watchdog refresh outside this bounded packet so `/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json` is regenerated from the current detector path.",
+                        "Run the normal authorized execution-result/write-back path for PM card `source-card-1` so Chronicle, PM state, durable runner memos, and memory write-back record this recheck together.",
+                    ],
+                    "source_card_id": "source-card-1",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        current = {"card": card}
+
+        def fake_update(_card_id: str, patch: PMCardUpdate) -> PMCard:
+            current["card"] = current["card"].model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else current["card"].status,
+                    "payload": patch.payload if patch.payload is not None else current["card"].payload,
+                    "updated_at": now,
+                }
+            )
+            return current["card"]
+
+        with patch.object(pm_card_service, "get_card", side_effect=lambda _card_id: current["card"]):
+            with patch.object(pm_card_service, "update_card", side_effect=fake_update):
+                result = pm_card_service.queue_host_action_automation(card.id, requested_by="Neo")
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.card.status, "in_progress")
+        automation = result.card.payload.get("host_action_automation") or {}
+        execution = result.card.payload.get("execution") or {}
+        self.assertEqual(automation.get("automation_id"), "fallback_watchdog_writeback")
+        self.assertEqual(automation.get("state"), "queued")
+        self.assertEqual(automation.get("queued_by"), "Neo")
+        self.assertEqual(execution.get("state"), "host_action_automation_queued")
+        self.assertEqual(execution.get("executor_status"), "queued")
+        self.assertEqual(execution.get("assigned_runner"), "codex_workspace_execution")
+
     def test_host_action_card_with_stale_execution_does_not_surface_in_execution_queue(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

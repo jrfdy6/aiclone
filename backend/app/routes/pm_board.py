@@ -14,6 +14,7 @@ from app.models import (
     PMCardCreate,
     PMCardDispatchRequest,
     PMCardDispatchResult,
+    PMHostActionRunRequest,
     PMCardUpdate,
 )
 from app.services import pm_card_service
@@ -100,6 +101,25 @@ async def dispatch_card(card_id: UUID, payload: PMCardDispatchRequest):
 async def act_on_card(card_id: UUID, payload: PMCardActionRequest):
     try:
         result = pm_card_service.act_on_card(str(card_id), payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not result:
+        raise HTTPException(status_code=404, detail="PM card not found")
+    return PMCardActionResult(
+        card=pm_card_service.decorate_card_for_client(result.card) or result.card,
+        queue_entry=result.queue_entry,
+        successor_card=pm_card_service.decorate_card_for_client(result.successor_card) if result.successor_card else None,
+    )
+
+
+@router.post("/cards/{card_id}/host-action/run", response_model=PMCardActionResult)
+async def run_host_action(card_id: UUID, payload: PMHostActionRunRequest):
+    try:
+        result = pm_card_service.queue_host_action_automation(
+            str(card_id),
+            requested_by=payload.requested_by,
+            reason=payload.reason,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not result:

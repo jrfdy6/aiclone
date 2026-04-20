@@ -31,6 +31,22 @@ from app.services.workspace_runtime_contract_service import (
 AUTO_RESOLVE_REQUESTED_BY = "PM Auto Resolve Policy"
 AUTO_PROGRESS_REQUESTED_BY = "Codex PM Review Worker"
 AUTO_CONTRACT_RETRY_LIMIT = 2
+HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK = "fallback_watchdog_writeback"
+HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_MARKERS = (
+    "fallback_watchdog_latest.json",
+    "memory/reports/fallback_watchdog_latest.json",
+)
+HOST_ACTION_AUTOMATION_WRITEBACK_PATTERNS = (
+    re.compile(r"\bwrite[_-]?execution[_-]?result\b", re.IGNORECASE),
+    re.compile(r"\bexecution[-\s]?result\s*/?\s*write[-\s]?back\b", re.IGNORECASE),
+    re.compile(r"\bresult\s*/?\s*write[-\s]?back\b", re.IGNORECASE),
+    re.compile(r"\bwrite[-\s]?back\b", re.IGNORECASE),
+    re.compile(r"\bwriteback\b", re.IGNORECASE),
+)
+PM_CARD_UUID_PATTERN = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+    re.IGNORECASE,
+)
 HOST_ACTION_PREFIX = re.compile(r"^\s*(?:[-*]\s*)?(?:\d+\.\s*)?(?:host(?:\s+action)?)\s*:\s*(.+?)\s*$", re.IGNORECASE)
 HOST_ACTION_DELAYED_PATTERNS = (
     re.compile(r"\bwithin\s+\d+\s*(?:hours?|hrs?|h)\b", re.IGNORECASE),
@@ -394,6 +410,73 @@ def act_on_card(card_id: str, payload: PMCardActionRequest) -> Optional[PMCardAc
         next_reason=payload.next_reason,
         proof_items=payload.proof_items,
     )
+
+
+def queue_host_action_automation(
+    card_id: str,
+    *,
+    requested_by: str = "Neo",
+    reason: str | None = None,
+) -> Optional[PMCardActionResult]:
+    card = get_card(card_id)
+    if card is None:
+        return None
+    if _is_closed_pm_status(card.status):
+        raise ValueError("Host-action card is already closed.")
+    automation = _infer_host_action_automation(card)
+    if automation is None:
+        raise ValueError("This host-action card does not have a supported automation.")
+
+    payload = dict(card.payload or {})
+    existing_execution = dict(_execution_payload(card) or {})
+    now = datetime.now(timezone.utc).isoformat()
+    current_state = str(automation.get("state") or "ready").strip().lower()
+    if current_state in {"queued", "running"}:
+        updated = card
+    else:
+        automation.update(
+            {
+                "state": "queued",
+                "queued_at": now,
+                "queued_by": requested_by,
+                "last_error": None,
+            }
+        )
+        if reason:
+            automation["queue_reason"] = reason
+
+        history = list(existing_execution.get("history") or [])
+        history.append(
+            {
+                "event": "host_action_automation_queued",
+                "state": "queued",
+                "requested_by": requested_by,
+                "automation_id": automation.get("automation_id"),
+                "at": now,
+            }
+        )
+        payload["host_action_automation"] = automation
+        payload["execution"] = {
+            **existing_execution,
+            "state": "host_action_automation_queued",
+            "manager_agent": existing_execution.get("manager_agent") or "Jean-Claude",
+            "target_agent": existing_execution.get("target_agent") or "Host Action Automation",
+            "assigned_runner": "codex_workspace_execution",
+            "execution_mode": "host_action_automation",
+            "requested_by": requested_by,
+            "manager_attention_required": False,
+            "queued_at": existing_execution.get("queued_at") or now,
+            "last_transition_at": now,
+            "executor_status": "queued",
+            "executor_worker_id": None,
+            "executor_last_error": None,
+            "history": history[-12:],
+        }
+        updated = update_card(card.id, PMCardUpdate(status="in_progress", payload=payload))
+        if updated is None:
+            return None
+
+    return PMCardActionResult(card=updated, queue_entry=None, successor_card=None)
 
 
 def _apply_card_action(
@@ -955,6 +1038,9 @@ def decorate_card_for_client(card: PMCard | None) -> PMCard | None:
         activation = _host_action_activation_status(card)
         if activation is not None:
             payload["host_action_activation"] = activation
+        automation = _infer_host_action_automation(card)
+        if automation is not None:
+            payload["host_action_automation"] = automation
         execution = dict(payload.get("execution") or {}) if isinstance(payload.get("execution"), dict) else {}
         if not _is_closed_pm_status(card.status):
             if str(card.status or "").strip().lower() in {"queued", "running", "in_progress", "review", "failed"}:
@@ -2524,6 +2610,55 @@ def _is_host_action_required_card(card: PMCard) -> bool:
     return isinstance(host_action_required, dict) and bool(host_action_required)
 
 
+def _infer_host_action_automation(card: PMCard) -> dict[str, Any] | None:
+    if not _is_host_action_required_card(card):
+        return None
+
+    payload = dict(card.payload or {})
+    existing = payload.get("host_action_automation")
+    existing_payload = dict(existing) if isinstance(existing, dict) else {}
+    existing_id = _optional_str(existing_payload.get("automation_id"))
+    if _is_closed_pm_status(card.status) and existing_id != HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK:
+        return None
+
+    host_action_required = _normalize_host_action_payload(payload.get("host_action_required"))
+    if host_action_required is None:
+        return existing_payload if existing_id == HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK else None
+
+    text = _host_action_text_blob(host_action_required)
+    source_card_id = (
+        _optional_str(host_action_required.get("source_card_id"))
+        or _optional_str(existing_payload.get("source_card_id"))
+        or _extract_pm_card_id_from_text(text)
+    )
+    normalized_text = text.lower()
+    is_watchdog_writeback = (
+        any(marker in normalized_text for marker in HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_MARKERS)
+        and any(pattern.search(text) for pattern in HOST_ACTION_AUTOMATION_WRITEBACK_PATTERNS)
+        and bool(source_card_id)
+    )
+    if existing_id == HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK and source_card_id:
+        is_watchdog_writeback = True
+    if not is_watchdog_writeback:
+        return None
+
+    return {
+        **existing_payload,
+        "automation_id": HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK,
+        "label": "Run fallback watchdog refresh and PM write-back",
+        "state": _optional_str(existing_payload.get("state")) or "ready",
+        "source_card_id": source_card_id,
+        "report_path": _optional_str(existing_payload.get("report_path"))
+        or "/Users/neo/.openclaw/workspace/memory/reports/fallback_watchdog_latest.json",
+        "runner_id": "codex_workspace_execution",
+    }
+
+
+def _extract_pm_card_id_from_text(text: str) -> str | None:
+    match = PM_CARD_UUID_PATTERN.search(text)
+    return match.group(0) if match else None
+
+
 def _create_host_action_required_card(
     source_card: PMCard,
     *,
@@ -2570,6 +2705,22 @@ def _create_host_action_required_card(
             **follow_up_phase,
             "proof_fields": _build_host_action_proof_fields(_dedupe_nonempty_strings(follow_up_phase.get("proof_required"))),
         }
+    automation_probe = PMCard(
+        id=source_card.id,
+        title=title,
+        owner="Neo",
+        status="todo",
+        source="pm_host_action_required",
+        link_type=source_card.link_type,
+        link_id=source_card.link_id,
+        due_at=due_at,
+        payload=payload,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    automation = _infer_host_action_automation(automation_probe)
+    if automation is not None:
+        payload["host_action_automation"] = automation
     payload["trigger_key"] = _build_trigger_key(
         title=title,
         workspace_key=workspace_key,
