@@ -14,6 +14,7 @@ const SNAPSHOT_TIMEOUT_MS = 40_000;
 const PM_MAINTENANCE_TIMEOUT_MS = 12_000;
 const REPO_ROOT = '/Users/neo/.openclaw/workspace';
 const WORKSPACE_ROOT_BY_KEY: Record<string, string> = {
+  'feezie-os': `${REPO_ROOT}/workspaces/linkedin-content-os`,
   'linkedin-os': `${REPO_ROOT}/workspaces/linkedin-content-os`,
   'fusion-os': `${REPO_ROOT}/workspaces/fusion-os`,
   easyoutfitapp: `${REPO_ROOT}/workspaces/easyoutfitapp`,
@@ -28,9 +29,13 @@ function pickWorkspacePath(files: WorkspaceFile[], workspaceKey?: string): strin
   if (!workspaceKey) {
     return null;
   }
+  const workspaceRoot = WORKSPACE_ROOT_BY_KEY[normalizeWorkspaceBoardKey(workspaceKey)];
+  const workspaceDirectory = workspaceRoot?.split('/').filter(Boolean).at(-1);
   const match =
+    (workspaceDirectory ? files.find((file) => file.path.includes(`/workspaces/${workspaceDirectory}/`)) : null) ??
     files.find((file) => file.path.includes(`/workspaces/${workspaceKey}/`)) ??
-    files.find((file) => file.group.startsWith(workspaceKey));
+    files.find((file) => file.group.startsWith(workspaceKey)) ??
+    (workspaceDirectory ? files.find((file) => file.group.startsWith(workspaceDirectory)) : null);
   return match?.path ?? null;
 }
 
@@ -1013,6 +1018,13 @@ type WorkspaceSnapshot = {
   refresh_status?: FeedRefreshStatus | null;
 };
 
+type WorkspaceOwnerReviewPayload = {
+  items?: unknown[];
+  generated_at?: string;
+  pending_count?: number;
+  total_count?: number;
+};
+
 type OpenBrainTelemetry = {
   database_connected: boolean;
   captures: {
@@ -1256,7 +1268,7 @@ const FEED_LENS_VARIANT_KEYS: Record<FeedLensId, string[]> = {
   'personal-story': ['personal-story'],
 };
 
-type WorkspaceHubKey = 'linkedin-os' | 'fusion-os' | 'easyoutfitapp' | 'ai-swag-store' | 'agc';
+type WorkspaceHubKey = 'feezie-os' | 'fusion-os' | 'easyoutfitapp' | 'ai-swag-store' | 'agc';
 type WorkspaceHubStatus = 'live' | 'standing_up' | 'planned';
 
 const WORKSPACE_HUBS: Array<{
@@ -1271,13 +1283,13 @@ const WORKSPACE_HUBS: Array<{
   route?: string;
 }> = [
   {
-    id: 'linkedin-os',
+    id: 'feezie-os',
     label: 'FEEZIE OS',
     shortLabel: 'FEEZIE',
     status: 'live',
     accent: '#38bdf8',
     description: 'Posting execution system for signal intake, reaction loops, content generation, and persona-grounded visibility.',
-    agent: 'LinkedIn Operator',
+    agent: 'FEEZIE Operator',
     operatingPrinciples: [
       'Persona truth first, posting second',
       'Use live source signals before generic ideation',
@@ -1463,6 +1475,9 @@ export default function OpsClient({
   const [liveSourceAssets, setLiveSourceAssets] = useState<SourceAssetInventory | null>(null);
   const [livePersonaReviewSummary, setLivePersonaReviewSummary] = useState<PersonaReviewSummary | null>(null);
   const [liveLongFormRoutes, setLiveLongFormRoutes] = useState<LongFormRouteSummary | null>(null);
+  const [liveWorkspaceSnapshot, setLiveWorkspaceSnapshot] = useState<WorkspaceSnapshot | null>(null);
+  const [feezieOwnerReviewItems, setFeezieOwnerReviewItems] = useState<unknown[] | null>(null);
+  const [feezieOwnerReviewError, setFeezieOwnerReviewError] = useState<string | null>(null);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   const [workspaceRefreshStatus, setWorkspaceRefreshStatus] = useState<FeedRefreshStatus | null>(null);
   const [workspaceSnapshotState, setWorkspaceSnapshotState] = useState<'loading' | 'live' | 'error'>('loading');
@@ -1527,6 +1542,7 @@ export default function OpsClient({
         cache: API_NO_STORE,
         timeoutMs: SNAPSHOT_TIMEOUT_MS,
       });
+      setLiveWorkspaceSnapshot(snapshot);
       if (snapshot.workspace_files?.length) {
         setLiveWorkspaceFiles(snapshot.workspace_files);
       }
@@ -1549,6 +1565,19 @@ export default function OpsClient({
     }
   }, []);
 
+  const loadFeezieOwnerReview = useCallback(async () => {
+    try {
+      const payload = await apiGet<WorkspaceOwnerReviewPayload>('/api/workspace/linkedin-os-owner-review', {
+        cache: API_NO_STORE,
+        timeoutMs: SNAPSHOT_TIMEOUT_MS,
+      });
+      setFeezieOwnerReviewItems(payload.items ?? []);
+      setFeezieOwnerReviewError(null);
+    } catch (error) {
+      setFeezieOwnerReviewError(toErrorMessage(error));
+    }
+  }, []);
+
   useEffect(() => {
     if (!effectiveWorkspaceFiles.some((file) => file.path === selectedWorkspacePath)) {
       setSelectedWorkspacePath(pickWorkspacePath(effectiveWorkspaceFiles, initialWorkspaceKey) ?? effectiveWorkspaceFiles[0]?.path ?? '');
@@ -1564,6 +1593,14 @@ export default function OpsClient({
   useEffect(() => {
     loadWorkspaceSnapshot();
   }, [loadWorkspaceSnapshot]);
+
+  useEffect(() => {
+    loadFeezieOwnerReview();
+  }, [loadFeezieOwnerReview]);
+
+  const reloadFeezieWorkspaceSnapshot = useCallback(async () => {
+    await Promise.all([loadWorkspaceSnapshot(), loadFeezieOwnerReview()]);
+  }, [loadFeezieOwnerReview, loadWorkspaceSnapshot]);
 
   const runPmMaintenance = useCallback(async () => {
     if (pmMaintenanceInFlightRef.current) {
@@ -2023,11 +2060,14 @@ export default function OpsClient({
           sourceAssets={liveSourceAssets}
           personaReviewSummary={livePersonaReviewSummary}
           longFormRoutes={liveLongFormRoutes}
+          workspaceSnapshot={liveWorkspaceSnapshot}
+          feezieOwnerReviewItems={feezieOwnerReviewItems}
+          feezieOwnerReviewError={feezieOwnerReviewError}
           workspaceSnapshotState={workspaceSnapshotState}
           workspaceSnapshotError={workspaceSnapshotError}
           workspaceRefreshStatus={workspaceRefreshStatus}
           feedbackSummary={feedbackSummary}
-          onReloadLiveSnapshot={loadWorkspaceSnapshot}
+          onReloadLiveSnapshot={reloadFeezieWorkspaceSnapshot}
         />
       )}
       {activePanel === 'docs' && <DocsPanel docs={effectiveDocEntries} selected={selectedDoc} onSelect={setSelectedDocPath} />}
@@ -2420,10 +2460,10 @@ const STANDUP_ROOMS: {
     sources: ['Chronicle', 'Strategic Memos', 'Weekly Review', 'FEEZIE OS', 'Long-Term Goals'],
   },
   {
-    key: 'linkedin-os',
+    key: 'feezie-os',
     label: 'FEEZIE OS Standup',
-    workspaceKey: 'linkedin-os',
-    description: 'Workspace meeting for FEEZIE OS execution across the current LinkedIn lane and broader public visibility direction.',
+    workspaceKey: 'feezie-os',
+    description: 'Workspace meeting for FEEZIE OS execution across source intake, content production, and broader public visibility direction.',
     participants: ['Jean-Claude', 'Neo', 'Yoda'],
     sources: ['Codex Chronicle', 'Workspace Files', 'PM Board', 'Progress Pulse', 'Dream Cycle'],
   },
@@ -6773,6 +6813,9 @@ function WorkspaceHubPanel({
   sourceAssets,
   personaReviewSummary,
   longFormRoutes,
+  workspaceSnapshot,
+  feezieOwnerReviewItems,
+  feezieOwnerReviewError,
   workspaceSnapshotState,
   workspaceSnapshotError,
   workspaceRefreshStatus,
@@ -6792,13 +6835,16 @@ function WorkspaceHubPanel({
   sourceAssets: SourceAssetInventory | null;
   personaReviewSummary: PersonaReviewSummary | null;
   longFormRoutes: LongFormRouteSummary | null;
+  workspaceSnapshot: WorkspaceSnapshot | null;
+  feezieOwnerReviewItems: unknown[] | null;
+  feezieOwnerReviewError: string | null;
   workspaceSnapshotState: 'loading' | 'live' | 'error';
   workspaceSnapshotError: string | null;
   workspaceRefreshStatus: FeedRefreshStatus | null;
   feedbackSummary: FeedbackSummary | null;
   onReloadLiveSnapshot: () => Promise<void>;
 }) {
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<WorkspaceHubKey>('linkedin-os');
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<WorkspaceHubKey>('feezie-os');
   const [selectorOpen, setSelectorOpen] = useState(true);
   const activeWorkspace = WORKSPACE_HUBS.find((item) => item.id === selectedWorkspaceId) ?? WORKSPACE_HUBS[0];
   const workspaceFiles = useMemo(
@@ -7024,15 +7070,18 @@ function WorkspaceHubPanel({
         : `${activeWorkspace.label} is standing up. The backend lane exists, but visible artifacts have not accumulated yet. As soon as they do, they will render here instead of being hidden behind scaffold copy.`;
     }
     const clauses = [
-      `${workspaceFiles.length} tracked file${workspaceFiles.length === 1 ? '' : 's'}`,
-      `${workspaceStandups.length} standup${workspaceStandups.length === 1 ? '' : 's'}`,
-      `${workspaceOpenCards.length} open PM card${workspaceOpenCards.length === 1 ? '' : 's'}`,
-    ];
+      workspaceFiles.length > 0 ? `${workspaceFiles.length} tracked file${workspaceFiles.length === 1 ? '' : 's'}` : null,
+      workspaceStandups.length > 0 ? `${workspaceStandups.length} standup${workspaceStandups.length === 1 ? '' : 's'}` : null,
+      workspaceOpenCards.length > 0 ? `${workspaceOpenCards.length} open PM card${workspaceOpenCards.length === 1 ? '' : 's'}` : null,
+    ].filter((item): item is string => Boolean(item));
     if (workspaceActiveExecution.length > 0) {
       clauses.push(`${workspaceActiveExecution.length} active execution item${workspaceActiveExecution.length === 1 ? '' : 's'}`);
     }
-    const joined = clauses.join(', ');
+    const joined = clauses.join(', ') || 'activity';
     if (activeWorkspace.status === 'standing_up') {
+      if (workspaceFiles.length === 0) {
+        return `${activeWorkspace.label} has an active standup lane, but workspace files and execution artifacts are not registered yet. This is a standing-up lane, not a fully accumulated workspace surface.`;
+      }
       return `${activeWorkspace.label} is still marked as standing up in the backend, but it is already generating ${joined}. This surface now reflects that real activity instead of treating the workspace like an empty placeholder.`;
     }
     return `${activeWorkspace.label} is generating ${joined}. This surface mirrors those backend signals directly.`;
@@ -7185,14 +7234,14 @@ function WorkspaceHubPanel({
           <MiniMeta label="Workspace" value={activeWorkspace.shortLabel} detail={activeWorkspace.agent} />
           <MiniMeta label="Status" value={workspaceLifecycleLabel(activeWorkspace.status)} detail={workspaceLifecycleDetail(activeWorkspace.status)} />
           <MiniMeta label="Operating Rules" value={`${activeWorkspace.operatingPrinciples.length}`} detail="separate principles per workspace" />
-          {selectedWorkspaceId === 'linkedin-os' && (
+          {selectedWorkspaceId === 'feezie-os' && (
             <>
               <MiniMeta label="Recommendations" value={`${plan?.recommendations?.length ?? 0}`} detail="live weekly plan candidates" />
               <MiniMeta label="Comments" value={`${reactionQueue?.counts?.comment_opportunities ?? 0}`} detail="reaction queue opportunities" />
               <MiniMeta label="Signals" value={`${socialFeed?.items?.length ?? 0}`} detail="shared feed cards" />
             </>
           )}
-          {selectedWorkspaceId !== 'linkedin-os' && (
+          {selectedWorkspaceId !== 'feezie-os' && (
             <>
               <MiniMeta label="Workspace Files" value={`${workspaceFiles.length}`} detail={`${workspaceFileCounts.docs} docs · ${workspaceFileCounts.briefings} briefings`} />
               <MiniMeta label="Standups" value={`${workspaceStandups.length}`} detail={`${workspaceOpenCards.length} open PM cards`} />
@@ -7256,7 +7305,7 @@ function WorkspaceHubPanel({
         )}
       </section>
 
-      {selectedWorkspaceId === 'linkedin-os' ? (
+      {selectedWorkspaceId === 'feezie-os' ? (
         <section style={{ display: 'grid', gap: '16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px' }}>
             {linkedinSummary.map((item) => (
@@ -7264,7 +7313,12 @@ function WorkspaceHubPanel({
             ))}
           </div>
           <Suspense fallback={<section style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '20px', color: '#94a3b8' }}>Loading FEEZIE OS workspace…</section>}>
-            <LinkedinWorkspaceSurface embedded />
+            {feezieOwnerReviewError && <SectionAlert message={`FEEZIE owner-review snapshot error: ${feezieOwnerReviewError}`} />}
+            <LinkedinWorkspaceSurface
+              embedded
+              initialSnapshot={workspaceSnapshot}
+              initialOwnerReviewItems={feezieOwnerReviewItems}
+            />
           </Suspense>
         </section>
       ) : (
@@ -7965,18 +8019,18 @@ function WorkspacePanel({
       try {
         const payload = {
           persona_target: 'feeze.core',
-          trait: `LinkedIn quote (${item.author})`,
+          trait: `FEEZIE quote (${item.author})`,
           notes: `${line.trim()}`,
           metadata: {
             target_file: 'identity/VOICE_PATTERNS.md',
-            review_source: 'linkedin_workspace.feed_quote',
+            review_source: 'feezie_workspace.feed_quote',
             approval_state: 'pending_workspace_approval',
             platform: item.platform,
             author: item.author,
             source_url: item.source_url,
             source_path: item.source_path,
             selected_line: line.trim(),
-            workspace: 'linkedin-content-os',
+            workspace: 'feezie-os',
             lens,
           },
         };
@@ -7998,7 +8052,7 @@ function WorkspacePanel({
             metadata: {
               approval_state: 'approved_from_workspace',
               last_reviewed_at: new Date().toISOString(),
-              review_source: 'linkedin_workspace.feed_quote',
+              review_source: 'feezie_workspace.feed_quote',
             },
           }),
         });
@@ -8091,7 +8145,7 @@ function WorkspacePanel({
             <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>FEEZIE OS</p>
             <h3 style={{ fontSize: '30px', color: 'white', margin: '4px 0' }}>Strategy mission control</h3>
             <p style={{ color: '#d8b4fe', maxWidth: '760px', fontSize: '14px' }}>
-              Persona truth, signal capture, weekly recommendations, and engagement moves for `linkedin-content-os` now live inside Workspaces instead of on a separate page.
+              Persona truth, signal capture, weekly recommendations, and engagement moves for FEEZIE now live inside Workspaces instead of on a separate page.
             </p>
           </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(140px, 1fr))', gap: '12px' }}>
@@ -8224,7 +8278,7 @@ function WorkspacePanel({
               <p style={{ color: '#f5d0fe', fontSize: '14px', lineHeight: 1.5 }}>{item}</p>
             </div>
           ))}
-          {!(plan?.positioning_model?.length) && <EmptyPanel message="No LinkedIn positioning model available yet." />}
+          {!(plan?.positioning_model?.length) && <EmptyPanel message="No FEEZIE positioning model available yet." />}
         </div>
         {selectedRecommendation && (
           <section
@@ -8293,7 +8347,7 @@ function WorkspacePanel({
                   fontSize: '13px',
                 }}
               >
-                Compose on LinkedIn
+                Open source
               </a>
             </div>
           </section>
@@ -8306,7 +8360,7 @@ function WorkspacePanel({
             <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Social Feed</p>
             <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>High-performing signals</h3>
             <p style={{ color: '#94a3b8', fontSize: '14px' }}>
-              Fresh LinkedIn-first posts from key people and topical sources, mixed with reaction-ready Reddit/RSS placeholders. Comment or repost directly from the cards.
+              Fresh public-facing signals from key people and topical sources, mixed with reaction-ready Reddit/RSS placeholders. Comment or repost directly from the cards.
             </p>
           </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
@@ -8965,7 +9019,7 @@ function WorkspacePanel({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
           <div>
             <p style={{ color: '#f0abfc', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase' }}>Weekly Recommendations</p>
-            <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Recommended LinkedIn posts</h3>
+            <h3 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Recommended FEEZIE posts</h3>
             <p style={{ color: '#64748b', fontSize: '13px' }}>Visible through the <span style={{ color: '#cbd5f5' }}>{activeLensMeta.label}</span> lens.</p>
           </div>
           <span style={{ color: '#64748b', fontSize: '13px' }}>{filteredRecommendations.length} shown / {plan?.recommendations.length ?? 0} ranked items</span>
@@ -9315,7 +9369,7 @@ function WorkspacePanel({
           </div>
           <div style={{ display: 'grid', gap: '8px' }}>
             <MiniMeta label="Workspace Docs" value={`${docFiles.length}`} detail="FEEZIE OS runbooks and models" />
-            <MiniMeta label="Backlog Items" value={`${backlogActive.length}`} detail="Active LinkedIn tasks" />
+            <MiniMeta label="Backlog Items" value={`${backlogActive.length}`} detail="Active FEEZIE tasks" />
             <MiniMeta label="Draft Files" value={`${draftFiles.length}`} detail="Posts ready to refine" />
           </div>
         </section>
@@ -9341,7 +9395,7 @@ function WorkspacePanel({
       <SplitPane
         sidebar={
           linkedinFiles.length === 0 ? (
-            <EmptyPanel message="Raw LinkedIn workspace files are not mounted in this frontend context yet. The strategy snapshot above is still live." compact />
+            <EmptyPanel message="Raw FEEZIE workspace files are not mounted in this frontend context yet. The strategy snapshot above is still live." compact />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {groups.map(([group, items]) => (
@@ -9372,7 +9426,7 @@ function WorkspacePanel({
             </div>
           )
         }
-        content={selectedLinkedin ? <MarkdownSurface title={selectedLinkedin.name} path={selectedLinkedin.path} updatedAt={selectedLinkedin.updatedAt} content={selectedLinkedin.content} /> : <EmptyPanel message="Select a LinkedIn workspace file to inspect." />}
+        content={selectedLinkedin ? <MarkdownSurface title={selectedLinkedin.name} path={selectedLinkedin.path} updatedAt={selectedLinkedin.updatedAt} content={selectedLinkedin.content} /> : <EmptyPanel message="Select a FEEZIE workspace file to inspect." />}
       />
     </section>
   );
@@ -10023,8 +10077,8 @@ function workspaceKeyFromCard(card: PMCard) {
 
 function normalizeWorkspaceBoardKey(value?: string | null) {
   const normalized = (value ?? '').trim().toLowerCase();
-  if (normalized === 'feezie-os') {
-    return 'linkedin-os';
+  if (['feezie-os', 'linkedin-os', 'linkedin-content-os', 'linkedin os', 'feezie'].includes(normalized)) {
+    return 'feezie-os';
   }
   return (value ?? '').trim() || 'shared_ops';
 }
@@ -10041,6 +10095,7 @@ function meetingLabelForWorkspace(workspaceKey: string) {
   switch (workspaceKey) {
     case 'shared_ops':
       return 'Executive / Operations';
+    case 'feezie-os':
     case 'linkedin-os':
       return 'FEEZIE OS';
     case 'fusion-os':
@@ -10058,6 +10113,7 @@ function meetingLabelForWorkspace(workspaceKey: string) {
 
 const WORKSPACE_BOARD_THEME: Record<string, { accent: string; background: string; border: string }> = {
   shared_ops: { accent: '#f59e0b', background: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.28)' },
+  'feezie-os': { accent: '#38bdf8', background: 'rgba(56, 189, 248, 0.08)', border: 'rgba(56, 189, 248, 0.28)' },
   'linkedin-os': { accent: '#38bdf8', background: 'rgba(56, 189, 248, 0.08)', border: 'rgba(56, 189, 248, 0.28)' },
   'fusion-os': { accent: '#34d399', background: 'rgba(52, 211, 153, 0.08)', border: 'rgba(52, 211, 153, 0.28)' },
   easyoutfitapp: { accent: '#fb7185', background: 'rgba(251, 113, 133, 0.08)', border: 'rgba(251, 113, 133, 0.28)' },
@@ -10077,6 +10133,7 @@ function workspaceBoardTheme(workspaceKey: string) {
 
 const WORKSPACE_RUNTIME_DISPLAY: Record<string, { targetAgent: string; workspaceAgent: string | null; legacyAliases: string[] }> = {
   'shared_ops': { targetAgent: 'Jean-Claude', workspaceAgent: null, legacyAliases: [] },
+  'feezie-os': { targetAgent: 'Jean-Claude', workspaceAgent: null, legacyAliases: [] },
   'linkedin-os': { targetAgent: 'Jean-Claude', workspaceAgent: null, legacyAliases: [] },
   'fusion-os': {
     targetAgent: 'Fusion Systems Operator',
@@ -10606,7 +10663,8 @@ function buildStandupPromotionPayload(
 }
 
 function shouldIncludeYoda(prep: StandupPrepPacket) {
-  return prep.workspaceKey === 'shared_ops' || prep.workspaceKey === 'linkedin-os';
+  const workspaceKey = normalizeWorkspaceBoardKey(prep.workspaceKey);
+  return workspaceKey === 'shared_ops' || workspaceKey === 'feezie-os';
 }
 
 function buildJeanClaudeStandupNote(prep: StandupPrepPacket) {
@@ -10627,8 +10685,8 @@ function buildNeoStandupNote(prep: StandupPrepPacket, decisions: string[]) {
 
 function buildYodaStandupNote(prep: StandupPrepPacket, chronicleEntry: ChronicleEntry | null) {
   const chronicleContext = chronicleEntry?.summary ? `Current Chronicle signal: ${summarize(chronicleEntry.summary, 110)}` : 'Current Chronicle signal is still consolidating.';
-  if (prep.workspaceKey === 'linkedin-os') {
-    return `Protect the North Star: FEEZIE OS should strengthen Johnnie's brand, career, and long-term positioning through the current LinkedIn lane and the broader public system it is becoming. ${chronicleContext}`;
+  if (normalizeWorkspaceBoardKey(prep.workspaceKey) === 'feezie-os') {
+    return `Protect the North Star: FEEZIE OS should strengthen Johnnie's brand, career, and long-term positioning through the broader public system it is becoming. ${chronicleContext}`;
   }
   return `Protect the why behind the system: this work should deepen Johnnie's second-brain, preserve his voice, and keep execution aligned with the broader AI project rather than generic automation. ${chronicleContext}`;
 }
@@ -10664,8 +10722,9 @@ function buildStandupOwners(prep: StandupPrepPacket, includeYoda: boolean) {
     'ai-swag-store': 'AI Swag Store Operator Agent',
     agc: 'AGC Operator Agent',
   };
-  if (!['shared_ops', 'linkedin-os'].includes(prep.workspaceKey)) {
-    owners.push(`${workspaceOwners[prep.workspaceKey] ?? 'Workspace Agent'} — execute inside ${prep.workspaceKey} only and report back through workspace memory plus the PM card.`);
+  const workspaceKey = normalizeWorkspaceBoardKey(prep.workspaceKey);
+  if (!['shared_ops', 'feezie-os'].includes(workspaceKey)) {
+    owners.push(`${workspaceOwners[workspaceKey] ?? 'Workspace Agent'} — execute inside ${workspaceKey} only and report back through workspace memory plus the PM card.`);
   }
   if (includeYoda) {
     owners.push('Yoda — challenge whether the next move still aligns with the North Star before scope expands.');
@@ -11728,14 +11787,15 @@ function extractAutomationRunSummary(run: AutomationRun) {
 }
 
 function workspaceShortLabel(workspaceKey?: string | null) {
-  if (!workspaceKey || workspaceKey === 'shared_ops') {
+  const normalizedWorkspaceKey = normalizeWorkspaceBoardKey(workspaceKey);
+  if (!normalizedWorkspaceKey || normalizedWorkspaceKey === 'shared_ops') {
     return 'Shared Ops';
   }
-  const hub = WORKSPACE_HUBS.find((item) => item.id === workspaceKey);
+  const hub = WORKSPACE_HUBS.find((item) => item.id === normalizedWorkspaceKey);
   if (hub) {
     return hub.shortLabel;
   }
-  return workspaceKey.replace(/[_-]+/g, ' ');
+  return normalizedWorkspaceKey.replace(/[_-]+/g, ' ');
 }
 
 function isHeldPmLayerStatus(

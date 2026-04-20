@@ -228,6 +228,12 @@ type OwnerReviewPayload = {
   } | null;
 };
 
+type LinkedinWorkspaceSurfaceProps = {
+  embedded?: boolean;
+  initialSnapshot?: WorkspaceSnapshot | null;
+  initialOwnerReviewItems?: unknown[] | null;
+};
+
 type FeedRefreshStatus = {
   running: boolean;
   last_run?: string | null;
@@ -286,8 +292,8 @@ const PERSONA = {
 
 const CONTENT_TYPES: { value: ContentType; label: string; icon: string }[] = [
   { value: 'cold_email', label: 'Cold Email', icon: '📧' },
-  { value: 'linkedin_post', label: 'LinkedIn Post', icon: '📝' },
-  { value: 'linkedin_dm', label: 'LinkedIn DM', icon: '💬' },
+  { value: 'linkedin_post', label: 'FEEZIE Post', icon: '📝' },
+  { value: 'linkedin_dm', label: 'FEEZIE DM', icon: '💬' },
   { value: 'instagram_post', label: 'Instagram Post', icon: '📸' },
 ];
 
@@ -624,6 +630,15 @@ function ownerReviewKindLabel(item?: Pick<OwnerReviewItem, 'entry_kind' | 'sourc
   return 'Queue item';
 }
 
+function coerceOwnerReviewItems(items?: unknown[] | null): OwnerReviewItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.filter((item): item is OwnerReviewItem => {
+    if (!item || typeof item !== 'object') return false;
+    const queueId = (item as { queue_id?: unknown }).queue_id;
+    return typeof queueId === 'string' && queueId.trim().length > 0;
+  });
+}
+
 function copyText(text: string) {
   if (!text.trim() || typeof navigator === 'undefined' || !navigator.clipboard) {
     return Promise.reject(new Error('Clipboard is not available.'));
@@ -687,7 +702,11 @@ function sectionLabel(key: string) {
   return humanizeSnakeCase(key);
 }
 
-export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: boolean }) {
+export function LinkedinWorkspaceSurface({
+  embedded = false,
+  initialSnapshot = null,
+  initialOwnerReviewItems = null,
+}: LinkedinWorkspaceSurfaceProps) {
   const searchParams = useSearchParams();
   const safeSearchParams = searchParams ?? new URLSearchParams();
   const tabs = useMemo(() => workspaceTabs(), []);
@@ -704,11 +723,11 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
     [safeSearchParams],
   );
 
-  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
-  const [snapshotState, setSnapshotState] = useState<'loading' | 'live' | 'error'>('loading');
+  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(initialSnapshot);
+  const [snapshotState, setSnapshotState] = useState<'loading' | 'live' | 'error'>(initialSnapshot ? 'live' : 'loading');
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
-  const [ownerReviewItems, setOwnerReviewItems] = useState<OwnerReviewItem[]>([]);
-  const [ownerReviewState, setOwnerReviewState] = useState<'loading' | 'live' | 'error'>('loading');
+  const [ownerReviewItems, setOwnerReviewItems] = useState<OwnerReviewItem[]>(() => coerceOwnerReviewItems(initialOwnerReviewItems));
+  const [ownerReviewState, setOwnerReviewState] = useState<'loading' | 'live' | 'error'>(initialOwnerReviewItems ? 'live' : 'loading');
   const [ownerReviewError, setOwnerReviewError] = useState<string | null>(null);
   const [ownerReviewNotes, setOwnerReviewNotes] = useState<Record<string, string>>({});
   const [ownerReviewActioning, setOwnerReviewActioning] = useState<string | null>(null);
@@ -805,6 +824,30 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   const effectiveSourceMode = useMemo(() => mapGroundingModeToSourceMode(groundingMode), [groundingMode]);
 
   useEffect(() => {
+    if (!initialSnapshot) return;
+    setSnapshot(initialSnapshot);
+    setSnapshotError(null);
+    setSnapshotState('live');
+  }, [initialSnapshot]);
+
+  useEffect(() => {
+    if (!initialOwnerReviewItems) return;
+    const nextItems = coerceOwnerReviewItems(initialOwnerReviewItems);
+    setOwnerReviewItems(nextItems);
+    setOwnerReviewNotes((current) => {
+      const next = { ...current };
+      nextItems.forEach((item) => {
+        if (next[item.queue_id] === undefined) {
+          next[item.queue_id] = item.current_notes ?? '';
+        }
+      });
+      return next;
+    });
+    setOwnerReviewError(null);
+    setOwnerReviewState('live');
+  }, [initialOwnerReviewItems]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (!saved) return;
@@ -826,7 +869,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
   }, []);
 
   const loadSnapshot = useCallback(async () => {
-    setSnapshotState('loading');
+    setSnapshotState((current) => (current === 'live' ? 'live' : 'loading'));
     try {
       const payload = await apiGet<WorkspaceSnapshot>('/api/workspace/linkedin-os-snapshot');
       setSnapshot(payload);
@@ -834,12 +877,12 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
       setSnapshotState('live');
     } catch (error) {
       setSnapshotError(error instanceof Error ? error.message : 'Unable to load workspace snapshot right now.');
-      setSnapshotState('error');
+      setSnapshotState((current) => (current === 'live' ? 'live' : 'error'));
     }
   }, []);
 
   const loadOwnerReview = useCallback(async () => {
-    setOwnerReviewState('loading');
+    setOwnerReviewState((current) => (current === 'live' ? 'live' : 'loading'));
     try {
       const payload = await apiGet<OwnerReviewPayload>('/api/workspace/linkedin-os-owner-review');
       const items = payload.items ?? [];
@@ -857,7 +900,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
       setOwnerReviewState('live');
     } catch (error) {
       setOwnerReviewError(error instanceof Error ? error.message : 'Unable to load owner review items right now.');
-      setOwnerReviewState('error');
+      setOwnerReviewState((current) => (current === 'live' ? 'live' : 'error'));
     }
   }, []);
 
@@ -1405,14 +1448,14 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         notes: line.trim(),
         metadata: {
           target_file: 'identity/VOICE_PATTERNS.md',
-          review_source: 'linkedin_workspace.feed_quote',
+          review_source: 'feezie_workspace.feed_quote',
           approval_state: 'pending_workspace_approval',
           platform: item.platform,
           author: item.author,
           source_url: item.source_url,
           source_path: item.source_path,
           selected_line: line.trim(),
-          workspace: 'linkedin-content-os',
+          workspace: 'feezie-os',
           lens,
         },
       });
@@ -1424,7 +1467,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
           metadata: {
             approval_state: 'approved_from_workspace',
             last_reviewed_at: new Date().toISOString(),
-            review_source: 'linkedin_workspace.feed_quote',
+            review_source: 'feezie_workspace.feed_quote',
           },
         }),
       });
@@ -1539,7 +1582,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         <section style={panelStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>
-              <p style={sectionLabelStyle('#fbbf24')}>0 Owner Review</p>
+              <p style={sectionLabelStyle('#fbbf24')}>{ownerReviewItems.length} Owner Review</p>
               <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 8px' }}>Approve, revise, or park from here</h2>
               <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '840px', margin: 0 }}>
                 This is the missing owner gate for FEEZIE drafts. The buttons below now write back to the draft artifacts, queue files when they exist, and the workspace execution log, then queue Jean-Claude follow-up for approved or revised drafts.
@@ -2443,7 +2486,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
         <section style={panelStyle}>
           <div>
             <p style={sectionLabelStyle('#fbbf24')}>3 Agent System</p>
-            <h2 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>linkedin-content-os</h2>
+            <h2 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>FEEZIE workspace files</h2>
             <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '860px' }}>
               These are the workspace files, docs, plans, and research notes backing the posting system. They stay visible here so the feed and pipeline remain grounded in the actual workspace contract.
             </p>
@@ -2456,7 +2499,7 @@ export function LinkedinWorkspaceSurface({ embedded = false }: { embedded?: bool
           </div>
 
           {groupedWorkspaceFiles.length === 0 ? (
-            <EmptyMessage message="No LinkedIn workspace files are visible in the snapshot yet." />
+            <EmptyMessage message="No FEEZIE workspace files are visible in the snapshot yet." />
           ) : (
             <div style={{ display: 'grid', gap: '12px' }}>
               {groupedWorkspaceFiles.map(([sectionKey, files]) => (
