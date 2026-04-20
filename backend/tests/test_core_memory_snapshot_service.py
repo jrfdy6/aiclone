@@ -124,6 +124,62 @@ class CoreMemorySnapshotServiceTest(unittest.TestCase):
         self.assertTrue(target["runtime_out_of_sync"])
         self.assertGreater(target["live_newer_by_hours"], 0)
 
+    def test_resolve_memory_read_target_ignores_identical_live_mirror_mtime_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = resolve_live_memory_write_path(workspace_root, "memory/persistent_state.md")
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text("same content\n", encoding="utf-8")
+            live_path = memory_root / "persistent_state.md"
+            live_path.write_text("same content\n", encoding="utf-8")
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            target = resolve_memory_read_target(workspace_root, "memory/persistent_state.md")
+
+        self.assertEqual(target["resolved_mode"], "runtime")
+        self.assertFalse(target["fallback_active"])
+        self.assertFalse(target["runtime_out_of_sync"])
+        self.assertEqual(target["runtime_sha256"], target["live_sha256"])
+
+    def test_resolve_memory_read_target_ignores_live_runtime_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = resolve_live_memory_write_path(workspace_root, "memory/persistent_state.md")
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text("# Runtime State\n\nCurrent live runtime content.\n", encoding="utf-8")
+            live_path = memory_root / "persistent_state.md"
+            live_path.write_text(
+                "# Persistent State\n\n"
+                "Live runtime updates now write to `memory/runtime/persistent_state.md`.\n\n"
+                "Read through the canonical logical path (`memory/persistent_state.md`) using the "
+                "snapshot/runtime resolver.\n",
+                encoding="utf-8",
+            )
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            target = resolve_memory_read_target(workspace_root, "memory/persistent_state.md")
+
+        self.assertEqual(target["resolved_mode"], "runtime")
+        self.assertFalse(target["fallback_active"])
+        self.assertFalse(target["runtime_out_of_sync"])
+        self.assertTrue(target["live_is_runtime_pointer"])
+
 
 if __name__ == "__main__":
     unittest.main()

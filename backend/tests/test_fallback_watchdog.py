@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -212,6 +214,32 @@ class FallbackWatchdogTests(unittest.TestCase):
         self.assertEqual(alerts[0]["kind"], "core_memory_sync_drift")
         self.assertIn("out of sync", alerts[0]["summary"])
         self.assertIn("/tmp/runtime/persistent_state.md", source_paths)
+
+    def test_memory_alerts_ignore_identical_runtime_mirror_mtime_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            runtime_root = memory_root / "runtime"
+            runtime_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = runtime_root / "persistent_state.md"
+            live_path = memory_root / "persistent_state.md"
+            runtime_path.write_text("# Snapshot\n\nSame content.\n", encoding="utf-8")
+            live_path.write_text("# Snapshot\n\nSame content.\n", encoding="utf-8")
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            with mock.patch.object(self.watchdog, "WORKSPACE_ROOT", workspace_root), mock.patch.object(
+                self.watchdog, "MONITORED_MEMORY_PATHS", ("memory/persistent_state.md",)
+            ):
+                alerts, source_paths = self.watchdog._memory_alerts()
+
+        self.assertEqual(alerts, [])
+        self.assertIn(str(runtime_path), source_paths)
 
 
 if __name__ == "__main__":

@@ -82,6 +82,22 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _is_runtime_pointer_file(path: Path, runtime_relative: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    normalized = " ".join(text.split()).lower()
+    runtime_ref = runtime_relative.as_posix().lower()
+    return (
+        runtime_ref in normalized
+        and "runtime" in normalized
+        and ("resolver" in normalized or "canonical logical path" in normalized)
+    )
+
+
 def _line_count(path: Path) -> int:
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         return sum(1 for _ in handle)
@@ -151,6 +167,11 @@ def resolve_memory_read_target(workspace_root: Path, relative_path: str | Path) 
     live_exists = live_path.exists()
     runtime_mtime = runtime_path.stat().st_mtime if runtime_exists else None
     live_mtime = live_path.stat().st_mtime if live_exists else None
+    runtime_hash = _sha256(runtime_path) if runtime_exists else None
+    live_hash = _sha256(live_path) if live_exists else None
+    live_is_runtime_pointer = bool(
+        expected_mode == "runtime" and _is_runtime_pointer_file(live_path, runtime_relative_path(relative))
+    )
     runtime_out_of_sync = bool(
         expected_mode == "runtime"
         and runtime_exists
@@ -158,6 +179,8 @@ def resolve_memory_read_target(workspace_root: Path, relative_path: str | Path) 
         and live_mtime is not None
         and runtime_mtime is not None
         and live_mtime > runtime_mtime + 1
+        and not live_is_runtime_pointer
+        and live_hash != runtime_hash
     )
     live_newer_by_hours = None
     if runtime_out_of_sync and live_mtime is not None and runtime_mtime is not None:
@@ -177,6 +200,9 @@ def resolve_memory_read_target(workspace_root: Path, relative_path: str | Path) 
         "snapshot_id": snapshot_id,
         "runtime_out_of_sync": runtime_out_of_sync,
         "live_newer_by_hours": live_newer_by_hours,
+        "runtime_sha256": runtime_hash,
+        "live_sha256": live_hash,
+        "live_is_runtime_pointer": live_is_runtime_pointer,
     }
 
 
