@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-refresh",
         action="store_true",
-        help="Skip refreshing persisted LinkedIn OS snapshots after ingest.",
+        help="Skip refreshing persisted FEEZIE snapshots after ingest.",
     )
     parser.add_argument(
         "--dry-run",
