@@ -89,6 +89,33 @@ type FeedEditorialSummary = {
   avoid: string;
 };
 
+type PlanningSourceItem = {
+  title?: string;
+  source_path?: string;
+  source_url?: string;
+};
+
+type FeedPlanningStage = 'owner_review' | 'weekly_plan' | 'post_seed' | 'latent_seed';
+
+type FeedPlanningStatus = {
+  stage: FeedPlanningStage;
+  label: string;
+  detail: string;
+  actionLabel: string;
+  tone: string;
+};
+
+type FeedPlanningIndex = {
+  ownerReviewTitles: Set<string>;
+  ownerReviewUrls: Set<string>;
+  weeklyTitles: Set<string>;
+  weeklyPaths: Set<string>;
+  postSeedTitles: Set<string>;
+  postSeedPaths: Set<string>;
+  latentSeedTitles: Set<string>;
+  latentSeedPaths: Set<string>;
+};
+
 type SocialFeedItem = {
   id: string;
   platform: string;
@@ -142,6 +169,7 @@ type WorkspaceSnapshot = {
       hook?: string;
       summary?: string;
       source_url?: string;
+      source_path?: string;
       priority_lane?: string;
     }[];
     source_counts?: {
@@ -153,6 +181,9 @@ type WorkspaceSnapshot = {
   } | null;
   reaction_queue?: {
     generated_at?: string;
+    comment_opportunities?: PlanningSourceItem[];
+    post_seeds?: PlanningSourceItem[];
+    latent_post_seeds?: PlanningSourceItem[];
     counts?: {
       comment_opportunities?: number;
       post_seeds?: number;
@@ -628,6 +659,74 @@ function formatTimestamp(value?: string | null) {
   return formatUiTimestamp(date);
 }
 
+function normalizePlanningKey(value?: string | null) {
+  return String(value ?? '')
+    .replace(/^\.\//, '')
+    .replace(/^\/Users\/neo\/\.openclaw\/workspace\//, '')
+    .trim()
+    .toLowerCase();
+}
+
+function addPlanningValue(bucket: Set<string>, value?: string | null) {
+  const normalized = normalizePlanningKey(value);
+  if (normalized) bucket.add(normalized);
+}
+
+function addPlanningItems(titles: Set<string>, paths: Set<string>, items?: PlanningSourceItem[] | null) {
+  (items ?? []).forEach((item) => {
+    addPlanningValue(titles, item.title);
+    addPlanningValue(paths, item.source_path);
+  });
+}
+
+function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningIndex): FeedPlanningStatus | null {
+  const title = normalizePlanningKey(item.title);
+  const sourcePath = normalizePlanningKey(item.source_path);
+  const sourceUrl = normalizePlanningKey(item.source_url);
+
+  if ((title && index.ownerReviewTitles.has(title)) || (sourceUrl && index.ownerReviewUrls.has(sourceUrl))) {
+    return {
+      stage: 'owner_review',
+      label: 'Owner review',
+      detail: 'Already drafted. The next decision is approve, revise, or park.',
+      actionLabel: 'Open owner review',
+      tone: '#fbbf24',
+    };
+  }
+
+  if ((title && index.weeklyTitles.has(title)) || (sourcePath && index.weeklyPaths.has(sourcePath))) {
+    return {
+      stage: 'weekly_plan',
+      label: 'Weekly plan',
+      detail: 'Already selected for the active weekly plan.',
+      actionLabel: 'Use planned seed',
+      tone: '#38bdf8',
+    };
+  }
+
+  if ((title && index.postSeedTitles.has(title)) || (sourcePath && index.postSeedPaths.has(sourcePath))) {
+    return {
+      stage: 'post_seed',
+      label: 'Banked seed',
+      detail: 'Already stored in the standalone post-seed lane.',
+      actionLabel: 'Use banked seed',
+      tone: '#22c55e',
+    };
+  }
+
+  if ((title && index.latentSeedTitles.has(title)) || (sourcePath && index.latentSeedPaths.has(sourcePath))) {
+    return {
+      stage: 'latent_seed',
+      label: 'Needs anecdote',
+      detail: 'Already preserved as a latent seed that needs proof, taste, or an anecdote.',
+      actionLabel: 'Work latent seed',
+      tone: '#fb923c',
+    };
+  }
+
+  return null;
+}
+
 function ownerReviewKindLabel(item?: Pick<OwnerReviewItem, 'entry_kind' | 'source_kind'> | null) {
   if (!item) return 'Owner review';
   if (item.entry_kind === 'supplemental' && item.source_kind === 'latent_transform') return 'Latent transform';
@@ -843,6 +942,43 @@ export function LinkedinWorkspaceSurface({
   }, [workspaceFiles]);
   const topRecommendations = (snapshot?.weekly_plan?.recommendations ?? []).slice(0, 3);
   const effectiveSourceMode = useMemo(() => mapGroundingModeToSourceMode(groundingMode), [groundingMode]);
+  const feedPlanningIndex = useMemo<FeedPlanningIndex>(() => {
+    const ownerReviewTitles = new Set<string>();
+    const ownerReviewUrls = new Set<string>();
+    const weeklyTitles = new Set<string>();
+    const weeklyPaths = new Set<string>();
+    const postSeedTitles = new Set<string>();
+    const postSeedPaths = new Set<string>();
+    const latentSeedTitles = new Set<string>();
+    const latentSeedPaths = new Set<string>();
+
+    ownerReviewItems.forEach((item) => {
+      addPlanningValue(ownerReviewTitles, item.title);
+      addPlanningValue(ownerReviewUrls, item.source_url);
+    });
+    (snapshot?.weekly_plan?.recommendations ?? []).forEach((item) => {
+      addPlanningValue(weeklyTitles, item.title);
+      addPlanningValue(weeklyPaths, item.source_path);
+    });
+    addPlanningItems(postSeedTitles, postSeedPaths, snapshot?.reaction_queue?.post_seeds);
+    addPlanningItems(latentSeedTitles, latentSeedPaths, snapshot?.reaction_queue?.latent_post_seeds);
+
+    return {
+      ownerReviewTitles,
+      ownerReviewUrls,
+      weeklyTitles,
+      weeklyPaths,
+      postSeedTitles,
+      postSeedPaths,
+      latentSeedTitles,
+      latentSeedPaths,
+    };
+  }, [
+    ownerReviewItems,
+    snapshot?.reaction_queue?.latent_post_seeds,
+    snapshot?.reaction_queue?.post_seeds,
+    snapshot?.weekly_plan?.recommendations,
+  ]);
 
   useEffect(() => {
     if (!initialSnapshot) return;
@@ -970,6 +1106,20 @@ export function LinkedinWorkspaceSurface({
       setCopyStatus(null);
     },
     [resolveFeedLens],
+  );
+
+  const handleFeedPrimaryAction = useCallback(
+    (item: SocialFeedItem, lens: FeedLensId, planningStatus: FeedPlanningStatus | null) => {
+      if (planningStatus?.stage === 'owner_review') {
+        setOwnerReviewStatus(`${item.title} is already in owner review. Approve, revise, or park it from the owner-review lane.`);
+        if (typeof document !== 'undefined') {
+          document.getElementById('owner-review-lane')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        return;
+      }
+      selectSignalForPipeline(item, lens);
+    },
+    [selectSignalForPipeline],
   );
 
   useEffect(() => {
@@ -1662,7 +1812,7 @@ export function LinkedinWorkspaceSurface({
           </section>
         ) : null}
 
-        <section style={panelStyle}>
+        <section id="owner-review-lane" style={panelStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>
               <p style={sectionLabelStyle('#fbbf24')}>{ownerReviewItems.length} Owner Review</p>
@@ -2255,11 +2405,15 @@ export function LinkedinWorkspaceSurface({
               const sourceContractClass = deriveSourceClass(item);
               const sourceContractUnit = deriveUnitKind(item, sourceContractClass);
               const sourceContractModes = deriveResponseModes(item, sourceContractClass, sourceContractUnit);
+              const planningStatus = resolveFeedPlanningStatus(item, feedPlanningIndex);
 
               return (
                 <article key={item.id} style={{ ...feedCardStyle, border: item.id === selectedFeedId ? '1px solid #38bdf8' : '1px solid #1f2937' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
-                    <span style={platformBadgeStyle}>{item.platform}</span>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={platformBadgeStyle}>{item.platform}</span>
+                      {planningStatus ? <InlinePill label={planningStatus.label} tone={planningStatus.tone} /> : null}
+                    </div>
                     <span style={scoreBadgeStyle}>score {item.ranking.total.toFixed(1)}</span>
                   </div>
                   <h3 style={{ color: 'white', fontSize: '24px', margin: '0 0 4px' }}>{item.title}</h3>
@@ -2382,8 +2536,8 @@ export function LinkedinWorkspaceSurface({
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button onClick={() => selectSignalForPipeline(item, selectedLens)} style={primaryActionStyle('#fb923c')}>
-                      {editorial.mode === 'post_seed' ? 'Save as seed' : 'Use in pipeline'}
+                    <button onClick={() => handleFeedPrimaryAction(item, selectedLens, planningStatus)} style={primaryActionStyle(planningStatus?.tone ?? '#fb923c')}>
+                      {planningStatus?.actionLabel ?? (editorial.mode === 'post_seed' ? 'Save as seed' : 'Use in pipeline')}
                     </button>
                     <Link href={buildPostingWorkspaceHref(item, selectedLens)} style={secondaryLinkStyle('#fb923c')}>
                       Write post
@@ -2402,7 +2556,7 @@ export function LinkedinWorkspaceSurface({
                     <button onClick={() => void recordFeedback(item, 'dislike', selectedLens)} disabled={feedbackLoading[item.id]} style={feedbackButtonStyle('#f87171')}>
                       👎 Dislike
                     </button>
-                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? 'Tell the feed if this recommendation felt right.'}</p>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? planningStatus?.detail ?? 'Tell the feed if this recommendation felt right.'}</p>
                   </div>
 
                   <details style={editorialDetailsStyle}>
