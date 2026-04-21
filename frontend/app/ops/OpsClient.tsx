@@ -12263,6 +12263,26 @@ function standupExpectedPmLink(entry: StandupEntry) {
   return false;
 }
 
+function standupDispatchCoverageIds(entry: StandupEntry) {
+  const dispatch = entry.payload?.post_sync_dispatch;
+  if (!dispatch || typeof dispatch !== 'object') {
+    return [] as string[];
+  }
+  const payload = dispatch as Record<string, unknown>;
+  return ['linked_card_ids', 'created_card_ids', 'covered_card_ids'].flatMap((key) => {
+    const values = payload[key];
+    return Array.isArray(values) ? values.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+  });
+}
+
+function standupHasPmCoverage(entry: StandupEntry, pmCards: PMCard[]) {
+  if (linkedCardsForStandup(entry, pmCards).length > 0) {
+    return true;
+  }
+  const coverageIds = new Set(standupDispatchCoverageIds(entry));
+  return coverageIds.size > 0 && pmCards.some((card) => coverageIds.has(card.id));
+}
+
 function standupCreatedAt(entry: StandupEntry) {
   return entry.created_at ? new Date(entry.created_at) : new Date(0);
 }
@@ -12328,7 +12348,7 @@ function buildMeetingOps(
     if (!standupExpectedPmLink(entry)) {
       return false;
     }
-    return linkedCardsForStandup(entry, pmCards).length === 0;
+    return !standupHasPmCoverage(entry, pmCards);
   }).length;
 
   const staleReadyCount = executionQueue.filter((entry) => {

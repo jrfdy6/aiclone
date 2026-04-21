@@ -189,12 +189,43 @@ def _linked_cards(cards: list[dict[str, Any]], standup_id: str) -> list[dict[str
     return linked
 
 
-def _card_titles(cards: list[dict[str, Any]]) -> set[str]:
+def _card_titles(cards: list[dict[str, Any]], *, workspace_key: str | None = None) -> set[str]:
     return {
         str(card.get("title") or "").strip().lower()
         for card in cards
-        if isinstance(card, dict) and str(card.get("title") or "").strip()
+        if isinstance(card, dict)
+        and str(card.get("title") or "").strip()
+        and (workspace_key is None or _card_workspace_key(card) == workspace_key)
     }
+
+
+def _card_workspace_key(card: dict[str, Any]) -> str:
+    payload = card.get("payload") if isinstance(card.get("payload"), dict) else {}
+    value = payload.get("workspace_key")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    value = card.get("workspace_key")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "shared_ops"
+
+
+def _cards_matching_titles(cards: list[dict[str, Any]], titles: list[str], workspace_key: str) -> list[dict[str, Any]]:
+    wanted = {title.strip().lower() for title in titles if title.strip()}
+    if not wanted:
+        return []
+    matched: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        title = str(card.get("title") or "").strip().lower()
+        card_id = str(card.get("id") or "").strip()
+        if _card_workspace_key(card) != workspace_key or title not in wanted or not card_id or card_id in seen:
+            continue
+        seen.add(card_id)
+        matched.append(card)
+    return matched
 
 
 def _build_card_payload(entry: dict[str, Any], title: str) -> dict[str, Any]:
@@ -257,7 +288,9 @@ def build_report(api_url: str, lookback_days: int, limit: int, sync_live: bool) 
 
         linked = _linked_cards(cards_list, str(entry.get("id")))
         candidates = _candidate_titles(entry)
-        board_titles = _card_titles(cards_list)
+        workspace_key = str(entry.get("workspace_key") or "shared_ops")
+        board_titles = _card_titles(cards_list, workspace_key=workspace_key)
+        covered_cards = _cards_matching_titles(cards_list, candidates, workspace_key)
         unresolved_candidates = [title for title in candidates if title.lower() not in board_titles]
         created_cards: list[dict[str, Any]] = []
 
@@ -282,14 +315,22 @@ def build_report(api_url: str, lookback_days: int, limit: int, sync_live: bool) 
                     created_count += 1
 
         linked = _linked_cards(cards_list, str(entry.get("id")))
+        covered_cards = _cards_matching_titles(cards_list, candidates, workspace_key)
         existing_count += len(linked)
+        covered_card_ids = [card.get("id") for card in covered_cards if isinstance(card, dict) and card.get("id")]
         payload = dict(entry.get("payload") or {})
         payload["post_sync_dispatch"] = {
             "ran_at": _iso(now),
             "linked_card_ids": [card.get("id") for card in linked if isinstance(card, dict)],
             "created_card_ids": [card.get("id") for card in created_cards if isinstance(card, dict)],
+            "covered_card_ids": covered_card_ids,
             "commitment_titles": unresolved_candidates,
-            "status": "strategy_only" if _is_strategy_only(entry) else ("ok" if linked else "no_action"),
+            "candidate_titles": candidates,
+            "status": (
+                "strategy_only"
+                if _is_strategy_only(entry)
+                else ("ok" if linked else ("covered_by_existing_cards" if covered_cards else "no_action"))
+            ),
         }
         if sync_live:
             _fetch_json(
@@ -305,6 +346,7 @@ def build_report(api_url: str, lookback_days: int, limit: int, sync_live: bool) 
                 "created_at": entry.get("created_at"),
                 "linked_card_ids": [card.get("id") for card in linked if isinstance(card, dict)],
                 "created_card_ids": [card.get("id") for card in created_cards if isinstance(card, dict)],
+                "covered_card_ids": covered_card_ids,
                 "candidate_titles": unresolved_candidates,
                 "strategy_only": _is_strategy_only(entry),
             }
