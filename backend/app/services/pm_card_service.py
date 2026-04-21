@@ -33,12 +33,28 @@ AUTO_PROGRESS_REQUESTED_BY = "Codex PM Review Worker"
 AUTO_CONTRACT_RETRY_LIMIT = 2
 HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK = "fallback_watchdog_writeback"
 HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK = "linkedin_scheduled_writeback"
+HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK = "standup_prep_writeback"
+HOST_ACTION_AUTOMATION_EXECUTION_RESULT_WRITEBACK_PROOF = "execution_result_writeback_proof"
 HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_MARKERS = (
     "fallback_watchdog_latest.json",
     "memory/reports/fallback_watchdog_latest.json",
 )
+HOST_ACTION_AUTOMATION_STANDUP_PREP_MARKERS = (
+    "memory/standup-prep",
+    "standup-prep",
+    "standup prep",
+    "decision_loop",
+)
+HOST_ACTION_STANDUP_DECISION_LOOP_TARGETS = (
+    "canonical_memory",
+    "standup_interpretation",
+    "pm_execution",
+    "workspace_handoff",
+    "no_action",
+)
 HOST_ACTION_AUTOMATION_WRITEBACK_PATTERNS = (
     re.compile(r"\bwrite[_-]?execution[_-]?result\b", re.IGNORECASE),
+    re.compile(r"\bexecution[-\s]?result\s+writer\b", re.IGNORECASE),
     re.compile(r"\bexecution[-\s]?result\s*/?\s*write[-\s]?back\b", re.IGNORECASE),
     re.compile(r"\bresult\s*/?\s*write[-\s]?back\b", re.IGNORECASE),
     re.compile(r"\bwrite[-\s]?back\b", re.IGNORECASE),
@@ -2649,12 +2665,17 @@ def _infer_host_action_automation(card: PMCard) -> dict[str, Any] | None:
     existing = payload.get("host_action_automation")
     existing_payload = dict(existing) if isinstance(existing, dict) else {}
     existing_id = _optional_str(existing_payload.get("automation_id"))
-    if _is_closed_pm_status(card.status) and existing_id != HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK:
+    closed_host_automation_ids = {
+        HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK,
+        HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK,
+        HOST_ACTION_AUTOMATION_EXECUTION_RESULT_WRITEBACK_PROOF,
+    }
+    if _is_closed_pm_status(card.status) and existing_id not in closed_host_automation_ids:
         return None
 
     host_action_required = _normalize_host_action_payload(payload.get("host_action_required"))
     if host_action_required is None:
-        return existing_payload if existing_id == HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK else None
+        return existing_payload if existing_id in closed_host_automation_ids else None
 
     text = _host_action_text_blob(host_action_required)
     source_card_id = (
@@ -2687,6 +2708,35 @@ def _infer_host_action_automation(card: PMCard) -> dict[str, Any] | None:
             "runner_id": "codex_workspace_execution",
         }
 
+    mentions_standup_prep_writeback = (
+        bool(source_card_id)
+        and "decision_loop" in normalized_text
+        and any(marker in normalized_text for marker in HOST_ACTION_AUTOMATION_STANDUP_PREP_MARKERS)
+    )
+    if existing_id == HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK and source_card_id:
+        mentions_standup_prep_writeback = True
+    if mentions_standup_prep_writeback:
+        prep_path_match = re.search(r"memory/standup-prep/([a-z0-9_-]+)", text, flags=re.IGNORECASE)
+        standup_kind = _optional_str(existing_payload.get("standup_kind")) or (
+            prep_path_match.group(1) if prep_path_match else "executive_ops"
+        )
+        workspace_key = _optional_str(existing_payload.get("standup_workspace_key")) or "shared_ops"
+        return {
+            **existing_payload,
+            "automation_id": HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK,
+            "label": "Generate standup prep proof and close host action",
+            "state": _optional_str(existing_payload.get("state")) or "ready",
+            "autonomous": _optional_bool(existing_payload.get("autonomous"), True),
+            "autostart": _optional_bool(existing_payload.get("autostart"), True),
+            "requires_host_confirmation": _optional_bool(existing_payload.get("requires_host_confirmation"), False),
+            "safety_class": _optional_str(existing_payload.get("safety_class")) or "local_durable_writeback",
+            "source_card_id": source_card_id,
+            "runner_id": "codex_workspace_execution",
+            "standup_workspace_key": workspace_key,
+            "standup_kind": standup_kind,
+            "required_routing_targets": list(HOST_ACTION_STANDUP_DECISION_LOOP_TARGETS),
+        }
+
     queue_id = _optional_str(existing_payload.get("queue_id")) or _extract_feezie_queue_id(text)
     mentions_linkedin_scheduler = (
         bool(queue_id)
@@ -2709,6 +2759,26 @@ def _infer_host_action_automation(card: PMCard) -> dict[str, Any] | None:
             "source_card_id": source_card_id,
             "runner_id": "codex_workspace_execution",
             "asset_decision": _optional_str(existing_payload.get("asset_decision")) or "text-only",
+        }
+
+    mentions_execution_result_writeback = (
+        bool(source_card_id)
+        and any(pattern.search(text) for pattern in HOST_ACTION_AUTOMATION_WRITEBACK_PATTERNS)
+    )
+    if existing_id == HOST_ACTION_AUTOMATION_EXECUTION_RESULT_WRITEBACK_PROOF and source_card_id:
+        mentions_execution_result_writeback = True
+    if mentions_execution_result_writeback:
+        return {
+            **existing_payload,
+            "automation_id": HOST_ACTION_AUTOMATION_EXECUTION_RESULT_WRITEBACK_PROOF,
+            "label": "Verify execution-result writer proof and close host action",
+            "state": _optional_str(existing_payload.get("state")) or "ready",
+            "autonomous": _optional_bool(existing_payload.get("autonomous"), True),
+            "autostart": _optional_bool(existing_payload.get("autostart"), True),
+            "requires_host_confirmation": _optional_bool(existing_payload.get("requires_host_confirmation"), False),
+            "safety_class": _optional_str(existing_payload.get("safety_class")) or "local_durable_writeback",
+            "source_card_id": source_card_id,
+            "runner_id": "codex_workspace_execution",
         }
 
     return None

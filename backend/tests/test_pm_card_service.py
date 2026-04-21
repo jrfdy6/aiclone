@@ -1784,6 +1784,104 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(automation.get("source_card_id"), "12a16bba-8929-4986-852e-f84bb1ddfd2b")
         self.assertIs(automation.get("autostart"), True)
 
+    def test_standup_prep_host_action_exposes_autonomous_writeback_automation(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="standup-prep-host-action",
+            title="Host action required - Run standup prep proof",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "shared_ops",
+                "host_action_required": {
+                    "summary": "Run the normal authorized execution-result writer for PM card `6083f1d2-e967-4da3-aef4-4c3aaad16c33`.",
+                    "steps": [
+                        "Run the normal authorized execution-result writer for PM card `6083f1d2-e967-4da3-aef4-4c3aaad16c33`.",
+                        "After the next portfolio standup prep run, confirm the fresh executive prep JSON contains decision_loop.active=true.",
+                    ],
+                    "proof_required": [
+                        "A later memory/standup-prep/executive_ops/*.json generated from the updated builder includes decision_loop.active=true and the five routing targets listed in the memo."
+                    ],
+                    "source_card_id": "6083f1d2-e967-4da3-aef4-4c3aaad16c33",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        automation = decorated.payload.get("host_action_automation") or {}
+        self.assertEqual(automation.get("automation_id"), "standup_prep_writeback")
+        self.assertEqual(automation.get("label"), "Generate standup prep proof and close host action")
+        self.assertEqual(automation.get("source_card_id"), "6083f1d2-e967-4da3-aef4-4c3aaad16c33")
+        self.assertEqual(automation.get("standup_workspace_key"), "shared_ops")
+        self.assertEqual(automation.get("standup_kind"), "executive_ops")
+        self.assertIs(automation.get("autonomous"), True)
+        self.assertIs(automation.get("autostart"), True)
+        self.assertIs(automation.get("requires_host_confirmation"), False)
+        self.assertEqual(automation.get("safety_class"), "local_durable_writeback")
+        self.assertEqual(automation.get("runner_id"), "codex_workspace_execution")
+        self.assertEqual(
+            automation.get("required_routing_targets"),
+            [
+                "canonical_memory",
+                "standup_interpretation",
+                "pm_execution",
+                "workspace_handoff",
+                "no_action",
+            ],
+        )
+        self.assertIsNone(build_execution_queue_entry(card))
+
+    def test_execution_result_writer_host_action_exposes_autonomous_proof_automation(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="writer-proof-host-action",
+            title="Host action required - Run execution-result writer",
+            owner="Neo",
+            status="todo",
+            source="pm_host_action_required",
+            link_type=None,
+            link_id=None,
+            payload={
+                "workspace_key": "shared_ops",
+                "host_action_required": {
+                    "summary": "Run the normal authorized execution-result writer for PM card 58767544-c93d-43ab-9ea5-b130becb0ece.",
+                    "steps": [
+                        "Run the normal authorized execution-result writer for PM card 58767544-c93d-43ab-9ea5-b130becb0ece.",
+                        "Include /Users/neo/.openclaw/workspace/workspaces/shared-ops/docs/codex_chronicle_durable_memory_promotion_2026-04-21.md in the writer artifacts.",
+                    ],
+                    "proof_required": [
+                        "Execution-result memo or runner result cites /Users/neo/.openclaw/workspace/workspaces/shared-ops/docs/codex_chronicle_durable_memory_promotion_2026-04-21.md."
+                    ],
+                    "source_card_id": "58767544-c93d-43ab-9ea5-b130becb0ece",
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        assert decorated is not None
+        automation = decorated.payload.get("host_action_automation") or {}
+        self.assertEqual(automation.get("automation_id"), "execution_result_writeback_proof")
+        self.assertEqual(automation.get("label"), "Verify execution-result writer proof and close host action")
+        self.assertEqual(automation.get("source_card_id"), "58767544-c93d-43ab-9ea5-b130becb0ece")
+        self.assertIs(automation.get("autonomous"), True)
+        self.assertIs(automation.get("autostart"), True)
+        self.assertIs(automation.get("requires_host_confirmation"), False)
+        self.assertEqual(automation.get("safety_class"), "local_durable_writeback")
+        self.assertEqual(automation.get("runner_id"), "codex_workspace_execution")
+        self.assertIsNone(build_execution_queue_entry(card))
+
     def test_linkedin_scheduled_host_action_exposes_confirmation_writeback_automation(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(

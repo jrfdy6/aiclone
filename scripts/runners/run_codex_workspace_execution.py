@@ -32,9 +32,18 @@ DEFAULT_REASONING_EFFORT = "high"
 RUNNER_ID = "codex-workspace-execution"
 HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK = "fallback_watchdog_writeback"
 HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK = "linkedin_scheduled_writeback"
+HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK = "standup_prep_writeback"
+HOST_ACTION_AUTOMATION_EXECUTION_RESULT_WRITEBACK_PROOF = "execution_result_writeback_proof"
 LINKEDIN_WORKSPACE_RELATIVE_ROOT = Path("workspaces/linkedin-content-os")
 FEEZIE_QUEUE_ID_PATTERN = re.compile(r"\bFEEZIE-\d{3}\b", re.IGNORECASE)
 EASTERN_TZ = ZoneInfo("America/New_York")
+STANDUP_DECISION_LOOP_TARGETS = (
+    "canonical_memory",
+    "standup_interpretation",
+    "pm_execution",
+    "workspace_handoff",
+    "no_action",
+)
 UNSUPPORTED_CODEX_CLI_MODELS = frozenset(
     {
         "gpt-5.1-codex",
@@ -224,6 +233,22 @@ def _is_runnable_host_action_automation(automation: dict[str, Any]) -> bool:
     if automation_id == HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK:
         return state == "queued"
     if automation_id == HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK:
+        if state == "queued":
+            return True
+        if state != "ready":
+            return False
+        return _automation_truthy(automation.get("autostart")) and not _automation_truthy(
+            automation.get("requires_host_confirmation")
+        )
+    if automation_id == HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK:
+        if state == "queued":
+            return True
+        if state != "ready":
+            return False
+        return _automation_truthy(automation.get("autostart")) and not _automation_truthy(
+            automation.get("requires_host_confirmation")
+        )
+    if automation_id == HOST_ACTION_AUTOMATION_EXECUTION_RESULT_WRITEBACK_PROOF:
         if state == "queued":
             return True
         if state != "ready":
@@ -1018,6 +1043,438 @@ def _latest_result_artifact(source_card: dict[str, Any], suffix: str) -> str | N
             return text
     value = str(latest_result.get("memo_path") or latest_result.get("result_path") or "").strip()
     return value if value.endswith(suffix) else None
+
+
+def _builder_json_path_from_stdout(stdout: str, *, standup_kind: str) -> Path:
+    for line in stdout.splitlines():
+        if line.startswith("JSON: "):
+            value = line.removeprefix("JSON: ").strip()
+            if value:
+                path = Path(value).expanduser()
+                return path if path.is_absolute() else WORKSPACE_ROOT / path
+    latest = _latest_standup_prep_path(standup_kind)
+    if latest is not None:
+        return latest
+    raise RuntimeError("build_standup_prep.py did not report a JSON path.")
+
+
+def _latest_standup_prep_path(standup_kind: str) -> Path | None:
+    root = MEMORY_ROOT / "standup-prep" / standup_kind
+    if not root.exists():
+        return None
+    matches = sorted(root.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    return matches[0] if matches else None
+
+
+def _load_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{path} did not contain a JSON object.")
+    return payload
+
+
+def _verify_standup_decision_loop(prep: dict[str, Any]) -> list[str]:
+    loops = {
+        "decision_loop": dict(prep.get("decision_loop") or {}),
+        "standup_payload.payload.decision_loop": dict(
+            (dict((dict(prep.get("standup_payload") or {}).get("payload") or {})).get("decision_loop") or {})
+        ),
+    }
+    expected = set(STANDUP_DECISION_LOOP_TARGETS)
+    for label, loop in loops.items():
+        if loop.get("active") is not True:
+            raise RuntimeError(f"{label}.active was not true in the generated standup prep.")
+        routes = {str(item).strip() for item in (loop.get("routing_targets") or []) if str(item).strip()}
+        missing = sorted(expected - routes)
+        if missing:
+            raise RuntimeError(f"{label}.routing_targets missing: {', '.join(missing)}.")
+    return list(STANDUP_DECISION_LOOP_TARGETS)
+
+
+def _source_latest_execution_result(source_card: dict[str, Any]) -> dict[str, Any]:
+    latest = dict(source_card.get("payload") or {}).get("latest_execution_result")
+    return dict(latest) if isinstance(latest, dict) else {}
+
+
+def _artifact_list(latest_result: dict[str, Any]) -> list[str]:
+    artifacts = [str(item).strip() for item in latest_result.get("artifacts") or [] if str(item).strip()]
+    for key in ("memo_path", "result_path"):
+        value = str(latest_result.get(key) or "").strip()
+        if value and value not in artifacts:
+            artifacts.insert(0, value)
+    return artifacts
+
+
+def _local_path_from_artifact(value: str) -> Path | None:
+    cleaned = str(value or "").strip().strip("`").rstrip(".,;")
+    if not cleaned:
+        return None
+    path = Path(cleaned).expanduser()
+    if path.is_absolute():
+        return path
+    if cleaned.startswith(("memory/", "workspaces/", "docs/", "backend/", "scripts/")):
+        return WORKSPACE_ROOT / path
+    return None
+
+
+def _existing_artifacts(artifacts: list[str]) -> list[str]:
+    existing: list[str] = []
+    for artifact in artifacts:
+        path = _local_path_from_artifact(artifact)
+        if path is None or path.exists():
+            existing.append(artifact)
+    return existing
+
+
+def _host_action_required_text(card: dict[str, Any]) -> str:
+    payload = dict(card.get("payload") or {})
+    host_action = dict(payload.get("host_action_required") or {})
+    values: list[Any] = [card.get("title"), host_action.get("summary")]
+    for key in ("steps", "proof_required"):
+        value = host_action.get(key)
+        if isinstance(value, list):
+            values.extend(value)
+    return "\n".join(str(item).strip() for item in values if str(item).strip())
+
+
+def _extract_referenced_artifact_paths(text: str) -> list[str]:
+    matches = re.findall(
+        r"(?:/Users/neo/\.openclaw/workspace/|(?:memory|workspaces|docs|backend|scripts)/)[A-Za-z0-9_./:-]+",
+        text,
+    )
+    cleaned: list[str] = []
+    for match in matches:
+        value = match.strip().strip("`").rstrip(".,;)")
+        if value and value not in cleaned:
+            cleaned.append(value)
+    return cleaned
+
+
+def _artifact_cited(reference: str, artifacts: list[str], *texts: str) -> bool:
+    normalized_ref = str(reference or "").strip()
+    if not normalized_ref:
+        return True
+    ref_path = _local_path_from_artifact(normalized_ref)
+    ref_abs = str(ref_path) if ref_path is not None else normalized_ref
+    ref_rel = ""
+    if ref_path is not None:
+        try:
+            ref_rel = str(ref_path.resolve().relative_to(WORKSPACE_ROOT.resolve()))
+        except ValueError:
+            ref_rel = ""
+    for artifact in artifacts:
+        artifact_text = str(artifact or "")
+        if normalized_ref in artifact_text or ref_abs in artifact_text or (ref_rel and ref_rel in artifact_text):
+            return True
+    for text in texts:
+        if normalized_ref in text or ref_abs in text or (ref_rel and ref_rel in text):
+            return True
+    return False
+
+
+def _run_execution_result_writeback_proof_automation(
+    imports: dict[str, Any],
+    api_url: str,
+    card: dict[str, Any],
+    *,
+    worker_id: str,
+    dry_run: bool,
+) -> dict[str, Any]:
+    payload = dict(card.get("payload") or {})
+    automation = dict(payload.get("host_action_automation") or {})
+    host_action = dict(payload.get("host_action_required") or {})
+    source_card_id = str(automation.get("source_card_id") or host_action.get("source_card_id") or "").strip()
+    if not source_card_id:
+        raise RuntimeError("Execution-result proof automation is missing source_card_id.")
+
+    if dry_run:
+        return {
+            "status": "ok",
+            "summary": f"Dry run selected execution-result write-back proof automation for source PM card {source_card_id}.",
+            "artifacts": [],
+            "proof_items": [],
+            "metadata": {"dry_run": True, "source_card_id": source_card_id},
+        }
+
+    running_card = _patch_host_action_automation(
+        imports,
+        api_url,
+        card,
+        state="running",
+        worker_id=worker_id,
+        status="in_progress",
+    )
+
+    source_card = _load_card(imports, api_url, source_card_id)
+    source_status = str(source_card.get("status") or "").strip() or "unknown"
+    latest_result = _source_latest_execution_result(source_card)
+    if not latest_result:
+        raise RuntimeError(f"PM card {source_card_id} does not expose latest_execution_result.")
+    result_status = str(latest_result.get("status") or "").strip()
+    if result_status not in {"review", "done", "blocked"}:
+        raise RuntimeError(f"PM card {source_card_id} latest_execution_result has unsupported status `{result_status}`.")
+
+    artifacts = _artifact_list(latest_result)
+    result_memo = _latest_result_artifact(source_card, "_execution_result.md") or str(latest_result.get("memo_path") or "").strip()
+    result_json = str(latest_result.get("result_path") or "").strip()
+    if not result_json:
+        for artifact in artifacts:
+            if "/runner-results/" in artifact and artifact.endswith(".json"):
+                result_json = artifact
+                break
+    if not result_memo and not result_json:
+        raise RuntimeError(f"PM card {source_card_id} does not expose runner memo or result JSON proof.")
+    existing_artifacts = _existing_artifacts([item for item in [result_memo, result_json, *artifacts] if item])
+    if result_memo and result_memo not in existing_artifacts:
+        raise RuntimeError(f"Runner memo proof does not exist on this host: {result_memo}")
+    if result_json and result_json not in existing_artifacts:
+        raise RuntimeError(f"Runner result JSON proof does not exist on this host: {result_json}")
+
+    memo_text = ""
+    memo_path = _local_path_from_artifact(result_memo)
+    if memo_path is not None and memo_path.exists():
+        memo_text = memo_path.read_text(encoding="utf-8")
+    result_text = json.dumps(latest_result, sort_keys=True)
+    required_paths = _extract_referenced_artifact_paths(_host_action_required_text(card))
+    missing_references = [
+        path
+        for path in required_paths
+        if not _artifact_cited(path, artifacts, result_text, memo_text)
+    ]
+    if missing_references:
+        raise RuntimeError(
+            "Source execution result does not cite required artifact(s): " + ", ".join(missing_references)
+        )
+
+    proof_items = [
+        (
+            "Execution-result proof: "
+            f"{result_memo or 'latest runner memo'}"
+            + (f" and {result_json}" if result_json else "")
+            + f" record the writer result for PM card {source_card_id}."
+        ),
+        (
+            f"PM state proof: PM card {source_card_id} is {source_status} with latest_execution_result "
+            f"status={result_status} and artifacts including {', '.join(artifacts[:4])}."
+        ),
+    ]
+    if required_paths:
+        proof_items.append("Required artifact proof: " + ", ".join(required_paths) + " is cited by the source result.")
+    for item in latest_result.get("learnings") or []:
+        cleaned = str(item).strip()
+        if cleaned:
+            proof_items.append(f"Learning proof: {cleaned}")
+            break
+    for item in automation.get("proof_items") or []:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in proof_items:
+            proof_items.append(cleaned)
+
+    close_result = _fetch_json(
+        f"{api_url}/api/pm/cards/{card['id']}/actions",
+        method="POST",
+        payload={
+            "action": "approve",
+            "requested_by": "Host Action Automation",
+            "reason": (
+                f"Host automation complete: execution-result writer proof already exists for PM card "
+                f"{source_card_id}; runner memo/result and required artifacts were verified."
+            ),
+            "resolution_mode": "close_only",
+            "proof_items": proof_items,
+        },
+    )
+    closed_card = dict(close_result.get("card") or {}) if isinstance(close_result, dict) else {}
+    _patch_host_action_automation(
+        imports,
+        api_url,
+        closed_card or running_card,
+        state="completed",
+        worker_id=worker_id,
+        proof_items=proof_items,
+        status="done",
+    )
+    return {
+        "status": "ok",
+        "summary": f"Host action automation verified execution-result writer proof for PM card {source_card_id} and closed the host card.",
+        "artifacts": [item for item in [result_memo, result_json, *required_paths] if item],
+        "proof_items": proof_items,
+        "metadata": {
+            "source_card_id": source_card_id,
+            "host_card_id": card["id"],
+            "result_memo": result_memo,
+            "result_json": result_json,
+            "required_paths": required_paths,
+            "close_status": dict(close_result.get("card") or {}).get("status") if isinstance(close_result, dict) else None,
+        },
+    }
+
+
+def _run_standup_prep_writeback_automation(
+    imports: dict[str, Any],
+    api_url: str,
+    card: dict[str, Any],
+    *,
+    worker_id: str,
+    dry_run: bool,
+) -> dict[str, Any]:
+    payload = dict(card.get("payload") or {})
+    automation = dict(payload.get("host_action_automation") or {})
+    host_action = dict(payload.get("host_action_required") or {})
+    source_card_id = str(automation.get("source_card_id") or host_action.get("source_card_id") or "").strip()
+    if not source_card_id:
+        raise RuntimeError("Standup prep host action automation is missing source_card_id.")
+
+    standup_workspace_key = str(automation.get("standup_workspace_key") or "shared_ops").strip() or "shared_ops"
+    standup_kind = str(automation.get("standup_kind") or "executive_ops").strip() or "executive_ops"
+    owner_agent = str(automation.get("owner_agent") or "jean-claude").strip() or "jean-claude"
+    try:
+        chronicle_limit = int(automation.get("chronicle_limit") or 8)
+    except (TypeError, ValueError):
+        chronicle_limit = 8
+
+    if dry_run:
+        return {
+            "status": "ok",
+            "summary": (
+                f"Dry run selected standup prep write-back automation for source PM card {source_card_id} "
+                f"and `{standup_workspace_key}`/{standup_kind}."
+            ),
+            "artifacts": [],
+            "proof_items": [],
+            "metadata": {"dry_run": True, "source_card_id": source_card_id, "standup_kind": standup_kind},
+        }
+
+    running_card = _patch_host_action_automation(
+        imports,
+        api_url,
+        card,
+        state="running",
+        worker_id=worker_id,
+        status="in_progress",
+    )
+
+    source_card = _load_card(imports, api_url, source_card_id)
+    latest_result = _source_latest_execution_result(source_card)
+    result_memo = _latest_result_artifact(source_card, "_execution_result.md") or str(latest_result.get("memo_path") or "").strip()
+    result_json = str(latest_result.get("result_path") or "").strip()
+    if not result_json:
+        for artifact in latest_result.get("artifacts") or []:
+            artifact_text = str(artifact or "").strip()
+            if "/runner-results/" in artifact_text and artifact_text.endswith(".json"):
+                result_json = artifact_text
+                break
+    if not result_memo and not result_json:
+        raise RuntimeError(f"PM card {source_card_id} does not expose execution-result writer artifacts yet.")
+
+    builder = _run_command(
+        [
+            sys.executable,
+            str(SCRIPTS_ROOT / "build_standup_prep.py"),
+            "--workspace-key",
+            standup_workspace_key,
+            "--standup-kind",
+            standup_kind,
+            "--owner-agent",
+            owner_agent,
+            "--chronicle-limit",
+            str(chronicle_limit),
+            "--api-url",
+            api_url,
+        ],
+        timeout_seconds=240,
+    )
+    if builder.returncode != 0:
+        raise RuntimeError((builder.stderr or builder.stdout or "build_standup_prep.py failed").strip())
+    prep_path = _builder_json_path_from_stdout(builder.stdout or "", standup_kind=standup_kind)
+    prep = _load_json_object(prep_path)
+    routing_targets = _verify_standup_decision_loop(prep)
+    generated_at = str(prep.get("generated_at") or "").strip()
+
+    refreshed_source_card = _load_card(imports, api_url, source_card_id)
+    source_status = str(refreshed_source_card.get("status") or "").strip() or "unknown"
+    refreshed_latest_result = _source_latest_execution_result(refreshed_source_card)
+    refreshed_memo = _latest_result_artifact(refreshed_source_card, "_execution_result.md") or result_memo
+    refreshed_result_json = str(refreshed_latest_result.get("result_path") or result_json).strip()
+    source_artifacts = [
+        str(item).strip()
+        for item in (refreshed_latest_result.get("artifacts") or latest_result.get("artifacts") or [])
+        if str(item).strip()
+    ]
+
+    proof_items = [
+        (
+            "Execution-result proof: "
+            f"{refreshed_memo or 'latest runner memo'}"
+            + (f" and {refreshed_result_json}" if refreshed_result_json else "")
+            + f" record the result for PM card {source_card_id}."
+        ),
+        (
+            f"PM state proof: PM card {source_card_id} is {source_status}"
+            + (
+                f" with latest_execution_result artifacts including {', '.join(source_artifacts[:4])}."
+                if source_artifacts
+                else "."
+            )
+        ),
+        (
+            f"Fresh standup prep proof: {prep_path} generated_at={generated_at} contains "
+            f"decision_loop.active=true and routing_targets {', '.join(routing_targets)}; "
+            "the same decision_loop is present under standup_payload.payload.decision_loop."
+        ),
+    ]
+    for item in automation.get("proof_items") or []:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in proof_items:
+            proof_items.append(cleaned)
+
+    close_result = _fetch_json(
+        f"{api_url}/api/pm/cards/{card['id']}/actions",
+        method="POST",
+        payload={
+            "action": "approve",
+            "requested_by": "Host Action Automation",
+            "reason": (
+                f"Host automation complete: generated fresh {standup_kind} standup prep {prep_path} "
+                f"with decision_loop.active=true and verified source PM card {source_card_id} writer evidence."
+            ),
+            "resolution_mode": "close_only",
+            "proof_items": proof_items,
+        },
+    )
+    closed_card = dict(close_result.get("card") or {}) if isinstance(close_result, dict) else {}
+    _patch_host_action_automation(
+        imports,
+        api_url,
+        closed_card or running_card,
+        state="completed",
+        worker_id=worker_id,
+        proof_items=proof_items,
+        status="done",
+    )
+    artifacts = [str(prep_path)]
+    if refreshed_memo:
+        artifacts.append(refreshed_memo)
+    if refreshed_result_json:
+        artifacts.append(refreshed_result_json)
+    return {
+        "status": "ok",
+        "summary": (
+            f"Host action automation generated fresh {standup_kind} standup prep proof for PM card "
+            f"{source_card_id} and closed the host card."
+        ),
+        "artifacts": artifacts,
+        "proof_items": proof_items,
+        "metadata": {
+            "source_card_id": source_card_id,
+            "host_card_id": card["id"],
+            "standup_workspace_key": standup_workspace_key,
+            "standup_kind": standup_kind,
+            "prep_json_path": str(prep_path),
+            "builder_stdout": builder.stdout[-2000:],
+            "close_status": dict(close_result.get("card") or {}).get("status") if isinstance(close_result, dict) else None,
+        },
+    }
 
 
 def _run_fallback_watchdog_writeback_automation(
@@ -1819,6 +2276,22 @@ def main() -> int:
                 )
             elif automation_id == HOST_ACTION_AUTOMATION_FALLBACK_WATCHDOG_WRITEBACK:
                 automation_result = _run_fallback_watchdog_writeback_automation(
+                    imports,
+                    args.api_url.rstrip("/"),
+                    selected_host_action,
+                    worker_id=args.worker_id,
+                    dry_run=args.dry_run,
+                )
+            elif automation_id == HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK:
+                automation_result = _run_standup_prep_writeback_automation(
+                    imports,
+                    args.api_url.rstrip("/"),
+                    selected_host_action,
+                    worker_id=args.worker_id,
+                    dry_run=args.dry_run,
+                )
+            elif automation_id == HOST_ACTION_AUTOMATION_EXECUTION_RESULT_WRITEBACK_PROOF:
+                automation_result = _run_execution_result_writeback_proof_automation(
                     imports,
                     args.api_url.rstrip("/"),
                     selected_host_action,

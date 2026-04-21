@@ -203,6 +203,52 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         assert selected is not None
         self.assertEqual(selected["id"], "autostart-card")
 
+    def test_select_runnable_host_action_automation_card_autostarts_standup_prep_card(self) -> None:
+        cards = [
+            {
+                "id": "standup-prep-card",
+                "status": "todo",
+                "updated_at": "2026-04-20T09:00:00Z",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "standup_prep_writeback",
+                        "state": "ready",
+                        "autostart": True,
+                        "requires_host_confirmation": False,
+                    }
+                },
+            }
+        ]
+
+        selected = self.runner._select_runnable_host_action_automation_card(cards)
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["id"], "standup-prep-card")
+
+    def test_select_runnable_host_action_automation_card_autostarts_writer_proof_card(self) -> None:
+        cards = [
+            {
+                "id": "writer-proof-card",
+                "status": "todo",
+                "updated_at": "2026-04-20T09:00:00Z",
+                "payload": {
+                    "host_action_automation": {
+                        "automation_id": "execution_result_writeback_proof",
+                        "state": "ready",
+                        "autostart": True,
+                        "requires_host_confirmation": False,
+                    }
+                },
+            }
+        ]
+
+        selected = self.runner._select_runnable_host_action_automation_card(cards)
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(selected["id"], "writer-proof-card")
+
     def test_select_runnable_host_action_automation_card_requires_linkedin_queue(self) -> None:
         cards = [
             {
@@ -377,6 +423,198 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         self.assertEqual(writer_statuses, ["blocked", "done"])
         self.assertEqual(watchdog_runs, 2)
         self.assertEqual(result["status"], "ok")
+
+    def test_standup_prep_writeback_generates_fresh_prep_and_closes_card(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            memory_root = temp_root / "memory"
+            prep_path = memory_root / "standup-prep" / "executive_ops" / "20260421T112533Z.json"
+            prep_path.parent.mkdir(parents=True)
+            source_card = {
+                "id": "source-card",
+                "status": "done",
+                "payload": {
+                    "latest_execution_result": {
+                        "status": "review",
+                        "result_path": "/tmp/runner-results/source.json",
+                        "memo_path": "/tmp/runner-memos/source_execution_result.md",
+                        "artifacts": [
+                            "/tmp/runner-results/source.json",
+                            "/tmp/runner-memos/source_execution_result.md",
+                            "/tmp/workspaces/shared-ops/docs/chronicle_standup_pm_flow_wire_2026-04-21.md",
+                        ],
+                    }
+                },
+            }
+            close_payloads: list[dict] = []
+
+            def fake_run(command, **_kwargs):
+                script_name = Path(command[1]).name
+                if script_name != "build_standup_prep.py":
+                    raise AssertionError(f"Unexpected command: {command}")
+                prep_path.write_text(
+                    json.dumps(
+                        {
+                            "generated_at": "2026-04-21T11:25:33Z",
+                            "decision_loop": {
+                                "active": True,
+                                "routing_targets": [
+                                    "canonical_memory",
+                                    "standup_interpretation",
+                                    "pm_execution",
+                                    "workspace_handoff",
+                                    "no_action",
+                                ],
+                            },
+                            "standup_payload": {
+                                "payload": {
+                                    "decision_loop": {
+                                        "active": True,
+                                        "routing_targets": [
+                                            "canonical_memory",
+                                            "standup_interpretation",
+                                            "pm_execution",
+                                            "workspace_handoff",
+                                            "no_action",
+                                        ],
+                                    }
+                                }
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return self.runner.subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=f"summary\nJSON: {prep_path}\nMarkdown: {prep_path.with_suffix('.md')}\n",
+                    stderr="",
+                )
+
+            def fake_fetch(_url, *, method="GET", payload=None):
+                if method == "POST":
+                    close_payloads.append(payload or {})
+                    return {"card": {"id": "host-card", "status": "done", "payload": {}}}
+                raise AssertionError("Only the close action should use _fetch_json in this test.")
+
+            card = {
+                "id": "host-card",
+                "title": "Host action required - Run standup prep proof",
+                "payload": {
+                    "workspace_key": "shared_ops",
+                    "host_action_required": {"source_card_id": "source-card"},
+                    "host_action_automation": {
+                        "automation_id": "standup_prep_writeback",
+                        "source_card_id": "source-card",
+                        "standup_workspace_key": "shared_ops",
+                        "standup_kind": "executive_ops",
+                    },
+                },
+            }
+
+            with mock.patch.object(self.runner, "WORKSPACE_ROOT", temp_root):
+                with mock.patch.object(self.runner, "MEMORY_ROOT", memory_root):
+                    with mock.patch.object(self.runner, "SCRIPTS_ROOT", temp_root / "scripts"):
+                        with mock.patch.object(self.runner, "_run_command", side_effect=fake_run):
+                            with mock.patch.object(self.runner, "_load_card", return_value=source_card):
+                                with mock.patch.object(self.runner, "_fetch_json", side_effect=fake_fetch):
+                                    with mock.patch.object(self.runner, "_patch_host_action_automation", side_effect=lambda *_args, **_kwargs: card):
+                                        result = self.runner._run_standup_prep_writeback_automation(
+                                            {},
+                                            "https://api.example.test",
+                                            card,
+                                            worker_id="worker-1",
+                                            dry_run=False,
+                                        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["metadata"]["prep_json_path"], str(prep_path))
+        self.assertEqual(close_payloads[0]["action"], "approve")
+        self.assertEqual(close_payloads[0]["resolution_mode"], "close_only")
+        proof = "\n".join(close_payloads[0]["proof_items"])
+        self.assertIn("decision_loop.active=true", proof)
+        self.assertIn("canonical_memory, standup_interpretation, pm_execution, workspace_handoff, no_action", proof)
+
+    def test_execution_result_writeback_proof_closes_card_when_writer_evidence_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            memo_path = temp_root / "memory" / "runner-memos" / "jean-claude" / "20260421T044428Z_execution_result.md"
+            result_path = temp_root / "memory" / "runner-results" / "jean-claude" / "20260421T044428Z.json"
+            artifact_path = temp_root / "workspaces" / "shared-ops" / "docs" / "codex_chronicle_durable_memory_promotion_2026-04-21.md"
+            memo_path.parent.mkdir(parents=True)
+            result_path.parent.mkdir(parents=True)
+            artifact_path.parent.mkdir(parents=True)
+            memo_path.write_text(f"Memo cites {artifact_path}\n", encoding="utf-8")
+            result_path.write_text("{}", encoding="utf-8")
+            artifact_path.write_text("# Durable promotion\n", encoding="utf-8")
+            source_card = {
+                "id": "source-card",
+                "status": "done",
+                "payload": {
+                    "latest_execution_result": {
+                        "status": "review",
+                        "result_path": str(result_path),
+                        "memo_path": str(memo_path),
+                        "artifacts": [
+                            str(result_path),
+                            str(memo_path),
+                            str(artifact_path),
+                        ],
+                        "learnings": [
+                            "When Chronicle emits a standup-shaping signal, shared_ops should package a bounded promotion."
+                        ],
+                    }
+                },
+            }
+            close_payloads: list[dict] = []
+
+            def fake_fetch(_url, *, method="GET", payload=None):
+                if method == "POST":
+                    close_payloads.append(payload or {})
+                    return {"card": {"id": "host-card", "status": "done", "payload": {}}}
+                raise AssertionError("Only the close action should use _fetch_json in this test.")
+
+            card = {
+                "id": "host-card",
+                "title": "Host action required - Run execution-result writer",
+                "payload": {
+                    "workspace_key": "shared_ops",
+                    "host_action_required": {
+                        "source_card_id": "source-card",
+                        "steps": [
+                            "Run the normal authorized execution-result writer for PM card source-card.",
+                            f"Include {artifact_path} in the writer artifacts.",
+                        ],
+                        "proof_required": [
+                            f"Execution-result memo or runner result cites {artifact_path}."
+                        ],
+                    },
+                    "host_action_automation": {
+                        "automation_id": "execution_result_writeback_proof",
+                        "source_card_id": "source-card",
+                    },
+                },
+            }
+
+            with mock.patch.object(self.runner, "WORKSPACE_ROOT", temp_root):
+                with mock.patch.object(self.runner, "_load_card", return_value=source_card):
+                    with mock.patch.object(self.runner, "_fetch_json", side_effect=fake_fetch):
+                        with mock.patch.object(self.runner, "_patch_host_action_automation", side_effect=lambda *_args, **_kwargs: card):
+                            result = self.runner._run_execution_result_writeback_proof_automation(
+                                {},
+                                "https://api.example.test",
+                                card,
+                                worker_id="worker-1",
+                                dry_run=False,
+                            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(close_payloads[0]["action"], "approve")
+        self.assertEqual(close_payloads[0]["resolution_mode"], "close_only")
+        proof = "\n".join(close_payloads[0]["proof_items"])
+        self.assertIn("Execution-result proof:", proof)
+        self.assertIn("Required artifact proof:", proof)
+        self.assertIn("Learning proof:", proof)
 
     def test_linkedin_scheduled_writeback_records_receipt_docs_and_closes_card(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
