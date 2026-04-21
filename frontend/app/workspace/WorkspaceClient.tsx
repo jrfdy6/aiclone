@@ -100,6 +100,8 @@ type FeedPlanningStage = 'owner_review' | 'weekly_plan' | 'post_seed' | 'latent_
 type FeedPlanningStatus = {
   stage: FeedPlanningStage;
   label: string;
+  recommendation: string;
+  why: string[];
   detail: string;
   actionLabel: string;
   tone: string;
@@ -170,6 +172,8 @@ type WorkspaceSnapshot = {
       summary?: string;
       source_url?: string;
       source_path?: string;
+      source_kind?: string;
+      publish_posture?: string;
       priority_lane?: string;
     }[];
     source_counts?: {
@@ -688,6 +692,11 @@ function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningInde
     return {
       stage: 'owner_review',
       label: 'Owner review',
+      recommendation: 'Already drafted for owner review.',
+      why: [
+        'This source has already moved past the seed decision.',
+        'The next gate is to approve, revise, or park the draft.',
+      ],
       detail: 'Already drafted. The next decision is approve, revise, or park.',
       actionLabel: 'Open owner review',
       tone: '#fbbf24',
@@ -698,6 +707,11 @@ function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningInde
     return {
       stage: 'weekly_plan',
       label: 'Weekly plan',
+      recommendation: 'Already selected for the weekly plan.',
+      why: [
+        'This source has already been admitted into the active plan.',
+        'Continue from the planned seed instead of saving the same source again.',
+      ],
       detail: 'Already selected for the active weekly plan.',
       actionLabel: 'Use planned seed',
       tone: '#38bdf8',
@@ -708,6 +722,11 @@ function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningInde
     return {
       stage: 'post_seed',
       label: 'Banked seed',
+      recommendation: 'Already banked as a post seed.',
+      why: [
+        'This source is already stored in the standalone post-seed lane.',
+        'Use the banked seed or move it into drafting when you want to work it further.',
+      ],
       detail: 'Already stored in the standalone post-seed lane.',
       actionLabel: 'Use banked seed',
       tone: '#22c55e',
@@ -718,6 +737,11 @@ function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningInde
     return {
       stage: 'latent_seed',
       label: 'Needs anecdote',
+      recommendation: 'Already preserved for revision.',
+      why: [
+        'This source was kept because the idea may still be useful.',
+        'It needs proof, taste, or an anecdote before it should become a finished post.',
+      ],
       detail: 'Already preserved as a latent seed that needs proof, taste, or an anecdote.',
       actionLabel: 'Work latent seed',
       tone: '#fb923c',
@@ -959,6 +983,17 @@ export function LinkedinWorkspaceSurface({
     (snapshot?.weekly_plan?.recommendations ?? []).forEach((item) => {
       addPlanningValue(weeklyTitles, item.title);
       addPlanningValue(weeklyPaths, item.source_path);
+      const sourceKind = normalizePlanningKey(item.source_kind);
+      const publishPosture = normalizePlanningKey(item.publish_posture);
+      const sourcePath = normalizePlanningKey(item.source_path);
+      if (
+        sourceKind === 'draft' ||
+        publishPosture === 'owner_review_required' ||
+        sourcePath.includes('/drafts/') ||
+        sourcePath.startsWith('workspaces/linkedin-content-os/drafts/')
+      ) {
+        addPlanningValue(ownerReviewTitles, item.title);
+      }
     });
     addPlanningItems(postSeedTitles, postSeedPaths, snapshot?.reaction_queue?.post_seeds);
     addPlanningItems(latentSeedTitles, latentSeedPaths, snapshot?.reaction_queue?.latent_post_seeds);
@@ -2458,11 +2493,11 @@ export function LinkedinWorkspaceSurface({
                   <div style={editorialSummaryStyle}>
                     <div style={{ display: 'grid', gap: '4px' }}>
                       <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Recommendation</p>
-                      <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{editorial.recommendation}</p>
+                      <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{planningStatus?.recommendation ?? editorial.recommendation}</p>
                     </div>
                     <div style={{ display: 'grid', gap: '4px' }}>
                       <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Why</p>
-                      {editorial.why.map((reason) => (
+                      {(planningStatus?.why ?? editorial.why).map((reason) => (
                         <p key={`${item.id}-${reason}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
                           {reason}
                         </p>
