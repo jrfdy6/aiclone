@@ -2489,6 +2489,7 @@ function OpenBrainPanel({ metrics, health }: { metrics: OpenBrainTelemetry | nul
 
 const STANDUP_ROOMS: {
   key: string;
+  standupKind?: string;
   label: string;
   workspaceKey: string;
   description: string;
@@ -2529,6 +2530,7 @@ const STANDUP_ROOMS: {
   },
   {
     key: 'feezie-os',
+    standupKind: 'workspace_sync',
     label: 'FEEZIE OS Standup',
     workspaceKey: 'feezie-os',
     description: 'Workspace meeting for FEEZIE OS execution across source intake, content production, and broader public visibility direction.',
@@ -2537,6 +2539,7 @@ const STANDUP_ROOMS: {
   },
   {
     key: 'fusion-os',
+    standupKind: 'workspace_sync',
     label: 'Fusion Standup',
     workspaceKey: 'fusion-os',
     description: 'Workspace meeting lane where Jean-Claude manages and Fusion Systems Operator executes inside Fusion only.',
@@ -2545,6 +2548,7 @@ const STANDUP_ROOMS: {
   },
   {
     key: 'easyoutfitapp',
+    standupKind: 'workspace_sync',
     label: 'Easy Outfit App Standup',
     workspaceKey: 'easyoutfitapp',
     description: 'Workspace meeting lane where Jean-Claude manages and Easy Outfit App Operator Agent executes inside Easy Outfit App only.',
@@ -2553,6 +2557,7 @@ const STANDUP_ROOMS: {
   },
   {
     key: 'ai-swag-store',
+    standupKind: 'workspace_sync',
     label: 'AI Swag Store Standup',
     workspaceKey: 'ai-swag-store',
     description: 'Workspace meeting lane where Jean-Claude manages and AI Swag Store Operator Agent executes inside AI Swag Store only.',
@@ -2561,6 +2566,7 @@ const STANDUP_ROOMS: {
   },
   {
     key: 'agc',
+    standupKind: 'workspace_sync',
     label: 'AGC Standup',
     workspaceKey: 'agc',
     description: 'Workspace meeting lane where Jean-Claude manages and AGC Operator Agent executes inside AGC only.',
@@ -5682,7 +5688,7 @@ function StandupsPanel({
           />
           <MiniMeta label="Linked Cards" value={`${meetingOps.linkedCardCount}`} detail="active PM cards tied back to standups" />
           <MiniMeta label="Resolved Links" value={`${meetingOps.resolvedLinkedCardCount}`} detail="closed historical PM cards kept for transcript traceability" />
-          <MiniMeta label="Orphan Standups" value={`${meetingOps.orphanStandupCount}`} detail="meetings with decisions but no linked PM card" />
+          <MiniMeta label="Orphan Standups" value={`${meetingOps.orphanStandupCount}`} detail="completed meetings with PM recommendations but no linked PM card" />
           <MiniMeta label="Stale Ready" value={`${meetingOps.staleReadyCount}`} detail="ready execution items aging in place" />
           <MiniMeta label="Stale Review" value={`${meetingOps.staleReviewCount}`} detail="results waiting too long for a closeout" />
           <MiniMeta label="Stale Running" value={`${meetingOps.staleRunningCount}`} detail="queued/running lanes that need follow-through" />
@@ -10830,10 +10836,11 @@ function boardItemGuidance(item: UnifiedBoardItem): BoardItemGuidance {
 }
 
 function findStandupPrepForRoom(
-  room: { key: string; workspaceKey: string },
+  room: { key: string; standupKind?: string; workspaceKey: string },
   standupPreps: StandupPrepPacket[],
 ) {
-  const exact = standupPreps.find((prep) => prep.standupKind === room.key);
+  const targetKind = standupKindForRoom(room);
+  const exact = standupPreps.find((prep) => prep.standupKind === targetKind && prep.workspaceKey === room.workspaceKey);
   if (exact) {
     return exact;
   }
@@ -10844,12 +10851,11 @@ function findStandupPrepForRoom(
 }
 
 function findLiveStandupEntry(
-  room: { key: string; workspaceKey: string },
+  room: { key: string; standupKind?: string; workspaceKey: string },
   entries: StandupEntry[],
 ) {
   const exact = entries.find((entry) => {
-    const kind = typeof entry.payload?.standup_kind === 'string' ? entry.payload.standup_kind : null;
-    return kind === room.key;
+    return standupMatchesRoom(entry, room);
   });
   if (exact) {
     return exact;
@@ -12213,13 +12219,21 @@ function standupKind(entry: StandupEntry) {
   return typeof value === 'string' && value.trim() ? value.trim() : entry.workspace_key || 'shared_ops';
 }
 
+function standupKindForRoom(room: { key: string; standupKind?: string }) {
+  return room.standupKind ?? room.key;
+}
+
+function standupMatchesRoom(entry: StandupEntry, room: { key: string; standupKind?: string; workspaceKey: string }) {
+  return standupKind(entry) === standupKindForRoom(room) && entry.workspace_key === room.workspaceKey;
+}
+
 function standupLabel(entry: StandupEntry) {
-  const room = STANDUP_ROOMS.find((candidate) => candidate.key === standupKind(entry) && candidate.workspaceKey === entry.workspace_key);
+  const room = STANDUP_ROOMS.find((candidate) => standupMatchesRoom(entry, candidate));
   return room?.label ?? standupKind(entry);
 }
 
 function standupRoom(entry: StandupEntry) {
-  return STANDUP_ROOMS.find((candidate) => candidate.key === standupKind(entry) && candidate.workspaceKey === (entry.workspace_key ?? 'shared_ops')) ?? null;
+  return STANDUP_ROOMS.find((candidate) => standupMatchesRoom(entry, candidate)) ?? null;
 }
 
 function standupSummary(entry: StandupEntry) {
@@ -12234,13 +12248,19 @@ function standupDiscussion(entry: StandupEntry) {
   return Array.isArray(discussion) ? discussion.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : [];
 }
 
-function isMeaningfulStandup(entry: StandupEntry) {
-  return (
-    standupDiscussion(entry).length >= 3 ||
-    extractStandupList(entry.payload, 'decisions').length > 0 ||
-    entry.commitments.length > 0 ||
-    entry.blockers.length > 0
-  );
+function standupExpectedPmLink(entry: StandupEntry) {
+  if ((entry.status ?? '').toLowerCase() !== 'completed') {
+    return false;
+  }
+  const count = entry.payload?.pm_recommendation_count;
+  if (typeof count === 'number') {
+    return count > 0;
+  }
+  if (typeof count === 'string') {
+    const parsed = Number.parseInt(count, 10);
+    return Number.isFinite(parsed) && parsed > 0;
+  }
+  return false;
 }
 
 function standupCreatedAt(entry: StandupEntry) {
@@ -12305,7 +12325,7 @@ function buildMeetingOps(
   const resolvedLinkedCardCount = linkedCards.filter((card) => (card.status ?? '').toLowerCase() === 'done').length;
 
   const orphanStandupCount = sortedEntries.filter((entry) => {
-    if (!isMeaningfulStandup(entry)) {
+    if (!standupExpectedPmLink(entry)) {
       return false;
     }
     return linkedCardsForStandup(entry, pmCards).length === 0;
@@ -12326,7 +12346,7 @@ function buildMeetingOps(
   }).length;
 
   const roomsSummary = rooms.map((room) => {
-    const liveEntries = sortedEntries.filter((entry) => standupKind(entry) === room.key && entry.workspace_key === room.workspaceKey);
+    const liveEntries = sortedEntries.filter((entry) => standupMatchesRoom(entry, room));
     const latestEntry = liveEntries[0] ?? null;
     const roundCount = latestEntry ? standupDiscussion(latestEntry).length : 0;
     const isExpected = true;
