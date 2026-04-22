@@ -140,6 +140,67 @@ Draft body.
             self.assertEqual(item["scheduled_at"], "Wed Apr 22, 2026 09:35 ET")
             self.assertIn("queue:FEEZIE-001", item["match_keys"])
 
+    def test_rejected_feedback_wins_over_seed_routes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = self._workspace(Path(tmp))
+            analytics_dir = workspace / "analytics"
+            analytics_dir.mkdir(parents=True, exist_ok=True)
+            source_path = "workspaces/linkedin-content-os/research/market_signals/noisy-reddit.md"
+            (analytics_dir / "feed_feedback.jsonl").write_text(
+                json.dumps(
+                    {
+                        "recorded_at": "2026-04-21T12:00:00+00:00",
+                        "feed_item_id": "reddit-noisy",
+                        "title": "Attention DEVS and SALES PERSONS",
+                        "platform": "reddit",
+                        "decision": "reject",
+                        "lens": "current-role",
+                        "source_url": "https://reddit.com/r/example/comments/123",
+                        "source_path": source_path,
+                        "notes": "Owner marked this source Not for FEEZIE.",
+                        "evaluation_overall": 6.7,
+                        "source_expression_quality": 5.3,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            payload = source_lifecycle_module.build_source_lifecycle(
+                linkedin_root=workspace,
+                social_feed={
+                    "items": [
+                        {
+                            "id": "reddit-noisy",
+                            "platform": "reddit",
+                            "title": "Attention DEVS and SALES PERSONS",
+                            "author": "/u/mybrotherhasabbgun",
+                            "source_url": "https://reddit.com/r/example/comments/123",
+                            "source_path": "research/market_signals/noisy-reddit.md",
+                            "ranking": {"total": 170},
+                        }
+                    ]
+                },
+                reaction_queue={
+                    "post_seeds": [
+                        {
+                            "title": "Attention DEVS and SALES PERSONS",
+                            "source_url": "https://reddit.com/r/example/comments/123",
+                            "source_path": source_path,
+                            "qualification_route": "pass",
+                            "publish_posture": "owner_review_required",
+                        }
+                    ]
+                },
+            )
+
+            item = payload["items"][0]
+            self.assertEqual(item["stage"], "rejected")
+            self.assertEqual(item["visibility"], "rejected")
+            self.assertEqual(payload["counts"]["by_stage"]["rejected"], 1)
+            self.assertEqual(payload["counts"]["needs_decision"], 0)
+            self.assertEqual(payload["counts"]["in_workflow"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -68,6 +68,7 @@ class SocialFeedbackService:
         expression_output_scores: list[float] = []
         expression_deltas: list[float] = []
         low_score_events: list[dict[str, Any]] = []
+        rejected_sources: list[dict[str, Any]] = []
 
         for event in events:
             decision = str(event.get("decision") or "unknown")
@@ -76,6 +77,22 @@ class SocialFeedbackService:
             decision_counts[decision] = decision_counts.get(decision, 0) + 1
             lens_counts[lens] = lens_counts.get(lens, 0) + 1
             stance_counts[stance] = stance_counts.get(stance, 0) + 1
+
+            if decision == "reject":
+                rejected_sources.append(
+                    {
+                        "recorded_at": event.get("recorded_at"),
+                        "feed_item_id": event.get("feed_item_id"),
+                        "title": event.get("title"),
+                        "platform": event.get("platform"),
+                        "lens": event.get("lens"),
+                        "source_url": event.get("source_url"),
+                        "source_path": event.get("source_path"),
+                        "notes": event.get("notes"),
+                        "evaluation_overall": event.get("evaluation_overall"),
+                        "source_expression_quality": event.get("source_expression_quality"),
+                    }
+                )
 
             for technique in event.get("techniques") or []:
                 technique_key = str(technique)
@@ -120,6 +137,8 @@ class SocialFeedbackService:
                 round(sum(expression_deltas) / len(expression_deltas), 2) if expression_deltas else None
             ),
             "low_score_events": low_score_events[-10:],
+            "rejected_source_count": len(rejected_sources),
+            "rejected_sources": rejected_sources[-20:],
             "recent_events": events[-10:],
         }
         FEEDBACK_SUMMARY_PATH.write_text(json.dumps(summary, indent=2), encoding="utf-8")

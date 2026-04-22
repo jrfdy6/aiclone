@@ -65,6 +65,10 @@ def drafts_root(workspace_dir: Path | None = None) -> Path:
     return (workspace_dir or workspace_root()) / "drafts"
 
 
+def analytics_root(workspace_dir: Path | None = None) -> Path:
+    return (workspace_dir or workspace_root()) / "analytics"
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -135,9 +139,74 @@ def workspace_source_path(value: str | None) -> str:
         return ""
     if raw.startswith(WORKSPACE_RELATIVE):
         return raw
-    if raw.startswith("research/") or raw.startswith("plans/") or raw.startswith("drafts/"):
+    if raw.startswith("research/") or raw.startswith("plans/") or raw.startswith("drafts/") or raw.startswith("docs/") or raw.startswith("analytics/"):
         return f"{WORKSPACE_RELATIVE}/{raw}"
     return raw
+
+
+def source_identity_keys(
+    *,
+    item_id: str | None = None,
+    title: str | None = None,
+    source_url: str | None = None,
+    source_path: str | None = None,
+) -> set[str]:
+    keys: set[str] = set()
+    cleaned_id = clean_text(item_id)
+    if cleaned_id:
+        keys.add(f"id:{cleaned_id}")
+    cleaned_url = clean_text(source_url).rstrip("/").lower()
+    if cleaned_url:
+        keys.add(f"url:{cleaned_url}")
+    normalized_path = workspace_source_path(source_path)
+    if normalized_path:
+        keys.add(f"path:{normalized_path.lower()}")
+        prefix = f"{WORKSPACE_RELATIVE}/"
+        if normalized_path.startswith(prefix):
+            keys.add(f"path:{normalized_path.removeprefix(prefix).lower()}")
+    title_slug = slugify(clean_text(title))
+    if title_slug != "draft":
+        keys.add(f"title:{title_slug}")
+    return keys
+
+
+def load_rejected_source_index(workspace_dir: Path | None = None) -> tuple[set[str], dict[str, dict[str, Any]]]:
+    import json
+
+    feedback_path = analytics_root(workspace_dir) / "feed_feedback.jsonl"
+    rejected_keys: set[str] = set()
+    rejected_by_key: dict[str, dict[str, Any]] = {}
+    if not feedback_path.exists():
+        return rejected_keys, rejected_by_key
+    for line in feedback_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or clean_text(event.get("decision")).lower() != "reject":
+            continue
+        record = {
+            "recorded_at": clean_text(event.get("recorded_at")),
+            "feed_item_id": clean_text(event.get("feed_item_id")),
+            "title": clean_text(event.get("title")),
+            "platform": clean_text(event.get("platform")),
+            "source_url": clean_text(event.get("source_url")),
+            "source_path": workspace_source_path(event.get("source_path")),
+            "lens": clean_text(event.get("lens")),
+            "notes": clean_text(event.get("notes")),
+        }
+        keys = source_identity_keys(
+            item_id=record["feed_item_id"],
+            title=record["title"],
+            source_url=record["source_url"],
+            source_path=record["source_path"],
+        )
+        for key in keys:
+            rejected_keys.add(key)
+            rejected_by_key[key] = record
+    return rejected_keys, rejected_by_key
 
 
 def infer_primary_lane(item: dict[str, Any]) -> str:

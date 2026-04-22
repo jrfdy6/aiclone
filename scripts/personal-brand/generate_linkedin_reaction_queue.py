@@ -14,6 +14,7 @@ from linkedin_strategy_utils import (  # noqa: E402
     clean_text,
     drafts_root,
     infer_primary_lane,
+    load_rejected_source_index,
     load_social_feed_items,
     now_iso,
     parse_frontmatter_markdown,
@@ -22,6 +23,7 @@ from linkedin_strategy_utils import (  # noqa: E402
     publish_posture_for_item,
     risk_level_for_item,
     role_alignment_for_lane,
+    source_identity_keys,
     workspace_root,
     workspace_source_path,
     write_json,
@@ -108,15 +110,31 @@ def queue_payload(workspace_dir: Path, items: list[dict[str, Any]]) -> dict[str,
     qualification_lookup, qualification_summary = _qualification_lookup(workspace_dir)
     latent_lookup = _latent_lookup(workspace_dir)
     active_draft_source_paths = _existing_active_draft_source_paths(workspace_dir)
+    rejected_source_keys, rejected_by_key = load_rejected_source_index(workspace_dir)
     comment_opportunities: list[dict[str, Any]] = []
     post_seeds: list[dict[str, Any]] = []
     consumed_post_seeds: list[dict[str, Any]] = []
+    rejected_sources: list[dict[str, Any]] = []
     latent_post_seeds: list[dict[str, Any]] = []
     background_only: list[dict[str, Any]] = []
     discarded_post_seed_count = 0
 
     for item in items:
         payload = _base_payload(item)
+        item_keys = source_identity_keys(
+            item_id=clean_text(item.get("id")),
+            title=payload.get("title"),
+            source_url=payload.get("source_url"),
+            source_path=payload.get("source_path"),
+        )
+        rejected_record = next((rejected_by_key[key] for key in item_keys if key in rejected_source_keys), None)
+        if rejected_record:
+            payload["active_seed"] = False
+            payload["lifecycle_stage"] = "rejected"
+            payload["rejected_reason"] = clean_text(rejected_record.get("notes")) or "Owner marked this source Not for FEEZIE."
+            payload["rejected_at"] = clean_text(rejected_record.get("recorded_at"))
+            rejected_sources.append(payload)
+            continue
         report = qualification_lookup.get(clean_text(item.get("id"))) or {}
         route = clean_text(report.get("route")) or "discard"
         latent_reason = clean_text(report.get("latent_reason"))
@@ -160,12 +178,14 @@ def queue_payload(workspace_dir: Path, items: list[dict[str, Any]]) -> dict[str,
         "comment_opportunities": comment_opportunities[:6],
         "post_seeds": post_seeds[:8],
         "consumed_post_seeds": consumed_post_seeds[:8],
+        "rejected_sources": rejected_sources[:8],
         "latent_post_seeds": latent_post_seeds[:8],
         "background_only": background_only[:8],
         "counts": {
             "comment_opportunities": min(len(comment_opportunities), 6),
             "post_seeds": min(len(post_seeds), 8),
             "consumed_post_seed_count": min(len(consumed_post_seeds), 8),
+            "rejected_source_count": min(len(rejected_sources), 8),
             "latent_post_seeds": min(len(latent_post_seeds), 8),
             "background_only": min(len(background_only), 8),
             "discarded_post_seed_count": discarded_post_seed_count,
@@ -247,6 +267,22 @@ def _queue_markdown(payload: dict[str, Any]) -> str:
                     [
                         ("Lifecycle stage", str(item.get("lifecycle_stage") or "owner_review")),
                         ("Reason", str(item.get("consumed_reason") or "")),
+                        ("Source file", str(item.get("source_path") or "")),
+                    ],
+                )
+            )
+            lines.append("")
+    rejected_items = payload.get("rejected_sources") or []
+    if rejected_items:
+        lines.append("## Rejected Sources")
+        for item in rejected_items:
+            lines.append(
+                _markdown_block(
+                    str(item.get("title") or "Untitled rejected source"),
+                    [
+                        ("Lifecycle stage", str(item.get("lifecycle_stage") or "rejected")),
+                        ("Reason", str(item.get("rejected_reason") or "")),
+                        ("Rejected at", str(item.get("rejected_at") or "")),
                         ("Source file", str(item.get("source_path") or "")),
                     ],
                 )

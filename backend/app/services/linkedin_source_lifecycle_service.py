@@ -65,6 +65,15 @@ STAGE_CONFIG: dict[str, dict[str, Any]] = {
         "next_action_label": "Open owner review",
         "reason": "A draft exists and is waiting for approve, revise, or park.",
     },
+    "rejected": {
+        "priority": 58,
+        "label": "Not for FEEZIE",
+        "visibility": "rejected",
+        "primary_surface": "feed_feedback",
+        "primary_action": "none",
+        "next_action_label": "Rejected",
+        "reason": "The owner marked this source as not useful for the FEEZIE content loop.",
+    },
     "banked": {
         "priority": 70,
         "label": "Banked",
@@ -211,6 +220,22 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
 
 
 def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -481,6 +506,46 @@ def _add_weekly_plan_items(
         )
 
 
+def _add_rejected_feedback_items(
+    items_by_key: dict[str, dict[str, Any]],
+    key_index: dict[str, str],
+    *,
+    linkedin_root: Path,
+) -> None:
+    feedback_path = linkedin_root / "analytics" / "feed_feedback.jsonl"
+    for event in _read_jsonl(feedback_path):
+        if _clean(event.get("decision")).lower() != "reject":
+            continue
+        title = event.get("title") or event.get("feed_item_id") or "Rejected source"
+        notes = _clean(event.get("notes"))
+        reason = notes or "The owner marked this source Not for FEEZIE from the feed decision surface."
+        _merge_item(
+            items_by_key,
+            key_index,
+            _candidate(
+                linkedin_root=linkedin_root,
+                stage="rejected",
+                title=title,
+                source_url=event.get("source_url"),
+                source_path=event.get("source_path"),
+                author=event.get("author"),
+                source_platform=event.get("platform"),
+                source_kind="feed_feedback_rejection",
+                reason=reason,
+                artifact_paths=[feedback_path],
+                evidence={
+                    "feedback_decision": event.get("decision"),
+                    "feed_item_id": event.get("feed_item_id"),
+                    "recorded_at": event.get("recorded_at"),
+                    "lens": event.get("lens"),
+                    "notes": event.get("notes"),
+                    "evaluation_overall": event.get("evaluation_overall"),
+                    "source_expression_quality": event.get("source_expression_quality"),
+                },
+            ),
+        )
+
+
 def _add_draft_items(
     items_by_key: dict[str, dict[str, Any]],
     key_index: dict[str, str],
@@ -678,6 +743,7 @@ def build_source_lifecycle(
     _add_feed_items(items_by_key, key_index, linkedin_root=linkedin_root, social_feed=social_feed)
     _add_reaction_queue_items(items_by_key, key_index, linkedin_root=linkedin_root, reaction_queue=reaction_queue)
     _add_weekly_plan_items(items_by_key, key_index, linkedin_root=linkedin_root, weekly_plan=weekly_plan)
+    _add_rejected_feedback_items(items_by_key, key_index, linkedin_root=linkedin_root)
     _add_draft_items(items_by_key, key_index, linkedin_root=linkedin_root)
     _add_queue_items(items_by_key, key_index, linkedin_root=linkedin_root)
     _add_release_packets(items_by_key, key_index, linkedin_root=linkedin_root)
@@ -708,7 +774,7 @@ def build_source_lifecycle(
             "by_stage": stage_counts,
             "by_visibility": visibility_counts,
             "needs_decision": visibility_counts.get("needs_decision", 0),
-            "in_workflow": sum(count for key, count in visibility_counts.items() if key not in {"needs_decision", "resolved", "published"}),
+            "in_workflow": sum(count for key, count in visibility_counts.items() if key not in {"needs_decision", "resolved", "rejected", "published"}),
         },
         "items": items,
     }

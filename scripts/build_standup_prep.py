@@ -877,7 +877,7 @@ def _build_feezie_source_loop_section(source_lifecycle: dict[str, Any]) -> list[
         f"Incoming decisions: {counts.get('needs_decision', 0)} source(s) still need feed-level choice.",
         f"Potential posts: {by_stage.get('post_seed', 0)} active seed(s), {by_stage.get('latent_seed', 0)} needing anecdote/taste.",
         f"Owner/banked lane: {by_stage.get('owner_review', 0)} owner-review draft(s), {by_stage.get('banked', 0)} banked post(s).",
-        f"Delivery lane: {by_stage.get('scheduled', 0)} scheduled post(s), {by_stage.get('published', 0)} published post(s), {by_stage.get('parked', 0)} parked item(s).",
+        f"Resolution lane: {by_stage.get('scheduled', 0)} scheduled post(s), {by_stage.get('published', 0)} published post(s), {by_stage.get('parked', 0)} parked item(s), {by_stage.get('rejected', 0)} rejected source(s).",
     ]
     owner_review_titles = _stage_titles(source_lifecycle, "owner_review")
     if owner_review_titles:
@@ -885,6 +885,9 @@ def _build_feezie_source_loop_section(source_lifecycle: dict[str, Any]) -> list[
     latent_titles = _stage_titles(source_lifecycle, "latent_seed")
     if latent_titles:
         lines.append("Needs anecdote/taste: " + "; ".join(latent_titles) + ".")
+    rejected_titles = _stage_titles(source_lifecycle, "rejected")
+    if rejected_titles:
+        lines.append("Rejected/not for FEEZIE: " + "; ".join(rejected_titles) + ".")
     return _dedupe_strings(lines, limit=7)
 
 

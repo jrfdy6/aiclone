@@ -9,7 +9,7 @@ class SocialFeedbackCreate(BaseModel):
     feed_item_id: str
     title: str
     platform: str
-    decision: Literal["like", "dislike", "copy", "approve"]
+    decision: Literal["like", "dislike", "copy", "approve", "reject"]
     lens: Optional[str] = None
     notes: Optional[str] = None
     source_url: Optional[str] = None

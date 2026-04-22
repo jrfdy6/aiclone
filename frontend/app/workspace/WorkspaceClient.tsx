@@ -95,7 +95,7 @@ type PlanningSourceItem = {
   source_url?: string;
 };
 
-type FeedPlanningStage = 'owner_review' | 'weekly_plan' | 'post_seed' | 'latent_seed' | 'banked' | 'scheduled' | 'published' | 'parked';
+type FeedPlanningStage = 'owner_review' | 'weekly_plan' | 'post_seed' | 'latent_seed' | 'banked' | 'scheduled' | 'published' | 'parked' | 'rejected';
 
 type FeedPlanningStatus = {
   stage: FeedPlanningStage;
@@ -738,6 +738,8 @@ function sourceLifecycleTone(stage?: string | null) {
       return '#22c55e';
     case 'weekly_plan':
       return '#38bdf8';
+    case 'rejected':
+      return '#f97316';
     case 'parked':
       return '#f87171';
     default:
@@ -804,6 +806,20 @@ function sourceLifecycleStatus(lifecycle: SourceLifecycleItem | null): FeedPlann
       why: [
         'This source was intentionally removed from active drafting.',
         'Reopen it only if new context changes the decision.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'rejected') {
+    return {
+      stage,
+      label,
+      recommendation: 'Marked Not for FEEZIE.',
+      why: [
+        'This source was rejected from the content loop.',
+        'It should not become a seed, draft, or owner-review item unless the decision is intentionally revisited.',
       ],
       detail: reason,
       actionLabel,
@@ -1132,6 +1148,7 @@ export function LinkedinWorkspaceSurface({
   const [ingestStatus, setIngestStatus] = useState<string | null>(null);
   const [feedbackState, setFeedbackState] = useState<Record<string, string>>({});
   const [feedbackLoading, setFeedbackLoading] = useState<Record<string, boolean>>({});
+  const [locallyRejectedFeedIds, setLocallyRejectedFeedIds] = useState<Record<string, true>>({});
   const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
   const [isApprovingQuote, setIsApprovingQuote] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -1168,11 +1185,12 @@ export function LinkedinWorkspaceSurface({
   );
   const decisionFeedItems = useMemo(
     () =>
-      feedItemsWithLifecycle.filter(({ lifecycle }) => {
+      feedItemsWithLifecycle.filter(({ item, lifecycle }) => {
+        if (locallyRejectedFeedIds[item.id]) return false;
         const visibility = String(lifecycle?.visibility ?? 'needs_decision').trim().toLowerCase();
         return visibility === 'needs_decision';
       }),
-    [feedItemsWithLifecycle],
+    [feedItemsWithLifecycle, locallyRejectedFeedIds],
   );
   const workflowFeedItems = useMemo(
     () =>
@@ -1416,7 +1434,13 @@ export function LinkedinWorkspaceSurface({
         }
         return;
       }
-      if (planningStatus?.stage === 'banked' || planningStatus?.stage === 'scheduled' || planningStatus?.stage === 'published' || planningStatus?.stage === 'parked') {
+      if (
+        planningStatus?.stage === 'banked' ||
+        planningStatus?.stage === 'scheduled' ||
+        planningStatus?.stage === 'published' ||
+        planningStatus?.stage === 'parked' ||
+        planningStatus?.stage === 'rejected'
+      ) {
         setFeedbackState((current) => ({ ...current, [item.id]: planningStatus.detail }));
         return;
       }
@@ -1884,7 +1908,7 @@ export function LinkedinWorkspaceSurface({
     [contentItems, persistContent],
   );
 
-  const recordFeedback = useCallback(async (item: SocialFeedItem, decision: 'like' | 'dislike', lens: FeedLensId) => {
+  const recordFeedback = useCallback(async (item: SocialFeedItem, decision: 'like' | 'dislike' | 'reject', lens: FeedLensId, notes?: string) => {
     const variant = getFeedVariant(item, lens);
     setFeedbackLoading((current) => ({ ...current, [item.id]: true }));
     try {
@@ -1894,6 +1918,7 @@ export function LinkedinWorkspaceSurface({
         platform: item.platform,
         decision,
         lens,
+        notes,
         source_url: item.source_url,
         source_path: item.source_path,
         stance: variant?.stance,
@@ -1906,7 +1931,13 @@ export function LinkedinWorkspaceSurface({
         expression_delta: variant?.evaluation?.expression_delta ?? item.evaluation?.expression_delta,
         why_this_angle: variant?.why_this_angle,
       });
-      setFeedbackState((current) => ({ ...current, [item.id]: decision === 'like' ? 'Liked' : 'Disliked' }));
+      if (decision === 'reject') {
+        setLocallyRejectedFeedIds((current) => ({ ...current, [item.id]: true }));
+      }
+      setFeedbackState((current) => ({
+        ...current,
+        [item.id]: decision === 'like' ? 'Liked' : decision === 'reject' ? 'Marked Not for FEEZIE' : 'Disliked',
+      }));
     } catch (error) {
       setFeedbackState((current) => ({ ...current, [item.id]: error instanceof Error ? error.message : 'Feedback failed.' }));
     } finally {
@@ -2697,9 +2728,9 @@ export function LinkedinWorkspaceSurface({
             <details style={{ ...agentSectionStyle, borderColor: 'rgba(56,189,248,0.24)' }}>
               <summary style={agentSectionSummaryStyle}>
                 <div>
-                  <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>Already in workflow</p>
+                  <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>Already handled</p>
                   <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>
-                    {workflowFeedItems.length} source{workflowFeedItems.length === 1 ? '' : 's'} already routed to post seed, owner review, banked, or scheduled.
+                    {workflowFeedItems.length} source{workflowFeedItems.length === 1 ? '' : 's'} already routed, banked, scheduled, parked, or rejected.
                   </p>
                 </div>
                 <span style={{ color: '#38bdf8', fontSize: '12px' }}>Expand</span>
@@ -2885,6 +2916,20 @@ export function LinkedinWorkspaceSurface({
                     </button>
                     <button onClick={() => void recordFeedback(item, 'dislike', selectedLens)} disabled={feedbackLoading[item.id]} style={feedbackButtonStyle('#f87171')}>
                       👎 Dislike
+                    </button>
+                    <button
+                      onClick={() =>
+                        void recordFeedback(
+                          item,
+                          'reject',
+                          selectedLens,
+                          'Owner marked this source Not for FEEZIE from the feed decision surface.',
+                        )
+                      }
+                      disabled={feedbackLoading[item.id]}
+                      style={feedbackButtonStyle('#f97316')}
+                    >
+                      Not for FEEZIE
                     </button>
                     <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? planningStatus?.detail ?? 'Tell the feed if this recommendation felt right.'}</p>
                   </div>

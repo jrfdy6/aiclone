@@ -18,6 +18,7 @@ from linkedin_strategy_utils import (  # noqa: E402
     drafts_root,
     first_heading,
     infer_primary_lane,
+    load_rejected_source_index,
     load_social_feed_items,
     now_iso,
     parse_frontmatter_markdown,
@@ -28,6 +29,7 @@ from linkedin_strategy_utils import (  # noqa: E402
     role_alignment_for_lane,
     risk_level_for_item,
     slugify,
+    source_identity_keys,
     workspace_root,
     workspace_source_path,
     write_json,
@@ -234,7 +236,20 @@ def _research_candidate_from_report(item: dict[str, Any], report: dict[str, Any]
 
 
 def load_research_candidates(workspace_dir: Path) -> tuple[list[PlanCandidate], list[PlanCandidate], list[dict[str, Any]], list[str], dict[str, int]]:
-    items = load_social_feed_items(workspace_dir)
+    rejected_source_keys, _ = load_rejected_source_index(workspace_dir)
+    items = [
+        item
+        for item in load_social_feed_items(workspace_dir)
+        if not (
+            source_identity_keys(
+                item_id=clean_text(item.get("id")),
+                title=clean_text(item.get("title")),
+                source_url=clean_text(item.get("source_url")),
+                source_path=clean_text(item.get("source_path")),
+            )
+            & rejected_source_keys
+        )
+    ]
     qualification_lookup, qualification_summary = _qualification_lookup(workspace_dir)
     research_candidates: list[PlanCandidate] = []
     latent_candidates: list[PlanCandidate] = []
