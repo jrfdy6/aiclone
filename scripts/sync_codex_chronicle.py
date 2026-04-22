@@ -19,6 +19,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 DEFAULT_HISTORY_PATH = Path("/Users/neo/.codex/history.jsonl")
+DEFAULT_SESSION_ROOT = Path("/Users/neo/.codex/sessions")
 from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 from chronicle_signal_quality import (
     entry_has_material_signal,
@@ -31,6 +32,8 @@ from chronicle_signal_quality import (
 
 
 DEFAULT_CHRONICLE_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+DEFAULT_LEARNINGS_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/LEARNINGS.md")
+DEFAULT_PERSISTENT_STATE_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/persistent_state.md")
 DEFAULT_STATE_PATH = MEMORY_ROOT / "codex_chronicle_state.json"
 REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
 
@@ -73,10 +76,13 @@ LEARNING_PATTERNS = (
     "learned",
     "realized",
     "turns out",
+    "that means",
     "the key",
     "important",
+    "important nuance",
     "what changed",
     "the reason",
+    "not enough by itself",
 )
 IDENTITY_PATTERNS = (
     "i want",
@@ -119,6 +125,24 @@ NOISE_PATTERNS = (
     "no further action needed",
     "utc:",
 )
+SESSION_LEARNING_HINTS = (
+    "learned",
+    "learning",
+    "the key",
+    "important nuance",
+    "that means",
+    "turns out",
+    "not enough by itself",
+    "canon",
+    "canonical",
+    "closeout",
+    "persistent state",
+    "runtime memory",
+    "source intelligence",
+    "brainsignal",
+    "autonomous loop",
+    "autonomous loops",
+)
 
 
 def _now() -> datetime:
@@ -127,6 +151,18 @@ def _now() -> datetime:
 
 def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _read_json(path: Path) -> Any:
@@ -142,6 +178,44 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+
+def _append_markdown_items(path: Path, heading: str, items: list[str]) -> int:
+    cleaned = _trim_items(items, limit=8, max_chars=360)
+    if not cleaned:
+        return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = path.read_text(encoding="utf-8", errors="ignore") if path.exists() else ""
+    new_items = [item for item in cleaned if item not in existing]
+    if not new_items:
+        return 0
+    block = "\n".join([heading, "", *[f"- {item}" for item in new_items]]).rstrip() + "\n"
+    prefix = ""
+    if existing:
+        prefix = "\n" if existing.endswith("\n") else "\n\n"
+        if existing.endswith("\n\n"):
+            prefix = ""
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(prefix + block)
+    return len(new_items)
+
+
+def _append_memory_closeout(payload: dict[str, Any], *, learnings_path: Path, persistent_state_path: Path) -> dict[str, int]:
+    now_label = datetime.now().astimezone().strftime("%Y-%m-%d")
+    learning_count = _append_markdown_items(
+        learnings_path,
+        f"## Codex Chronicle Learnings — {now_label}",
+        [str(item) for item in payload.get("learning_updates") or [] if str(item).strip()],
+    )
+    persistent_count = _append_markdown_items(
+        persistent_state_path,
+        f"## Codex Chronicle Memory Promotions — {now_label}",
+        [str(item) for item in payload.get("memory_promotions") or [] if str(item).strip()],
+    )
+    return {
+        "learning_count": learning_count,
+        "persistent_count": persistent_count,
+    }
 
 
 def _load_registry_terms() -> dict[str, set[str]]:
@@ -323,15 +397,18 @@ def _latest_material_signal(records: list[dict[str, Any]]) -> str:
 
 def _build_summary(records: list[dict[str, Any]], workspace_tags: list[str], *, material_signal: str) -> str:
     session_count = len({str(item.get("session_id") or "") for item in records if item.get("session_id")})
+    transcript_count = sum(1 for item in records if item.get("source") == "codex-session-transcript")
+    history_count = len(records) - transcript_count
     focus = ", ".join(workspace_tags[:3]) if workspace_tags else "shared_ops"
+    source_label = f"{history_count} history / {transcript_count} transcript" if transcript_count else f"{len(records)} new"
     if not material_signal:
         return (
-            f"Synced {len(records)} new Codex history entries across {session_count or 1} sessions, "
+            f"Synced {source_label} Codex records across {session_count or 1} sessions, "
             f"touching {focus}. No durable decision, blocker, or follow-up was extracted."
         )
     latest_text = material_signal[:160].rstrip() + ("..." if len(material_signal) > 160 else "")
     return (
-        f"Synced {len(records)} new Codex history entries across {session_count or 1} sessions, "
+        f"Synced {source_label} Codex records across {session_count or 1} sessions, "
         f"touching {focus}. Latest signal: {latest_text or 'No concise summary available.'}"
     )
 
@@ -386,10 +463,109 @@ def _load_new_records(history_path: Path, state_path: Path, initial_tail: int) -
     return list(tail), state
 
 
+def _session_id_from_path(path: Path) -> str:
+    match = re.search(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", path.stem)
+    return match.group(1) if match else path.stem
+
+
+def _session_message_text(payload: dict[str, Any]) -> str:
+    if payload.get("type") != "message" or payload.get("role") != "assistant":
+        return ""
+    content = payload.get("content")
+    if not isinstance(content, list):
+        return ""
+    pieces: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "output_text":
+            pieces.append(str(item.get("text") or ""))
+    return _normalize_text(" ".join(pieces))
+
+
+def _is_session_learning_candidate(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if len(normalized) < 80:
+        return False
+    lowered = normalized.lower()
+    if _is_noise(normalized) or looks_like_digest_transcript(normalized):
+        return False
+    return any(hint in lowered for hint in SESSION_LEARNING_HINTS)
+
+
+def _recent_session_files(session_root: Path, file_limit: int) -> list[Path]:
+    if not session_root.exists():
+        return []
+    files = [path for path in session_root.rglob("*.jsonl") if path.is_file()]
+    files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    return files[:file_limit]
+
+
+def _load_new_session_records(
+    session_root: Path,
+    state: dict[str, Any],
+    *,
+    file_limit: int,
+    record_limit: int,
+) -> tuple[list[dict[str, Any]], str | None]:
+    last_dt = _parse_iso_datetime(state.get("last_session_synced_at")) or _parse_iso_datetime(state.get("last_synced_at"))
+    if last_dt is None:
+        last_dt = datetime.fromtimestamp(0, tz=timezone.utc)
+    records: list[dict[str, Any]] = []
+    latest_seen_dt: datetime | None = None
+    seen: set[tuple[str, str]] = set()
+
+    for path in reversed(_recent_session_files(session_root, file_limit)):
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                created_at = _parse_iso_datetime(row.get("timestamp"))
+                if created_at is None or created_at <= last_dt:
+                    continue
+                latest_seen_dt = max(latest_seen_dt or created_at, created_at)
+                payload = row.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                text = _session_message_text(payload)
+                if not _is_session_learning_candidate(text):
+                    continue
+                key = (_iso(created_at), text)
+                if key in seen:
+                    continue
+                seen.add(key)
+                records.append(
+                    {
+                        "session_id": _session_id_from_path(path),
+                        "source": "codex-session-transcript",
+                        "source_path": str(path),
+                        "created_at": _iso(created_at),
+                        "ts": int(created_at.timestamp()),
+                        "text": text,
+                    }
+                )
+
+    records.sort(key=lambda item: int(item.get("ts") or 0))
+    if len(records) > record_limit:
+        records = records[-record_limit:]
+    latest_synced_at = _iso(latest_seen_dt) if latest_seen_dt is not None else None
+    return records, latest_synced_at
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--history-path", default=str(DEFAULT_HISTORY_PATH))
+    parser.add_argument("--session-root", default=str(DEFAULT_SESSION_ROOT))
     parser.add_argument("--chronicle-path", default=str(DEFAULT_CHRONICLE_PATH))
+    parser.add_argument("--learnings-path", default=str(DEFAULT_LEARNINGS_PATH))
+    parser.add_argument("--persistent-state-path", default=str(DEFAULT_PERSISTENT_STATE_PATH))
     parser.add_argument("--state-path", default=str(DEFAULT_STATE_PATH))
     parser.add_argument("--initial-tail", type=int, default=20)
     parser.add_argument("--source", default="codex-history")
@@ -398,17 +574,38 @@ def main() -> int:
     parser.add_argument("--workspace-key", help="Force workspace key instead of auto-detecting.")
     parser.add_argument("--trigger", default="periodic_sync")
     parser.add_argument("--context-usage-pct", type=int)
+    parser.add_argument("--session-file-limit", type=int, default=4)
+    parser.add_argument("--session-record-limit", type=int, default=8)
+    parser.add_argument("--skip-session-transcripts", action="store_true")
+    parser.add_argument("--skip-memory-closeout", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     history_path = Path(args.history_path).expanduser()
+    session_root = Path(args.session_root).expanduser()
     chronicle_path = Path(args.chronicle_path).expanduser()
+    learnings_path = Path(args.learnings_path).expanduser()
+    persistent_state_path = Path(args.persistent_state_path).expanduser()
     state_path = Path(args.state_path).expanduser()
     if not history_path.exists():
         raise SystemExit(f"Codex history file not found: {history_path}")
 
-    records, state = _load_new_records(history_path, state_path, args.initial_tail)
+    history_records, state = _load_new_records(history_path, state_path, args.initial_tail)
+    session_records: list[dict[str, Any]] = []
+    latest_session_synced_at: str | None = None
+    if not args.skip_session_transcripts:
+        session_records, latest_session_synced_at = _load_new_session_records(
+            session_root,
+            state,
+            file_limit=args.session_file_limit,
+            record_limit=args.session_record_limit,
+        )
+    records = [*history_records, *session_records]
     if not records:
+        if latest_session_synced_at:
+            state["last_session_synced_at"] = latest_session_synced_at
+            state["session_root"] = str(session_root)
+            _write_json(state_path, state)
         print("No new Codex history to sync.")
         return 0
 
@@ -484,25 +681,37 @@ def main() -> int:
             {
                 "session_id": item.get("session_id"),
                 "ts": item.get("ts"),
+                "source": item.get("source") or "codex-history",
+                "source_path": item.get("source_path"),
             }
             for item in records[-8:]
         ],
+        "record_counts": {
+            "total": len(records),
+            "history": len(history_records),
+            "session_transcript": len(session_records),
+        },
     }
 
     if args.dry_run:
         print(json.dumps(payload, indent=2))
         return 0
 
-    max_ts = max(int(item.get("ts") or 0) for item in records)
+    max_ts = max([int(item.get("ts") or 0) for item in history_records] or [int(state.get("last_synced_ts") or 0)])
+    last_session_synced_at = latest_session_synced_at or state.get("last_session_synced_at")
     if args.source == "codex-history" and not entry_has_material_signal(payload):
         _write_json(
             state_path,
             {
                 "last_synced_ts": max_ts,
                 "last_synced_at": _iso(_now()),
+                "last_session_synced_at": last_session_synced_at,
                 "history_path": str(history_path),
+                "session_root": str(session_root),
                 "chronicle_path": str(chronicle_path),
                 "records_synced": len(records),
+                "history_records_synced": len(history_records),
+                "session_records_synced": len(session_records),
                 "last_entry_id": state.get("last_entry_id"),
                 "workspace_key": workspace_key,
                 "skipped_low_signal_batch": True,
@@ -512,22 +721,48 @@ def main() -> int:
         print(f"State: {state_path}")
         return 0
 
+    closeout = {
+        "enabled": not args.skip_memory_closeout,
+        "learnings_path": str(learnings_path),
+        "persistent_state_path": str(persistent_state_path),
+        "learning_count": 0,
+        "persistent_count": 0,
+    }
+    if not args.skip_memory_closeout:
+        closeout.update(
+            _append_memory_closeout(
+                payload,
+                learnings_path=learnings_path,
+                persistent_state_path=persistent_state_path,
+            )
+        )
+    payload["memory_closeout"] = closeout
     _append_jsonl(chronicle_path, payload)
     _write_json(
         state_path,
         {
             "last_synced_ts": max_ts,
             "last_synced_at": _iso(_now()),
+            "last_session_synced_at": last_session_synced_at,
             "history_path": str(history_path),
+            "session_root": str(session_root),
             "chronicle_path": str(chronicle_path),
             "records_synced": len(records),
+            "history_records_synced": len(history_records),
+            "session_records_synced": len(session_records),
             "last_entry_id": payload["entry_id"],
             "workspace_key": workspace_key,
             "skipped_low_signal_batch": False,
+            "memory_closeout": closeout,
         },
     )
     print(summary)
     print(f"Chronicle: {chronicle_path}")
+    if closeout["learning_count"] or closeout["persistent_count"]:
+        print(
+            f"Memory closeout: learnings={closeout['learning_count']} "
+            f"persistent_state={closeout['persistent_count']}"
+        )
     print(f"State: {state_path}")
     return 0
 

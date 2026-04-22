@@ -172,13 +172,14 @@ def _static_automations() -> List[Automation]:
             metrics={
                 "workspace": "workspaces/linkedin-content-os",
                 "runtime": "local machine only",
-                "pipeline": "refresh_social_feed -> weekly_plan -> reaction_queue -> owner_review_drafts",
+                "pipeline": "safe source intake -> market archive -> social feed -> strategy/drafts -> source intelligence -> BrainSignal intake",
                 "output": "plans/*.json + drafts/*.md",
             },
             instructions=_instructions(
                 "Refresh safe FEEZIE source intake and rebuild the social feed artifacts",
                 "Regenerate weekly plan and reaction queue from the current workspace state",
                 "Materialize owner-review drafts so the workspace holds real draft files instead of only planning JSON",
+                "Register the refreshed source lane into Brain source intelligence and BrainSignal intake",
             ),
             notes="Runs on the local machine so draft files and workspace plans remain durable in the workspace filesystem.",
         ),
@@ -277,7 +278,7 @@ def _local_launchd_automations() -> List[Automation]:
         Automation(
             id="codex_chronicle_sync",
             name="Codex Chronicle Sync",
-            description="Local launchd worker that syncs direct Codex terminal history into the canonical Chronicle lane so Neo and the brain can see current terminal work.",
+            description="Local launchd worker that syncs direct Codex terminal history into Chronicle and closes material Codex learnings into runtime memory.",
             type="scheduled",
             status="active",
             schedule="Every 15 minutes",
@@ -298,9 +299,10 @@ def _local_launchd_automations() -> List[Automation]:
             instructions=_instructions(
                 "Read new Codex CLI history from the local machine",
                 "Append a distilled Chronicle chunk into memory/codex_session_handoff.jsonl",
+                "Append extracted learning updates into memory/runtime/LEARNINGS.md and memory promotions into memory/runtime/persistent_state.md",
                 "Keep direct Codex terminal work visible to Neo, standups, and memory sync jobs",
             ),
-            notes="Local-machine launchd automation. This is the automatic bridge from direct Codex terminal work into OpenClaw memory lanes.",
+            notes="Local-machine launchd automation. This is the automatic bridge from direct Codex terminal work into Chronicle plus durable runtime memory lanes.",
         ),
         Automation(
             id="operator_story_signals",

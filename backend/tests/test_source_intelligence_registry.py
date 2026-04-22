@@ -21,9 +21,14 @@ class SourceIntelligenceRegistryTests(unittest.TestCase):
             repo_root = Path(temp_dir)
             transcript_root = repo_root / "knowledge" / "aiclone" / "transcripts"
             ingestion_root = repo_root / "knowledge" / "ingestions" / "2026" / "04" / "agent_source"
+            linkedin_root = repo_root / "workspaces" / "linkedin-content-os"
+            signal_root = linkedin_root / "research" / "market_signals"
+            archive_root = linkedin_root / "research" / "market_signal_archive"
             source_root = repo_root / "knowledge" / "source-intelligence"
             transcript_root.mkdir(parents=True)
             (ingestion_root / "raw").mkdir(parents=True)
+            signal_root.mkdir(parents=True)
+            archive_root.mkdir(parents=True)
             source_root.mkdir(parents=True)
 
             transcript_path = transcript_root / "2026-04-19_agent-operating-note.md"
@@ -53,15 +58,43 @@ class SourceIntelligenceRegistryTests(unittest.TestCase):
             (ingestion_root / "raw" / "source.url").write_text("https://youtu.be/example\n", encoding="utf-8")
             (ingestion_root / "routing_status.json").write_text(json.dumps({"status": "routed"}), encoding="utf-8")
 
+            signal_path = signal_root / "2026-04-20__rss__fixture.md"
+            signal_path.write_text("# Fixture Market Signal\n\nA market signal worth reviewing.\n", encoding="utf-8")
+            (archive_root / "2026-04.jsonl").write_text(
+                json.dumps(
+                    {
+                        "id": "2026-04-20__rss__fixture",
+                        "title": "Fixture Market Signal",
+                        "summary": "A market signal worth reviewing.",
+                        "source_path": "research/market_signals/2026-04-20__rss__fixture.md",
+                        "source_platform": "rss",
+                        "source_type": "article",
+                        "source_url": "https://example.com/article",
+                        "priority_lane": "ai",
+                        "watchlist_matches": ["rss", "Fixture Feed"],
+                        "created_at": "2026-04-20T12:00:00+00:00",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
             payload = registry.build_source_intelligence_index(repo_root)
             registry.write_source_intelligence_index(payload, repo_root)
 
             self.assertEqual(payload["schema_version"], "source_intelligence_index/v1")
-            self.assertEqual(payload["counts"]["total"], 2)
-            self.assertEqual(payload["counts"]["routed"], 2)
+            self.assertEqual(payload["counts"]["total"], 3)
+            self.assertEqual(payload["counts"]["routed"], 3)
             source_ids = {entry["source_id"] for entry in payload["sources"]}
             self.assertIn("agent-operating-note", source_ids)
             self.assertIn("ingestion-2026-04-agent_source", source_ids)
+            self.assertIn("market-signal-2026-04-20__rss__fixture", source_ids)
+            market_entry = next(
+                entry for entry in payload["sources"] if entry["source_id"] == "market-signal-2026-04-20__rss__fixture"
+            )
+            self.assertEqual(market_entry["source_kind"], "feezie_market_signal")
+            self.assertEqual(market_entry["route_decision"]["workspace_key"], "feezie-os")
+            self.assertTrue(market_entry["route_decision"]["route_affordances"]["brain_review"])
             index_path = source_root / "index.json"
             self.assertTrue(index_path.exists())
             self.assertTrue((source_root / "raw").exists())

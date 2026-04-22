@@ -37,6 +37,7 @@ def build_source_intelligence_index(repo_root: Path = REPO_ROOT) -> dict[str, An
     entries = [
         *_transcript_entries(repo_root, transcript_root, source_root),
         *_ingestion_entries(repo_root, ingestion_root, source_root),
+        *_market_signal_archive_entries(repo_root, repo_root / "workspaces" / "linkedin-content-os", source_root),
     ]
     entries = sorted(entries, key=lambda item: (str(item.get("captured_at") or ""), str(item.get("source_id") or "")))
     return {
@@ -46,6 +47,7 @@ def build_source_intelligence_index(repo_root: Path = REPO_ROOT) -> dict[str, An
             "source_intelligence": _rel(source_root, repo_root),
             "transcripts": _rel(transcript_root, repo_root),
             "ingestions": _rel(ingestion_root, repo_root),
+            "market_signal_archive": _rel(repo_root / "workspaces" / "linkedin-content-os" / "research" / "market_signal_archive", repo_root),
         },
         "states": ["raw", "digested", "reviewed", "routed", "promoted", "ignored"],
         "counts": _counts(entries),
@@ -105,6 +107,61 @@ def _transcript_entries(repo_root: Path, transcript_root: Path, source_root: Pat
             "captured_at": identity.get("captured_at"),
         }
         entries.append(_strip_none(entry))
+    return entries
+
+
+def _market_signal_archive_entries(repo_root: Path, workspace_root: Path, source_root: Path) -> list[dict[str, Any]]:
+    archive_root = workspace_root / "research" / "market_signal_archive"
+    if not archive_root.exists():
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for manifest_path in sorted(archive_root.glob("*.jsonl")):
+        for record in _read_jsonl_records(manifest_path):
+            signal_id = _clean_id(record.get("id") or record.get("source_url") or record.get("title"))
+            if not signal_id:
+                continue
+            source_path = _workspace_child_path(workspace_root, record.get("source_path"))
+            archive_markdown_path = _workspace_child_path(workspace_root, record.get("archive_markdown_path"))
+            route_affordances = _market_signal_route_affordances(record)
+            promotions = _promotion_paths(source_root, signal_id, repo_root)
+            watchlist_matches = record.get("watchlist_matches") if isinstance(record.get("watchlist_matches"), list) else []
+            entry = {
+                "source_id": _clean_id(f"market-signal-{signal_id}"),
+                "source_kind": "feezie_market_signal",
+                "source_class": _clean_text(
+                    record.get("source_class") or _dict(record.get("source_metadata")).get("source_class") or "external_signal"
+                ),
+                "source_channel": _clean_text(record.get("source_platform") or "manual"),
+                "source_type": _clean_text(record.get("source_type") or "market_signal"),
+                "source_url": _clean_text(record.get("source_url")) or None,
+                "title": _clean_text(record.get("title")) or _title_from_slug(signal_id),
+                "summary": _clean_text(record.get("summary") or record.get("why_it_matters") or record.get("core_claim")),
+                "raw_path": _rel(source_path, repo_root) if source_path and source_path.exists() else None,
+                "raw_paths": [_rel(path, repo_root) for path in [source_path] if path and path.exists()],
+                "metadata_path": _rel(manifest_path, repo_root),
+                "normalized_path": _rel(source_path, repo_root) if source_path and source_path.exists() else None,
+                "digest_path": _rel(archive_markdown_path, repo_root) if archive_markdown_path and archive_markdown_path.exists() else _rel(manifest_path, repo_root),
+                "route_decision": {
+                    "path": _rel(manifest_path, repo_root),
+                    "workspace_key": "feezie-os",
+                    "priority_lane": _clean_text(record.get("priority_lane")),
+                    "role_alignment": _clean_text(record.get("role_alignment")),
+                    "watchlist_matches": [item for item in watchlist_matches if _clean_text(item)],
+                    "route_affordances": route_affordances,
+                },
+                "promotions": promotions,
+                "status": _status(
+                    has_raw=bool(source_path and source_path.exists()),
+                    has_digest=True,
+                    has_review=bool(route_affordances.get("brain_review")),
+                    has_route=True,
+                    has_promotions=bool(promotions),
+                ),
+                "published_at": _clean_text(record.get("published_at")) or None,
+                "captured_at": _clean_text(record.get("created_at") or record.get("archived_at")) or None,
+            }
+            entries.append(_strip_none(entry))
     return entries
 
 
@@ -211,8 +268,52 @@ def _read_json(path: Path | None) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    if not path.exists():
+        return records
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            records.append(payload)
+    return records
+
+
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _clean_text(value: Any) -> str:
+    return " ".join(str(value or "").replace("\xa0", " ").split()).strip()
+
+
+def _workspace_child_path(workspace_root: Path, value: Any) -> Path | None:
+    rel = _clean_text(value)
+    if not rel:
+        return None
+    path = Path(rel)
+    if path.is_absolute():
+        return path
+    return workspace_root / path
+
+
+def _market_signal_route_affordances(record: dict[str, Any]) -> dict[str, bool]:
+    source_channel = _clean_text(record.get("source_platform")).lower()
+    source_type = _clean_text(record.get("source_type")).lower()
+    has_angle = bool(_clean_text(record.get("core_claim") or record.get("summary") or record.get("why_it_matters")))
+    return {
+        "comment": source_channel in {"linkedin", "reddit"} and has_angle,
+        "repost": source_channel in {"linkedin", "rss", "substack"} and has_angle,
+        "post_seed": has_angle and source_type in {"article", "post", "market_signal"},
+        "belief_evidence": has_angle,
+        "brain_review": True,
+        "pulse_delta": has_angle,
+    }
 
 
 def _first_existing(*paths: Path) -> Path | None:
