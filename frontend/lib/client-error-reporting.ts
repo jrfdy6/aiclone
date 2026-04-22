@@ -29,11 +29,11 @@ function readRuntimeValue(name: 'release' | 'environment' | 'service') {
 }
 
 function trimRecentReports(now: number) {
-  for (const [key, timestamp] of recentReportKeys.entries()) {
+  recentReportKeys.forEach((timestamp, key) => {
     if (now - timestamp > RECENT_REPORT_TTL_MS || recentReportKeys.size > MAX_RECENT_REPORTS) {
       recentReportKeys.delete(key);
     }
-  }
+  });
 }
 
 function createReportKey(report: ClientErrorReport) {

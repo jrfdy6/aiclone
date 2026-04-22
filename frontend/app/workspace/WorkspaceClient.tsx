@@ -95,7 +95,7 @@ type PlanningSourceItem = {
   source_url?: string;
 };
 
-type FeedPlanningStage = 'owner_review' | 'weekly_plan' | 'post_seed' | 'latent_seed';
+type FeedPlanningStage = 'owner_review' | 'weekly_plan' | 'post_seed' | 'latent_seed' | 'banked' | 'scheduled' | 'published' | 'parked';
 
 type FeedPlanningStatus = {
   stage: FeedPlanningStage;
@@ -105,6 +105,41 @@ type FeedPlanningStatus = {
   detail: string;
   actionLabel: string;
   tone: string;
+};
+
+type SourceLifecycleItem = {
+  source_key: string;
+  match_keys?: string[];
+  title?: string;
+  source_url?: string;
+  source_path?: string;
+  queue_id?: string;
+  draft_path?: string;
+  stage?: FeedPlanningStage | string;
+  stage_label?: string;
+  visibility?: string;
+  primary_surface?: string;
+  primary_action?: string;
+  next_action_label?: string;
+  reason?: string;
+  artifact_paths?: string[];
+};
+
+type SourceLifecyclePayload = {
+  generated_at?: string;
+  counts?: {
+    total?: number;
+    needs_decision?: number;
+    in_workflow?: number;
+    by_stage?: Record<string, number>;
+    by_visibility?: Record<string, number>;
+  };
+  items?: SourceLifecycleItem[];
+};
+
+type FeedItemWithLifecycle = {
+  item: SocialFeedItem;
+  lifecycle: SourceLifecycleItem | null;
 };
 
 type FeedPlanningIndex = {
@@ -198,6 +233,7 @@ type WorkspaceSnapshot = {
     strategy_mode?: string;
     items?: SocialFeedItem[];
   } | null;
+  source_lifecycle?: SourceLifecyclePayload | null;
   feedback_summary?: {
     total_events?: number;
     average_evaluation_overall?: number | null;
@@ -683,7 +719,214 @@ function addPlanningItems(titles: Set<string>, paths: Set<string>, items?: Plann
   });
 }
 
-function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningIndex): FeedPlanningStatus | null {
+function uniqueStrings(items: string[]) {
+  return Array.from(new Set(items.filter((item) => item.trim().length > 0)));
+}
+
+function sourceLifecycleTone(stage?: string | null) {
+  switch (String(stage ?? '').trim().toLowerCase()) {
+    case 'owner_review':
+      return '#fbbf24';
+    case 'banked':
+      return '#22c55e';
+    case 'scheduled':
+    case 'published':
+      return '#a78bfa';
+    case 'latent_seed':
+      return '#fb923c';
+    case 'post_seed':
+      return '#22c55e';
+    case 'weekly_plan':
+      return '#38bdf8';
+    case 'parked':
+      return '#f87171';
+    default:
+      return '#94a3b8';
+  }
+}
+
+function sourceLifecycleStatus(lifecycle: SourceLifecycleItem | null): FeedPlanningStatus | null {
+  if (!lifecycle) return null;
+  const stage = String(lifecycle.stage ?? '').trim().toLowerCase() as FeedPlanningStage;
+  const visibility = String(lifecycle.visibility ?? '').trim().toLowerCase();
+  if (!stage || visibility === 'needs_decision') return null;
+
+  const label = lifecycle.stage_label || humanizeFeezieWorkspaceLabel(stage);
+  const reason = lifecycle.reason || 'This source has already moved into the FEEZIE workflow.';
+  const actionLabel = lifecycle.next_action_label || label;
+  if (stage === 'owner_review') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already drafted for owner review.',
+      why: [
+        'This source has already moved past the seed decision.',
+        'The next gate is to approve, revise, or park the draft.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'banked') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already banked as a potential post.',
+      why: [
+        'This source already has owner-approved copy or a banked release packet.',
+        'Continue from the banked post lane instead of saving the same source again.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'scheduled' || stage === 'published') {
+    return {
+      stage,
+      label,
+      recommendation: stage === 'published' ? 'Already published.' : 'Already scheduled in LinkedIn.',
+      why: [
+        'This source has already moved beyond drafting.',
+        'Use the schedule or analytics evidence instead of re-routing it from the feed.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'parked') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already parked.',
+      why: [
+        'This source was intentionally removed from active drafting.',
+        'Reopen it only if new context changes the decision.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'post_seed') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already saved as a potential post.',
+      why: [
+        'This source already cleared the seed decision.',
+        'Move it forward from the potential-post lane rather than saving it again.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'latent_seed') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already preserved for revision.',
+      why: [
+        'This source was kept because the idea may still be useful.',
+        'It needs proof, taste, or an anecdote before it should become a finished post.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'weekly_plan') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already selected for the weekly plan.',
+      why: [
+        'This source has already been admitted into the active plan.',
+        'Continue from the planned seed instead of saving the same source again.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  return null;
+}
+
+function normalizeSourceLifecyclePath(value?: string | null) {
+  const normalized = normalizePlanningKey(value);
+  if (!normalized) return '';
+  if (normalized.startsWith('workspaces/linkedin-content-os/')) {
+    return normalized;
+  }
+  if (
+    normalized.startsWith('research/') ||
+    normalized.startsWith('plans/') ||
+    normalized.startsWith('drafts/') ||
+    normalized.startsWith('docs/') ||
+    normalized.startsWith('analytics/')
+  ) {
+    return `workspaces/linkedin-content-os/${normalized}`;
+  }
+  return normalized;
+}
+
+function sourceLifecycleLookupKeys(item: SocialFeedItem): string[] {
+  const keys: string[] = [];
+  const sourceUrl = normalizePlanningKey(item.source_url);
+  const sourcePath = normalizeSourceLifecyclePath(item.source_path);
+  const sourcePathLocal = sourcePath.replace(/^workspaces\/linkedin-content-os\//, '');
+  const title = normalizePlanningKey(item.title).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (sourceUrl) keys.push(`url:${sourceUrl}`);
+  if (sourcePath) keys.push(`path:${sourcePath}`);
+  if (sourcePathLocal && sourcePathLocal !== sourcePath) keys.push(`path:${sourcePathLocal}`);
+  if (title) keys.push(`title:${title}`);
+  return uniqueStrings(keys);
+}
+
+function buildSourceLifecycleIndex(payload?: SourceLifecyclePayload | null) {
+  const index = new Map<string, SourceLifecycleItem>();
+  (payload?.items ?? []).forEach((item) => {
+    const keys = [
+      item.source_key,
+      ...(item.match_keys ?? []),
+      ...sourceLifecycleLookupKeys({
+        id: item.source_key || item.title || 'lifecycle',
+        platform: '',
+        title: item.title || '',
+        author: '',
+        source_url: item.source_url,
+        source_path: item.source_path,
+        ranking: { total: 0 },
+      }),
+      ...sourceLifecycleLookupKeys({
+        id: `${item.source_key || item.title || 'lifecycle'}:draft`,
+        platform: '',
+        title: item.title || '',
+        author: '',
+        source_path: item.draft_path,
+        ranking: { total: 0 },
+      }),
+    ].filter((key): key is string => typeof key === 'string' && key.trim().length > 0);
+    keys.forEach((key) => index.set(key, item));
+  });
+  return index;
+}
+
+function resolveSourceLifecycleForFeedItem(item: SocialFeedItem, index: Map<string, SourceLifecycleItem>) {
+  for (const key of sourceLifecycleLookupKeys(item)) {
+    const lifecycle = index.get(key);
+    if (lifecycle) return lifecycle;
+  }
+  return null;
+}
+
+function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningIndex, lifecycle?: SourceLifecycleItem | null): FeedPlanningStatus | null {
+  const lifecycleStatus = sourceLifecycleStatus(lifecycle ?? null);
+  if (lifecycleStatus) return lifecycleStatus;
+
   const title = normalizePlanningKey(item.title);
   const sourcePath = normalizePlanningKey(item.source_path);
   const sourceUrl = normalizePlanningKey(item.source_url);
@@ -918,6 +1161,27 @@ export function LinkedinWorkspaceSurface({
 
   const feedItems = useMemo(() => [...manualFeedItems, ...(snapshot?.social_feed?.items ?? [])], [manualFeedItems, snapshot?.social_feed?.items]);
   const selectedSignal = useMemo(() => feedItems.find((item) => item.id === selectedFeedId) ?? null, [feedItems, selectedFeedId]);
+  const sourceLifecycleIndex = useMemo(() => buildSourceLifecycleIndex(snapshot?.source_lifecycle), [snapshot?.source_lifecycle]);
+  const feedItemsWithLifecycle = useMemo<FeedItemWithLifecycle[]>(
+    () => feedItems.map((item) => ({ item, lifecycle: resolveSourceLifecycleForFeedItem(item, sourceLifecycleIndex) })),
+    [feedItems, sourceLifecycleIndex],
+  );
+  const decisionFeedItems = useMemo(
+    () =>
+      feedItemsWithLifecycle.filter(({ lifecycle }) => {
+        const visibility = String(lifecycle?.visibility ?? 'needs_decision').trim().toLowerCase();
+        return visibility === 'needs_decision';
+      }),
+    [feedItemsWithLifecycle],
+  );
+  const workflowFeedItems = useMemo(
+    () =>
+      feedItemsWithLifecycle.filter(({ lifecycle }) => {
+        const visibility = String(lifecycle?.visibility ?? '').trim().toLowerCase();
+        return Boolean(lifecycle) && visibility !== 'needs_decision';
+      }),
+    [feedItemsWithLifecycle],
+  );
 
   const workspaceFiles = useMemo(() => {
     const files = [...(snapshot?.workspace_files ?? []), ...(snapshot?.doc_entries ?? [])];
@@ -1150,6 +1414,10 @@ export function LinkedinWorkspaceSurface({
         if (typeof document !== 'undefined') {
           document.getElementById('owner-review-lane')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
+        return;
+      }
+      if (planningStatus?.stage === 'banked' || planningStatus?.stage === 'scheduled' || planningStatus?.stage === 'published' || planningStatus?.stage === 'parked') {
+        setFeedbackState((current) => ({ ...current, [item.id]: planningStatus.detail }));
         return;
       }
       selectSignalForPipeline(item, lens);
@@ -2380,7 +2648,7 @@ export function LinkedinWorkspaceSurface({
                 {refreshingFeed ? 'Refreshing…' : 'Refresh feed'}
               </button>
               <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-                Updated {formatTimestamp(snapshot?.social_feed?.generated_at)} · {feedItems.length} items tracked
+                Updated {formatTimestamp(snapshot?.social_feed?.generated_at)} · {decisionFeedItems.length} needs decision · {workflowFeedItems.length} in workflow
               </p>
               {refreshStatus && <p style={{ color: refreshingFeed ? '#38bdf8' : '#34d399', fontSize: '12px', margin: 0 }}>{refreshStatus}</p>}
             </div>
@@ -2425,8 +2693,35 @@ export function LinkedinWorkspaceSurface({
             </div>
           )}
 
+          {workflowFeedItems.length > 0 && (
+            <details style={{ ...agentSectionStyle, borderColor: 'rgba(56,189,248,0.24)' }}>
+              <summary style={agentSectionSummaryStyle}>
+                <div>
+                  <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>Already in workflow</p>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>
+                    {workflowFeedItems.length} source{workflowFeedItems.length === 1 ? '' : 's'} already routed to post seed, owner review, banked, or scheduled.
+                  </p>
+                </div>
+                <span style={{ color: '#38bdf8', fontSize: '12px' }}>Expand</span>
+              </summary>
+              <div style={{ display: 'grid', gap: '8px', padding: '0 16px 16px' }}>
+                {workflowFeedItems.slice(0, 12).map(({ item, lifecycle }) => (
+                  <div key={`${item.id}-workflow`} style={recommendationCardStyle}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div>
+                        <p style={{ color: 'white', fontSize: '13px', fontWeight: 700, margin: '0 0 4px' }}>{item.title}</p>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{lifecycle?.reason || 'Already routed downstream.'}</p>
+                      </div>
+                      <InlinePill label={lifecycle?.stage_label || humanizeFeezieWorkspaceLabel(String(lifecycle?.stage || 'in_workflow'))} tone={sourceLifecycleTone(lifecycle?.stage)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
           <div style={{ display: 'grid', gap: '14px' }}>
-            {feedItems.map((item) => {
+            {decisionFeedItems.map(({ item, lifecycle }) => {
               const selectedLens = resolveFeedLens(item);
               const activeVariant = getFeedVariant(item, selectedLens);
               const rawQuickReply = createShortCommentDraft(item, selectedLens);
@@ -2440,7 +2735,7 @@ export function LinkedinWorkspaceSurface({
               const sourceContractClass = deriveSourceClass(item);
               const sourceContractUnit = deriveUnitKind(item, sourceContractClass);
               const sourceContractModes = deriveResponseModes(item, sourceContractClass, sourceContractUnit);
-              const planningStatus = resolveFeedPlanningStatus(item, feedPlanningIndex);
+              const planningStatus = resolveFeedPlanningStatus(item, feedPlanningIndex, lifecycle);
 
               return (
                 <article key={item.id} style={{ ...feedCardStyle, border: item.id === selectedFeedId ? '1px solid #38bdf8' : '1px solid #1f2937' }}>
@@ -2751,7 +3046,15 @@ export function LinkedinWorkspaceSurface({
                 </article>
               );
             })}
-            {feedItems.length === 0 && <EmptyMessage message="No feed items available yet. Refresh the shared feed or generate a preview signal to start testing the workspace." />}
+            {decisionFeedItems.length === 0 && (
+              <EmptyMessage
+                message={
+                  feedItems.length === 0
+                    ? 'No feed items available yet. Refresh the shared feed or generate a preview signal to start testing the workspace.'
+                    : 'No fresh feed decisions are waiting. Existing sources are already routed into the workflow above.'
+                }
+              />
+            )}
           </div>
         </section>
 

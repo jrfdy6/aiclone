@@ -17,6 +17,7 @@ from app.services.social_feed_builder_service import (
 )
 from app.services.social_feedback_service import social_feedback_service
 from app.services.social_feed_refresh import social_feed_refresh_service
+from app.services.linkedin_source_lifecycle_service import build_source_lifecycle
 from app.services.social_long_form_signal_service import build_long_form_route_summary
 from app.services.social_persona_review_service import social_persona_review_service
 from app.services.social_source_asset_service import build_source_asset_inventory
@@ -1720,6 +1721,22 @@ class WorkspaceSnapshotService:
         persona_review_summary = safe_load_snapshot(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
         reaction_queue = safe_load_snapshot(SNAPSHOT_REACTION_QUEUE)
         social_feed = safe_load_snapshot(SNAPSHOT_SOCIAL_FEED)
+        try:
+            source_lifecycle = build_source_lifecycle(
+                linkedin_root=_discover_linkedin_root(),
+                social_feed=social_feed if isinstance(social_feed, dict) else None,
+                reaction_queue=reaction_queue if isinstance(reaction_queue, dict) else None,
+                weekly_plan=weekly_plan if isinstance(weekly_plan, dict) else None,
+            )
+        except Exception as exc:
+            source_lifecycle = {
+                "schema_version": "source_lifecycle/v1",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "workspace": WORKSPACE_KEY,
+                "counts": {"total": 0, "by_stage": {}, "by_visibility": {}, "needs_decision": 0, "in_workflow": 0},
+                "items": [],
+                "error": str(exc),
+            }
         feedback_summary = safe_load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
         operator_story_signals = safe_load_snapshot(SNAPSHOT_OPERATOR_STORY_SIGNALS)
         content_safe_operator_lessons = safe_load_snapshot(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
@@ -1729,6 +1746,7 @@ class WorkspaceSnapshotService:
             "weekly_plan": weekly_plan,
             "reaction_queue": reaction_queue,
             "social_feed": social_feed,
+            "source_lifecycle": source_lifecycle,
             "feedback_summary": feedback_summary,
             "source_assets": source_assets,
             "content_reservoir": content_reservoir,

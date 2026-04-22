@@ -835,6 +835,59 @@ def _build_next_focus_section(
     return _dedupe_strings(lines, limit=5)
 
 
+def _load_feezie_source_lifecycle() -> dict[str, Any]:
+    try:
+        from app.services.workspace_snapshot_service import workspace_snapshot_service
+
+        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(include_workspace_files=False, include_doc_entries=False)
+    except Exception as exc:
+        return {"available": False, "error": str(exc), "items": [], "counts": {}}
+    lifecycle = snapshot.get("source_lifecycle") if isinstance(snapshot, dict) else None
+    if not isinstance(lifecycle, dict):
+        return {"available": False, "items": [], "counts": {}}
+    payload = dict(lifecycle)
+    payload["available"] = True
+    return payload
+
+
+def _stage_titles(source_lifecycle: dict[str, Any], *stages: str, limit: int = 3) -> list[str]:
+    items = source_lifecycle.get("items") if isinstance(source_lifecycle.get("items"), list) else []
+    titles: list[str] = []
+    wanted = {stage.strip().lower() for stage in stages}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("stage") or "").strip().lower() not in wanted:
+            continue
+        title = str(item.get("title") or item.get("queue_id") or "").strip()
+        if title:
+            titles.append(title)
+        if len(titles) >= limit:
+            break
+    return titles
+
+
+def _build_feezie_source_loop_section(source_lifecycle: dict[str, Any]) -> list[str]:
+    if not source_lifecycle.get("available"):
+        error = str(source_lifecycle.get("error") or "").strip()
+        return [f"FEEZIE source lifecycle is unavailable{f': {error}' if error else '.'}"]
+    counts = source_lifecycle.get("counts") if isinstance(source_lifecycle.get("counts"), dict) else {}
+    by_stage = counts.get("by_stage") if isinstance(counts.get("by_stage"), dict) else {}
+    lines = [
+        f"Incoming decisions: {counts.get('needs_decision', 0)} source(s) still need feed-level choice.",
+        f"Potential posts: {by_stage.get('post_seed', 0)} active seed(s), {by_stage.get('latent_seed', 0)} needing anecdote/taste.",
+        f"Owner/banked lane: {by_stage.get('owner_review', 0)} owner-review draft(s), {by_stage.get('banked', 0)} banked post(s).",
+        f"Delivery lane: {by_stage.get('scheduled', 0)} scheduled post(s), {by_stage.get('published', 0)} published post(s), {by_stage.get('parked', 0)} parked item(s).",
+    ]
+    owner_review_titles = _stage_titles(source_lifecycle, "owner_review")
+    if owner_review_titles:
+        lines.append("Owner review focus: " + "; ".join(owner_review_titles) + ".")
+    latent_titles = _stage_titles(source_lifecycle, "latent_seed")
+    if latent_titles:
+        lines.append("Needs anecdote/taste: " + "; ".join(latent_titles) + ".")
+    return _dedupe_strings(lines, limit=7)
+
+
 def _build_standup_sections(
     workspace_key: str,
     chronicle_entries: list[dict[str, Any]],
@@ -842,6 +895,7 @@ def _build_standup_sections(
     pm_snapshot: dict[str, Any],
     audience_response: list[str],
     needs: list[str],
+    source_lifecycle: dict[str, Any] | None = None,
 ) -> dict[str, list[str]]:
     if workspace_key == "shared_ops":
         return {}
@@ -861,6 +915,7 @@ def _build_standup_sections(
 
     sections = {
         "signals_captured": signal_lines,
+        "feezie_source_loop": _build_feezie_source_loop_section(source_lifecycle or {}) if _is_feezie_workspace_key(workspace_key) else [],
         "content_produced": work_lines,
         "audience_response": traction_lines,
         "opportunities_created": opportunity_lines,
@@ -1391,6 +1446,7 @@ def _build_markdown(prep: dict[str, Any]) -> str:
     if standup_sections:
         for title, key in (
             ("Signal", "signals_captured"),
+            ("FEEZIE Source Loop", "feezie_source_loop"),
             ("Work Produced", "content_produced"),
             ("Traction", "audience_response"),
             ("Opportunities", "opportunities_created"),
@@ -1500,6 +1556,7 @@ def main() -> int:
     pm_snapshot = _build_pm_snapshot(pm_context, args.workspace_key, workspace_label)
     automation_context = _load_automation_context(imports)
     workspace_context = _workspace_context(args.workspace_key, registry)
+    source_lifecycle = _load_feezie_source_lifecycle() if _is_feezie_workspace_key(args.workspace_key) else {}
     durable_memory_context = build_durable_memory_context(
         args.workspace_key,
         _durable_memory_hints(args.workspace_key, workspace_display_name, chronicle_entries),
@@ -1689,6 +1746,7 @@ def main() -> int:
         pm_snapshot,
         audience_response,
         needs,
+        source_lifecycle,
     )
 
     summary_parts = []
@@ -1780,6 +1838,7 @@ def main() -> int:
         "pm_context": pm_context,
         "pm_snapshot": pm_snapshot,
         "automation_context": automation_context,
+        "source_lifecycle": source_lifecycle,
         "memory_promotions": memory_promotions,
         "pm_updates": pm_updates,
         "pm_updates_blocked_reason": pm_updates_blocked_reason,
@@ -1823,6 +1882,7 @@ def main() -> int:
                     *([pm_context["source_ref"]] if pm_context.get("source_ref") else []),
                     *([automation_context["source_ref"]] if automation_context.get("source_ref") else []),
                     *(fallback_watchdog.get("source_paths") or []),
+                    *([source_lifecycle.get("source_ref")] if isinstance(source_lifecycle, dict) and source_lifecycle.get("source_ref") else []),
                     *(brain_context.get("source_paths") or []),
                     *durable_memory_context.get("source_paths", []),
                     *workspace_context.get("source_paths", []),

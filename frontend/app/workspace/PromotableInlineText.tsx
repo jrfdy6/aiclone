@@ -1,6 +1,8 @@
 'use client';
 
-import { CSSProperties, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+
+type InlineStyle = NonNullable<JSX.IntrinsicElements['div']['style']>;
 
 type CanonResult = {
   deltaId?: string;
@@ -10,7 +12,7 @@ type CanonResult = {
 type PromotableInlineTextProps = {
   text: string;
   promotableText?: string;
-  textStyle?: CSSProperties;
+  textStyle?: InlineStyle;
   tone?: string;
   hoverHint?: string;
   onCanon: (fragmentText: string, fullText: string) => Promise<CanonResult | void>;
@@ -137,8 +139,10 @@ export default function PromotableInlineText({
     return null;
   }
 
+  const rootTextStyle = { ...(textStyle ?? {}), whiteSpace: 'pre-wrap' } as InlineStyle;
+
   return (
-    <div style={{ ...textStyle, whiteSpace: 'pre-wrap' }}>
+    <div style={rootTextStyle}>
       {tokens.map((token) => {
         if (!token.fragmentText || dismissedKeys[token.key]) {
           return <span key={token.key}>{token.raw}</span>;
@@ -244,7 +248,7 @@ export default function PromotableInlineText({
   );
 }
 
-function overlayActionStyle(tone: string, disabled: boolean): CSSProperties {
+function overlayActionStyle(tone: string, disabled: boolean): InlineStyle {
   return {
     borderRadius: '999px',
     border: `1px solid ${disabled ? '#334155' : `${tone}66`}`,

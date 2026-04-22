@@ -12,9 +12,11 @@ if str(HELPER_DIR) not in sys.path:
 
 from linkedin_strategy_utils import (  # noqa: E402
     clean_text,
+    drafts_root,
     infer_primary_lane,
     load_social_feed_items,
     now_iso,
+    parse_frontmatter_markdown,
     plans_root,
     priority_lane_label,
     publish_posture_for_item,
@@ -90,11 +92,25 @@ def _base_payload(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _existing_active_draft_source_paths(workspace_dir: Path) -> set[str]:
+    source_paths: set[str] = set()
+    for path in sorted(drafts_root(workspace_dir).glob("*.md")):
+        if path.name == "README.md" or path.name.startswith("queue_") or path.name.startswith("feezie_owner_review_packet_"):
+            continue
+        frontmatter, _ = parse_frontmatter_markdown(path)
+        source_path = workspace_source_path(clean_text(frontmatter.get("source_path")))
+        if source_path:
+            source_paths.add(source_path)
+    return source_paths
+
+
 def queue_payload(workspace_dir: Path, items: list[dict[str, Any]]) -> dict[str, Any]:
     qualification_lookup, qualification_summary = _qualification_lookup(workspace_dir)
     latent_lookup = _latent_lookup(workspace_dir)
+    active_draft_source_paths = _existing_active_draft_source_paths(workspace_dir)
     comment_opportunities: list[dict[str, Any]] = []
     post_seeds: list[dict[str, Any]] = []
+    consumed_post_seeds: list[dict[str, Any]] = []
     latent_post_seeds: list[dict[str, Any]] = []
     background_only: list[dict[str, Any]] = []
     discarded_post_seed_count = 0
@@ -124,6 +140,12 @@ def queue_payload(workspace_dir: Path, items: list[dict[str, Any]]) -> dict[str,
         if payload["suggested_comment"]:
             comment_opportunities.append(payload)
         if payload["post_angle"] and route == "pass":
+            if payload.get("source_path") in active_draft_source_paths:
+                payload["active_seed"] = False
+                payload["lifecycle_stage"] = "owner_review"
+                payload["consumed_reason"] = "A draft already exists for this source, so it is no longer an active post seed."
+                consumed_post_seeds.append(payload)
+                continue
             post_seeds.append(payload)
         elif payload["post_angle"] and route == "latent" and clean_text((latent_item or {}).get("transform_status")) != "drafted":
             latent_post_seeds.append(payload)
@@ -137,11 +159,13 @@ def queue_payload(workspace_dir: Path, items: list[dict[str, Any]]) -> dict[str,
         "workspace": "workspaces/linkedin-content-os",
         "comment_opportunities": comment_opportunities[:6],
         "post_seeds": post_seeds[:8],
+        "consumed_post_seeds": consumed_post_seeds[:8],
         "latent_post_seeds": latent_post_seeds[:8],
         "background_only": background_only[:8],
         "counts": {
             "comment_opportunities": min(len(comment_opportunities), 6),
             "post_seeds": min(len(post_seeds), 8),
+            "consumed_post_seed_count": min(len(consumed_post_seeds), 8),
             "latent_post_seeds": min(len(latent_post_seeds), 8),
             "background_only": min(len(background_only), 8),
             "discarded_post_seed_count": discarded_post_seed_count,
@@ -213,6 +237,21 @@ def _queue_markdown(payload: dict[str, Any]) -> str:
     else:
         lines.append("_No standalone post seeds yet._")
         lines.append("")
+    consumed_items = payload.get("consumed_post_seeds") or []
+    if consumed_items:
+        lines.append("## Consumed Post Seeds")
+        for item in consumed_items:
+            lines.append(
+                _markdown_block(
+                    str(item.get("title") or "Untitled consumed post seed"),
+                    [
+                        ("Lifecycle stage", str(item.get("lifecycle_stage") or "owner_review")),
+                        ("Reason", str(item.get("consumed_reason") or "")),
+                        ("Source file", str(item.get("source_path") or "")),
+                    ],
+                )
+            )
+            lines.append("")
     lines.append("## Latent Transform Queue")
     latent_items = payload.get("latent_post_seeds") or []
     if latent_items:
