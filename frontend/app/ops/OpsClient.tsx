@@ -10851,7 +10851,6 @@ function ArchitectureDocSurface({ doc }: { doc: DocReference }) {
       <ArchitectureFlowSection flows={architectureFlowLanes} />
       <ArchitectureTruthMatrix rows={architectureTruthRows} />
       <details
-        open
         style={{
           borderRadius: '16px',
           border: '1px solid #1f2937',
@@ -10954,11 +10953,19 @@ function ArchitectureFlowLaneCard({ flow }: { flow: ArchitectureFlowLane }) {
       <div style={{ marginBottom: '12px' }}>
         <p style={{ color: '#64748b', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>{flow.eyebrow}</p>
         <h3 style={{ color: 'white', fontSize: '20px', margin: '0 0 6px' }}>{flow.title}</h3>
-        <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 8px' }}>{flow.description}</p>
-        <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
-          <span style={{ color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.12em', fontSize: '11px', marginRight: '8px' }}>Outcome</span>
-          {flow.outcome}
-        </p>
+        <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 10px' }}>{flow.description}</p>
+        <div
+          style={{
+            borderRadius: '12px',
+            border: '1px solid rgba(251,191,36,0.22)',
+            backgroundColor: 'rgba(120,53,15,0.12)',
+            padding: '10px 12px',
+            marginBottom: '12px',
+          }}
+        >
+          <p style={{ color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.12em', fontSize: '11px', margin: '0 0 6px' }}>Outcome</p>
+          <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>{flow.outcome}</p>
+        </div>
       </div>
       <EventChainStrip
         title="Flow Steps"
