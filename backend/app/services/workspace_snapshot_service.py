@@ -25,6 +25,7 @@ from app.services.workspace_snapshot_store import get_snapshot_payload, list_sna
 
 
 TRANSCRIPT_LIBRARY_SKIP_NAMES = {"README.md", "TEMPLATE.md", "INDEX.md"}
+PINNED_DOC_PATHS = ("docs/aiclone_system_architecture.md",)
 
 
 def _count_matching_files(path: Path, pattern: str, *, exclude_names: set[str] | None = None) -> int:
@@ -409,7 +410,13 @@ def _load_doc_entries() -> list[dict[str, str]]:
         }
 
     entries = list(entries_by_path.values())
-    entries.sort(key=lambda item: item["path"])
+    entries.sort(
+        key=lambda item: (
+            0 if item["path"] in PINNED_DOC_PATHS else 1,
+            PINNED_DOC_PATHS.index(item["path"]) if item["path"] in PINNED_DOC_PATHS else 999,
+            item["path"],
+        )
+    )
     return entries
 
 

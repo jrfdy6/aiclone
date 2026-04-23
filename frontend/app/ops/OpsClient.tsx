@@ -13,6 +13,7 @@ const TELEMETRY_TIMEOUT_MS = 40_000;
 const SNAPSHOT_TIMEOUT_MS = 40_000;
 const PM_MAINTENANCE_TIMEOUT_MS = 12_000;
 const REPO_ROOT = '/Users/neo/.openclaw/workspace';
+const PINNED_DOC_PATHS = ['docs/aiclone_system_architecture.md'];
 const WORKSPACE_ROOT_BY_KEY: Record<string, string> = {
   'feezie-os': `${REPO_ROOT}/workspaces/linkedin-content-os`,
   'linkedin-os': `${REPO_ROOT}/workspaces/linkedin-content-os`,
@@ -1529,12 +1530,13 @@ export default function OpsClient({
   const [globalError, setGlobalError] = useState<string | null>(null);
   const pmMaintenanceInFlightRef = useRef(false);
   const effectiveWorkspaceFiles = liveWorkspaceFiles ?? workspaceFiles;
-  const effectiveDocEntries = liveDocEntries ?? docEntries;
+  const initialDocEntries = useMemo(() => sortDocEntries(docEntries), [docEntries]);
+  const effectiveDocEntries = useMemo(() => sortDocEntries(liveDocEntries ?? initialDocEntries), [initialDocEntries, liveDocEntries]);
   const effectiveWeeklyPlan = liveWeeklyPlan;
   const effectiveReactionQueue = liveReactionQueue;
   const effectiveSocialFeed = liveSocialFeed;
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState(() => pickWorkspacePath(workspaceFiles, initialWorkspaceKey) ?? workspaceFiles[0]?.path ?? '');
-  const [selectedDocPath, setSelectedDocPath] = useState(docEntries[0]?.path ?? '');
+  const [selectedDocPath, setSelectedDocPath] = useState(initialDocEntries[0]?.path ?? '');
   const [sectionErrors, setSectionErrors] = useState<TelemetryErrors>({
     metrics: null,
     logs: null,
@@ -11321,6 +11323,19 @@ function findWorkspaceFileBySourcePath(files: WorkspaceFile[], sourcePath: strin
 
 function findDocBySourcePath(docs: DocReference[], sourcePath: string) {
   return docs.find((doc) => doc.path === sourcePath || doc.path.endsWith(sourcePath)) ?? null;
+}
+
+function sortDocEntries(entries: DocReference[]) {
+  return [...entries].sort((left, right) => {
+    const leftPinnedIndex = PINNED_DOC_PATHS.indexOf(left.path);
+    const rightPinnedIndex = PINNED_DOC_PATHS.indexOf(right.path);
+    if (leftPinnedIndex !== -1 || rightPinnedIndex !== -1) {
+      if (leftPinnedIndex === -1) return 1;
+      if (rightPinnedIndex === -1) return -1;
+      return leftPinnedIndex - rightPinnedIndex;
+    }
+    return left.path.localeCompare(right.path);
+  });
 }
 
 function normalizeLensText(value: unknown) {

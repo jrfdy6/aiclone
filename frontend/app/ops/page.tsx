@@ -16,6 +16,7 @@ export const revalidate = 0;
 
 const OPENCLAW_WORKSPACE_ROOT = path.join(process.cwd(), '.openclaw/workspace');
 const OPENCLAW_MEMORY_ROOT = path.join(OPENCLAW_WORKSPACE_ROOT, 'memory');
+const PINNED_DOC_PATHS = ['docs/aiclone_system_architecture.md'];
 
 export default function OpsPage() {
   return (
@@ -60,6 +61,7 @@ function loadWorkspaceFiles(): WorkspaceFile[] {
 
 function loadDocEntries(): DocReference[] {
   const targets = [
+    'docs/aiclone_system_architecture.md',
     'SOPs/_index.md',
     'SOPs/direct_postgres_bootstrap.md',
     'deliverables/brain-tab-ui-requirements.md',
@@ -79,7 +81,19 @@ function loadDocEntries(): DocReference[] {
         content: raw,
         updatedAt: stat.mtime.toISOString(),
       } satisfies DocReference;
-    });
+    })
+    .sort(comparePinnedDocs);
+}
+
+function comparePinnedDocs(left: DocReference, right: DocReference) {
+  const leftPinnedIndex = PINNED_DOC_PATHS.indexOf(left.path);
+  const rightPinnedIndex = PINNED_DOC_PATHS.indexOf(right.path);
+  if (leftPinnedIndex !== -1 || rightPinnedIndex !== -1) {
+    if (leftPinnedIndex === -1) return 1;
+    if (rightPinnedIndex === -1) return -1;
+    return leftPinnedIndex - rightPinnedIndex;
+  }
+  return left.path.localeCompare(right.path);
 }
 
 function loadExecutiveFeed(): ExecutiveFeed {
