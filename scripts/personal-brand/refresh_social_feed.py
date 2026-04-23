@@ -56,6 +56,10 @@ def run_brain_source_flow(*, sync_context: bool, require_context_sync: bool, api
         )
 
 
+def run_content_bank() -> None:
+    run_script(SCRIPTS_ROOT / "bank_autonomous_posts.py")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh the LinkedIn social feed.")
     parser.add_argument("--skip-fetch", action="store_true", help="Build from existing signals only.")
@@ -85,6 +89,11 @@ def parse_args() -> argparse.Namespace:
         default=os.getenv("AICLONE_API_URL", DEFAULT_API_URL),
         help="Backend API URL used by the optional immediate Brain context sync.",
     )
+    parser.add_argument(
+        "--skip-content-bank",
+        action="store_true",
+        help="Skip the final append-only content-bank terminal event.",
+    )
     return parser.parse_args()
 
 
@@ -104,6 +113,8 @@ def main() -> None:
             require_context_sync=args.require_brain_context_sync,
             api_url=args.brain_api_url,
         )
+    if not args.skip_content_bank:
+        run_content_bank()
 
 
 if __name__ == "__main__":

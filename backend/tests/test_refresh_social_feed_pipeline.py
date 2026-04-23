@@ -52,6 +52,7 @@ class RefreshSocialFeedPipelineTests(unittest.TestCase):
                 "refresh_linkedin_strategy.py",
                 "source_intelligence_register_existing.py",
                 "brain_signal_intake.py",
+                "bank_autonomous_posts.py",
             ],
         )
 
@@ -79,6 +80,7 @@ class RefreshSocialFeedPipelineTests(unittest.TestCase):
         script_names = [Path(command[1]).name for command in calls]
         self.assertIn("brain_canonical_memory_sync.py", script_names)
         self.assertIn("brain_signal_intake.py", script_names)
+        self.assertEqual(script_names[-1], "bank_autonomous_posts.py")
 
     def test_skip_brain_flow_keeps_refresh_local(self) -> None:
         module = load_script_module()
@@ -107,8 +109,31 @@ class RefreshSocialFeedPipelineTests(unittest.TestCase):
                 "sync_market_signal_archive.py",
                 "build_social_feed.py",
                 "refresh_linkedin_strategy.py",
+                "bank_autonomous_posts.py",
             ],
         )
+
+    def test_skip_content_bank_keeps_refresh_from_writing_terminal_event(self) -> None:
+        module = load_script_module()
+        calls: list[list[str]] = []
+
+        def fake_run(command: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch.object(module, "sync_watchlist_auto_ingest"), patch.object(
+            module.subprocess,
+            "run",
+            side_effect=fake_run,
+        ), patch.object(
+            sys,
+            "argv",
+            ["refresh_social_feed.py", "--skip-fetch", "--skip-brain-flow", "--skip-content-bank"],
+        ):
+            module.main()
+
+        script_names = [Path(command[1]).name for command in calls]
+        self.assertNotIn("bank_autonomous_posts.py", script_names)
 
 
 if __name__ == "__main__":
