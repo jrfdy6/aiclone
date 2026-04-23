@@ -314,3 +314,159 @@ Mission Control's Docs tab is fed by two paths:
 
 This file is intentionally pinned first in both paths so the architecture map
 stays at the top of the Docs tab in Mission Control.
+
+========================================================================
+11. DETAILED TRANSFORMATION FLOWS
+========================================================================
+
+FLOW A: External source -> digest -> coordination -> action
+
+`raw source asset`
+  -> source-intelligence digest / normalized signal
+  -> Brain review or standup input
+  -> canonical memory promotion when durable
+  -> PM card / workspace task / advisory note when the next step is clear
+
+Rules:
+- external source material is upstream signal, not canonical truth by default
+- the normal first route is memory + standup
+- direct `source -> PM truth` is only valid when ownership and next action are already obvious
+- direct `source -> persona canon` is only valid when the signal really changes identity, voice, story, or worldview
+
+FLOW B: Codex/OpenClaw live work -> Chronicle -> maintenance -> PM/standup
+
+`live work session`
+  -> high-delta Chronicle chunk in `memory/codex_session_handoff.jsonl`
+  -> brain-maintenance cron read
+  -> daily brief / persistent-state / learnings updates
+  -> standup and PM read the shared memory loop
+  -> next-step assignment, escalation, or durable promotion
+
+Rules:
+- Chronicle is the bridge between live work and the rest of the system
+- PM and standups should not depend on one session's memory
+- runner ledgers are audit trails, not canonical memory
+
+FLOW C: Persona promotion
+
+`signal`
+  -> persona delta
+  -> review queue
+  -> promotion fragments
+  -> target canon file
+  -> bundle sync / grounded content retrieval
+
+Common targets:
+- `knowledge/persona/feeze/identity/claims.md`
+- `knowledge/persona/feeze/identity/VOICE_PATTERNS.md`
+- `knowledge/persona/feeze/identity/decision_principles.md`
+- `knowledge/persona/feeze/history/story_bank.md`
+
+Rules:
+- persona canon is a downstream identity lane
+- not every strong signal belongs in canon
+- canon should change only when the system should remember a lasting identity-level truth
+
+FLOW D: PM truth -> queue -> runner -> artifact -> writeback
+
+`pm_cards`
+  -> execution queue entry
+  -> execution packet / briefing / SOP reference
+  -> runner / workspace agent execution
+  -> workspace artifact or report
+  -> PM status + result summary + memory promotion writeback
+
+Rules:
+- PM board is the truth for work state
+- execution should move through queue and packet state, not hidden side channels
+- results should write back into PM + memory + workspace artifacts
+
+FLOW E: Repo change -> push -> deploy -> live Mission Control
+
+`local edit`
+  -> commit
+  -> push
+  -> staged Railway deploy
+  -> live frontend/backend runtime
+  -> snapshot/UI verification
+
+Rules:
+- local git state is not the same as live runtime
+- GitHub being updated is still not the same as production
+- Mission Control shows what the deployed frontend/backend are serving
+
+========================================================================
+12. TRUTH / OWNERSHIP MATRIX
+========================================================================
+
+1. Brain signal / review object
+   Canonical for:
+   upstream interpretation candidates
+   Writers:
+   source intelligence, workspace execution, Chronicle, cron outputs, owner reactions
+   Readers:
+   Brain review, standups, Neo, Jean-Claude, Yoda
+   Promotes to:
+   canonical memory, persona canon, PM truth, advisory notes
+   Boundary:
+   should not jump straight to canon or PM without interpretation
+
+2. Persona canon
+   Canonical for:
+   identity, voice, stories, principles, content posture
+   Writers:
+   persona delta review and promotion flow
+   Readers:
+   Brain, content generation, workspace writing surfaces, bundle sync
+   Promotes to:
+   grounded content retrieval and persona bundles
+   Boundary:
+   should not absorb every interesting signal
+
+3. Canonical memory
+   Canonical for:
+   current truth, learnings, state changes, Chronicle bridge
+   Writers:
+   Chronicle writes, memory sync, brain-maintenance jobs, durable promotions
+   Readers:
+   standups, PM promotion logic, daily briefs, system operators
+   Promotes to:
+   PM truth, docs, standup prep, operating context
+   Boundary:
+   should not become a second backlog or a dump of raw source material
+
+4. PM truth
+   Canonical for:
+   work state, ownership, blockers, execution lifecycle
+   Writers:
+   PM services, standup dispatch, execution writeback, operator review
+   Readers:
+   Mission Control PM board, standups, runners, workspace agents
+   Promotes to:
+   execution queue entries, packets, accountability state
+   Boundary:
+   should not rely on off-board memory to know what work exists
+
+5. Workspace-local truth
+   Canonical for:
+   bounded execution context in a specific workspace
+   Writers:
+   workspace runners, local agents, drafts, analytics, dispatch artifacts
+   Readers:
+   workspace UI, Brain exchange, standups, local operators
+   Promotes to:
+   Brain signals, PM updates, reports, public outputs
+   Boundary:
+   should not silently replace shared PM truth or global canonical memory
+
+6. Live deployed runtime
+   Canonical for:
+   what users actually see right now
+   Writers:
+   Railway frontend/backend deploys
+   Readers:
+   operators, live UI surfaces, snapshot consumers
+   Promotes to:
+   production verification confidence
+   Boundary:
+   should not be confused with local git state or an unshipped fix

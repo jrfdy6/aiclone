@@ -605,6 +605,32 @@ type ArchitectureLayer = {
   nodes: ArchitectureNode[];
 };
 
+type ArchitectureFlowStep = {
+  id: string;
+  label: string;
+  value: string;
+  detail: string;
+  tone: ArchitectureNode['tone'];
+};
+
+type ArchitectureFlowLane = {
+  id: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  outcome: string;
+  steps: ArchitectureFlowStep[];
+};
+
+type ArchitectureTruthRow = {
+  lane: string;
+  canonicalFor: string;
+  primaryWriters: string;
+  primaryReaders: string;
+  promotesTo: string;
+  boundary: string;
+};
+
 type PlanCandidate = {
   source_kind: string;
   title: string;
@@ -1424,6 +1450,280 @@ const architectureLayers: ArchitectureLayer[] = [
         anchors: ['aiclone-production-32dc.up.railway.app', 'NEXT_PUBLIC_API_URL', 'deployed snapshot feed'],
       },
     ],
+  },
+];
+
+const architectureFlowLanes: ArchitectureFlowLane[] = [
+  {
+    id: 'source-intelligence',
+    eyebrow: 'Upstream Signal',
+    title: 'External source -> digest -> coordination -> action',
+    description: 'Outside material should be digested before it becomes durable memory, persona canon, or PM work.',
+    outcome: 'Default route: memory + standup first, PM only when the next step and owner are clear.',
+    steps: [
+      {
+        id: 'source-raw',
+        label: 'Raw input',
+        value: 'source asset',
+        detail: 'Video, transcript, screenshot, RSS item, or web source enters the source-intelligence lane as upstream material.',
+        tone: 'signals',
+      },
+      {
+        id: 'source-digest',
+        label: 'Transform',
+        value: 'normalized digest',
+        detail: 'Workers convert raw material into market-signal files, source digests, or workspace-safe summaries instead of direct truth.',
+        tone: 'runtime',
+      },
+      {
+        id: 'source-review',
+        label: 'Review',
+        value: 'Brain / standup input',
+        detail: 'Strategic or operating meaning is interpreted in Brain or standup rituals before anything durable is promoted.',
+        tone: 'surface',
+      },
+      {
+        id: 'source-memory',
+        label: 'Promotion',
+        value: 'canonical memory',
+        detail: 'Durable signal writes into Chronicle, daily briefs, LEARNINGS, or persistent state when it affects real system understanding.',
+        tone: 'truth',
+      },
+      {
+        id: 'source-task',
+        label: 'Action',
+        value: 'PM / workspace work',
+        detail: 'A card, workspace task, or advisory note is created only after the system has decided what the signal means.',
+        tone: 'delivery',
+      },
+    ],
+  },
+  {
+    id: 'live-work',
+    eyebrow: 'Canonical Loop',
+    title: 'Codex + OpenClaw -> Chronicle -> maintenance -> PM / standup',
+    description: 'Live work is supposed to become canonical memory before context loss, then feed the coordination layer.',
+    outcome: 'Chronicle is the bridge; PM and standups should read it instead of relying on one session’s memory.',
+    steps: [
+      {
+        id: 'live-work-surface',
+        label: 'Live work',
+        value: 'Codex / OpenClaw session',
+        detail: 'Real planning, debugging, decisions, and outcomes happen in the active work surfaces, not only in scheduled automations.',
+        tone: 'signals',
+      },
+      {
+        id: 'live-work-chronicle',
+        label: 'Transform',
+        value: 'Chronicle chunk',
+        detail: 'High-delta outcomes are written into `memory/codex_session_handoff.jsonl` so the system does not lose them on context flush.',
+        tone: 'runtime',
+      },
+      {
+        id: 'live-work-maintenance',
+        label: 'Digest',
+        value: 'brain-maintenance cron read',
+        detail: 'Progress Pulse, Morning Daily Brief, Dream Cycle, Oracle Ledger, and related jobs consume Chronicle plus canonical memory.',
+        tone: 'truth',
+      },
+      {
+        id: 'live-work-coordination',
+        label: 'Coordination',
+        value: 'standup / PM decision',
+        detail: 'Standups and PM truth use that shared memory loop to decide what work exists, what changed, and what needs escalation.',
+        tone: 'surface',
+      },
+      {
+        id: 'live-work-output',
+        label: 'Output',
+        value: 'next action / update',
+        detail: 'The result is either durable memory promotion, a PM update, or a bounded execution handoff rather than a shadow backlog.',
+        tone: 'delivery',
+      },
+    ],
+  },
+  {
+    id: 'persona-promotion',
+    eyebrow: 'Identity Lane',
+    title: 'Signal -> persona delta -> promotion fragments -> canon',
+    description: 'Identity and voice updates are downstream of review; they are not the whole Brain, but one specialized promotion lane.',
+    outcome: 'Persona canon changes only when a reviewed signal is durable enough to change how the system should think or speak.',
+    steps: [
+      {
+        id: 'persona-signal',
+        label: 'Signal',
+        value: 'review object',
+        detail: 'Long-form media, workspace saves, owner reactions, or Brain review create a candidate identity-level signal.',
+        tone: 'signals',
+      },
+      {
+        id: 'persona-delta',
+        label: 'Transform',
+        value: 'persona delta',
+        detail: 'The signal becomes a delta with lifecycle states like `brain_pending_review`, `workspace_saved`, and `pending_promotion`.',
+        tone: 'runtime',
+      },
+      {
+        id: 'persona-review',
+        label: 'Review',
+        value: 'promotion fragments',
+        detail: 'The Brain persona queue decides what fragment is real, what target file it belongs in, and what should be ignored.',
+        tone: 'surface',
+      },
+      {
+        id: 'persona-canon',
+        label: 'Write',
+        value: 'persona canon files',
+        detail: 'Approved fragments commit into `identity/claims.md`, `VOICE_PATTERNS.md`, `story_bank.md`, and related canon files.',
+        tone: 'truth',
+      },
+      {
+        id: 'persona-output',
+        label: 'Output',
+        value: 'bundle / content retrieval',
+        detail: 'Bundle sync and content generation then read the updated canon as the system’s identity-safe speaking layer.',
+        tone: 'delivery',
+      },
+    ],
+  },
+  {
+    id: 'pm-execution',
+    eyebrow: 'Execution Lane',
+    title: 'PM truth -> queue -> runner -> artifact -> writeback',
+    description: 'Concrete work is supposed to move through PM and execution state, not through side-channel memory alone.',
+    outcome: 'Execution results should write back into PM truth, memory, and workspace artifacts so the next cycle sees the outcome.',
+    steps: [
+      {
+        id: 'pm-card',
+        label: 'Task truth',
+        value: 'PM card',
+        detail: 'Work is proposed, owned, prioritized, and tracked in PM truth rather than ad hoc agent memory.',
+        tone: 'truth',
+      },
+      {
+        id: 'pm-queue',
+        label: 'Transform',
+        value: 'execution queue entry',
+        detail: 'Cards that are ready for action are turned into queue entries with manager, target agent, workspace, and execution mode.',
+        tone: 'runtime',
+      },
+      {
+        id: 'pm-packet',
+        label: 'Dispatch',
+        value: 'execution packet',
+        detail: 'The system prepares the briefing, SOP path, packet, and queue metadata needed for a bounded runner or workspace agent.',
+        tone: 'surface',
+      },
+      {
+        id: 'pm-artifact',
+        label: 'Output',
+        value: 'workspace artifact',
+        detail: 'Execution creates drafts, reports, dispatch notes, standup updates, or other workspace-local outputs.',
+        tone: 'delivery',
+      },
+      {
+        id: 'pm-writeback',
+        label: 'Writeback',
+        value: 'PM + memory update',
+        detail: 'Result summaries, completion state, and durable learnings flow back into PM truth and the canonical memory loop.',
+        tone: 'truth',
+      },
+    ],
+  },
+  {
+    id: 'deploy-runtime',
+    eyebrow: 'Deploy Boundary',
+    title: 'Repo change -> push -> deploy -> live Mission Control',
+    description: 'Git state and live runtime are different truths. The UI shows what the deployed frontend/backend are serving, not what is only local.',
+    outcome: 'A local fix is not production until the deploy boundary has been crossed and the live snapshot/UI are serving it.',
+    steps: [
+      {
+        id: 'deploy-local',
+        label: 'Local state',
+        value: 'repo edit',
+        detail: 'Docs, services, or UI code can exist locally without affecting what Mission Control or Railway users actually see.',
+        tone: 'signals',
+      },
+      {
+        id: 'deploy-git',
+        label: 'Transform',
+        value: 'commit + push',
+        detail: 'The change becomes shareable only once the intended diff is committed and pushed to the remote mainline.',
+        tone: 'runtime',
+      },
+      {
+        id: 'deploy-stage',
+        label: 'Release',
+        value: 'staged Railway deploy',
+        detail: 'The deploy script stages a narrow frontend/backend context and publishes it to Railway independent of webhook timing.',
+        tone: 'surface',
+      },
+      {
+        id: 'deploy-runtime-live',
+        label: 'Live runtime',
+        value: 'frontend/backend service',
+        detail: 'Railway frontend and backend become the live runtime truth for `/ops`, workspace snapshots, and docs ordering.',
+        tone: 'delivery',
+      },
+      {
+        id: 'deploy-verify',
+        label: 'Verification',
+        value: 'live snapshot / UI check',
+        detail: 'Health checks and live snapshot verification confirm the change is visible in production instead of only in git.',
+        tone: 'truth',
+      },
+    ],
+  },
+];
+
+const architectureTruthRows: ArchitectureTruthRow[] = [
+  {
+    lane: 'Brain signal / review object',
+    canonicalFor: 'Upstream interpretation candidate',
+    primaryWriters: 'Source intelligence, workspace execution, Chronicle, cron outputs, owner reactions',
+    primaryReaders: 'Brain review, standups, Neo / Jean-Claude / Yoda',
+    promotesTo: 'Canonical memory, persona canon, PM truth, advisory notes',
+    boundary: 'Must not jump straight to canon or PM without interpretation.',
+  },
+  {
+    lane: 'Persona canon',
+    canonicalFor: 'Identity, voice, stories, principles, content posture',
+    primaryWriters: 'Persona delta review + promotion flow',
+    primaryReaders: 'Brain, content generation, workspace writing surfaces, bundle sync',
+    promotesTo: 'Persona bundle and grounded content retrieval',
+    boundary: 'Must not absorb every interesting signal; only durable identity changes belong here.',
+  },
+  {
+    lane: 'Canonical memory',
+    canonicalFor: 'Current truth, learnings, state changes, Chronicle bridge',
+    primaryWriters: 'Chronicle writes, memory sync, brain-maintenance jobs, durable promotions',
+    primaryReaders: 'Standups, PM promotion logic, daily briefs, system operators',
+    promotesTo: 'PM truth, docs, standup prep, operating context',
+    boundary: 'Must not become a parallel backlog or a dumping ground for raw source material.',
+  },
+  {
+    lane: 'PM truth',
+    canonicalFor: 'Work state, ownership, blocker status, execution lifecycle',
+    primaryWriters: 'PM services, standup dispatch, execution writeback, operator review',
+    primaryReaders: 'Mission Control PM board, standups, runners, workspace agents',
+    promotesTo: 'Execution queue entries, packets, standup accountability, completion records',
+    boundary: 'Must not rely on one agent session or off-board memory to know what work exists.',
+  },
+  {
+    lane: 'Workspace-local truth',
+    canonicalFor: 'Bounded execution context inside a specific workspace',
+    primaryWriters: 'Workspace runners, local agents, dispatch notes, drafts, analytics',
+    primaryReaders: 'Workspace UI, Brain exchange, standups, local operators',
+    promotesTo: 'Brain signals, PM updates, reports, public-facing outputs',
+    boundary: 'Must not silently replace shared PM truth or global canonical memory.',
+  },
+  {
+    lane: 'Live deployed runtime',
+    canonicalFor: 'What users actually see in Mission Control right now',
+    primaryWriters: 'Railway deploys of frontend/backend services',
+    primaryReaders: 'Operators, live UI surfaces, snapshot consumers',
+    promotesTo: 'Production verification and release confidence',
+    boundary: 'Must not be confused with local git state or an unshipped fix.',
   },
 ];
 
@@ -10519,6 +10819,8 @@ function ArchitectureDocSurface({ doc }: { doc: DocReference }) {
   const layerCount = architectureLayers.length;
   const nodeCount = architectureLayers.reduce((count, layer) => count + layer.nodes.length, 0);
   const liveCount = architectureLayers.reduce((count, layer) => count + layer.nodes.filter((node) => node.status === 'live').length, 0);
+  const flowCount = architectureFlowLanes.length;
+  const truthLaneCount = architectureTruthRows.length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -10530,21 +10832,24 @@ function ArchitectureDocSurface({ doc }: { doc: DocReference }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
         <MiniMeta label="Layers" value={String(layerCount)} detail="Major planes in the running system" />
         <MiniMeta label="Nodes" value={String(nodeCount)} detail="Concrete surfaces and subsystems" />
+        <MiniMeta label="Flow Lanes" value={String(flowCount)} detail="Detailed transformation paths" />
+        <MiniMeta label="Truth Lanes" value={String(truthLaneCount)} detail="Canonical ownership boundaries" />
         <MiniMeta label="Live Nodes" value={String(liveCount)} detail="Currently active, not just planned" />
-        <MiniMeta label="View Mode" value="System Map" detail="Use this before drilling into docs or code" />
       </div>
       <EventChainStrip
         title="How To Read It"
-        description="Follow the rows from top to bottom. Each card shows the part of AI Clone, what it does, and the file or runtime lane you should inspect when you are working in that area."
+        description="Use the topology map to orient yourself, the transformation lanes to see what gets changed and promoted, and the truth matrix to see what is canonical versus merely upstream or deployed."
         items={[
-          { label: 'Inputs', value: 'What enters', detail: 'Signals, human approvals, and external material entering the stack.', tone: architectureToneColors.signals },
-          { label: 'Runtime', value: 'What moves', detail: 'Workers, API services, and deploy wiring that route the work.', tone: architectureToneColors.runtime },
-          { label: 'Truth', value: 'What persists', detail: 'Filesystem canon, Open Brain/Postgres, and legacy product data stores.', tone: architectureToneColors.truth },
-          { label: 'Surface', value: 'What you touch', detail: 'Mission Control, Brain, Workspace OS, and Lab views.', tone: architectureToneColors.surface },
-          { label: 'Outputs', value: 'What ships', detail: 'PM/standups, product outputs, and the live Railway runtime.', tone: architectureToneColors.delivery },
+          { label: 'Topology', value: 'Where am I?', detail: 'Use the layered map to find the subsystem or runtime plane you are currently changing.', tone: architectureToneColors.surface },
+          { label: 'Transformation', value: 'What changes?', detail: 'Use the flow lanes to see how raw input becomes digest, canon, PM truth, artifacts, or production output.', tone: architectureToneColors.runtime },
+          { label: 'Truth', value: 'What is canonical?', detail: 'Use the matrix to separate review objects, memory, PM state, workspace truth, and deployed runtime.', tone: architectureToneColors.truth },
+          { label: 'Boundary', value: 'What should not happen?', detail: 'Each lane includes the anti-pattern that causes split-brain behavior if crossed too early.', tone: architectureToneColors.signals },
+          { label: 'Deploy', value: 'What is live?', detail: 'Git state and live runtime are separate; production is defined by the deployed frontend/backend.', tone: architectureToneColors.delivery },
         ]}
       />
       <ArchitectureDiagramSection layers={architectureLayers} />
+      <ArchitectureFlowSection flows={architectureFlowLanes} />
+      <ArchitectureTruthMatrix rows={architectureTruthRows} />
       <details
         open
         style={{
@@ -10623,6 +10928,60 @@ function ArchitectureDiagramSection({ layers }: { layers: ArchitectureLayer[] })
         ))}
       </div>
     </section>
+  );
+}
+
+function ArchitectureFlowSection({ flows }: { flows: ArchitectureFlowLane[] }) {
+  return (
+    <section style={{ border: '1px solid #1f2937', borderRadius: '18px', padding: '24px', backgroundColor: '#0b1324' }}>
+      <div style={{ marginBottom: '16px' }}>
+        <p style={{ color: '#fbbf24', letterSpacing: '0.2em', fontSize: '12px', textTransform: 'uppercase' }}>Data Transformation Flow</p>
+        <h2 style={{ fontSize: '28px', fontWeight: 600, color: 'white', margin: '4px 0' }}>How state moves</h2>
+        <p style={{ color: '#94a3b8' }}>Each lane shows what enters, what gets transformed, where truth is written, and what output the system emits next.</p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {flows.map((flow) => (
+          <ArchitectureFlowLaneCard key={flow.id} flow={flow} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ArchitectureFlowLaneCard({ flow }: { flow: ArchitectureFlowLane }) {
+  return (
+    <div style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '18px' }}>
+      <div style={{ marginBottom: '12px' }}>
+        <p style={{ color: '#64748b', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>{flow.eyebrow}</p>
+        <h3 style={{ color: 'white', fontSize: '20px', margin: '0 0 6px' }}>{flow.title}</h3>
+        <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 8px' }}>{flow.description}</p>
+        <p style={{ color: '#cbd5f5', fontSize: '12px', margin: 0 }}>
+          <span style={{ color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.12em', fontSize: '11px', marginRight: '8px' }}>Outcome</span>
+          {flow.outcome}
+        </p>
+      </div>
+      <EventChainStrip
+        title="Flow Steps"
+        description="Read left to right: input, transform, review/write, then output."
+        items={flow.steps.map((step) => ({
+          label: step.label,
+          value: step.value,
+          detail: step.detail,
+          tone: architectureToneColors[step.tone],
+        }))}
+      />
+    </div>
+  );
+}
+
+function ArchitectureTruthMatrix({ rows }: { rows: ArchitectureTruthRow[] }) {
+  return (
+    <StatusTable
+      title="Truth Boundaries"
+      subtitle="What each lane is canonical for, who writes it, who reads it, and what boundary should not be crossed too early."
+      headers={['Lane', 'Canonical For', 'Primary Writers', 'Primary Readers', 'Promotes To', 'Boundary']}
+      rows={rows.map((row) => [row.lane, row.canonicalFor, row.primaryWriters, row.primaryReaders, row.promotesTo, row.boundary])}
+    />
   );
 }
 
