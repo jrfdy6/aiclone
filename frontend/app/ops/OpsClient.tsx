@@ -586,6 +586,25 @@ type OrgNode = {
   responsibilities?: string[];
 };
 
+type ArchitectureNode = {
+  id: string;
+  name: string;
+  role: string;
+  description: string;
+  status: 'live' | 'hybrid' | 'edge';
+  tone: 'signals' | 'runtime' | 'truth' | 'surface' | 'delivery';
+  anchors?: string[];
+};
+
+type ArchitectureLayer = {
+  id: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  connector?: string;
+  nodes: ArchitectureNode[];
+};
+
 type PlanCandidate = {
   source_kind: string;
   title: string;
@@ -1233,6 +1252,179 @@ const orgLayers: OrgNode[][] = [
       responsibilities: ['Nightly self-improvement', 'Build logs', 'Staging QA'],
     },
   ],
+];
+
+const architectureLayers: ArchitectureLayer[] = [
+  {
+    id: 'inputs',
+    eyebrow: 'Ingress',
+    title: 'Signals + operator actions',
+    description: 'Everything that enters AI Clone before any workflow or storage decision is made.',
+    connector: 'ingest into',
+    nodes: [
+      {
+        id: 'external-signals',
+        name: 'External Signals',
+        role: 'Inputs',
+        description: 'Uploads, web fetches, RSS, YouTube, and source-system pulls that bring new material into the stack.',
+        status: 'live',
+        tone: 'signals',
+        anchors: ['uploads / drive', 'youtube / rss / web', 'source fetch + ingest'],
+      },
+      {
+        id: 'operator-actions',
+        name: 'Operator Actions',
+        role: 'Human Control',
+        description: 'Feeze and Neo approvals, review actions, PM decisions, and doc reading that determine what advances.',
+        status: 'live',
+        tone: 'signals',
+        anchors: ['Mission Control decisions', 'manual review + promotion', 'PM board triage'],
+      },
+    ],
+  },
+  {
+    id: 'runtime',
+    eyebrow: 'Execution',
+    title: 'Workers + service runtime',
+    description: 'The orchestration plane that ingests, normalizes, routes, and publishes state.',
+    connector: 'write into',
+    nodes: [
+      {
+        id: 'local-workers',
+        name: 'Local Workers',
+        role: 'Automation Lane',
+        description: 'Scripts, launchd jobs, OpenClaw cron, and workspace runners perform the recurring background work.',
+        status: 'live',
+        tone: 'runtime',
+        anchors: ['scripts/*.py', 'automations/', 'launchd + cron'],
+      },
+      {
+        id: 'fastapi-backend',
+        name: 'FastAPI Backend',
+        role: 'API + Services',
+        description: 'Routes and services expose snapshots, Brain, PM, standups, automations, content, and workspace state.',
+        status: 'live',
+        tone: 'runtime',
+        anchors: ['backend/app/main.py', 'backend/app/routes/*', 'backend/app/services/*'],
+      },
+      {
+        id: 'deploy-boundary',
+        name: 'Deploy Boundary',
+        role: 'Local vs Live',
+        description: 'A clean repo state is not the same as production. Railway deploys and env wiring decide what the UI actually sees.',
+        status: 'hybrid',
+        tone: 'runtime',
+        anchors: ['scripts/deploy_railway_service.sh', 'frontend/.env.local', 'Railway frontend/backend'],
+      },
+    ],
+  },
+  {
+    id: 'truth',
+    eyebrow: 'Truth',
+    title: 'Durable system state',
+    description: 'Where the system keeps memory, docs, workspace state, and database-backed operating context.',
+    connector: 'serve through',
+    nodes: [
+      {
+        id: 'repo-truth',
+        name: 'Repo Truth',
+        role: 'Filesystem Canon',
+        description: 'Markdown, persona, docs, memory ledgers, and workspace files remain the clearest operator-readable source of truth.',
+        status: 'live',
+        tone: 'truth',
+        anchors: ['docs/', 'memory/', 'knowledge/', 'workspaces/*/'],
+      },
+      {
+        id: 'open-brain',
+        name: 'Open Brain + Postgres',
+        role: 'Relational Truth',
+        description: 'Captures workspace snapshots, PM state, standups, persona deltas, metrics, and retrieval-backed operating memory.',
+        status: 'live',
+        tone: 'truth',
+        anchors: ['open_brain_db.py', 'workspace_snapshot_service.py', 'pm + brief tables'],
+      },
+      {
+        id: 'firestore-plane',
+        name: 'Firestore Product Plane',
+        role: 'Legacy / Partial',
+        description: 'The original product surfaces still use Firestore for knowledge, prospects, and topic intelligence in part of the stack.',
+        status: 'edge',
+        tone: 'truth',
+        anchors: ['knowledge_docs', 'prospects', 'topic_intelligence'],
+      },
+    ],
+  },
+  {
+    id: 'surfaces',
+    eyebrow: 'Surfaces',
+    title: 'What you interact with',
+    description: 'The views that let you inspect, steer, and develop the system.',
+    connector: 'produce',
+    nodes: [
+      {
+        id: 'mission-control',
+        name: 'Mission Control',
+        role: 'Ops Surface',
+        description: 'Team, PM, Standups, Workspace, and Docs are the operator-facing control shell.',
+        status: 'live',
+        tone: 'surface',
+        anchors: ['frontend/app/ops/page.tsx', 'frontend/app/ops/OpsClient.tsx', 'workspace snapshot feed'],
+      },
+      {
+        id: 'brain-surface',
+        name: 'Brain + Persona',
+        role: 'Knowledge Surface',
+        description: 'Brain review, persona promotion, bundle sync, and retrieval inspection turn raw inputs into durable canon.',
+        status: 'live',
+        tone: 'surface',
+        anchors: ['frontend/app/brain/*', 'persona review flow', 'bundle sync'],
+      },
+      {
+        id: 'workspace-lab',
+        name: 'Workspace OS + Lab',
+        role: 'Execution Surface',
+        description: 'Workspace-specific operating systems and the lab surface are where content, experiments, and task loops are worked.',
+        status: 'live',
+        tone: 'surface',
+        anchors: ['frontend/app/workspace/*', 'frontend/app/lab/*', 'workspaces/linkedin-content-os/*'],
+      },
+    ],
+  },
+  {
+    id: 'outputs',
+    eyebrow: 'Outputs',
+    title: 'What the system emits',
+    description: 'The visible products of the architecture once data has moved through the control and truth planes.',
+    nodes: [
+      {
+        id: 'pm-queue',
+        name: 'PM + Execution Queue',
+        role: 'Control Outputs',
+        description: 'Cards, standups, execution packets, and manager/target routing tell you what the system thinks should happen next.',
+        status: 'live',
+        tone: 'delivery',
+        anchors: ['PM board', 'execution queue', 'standups'],
+      },
+      {
+        id: 'product-outputs',
+        name: 'Content + Knowledge Outputs',
+        role: 'Product Outputs',
+        description: 'Generated content, knowledge routes, topic intelligence, prospecting, and workspace snapshots are the product-plane outputs.',
+        status: 'hybrid',
+        tone: 'delivery',
+        anchors: ['content generation', 'knowledge / prospects / topic intel', 'workspace snapshots'],
+      },
+      {
+        id: 'production-railway',
+        name: 'Live Railway Runtime',
+        role: 'Production Shell',
+        description: 'The deployed frontend/backend determine what Mission Control actually shows, which is why deploy state matters as much as git state.',
+        status: 'live',
+        tone: 'delivery',
+        anchors: ['aiclone-production-32dc.up.railway.app', 'NEXT_PUBLIC_API_URL', 'deployed snapshot feed'],
+      },
+    ],
+  },
 ];
 
 const WORKSPACE_LENSES: WorkspaceLens[] = [
@@ -9732,10 +9924,17 @@ function DocsPanel({ docs, selected, onSelect }: { docs: DocReference[]; selecte
             </div>
           )
         }
-        content={selected ? <MarkdownSurface title={selected.name} path={selected.path} updatedAt={selected.updatedAt} content={selected.content} /> : <EmptyPanel message="Select a document to inspect." />}
+        content={selected ? <DocSurface doc={selected} /> : <EmptyPanel message="Select a document to inspect." />}
       />
     </section>
   );
+}
+
+function DocSurface({ doc }: { doc: DocReference }) {
+  if (doc.path === PINNED_DOC_PATHS[0]) {
+    return <ArchitectureDocSurface doc={doc} />;
+  }
+  return <MarkdownSurface title={doc.name} path={doc.path} updatedAt={doc.updatedAt} content={doc.content} />;
 }
 
 function TuningDashboardPanel({
@@ -10233,6 +10432,26 @@ const statusLabels: Record<OrgNode['status'], string> = {
   planned: 'Planned',
 };
 
+const architectureToneColors: Record<ArchitectureNode['tone'], string> = {
+  signals: '#f97316',
+  runtime: '#fbbf24',
+  truth: '#38bdf8',
+  surface: '#2dd4bf',
+  delivery: '#4ade80',
+};
+
+const architectureStatusLabels: Record<ArchitectureNode['status'], string> = {
+  live: 'Live',
+  hybrid: 'Hybrid',
+  edge: 'Edge',
+};
+
+const architectureStatusColors: Record<ArchitectureNode['status'], string> = {
+  live: '#22c55e',
+  hybrid: '#fbbf24',
+  edge: '#94a3b8',
+};
+
 function OrgChartSection({ layers }: { layers: OrgNode[][] }) {
   return (
     <section style={{ border: '1px solid #1f2937', borderRadius: '18px', padding: '24px', backgroundColor: '#0b1324' }}>
@@ -10291,6 +10510,160 @@ function OrgNodeCard({ node }: { node: OrgNode }) {
       >
         <span style={{ width: '6px', height: '6px', borderRadius: '999px', backgroundColor: node.status === 'active' ? '#22c55e' : tone }} />
         {statusLabels[node.status]}
+      </span>
+    </div>
+  );
+}
+
+function ArchitectureDocSurface({ doc }: { doc: DocReference }) {
+  const layerCount = architectureLayers.length;
+  const nodeCount = architectureLayers.reduce((count, layer) => count + layer.nodes.length, 0);
+  const liveCount = architectureLayers.reduce((count, layer) => count + layer.nodes.filter((node) => node.status === 'live').length, 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ marginBottom: '4px' }}>
+        <p style={{ color: '#64748b', fontSize: '12px' }}>{doc.path}</p>
+        <h3 style={{ fontSize: '28px', color: 'white', margin: '6px 0' }}>{doc.name}</h3>
+        <p style={{ color: '#94a3b8', fontSize: '13px' }}>Updated {formatTimestamp(new Date(doc.updatedAt))}</p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+        <MiniMeta label="Layers" value={String(layerCount)} detail="Major planes in the running system" />
+        <MiniMeta label="Nodes" value={String(nodeCount)} detail="Concrete surfaces and subsystems" />
+        <MiniMeta label="Live Nodes" value={String(liveCount)} detail="Currently active, not just planned" />
+        <MiniMeta label="View Mode" value="System Map" detail="Use this before drilling into docs or code" />
+      </div>
+      <EventChainStrip
+        title="How To Read It"
+        description="Follow the rows from top to bottom. Each card shows the part of AI Clone, what it does, and the file or runtime lane you should inspect when you are working in that area."
+        items={[
+          { label: 'Inputs', value: 'What enters', detail: 'Signals, human approvals, and external material entering the stack.', tone: architectureToneColors.signals },
+          { label: 'Runtime', value: 'What moves', detail: 'Workers, API services, and deploy wiring that route the work.', tone: architectureToneColors.runtime },
+          { label: 'Truth', value: 'What persists', detail: 'Filesystem canon, Open Brain/Postgres, and legacy product data stores.', tone: architectureToneColors.truth },
+          { label: 'Surface', value: 'What you touch', detail: 'Mission Control, Brain, Workspace OS, and Lab views.', tone: architectureToneColors.surface },
+          { label: 'Outputs', value: 'What ships', detail: 'PM/standups, product outputs, and the live Railway runtime.', tone: architectureToneColors.delivery },
+        ]}
+      />
+      <ArchitectureDiagramSection layers={architectureLayers} />
+      <details
+        open
+        style={{
+          borderRadius: '16px',
+          border: '1px solid #1f2937',
+          backgroundColor: '#0b1324',
+          padding: '16px',
+        }}
+      >
+        <summary style={{ color: '#fbbf24', cursor: 'pointer', fontWeight: 600 }}>Source note</summary>
+        <div style={{ marginTop: '12px' }}>
+          <pre
+            style={{
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+              color: '#dbe4f4',
+              fontSize: '13px',
+              lineHeight: 1.65,
+              fontFamily: 'ui-monospace, SFMono-Regular, SFMono, Menlo, Consolas, monospace',
+            }}
+          >
+            {doc.content}
+          </pre>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function ArchitectureDiagramSection({ layers }: { layers: ArchitectureLayer[] }) {
+  return (
+    <section style={{ border: '1px solid #1f2937', borderRadius: '18px', padding: '24px', backgroundColor: '#0b1324' }}>
+      <div style={{ marginBottom: '16px' }}>
+        <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '12px', textTransform: 'uppercase' }}>System Architecture</p>
+        <h2 style={{ fontSize: '28px', fontWeight: 600, color: 'white', margin: '4px 0' }}>AI Clone</h2>
+        <p style={{ color: '#94a3b8' }}>Same card language as the team tree, but mapped to runtime planes instead of people.</p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {layers.map((layer, idx) => (
+          <div key={layer.id} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {idx > 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 12px',
+                    borderRadius: '999px',
+                    border: '1px solid #1f2937',
+                    backgroundColor: '#020617',
+                    color: '#64748b',
+                    fontSize: '11px',
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  <span style={{ color: '#38bdf8' }}>↓</span>
+                  {layer.connector}
+                </div>
+              </div>
+            ) : null}
+            <div style={{ borderRadius: '18px', border: '1px solid #1f2937', backgroundColor: '#050b19', padding: '18px' }}>
+              <div style={{ marginBottom: '14px' }}>
+                <p style={{ color: '#64748b', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>{layer.eyebrow}</p>
+                <h3 style={{ color: 'white', fontSize: '20px', margin: '0 0 6px' }}>{layer.title}</h3>
+                <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0, maxWidth: '820px' }}>{layer.description}</p>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                {layer.nodes.map((node) => (
+                  <ArchitectureNodeCard key={node.id} node={node} />
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ArchitectureNodeCard({ node }: { node: ArchitectureNode }) {
+  const tone = architectureToneColors[node.tone];
+  const statusColor = architectureStatusColors[node.status];
+  return (
+    <div
+      style={{
+        flex: '1 1 240px',
+        borderRadius: '16px',
+        border: '1px solid #1f2937',
+        padding: '16px',
+        background: 'linear-gradient(135deg, rgba(15,23,42,0.9), rgba(2,6,23,0.9))',
+      }}
+    >
+      <p style={{ color: tone, letterSpacing: '0.2em', fontSize: '10px', textTransform: 'uppercase' }}>{node.role}</p>
+      <h3 style={{ color: 'white', fontSize: '18px', fontWeight: 600, margin: '4px 0 8px' }}>{node.name}</h3>
+      <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '8px' }}>{node.description}</p>
+      {node.anchors && node.anchors.length > 0 ? (
+        <ul style={{ color: '#cbd5f5', fontSize: '13px', marginLeft: '16px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {node.anchors.map((item) => (
+            <li key={`${node.id}-${item}`}>{item}</li>
+          ))}
+        </ul>
+      ) : null}
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          borderRadius: '999px',
+          border: '1px solid #1f2937',
+          padding: '6px 12px',
+          color: statusColor,
+          fontSize: '12px',
+          backgroundColor: '#0f172a',
+        }}
+      >
+        <span style={{ width: '6px', height: '6px', borderRadius: '999px', backgroundColor: statusColor }} />
+        {architectureStatusLabels[node.status]}
       </span>
     </div>
   );
