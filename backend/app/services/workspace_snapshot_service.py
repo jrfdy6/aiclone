@@ -312,6 +312,298 @@ SNAPSHOT_DOC_ENTRIES = "doc_entries"
 SNAPSHOT_OPERATOR_STORY_SIGNALS = "operator_story_signals"
 SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS = "content_safe_operator_lessons"
 
+ACTIVITY_STAGE_ORDER = {
+    "owner_review": 0,
+    "latent_seed": 1,
+    "post_seed": 2,
+    "weekly_plan": 3,
+    "source": 4,
+}
+
+
+def _normalize_activity_key(value: Any) -> str:
+    raw = str(value or "").replace("/Users/neo/.openclaw/workspace/", "").strip()
+    raw = re.sub(r"^Source file:\s*", "", raw, flags=re.IGNORECASE)
+    raw = raw.lstrip("./")
+    return raw.lower()
+
+
+def _activity_keys(*values: Any) -> tuple[str, ...]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = _normalize_activity_key(value)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return tuple(ordered)
+
+
+def _activity_stage_metadata(stage: str) -> dict[str, Any]:
+    if stage == "owner_review":
+        return {
+            "label": "Owner review",
+            "detail": "Already drafted. The next decision is approve, revise, or park.",
+            "action_label": "Open owner review",
+            "tone": "#fbbf24",
+            "allowed_actions": ["approve", "revise", "park", "annotate_notes"],
+        }
+    if stage == "weekly_plan":
+        return {
+            "label": "Weekly plan",
+            "detail": "Already selected for the active weekly plan.",
+            "action_label": "Use planned seed",
+            "tone": "#38bdf8",
+            "allowed_actions": ["use_in_pipeline", "write_post", "write_comment", "copy", "feedback", "approve_quote"],
+        }
+    if stage == "post_seed":
+        return {
+            "label": "Banked seed",
+            "detail": "Already stored in the standalone post-seed lane.",
+            "action_label": "Use banked seed",
+            "tone": "#22c55e",
+            "allowed_actions": ["use_in_pipeline", "write_post", "write_comment", "copy", "feedback", "approve_quote"],
+        }
+    if stage == "latent_seed":
+        return {
+            "label": "Needs anecdote",
+            "detail": "Already preserved as a latent seed that needs proof, taste, or an anecdote.",
+            "action_label": "Work latent seed",
+            "tone": "#fb923c",
+            "allowed_actions": ["use_in_pipeline", "write_post", "write_comment", "copy", "feedback", "approve_quote"],
+        }
+    return {
+        "label": "Source",
+        "detail": "React to it, draft from it, or push the strongest angle into the pipeline.",
+        "action_label": "Use in pipeline",
+        "tone": "#fb923c",
+        "allowed_actions": ["use_in_pipeline", "write_post", "write_comment", "copy", "feedback", "approve_quote"],
+    }
+
+
+def _build_activity_planning_index(
+    *,
+    owner_review_items: list[dict[str, Any]],
+    weekly_plan: dict[str, Any] | None,
+    reaction_queue: dict[str, Any] | None,
+) -> dict[str, set[str]]:
+    index = {
+        "owner_review_titles": set(),
+        "owner_review_urls": set(),
+        "owner_review_paths": set(),
+        "weekly_titles": set(),
+        "weekly_paths": set(),
+        "post_seed_titles": set(),
+        "post_seed_paths": set(),
+        "latent_seed_titles": set(),
+        "latent_seed_paths": set(),
+    }
+
+    for item in owner_review_items:
+        index["owner_review_titles"].update(_activity_keys(item.get("title")))
+        index["owner_review_urls"].update(_activity_keys(item.get("source_url")))
+        index["owner_review_paths"].update(_activity_keys(item.get("source_path")))
+
+    for item in (weekly_plan or {}).get("recommendations") or []:
+        index["weekly_titles"].update(_activity_keys(item.get("title")))
+        index["weekly_paths"].update(_activity_keys(item.get("source_path")))
+
+    for item in (reaction_queue or {}).get("post_seeds") or []:
+        index["post_seed_titles"].update(_activity_keys(item.get("title")))
+        index["post_seed_paths"].update(_activity_keys(item.get("source_path")))
+
+    for item in (reaction_queue or {}).get("latent_post_seeds") or []:
+        index["latent_seed_titles"].update(_activity_keys(item.get("title")))
+        index["latent_seed_paths"].update(_activity_keys(item.get("source_path")))
+
+    return index
+
+
+def _resolve_activity_stage_for_source_item(item: dict[str, Any], index: dict[str, set[str]]) -> str:
+    title_keys = _activity_keys(item.get("title"))
+    url_keys = _activity_keys(item.get("source_url"))
+    path_keys = _activity_keys(item.get("source_path"))
+
+    if (
+        any(key in index["owner_review_titles"] for key in title_keys)
+        or any(key in index["owner_review_urls"] for key in url_keys)
+        or any(key in index["owner_review_paths"] for key in path_keys)
+    ):
+        return "owner_review"
+    if any(key in index["weekly_titles"] for key in title_keys) or any(key in index["weekly_paths"] for key in path_keys):
+        return "weekly_plan"
+    if any(key in index["post_seed_titles"] for key in title_keys) or any(key in index["post_seed_paths"] for key in path_keys):
+        return "post_seed"
+    if any(key in index["latent_seed_titles"] for key in title_keys) or any(key in index["latent_seed_paths"] for key in path_keys):
+        return "latent_seed"
+    return "source"
+
+
+def _build_activity_feed_payload(
+    *,
+    social_feed: dict[str, Any] | None,
+    weekly_plan: dict[str, Any] | None,
+    reaction_queue: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    items = (social_feed or {}).get("items") or []
+    if not isinstance(items, list):
+        items = []
+
+    try:
+        from app.services.linkedin_owner_review_service import list_owner_review_items
+
+        owner_review_payload = list_owner_review_items()
+        owner_review_items = owner_review_payload.get("items") or []
+    except Exception:
+        owner_review_items = []
+
+    planning_index = _build_activity_planning_index(
+        owner_review_items=owner_review_items if isinstance(owner_review_items, list) else [],
+        weekly_plan=weekly_plan if isinstance(weekly_plan, dict) else None,
+        reaction_queue=reaction_queue if isinstance(reaction_queue, dict) else None,
+    )
+
+    feed_index: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for key in _activity_keys(item.get("title"), item.get("source_url"), item.get("source_path")):
+            feed_index.setdefault(key, []).append(item)
+
+    matched_feed_ids: set[str] = set()
+    activity_items: list[dict[str, Any]] = []
+
+    for owner_review_item in owner_review_items if isinstance(owner_review_items, list) else []:
+        if not isinstance(owner_review_item, dict):
+            continue
+        matched_feed_item: dict[str, Any] | None = None
+        for key in _activity_keys(
+            owner_review_item.get("title"),
+            owner_review_item.get("source_url"),
+            owner_review_item.get("source_path"),
+        ):
+            candidates = feed_index.get(key) or []
+            unmatched = [
+                candidate
+                for candidate in candidates
+                if str(candidate.get("id") or "").strip() and str(candidate.get("id") or "").strip() not in matched_feed_ids
+            ]
+            if unmatched:
+                matched_feed_item = max(
+                    unmatched,
+                    key=lambda candidate: float(((candidate.get("ranking") or {}).get("total") or 0.0)),
+                )
+                matched_feed_ids.add(str(matched_feed_item.get("id") or "").strip())
+                break
+
+        stage = "owner_review"
+        stage_meta = _activity_stage_metadata(stage)
+        activity_items.append(
+            {
+                "id": f"activity:{owner_review_item.get('queue_id') or owner_review_item.get('title')}",
+                "kind": "owner_review",
+                "stage": stage,
+                "stage_order": ACTIVITY_STAGE_ORDER[stage],
+                "stage_label": stage_meta["label"],
+                "stage_detail": stage_meta["detail"],
+                "action_label": stage_meta["action_label"],
+                "tone": stage_meta["tone"],
+                "allowed_actions": stage_meta["allowed_actions"],
+                "source_key": "|".join(
+                    _activity_keys(
+                        owner_review_item.get("title"),
+                        owner_review_item.get("source_url"),
+                        owner_review_item.get("source_path"),
+                    )
+                ),
+                "title": owner_review_item.get("title"),
+                "author": matched_feed_item.get("author") if matched_feed_item else None,
+                "source_url": owner_review_item.get("source_url") or (matched_feed_item.get("source_url") if matched_feed_item else None),
+                "source_path": owner_review_item.get("source_path") or (matched_feed_item.get("source_path") if matched_feed_item else None),
+                "queue_id": owner_review_item.get("queue_id"),
+                "draft_path": owner_review_item.get("draft_path"),
+                "owner_packet_path": owner_review_item.get("owner_packet_path"),
+                "status_summary": owner_review_item.get("approval_status") or owner_review_item.get("status"),
+                "ranking_total": (
+                    ((matched_feed_item or {}).get("ranking") or {}).get("total")
+                    if isinstance(matched_feed_item, dict)
+                    else None
+                ),
+                "feed_item": matched_feed_item,
+                "owner_review_item": owner_review_item,
+            }
+        )
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "").strip()
+        if item_id and item_id in matched_feed_ids:
+            continue
+        stage = _resolve_activity_stage_for_source_item(item, planning_index)
+        stage_meta = _activity_stage_metadata(stage)
+        activity_items.append(
+            {
+                "id": f"activity:{item_id or item.get('title')}",
+                "kind": "source",
+                "stage": stage,
+                "stage_order": ACTIVITY_STAGE_ORDER.get(stage, ACTIVITY_STAGE_ORDER["source"]),
+                "stage_label": stage_meta["label"],
+                "stage_detail": stage_meta["detail"],
+                "action_label": stage_meta["action_label"],
+                "tone": stage_meta["tone"],
+                "allowed_actions": stage_meta["allowed_actions"],
+                "source_key": "|".join(_activity_keys(item.get("title"), item.get("source_url"), item.get("source_path"))),
+                "title": item.get("title"),
+                "author": item.get("author"),
+                "source_url": item.get("source_url"),
+                "source_path": item.get("source_path"),
+                "queue_id": None,
+                "draft_path": None,
+                "owner_packet_path": None,
+                "status_summary": stage_meta["label"],
+                "ranking_total": ((item.get("ranking") or {}).get("total") if isinstance(item.get("ranking"), dict) else None),
+                "feed_item": item,
+                "owner_review_item": None,
+            }
+        )
+
+    if not activity_items:
+        return None
+
+    def _sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+        stage = str(item.get("stage") or "source")
+        raw_stage_order = item.get("stage_order")
+        stage_order = int(raw_stage_order) if isinstance(raw_stage_order, (int, float)) else ACTIVITY_STAGE_ORDER["source"]
+        if stage == "owner_review":
+            queue_id = str(item.get("queue_id") or "")
+            title = str(item.get("title") or "")
+            return (stage_order, 0, queue_id or title.lower())
+        ranking_total = item.get("ranking_total")
+        score = float(ranking_total) if isinstance(ranking_total, (float, int)) else 0.0
+        return (stage_order, 1, -score, str(item.get("title") or "").lower())
+
+    activity_items.sort(key=_sort_key)
+
+    counts: dict[str, int] = {}
+    for item in activity_items:
+        stage = str(item.get("stage") or "source")
+        counts[stage] = counts.get(stage, 0) + 1
+
+    generated_at = (
+        (social_feed or {}).get("generated_at")
+        or (weekly_plan or {}).get("generated_at")
+        or (reaction_queue or {}).get("generated_at")
+        or datetime.now(timezone.utc).isoformat()
+    )
+    return {
+        "generated_at": generated_at,
+        "total_count": len(activity_items),
+        "counts": counts,
+        "items": activity_items,
+    }
+
 
 def _load_module(module_name: str, script_path: Path) -> Any | None:
     if not script_path.exists():
@@ -1747,6 +2039,11 @@ class WorkspaceSnapshotService:
         feedback_summary = safe_load_snapshot(SNAPSHOT_FEEDBACK_SUMMARY)
         operator_story_signals = safe_load_snapshot(SNAPSHOT_OPERATOR_STORY_SIGNALS)
         content_safe_operator_lessons = safe_load_snapshot(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
+        activity_feed = _build_activity_feed_payload(
+            social_feed=social_feed if isinstance(social_feed, dict) else None,
+            weekly_plan=weekly_plan if isinstance(weekly_plan, dict) else None,
+            reaction_queue=reaction_queue if isinstance(reaction_queue, dict) else None,
+        )
         return {
             "workspace_files": (workspace_files_payload or {}).get("items") if isinstance(workspace_files_payload, dict) else [],
             "doc_entries": (doc_entries_payload or {}).get("items") if isinstance(doc_entries_payload, dict) else [],
@@ -1754,6 +2051,7 @@ class WorkspaceSnapshotService:
             "reaction_queue": reaction_queue,
             "social_feed": social_feed,
             "source_lifecycle": source_lifecycle,
+            "activity_feed": activity_feed,
             "feedback_summary": feedback_summary,
             "source_assets": source_assets,
             "content_reservoir": content_reservoir,

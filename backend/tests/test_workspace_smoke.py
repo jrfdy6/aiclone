@@ -613,11 +613,17 @@ Faculty groups have slammed the measure and colleges are watching it closely.
 
     def test_workspace_snapshot_service_returns_live_sections(self) -> None:
         snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+        activity_feed = snapshot.get("activity_feed") or {}
         social_feed = snapshot.get("social_feed") or {}
         source_assets = snapshot.get("source_assets") or {}
         persona_review_summary = snapshot.get("persona_review_summary") or {}
+        activity_items = activity_feed.get("items") or []
         items = social_feed.get("items") or []
         asset_items = source_assets.get("items") or []
+        self.assertGreater(len(activity_items), 0)
+        self.assertEqual(activity_items[0].get("stage_order"), min(item.get("stage_order") for item in activity_items))
+        self.assertTrue(activity_items[0].get("stage"))
+        self.assertTrue(activity_items[0].get("stage_label"))
         self.assertGreater(len(items), 0)
         self.assertTrue(items[0].get("lens_variants"))
         self.assertGreater(len(asset_items), 0)
@@ -637,15 +643,81 @@ Faculty groups have slammed the measure and colleges are watching it closely.
         response = self.client.get("/api/workspace/linkedin-os-snapshot")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
+        activity_feed = payload.get("activity_feed") or {}
         social_feed = payload.get("social_feed") or {}
         source_assets = payload.get("source_assets") or {}
         persona_review_summary = payload.get("persona_review_summary") or {}
+        activity_items = activity_feed.get("items") or []
         items = social_feed.get("items") or []
         asset_items = source_assets.get("items") or []
+        self.assertGreater(len(activity_items), 0)
+        self.assertEqual(activity_items[0].get("stage_order"), min(item.get("stage_order") for item in activity_items))
+        self.assertTrue(activity_items[0].get("stage"))
+        self.assertTrue(activity_items[0].get("stage_label"))
         self.assertGreater(len(items), 0)
         self.assertTrue(items[0].get("lens_variants"))
         self.assertGreater(len(asset_items), 0)
         self.assertIn("counts", persona_review_summary)
+
+    def test_workspace_activity_feed_dedupes_owner_review_items_by_source_path(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        draft_path = drafts_dir / "2026-04-24_context-gap-latent-transform.md"
+
+        feed_item = (SAMPLE_FEED.get("items") or [])[0]
+        self.assertTrue(feed_item.get("source_path"))
+
+        try:
+            draft_path.write_text(
+                f"""---
+title: "Translated operator lesson"
+draft_kind: owner_review
+source_kind: latent_transform
+lane: ai
+publish_posture: owner_review_required
+source_path: {feed_item["source_path"]}
+---
+
+# Translated operator lesson
+
+## Why this draft exists
+- Priority lane: `AI systems and operator clarity`
+
+## Source signal
+- Source file: `{feed_item["source_path"]}`
+- Source summary: Preserve this until the lived proof line is explicit.
+
+## Transform brief
+- Proposed angle: The workflow breaks before the model does.
+- Proof prompt: AI Clone rebuild notes
+- Promotion rule: Revise before promotion into the main FEEZIE queue.
+
+## Revision goals
+- add one lived proof line
+
+## First-pass transformed draft
+
+This is a latent transform tied to an existing source path.
+""",
+                encoding="utf-8",
+            )
+
+            snapshot = workspace_snapshot_service.get_linkedin_os_snapshot()
+            activity_feed = snapshot.get("activity_feed") or {}
+            activity_items = activity_feed.get("items") or []
+            matching_items = [
+                item
+                for item in activity_items
+                if item.get("source_path") == feed_item.get("source_path")
+            ]
+            self.assertEqual(len(matching_items), 1)
+            self.assertEqual(matching_items[0].get("stage"), "owner_review")
+            self.assertEqual(matching_items[0].get("kind"), "owner_review")
+            self.assertIsNotNone(matching_items[0].get("feed_item"))
+            owner_review_item = matching_items[0].get("owner_review_item") or {}
+            self.assertEqual(owner_review_item.get("source_path"), feed_item.get("source_path"))
+        finally:
+            draft_path.unlink(missing_ok=True)
 
     def test_owner_review_assessment_conditional_approve_stays_revise(self) -> None:
         assessment = linkedin_owner_review_module._build_owner_review_assessment(
