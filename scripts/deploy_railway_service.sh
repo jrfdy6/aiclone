@@ -2,6 +2,7 @@
 set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$WORKSPACE_ROOT"
 STAGE_ROOT="$WORKSPACE_ROOT/.railway-stage"
 CANONICAL_DATA_ROOT="${OPENCLAW_WORKSPACE_ROOT:-/Users/neo/.openclaw/workspace}"
 DATA_ROOT="$WORKSPACE_ROOT"
@@ -37,17 +38,32 @@ stage_source_intelligence() {
   fi
 }
 
+stage_repo_docs() {
+  local target_root="$1"
+
+  rsync_if_exists "$REPO_ROOT/docs/" "$target_root/docs/"
+  rsync_if_exists "$REPO_ROOT/SOPs/" "$target_root/SOPs/"
+  rsync_if_exists "$REPO_ROOT/deliverables/" "$target_root/deliverables/"
+  rsync_if_exists "$REPO_ROOT/AGENTS.md" "$target_root/AGENTS.md"
+  rsync_if_exists "$REPO_ROOT/README.md" "$target_root/README.md"
+
+  for workspace_dir in shared-ops linkedin-content-os fusion-os easyoutfitapp ai-swag-store agc
+  do
+    rsync_if_exists "$REPO_ROOT/workspaces/$workspace_dir/docs/" "$target_root/workspaces/$workspace_dir/docs/"
+    rsync_if_exists "$REPO_ROOT/workspaces/$workspace_dir/README.md" "$target_root/workspaces/$workspace_dir/README.md"
+    rsync_if_exists "$REPO_ROOT/workspaces/$workspace_dir/AGENTS.md" "$target_root/workspaces/$workspace_dir/AGENTS.md"
+  done
+}
+
 stage_frontend_brain_sources() {
   local target_root="$1"
 
   rsync_if_exists "$DATA_ROOT/knowledge/aiclone/" "$target_root/knowledge/aiclone/"
   stage_source_intelligence "$target_root"
   rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$target_root/knowledge/persona/feeze/"
-  rsync_if_exists "$DATA_ROOT/docs/" "$target_root/docs/"
-  rsync_if_exists "$DATA_ROOT/SOPs/" "$target_root/SOPs/"
+  stage_repo_docs "$target_root"
   for workspace_dir in shared-ops linkedin-content-os fusion-os easyoutfitapp ai-swag-store agc
   do
-    rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/docs/" "$target_root/workspaces/$workspace_dir/docs/"
     rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/analytics/" "$target_root/workspaces/$workspace_dir/analytics/"
   done
   rsync_if_exists "$DATA_ROOT/workspaces/linkedin-content-os/plans/" "$target_root/workspaces/linkedin-content-os/plans/"
@@ -144,11 +160,8 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   done
   rsync_if_exists "$DATA_ROOT/scripts/personal-brand/" "$STAGE_DIR/scripts/personal-brand/"
   rsync_if_exists "$DATA_ROOT/scripts/personal-brand/" "$STAGE_DIR/$CHILD_DIR/scripts/personal-brand/"
-  rsync_if_exists "$DATA_ROOT/SOPs/" "$STAGE_DIR/$CHILD_DIR/SOPs/"
-  rsync_if_exists "$DATA_ROOT/deliverables/" "$STAGE_DIR/$CHILD_DIR/deliverables/"
-  if [ -f "$DATA_ROOT/docs/persistent_memory_blueprint.md" ]; then
-    rsync -a "$DATA_ROOT/docs/persistent_memory_blueprint.md" "$STAGE_DIR/$CHILD_DIR/docs/persistent_memory_blueprint.md"
-  fi
+  stage_repo_docs "$STAGE_DIR"
+  stage_repo_docs "$STAGE_DIR/$CHILD_DIR"
 fi
 
 echo "Staged deploy context:"
