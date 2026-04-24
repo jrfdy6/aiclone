@@ -22,11 +22,12 @@ If the task is specifically about expanding source classes into YouTube, podcast
 
 The live system already does these things:
 - extracts manual URL and pasted-text signals through `POST /api/workspace/ingest-signal`
-- renders social feed cards in the Workspace tab
+- renders one staged Workspace feed lane that combines source cards, lifecycle overlays, and owner-review drafts
 - supports a split lane taxonomy instead of older merged buckets
 - generates lane-aware quick replies, comments, and repost drafts
 - lets the user approve lines into persona deltas
 - serves a live workspace snapshot through `GET /api/workspace/linkedin-os-snapshot`
+- serves `source_lifecycle` through that same snapshot so the frontend can stage source decisions without rebuilding workflow state client-side
 - serves upstream long-form `source_assets` through the same workspace snapshot for transcript/media inventory
 - serves a first-pass `persona_review_summary` through the same workspace snapshot so `/ops` can show Brain-pending vs Workspace-approved persona state
 - uses one shared normalization helper for:
@@ -142,6 +143,7 @@ Do not create a parallel audio/video ingestion stack inside the social workspace
 The system already has `POST /api/workspace/feedback`.
 Do not design `LNK-022` as if no feedback route exists.
 Treat that backlog item as an expansion of the current schema and logging behavior.
+Workspace now logs copy and quote-approval events there in addition to like/dislike/reject feedback, so `/ops` and Workspace should stay on the same feedback contract.
 
 ### Existing persona / retrieval / content-generation stack
 - `backend/app/routes/content_generation.py`
@@ -199,7 +201,11 @@ The tuning dashboard should extend this pattern before creating a separate front
   - weekly plan
   - reaction queue
   - social feed payload
+  - source lifecycle payload
   - feedback summary
+- the Workspace tab now combines `source_lifecycle` with the owner-review queue into one staged feed surface
+- owner-review cards still submit decisions through `/api/workspace/linkedin-os-owner-review/{queue_id}`
+- only `approve` and `revise` should queue Jean-Claude follow-up; `park` should remain a record-and-stop action
 - `/ops` also now derives a first-pass tuning dashboard from the live social-feed snapshot itself:
   - weak source grounding counts
   - warning hotspots

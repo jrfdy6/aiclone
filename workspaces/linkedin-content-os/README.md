@@ -76,6 +76,7 @@ Current runtime status:
 - `/ops` already shows the shared source-intelligence and routing view
 - `weekly_plan` already exposes live `post_seed` / `belief_evidence` media overlays
 - Brain daily briefs now read that same live source-intelligence overlay instead of a separate brief-only inference path
+- the Workspace tab now renders one staged feed lane by combining source decisions from `source_lifecycle` with the owner-review queue, while keeping stage-specific side effects intact
 
 The goal is not to build a second transcript stack inside the LinkedIn workspace. The goal is to reuse the parent transcript/ingestion surfaces and route the resulting signal into the right job.
 
@@ -90,9 +91,12 @@ That work is mapped in:
 
 Current live workspace surfaces:
 - a LinkedIn-first social feed in `/ops`
+- a staged unified feed in the Workspace tab that combines source cards, lifecycle overlays, and owner-review drafts in one lane
 - manual URL/text preview ingestion through `/api/workspace/ingest-signal`
 - lane-aware comment and repost generation
+- owner-review decisions through `/api/workspace/linkedin-os-owner-review/{queue_id}`, with draft/queue/execution-log write-backs and Jean-Claude follow-up only on `approve` or `revise`
 - quote approval into persona deltas rather than direct persona-file writes
+- workspace feedback logging for like, dislike, reject, copy, and quote-approval training events through `POST /api/workspace/feedback`
 - a live backend snapshot path at `/api/workspace/linkedin-os-snapshot`
 - backend-backed workspace state in `/ops` for plan/reaction/feed timestamps and feedback summary
 - a main-safe verification path through `npm run verify:main` and `npm run verify:production`

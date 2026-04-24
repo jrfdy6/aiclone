@@ -12,9 +12,10 @@ Option 2 is an opt-in enrichment lane behind an explicit lab flag.
 ## Objective
 
 Create a LinkedIn-first workspace experience with:
-- a source-visible social feed at the top of the Workspace tab
+- a staged unified feed at the top of the Workspace tab
 - high-signal posts from relevant people and relevant topics
 - comment and repost draft actions
+- owner-review controls that appear in the same lane once a real draft artifact exists
 - a secondary original-post lane driven by weekly recommendations
 - quote selection that creates an approved persona delta instead of only storing a loose note
 
@@ -22,6 +23,9 @@ Create a LinkedIn-first workspace experience with:
 
 As of the current production implementation:
 - the Workspace social feed supports manual URL/text preview generation through `POST /api/workspace/ingest-signal`
+- the Workspace UI now renders one unified lane that combines source decisions and owner-review drafts
+- the feed uses `source_lifecycle` plus the owner-review queue to keep stage timing intact instead of flattening the workflow into one undifferentiated action set
+- source-stage actions remain upstream, while only owner-review `approve` and `revise` queue Jean-Claude follow-up
 - the Workspace is LinkedIn-first, but not LinkedIn-only; Reddit, Substack/RSS, web links, and manually pasted text should ultimately flow through the same interpretation path
 - LinkedIn URL previews should prefer structured metadata extraction in this order:
   - JSON-LD `SocialMediaPosting` / `articleBody`
@@ -94,7 +98,7 @@ Read these files before implementing anything in this plan:
 Both options should feed the same UI.
 
 ### Top of Workspace
-- social feed is first
+- staged unified feed is first
 - LinkedIn cards rank above every other platform
 - each card shows:
   - platform
@@ -106,13 +110,21 @@ Both options should feed the same UI.
   - original source link
 
 ### Card Actions
-- `Open original`
-- `Draft comment`
-- `Draft repost`
-- `Approve line to persona`
+- source-stage cards:
+  - `Open original`
+  - `Draft comment`
+  - `Draft repost`
+  - `Approve line to persona`
+  - feedback logging for like / dislike / reject / copy / quote approval
+- owner-review cards:
+  - `Approve`
+  - `Revise`
+  - `Park`
+  - notes entry
+- keep stage-specific side effects intact even though the cards share one feed surface
 
 ### Weekly Recommendations
-- stays below the live/social feed
+- stay downstream of the live unified feed
 - remains the original-post lane
 - continues using the existing weekly plan logic
 - keeps lens and post-mode controls so the user can force an angle such as entrepreneurship, current job, program leadership, enrollment, AI, ops/project management, therapy, referral, or personal story
@@ -665,7 +677,7 @@ git status -sb
 ```
 
 8. Before deploy, verify:
-- social feed is first in Workspace
+- unified feed is first in Workspace
 - feed cards expose original links
 - quote approval calls persona delta API
 - weekly recommendations are still visible below the feed

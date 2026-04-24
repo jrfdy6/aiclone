@@ -145,6 +145,7 @@ type FeedItemWithLifecycle = {
 type FeedPlanningIndex = {
   ownerReviewTitles: Set<string>;
   ownerReviewUrls: Set<string>;
+  ownerReviewPaths: Set<string>;
   weeklyTitles: Set<string>;
   weeklyPaths: Set<string>;
   postSeedTitles: Set<string>;
@@ -277,6 +278,7 @@ type OwnerReviewItem = {
   entry_kind?: string;
   source_kind?: string;
   source_url?: string | null;
+  source_path?: string | null;
   idea_id?: string | null;
   summary?: string | null;
   revision_goals?: string[];
@@ -939,6 +941,18 @@ function resolveSourceLifecycleForFeedItem(item: SocialFeedItem, index: Map<stri
   return null;
 }
 
+function findOwnerReviewMatch(item: SocialFeedItem, ownerReviewItems: OwnerReviewItem[]) {
+  const title = normalizePlanningKey(item.title);
+  const sourceUrl = normalizePlanningKey(item.source_url);
+  const sourcePath = normalizePlanningKey(item.source_path);
+  return ownerReviewItems.find((entry) => {
+    const entryTitle = normalizePlanningKey(entry.title);
+    const entrySourceUrl = normalizePlanningKey(entry.source_url);
+    const entrySourcePath = normalizePlanningKey(entry.source_path);
+    return (title && title === entryTitle) || (sourceUrl && sourceUrl === entrySourceUrl) || (sourcePath && sourcePath === entrySourcePath);
+  }) ?? null;
+}
+
 function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningIndex, lifecycle?: SourceLifecycleItem | null): FeedPlanningStatus | null {
   const lifecycleStatus = sourceLifecycleStatus(lifecycle ?? null);
   if (lifecycleStatus) return lifecycleStatus;
@@ -947,7 +961,7 @@ function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningInde
   const sourcePath = normalizePlanningKey(item.source_path);
   const sourceUrl = normalizePlanningKey(item.source_url);
 
-  if ((title && index.ownerReviewTitles.has(title)) || (sourceUrl && index.ownerReviewUrls.has(sourceUrl))) {
+  if ((title && index.ownerReviewTitles.has(title)) || (sourceUrl && index.ownerReviewUrls.has(sourceUrl)) || (sourcePath && index.ownerReviewPaths.has(sourcePath))) {
     return {
       stage: 'owner_review',
       label: 'Owner review',
@@ -1187,19 +1201,22 @@ export function LinkedinWorkspaceSurface({
     () =>
       feedItemsWithLifecycle.filter(({ item, lifecycle }) => {
         if (locallyRejectedFeedIds[item.id]) return false;
+        if (ownerReviewMatchedFeedIds.has(item.id)) return false;
         const visibility = String(lifecycle?.visibility ?? 'needs_decision').trim().toLowerCase();
         return visibility === 'needs_decision';
       }),
-    [feedItemsWithLifecycle, locallyRejectedFeedIds],
+    [feedItemsWithLifecycle, locallyRejectedFeedIds, ownerReviewMatchedFeedIds],
   );
   const workflowFeedItems = useMemo(
     () =>
-      feedItemsWithLifecycle.filter(({ lifecycle }) => {
+      feedItemsWithLifecycle.filter(({ item, lifecycle }) => {
+        if (ownerReviewMatchedFeedIds.has(item.id)) return false;
         const visibility = String(lifecycle?.visibility ?? '').trim().toLowerCase();
         return Boolean(lifecycle) && visibility !== 'needs_decision';
       }),
-    [feedItemsWithLifecycle],
+    [feedItemsWithLifecycle, ownerReviewMatchedFeedIds],
   );
+  const unifiedFeedTotal = ownerReviewItems.length + decisionFeedItems.length + workflowFeedItems.length;
 
   const workspaceFiles = useMemo(() => {
     const files = [...(snapshot?.workspace_files ?? []), ...(snapshot?.doc_entries ?? [])];
@@ -1251,6 +1268,7 @@ export function LinkedinWorkspaceSurface({
   const feedPlanningIndex = useMemo<FeedPlanningIndex>(() => {
     const ownerReviewTitles = new Set<string>();
     const ownerReviewUrls = new Set<string>();
+    const ownerReviewPaths = new Set<string>();
     const weeklyTitles = new Set<string>();
     const weeklyPaths = new Set<string>();
     const postSeedTitles = new Set<string>();
@@ -1261,6 +1279,7 @@ export function LinkedinWorkspaceSurface({
     ownerReviewItems.forEach((item) => {
       addPlanningValue(ownerReviewTitles, item.title);
       addPlanningValue(ownerReviewUrls, item.source_url);
+      addPlanningValue(ownerReviewPaths, item.source_path);
     });
     (snapshot?.weekly_plan?.recommendations ?? []).forEach((item) => {
       addPlanningValue(weeklyTitles, item.title);
@@ -1283,6 +1302,7 @@ export function LinkedinWorkspaceSurface({
     return {
       ownerReviewTitles,
       ownerReviewUrls,
+      ownerReviewPaths,
       weeklyTitles,
       weeklyPaths,
       postSeedTitles,
@@ -1296,6 +1316,15 @@ export function LinkedinWorkspaceSurface({
     snapshot?.reaction_queue?.post_seeds,
     snapshot?.weekly_plan?.recommendations,
   ]);
+  const ownerReviewMatchedFeedIds = useMemo(() => {
+    const matched = new Set<string>();
+    feedItemsWithLifecycle.forEach(({ item }) => {
+      if (findOwnerReviewMatch(item, ownerReviewItems)) {
+        matched.add(item.id);
+      }
+    });
+    return matched;
+  }, [feedItemsWithLifecycle, ownerReviewItems]);
 
   useEffect(() => {
     if (!initialSnapshot) return;
@@ -1908,17 +1937,21 @@ export function LinkedinWorkspaceSurface({
     [contentItems, persistContent],
   );
 
-  const recordFeedback = useCallback(async (item: SocialFeedItem, decision: 'like' | 'dislike' | 'reject', lens: FeedLensId, notes?: string) => {
-    const variant = getFeedVariant(item, lens);
-    setFeedbackLoading((current) => ({ ...current, [item.id]: true }));
-    try {
+  const postFeedFeedback = useCallback(
+    async (
+      item: SocialFeedItem,
+      decision: 'like' | 'dislike' | 'reject' | 'copy' | 'approve',
+      lens: FeedLensId,
+      extras?: { notes?: string },
+    ) => {
+      const variant = getFeedVariant(item, lens);
       await apiPost('/api/workspace/feedback', {
         feed_item_id: item.id,
         title: item.title,
         platform: item.platform,
         decision,
         lens,
-        notes,
+        notes: extras?.notes,
         source_url: item.source_url,
         source_path: item.source_path,
         stance: variant?.stance,
@@ -1931,6 +1964,14 @@ export function LinkedinWorkspaceSurface({
         expression_delta: variant?.evaluation?.expression_delta ?? item.evaluation?.expression_delta,
         why_this_angle: variant?.why_this_angle,
       });
+    },
+    [],
+  );
+
+  const recordFeedback = useCallback(async (item: SocialFeedItem, decision: 'like' | 'dislike' | 'reject', lens: FeedLensId, notes?: string) => {
+    setFeedbackLoading((current) => ({ ...current, [item.id]: true }));
+    try {
+      await postFeedFeedback(item, decision, lens, { notes });
       if (decision === 'reject') {
         setLocallyRejectedFeedIds((current) => ({ ...current, [item.id]: true }));
       }
@@ -1943,7 +1984,7 @@ export function LinkedinWorkspaceSurface({
     } finally {
       setFeedbackLoading((current) => ({ ...current, [item.id]: false }));
     }
-  }, []);
+  }, [postFeedFeedback]);
 
   const approveFeedLine = useCallback(async (item: SocialFeedItem, line: string, lens: FeedLensId) => {
     setIsApprovingQuote(true);
@@ -1978,13 +2019,14 @@ export function LinkedinWorkspaceSurface({
           },
         }),
       });
+      void postFeedFeedback(item, 'approve', lens, { notes: `Approved line: ${line.trim()}` });
       setQuoteStatus(`Approved quote "${line.slice(0, 48)}..."`);
     } catch (error) {
       setQuoteStatus(error instanceof Error ? error.message : 'Unable to approve quote right now.');
     } finally {
       setIsApprovingQuote(false);
     }
-  }, []);
+  }, [postFeedFeedback]);
 
   const submitOwnerReviewDecision = useCallback(
     async (item: OwnerReviewItem, decision: OwnerReviewDecision) => {
@@ -2019,10 +2061,13 @@ export function LinkedinWorkspaceSurface({
     [loadOwnerReview, loadSnapshot, ownerReviewNotes],
   );
 
-  async function handleCopy(text: string, label: string) {
+  async function handleCopy(text: string, label: string, feedbackContext?: { item: SocialFeedItem; lens: FeedLensId; notes?: string }) {
     try {
       await copyText(text);
       setCopyStatus(`${label} copied.`);
+      if (feedbackContext) {
+        void postFeedFeedback(feedbackContext.item, 'copy', feedbackContext.lens, { notes: feedbackContext.notes ?? label });
+      }
     } catch (error) {
       setCopyStatus(error instanceof Error ? error.message : 'Unable to copy right now.');
     }
@@ -2094,7 +2139,7 @@ export function LinkedinWorkspaceSurface({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
             <MiniStat label="Snapshot" value={snapshotState === 'live' ? 'Live' : snapshotState === 'loading' ? 'Loading' : 'Error'} detail={snapshotState === 'error' ? snapshotError ?? 'Snapshot unavailable' : 'shared Brain + Workspace state'} />
             <MiniStat label="Pipeline" value={String(stats.total)} detail="saved drafts" />
-            <MiniStat label="Feed Items" value={String(feedItems.length)} detail={`updated ${formatTimestamp(snapshot?.social_feed?.generated_at)}`} />
+            <MiniStat label="Feed Items" value={String(unifiedFeedTotal)} detail={`updated ${formatTimestamp(snapshot?.social_feed?.generated_at)}`} />
             <MiniStat label="Comments" value={String(snapshot?.reaction_queue?.counts?.comment_opportunities ?? 0)} detail="reaction-ready items" />
             <MiniStat label="Post Seeds" value={String(snapshot?.reaction_queue?.counts?.post_seeds ?? 0)} detail="save-for-post angles" />
             <MiniStat label="Feedback" value={String(snapshot?.feedback_summary?.total_events ?? 0)} detail="human training events" />
@@ -2146,199 +2191,9 @@ export function LinkedinWorkspaceSurface({
           </section>
         ) : null}
 
-        <section id="owner-review-lane" style={panelStyle}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div>
-              <p style={sectionLabelStyle('#fbbf24')}>{ownerReviewItems.length} Owner Review</p>
-              <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 8px' }}>Approve, revise, or park from here</h2>
-              <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '840px', margin: 0 }}>
-                This is the missing owner gate for FEEZIE drafts. The buttons below now write back to the draft artifacts, queue files when they exist, and the workspace execution log, then queue Jean-Claude follow-up for approved or revised drafts.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <InlinePill label={`${ownerReviewItems.length} owner-review drafts`} tone="#fbbf24" />
-              <InlinePill label={ownerReviewState === 'live' ? 'review lane live' : ownerReviewState} tone={ownerReviewState === 'error' ? '#f87171' : '#38bdf8'} />
-            </div>
-          </div>
-
-          {ownerReviewStatus && (
-            <p style={{ color: ownerReviewStatus.toLowerCase().includes('unable') || ownerReviewStatus.toLowerCase().includes('failed') ? '#f87171' : '#34d399', margin: 0, fontSize: '13px' }}>
-              {ownerReviewStatus}
-            </p>
-          )}
-
-          {ownerReviewState === 'error' ? (
-            <EmptyMessage message={ownerReviewError ?? 'Owner review is unavailable right now.'} />
-          ) : ownerReviewItems.length === 0 ? (
-            <EmptyMessage message="No owner-review drafts are currently loaded into the FEEZIE owner-review lane." />
-          ) : (
-            <div style={{ display: 'grid', gap: '14px' }}>
-              {ownerReviewItems.map((item) => {
-                const actioning = ownerReviewActioning === item.queue_id;
-                const isSupplemental = item.entry_kind === 'supplemental';
-                return (
-                  <article key={item.queue_id} style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                      <div style={{ display: 'grid', gap: '6px' }}>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{isSupplemental ? ownerReviewKindLabel(item) : item.queue_id}</p>
-                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.lane || 'unknown lane')} tone="#38bdf8" />
-                          {item.format && <InlinePill label={humanizeFeezieWorkspaceLabel(item.format)} tone="#94a3b8" />}
-                          {isSupplemental && item.transform_type ? <InlinePill label={humanizeFeezieWorkspaceLabel(item.transform_type)} tone="#fbbf24" /> : null}
-                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.status || 'pending')} tone={item.current_decision === 'approve' ? '#22c55e' : item.current_decision === 'park' ? '#f87171' : '#fbbf24'} />
-                        </div>
-                        <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
-                        {isSupplemental ? (
-                          <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
-                            <span style={{ color: '#475569' }}>Reference:</span> {item.queue_id}
-                          </p>
-                        ) : null}
-                        {item.core_angle && <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.core_angle}</p>}
-                        {isSupplemental && item.summary ? (
-                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-                            <span style={{ color: '#64748b' }}>Source summary:</span> {item.summary}
-                          </p>
-                        ) : null}
-                        {isSupplemental && item.latent_reason ? (
-                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-                            <span style={{ color: '#64748b' }}>Why it was preserved:</span> {humanizeFeezieWorkspaceLabel(item.latent_reason)}
-                          </p>
-                        ) : null}
-                        {item.why_now && (
-                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-                            <span style={{ color: '#64748b' }}>Why now:</span> {item.why_now}
-                          </p>
-                        )}
-                      </div>
-                    <div style={{ display: 'grid', gap: '6px', justifyItems: 'end' }}>
-                      {item.system_assessment?.suggested_decision ? (
-                        <InlinePill label={`System: ${humanizeFeezieWorkspaceLabel(item.system_assessment.suggested_decision)}`} tone="#38bdf8" />
-                      ) : null}
-                      {item.packet_recommendation && <InlinePill label={item.packet_recommendation.replace(/\*\*/g, '')} tone="#fbbf24" />}
-                      {item.publish_posture && <InlinePill label={humanizeFeezieWorkspaceLabel(item.publish_posture)} tone="#22c55e" />}
-                      {item.reviewed_at && <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Saved {formatTimestamp(item.reviewed_at)}</p>}
-                    </div>
-                  </div>
-
-                    {item.proof_anchors && item.proof_anchors.length > 0 && (
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {item.proof_anchors.slice(0, 4).map((anchor) => (
-                          <InlinePill key={`${item.queue_id}-${anchor}`} label={anchor.replace(/^.*\//, '')} tone="#64748b" />
-                        ))}
-                      </div>
-                    )}
-
-                    <details style={agentSectionStyle}>
-                      <summary style={agentSectionSummaryStyle}>
-                        <div>
-                          <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>First-pass draft</p>
-                          <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>{item.draft_path}</p>
-                        </div>
-                        <span style={{ color: '#38bdf8', fontSize: '12px' }}>Expand</span>
-                      </summary>
-                      <div style={{ padding: '0 16px 16px' }}>
-                        <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: 'none' }}>{item.first_pass_draft || summarizeContent(item.draft_body) || 'No draft body available.'}</pre>
-                      </div>
-                    </details>
-
-                    {item.draft_owner_notes && item.draft_owner_notes.length > 0 && (
-                      <div style={{ display: 'grid', gap: '6px' }}>
-                        <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Draft notes</p>
-                        {item.draft_owner_notes.map((note) => (
-                          <p key={`${item.queue_id}-${note}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
-                            {note}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-
-                    {isSupplemental && item.revision_goals && item.revision_goals.length > 0 ? (
-                      <div style={{ display: 'grid', gap: '6px' }}>
-                        <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Transform goals</p>
-                        {item.revision_goals.map((goal) => (
-                          <p key={`${item.queue_id}-${goal}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
-                            {goal}
-                          </p>
-                        ))}
-                      </div>
-                    ) : null}
-
-                    {item.system_assessment ? (
-                      <section style={{ ...agentSectionStyle, gap: '8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                          <p style={{ color: '#38bdf8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>System read</p>
-                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            {item.system_assessment.suggested_decision ? (
-                              <InlinePill label={humanizeFeezieWorkspaceLabel(item.system_assessment.suggested_decision)} tone="#38bdf8" />
-                            ) : null}
-                            {item.system_assessment.confidence ? (
-                              <InlinePill label={`${humanizeFeezieWorkspaceLabel(item.system_assessment.confidence)} confidence`} tone="#64748b" />
-                            ) : null}
-                          </div>
-                        </div>
-                        {item.system_assessment.summary ? (
-                          <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.system_assessment.summary}</p>
-                        ) : null}
-                        {item.system_assessment.reasons && item.system_assessment.reasons.length > 0 ? (
-                          <div style={{ display: 'grid', gap: '4px' }}>
-                            {item.system_assessment.reasons.map((reason) => (
-                              <p key={`${item.queue_id}-${reason}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
-                                {reason}
-                              </p>
-                            ))}
-                          </div>
-                        ) : null}
-                        {item.system_assessment.missing_items && item.system_assessment.missing_items.length > 0 ? (
-                          <div style={{ display: 'grid', gap: '4px' }}>
-                            <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '2px 0 0' }}>Still thin</p>
-                            {item.system_assessment.missing_items.map((entry) => (
-                              <p key={`${item.queue_id}-${entry}`} style={{ color: '#fecaca', fontSize: '13px', margin: 0 }}>
-                                {entry}
-                              </p>
-                            ))}
-                          </div>
-                        ) : null}
-                        {item.system_assessment.fallback_action ? (
-                          <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{item.system_assessment.fallback_action}</p>
-                        ) : null}
-                      </section>
-                    ) : null}
-
-                    <label style={fieldWrapStyle}>
-                      <span style={fieldLabelStyle}>Your notes</span>
-                      <textarea
-                        value={ownerReviewNotes[item.queue_id] ?? ''}
-                        onChange={(event) => setOwnerReviewNotes((current) => ({ ...current, [item.queue_id]: event.target.value }))}
-                        placeholder="Add revision notes, scheduling notes, or why this should be parked."
-                        rows={4}
-                        style={{ ...textareaStyle, minHeight: '96px' }}
-                      />
-                    </label>
-
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      <button onClick={() => void submitOwnerReviewDecision(item, 'approve')} disabled={actioning} style={primaryActionStyle('#22c55e')}>
-                        {actioning ? 'Saving…' : 'Approve'}
-                      </button>
-                      <button onClick={() => void submitOwnerReviewDecision(item, 'revise')} disabled={actioning} style={primaryActionStyle('#fbbf24')}>
-                        {actioning ? 'Saving…' : 'Revise'}
-                      </button>
-                      <button onClick={() => void submitOwnerReviewDecision(item, 'park')} disabled={actioning} style={primaryActionStyle('#f87171')}>
-                        {actioning ? 'Saving…' : 'Park'}
-                      </button>
-                      <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
-                        {isSupplemental ? 'Review status' : 'Queue status'}: {humanizeFeezieWorkspaceLabel(item.approval_status || 'owner_review_required')}
-                      </p>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
         <section style={panelStyle}>
           <div style={{ marginBottom: '18px' }}>
-            <p style={sectionLabelStyle('#38bdf8')}>1 Content Pipeline</p>
+            <p style={sectionLabelStyle('#38bdf8')}>2 Content Pipeline</p>
             <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>Content Pipeline</h2>
             <p style={{ color: '#9ca3af', fontSize: '14px' }}>Chris Do 911 Framework: 9 Value • 1 Sales • 1 Personal</p>
           </div>
@@ -2665,13 +2520,13 @@ export function LinkedinWorkspaceSurface({
           </div>
         </section>
 
-        <section style={panelStyle}>
+        <section id="owner-review-lane" style={panelStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <div>
-              <p style={sectionLabelStyle('#22c55e')}>2 Feed of Sources</p>
-              <h2 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Comment, repost, and train the feed</h2>
+              <p style={sectionLabelStyle('#22c55e')}>1 Unified Feed</p>
+              <h2 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>React, draft, and approve from one feed</h2>
               <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '860px' }}>
-                This is the shared feed workbench. Choose a response lens for each source, react to it, and push the strongest items into the pipeline.
+                Source reactions and owner-review drafts now live in one feed. Source-stage actions stay upstream, while owner-review actions still write back to draft artifacts, queue files when they exist, and the workspace execution log, then queue Jean-Claude only for approved or revised drafts.
               </p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
@@ -2679,11 +2534,23 @@ export function LinkedinWorkspaceSurface({
                 {refreshingFeed ? 'Refreshing…' : 'Refresh feed'}
               </button>
               <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
-                Updated {formatTimestamp(snapshot?.social_feed?.generated_at)} · {decisionFeedItems.length} needs decision · {workflowFeedItems.length} in workflow
+                Updated {formatTimestamp(snapshot?.social_feed?.generated_at)} · {ownerReviewItems.length} owner review · {decisionFeedItems.length} needs decision · {workflowFeedItems.length} in workflow
               </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <InlinePill label={`${ownerReviewItems.length} owner review`} tone="#fbbf24" />
+                <InlinePill label={`${decisionFeedItems.length} needs decision`} tone="#22c55e" />
+                <InlinePill label={`${workflowFeedItems.length} in workflow`} tone="#38bdf8" />
+              </div>
               {refreshStatus && <p style={{ color: refreshingFeed ? '#38bdf8' : '#34d399', fontSize: '12px', margin: 0 }}>{refreshStatus}</p>}
             </div>
           </div>
+
+          {ownerReviewStatus && (
+            <p style={{ color: ownerReviewStatus.toLowerCase().includes('unable') || ownerReviewStatus.toLowerCase().includes('failed') ? '#f87171' : '#34d399', margin: 0, fontSize: '13px' }}>
+              {ownerReviewStatus}
+            </p>
+          )}
+          {ownerReviewState === 'error' && ownerReviewError ? <p style={{ color: '#f87171', margin: 0, fontSize: '13px' }}>{ownerReviewError}</p> : null}
 
           <div style={ingestPanelStyle}>
             <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
@@ -2721,6 +2588,176 @@ export function LinkedinWorkspaceSurface({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {ownerReviewItems.length > 0 && (
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {ownerReviewItems.map((item) => {
+                const actioning = ownerReviewActioning === item.queue_id;
+                const isSupplemental = item.entry_kind === 'supplemental';
+                return (
+                  <article key={item.queue_id} style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{isSupplemental ? ownerReviewKindLabel(item) : item.queue_id}</p>
+                          <InlinePill label="Owner review" tone="#fbbf24" />
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.lane || 'unknown lane')} tone="#38bdf8" />
+                          {item.format && <InlinePill label={humanizeFeezieWorkspaceLabel(item.format)} tone="#94a3b8" />}
+                          {isSupplemental && item.transform_type ? <InlinePill label={humanizeFeezieWorkspaceLabel(item.transform_type)} tone="#fbbf24" /> : null}
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.status || 'pending')} tone={item.current_decision === 'approve' ? '#22c55e' : item.current_decision === 'park' ? '#f87171' : '#fbbf24'} />
+                        </div>
+                        <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
+                        {isSupplemental ? (
+                          <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#475569' }}>Reference:</span> {item.queue_id}
+                          </p>
+                        ) : null}
+                        {item.core_angle && <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.core_angle}</p>}
+                        {isSupplemental && item.summary ? (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Source summary:</span> {item.summary}
+                          </p>
+                        ) : null}
+                        {isSupplemental && item.latent_reason ? (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Why it was preserved:</span> {humanizeFeezieWorkspaceLabel(item.latent_reason)}
+                          </p>
+                        ) : null}
+                        {item.why_now && (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Why now:</span> {item.why_now}
+                          </p>
+                        )}
+                      </div>
+                      <div style={{ display: 'grid', gap: '6px', justifyItems: 'end' }}>
+                        {item.source_url ? (
+                          <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                            Open source
+                          </a>
+                        ) : null}
+                        {item.system_assessment?.suggested_decision ? (
+                          <InlinePill label={`System: ${humanizeFeezieWorkspaceLabel(item.system_assessment.suggested_decision)}`} tone="#38bdf8" />
+                        ) : null}
+                        {item.packet_recommendation && <InlinePill label={item.packet_recommendation.replace(/\*\*/g, '')} tone="#fbbf24" />}
+                        {item.publish_posture && <InlinePill label={humanizeFeezieWorkspaceLabel(item.publish_posture)} tone="#22c55e" />}
+                        {item.reviewed_at && <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Saved {formatTimestamp(item.reviewed_at)}</p>}
+                      </div>
+                    </div>
+
+                    {item.proof_anchors && item.proof_anchors.length > 0 && (
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {item.proof_anchors.slice(0, 4).map((anchor) => (
+                          <InlinePill key={`${item.queue_id}-${anchor}`} label={anchor.replace(/^.*\//, '')} tone="#64748b" />
+                        ))}
+                      </div>
+                    )}
+
+                    <details style={agentSectionStyle}>
+                      <summary style={agentSectionSummaryStyle}>
+                        <div>
+                          <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>First-pass draft</p>
+                          <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>{item.draft_path}</p>
+                        </div>
+                        <span style={{ color: '#38bdf8', fontSize: '12px' }}>Expand</span>
+                      </summary>
+                      <div style={{ padding: '0 16px 16px' }}>
+                        <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: 'none' }}>{item.first_pass_draft || summarizeContent(item.draft_body) || 'No draft body available.'}</pre>
+                      </div>
+                    </details>
+
+                    {item.draft_owner_notes && item.draft_owner_notes.length > 0 && (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Draft notes</p>
+                        {item.draft_owner_notes.map((note) => (
+                          <p key={`${item.queue_id}-${note}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                            {note}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    {isSupplemental && item.revision_goals && item.revision_goals.length > 0 ? (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Transform goals</p>
+                        {item.revision_goals.map((goal) => (
+                          <p key={`${item.queue_id}-${goal}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                            {goal}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {item.system_assessment ? (
+                      <section style={{ ...agentSectionStyle, gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <p style={{ color: '#38bdf8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>System read</p>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {item.system_assessment.suggested_decision ? (
+                              <InlinePill label={humanizeFeezieWorkspaceLabel(item.system_assessment.suggested_decision)} tone="#38bdf8" />
+                            ) : null}
+                            {item.system_assessment.confidence ? (
+                              <InlinePill label={`${humanizeFeezieWorkspaceLabel(item.system_assessment.confidence)} confidence`} tone="#64748b" />
+                            ) : null}
+                          </div>
+                        </div>
+                        {item.system_assessment.summary ? (
+                          <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.system_assessment.summary}</p>
+                        ) : null}
+                        {item.system_assessment.reasons && item.system_assessment.reasons.length > 0 ? (
+                          <div style={{ display: 'grid', gap: '4px' }}>
+                            {item.system_assessment.reasons.map((reason) => (
+                              <p key={`${item.queue_id}-${reason}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                                {reason}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {item.system_assessment.missing_items && item.system_assessment.missing_items.length > 0 ? (
+                          <div style={{ display: 'grid', gap: '4px' }}>
+                            <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '2px 0 0' }}>Still thin</p>
+                            {item.system_assessment.missing_items.map((entry) => (
+                              <p key={`${item.queue_id}-${entry}`} style={{ color: '#fecaca', fontSize: '13px', margin: 0 }}>
+                                {entry}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {item.system_assessment.fallback_action ? (
+                          <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{item.system_assessment.fallback_action}</p>
+                        ) : null}
+                      </section>
+                    ) : null}
+
+                    <label style={fieldWrapStyle}>
+                      <span style={fieldLabelStyle}>Your notes</span>
+                      <textarea
+                        value={ownerReviewNotes[item.queue_id] ?? ''}
+                        onChange={(event) => setOwnerReviewNotes((current) => ({ ...current, [item.queue_id]: event.target.value }))}
+                        placeholder="Add revision notes, scheduling notes, or why this should be parked."
+                        rows={4}
+                        style={{ ...textareaStyle, minHeight: '96px' }}
+                      />
+                    </label>
+
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button onClick={() => void submitOwnerReviewDecision(item, 'approve')} disabled={actioning} style={primaryActionStyle('#22c55e')}>
+                        {actioning ? 'Saving…' : 'Approve'}
+                      </button>
+                      <button onClick={() => void submitOwnerReviewDecision(item, 'revise')} disabled={actioning} style={primaryActionStyle('#fbbf24')}>
+                        {actioning ? 'Saving…' : 'Revise'}
+                      </button>
+                      <button onClick={() => void submitOwnerReviewDecision(item, 'park')} disabled={actioning} style={primaryActionStyle('#f87171')}>
+                        {actioning ? 'Saving…' : 'Park'}
+                      </button>
+                      <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                        {isSupplemental ? 'Review status' : 'Queue status'}: {humanizeFeezieWorkspaceLabel(item.approval_status || 'owner_review_required')}
+                      </p>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
 
@@ -2841,7 +2878,7 @@ export function LinkedinWorkspaceSurface({
                       text={editorial.draft || 'No draft available yet.'}
                       promotableText={editorial.draft}
                       tone={editorial.draftTone}
-                      onCopy={() => void handleCopy(editorial.draft, editorial.draftLabel)}
+                      onCopy={() => void handleCopy(editorial.draft, editorial.draftLabel, { item, lens: selectedLens, notes: editorial.draftLabel })}
                       onCanon={(fragment, fullText) =>
                         promoteWorkspaceFragment({
                           fragmentText: fragment,
@@ -2870,7 +2907,13 @@ export function LinkedinWorkspaceSurface({
                         text={editorial.optionalDraft}
                         promotableText={editorial.optionalDraft}
                         tone="#22c55e"
-                        onCopy={() => void handleCopy(editorial.optionalDraft ?? '', editorial.optionalLabel ?? 'Optional draft')}
+                        onCopy={() =>
+                          void handleCopy(editorial.optionalDraft ?? '', editorial.optionalLabel ?? 'Optional draft', {
+                            item,
+                            lens: selectedLens,
+                            notes: editorial.optionalLabel ?? 'Optional draft',
+                          })
+                        }
                         onCanon={(fragment, fullText) =>
                           promoteWorkspaceFragment({
                             fragmentText: fragment,
@@ -2907,7 +2950,7 @@ export function LinkedinWorkspaceSurface({
                       Comment on this
                     </Link>
                     {item.source_url && (
-                      <button onClick={() => void handleCopy(item.source_url ?? '', 'Source link')} style={secondaryActionStyle('#94a3b8')}>
+                      <button onClick={() => void handleCopy(item.source_url ?? '', 'Source link', { item, lens: selectedLens, notes: 'Source link' })} style={secondaryActionStyle('#94a3b8')}>
                         Copy link
                       </button>
                     )}
@@ -2991,7 +3034,7 @@ export function LinkedinWorkspaceSurface({
                                 text={rawQuickReply}
                                 promotableText={rawQuickReply || rawCommentDraft}
                                 tone="#22c55e"
-                                onCopy={() => void handleCopy(rawQuickReply || rawCommentDraft, 'Quick reply')}
+                                onCopy={() => void handleCopy(rawQuickReply || rawCommentDraft, 'Quick reply', { item, lens: selectedLens, notes: 'Quick reply' })}
                                 onCanon={(fragment, fullText) =>
                                   promoteWorkspaceFragment({
                                     fragmentText: fragment,
@@ -3021,7 +3064,7 @@ export function LinkedinWorkspaceSurface({
                                 text={rawCommentDraft}
                                 promotableText={rawCommentDraft}
                                 tone="#38bdf8"
-                                onCopy={() => void handleCopy(rawCommentDraft, 'Suggested comment')}
+                                onCopy={() => void handleCopy(rawCommentDraft, 'Suggested comment', { item, lens: selectedLens, notes: 'Suggested comment' })}
                                 onCanon={(fragment, fullText) =>
                                   promoteWorkspaceFragment({
                                     fragmentText: fragment,
@@ -3051,7 +3094,7 @@ export function LinkedinWorkspaceSurface({
                                 text={rawRepostDraft}
                                 promotableText={rawRepostDraft}
                                 tone="#f472b6"
-                                onCopy={() => void handleCopy(rawRepostDraft, 'Suggested repost')}
+                                onCopy={() => void handleCopy(rawRepostDraft, 'Suggested repost', { item, lens: selectedLens, notes: 'Suggested repost' })}
                                 onCanon={(fragment, fullText) =>
                                   promoteWorkspaceFragment({
                                     fragmentText: fragment,
@@ -3091,7 +3134,7 @@ export function LinkedinWorkspaceSurface({
                 </article>
               );
             })}
-            {decisionFeedItems.length === 0 && (
+            {decisionFeedItems.length === 0 && ownerReviewItems.length === 0 && (
               <EmptyMessage
                 message={
                   feedItems.length === 0
