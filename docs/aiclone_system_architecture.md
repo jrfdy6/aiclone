@@ -381,7 +381,22 @@ Rules:
 - execution should move through queue and packet state, not hidden side channels
 - results should write back into PM + memory + workspace artifacts
 
-FLOW E: Repo change -> push -> deploy -> live Mission Control
+FLOW E: Execution result -> memory -> operator story -> public-safe lesson -> post context
+
+`execution result`
+  -> Chronicle + `memory/LEARNINGS.md` + `persistent_state.md`
+  -> `operator_story_signals`
+  -> `content_safe_operator_lessons`
+  -> content-generation context / future post draft
+
+Rules:
+- architecture or systems work should not die inside a completed PM card
+- if the execution produced a durable lesson, it should become a canonical learning
+- raw memory should be distilled before it becomes content context
+- the content bank is a separate latent-idea banking loop, not the direct writeback target for execution results
+- public-facing lessons should stay grounded in execution proof, not generic inspiration
+
+FLOW F: Repo change -> push -> deploy -> live Mission Control
 
 `local edit`
   -> commit
@@ -459,7 +474,19 @@ Rules:
    Boundary:
    should not silently replace shared PM truth or global canonical memory
 
-6. Live deployed runtime
+6. Operator story / public-safe lessons
+   Canonical for:
+   distilled internal lessons that downstream content can safely reuse without reading raw memory or exposing internal mechanics
+   Writers:
+   operator-story distiller, content-safe lesson distiller, synced memory reports
+   Readers:
+   content generation context, Brain snapshots, future drafting lanes, operators reviewing build-story signals
+   Promotes to:
+   public-safe claims, proof packets, story beats, and grounded post context
+   Boundary:
+   should not be treated as final post copy or as a direct mutation of the content bank; it is the bridge between internal memory and future content use
+
+7. Live deployed runtime
    Canonical for:
    what users actually see right now
    Writers:
