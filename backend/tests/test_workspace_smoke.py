@@ -1536,6 +1536,227 @@ This is another latent first pass.
         update_card_mock.assert_not_called()
         create_card_mock.assert_not_called()
 
+    def test_pm_owner_review_sync_reuses_latent_identity_and_closes_pending_duplicate(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        draft_path = drafts_dir / "2026-04-26_claude-dispatch-identity-refresh-latent-transform.md"
+        self.addCleanup(lambda: draft_path.unlink(missing_ok=True))
+
+        draft_path.write_text(
+            """---
+title: "Claude Dispatch and the Power of Interfaces"
+draft_kind: owner_review
+source_kind: latent_transform
+idea_id: idea-456
+lane: ai
+publish_posture: owner_review_required
+source_url: https://example.com/claude-dispatch
+source_path: workspaces/linkedin-content-os/research/claude-dispatch.md
+latent_reason: needs_context_translation
+transform_type: context_translation
+---
+
+# Claude Dispatch and the Power of Interfaces
+
+## Source signal
+- Source file: `workspaces/linkedin-content-os/research/claude-dispatch.md`
+- Source URL: https://example.com/claude-dispatch
+- Source summary: Interface quality changes whether AI is actually useful.
+- Why it matters: AI workflow design and operator judgment signals
+
+## Transform brief
+- Proposed angle: Interface quality decides whether capability becomes leverage.
+- Owner question: What concrete change should operators notice if this is true?
+- Proof prompt: AI Clone / Brain System rebuild notes
+- Promotion rule: Promote only after one lived proof line and one audience consequence.
+
+## First-pass transformed draft
+
+This is another latent first pass.
+""",
+            encoding="utf-8",
+        )
+
+        newer_card = PMCard(
+            id="latent-owner-review-current",
+            title="Owner review - Latent transform - Claude Dispatch and the Power of Interfaces",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "trigger_key": "owner-review:LATENT-CLAUDE-DISPATCH-OLD111",
+                "owner_review": {
+                    "queue_id": "LATENT-CLAUDE-DISPATCH-OLD111",
+                    "title": "Claude Dispatch and the Power of Interfaces",
+                    "lane": "ai",
+                    "format": "owner_review",
+                    "status": "owner_review_draft",
+                    "approval_status": "owner_review_required",
+                    "publish_posture": "owner_review_required",
+                    "sync_state": "pending_owner_review",
+                    "entry_kind": "supplemental",
+                    "source_kind": "latent_transform",
+                    "source_url": "https://example.com/claude-dispatch",
+                    "source_path": "workspaces/linkedin-content-os/research/claude-dispatch.md",
+                    "idea_id": "idea-456",
+                    "draft_path": "drafts/2026-04-09_claude-dispatch-legacy-primary-latent-transform.md",
+                },
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc),
+        )
+        older_duplicate = PMCard(
+            id="latent-owner-review-duplicate",
+            title="Owner review - Latent transform - Claude Dispatch and the Power of Interfaces",
+            owner="Neo",
+            status="review",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "trigger_key": "owner-review:LATENT-CLAUDE-DISPATCH-OLD222",
+                "owner_review": {
+                    "queue_id": "LATENT-CLAUDE-DISPATCH-OLD222",
+                    "title": "Claude Dispatch and the Power of Interfaces",
+                    "lane": "ai",
+                    "format": "owner_review",
+                    "status": "owner_review_draft",
+                    "approval_status": "owner_review_required",
+                    "publish_posture": "owner_review_required",
+                    "sync_state": "pending_owner_review",
+                    "entry_kind": "supplemental",
+                    "source_kind": "latent_transform",
+                    "source_url": "https://example.com/claude-dispatch",
+                    "source_path": "workspaces/linkedin-content-os/research/claude-dispatch.md",
+                    "idea_id": "idea-456",
+                    "draft_path": "drafts/2026-04-08_claude-dispatch-legacy-duplicate-latent-transform.md",
+                },
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc),
+        )
+
+        updated_calls: list[tuple[str, str | None, dict | None]] = []
+
+        def fake_update_card(card_id, patch):
+            updated_calls.append((card_id, patch.status, patch.payload))
+            if card_id == older_duplicate.id:
+                self.assertEqual(patch.status, "done")
+                duplicate_resolution = (patch.payload or {}).get("duplicate_resolution") or {}
+                self.assertEqual(duplicate_resolution.get("rule"), "owner_review_pending_identity_autoclose")
+                return older_duplicate.model_copy(update={"status": "done", "payload": patch.payload, "updated_at": datetime.now(timezone.utc)})
+            self.assertEqual(card_id, newer_card.id)
+            owner_review = (patch.payload or {}).get("owner_review") or {}
+            self.assertEqual(owner_review.get("identity_key"), "latent-transform:idea:idea-456")
+            self.assertEqual((patch.payload or {}).get("trigger_key"), "owner-review:latent-transform:idea:idea-456")
+            self.assertEqual(owner_review.get("draft_path"), "drafts/2026-04-26_claude-dispatch-identity-refresh-latent-transform.md")
+            return newer_card.model_copy(update={"payload": patch.payload, "updated_at": datetime.now(timezone.utc)})
+
+        with (
+            patch.object(linkedin_owner_review_module.pm_card_service, "list_cards", return_value=[newer_card, older_duplicate]),
+            patch.object(linkedin_owner_review_module.pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(linkedin_owner_review_module.pm_card_service, "update_card", side_effect=fake_update_card),
+            patch.object(linkedin_owner_review_module.pm_card_service, "create_card") as create_card_mock,
+        ):
+            sync_response = self.client.post("/api/pm/owner-review/sync")
+
+        self.assertEqual(sync_response.status_code, 200)
+        sync_payload = sync_response.json()
+        self.assertEqual(sync_payload.get("created_card_ids"), [])
+        self.assertIn(newer_card.id, sync_payload.get("updated_card_ids") or [])
+        self.assertIn(older_duplicate.id, sync_payload.get("closed_duplicate_card_ids") or [])
+        self.assertEqual(len(updated_calls), 2)
+        create_card_mock.assert_not_called()
+
+    def test_owner_review_list_applies_latent_decision_override_by_identity(self) -> None:
+        drafts_dir = self.fixture_root / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        draft_path = drafts_dir / "2026-04-26_claude-dispatch-identity-override-latent-transform.md"
+        self.addCleanup(lambda: draft_path.unlink(missing_ok=True))
+
+        draft_path.write_text(
+            """---
+title: "Claude Dispatch and the Power of Interfaces"
+draft_kind: owner_review
+source_kind: latent_transform
+idea_id: idea-456
+lane: ai
+publish_posture: owner_review_required
+source_url: https://example.com/claude-dispatch
+source_path: workspaces/linkedin-content-os/research/claude-dispatch.md
+latent_reason: needs_context_translation
+transform_type: context_translation
+---
+
+# Claude Dispatch and the Power of Interfaces
+
+## Source signal
+- Source file: `workspaces/linkedin-content-os/research/claude-dispatch.md`
+- Source URL: https://example.com/claude-dispatch
+- Source summary: Interface quality changes whether AI is actually useful.
+- Why it matters: AI workflow design and operator judgment signals
+
+## Transform brief
+- Proposed angle: Interface quality decides whether capability becomes leverage.
+- Owner question: What concrete change should operators notice if this is true?
+- Proof prompt: AI Clone / Brain System rebuild notes
+- Promotion rule: Promote only after one lived proof line and one audience consequence.
+
+## First-pass transformed draft
+
+This is another latent first pass.
+""",
+            encoding="utf-8",
+        )
+
+        followup_card = PMCard(
+            id="latent-owner-followup-approve",
+            title="Promote approved latent draft - Claude Dispatch and the Power of Interfaces",
+            owner="Neo",
+            status="todo",
+            source="openclaw:workspace-owner-review",
+            link_type="owner_review",
+            link_id=None,
+            payload={
+                "workspace_key": "linkedin-os",
+                "owner_review": {
+                    "queue_id": "LATENT-CLAUDE-DISPATCH-OLD111",
+                    "title": "Claude Dispatch and the Power of Interfaces",
+                    "decision": "approve",
+                    "reviewed_at": "2026-04-16T02:06:53.744864+00:00",
+                    "entry_kind": "supplemental",
+                    "source_kind": "latent_transform",
+                    "source_url": "https://example.com/claude-dispatch",
+                    "source_path": "workspaces/linkedin-content-os/research/claude-dispatch.md",
+                    "idea_id": "idea-456",
+                    "draft_path": "drafts/2026-04-09_claude-dispatch-legacy-followup-latent-transform.md",
+                },
+            },
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        with patch.object(linkedin_owner_review_module.pm_card_service, "list_cards", return_value=[followup_card]):
+            response = self.client.get("/api/workspace/linkedin-os-owner-review?include_resolved=true")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        item = next(
+            entry
+            for entry in (payload.get("items") or [])
+            if entry.get("title") == "Claude Dispatch and the Power of Interfaces"
+        )
+        self.assertEqual(item.get("current_decision"), "approve")
+        self.assertEqual(item.get("approval_status"), "owner_approved")
+        self.assertEqual(item.get("publish_posture"), "approved")
+        self.assertEqual(item.get("status"), "approved")
+        self.assertEqual(payload.get("pending_count"), 0)
+        self.assertGreaterEqual(payload.get("resolved_count") or 0, 1)
+
     def test_owner_review_list_falls_back_to_pending_pm_cards_when_workspace_artifacts_are_empty(self) -> None:
         pending_card = PMCard(
             id="pm-fallback-owner-review-1",

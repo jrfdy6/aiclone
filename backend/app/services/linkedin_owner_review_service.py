@@ -97,6 +97,65 @@ def _supplemental_queue_id(title: str, draft_rel_path: str) -> str:
     return f"{SUPPLEMENTAL_OWNER_REVIEW_ID_PREFIX}-{digest}"
 
 
+def _owner_review_identity_key(
+    *,
+    queue_id: str,
+    entry_kind: str,
+    source_kind: str,
+    idea_id: Any = None,
+    source_path: Any = None,
+    source_url: Any = None,
+    title: Any = None,
+) -> str:
+    normalized_queue_id = str(queue_id or "").strip()
+    if str(entry_kind or "").strip() != "supplemental":
+        return normalized_queue_id
+    normalized_source_kind = _compact_slug(str(source_kind or "").strip()) or "supplemental"
+    for label, raw_value in (
+        ("idea", idea_id),
+        ("source_path", source_path),
+        ("source_url", source_url),
+        ("title", title),
+    ):
+        normalized_value = _compact_slug(str(raw_value or "").strip())
+        if normalized_value:
+            return f"{normalized_source_kind}:{label}:{normalized_value}"
+    if normalized_queue_id:
+        return f"{normalized_source_kind}:queue:{_compact_slug(normalized_queue_id)}"
+    return ""
+
+
+def _owner_review_identity_key_for_item(item: dict[str, Any]) -> str:
+    return _owner_review_identity_key(
+        queue_id=str(item.get("queue_id") or "").strip(),
+        entry_kind=str(item.get("entry_kind") or "queue").strip(),
+        source_kind=str(item.get("source_kind") or "feezie_queue").strip(),
+        idea_id=item.get("idea_id"),
+        source_path=item.get("source_path"),
+        source_url=item.get("source_url"),
+        title=item.get("title"),
+    )
+
+
+def _owner_review_identity_key_from_payload(owner_review_payload: dict[str, Any]) -> str:
+    explicit = str(owner_review_payload.get("identity_key") or "").strip()
+    if explicit:
+        return explicit
+    return _owner_review_identity_key(
+        queue_id=str(owner_review_payload.get("queue_id") or "").strip(),
+        entry_kind=str(owner_review_payload.get("entry_kind") or "queue").strip(),
+        source_kind=str(owner_review_payload.get("source_kind") or "feezie_queue").strip(),
+        idea_id=owner_review_payload.get("idea_id"),
+        source_path=owner_review_payload.get("source_path"),
+        source_url=owner_review_payload.get("source_url"),
+        title=owner_review_payload.get("title"),
+    )
+
+
+def _owner_review_trigger_key(identity_key: str) -> str:
+    return f"owner-review:{identity_key}"
+
+
 def _section_bounds(text: str, heading_re: re.Pattern[str], queue_id: str) -> tuple[int, int] | None:
     matches = list(heading_re.finditer(text))
     for index, match in enumerate(matches):
@@ -437,12 +496,14 @@ def _serialize_item(root: Path, queue_id: str, title: str, fields: dict[str, str
         "current_notes": current_notes,
         "publish_posture": frontmatter.get("publish_posture", ""),
         "reviewed_at": frontmatter.get("owner_reviewed_at") or None,
+        "created_at": frontmatter.get("created_at") or None,
         "entry_kind": "queue",
         "source_kind": frontmatter.get("source_kind", "feezie_queue"),
         "source_url": frontmatter.get("source_url") or None,
         "source_path": frontmatter.get("source_path") or None,
         "idea_id": frontmatter.get("idea_id") or None,
     }
+    item["identity_key"] = _owner_review_identity_key_for_item(item)
     item["system_assessment"] = _build_owner_review_assessment(item)
     item["decision_scaffold"] = _build_owner_decision_scaffold(item, item["system_assessment"])
     return item
@@ -504,6 +565,7 @@ def _serialize_supplemental_owner_review_item(root: Path, draft_path: Path) -> d
         "current_notes": frontmatter.get("owner_review_notes") or None,
         "publish_posture": str(frontmatter.get("publish_posture") or ""),
         "reviewed_at": frontmatter.get("owner_reviewed_at") or None,
+        "created_at": frontmatter.get("created_at") or None,
         "entry_kind": "supplemental",
         "source_kind": source_kind,
         "source_url": frontmatter.get("source_url") or None,
@@ -515,6 +577,7 @@ def _serialize_supplemental_owner_review_item(root: Path, draft_path: Path) -> d
         "transform_type": frontmatter.get("transform_type") or None,
         "generated_by": frontmatter.get("generated_by") or None,
     }
+    item["identity_key"] = _owner_review_identity_key_for_item(item)
     item["system_assessment"] = _build_owner_review_assessment(item)
     item["decision_scaffold"] = _build_owner_decision_scaffold(item, item["system_assessment"])
     return item
@@ -557,11 +620,13 @@ def _item_from_owner_review_payload(owner_review_payload: dict[str, Any]) -> dic
         "current_notes": owner_review_payload.get("current_notes"),
         "publish_posture": str(owner_review_payload.get("publish_posture") or ""),
         "reviewed_at": owner_review_payload.get("reviewed_at"),
+        "created_at": owner_review_payload.get("created_at"),
         "entry_kind": str(owner_review_payload.get("entry_kind") or "queue"),
         "source_kind": str(owner_review_payload.get("source_kind") or "feezie_queue"),
         "source_url": owner_review_payload.get("source_url"),
         "source_path": owner_review_payload.get("source_path"),
         "idea_id": owner_review_payload.get("idea_id"),
+        "identity_key": _owner_review_identity_key_from_payload(owner_review_payload),
         "summary": str(owner_review_payload.get("summary") or ""),
         "revision_goals": list(owner_review_payload.get("revision_goals") or []),
         "latent_reason": owner_review_payload.get("latent_reason"),
@@ -591,6 +656,50 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _owner_review_item_sort_key(item: dict[str, Any]) -> tuple[int, float | str]:
+    created_at = _parse_iso_datetime(item.get("created_at"))
+    if created_at is not None:
+        return (1, created_at.timestamp())
+    return (0, str(item.get("draft_path") or ""))
+
+
+def _dedupe_owner_review_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected: dict[str, dict[str, Any]] = {}
+    for item in items:
+        identity_key = _owner_review_identity_key_for_item(item) or str(item.get("queue_id") or "").strip()
+        if not identity_key:
+            continue
+        current = selected.get(identity_key)
+        if current is None or _owner_review_item_sort_key(item) > _owner_review_item_sort_key(current):
+            selected[identity_key] = item
+    return list(selected.values())
+
+
+def _record_owner_review_override(
+    overrides: dict[str, dict[str, Any]],
+    *,
+    keys: list[str],
+    decision: str,
+    notes: str | None,
+    reviewed_at: Any,
+    sort_key: datetime,
+) -> None:
+    entry = {
+        "decision": decision,
+        "notes": notes,
+        "reviewed_at": reviewed_at,
+        "_sort_key": sort_key,
+    }
+    for key in keys:
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        current = overrides.get(normalized_key)
+        if current is not None and sort_key <= current["_sort_key"]:
+            continue
+        overrides[normalized_key] = entry
+
+
 def _list_pm_active_owner_review_decisions() -> dict[str, dict[str, Any]]:
     decisions: dict[str, dict[str, Any]] = {}
     try:
@@ -609,21 +718,21 @@ def _list_pm_active_owner_review_decisions() -> dict[str, dict[str, Any]]:
         if not isinstance(owner_review_payload, dict):
             continue
         queue_id = str(owner_review_payload.get("queue_id") or "").strip()
+        identity_key = _owner_review_identity_key_from_payload(owner_review_payload)
         decision = str(owner_review_payload.get("decision") or "").strip().lower()
-        if not queue_id or decision not in STATUS_MAP:
+        if decision not in STATUS_MAP or (not queue_id and not identity_key):
             continue
         reviewed_at = _parse_iso_datetime(owner_review_payload.get("reviewed_at"))
         card_updated_at = getattr(card, "updated_at", None)
         sort_key = reviewed_at or (card_updated_at if isinstance(card_updated_at, datetime) else None) or datetime.min.replace(tzinfo=timezone.utc)
-        current = decisions.get(queue_id)
-        if current is not None and sort_key <= current["_sort_key"]:
-            continue
-        decisions[queue_id] = {
-            "decision": decision,
-            "notes": str(owner_review_payload.get("notes") or "").strip() or None,
-            "reviewed_at": owner_review_payload.get("reviewed_at"),
-            "_sort_key": sort_key,
-        }
+        _record_owner_review_override(
+            decisions,
+            keys=[identity_key, queue_id],
+            decision=decision,
+            notes=str(owner_review_payload.get("notes") or "").strip() or None,
+            reviewed_at=owner_review_payload.get("reviewed_at"),
+            sort_key=sort_key,
+        )
     return decisions
 
 
@@ -634,7 +743,8 @@ def _apply_pm_owner_review_decision_overrides(items: list[dict[str, Any]]) -> li
     updated_items: list[dict[str, Any]] = []
     for item in items:
         queue_id = str(item.get("queue_id") or "").strip()
-        override = overrides.get(queue_id)
+        identity_key = _owner_review_identity_key_for_item(item)
+        override = overrides.get(identity_key) or overrides.get(queue_id)
         if override is None:
             updated_items.append(item)
             continue
@@ -692,10 +802,6 @@ def _is_missing_owner_review_artifact_error(exc: ValueError) -> bool:
         or "does not have a draft path" in message
         or "is not present in" in message
     )
-
-
-def _owner_review_trigger_key(queue_id: str) -> str:
-    return f"owner-review:{queue_id}"
 
 
 def _is_supplemental_owner_review_item(item: dict[str, Any]) -> bool:
@@ -855,6 +961,7 @@ def _build_owner_review_card_payload(
 ) -> dict[str, Any]:
     queue_id = str(item.get("queue_id") or "").strip()
     title = str(item.get("title") or queue_id).strip()
+    identity_key = _owner_review_identity_key_for_item(item) or queue_id
     reason = _owner_review_reason(item, decision)
     payload = dict(existing_payload or {})
     artifact_paths = [path for path in [draft_rel_path, packet_rel_path] if path]
@@ -873,7 +980,7 @@ def _build_owner_review_card_payload(
             "source_agent": "Neo",
             "front_door_agent": "Neo",
             "trigger_origin": "owner_review",
-            "trigger_key": _owner_review_trigger_key(queue_id),
+            "trigger_key": _owner_review_trigger_key(identity_key),
             "reason": reason,
             "instructions": contract["instructions"],
             "acceptance_criteria": contract["acceptance_criteria"],
@@ -882,12 +989,14 @@ def _build_owner_review_card_payload(
             "artifact_paths": artifact_paths,
             "owner_review": {
                 "queue_id": queue_id,
+                "identity_key": identity_key,
                 "title": title,
                 "decision": decision,
                 "notes": notes.strip() or None,
                 "draft_path": draft_rel_path,
                 "owner_packet_path": packet_rel_path,
                 "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": item.get("created_at"),
                 "entry_kind": item.get("entry_kind"),
                 "source_kind": item.get("source_kind"),
                 "source_url": item.get("source_url"),
@@ -938,6 +1047,7 @@ def _build_pending_owner_review_card_payload(
 ) -> dict[str, Any]:
     queue_id = str(item.get("queue_id") or "").strip()
     title = str(item.get("title") or queue_id).strip()
+    identity_key = _owner_review_identity_key_for_item(item) or queue_id
     payload = dict(existing_payload or {})
     payload.pop("execution", None)
     payload.pop("latest_execution_result", None)
@@ -948,7 +1058,7 @@ def _build_pending_owner_review_card_payload(
             "source_agent": "Neo",
             "front_door_agent": "Neo",
             "trigger_origin": "owner_review",
-            "trigger_key": _owner_review_trigger_key(queue_id),
+            "trigger_key": _owner_review_trigger_key(identity_key),
             "reason": _pending_owner_review_reason(item),
             "instructions": [
                 f"Review `{title}` in PM Board before any backend worker picks it up.",
@@ -957,6 +1067,7 @@ def _build_pending_owner_review_card_payload(
             ],
             "owner_review": {
                 "queue_id": queue_id,
+                "identity_key": identity_key,
                 "title": title,
                 "lane": item.get("lane"),
                 "format": item.get("format"),
@@ -973,6 +1084,7 @@ def _build_pending_owner_review_card_payload(
                 "current_notes": item.get("current_notes"),
                 "publish_posture": item.get("publish_posture"),
                 "reviewed_at": item.get("reviewed_at"),
+                "created_at": item.get("created_at"),
                 "sync_state": "pending_owner_review",
                 "entry_kind": item.get("entry_kind"),
                 "source_kind": item.get("source_kind"),
@@ -1008,7 +1120,123 @@ def _pending_owner_review_card_is_current(
     )
 
 
+def _owner_review_card_sort_key(card: Any) -> datetime:
+    updated_at = getattr(card, "updated_at", None)
+    created_at = getattr(card, "created_at", None)
+    if isinstance(updated_at, datetime):
+        return updated_at
+    if isinstance(created_at, datetime):
+        return created_at
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _list_active_owner_review_cards() -> list[Any]:
+    try:
+        cards = pm_card_service.list_cards(limit=250)
+    except Exception:
+        return []
+    return [
+        card
+        for card in cards
+        if str(card.source or "") == OWNER_REVIEW_CARD_SOURCE
+        and str(card.link_type or "") == OWNER_REVIEW_LINK_TYPE
+        and str(card.status or "").lower() in ACTIVE_OWNER_REVIEW_CARD_STATUSES
+    ]
+
+
+def _owner_review_payload_from_card(card: Any) -> dict[str, Any]:
+    payload = dict(getattr(card, "payload", {}) or {})
+    owner_review_payload = payload.get("owner_review") if isinstance(payload.get("owner_review"), dict) else {}
+    return owner_review_payload if isinstance(owner_review_payload, dict) else {}
+
+
+def _owner_review_card_has_decision(card: Any) -> bool:
+    return bool(str(_owner_review_payload_from_card(card).get("decision") or "").strip())
+
+
+def _owner_review_card_is_pending_sync(card: Any) -> bool:
+    owner_review_payload = _owner_review_payload_from_card(card)
+    return (
+        str(owner_review_payload.get("sync_state") or "").strip() == "pending_owner_review"
+        and not str(owner_review_payload.get("decision") or "").strip()
+    )
+
+
+def _matching_owner_review_cards(item: dict[str, Any], active_cards: list[Any]) -> list[Any]:
+    identity_key = _owner_review_identity_key_for_item(item)
+    if not identity_key:
+        return []
+    matches = [
+        card
+        for card in active_cards
+        if _owner_review_identity_key_from_payload(_owner_review_payload_from_card(card)) == identity_key
+    ]
+    return sorted(matches, key=_owner_review_card_sort_key, reverse=True)
+
+
+def _close_superseded_owner_review_card(card: Any, *, replacement: Any, rule: str, reason: str) -> str:
+    payload = dict(getattr(card, "payload", {}) or {})
+    payload["duplicate_resolution"] = {
+        "rule": rule,
+        "replacement_card_id": getattr(replacement, "id", None),
+        "replacement_card_title": getattr(replacement, "title", None),
+        "closed_at": datetime.now(timezone.utc).isoformat(),
+        "reason": reason,
+    }
+    owner_review_payload = payload.get("owner_review") if isinstance(payload.get("owner_review"), dict) else {}
+    if isinstance(owner_review_payload, dict):
+        owner_review_payload["sync_state"] = "superseded"
+        payload["owner_review"] = owner_review_payload
+    updated = pm_card_service.update_card(str(getattr(card, "id")), PMCardUpdate(status="done", payload=payload))
+    return str(updated.id if updated is not None else getattr(card, "id"))
+
+
+def _auto_close_superseded_owner_review_cards(active_cards: list[Any]) -> list[str]:
+    cards_by_identity: dict[str, list[Any]] = {}
+    for card in active_cards:
+        identity_key = _owner_review_identity_key_from_payload(_owner_review_payload_from_card(card))
+        if not identity_key:
+            continue
+        cards_by_identity.setdefault(identity_key, []).append(card)
+
+    closed_card_ids: list[str] = []
+    for matches in cards_by_identity.values():
+        ranked = sorted(matches, key=_owner_review_card_sort_key, reverse=True)
+        decision_cards = [card for card in ranked if _owner_review_card_has_decision(card)]
+        if decision_cards:
+            replacement = decision_cards[0]
+            for duplicate in ranked:
+                if duplicate.id == replacement.id or not _owner_review_card_is_pending_sync(duplicate):
+                    continue
+                closed_card_ids.append(
+                    _close_superseded_owner_review_card(
+                        duplicate,
+                        replacement=replacement,
+                        rule="owner_review_pending_replaced_by_decision_autoclose",
+                        reason="Closed stale pending owner-review card because a newer decision-bearing card already owns this review surface.",
+                    )
+                )
+            continue
+        pending_cards = [card for card in ranked if _owner_review_card_is_pending_sync(card)]
+        if len(pending_cards) < 2:
+            continue
+        replacement = pending_cards[0]
+        for duplicate in pending_cards[1:]:
+            closed_card_ids.append(
+                _close_superseded_owner_review_card(
+                    duplicate,
+                    replacement=replacement,
+                    rule="owner_review_pending_identity_autoclose",
+                    reason="Closed duplicate pending owner-review card because a newer card already represents the same draft identity.",
+                )
+            )
+    return closed_card_ids
+
+
 def sync_owner_review_pm_cards() -> dict[str, Any]:
+    active_cards = _list_active_owner_review_cards()
+    closed_duplicate_card_ids = _auto_close_superseded_owner_review_cards(active_cards)
+    active_cards = [card for card in active_cards if str(getattr(card, "id", "")) not in set(closed_duplicate_card_ids)]
     payload = list_owner_review_items()
     created_card_ids: list[str] = []
     updated_card_ids: list[str] = []
@@ -1023,7 +1251,11 @@ def sync_owner_review_pm_cards() -> dict[str, Any]:
         if not queue_id:
             continue
         pending_queue_ids.append(queue_id)
-        existing = pm_card_service.find_active_card_by_trigger_key(_owner_review_trigger_key(queue_id))
+        identity_key = _owner_review_identity_key_for_item(item) or queue_id
+        existing = pm_card_service.find_active_card_by_trigger_key(_owner_review_trigger_key(identity_key))
+        if existing is None:
+            matches = _matching_owner_review_cards(item, active_cards)
+            existing = matches[0] if matches else None
         card_payload = _build_pending_owner_review_card_payload(
             item,
             existing_payload=dict(existing.payload or {}) if existing is not None else None,
@@ -1042,6 +1274,7 @@ def sync_owner_review_pm_cards() -> dict[str, Any]:
                 )
             )
             created_card_ids.append(card.id)
+            active_cards.append(card)
             continue
         if _pending_owner_review_card_is_current(existing, title=card_title, payload=card_payload):
             skipped_card_ids.append(existing.id)
@@ -1058,7 +1291,10 @@ def sync_owner_review_pm_cards() -> dict[str, Any]:
                 payload=card_payload,
             ),
         )
-        updated_card_ids.append(updated.id if updated is not None else existing.id)
+        effective = updated if updated is not None else existing
+        updated_card_ids.append(effective.id)
+        active_cards = [card for card in active_cards if str(getattr(card, "id", "")) != str(existing.id)]
+        active_cards.append(effective)
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1067,6 +1303,7 @@ def sync_owner_review_pm_cards() -> dict[str, Any]:
         "created_card_ids": created_card_ids,
         "updated_card_ids": updated_card_ids,
         "skipped_card_ids": skipped_card_ids,
+        "closed_duplicate_card_ids": closed_duplicate_card_ids,
     }
 
 
@@ -1105,7 +1342,8 @@ def _queue_owner_review_followup(
     packet_rel_path: str | None,
 ) -> dict[str, Any]:
     queue_id = str(item.get("queue_id") or "").strip()
-    existing = pm_card_service.find_active_card_by_trigger_key(_owner_review_trigger_key(queue_id))
+    identity_key = _owner_review_identity_key_for_item(item) or queue_id
+    existing = pm_card_service.find_active_card_by_trigger_key(_owner_review_trigger_key(identity_key))
 
     if decision == "park":
         if existing is None:
@@ -1219,6 +1457,7 @@ def list_owner_review_items(*, include_resolved: bool = False) -> dict[str, Any]
         supplemental_items = _list_supplemental_owner_review_items(root)
         if not supplemental_items:
             supplemental_items = _list_pm_pending_owner_review_items()
+        supplemental_items = _dedupe_owner_review_items(supplemental_items)
         supplemental_items = _apply_pm_owner_review_decision_overrides(supplemental_items)
         pending_items, resolved_items = _split_pending_owner_review_items(supplemental_items)
         selected_items = supplemental_items if include_resolved else pending_items
@@ -1241,6 +1480,7 @@ def list_owner_review_items(*, include_resolved: bool = False) -> dict[str, Any]
     items.extend(_list_supplemental_owner_review_items(root))
     if not items:
         items.extend(_list_pm_pending_owner_review_items())
+    items = _dedupe_owner_review_items(items)
     items = _apply_pm_owner_review_decision_overrides(items)
     pending_items, resolved_items = _split_pending_owner_review_items(items)
     selected_items = items if include_resolved else pending_items
