@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,21 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.workspace_runtime_contract_service import execution_defaults_for_workspace as shared_execution_defaults_for_workspace
+
+WORKSPACE_LABELS = {
+    "shared_ops": "Shared Ops",
+    "feezie-os": "FEEZIE OS",
+    "fusion-os": "Fusion OS",
+    "easyoutfitapp": "Easy Outfit App",
+    "ai-swag-store": "AI Swag Store",
+    "agc": "AGC",
+    "linkedin-os": "LinkedIn OS",
+}
+WORKSPACE_SCOPE_ALIASES = {
+    "feezie-os": {"feezie-os", "linkedin-os", "linkedin-content-os"},
+    "linkedin-os": {"feezie-os", "linkedin-os", "linkedin-content-os"},
+    "linkedin-content-os": {"feezie-os", "linkedin-os", "linkedin-content-os"},
+}
 
 
 def _now() -> datetime:
@@ -114,11 +130,14 @@ def _is_actionable_title(title: str) -> bool:
         "clarify ",
         "create ",
         "define ",
+        "draft ",
         "document ",
         "make ",
+        "plan ",
         "promote ",
         "refine ",
         "run ",
+        "ship ",
         "standardize ",
         "tighten ",
         "turn ",
@@ -139,7 +158,127 @@ def _extract_create_queue_title(item: str) -> str:
     return ""
 
 
-def _candidate_titles(entry: dict[str, Any]) -> list[str]:
+def _workspace_label(workspace_key: str) -> str:
+    normalized = str(workspace_key or "").strip()
+    if not normalized:
+        return "Workspace"
+    if normalized in WORKSPACE_LABELS:
+        return WORKSPACE_LABELS[normalized]
+    return " ".join(part.capitalize() for part in normalized.replace("_", "-").split("-") if part)
+
+
+def _entry_section_lines(entry: dict[str, Any], key: str) -> list[str]:
+    payload = entry.get("payload") or {}
+    sections = payload.get("standup_sections") or {}
+    values = sections.get(key)
+    if not isinstance(values, list):
+        return []
+    return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _entry_text_sections(entry: dict[str, Any]) -> list[str]:
+    payload = entry.get("payload") or {}
+    values: list[str] = []
+    for collection in (
+        payload.get("artifact_deltas"),
+        payload.get("source_paths"),
+        _entry_section_lines(entry, "signals_captured"),
+        _entry_section_lines(entry, "content_produced"),
+        _entry_section_lines(entry, "audience_response"),
+        _entry_section_lines(entry, "opportunities_created"),
+        _entry_section_lines(entry, "next_focus"),
+        entry.get("commitments"),
+        entry.get("needs"),
+    ):
+        if not isinstance(collection, list):
+            continue
+        for item in collection:
+            normalized = str(item).strip()
+            if normalized:
+                values.append(normalized)
+    return values
+
+
+def _extract_path_from_text(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    path_match = re.search(r"(/Users/[^\s`]+|workspaces/[^\s`]+)", normalized)
+    if path_match:
+        return path_match.group(1)
+    return ""
+
+
+def _extract_paths_from_text(text: str) -> list[str]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return []
+    return re.findall(r"(/Users/[^\s`]+|workspaces/[^\s`]+)", normalized)
+
+
+def _path_matches_workspace_scope(path: str, workspace_key: str) -> bool:
+    normalized_path = str(path or "").strip().replace("\\", "/")
+    normalized_workspace = str(workspace_key or "shared_ops").strip() or "shared_ops"
+    if not normalized_path or normalized_workspace == "shared_ops":
+        return bool(normalized_path)
+    scope_keys = _workspace_scope_keys(normalized_workspace)
+    for scope_key in scope_keys:
+        fragment = f"/workspaces/{scope_key}/"
+        relative_fragment = f"workspaces/{scope_key}/"
+        if fragment in normalized_path or relative_fragment in normalized_path:
+            return True
+    return False
+
+
+def _entry_artifact_path(entry: dict[str, Any], marker: str, *, workspace_key: str | None = None) -> str:
+    marker = marker.strip().lower()
+    normalized_workspace = str(workspace_key or "").strip() or str(entry.get("workspace_key") or "shared_ops")
+    fallback_path = ""
+    for item in _entry_text_sections(entry):
+        if marker not in item.lower():
+            continue
+        for path in _extract_paths_from_text(item):
+            if _path_matches_workspace_scope(path, normalized_workspace):
+                return path
+            if not fallback_path:
+                fallback_path = path
+    if normalized_workspace == "shared_ops":
+        return fallback_path
+    return ""
+
+
+def _workspace_has_active_cards(cards: list[dict[str, Any]], workspace_key: str) -> bool:
+    for card in cards:
+        if not isinstance(card, dict) or not _workspace_scope_matches(workspace_key, _card_workspace_key(card)):
+            continue
+        status = str(card.get("status") or "").strip().lower()
+        if status not in {"done", "cancelled", "canceled"}:
+            return True
+    return False
+
+
+def _workspace_focus_candidate(entry: dict[str, Any]) -> str:
+    workspace_key = str(entry.get("workspace_key") or "shared_ops")
+    workspace_label = _workspace_label(workspace_key)
+    for item in _entry_section_lines(entry, "next_focus"):
+        title = _normalize_title(item)
+        if title and _is_actionable_title(title):
+            return title
+    for item in _entry_section_lines(entry, "opportunities_created"):
+        normalized = str(item).strip()
+        title = _normalize_title(normalized)
+        if title and _is_actionable_title(title):
+            return title
+        lowered = normalized.lower()
+        if "next concrete opportunity" in lowered or "underrepresented" in lowered or "cadence" in lowered:
+            return f"Define next concrete opportunity for {workspace_label}"
+    briefing_path = _entry_artifact_path(entry, "/briefings/", workspace_key=workspace_key)
+    if briefing_path:
+        return f"Define next concrete opportunity for {workspace_label}"
+    return ""
+
+
+def _candidate_titles(entry: dict[str, Any], cards: list[dict[str, Any]] | None = None) -> list[str]:
     payload = entry.get("payload") or {}
     titles: list[str] = []
     seen: set[str] = set()
@@ -171,6 +310,15 @@ def _candidate_titles(entry: dict[str, Any]) -> list[str]:
         titles.append(title)
         if len(titles) >= 2:
             return titles
+    if titles:
+        return titles
+    workspace_key = str(entry.get("workspace_key") or "shared_ops")
+    if cards is not None and _standup_kind(entry) == "workspace_sync" and workspace_key != "shared_ops":
+        if _workspace_has_active_cards(cards, workspace_key):
+            return titles
+        fallback_title = _workspace_focus_candidate(entry)
+        if fallback_title:
+            titles.append(fallback_title)
     return titles
 
 
@@ -195,7 +343,7 @@ def _card_titles(cards: list[dict[str, Any]], *, workspace_key: str | None = Non
         for card in cards
         if isinstance(card, dict)
         and str(card.get("title") or "").strip()
-        and (workspace_key is None or _card_workspace_key(card) == workspace_key)
+        and (workspace_key is None or _workspace_scope_matches(workspace_key, _card_workspace_key(card)))
     }
 
 
@@ -210,6 +358,15 @@ def _card_workspace_key(card: dict[str, Any]) -> str:
     return "shared_ops"
 
 
+def _workspace_scope_keys(workspace_key: str) -> set[str]:
+    normalized = str(workspace_key or "shared_ops").strip() or "shared_ops"
+    return set(WORKSPACE_SCOPE_ALIASES.get(normalized, {normalized}))
+
+
+def _workspace_scope_matches(expected: str, candidate: str) -> bool:
+    return str(candidate or "").strip() in _workspace_scope_keys(expected)
+
+
 def _cards_matching_titles(cards: list[dict[str, Any]], titles: list[str], workspace_key: str) -> list[dict[str, Any]]:
     wanted = {title.strip().lower() for title in titles if title.strip()}
     if not wanted:
@@ -221,7 +378,7 @@ def _cards_matching_titles(cards: list[dict[str, Any]], titles: list[str], works
             continue
         title = str(card.get("title") or "").strip().lower()
         card_id = str(card.get("id") or "").strip()
-        if _card_workspace_key(card) != workspace_key or title not in wanted or not card_id or card_id in seen:
+        if not _workspace_scope_matches(workspace_key, _card_workspace_key(card)) or title not in wanted or not card_id or card_id in seen:
             continue
         seen.add(card_id)
         matched.append(card)
@@ -233,11 +390,40 @@ def _build_card_payload(entry: dict[str, Any], title: str) -> dict[str, Any]:
     payload = entry.get("payload") or {}
     defaults = _execution_defaults(workspace_key)
     transition_at = _iso(_now())
+    workspace_label = _workspace_label(workspace_key)
+    briefing_path = _entry_artifact_path(entry, "/briefings/", workspace_key=workspace_key)
+    execution_log_path = _entry_artifact_path(entry, "execution_log.md", workspace_key=workspace_key)
+    audience_feedback_path = _entry_artifact_path(entry, "audience feedback snapshot", workspace_key=workspace_key)
+    analytics_path = _entry_artifact_path(entry, "/analytics/", workspace_key=workspace_key)
+    focus_lines = _entry_section_lines(entry, "next_focus") or _entry_section_lines(entry, "opportunities_created")
+    instructions = [f"Advance `{title}` inside `{workspace_key}` without expanding scope beyond the standup-backed next move."]
+    if briefing_path:
+        instructions.append(f"Use `{briefing_path}` as the primary briefing artifact for `{workspace_label}`.")
+    if execution_log_path:
+        instructions.append(f"Check `{execution_log_path}` before proposing new work so the result reflects what actually shipped.")
+    if focus_lines:
+        instructions.append(f"Anchor the next move in this standup signal: {focus_lines[0]}")
+    if audience_feedback_path or analytics_path:
+        instructions.append(
+            f"Pressure-test the choice against `{audience_feedback_path or analytics_path}` before writing back the next move."
+        )
+    acceptance = [
+        f"`{title}` resolves into one bounded next move for `{workspace_label}` instead of staying a placeholder.",
+        "The result cites the latest briefing or execution log that justified the next move.",
+        "PM write-back names the exact next artifact, deliverable, or blocker.",
+    ]
+    artifacts_expected = [
+        "updated PM execution result",
+        *(item for item in (briefing_path, execution_log_path, audience_feedback_path or analytics_path) if item),
+    ]
     contract = build_execution_contract(
         title=title,
         workspace_key=workspace_key,
         source="post_sync_dispatch",
         reason="Post-sync dispatch created this card from a completed standup commitment.",
+        instructions=instructions,
+        acceptance_criteria=acceptance,
+        artifacts_expected=artifacts_expected,
     )
     return {
         "workspace_key": workspace_key,
@@ -287,7 +473,7 @@ def build_report(api_url: str, lookback_days: int, limit: int, sync_live: bool) 
             continue
 
         linked = _linked_cards(cards_list, str(entry.get("id")))
-        candidates = _candidate_titles(entry)
+        candidates = _candidate_titles(entry, cards_list)
         workspace_key = str(entry.get("workspace_key") or "shared_ops")
         board_titles = _card_titles(cards_list, workspace_key=workspace_key)
         covered_cards = _cards_matching_titles(cards_list, candidates, workspace_key)

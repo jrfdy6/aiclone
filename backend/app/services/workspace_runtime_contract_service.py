@@ -67,6 +67,11 @@ WORKSPACE_RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
         "execution_mode": "delegated",
         "default_standup_kind": "workspace_sync",
         "workspace_sync_participants": ["Jean-Claude", "Fusion Systems Operator"],
+        "pm_review_policy": {
+            "interrupt_policy": "manager_attention_only",
+            "default_resolution_mode": "close_only",
+            "policy_label": "Fusion OS should close routine review results on its own and only interrupt you for blockers or explicit owner gates.",
+        },
     },
     "easyoutfitapp": {
         "display_name": "Easy Outfit App",
@@ -76,6 +81,11 @@ WORKSPACE_RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
         "execution_mode": "delegated",
         "default_standup_kind": "workspace_sync",
         "workspace_sync_participants": ["Jean-Claude", "Easy Outfit App Operator Agent"],
+        "pm_review_policy": {
+            "interrupt_policy": "manager_attention_only",
+            "default_resolution_mode": "close_only",
+            "policy_label": "Easy Outfit App should close routine review results on its own and only interrupt you for blockers or explicit owner gates.",
+        },
     },
     "ai-swag-store": {
         "display_name": "AI Swag Store",
@@ -85,6 +95,11 @@ WORKSPACE_RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
         "execution_mode": "delegated",
         "default_standup_kind": "workspace_sync",
         "workspace_sync_participants": ["Jean-Claude", "AI Swag Store Operator Agent"],
+        "pm_review_policy": {
+            "interrupt_policy": "manager_attention_only",
+            "default_resolution_mode": "close_only",
+            "policy_label": "AI Swag Store should close routine review results on its own and only interrupt you for blockers or explicit owner gates.",
+        },
     },
     "agc": {
         "display_name": "AGC",
@@ -94,6 +109,11 @@ WORKSPACE_RUNTIME_CONTRACTS: dict[str, dict[str, Any]] = {
         "execution_mode": "delegated",
         "default_standup_kind": "workspace_sync",
         "workspace_sync_participants": ["Jean-Claude", "AGC Operator Agent"],
+        "pm_review_policy": {
+            "interrupt_policy": "manager_attention_only",
+            "default_resolution_mode": "close_only",
+            "policy_label": "AGC should close routine review results on its own and only interrupt you for blockers or explicit owner gates.",
+        },
     },
 }
 

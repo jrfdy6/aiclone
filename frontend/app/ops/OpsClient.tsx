@@ -6329,15 +6329,29 @@ function StandupsPanel({
         {STANDUP_ROOMS.map((room) => {
           const prep = findStandupPrepForRoom(room, executiveFeed.standupPreps);
           const liveEntry = findLiveStandupEntry(room, entries);
+          const liveCreatedAt = liveEntry?.created_at ? new Date(liveEntry.created_at) : null;
+          const prepGeneratedAt = prep?.generatedAt ? new Date(prep.generatedAt) : null;
+          const prepIsNewerThanLive = Boolean(prepGeneratedAt && (!liveCreatedAt || prepGeneratedAt.getTime() > liveCreatedAt.getTime()));
+          const hasPromotablePrep = Boolean(prep && (!liveEntry || prepIsNewerThanLive));
+          const prepAlreadyPromoted = Boolean(prep && liveEntry && !prepIsNewerThanLive);
           const roomHealth = meetingOps.byRoomKey[room.key];
-          const agenda = prep?.agenda ?? extractStandupList(liveEntry?.payload, 'agenda');
-          const blockers = prep?.blockers ?? liveEntry?.blockers ?? [];
-          const commitments = prep?.commitments ?? liveEntry?.commitments ?? [];
-          const needs = prep?.needs ?? liveEntry?.needs ?? [];
-          const artifactDeltas = prep?.artifactDeltas ?? extractStandupList(liveEntry?.payload, 'artifact_deltas');
-          const pmSnapshotLines = prep ? extractPmSnapshotLines(prep.pmSnapshot) : extractPmSnapshotLines(liveEntry?.payload?.pm_snapshot);
-          const pmTitles = prep?.pmUpdateTitles ?? [];
-          const cardStatus = prep ? 'prepared' : roomHealth?.status ?? (liveEntry ? liveEntry.status ?? 'recorded' : room.workspaceKey === 'shared_ops' ? 'ready' : 'planned');
+          const displayPrep = hasPromotablePrep ? prep : null;
+          const agenda = hasPromotablePrep ? prep?.agenda ?? [] : extractStandupList(liveEntry?.payload, 'agenda');
+          const blockers = displayPrep?.blockers ?? liveEntry?.blockers ?? [];
+          const commitments = displayPrep?.commitments ?? liveEntry?.commitments ?? [];
+          const needs = displayPrep?.needs ?? liveEntry?.needs ?? [];
+          const artifactDeltas = displayPrep?.artifactDeltas ?? extractStandupList(liveEntry?.payload, 'artifact_deltas');
+          const pmSnapshotLines = displayPrep ? extractPmSnapshotLines(displayPrep.pmSnapshot) : extractPmSnapshotLines(liveEntry?.payload?.pm_snapshot);
+          const pmTitles = displayPrep?.pmUpdateTitles ?? [];
+          const cardStatus = hasPromotablePrep
+            ? 'prepared'
+            : roomHealth?.status ?? (liveEntry ? liveEntry.status ?? 'recorded' : room.workspaceKey === 'shared_ops' ? 'ready' : 'planned');
+          const cardSummary = liveEntry ? standupSummary(liveEntry) : prep?.summary ?? room.description;
+          const cardTimestamp = liveCreatedAt
+            ? formatTimestamp(liveCreatedAt)
+            : prepGeneratedAt
+              ? formatTimestamp(prepGeneratedAt)
+              : 'Awaiting first artifact-backed meeting';
 
           return (
             <article
@@ -6359,11 +6373,11 @@ function StandupsPanel({
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
                 <div>
                   <h3 style={{ fontSize: '20px', color: 'white', margin: 0 }}>{room.label}</h3>
-                  <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>{prep?.generatedAt ? formatTimestamp(new Date(prep.generatedAt)) : liveEntry?.created_at ? formatTimestamp(new Date(liveEntry.created_at)) : 'Awaiting first artifact-backed meeting'}</p>
+                  <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>{cardTimestamp}</p>
                 </div>
                 {statusBadge(cardStatus)}
               </div>
-              <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, marginBottom: '12px' }}>{prep?.summary ?? room.description}</p>
+              <p style={{ color: '#cbd5f5', fontSize: '14px', lineHeight: 1.6, marginBottom: '12px' }}>{cardSummary}</p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
                 {room.participants.map((participant) => (
                   <span key={participant} style={{ borderRadius: '999px', border: '1px solid #334155', padding: '4px 10px', color: '#e2e8f0', fontSize: '12px' }}>
@@ -6378,10 +6392,12 @@ function StandupsPanel({
                   </span>
                 ))}
               </div>
-              {prep && (
+              {hasPromotablePrep && prep && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap' }}>
                   <div style={{ color: '#94a3b8', fontSize: '12px' }}>
-                    Promotion will create the standup record and seed PM cards from the current prep packet.
+                    {liveEntry
+                      ? 'A newer prep packet is ready for the next promotion cycle.'
+                      : 'Promotion will create the standup record and seed PM cards from the current prep packet.'}
                   </div>
                   <button
                     onClick={(event) => {
@@ -6399,8 +6415,13 @@ function StandupsPanel({
                       cursor: promotingKey === room.key ? 'not-allowed' : 'pointer',
                     }}
                   >
-                    {promotingKey === room.key ? 'Creating…' : `Create ${room.label}`}
+                    {promotingKey === room.key ? 'Creating…' : liveEntry ? `Promote Next ${room.label}` : `Create ${room.label}`}
                   </button>
+                </div>
+              )}
+              {prepAlreadyPromoted && (
+                <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '12px' }}>
+                  Current prep packet already matches the latest live standup.
                 </div>
               )}
               {liveEntry && (

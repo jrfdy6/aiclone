@@ -23,6 +23,7 @@ from app.services.open_brain_db import get_pool
 from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.pm_review_hygiene_audit_service import list_review_hygiene_audit, record_review_hygiene_audit
 from app.services.trigger_identity_service import build_pm_trigger_key
+from app.services.workspace_registry_service import canonicalize_workspace_key, workspace_registry_entries, workspace_root_slug
 from app.services.workspace_runtime_contract_service import (
     execution_defaults_for_workspace as runtime_execution_defaults_for_workspace,
     pm_review_policy_for_workspace as runtime_pm_review_policy_for_workspace,
@@ -773,12 +774,26 @@ def build_card_action_update(
     elif action == "return":
         next_status = "todo"
         next_state = "queued"
-        next_target = "Jean-Claude"
-        next_assigned_runner = "jean-claude"
-        next_execution_mode = "direct"
+        if str(defaults["execution_mode"]) == "delegated":
+            next_target = str(
+                current_execution.get("workspace_agent")
+                or (queue_entry.workspace_agent if queue_entry else "")
+                or defaults.get("workspace_agent")
+                or defaults["target_agent"]
+            )
+            next_assigned_runner = str(
+                current_execution.get("assigned_runner")
+                or (queue_entry.assigned_runner if queue_entry else "")
+                or "codex"
+            )
+            next_execution_mode = str(defaults["execution_mode"])
+        else:
+            next_target = "Jean-Claude"
+            next_assigned_runner = "jean-claude"
+            next_execution_mode = "direct"
         manager_attention_required = False
         if not effective_reason:
-            effective_reason = "Returned to Jean-Claude for another pass."
+            effective_reason = "Returned for another pass with corrected PM guidance."
     elif action == "blocked":
         next_status = "blocked"
         next_state = "queued"
@@ -1420,7 +1435,8 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
     if interrupt_policy not in {"owner_gate_only", "manager_attention_only"}:
         return None
 
-    contract_assessment = _completion_contract_assessment(card)
+    host_action_required = _extract_host_action_required(card)
+    contract_assessment = _completion_contract_assessment(card, host_action_required=host_action_required)
     if contract_assessment is not None and not bool(contract_assessment.get("satisfied")):
         retry_limit = int(contract_assessment.get("auto_return_limit") or AUTO_CONTRACT_RETRY_LIMIT)
         current_retry_count = _completion_contract_auto_retry_count(card)
@@ -1448,7 +1464,6 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
             "contract_auto_return_count": current_retry_count + 1,
         }
 
-    host_action_required = _extract_host_action_required(card)
     if host_action_required is not None:
         return {
             "action": "approve",
@@ -1509,12 +1524,17 @@ def _autonomous_review_progression(card: PMCard) -> dict[str, Any] | None:
     }
 
 
-def _completion_contract_assessment(card: PMCard) -> dict[str, Any] | None:
+def _completion_contract_assessment(
+    card: PMCard,
+    *,
+    host_action_required: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     payload = dict(card.payload or {})
     contract = payload.get("completion_contract")
     if not isinstance(contract, dict) or not contract:
         return None
 
+    workspace_key = _workspace_key_from_card(card)
     latest_result = payload.get("latest_execution_result")
     done_when = [
         str(item).strip()
@@ -1526,6 +1546,8 @@ def _completion_contract_assessment(card: PMCard) -> dict[str, Any] | None:
     require_outcome_or_artifact = bool(requirements.get("require_outcome_or_artifact", True))
     require_writeback = bool(requirements.get("require_writeback", True))
     allow_blockers = bool(requirements.get("allow_blockers", False))
+    require_local_artifact_citation = bool(requirements.get("require_local_artifact_citation", False))
+    require_lane_constraint = bool(requirements.get("require_lane_constraint", False))
 
     missing: list[str] = []
     summary = ""
@@ -1547,10 +1569,18 @@ def _completion_contract_assessment(card: PMCard) -> dict[str, Any] | None:
             missing.append("Result summary is too thin to prove completion.")
         if require_outcome_or_artifact and not outcomes and not artifacts:
             missing.append("Result is missing a concrete outcome or artifact.")
-        if not allow_blockers and blockers:
+        if not allow_blockers and blockers and host_action_required is None:
             missing.append("Result still contains unresolved blockers.")
-        if status == "blocked":
+        if status == "blocked" and host_action_required is None:
             missing.append("Result reported a blocked status.")
+        if require_local_artifact_citation and not _result_has_local_artifact_reference(latest_result, workspace_key):
+            missing.append("Result does not cite local artifact context for the active workspace.")
+        out_of_scope_roots = _out_of_scope_execution_log_roots(latest_result, workspace_key)
+        if require_lane_constraint and out_of_scope_roots:
+            missing.append(
+                "Result cites another workspace execution log instead of staying inside the active lane: "
+                + ", ".join(f"`{root}`" for root in out_of_scope_roots[:3])
+            )
 
     return {
         "active": True,
@@ -1609,6 +1639,77 @@ def _extract_host_action_required(card: PMCard) -> dict[str, Any] | None:
         "source_result_summary": _optional_str(latest_result.get("summary")),
         "detected_from": detected_from,
     }
+
+
+def _result_text_fragments(latest_result: dict[str, Any]) -> list[str]:
+    fragments: list[str] = []
+    summary = str(latest_result.get("summary") or "").strip()
+    if summary:
+        fragments.append(summary)
+    for key in ("outcomes", "artifacts", "follow_ups", "learnings", "host_action_proof"):
+        for item in latest_result.get(key) or []:
+            normalized = str(item).strip()
+            if normalized:
+                fragments.append(normalized)
+    for key in ("memo_path", "result_path"):
+        normalized = str(latest_result.get(key) or "").strip()
+        if normalized:
+            fragments.append(normalized)
+    for item in latest_result.get("host_actions") or []:
+        if isinstance(item, dict):
+            summary = str(item.get("summary") or "").strip()
+            if summary:
+                fragments.append(summary)
+            for key in ("steps", "proof_required"):
+                for step in item.get(key) or []:
+                    normalized = str(step).strip()
+                    if normalized:
+                        fragments.append(normalized)
+        else:
+            normalized = str(item).strip()
+            if normalized:
+                fragments.append(normalized)
+    return fragments
+
+
+def _result_has_local_artifact_reference(latest_result: dict[str, Any], workspace_key: str) -> bool:
+    normalized_workspace = canonicalize_workspace_key(workspace_key, default="shared_ops")
+    workspace_root = workspace_root_slug(normalized_workspace).lower()
+    for fragment in _result_text_fragments(latest_result):
+        lowered = fragment.lower()
+        if not lowered:
+            continue
+        if normalized_workspace == "shared_ops":
+            if lowered.startswith("/users/") or "memory/" in lowered or "workspaces/shared-ops/" in lowered:
+                return True
+            continue
+        if f"/workspaces/{workspace_root}/" in lowered or f"workspaces/{workspace_root}/" in lowered:
+            return True
+        if lowered.startswith("/users/") and ("/memory/runner-results/" in lowered or "/memory/runner-memos/" in lowered):
+            return True
+    return False
+
+
+def _out_of_scope_execution_log_roots(latest_result: dict[str, Any], workspace_key: str) -> list[str]:
+    normalized_workspace = canonicalize_workspace_key(workspace_key, default="shared_ops")
+    if normalized_workspace == "shared_ops":
+        return []
+    allowed_root = workspace_root_slug(normalized_workspace).lower()
+    seen: list[str] = []
+    candidate_roots = [
+        str(entry.get("workspace_root") or entry.get("key") or "").strip().lower()
+        for entry in workspace_registry_entries()
+    ]
+    for fragment in _result_text_fragments(latest_result):
+        lowered = fragment.lower()
+        if "execution log" not in lowered and "execution_log.md" not in lowered:
+            continue
+        for root in candidate_roots:
+            if not root or root == allowed_root or root in seen:
+                continue
+            if root in lowered:
+                seen.append(root)
+    return seen
 
 
 def _is_delayed_host_action_text(value: object) -> bool:

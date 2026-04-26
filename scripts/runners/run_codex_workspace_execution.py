@@ -259,13 +259,46 @@ def _is_runnable_host_action_automation(automation: dict[str, Any]) -> bool:
     return False
 
 
+def _ready_linkedin_host_action_has_confirmation_evidence(card: dict[str, Any]) -> bool:
+    automation = _host_action_automation(card)
+    if str(automation.get("automation_id") or "") != HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK:
+        return False
+    if str(automation.get("state") or "ready").strip().lower() != "ready":
+        return False
+
+    text_blob = _host_action_text_blob(card)
+    queue_id = _extract_feezie_queue_id(automation.get("queue_id"), text_blob)
+    if not queue_id:
+        return False
+    scheduled_at = _parse_scheduled_at_et(
+        automation.get("scheduled_at"),
+        automation.get("queue_reason"),
+        text_blob,
+    )
+    if scheduled_at is None:
+        return False
+
+    analytics_dir = _linkedin_workspace_root() / "analytics" / f"{scheduled_at.astimezone(EASTERN_TZ).date().isoformat()}_{queue_id.lower()}"
+    confirmation_path = _resolve_linkedin_confirmation_path(str(automation.get("confirmation_path") or ""), analytics_dir)
+    if confirmation_path.exists():
+        return True
+    receipt_path = analytics_dir / "scheduled_receipt.json"
+    return receipt_path.exists()
+
+
+def _is_runnable_host_action_automation_card(card: dict[str, Any]) -> bool:
+    automation = _host_action_automation(card)
+    if _is_runnable_host_action_automation(automation):
+        return True
+    return _ready_linkedin_host_action_has_confirmation_evidence(card)
+
+
 def _select_runnable_host_action_automation_card(cards: list[dict[str, Any]]) -> dict[str, Any] | None:
     candidates: list[dict[str, Any]] = []
     for card in cards:
         if _is_closed_status(card.get("status")):
             continue
-        automation = _host_action_automation(card)
-        if not _is_runnable_host_action_automation(automation):
+        if not _is_runnable_host_action_automation_card(card):
             continue
         candidates.append(card)
     if not candidates:
@@ -783,6 +816,7 @@ def _run_linkedin_scheduled_writeback_automation(
     payload = dict(card.get("payload") or {})
     automation = dict(payload.get("host_action_automation") or {})
     host_action = dict(payload.get("host_action_required") or {})
+    initial_automation_state = str(automation.get("state") or "ready").strip().lower()
     text_blob = _host_action_text_blob(card)
     queue_id = _extract_feezie_queue_id(automation.get("queue_id"), text_blob)
     if not queue_id:
@@ -902,7 +936,11 @@ def _run_linkedin_scheduled_writeback_automation(
         "source_card_id": str(automation.get("source_card_id") or host_action.get("source_card_id") or ""),
         "host_card_id": str(card.get("id") or ""),
         "host_confirmed_at": _iso(_now()),
-        "confirmation_method": "host_clicked_scheduled_button",
+        "confirmation_method": (
+            "host_artifact_detected"
+            if initial_automation_state == "ready" and screenshot_exists
+            else "host_clicked_scheduled_button"
+        ),
         "confirmation_path": confirmation_rel,
         "screenshot_present": screenshot_exists,
         "release_packet_path": _relative_workspace_path(release_packet_path) if release_packet_path else None,
@@ -910,7 +948,11 @@ def _run_linkedin_scheduled_writeback_automation(
         "queue_path": _relative_workspace_path(queue_path),
         "analytics_log_path": analytics_rel,
         "updated_paths": sorted(set(updated_paths + [receipt_rel])),
-        "note": "This receipt records host confirmation after the post was scheduled in LinkedIn; it does not claim autonomous LinkedIn UI access.",
+        "note": (
+            "This receipt records host scheduling evidence detected from the confirmation artifact and does not claim autonomous LinkedIn UI access."
+            if initial_automation_state == "ready" and screenshot_exists
+            else "This receipt records host confirmation after the post was scheduled in LinkedIn; it does not claim autonomous LinkedIn UI access."
+        ),
     }
     _write_json(receipt_path, receipt_payload)
 
@@ -2242,7 +2284,7 @@ def main() -> int:
     selected_host_action: dict[str, Any] | None = None
     if args.card_id:
         host_candidate = _load_card(imports, args.api_url.rstrip("/"), str(args.card_id))
-        if _is_runnable_host_action_automation(_host_action_automation(host_candidate)):
+        if _is_runnable_host_action_automation_card(host_candidate):
             selected_host_action = host_candidate
     else:
         selected_host_action = _select_runnable_host_action_automation_card(

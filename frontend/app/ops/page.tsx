@@ -14,7 +14,7 @@ import OpsClient, {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const OPENCLAW_WORKSPACE_ROOT = path.join(process.cwd(), '.openclaw/workspace');
+const OPENCLAW_WORKSPACE_ROOT = resolveWorkspaceRoot();
 const OPENCLAW_MEMORY_ROOT = path.join(OPENCLAW_WORKSPACE_ROOT, 'memory');
 const PINNED_DOC_PATHS = ['docs/aiclone_system_architecture.md'];
 
@@ -30,8 +30,8 @@ export default function OpsPage() {
 
 function loadWorkspaceFiles(): WorkspaceFile[] {
   const roots = [
-    { root: path.join(process.cwd(), 'knowledge/persona/feeze'), label: 'persona-bundle' },
-    { root: path.join(process.cwd(), 'workspaces/linkedin-content-os'), label: 'linkedin-content-os' },
+    { root: path.join(OPENCLAW_WORKSPACE_ROOT, 'knowledge/persona/feeze'), label: 'persona-bundle' },
+    { root: path.join(OPENCLAW_WORKSPACE_ROOT, 'workspaces/linkedin-content-os'), label: 'linkedin-content-os' },
     { root: path.join(OPENCLAW_WORKSPACE_ROOT, 'workspaces'), label: 'openclaw-workspaces' },
   ].filter((entry) => fs.existsSync(entry.root));
 
@@ -41,7 +41,7 @@ function loadWorkspaceFiles(): WorkspaceFile[] {
         .filter((file) => file.endsWith('.md') || file.endsWith('.json'))
         .sort()
         .map((filePath) => {
-          const relativePath = path.relative(process.cwd(), filePath).replace(/\\/g, '/');
+          const relativePath = path.relative(OPENCLAW_WORKSPACE_ROOT, filePath).replace(/\\/g, '/');
           const relativeToRoot = path.relative(root, filePath).replace(/\\/g, '/');
           const segments = relativeToRoot.split('/');
           const group = segments.length > 1 ? `${label}/${segments[0]}` : label;
@@ -69,14 +69,14 @@ function loadDocEntries(): DocReference[] {
   ];
 
   return targets
-    .map((relativePath) => path.join(process.cwd(), relativePath))
+    .map((relativePath) => path.join(OPENCLAW_WORKSPACE_ROOT, relativePath))
     .filter((fullPath) => fs.existsSync(fullPath))
     .map((fullPath) => {
       const raw = fs.readFileSync(fullPath, 'utf-8');
       const stat = fs.statSync(fullPath);
       return {
         name: path.basename(fullPath),
-        path: path.relative(process.cwd(), fullPath).replace(/\\/g, '/'),
+        path: path.relative(OPENCLAW_WORKSPACE_ROOT, fullPath).replace(/\\/g, '/'),
         snippet: firstMeaningfulLine(raw),
         content: raw,
         updatedAt: stat.mtime.toISOString(),
@@ -94,6 +94,31 @@ function comparePinnedDocs(left: DocReference, right: DocReference) {
     return leftPinnedIndex - rightPinnedIndex;
   }
   return left.path.localeCompare(right.path);
+}
+
+function candidateWorkspaceRoots() {
+  const cwd = process.cwd();
+  const candidates = [
+    process.env.OPENCLAW_WORKSPACE_ROOT,
+    cwd,
+    path.join(cwd, '..'),
+    path.join(cwd, '..', '..'),
+    '/app',
+    '/app/frontend',
+  ].filter((candidate): candidate is string => Boolean(candidate && candidate.trim().length > 0));
+
+  return Array.from(new Set(candidates.map((candidate) => path.resolve(candidate)))).filter((candidate) => {
+    return (
+      fs.existsSync(path.join(candidate, 'docs')) ||
+      fs.existsSync(path.join(candidate, 'knowledge')) ||
+      fs.existsSync(path.join(candidate, 'memory')) ||
+      fs.existsSync(path.join(candidate, 'workspaces'))
+    );
+  });
+}
+
+function resolveWorkspaceRoot() {
+  return candidateWorkspaceRoots()[0] ?? process.cwd();
 }
 
 function loadExecutiveFeed(): ExecutiveFeed {
@@ -640,7 +665,7 @@ function readJsonLines(filePath: string): Record<string, unknown>[] {
 }
 
 function toRelativePath(filePath: string) {
-  return path.relative(process.cwd(), filePath).replace(/\\/g, '/');
+  return path.relative(OPENCLAW_WORKSPACE_ROOT, filePath).replace(/\\/g, '/');
 }
 
 function walk(dir: string): string[] {

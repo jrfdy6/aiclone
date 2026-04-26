@@ -635,6 +635,66 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual((processed or {}).get("card_id"), "auto-progress-shared-ops")
         self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_close")
 
+    def test_auto_progress_review_cards_closes_delegated_workspace_review_when_contract_is_met(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="auto-progress-fusion",
+            title="Resolve Fusion next move",
+            owner="Jean-Claude",
+            status="review",
+            source="post-sync-dispatch:test",
+            link_type="standup",
+            link_id="standup-auto-progress-fusion-1",
+            payload={
+                "workspace_key": "fusion-os",
+                "reason": "Workspace execution result ready for review.",
+                "completion_contract": {
+                    "source": "post_sync_dispatch",
+                    "auto_return_limit": 2,
+                    "result_requirements": {
+                        "summary_min_length": 20,
+                        "require_outcome_or_artifact": True,
+                        "require_writeback": True,
+                        "allow_blockers": False,
+                        "require_local_artifact_citation": True,
+                        "require_lane_constraint": True,
+                    },
+                    "done_when": ["Return a bounded Fusion result with local evidence."],
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Built the next Fusion artifact using the latest Fusion briefing and local execution log only.",
+                    "outcomes": ["Prepared the next bounded content move."],
+                    "artifacts": ["/Users/neo/.openclaw/workspace/workspaces/fusion-os/briefings/2026-04-26_leadership_pov_next_cycle.md"],
+                    "blockers": [],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "workspace_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[card]),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+            patch.object(pm_card_service, "record_review_hygiene_audit", return_value=None),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("closed_count"), 1)
+        processed = (result.get("processed") or [None])[0]
+        self.assertEqual((processed or {}).get("card_id"), "auto-progress-fusion")
+        self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_close")
+
     def test_auto_progress_review_cards_continues_feezie_review_and_spawns_successor(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
@@ -1017,6 +1077,59 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual((processed or {}).get("action"), "approve")
         self.assertEqual((processed or {}).get("rule"), "workspace_policy_accept_and_close")
 
+    def test_completion_contract_assessment_rejects_foreign_workspace_execution_log(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="workspace-contract-foreign-log",
+            title="Easy Outfit workspace follow-up",
+            owner="Jean-Claude",
+            status="review",
+            source="post-sync-dispatch:test",
+            link_type="standup",
+            link_id="easyoutfit-standup-1",
+            payload={
+                "workspace_key": "easyoutfitapp",
+                "completion_contract": {
+                    "source": "post_sync_dispatch",
+                    "auto_return_limit": 2,
+                    "result_requirements": {
+                        "summary_min_length": 20,
+                        "require_outcome_or_artifact": True,
+                        "require_writeback": True,
+                        "allow_blockers": False,
+                        "require_local_artifact_citation": True,
+                        "require_lane_constraint": True,
+                    },
+                    "done_when": ["Return a bounded workspace result with local evidence."],
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": (
+                        "Defined the next move using the Easy Outfit App execution log and the linked "
+                        "`linkedin-content-os` execution log that showed the prior artifact-backed pattern."
+                    ),
+                    "outcomes": [
+                        "Updated `/Users/neo/.openclaw/workspace/workspaces/easyoutfitapp/briefings/2026-04-17_foundation.md`."
+                    ],
+                    "artifacts": [
+                        "/Users/neo/.openclaw/workspace/workspaces/easyoutfitapp/analytics/2026-04-26_daily_ritual_visit_baseline.md"
+                    ],
+                    "blockers": [],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        assessment = pm_card_service._completion_contract_assessment(card)
+
+        self.assertIsNotNone(assessment)
+        assert assessment is not None
+        self.assertFalse(bool(assessment.get("satisfied")))
+        self.assertTrue(
+            any("another workspace execution log" in str(item).lower() for item in assessment.get("missing") or [])
+        )
+
     def test_auto_progress_review_cards_routes_host_actions_into_host_card(self) -> None:
         now = datetime.now(timezone.utc)
         source_card = PMCard(
@@ -1095,6 +1208,7 @@ class PMCardServiceTests(unittest.TestCase):
             patch.object(pm_card_service, "update_card", side_effect=fake_update),
             patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
             patch.object(pm_card_service, "create_card", side_effect=fake_create),
+            patch.object(pm_card_service, "record_review_hygiene_audit", return_value=None),
         ):
             result = pm_card_service.auto_progress_review_cards()
 
@@ -1114,6 +1228,119 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(
             (current["card"].payload.get("latest_manual_review") or {}).get("host_action_card_id"),
             "host-action-card-1",
+        )
+
+    def test_auto_progress_review_cards_routes_host_actions_even_with_external_blocker(self) -> None:
+        now = datetime.now(timezone.utc)
+        source_card = PMCard(
+            id="auto-progress-ai-swag-host-action",
+            title="Define next concrete opportunity for AI Swag Store",
+            owner="Jean-Claude",
+            status="review",
+            source="post-sync-dispatch:test",
+            link_type="standup",
+            link_id="standup-auto-progress-ai-swag-1",
+            payload={
+                "workspace_key": "ai-swag-store",
+                "completion_contract": {
+                    "source": "post_sync_dispatch",
+                    "auto_return_limit": 2,
+                    "result_requirements": {
+                        "summary_min_length": 20,
+                        "require_outcome_or_artifact": True,
+                        "require_writeback": True,
+                        "allow_blockers": False,
+                        "require_local_artifact_citation": True,
+                        "require_lane_constraint": True,
+                    },
+                    "done_when": ["Name one bounded AI Swag Store next move with lane-local evidence."],
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Re-grounded the AI Swag Store next move inside ai-swag-store only and identified the exact host-side traffic snapshot still needed before catalog expansion.",
+                    "outcomes": [
+                        "Updated the lane-local analytics note so the next move stays inside AI Swag Store."
+                    ],
+                    "artifacts": [
+                        "/Users/neo/.openclaw/workspace/workspaces/ai-swag-store/analytics/2026-04-26_store_visit_baseline.md"
+                    ],
+                    "blockers": [
+                        "The live 7-day and 30-day visit counts are not present locally yet, so the traffic checkpoint still needs host input."
+                    ],
+                    "host_actions": [
+                        "Capture the current AI Swag Store 7-day and 30-day website-visit counts and fill the traffic baseline note."
+                    ],
+                    "host_action_proof": [
+                        "Provide a screenshot or analytics export plus the completed baseline note."
+                    ],
+                },
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "AI Swag Store Operator Agent",
+                    "workspace_agent": "AI Swag Store Operator Agent",
+                    "execution_mode": "delegated",
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        current = {"card": source_card}
+        created_payloads: list[PMCardCreate] = []
+
+        def fake_update(card_id: str, patch: PMCardUpdate) -> PMCard:
+            self.assertEqual(card_id, source_card.id)
+            current["card"] = current["card"].model_copy(
+                update={
+                    "status": patch.status if patch.status is not None else current["card"].status,
+                    "payload": patch.payload if patch.payload is not None else current["card"].payload,
+                    "updated_at": now,
+                }
+            )
+            return current["card"]
+
+        def fake_create(payload: PMCardCreate) -> PMCard:
+            created_payloads.append(payload)
+            return PMCard(
+                id="host-action-card-ai-swag-1",
+                title=payload.title,
+                owner=payload.owner,
+                status=payload.status,
+                source=payload.source,
+                link_type=payload.link_type,
+                link_id=payload.link_id,
+                payload=payload.payload,
+                created_at=now,
+                updated_at=now,
+            )
+
+        with (
+            patch.object(pm_card_service, "list_cards", return_value=[source_card]),
+            patch.object(pm_card_service, "update_card", side_effect=fake_update),
+            patch.object(pm_card_service, "find_active_card_by_trigger_key", return_value=None),
+            patch.object(pm_card_service, "create_card", side_effect=fake_create),
+            patch.object(pm_card_service, "record_review_hygiene_audit", return_value=None),
+        ):
+            result = pm_card_service.auto_progress_review_cards()
+
+        self.assertEqual(result.get("processed_count"), 1)
+        self.assertEqual(result.get("closed_count"), 1)
+        processed = (result.get("processed") or [None])[0] or {}
+        self.assertEqual(processed.get("action"), "approve")
+        self.assertEqual(processed.get("rule"), "completion_contract_host_action_required")
+        self.assertEqual(processed.get("host_action_card_id"), "host-action-card-ai-swag-1")
+        self.assertEqual(len(created_payloads), 1)
+        created = created_payloads[0]
+        self.assertEqual(created.source, "pm_host_action_required")
+        self.assertEqual(created.owner, "Neo")
+        self.assertEqual(created.status, "todo")
+        self.assertIn("7-day and 30-day website-visit counts", str(created.title))
+        self.assertEqual(
+            (current["card"].payload.get("latest_manual_review") or {}).get("host_action_card_id"),
+            "host-action-card-ai-swag-1",
         )
 
     def test_create_host_action_card_builds_structured_proof_fields(self) -> None:
@@ -1540,6 +1767,57 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("attention_class"), "autonomous")
         self.assertEqual(policy.get("recommended_resolution_mode"), "close_and_spawn_next")
         self.assertEqual(policy.get("suggested_next_title"), "Turn seeded FEEZIE backlog into first draft batch")
+
+    def test_decorate_card_for_client_marks_delegated_workspace_review_as_autonomous(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="fusion-review-card",
+            title="Resolve Fusion next move",
+            owner="Jean-Claude",
+            status="review",
+            source="post-sync-dispatch:test",
+            link_type="standup",
+            link_id="fusion-standup-1",
+            payload={
+                "workspace_key": "fusion-os",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Fusion Systems Operator",
+                    "workspace_agent": "Fusion Systems Operator",
+                    "execution_mode": "delegated",
+                    "last_transition_at": now.isoformat(),
+                },
+                "completion_contract": {
+                    "source": "post_sync_dispatch",
+                    "auto_return_limit": 2,
+                    "result_requirements": {
+                        "summary_min_length": 20,
+                        "require_outcome_or_artifact": True,
+                        "require_writeback": True,
+                        "allow_blockers": False,
+                    },
+                    "done_when": ["Return a bounded workspace result with local evidence."],
+                },
+                "latest_execution_result": {
+                    "status": "review",
+                    "summary": "Built the next Fusion artifact with local briefing and execution-log evidence.",
+                    "outcomes": ["Prepared the next bounded content move."],
+                    "artifacts": ["/tmp/fusion-next-move.md"],
+                    "blockers": [],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        decorated = pm_card_service.decorate_card_for_client(card)
+
+        self.assertIsNotNone(decorated)
+        policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertEqual(policy.get("recommended_resolution_mode"), "close_only")
 
     def test_decorate_card_for_client_marks_host_action_card_as_needs_host(self) -> None:
         now = datetime.now(timezone.utc)
@@ -2941,7 +3219,7 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertIn("failed", str(policy.get("attention_reason") or "").lower())
         self.assertFalse(bool(policy.get("owner_decision_gate")))
 
-    def test_decorate_card_for_client_marks_fusion_review_as_needs_owner(self) -> None:
+    def test_decorate_card_for_client_marks_fusion_review_as_autonomous(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
             id="fusion-review-card",
@@ -2971,8 +3249,8 @@ class PMCardServiceTests(unittest.TestCase):
 
         self.assertIsNotNone(decorated)
         policy = (decorated.payload.get("pm_review_policy") or {}) if decorated else {}
-        self.assertEqual(policy.get("attention_class"), "needs_owner")
-        self.assertIsNone(policy.get("recommended_resolution_mode"))
+        self.assertEqual(policy.get("attention_class"), "autonomous")
+        self.assertEqual(policy.get("recommended_resolution_mode"), "close_only")
 
     def test_decorate_card_for_client_treats_owner_review_followup_as_fyi_once_decided(self) -> None:
         now = datetime.now(timezone.utc)
@@ -3098,7 +3376,7 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(policy.get("attention_class"), "autonomous")
         self.assertFalse(bool(policy.get("owner_decision_gate")))
 
-    def test_act_on_card_return_reroutes_to_jean_claude(self) -> None:
+    def test_act_on_card_return_preserves_delegated_workspace_lane(self) -> None:
         now = datetime.now(timezone.utc)
         card = PMCard(
             id="return-card",
@@ -3137,8 +3415,48 @@ class PMCardServiceTests(unittest.TestCase):
         self.assertEqual(result.card.status, "todo")
         assert result.queue_entry is not None
         self.assertEqual(result.queue_entry.execution_state, "queued")
-        self.assertEqual(result.queue_entry.target_agent, "Jean-Claude")
+        self.assertEqual(result.queue_entry.target_agent, "Fusion Systems Operator")
+        self.assertEqual(result.queue_entry.execution_mode, "delegated")
         self.assertEqual((result.card.payload.get("latest_manual_review") or {}).get("action"), "return")
+
+    def test_act_on_card_return_keeps_direct_workspace_on_jean_claude(self) -> None:
+        now = datetime.now(timezone.utc)
+        card = PMCard(
+            id="return-direct-card",
+            title="Needs another direct pass",
+            owner="Jean-Claude",
+            status="review",
+            source="standup-prep:test",
+            link_type="standup",
+            link_id="standup-5b",
+            payload={
+                "workspace_key": "shared_ops",
+                "execution": {
+                    "lane": "codex",
+                    "state": "review",
+                    "manager_agent": "Jean-Claude",
+                    "target_agent": "Jean-Claude",
+                    "execution_mode": "direct",
+                    "assigned_runner": "jean-claude",
+                    "queued_at": now.isoformat(),
+                    "last_transition_at": now.isoformat(),
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+
+        with (
+            patch.object(pm_card_service, "get_card", return_value=card),
+            patch.object(pm_card_service, "update_card", side_effect=lambda _card_id, patch: self._apply_update(card, patch)),
+        ):
+            result = pm_card_service.act_on_card(card.id, PMCardActionRequest(action="return", requested_by="Neo"))
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        assert result.queue_entry is not None
+        self.assertEqual(result.queue_entry.target_agent, "Jean-Claude")
+        self.assertEqual(result.queue_entry.execution_mode, "direct")
 
     def test_act_on_card_blocked_sets_manager_attention_and_preserves_returned_agent(self) -> None:
         now = datetime.now(timezone.utc)

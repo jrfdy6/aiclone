@@ -3,9 +3,18 @@ set -euo pipefail
 
 WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$WORKSPACE_ROOT"
-STAGE_ROOT="$WORKSPACE_ROOT/.railway-stage"
+STAGE_ROOT="${RAILWAY_STAGE_ROOT:-${TMPDIR:-/tmp}/aiclone-railway-stage}"
 CANONICAL_DATA_ROOT="${OPENCLAW_WORKSPACE_ROOT:-/Users/neo/.openclaw/workspace}"
 DATA_ROOT="$WORKSPACE_ROOT"
+PYTHON_BIN="${PYTHON_BIN:-}"
+
+if [ -z "$PYTHON_BIN" ]; then
+  if [ -x "$WORKSPACE_ROOT/.venv-main-safe/bin/python" ]; then
+    PYTHON_BIN="$WORKSPACE_ROOT/.venv-main-safe/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
 
 if [ -d "$CANONICAL_DATA_ROOT/knowledge/ingestions" ] && [ "$CANONICAL_DATA_ROOT" != "$WORKSPACE_ROOT" ]; then
   DATA_ROOT="$CANONICAL_DATA_ROOT"
@@ -18,6 +27,15 @@ Usage: scripts/deploy_railway_service.sh <frontend|backend>
 Stages a small deploy context that preserves the top-level service directory
 expected by Railway, then runs `railway up` against that staged path.
 EOF
+}
+
+run_repo_hygiene_preflight() {
+  if [ "${SKIP_REPO_HYGIENE:-0}" = "1" ]; then
+    echo "Skipping repo hygiene preflight because SKIP_REPO_HYGIENE=1."
+    return
+  fi
+  echo "Running repo hygiene preflight..."
+  "$PYTHON_BIN" "$WORKSPACE_ROOT/scripts/verify_repo_hygiene.py"
 }
 
 rsync_if_exists() {
@@ -65,6 +83,8 @@ stage_frontend_brain_sources() {
   for workspace_dir in shared-ops linkedin-content-os fusion-os easyoutfitapp ai-swag-store agc
   do
     rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/analytics/" "$target_root/workspaces/$workspace_dir/analytics/"
+    rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/briefings/" "$target_root/workspaces/$workspace_dir/briefings/"
+    rsync_if_exists "$DATA_ROOT/workspaces/$workspace_dir/dispatch/" "$target_root/workspaces/$workspace_dir/dispatch/"
   done
   rsync_if_exists "$DATA_ROOT/workspaces/linkedin-content-os/plans/" "$target_root/workspaces/linkedin-content-os/plans/"
 
@@ -74,8 +94,29 @@ stage_frontend_brain_sources() {
     memory/daily-briefs.md \
     memory/cron-prune.md \
     memory/dream_cycle_log.md \
+    memory/heartbeat-state.json \
     memory/codex_session_handoff.jsonl \
     memory/reports/brain_canonical_memory_sync_latest.md
+  do
+    rsync_if_exists "$DATA_ROOT/$rel_path" "$target_root/$rel_path"
+  done
+
+  rsync_if_exists "$DATA_ROOT/memory/standup-prep/" "$target_root/memory/standup-prep/"
+  rsync_if_exists "$DATA_ROOT/memory/pm-recommendations/" "$target_root/memory/pm-recommendations/"
+  rsync_if_exists "$DATA_ROOT/memory/runner-memos/jean-claude/" "$target_root/memory/runner-memos/jean-claude/"
+
+  for rel_path in \
+    memory/reports/meeting_watchdog_latest.md \
+    memory/reports/post_sync_dispatch_latest.md \
+    memory/reports/accountability_sweep_latest.md
+  do
+    rsync_if_exists "$DATA_ROOT/$rel_path" "$target_root/$rel_path"
+  done
+
+  for rel_path in \
+    memory/runtime/persistent_state.md \
+    memory/runtime/LEARNINGS.md \
+    memory/runtime/codex_session_handoff.jsonl
   do
     rsync_if_exists "$DATA_ROOT/$rel_path" "$target_root/$rel_path"
   done
@@ -111,6 +152,8 @@ case "$1" in
     exit 1
     ;;
 esac
+
+run_repo_hygiene_preflight
 
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/$CHILD_DIR"
@@ -172,8 +215,7 @@ if [ "$DATA_ROOT" != "$WORKSPACE_ROOT" ]; then
 fi
 
 cd "$WORKSPACE_ROOT"
-REL_STAGE_DIR="${STAGE_DIR#$WORKSPACE_ROOT/}"
-UP_OUTPUT="$(railway up -s "$SERVICE_NAME" --path-as-root "$REL_STAGE_DIR" --verbose 2>&1)"
+UP_OUTPUT="$(railway up -s "$SERVICE_NAME" --path-as-root "$STAGE_DIR" --verbose 2>&1)"
 echo "$UP_OUTPUT"
 
 DEPLOY_ID="$(echo "$UP_OUTPUT" | sed -n 's/.*id=\([0-9a-fA-F-]\{36\}\).*/\1/p' | tail -n 1)"
