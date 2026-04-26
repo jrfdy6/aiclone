@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node ./node_modules/next/dist/bin/next dev",
     "prebuild": "node scripts/export-brain-snapshot.js",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "build": "node ./node_modules/next/dist/bin/next build",
+    "start": "node ./node_modules/next/dist/bin/next start",
+    "lint": "node ./node_modules/next/dist/bin/next lint"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.0.0",

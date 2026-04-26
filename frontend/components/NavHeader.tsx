@@ -1,23 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useClientLocation } from '@/lib/use-client-location';
 
 export default function NavHeader() {
-  const pathname = usePathname();
+  const { hash, pathname } = useClientLocation();
   const currentPath = pathname ?? '';
-  const [hash, setHash] = useState('');
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const syncHash = () => setHash(window.location.hash);
-    syncHash();
-    window.addEventListener('hashchange', syncHash);
-    return () => window.removeEventListener('hashchange', syncHash);
-  }, []);
 
   const navLinks = [
     { href: '/ops', label: 'Ops', active: currentPath === '/ops' && hash !== '#workspace' },

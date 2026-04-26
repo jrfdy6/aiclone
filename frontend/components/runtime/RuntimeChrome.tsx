@@ -1,10 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { BookOpenText, BrainCircuit, FlaskConical, FolderKanban, Inbox, RadioTower } from 'lucide-react';
+import { useClientLocation } from '@/lib/use-client-location';
 
 export type RuntimeModule = 'ops' | 'brain' | 'lab';
 
@@ -21,17 +19,96 @@ const accents: Record<RuntimeModule, string> = {
   lab: '#4ade80',
 };
 
-const modules: { id: RuntimeModule; label: string; href: string; icon: typeof RadioTower }[] = [
-  { id: 'ops', label: 'Ops', href: '/ops', icon: RadioTower },
-  { id: 'brain', label: 'Brain', href: '/brain', icon: BrainCircuit },
-  { id: 'lab', label: 'Lab', href: '/lab', icon: FlaskConical },
+type IconComponent = ({ size }: { size?: number }) => ReactNode;
+
+function iconFrame(size = 18) {
+  return {
+    fill: 'none',
+    height: size,
+    stroke: 'currentColor',
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    strokeWidth: 1.8,
+    viewBox: '0 0 24 24',
+    width: size,
+  };
+}
+
+function SignalIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...iconFrame(size)}>
+      <path d="M12 3v18" />
+      <path d="M5 9a7 7 0 0 1 14 0" />
+      <path d="M8 12a4 4 0 0 1 8 0" />
+      <circle cx="12" cy="18" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function BrainIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...iconFrame(size)}>
+      <path d="M9 6a3 3 0 0 0-3 3v6a3 3 0 0 0 3 3" />
+      <path d="M15 6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3" />
+      <path d="M9 8.5c1.2-1.4 2.4-2.1 3-2.1s1.8.7 3 2.1" />
+      <path d="M9 15.5c1.2 1.4 2.4 2.1 3 2.1s1.8-.7 3-2.1" />
+      <path d="M12 6v12" />
+      <path d="M8.5 12H15.5" />
+    </svg>
+  );
+}
+
+function FlaskIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...iconFrame(size)}>
+      <path d="M10 3h4" />
+      <path d="M11 3v5l-4.5 8a2 2 0 0 0 1.8 3h7.4a2 2 0 0 0 1.8-3L13 8V3" />
+      <path d="M8.5 14h7" />
+    </svg>
+  );
+}
+
+function WorkspaceIconGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...iconFrame(size)}>
+      <rect x="3" y="5" width="7" height="6" rx="1.2" />
+      <rect x="14" y="5" width="7" height="6" rx="1.2" />
+      <rect x="3" y="13" width="18" height="6" rx="1.2" />
+    </svg>
+  );
+}
+
+function InboxIconGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...iconFrame(size)}>
+      <path d="M4 6h16l-1.2 11a2 2 0 0 1-2 1.8H7.2a2 2 0 0 1-2-1.8z" />
+      <path d="M4 12h4l2 3h4l2-3h4" />
+    </svg>
+  );
+}
+
+function BookIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg {...iconFrame(size)}>
+      <path d="M6 5.5A2.5 2.5 0 0 1 8.5 3H19v16H8.5A2.5 2.5 0 0 0 6 21z" />
+      <path d="M6 5.5V21H5a2 2 0 0 1-2-2V7.5A2.5 2.5 0 0 1 5.5 5z" />
+      <path d="M10 8h6" />
+      <path d="M10 12h6" />
+    </svg>
+  );
+}
+
+const modules: { id: RuntimeModule; label: string; href: string; icon: IconComponent }[] = [
+  { id: 'ops', label: 'Ops', href: '/ops', icon: SignalIcon },
+  { id: 'brain', label: 'Brain', href: '/brain', icon: BrainIcon },
+  { id: 'lab', label: 'Lab', href: '/lab', icon: FlaskIcon },
 ];
 
 const workspaceLink = {
   id: 'workspace',
   label: 'Workspaces',
   href: '/ops#workspace',
-  icon: FolderKanban,
+  icon: WorkspaceIconGlyph,
   tone: '#fb923c',
 };
 
@@ -39,7 +116,7 @@ const inboxLink = {
   id: 'inbox',
   label: 'Inbox',
   href: '/inbox',
-  icon: Inbox,
+  icon: InboxIconGlyph,
   tone: '#60a5fa',
 };
 
@@ -98,7 +175,7 @@ export function RuntimePage({
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#94a3b8', fontSize: '12px' }}>
-              <BookOpenText size={14} />
+              <BookIcon size={14} />
               <span>Control surfaces</span>
             </div>
           </div>
@@ -141,21 +218,10 @@ function RuntimeTabs({ tabs, accent }: { tabs: RuntimeTab[]; accent: string }) {
 }
 
 function ModuleDock({ active }: { active: RuntimeModule }) {
-  const pathname = usePathname();
+  const { hash, pathname } = useClientLocation();
   const currentPath = pathname ?? '';
-  const [hash, setHash] = useState('');
   const WorkspaceIcon = workspaceLink.icon;
   const InboxIcon = inboxLink.icon;
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const syncHash = () => setHash(window.location.hash);
-    syncHash();
-    window.addEventListener('hashchange', syncHash);
-    return () => window.removeEventListener('hashchange', syncHash);
-  }, []);
 
   return (
     <div style={{ position: 'fixed', bottom: '14px', left: 0, right: 0, zIndex: 50, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>

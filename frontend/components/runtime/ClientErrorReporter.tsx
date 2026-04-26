@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect } from 'react';
-import { usePathname, useSearchParams } from 'next/navigation';
 import { normalizeRejectionReason, normalizeWindowError, reportClientError } from '@/lib/client-error-reporting';
+import { useClientLocation } from '@/lib/use-client-location';
 
 export default function ClientErrorReporter({
   release,
@@ -13,12 +13,10 @@ export default function ClientErrorReporter({
   environment: string;
   service: string;
 }) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { href, pathname, search } = useClientLocation();
 
   useEffect(() => {
-    const search = searchParams?.toString();
-    const route = search ? `${pathname ?? ''}?${search}` : pathname ?? '/';
+    const route = search ? `${pathname || '/'}${search}` : pathname || '/';
 
     const handleWindowError = (event: ErrorEvent) => {
       const normalized = normalizeWindowError(event.error, event.message || 'Window error');
@@ -27,7 +25,7 @@ export default function ClientErrorReporter({
         message: normalized.message,
         stack: normalized.stack,
         route,
-        href: typeof window !== 'undefined' ? window.location.href : route,
+        href: href || route,
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
         release,
         environment,
@@ -47,7 +45,7 @@ export default function ClientErrorReporter({
         message: normalized.message,
         stack: normalized.stack,
         route,
-        href: typeof window !== 'undefined' ? window.location.href : route,
+        href: href || route,
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
         release,
         environment,
@@ -64,7 +62,7 @@ export default function ClientErrorReporter({
       window.removeEventListener('error', handleWindowError);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
-  }, [environment, pathname, release, searchParams, service]);
+  }, [environment, href, pathname, release, search, service]);
 
   return null;
 }

@@ -1197,6 +1197,15 @@ export function LinkedinWorkspaceSurface({
     () => feedItems.map((item) => ({ item, lifecycle: resolveSourceLifecycleForFeedItem(item, sourceLifecycleIndex) })),
     [feedItems, sourceLifecycleIndex],
   );
+  const ownerReviewMatchedFeedIds = useMemo(() => {
+    const matched = new Set<string>();
+    feedItemsWithLifecycle.forEach(({ item }) => {
+      if (findOwnerReviewMatch(item, ownerReviewItems)) {
+        matched.add(item.id);
+      }
+    });
+    return matched;
+  }, [feedItemsWithLifecycle, ownerReviewItems]);
   const decisionFeedItems = useMemo(
     () =>
       feedItemsWithLifecycle.filter(({ item, lifecycle }) => {
@@ -1316,15 +1325,6 @@ export function LinkedinWorkspaceSurface({
     snapshot?.reaction_queue?.post_seeds,
     snapshot?.weekly_plan?.recommendations,
   ]);
-  const ownerReviewMatchedFeedIds = useMemo(() => {
-    const matched = new Set<string>();
-    feedItemsWithLifecycle.forEach(({ item }) => {
-      if (findOwnerReviewMatch(item, ownerReviewItems)) {
-        matched.add(item.id);
-      }
-    });
-    return matched;
-  }, [feedItemsWithLifecycle, ownerReviewItems]);
 
   useEffect(() => {
     if (!initialSnapshot) return;
