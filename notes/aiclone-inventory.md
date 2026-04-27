@@ -1,5 +1,7 @@
 # AI Clone Archive — Inventory (2026-03-03)
 
+> Historical inventory note: treat this file as an archive snapshot, not the live operational contract. The current donor/extraction decision for `downloads/aiclone` lives in `docs/downloads_aiclone_donor_boundary.md`.
+
 **Location:** `downloads/aiclone` (unzipped from latest archive)
 
 ## Snapshot

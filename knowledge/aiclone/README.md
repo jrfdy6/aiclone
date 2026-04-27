@@ -1,5 +1,7 @@
 # AI Clone Knowledge Base
 
+Execution boundary for the raw donor repo: `docs/downloads_aiclone_donor_boundary.md`.
+
 ## Imported Packs (2026-03-03)
 1. **NotebookLM-ready briefs** (`knowledge/aiclone/notebooklm_ready/`)
 2. **Phase roadmaps & retros** (`knowledge/aiclone/roadmaps/`)

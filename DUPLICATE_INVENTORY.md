@@ -5,6 +5,7 @@ This file tracks the overlap between the live workspace root and the `downloads/
 ## How it works
 - The root-level markdown/json files are the “active” set you edit daily.
 - Their clones under `workspace/downloads/aiclone/` are read-only archives; rely on `notes/aiclone-inventory.md` when you need the historic copy.
+- The current extraction/retirement decision for the archive lives in `docs/downloads_aiclone_donor_boundary.md`.
 - The scripts in `workspace/scripts/` (e.g., `list_duplicate_docs.py`) can refresh this list whenever the archive changes.
 
 ## High-level duplicates
