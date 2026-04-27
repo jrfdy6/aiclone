@@ -122,10 +122,13 @@ Do not build a third extractor. Consolidate around the better path.
 ### Existing harvested-feed pipeline
 - `scripts/personal-brand/fetch_reddit_signals.py`
 - `scripts/personal-brand/fetch_rss_signals.py`
+- `scripts/personal-brand/backfill_article_signals.py`
 - `scripts/personal-brand/refresh_social_feed.py`
 
 These already create harvested signal artifacts.
 They are currently thin and partly placeholder-driven, but they are still the right pipeline anchors.
+RSS/article capture should now prefer structured or body-text extraction from the source URL when available and only fall back to feed-summary-only capture when the source page cannot be read cleanly.
+Use the backfill script when an older archived article needs rehydration after it has fallen out of the current RSS fetch window.
 
 ### Existing media-intake and transcript surfaces
 - `knowledge/aiclone/transcripts/`

@@ -157,8 +157,16 @@ class ContentGenerationContext:
     raw_proof_packets: list[str] = field(default_factory=list)
     public_safe_proof_packets: list[dict[str, Any]] = field(default_factory=list)
     content_release_policy: dict[str, Any] = field(default_factory=dict)
+    content_signal_chunks: list[dict[str, Any]] = field(default_factory=list)
+    content_signal_source: str = "persona_only"
     content_reservoir_chunks: list[dict[str, Any]] = field(default_factory=list)
     audit: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.content_signal_chunks and self.content_reservoir_chunks:
+            self.content_signal_chunks = list(self.content_reservoir_chunks)
+        if not self.content_reservoir_chunks and self.content_signal_chunks:
+            self.content_reservoir_chunks = list(self.content_signal_chunks)
 
 
 def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
@@ -560,6 +568,35 @@ def _load_content_reservoir_payload(*, allow_runtime_rebuild: bool = True) -> di
     return payload if isinstance(payload, dict) else None
 
 
+def _load_content_safe_operator_lessons_payload(*, allow_runtime_rebuild: bool = True) -> dict[str, Any] | None:
+    payload = get_snapshot_payload("linkedin-content-os", "content_safe_operator_lessons")
+    if isinstance(payload, dict) and not allow_runtime_rebuild:
+        return payload
+    if not allow_runtime_rebuild:
+        return None
+    try:
+        from app.services.workspace_snapshot_service import SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS, _load_snapshot
+
+        refreshed = _load_snapshot(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
+        if isinstance(refreshed, dict):
+            return refreshed
+    except Exception:
+        pass
+    if isinstance(payload, dict):
+        return payload
+    try:
+        from app.services.workspace_snapshot_service import workspace_snapshot_service
+
+        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(
+            include_workspace_files=False,
+            include_doc_entries=False,
+        )
+    except Exception:
+        return None
+    payload = snapshot.get("content_safe_operator_lessons") if isinstance(snapshot, dict) else None
+    return payload if isinstance(payload, dict) else None
+
+
 def _load_source_assets_payload(*, allow_runtime_rebuild: bool = True) -> dict[str, Any] | None:
     payload = get_snapshot_payload("linkedin-content-os", "source_assets")
     if isinstance(payload, dict) and not allow_runtime_rebuild:
@@ -657,6 +694,181 @@ def _content_reservoir_lane_bonus(lane: str) -> int:
         "voice_guidance": 4,
         "post_seed": 3,
     }.get(lane, 0)
+
+
+def _content_safe_operator_lesson_domain_tags(*texts: str) -> list[str]:
+    normalized = " ".join(" ".join((text or "").lower().split()) for text in texts if text)
+    tags: list[str] = []
+    if any(term in normalized for term in ("ai", "agent", "automation", "operator", "ops", "prompt", "routing", "workflow")):
+        tags.extend(["ai_systems", "operator_workflows"])
+    if any(term in normalized for term in ("process", "system", "systems", "execution", "operations", "playbook")):
+        tags.append("systems_operations")
+    if any(term in normalized for term in ("leadership", "manager", "management", "team", "culture", "decision")):
+        tags.append("leadership")
+    if any(term in normalized for term in ("content", "post", "linkedin", "writing", "story")):
+        tags.append("content_strategy")
+    if any(term in normalized for term in ("admissions", "enrollment", "student", "students", "family", "families", "school")):
+        tags.append("education_admissions")
+    if any(term in normalized for term in ("neurodivergent", "adhd", "autism", "learning")):
+        tags.append("neurodivergent_advocacy")
+    if any(term in normalized for term in ("fashion", "style", "outfit", "wardrobe", "closet")):
+        tags.append("fashion_identity")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        if tag in seen:
+            continue
+        seen.add(tag)
+        deduped.append(tag)
+    return deduped
+
+
+def _content_safe_operator_lesson_audience_tags(domain_tags: list[str]) -> list[str]:
+    domain_set = set(domain_tags)
+    tags: list[str] = []
+    if domain_set & {"ai_systems", "operator_workflows", "content_strategy"}:
+        tags.extend(["tech_ai", "entrepreneurs"])
+    if domain_set & {"leadership", "systems_operations"}:
+        tags.extend(["leadership", "leadership_management"])
+    if "education_admissions" in domain_set:
+        tags.append("education_admissions")
+    if "neurodivergent_advocacy" in domain_set:
+        tags.append("neurodivergent")
+    if "fashion_identity" in domain_set:
+        tags.append("fashion")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        if tag in seen:
+            continue
+        seen.add(tag)
+        deduped.append(tag)
+    return deduped
+
+
+def _hydrate_content_safe_operator_lesson(item: dict[str, Any]) -> dict[str, Any]:
+    macro_thesis = " ".join(str(item.get("macro_thesis") or "").split()).strip()
+    public_takeaway = " ".join(str(item.get("public_takeaway") or "").split()).strip()
+    public_proof = " ".join(str(item.get("public_proof") or "").split()).strip()
+    safe_angle = " ".join(str(item.get("safe_angle") or "").split()).strip()
+    topic_tags = [
+        " ".join(str(tag or "").split()).strip()
+        for tag in item.get("topic_tags") or []
+        if " ".join(str(tag or "").split()).strip()
+    ]
+    domain_tags = _content_safe_operator_lesson_domain_tags(
+        macro_thesis,
+        public_takeaway,
+        public_proof,
+        safe_angle,
+        " ".join(topic_tags),
+    )
+    audience_tags = _content_safe_operator_lesson_audience_tags(domain_tags)
+    chunk_parts = [macro_thesis]
+    if public_proof:
+        chunk_parts.append(f"Public-facing proof: {public_proof}")
+    chunk = " ".join(part for part in chunk_parts if part).strip()
+    if public_takeaway:
+        chunk = f"{chunk} Use when: {public_takeaway}".strip()
+    return {
+        "source_id": item.get("id") or item.get("source_signal_id"),
+        "source_file_id": item.get("source_signal_id") or item.get("id"),
+        "chunk_index": None,
+        "chunk": chunk,
+        "similarity_score": 0.0,
+        "weighted_score": 0.0,
+        "persona_tag": "PUBLIC_PROOF",
+        "captured_at": " ".join(str(item.get("created_at") or "").split()).strip(),
+        "metadata": {
+            "source_kind": "content_safe_operator_lessons",
+            "source_lane": "content_safe_operator_lessons",
+            "source": str(item.get("source_signal_id") or item.get("id") or "content_safe_operator_lessons"),
+            "file_name": "memory/reports/content_safe_operator_lessons_latest.json",
+            "memory_role": "proof",
+            "domain_tags": domain_tags,
+            "audience_tags": audience_tags,
+            "proof_strength": "medium" if public_proof else "weak",
+            "artifact_backed": bool(public_proof),
+            "claim_type": "operational" if public_proof else "positioning",
+            "usage_modes": ["proof_anchor", "topic_anchor"],
+            "safe_angle": safe_angle,
+            "topic_tags": topic_tags,
+            "visibility": str(item.get("visibility") or "public_safe"),
+        },
+    }
+
+
+def retrieve_content_safe_operator_lesson_chunks(
+    *,
+    topic: str,
+    audience: str,
+    category: str,
+    top_k: int = 8,
+    strategy: str = "ranked",
+    allow_runtime_rebuild: bool = True,
+) -> list[dict[str, Any]]:
+    payload = _load_content_safe_operator_lessons_payload(allow_runtime_rebuild=allow_runtime_rebuild)
+    lessons = payload.get("lessons") if isinstance(payload, dict) else None
+    if not isinstance(lessons, list) or not lessons:
+        return []
+
+    focus_terms = _focus_terms(topic, audience)
+    recent_mode = " ".join((strategy or "ranked").lower().split()) == "recent"
+    ranked: list[tuple[str, int, int, dict[str, Any]]] = []
+    for raw_lesson in lessons:
+        if not isinstance(raw_lesson, dict):
+            continue
+        hydrated = _hydrate_content_safe_operator_lesson(raw_lesson)
+        chunk = str(hydrated.get("chunk") or "")
+        if not chunk:
+            continue
+        primary_text, use_when_text = _split_use_when_text(chunk)
+        focus_score = (_chunk_focus_score(primary_text, focus_terms, topic) * 3) + _chunk_focus_score(use_when_text, focus_terms, topic)
+        compatibility_score = _domain_compatibility_score(hydrated, topic=topic, audience=audience)
+        metadata = _item_metadata(hydrated)
+        tag_tokens: set[str] = set()
+        for raw_tag in [str(raw_lesson.get("safe_angle") or "")] + [str(tag) for tag in raw_lesson.get("topic_tags") or []]:
+            tag_tokens.update(token for token in re.findall(r"[a-z0-9]+", raw_tag.lower()) if token)
+        composite = (focus_score * 5) + (compatibility_score * 4)
+        composite += len(tag_tokens & focus_terms)
+        if bool(metadata.get("artifact_backed")):
+            composite += 3
+        if str(raw_lesson.get("workspace_scope") or "") == "shared_pattern":
+            composite += 1
+        if str(raw_lesson.get("source_route") or "") == "persona_candidate":
+            composite += 2
+        if category == "value":
+            composite += 2
+        elif category == "sales" and any(token in {"trust", "customer", "proof", "results"} for token in tag_tokens):
+            composite += 2
+        elif category == "personal":
+            composite += 1
+
+        if recent_mode:
+            if focus_score <= 0 and compatibility_score <= 0 and composite <= 0:
+                continue
+        elif composite <= 0:
+            continue
+
+        recency = " ".join(str(raw_lesson.get("created_at") or hydrated.get("captured_at") or "").split()).strip()
+        ranked.append((recency, composite, len(tag_tokens & focus_terms), hydrated))
+
+    curated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    sort_key = (
+        (lambda entry: (entry[0], entry[1], entry[2]))
+        if recent_mode
+        else (lambda entry: (entry[1], entry[2], entry[0]))
+    )
+    for _, _, _, item in sorted(ranked, key=sort_key, reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= top_k:
+            break
+    return curated
 
 
 def retrieve_content_reservoir_chunks(
@@ -938,7 +1150,13 @@ def _serialize_chunk_group(items: list[dict[str, Any]], *, limit: int) -> dict[s
 
 def _snapshot_payload_summary(snapshot_type: str) -> dict[str, Any]:
     payload = get_snapshot_payload("linkedin-content-os", snapshot_type)
-    items = payload.get("items") if isinstance(payload, dict) else None
+    items = None
+    if isinstance(payload, dict):
+        for key in ("items", "lessons", "signals"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                items = candidate
+                break
     counts = payload.get("counts") if isinstance(payload, dict) and isinstance(payload.get("counts"), dict) else {}
     available = isinstance(payload, dict)
     return {
@@ -962,6 +1180,10 @@ def _runtime_snapshot_payload_summary(snapshot_type: str) -> dict[str, Any]:
 
             source_assets_payload = _build_source_assets_payload()
             payload = build_content_reservoir_payload(source_assets=source_assets_payload)
+        elif snapshot_type == "content_safe_operator_lessons":
+            from app.services.content_safe_operator_lesson_service import build_content_safe_operator_lessons_payload
+
+            payload = build_content_safe_operator_lessons_payload()
         else:
             payload = None
     except Exception as exc:
@@ -974,7 +1196,13 @@ def _runtime_snapshot_payload_summary(snapshot_type: str) -> dict[str, Any]:
             "error": str(exc),
         }
 
-    items = payload.get("items") if isinstance(payload, dict) else None
+    items = None
+    if isinstance(payload, dict):
+        for key in ("items", "lessons", "signals"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                items = candidate
+                break
     counts = payload.get("counts") if isinstance(payload, dict) and isinstance(payload.get("counts"), dict) else {}
     available = isinstance(payload, dict)
     return {
@@ -1367,12 +1595,20 @@ def _content_reservoir_snapshot_summary() -> dict[str, Any]:
     return _snapshot_payload_summary("content_reservoir")
 
 
+def _content_safe_operator_lessons_snapshot_summary() -> dict[str, Any]:
+    return _snapshot_payload_summary("content_safe_operator_lessons")
+
+
 def _source_assets_snapshot_summary() -> dict[str, Any]:
     return _snapshot_payload_summary("source_assets")
 
 
 def _runtime_content_reservoir_snapshot_summary() -> dict[str, Any]:
     return _runtime_snapshot_payload_summary("content_reservoir")
+
+
+def _runtime_content_safe_operator_lessons_snapshot_summary() -> dict[str, Any]:
+    return _runtime_snapshot_payload_summary("content_safe_operator_lessons")
 
 
 def _runtime_source_assets_snapshot_summary() -> dict[str, Any]:
@@ -1590,8 +1826,9 @@ def build_content_generation_context(
     del tone
 
     normalized_source_mode = " ".join((source_mode or "persona_only").lower().split())
-    if normalized_source_mode not in {"persona_only", "selected_source", "recent_signals"}:
+    if normalized_source_mode not in {"persona_only", "selected_source", "recent_signals", "email_thread_grounded"}:
         normalized_source_mode = "persona_only"
+    retrieval_priority_mode = normalized_source_mode in {"selected_source", "recent_signals"}
     context_text = " ".join((context or "").split()).strip()
     context_for_query = context_text[:280]
 
@@ -1619,40 +1856,70 @@ def build_content_generation_context(
         top_k=6,
     )
     content_reservoir_chunks: list[dict[str, Any]] = []
+    content_safe_operator_lesson_chunks: list[dict[str, Any]] = []
     retrieved_persona_chunks = []
+    retrieval_source = "persona_only"
     if normalized_source_mode == "recent_signals":
-        content_reservoir_chunks = retrieve_content_reservoir_chunks(
-            topic=topic,
-            audience=audience,
-            category=category,
-            top_k=8,
-            strategy="recent",
-            allow_runtime_rebuild=allow_snapshot_rebuild,
-        )
+        if content_type == "linkedin_post":
+            content_safe_operator_lesson_chunks = retrieve_content_safe_operator_lesson_chunks(
+                topic=topic,
+                audience=audience,
+                category=category,
+                top_k=8,
+                strategy="recent",
+                allow_runtime_rebuild=allow_snapshot_rebuild,
+            )
+        if content_safe_operator_lesson_chunks:
+            content_reservoir_chunks = content_safe_operator_lesson_chunks
+            retrieval_source = "content_safe_operator_lessons"
+        else:
+            content_reservoir_chunks = retrieve_content_reservoir_chunks(
+                topic=topic,
+                audience=audience,
+                category=category,
+                top_k=8,
+                strategy="recent",
+                allow_runtime_rebuild=allow_snapshot_rebuild,
+            )
+            retrieval_source = "content_reservoir"
         retrieved_persona_chunks = content_reservoir_chunks
     elif normalized_source_mode == "selected_source":
-        content_reservoir_chunks = retrieve_content_reservoir_chunks(
-            topic=topic,
-            audience=audience,
-            category=category,
-            top_k=8,
-            strategy="ranked",
-            allow_runtime_rebuild=allow_snapshot_rebuild,
-        )
+        if content_type == "linkedin_post":
+            content_safe_operator_lesson_chunks = retrieve_content_safe_operator_lesson_chunks(
+                topic=topic,
+                audience=audience,
+                category=category,
+                top_k=8,
+                strategy="ranked",
+                allow_runtime_rebuild=allow_snapshot_rebuild,
+            )
+        if content_safe_operator_lesson_chunks:
+            content_reservoir_chunks = content_safe_operator_lesson_chunks
+            retrieval_source = "content_safe_operator_lessons"
+        else:
+            content_reservoir_chunks = retrieve_content_reservoir_chunks(
+                topic=topic,
+                audience=audience,
+                category=category,
+                top_k=8,
+                strategy="ranked",
+                allow_runtime_rebuild=allow_snapshot_rebuild,
+            )
+            retrieval_source = "content_reservoir"
         retrieved_persona_chunks = content_reservoir_chunks
     persona_chunks = curate_persona_prompt_chunks(
         bundle_chunks=bundle_persona_chunks,
         legacy_support_chunks=legacy_support_chunks,
         retrieved_chunks=retrieved_persona_chunks,
         top_k=9,
-        prioritize_retrieval=normalized_source_mode != "persona_only",
+        prioritize_retrieval=retrieval_priority_mode,
     )
     persona_chunks = filter_persona_chunks_for_domain(
         persona_chunks,
         topic=topic,
         audience=audience,
     )
-    if normalized_source_mode != "persona_only":
+    if retrieval_priority_mode:
         persona_chunks = _restore_retrieval_support_chunks(
             persona_chunks,
             retrieved_chunks=retrieved_persona_chunks,
@@ -1695,7 +1962,7 @@ def build_content_generation_context(
         audience=audience,
         limit=3,
     )
-    if normalized_source_mode == "persona_only":
+    if not retrieval_priority_mode:
         core_topic_chunks = _merge_unique_chunks(canonical_core_topic_chunks, core_topic_chunks, limit=4)
     else:
         core_topic_chunks = _merge_unique_chunks(core_topic_chunks, canonical_core_topic_chunks, limit=4)
@@ -1709,7 +1976,7 @@ def build_content_generation_context(
         audience=audience,
         limit=4,
     )
-    if normalized_source_mode == "persona_only":
+    if not retrieval_priority_mode:
         proof_anchor_chunks = _merge_unique_chunks(canonical_proof_anchor_chunks, proof_anchor_chunks, limit=4)
     else:
         proof_anchor_chunks = _merge_unique_chunks(proof_anchor_chunks, canonical_proof_anchor_chunks, limit=4)
@@ -1717,6 +1984,8 @@ def build_content_generation_context(
         "[content_context] "
         f"bundle={len(bundle_persona_chunks)} "
         f"legacy={len(legacy_support_chunks)} "
+        f"retrieval_source={retrieval_source} "
+        f"safe_lessons={len(content_safe_operator_lesson_chunks)} "
         f"reservoir={len(content_reservoir_chunks)} "
         f"retrieved={len(retrieved_persona_chunks)} "
         f"curated={len(persona_chunks)} "
@@ -1848,8 +2117,10 @@ def build_content_generation_context(
         snapshot_store_configured = _snapshot_store_configured()
         source_assets_summary = _source_assets_snapshot_summary()
         content_reservoir_summary = _content_reservoir_snapshot_summary()
+        content_safe_operator_lessons_summary = _content_safe_operator_lessons_snapshot_summary()
         runtime_source_assets_summary = _runtime_source_assets_snapshot_summary()
         runtime_content_reservoir_summary = _runtime_content_reservoir_snapshot_summary()
+        runtime_content_safe_operator_lessons_summary = _runtime_content_safe_operator_lessons_snapshot_summary()
         audit = {
             "request": {
                 "user_id": user_id,
@@ -1868,10 +2139,12 @@ def build_content_generation_context(
             "snapshot_inputs": {
                 "source_assets": source_assets_summary,
                 "content_reservoir": content_reservoir_summary,
+                "content_safe_operator_lessons": content_safe_operator_lessons_summary,
             },
             "runtime_snapshot_inputs": {
                 "source_assets": runtime_source_assets_summary,
                 "content_reservoir": runtime_content_reservoir_summary,
+                "content_safe_operator_lessons": runtime_content_safe_operator_lessons_summary,
             },
             "environment": {
                 "snapshot_store_configured": snapshot_store_configured,
@@ -1882,6 +2155,9 @@ def build_content_generation_context(
                 "canonical_bundle_filtered": _serialize_chunk_group(canonical_bundle_chunks, limit=12),
                 "bundle_candidates": _serialize_chunk_group(bundle_persona_chunks, limit=10),
                 "legacy_support_candidates": _serialize_chunk_group(legacy_support_chunks, limit=6),
+                "content_signal_source": retrieval_source,
+                "content_safe_operator_lesson_candidates": _serialize_chunk_group(content_safe_operator_lesson_chunks, limit=8),
+                "content_signal_candidates": _serialize_chunk_group(content_reservoir_chunks, limit=8),
                 "content_reservoir_candidates": _serialize_chunk_group(content_reservoir_chunks, limit=8),
                 "curated_persona_chunks": _serialize_chunk_group(persona_chunks, limit=12),
                 "core_chunks": _serialize_chunk_group(core_chunks, limit=8),
@@ -1925,6 +2201,11 @@ def build_content_generation_context(
                 ),
                 *(
                     []
+                    if content_safe_operator_lessons_summary.get("available")
+                    else ["Persisted content_safe_operator_lessons snapshot is unavailable in this runtime."]
+                ),
+                *(
+                    []
                     if runtime_source_assets_summary.get("available")
                     else ["Runtime source_assets builder is unavailable in this runtime."]
                 ),
@@ -1932,6 +2213,11 @@ def build_content_generation_context(
                     []
                     if runtime_content_reservoir_summary.get("available")
                     else ["Runtime content_reservoir builder is unavailable in this runtime."]
+                ),
+                *(
+                    []
+                    if runtime_content_safe_operator_lessons_summary.get("available")
+                    else ["Runtime content_safe_operator_lessons builder is unavailable in this runtime."]
                 ),
             ],
         }
@@ -1961,6 +2247,8 @@ def build_content_generation_context(
         raw_proof_packets=raw_proof_packets,
         public_safe_proof_packets=public_safe_proof_packets,
         content_release_policy=content_release_policy,
+        content_signal_chunks=content_reservoir_chunks,
+        content_signal_source=retrieval_source,
         content_reservoir_chunks=content_reservoir_chunks,
         audit=audit,
     )

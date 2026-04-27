@@ -127,6 +127,43 @@ def flatten_json_ld(payload: Any) -> list[dict[str, Any]]:
 
 
 class SocialSignalExtractionService:
+    def _title_looks_like_excerpt(self, value: str) -> bool:
+        normalized = normalize_inline_text(value)
+        if not normalized:
+            return True
+        return normalized.endswith((".", "!", "?")) or len(normalized.split()) > 12
+
+    def _merge_preview_candidates(self, primary: dict[str, str], *fallbacks: dict[str, str]) -> dict[str, str]:
+        merged = {
+            "title": normalize_inline_text(primary.get("title")),
+            "text": normalize_multiline_text(primary.get("text")),
+            "author": normalize_inline_text(primary.get("author")),
+        }
+        for candidate in fallbacks:
+            candidate_title = normalize_inline_text(candidate.get("title"))
+            if candidate_title and (not merged["title"] or self._title_looks_like_excerpt(merged["title"])):
+                merged["title"] = candidate_title
+            if not merged["author"]:
+                merged["author"] = normalize_inline_text(candidate.get("author"))
+            if not merged["text"]:
+                merged["text"] = normalize_multiline_text(candidate.get("text"))
+        return merged
+
+    def _article_candidate_score(self, preview: dict[str, str], *, body_candidate: bool = False) -> int:
+        text = normalize_multiline_text(preview.get("text"))
+        if not text:
+            return -1
+        inline = normalize_inline_text(text)
+        score = min(len(inline), 2200)
+        score += min(text.count("\n\n") * 120, 480)
+        if normalize_inline_text(preview.get("title")):
+            score += 20
+        if normalize_inline_text(preview.get("author")):
+            score += 30
+        if body_candidate:
+            score += 40
+        return score
+
     def _meta_content(self, soup: BeautifulSoup, *, name: str | None = None, property_name: str | None = None) -> str:
         if property_name:
             tag = soup.find("meta", attrs={"property": property_name})
@@ -201,7 +238,13 @@ class SocialSignalExtractionService:
             or soup.body
             or soup
         )
-        raw_lines = [node.get_text(" ", strip=True) for node in blocks.find_all(["p", "li", "div"]) if node.get_text(strip=True)]
+
+        def collect_lines(tag_names: list[str]) -> list[str]:
+            return [node.get_text(" ", strip=True) for node in blocks.find_all(tag_names) if node.get_text(strip=True)]
+
+        raw_lines = collect_lines(["p", "li"])
+        if len(raw_lines) < 3:
+            raw_lines = collect_lines(["p", "li", "div"])
 
         cleaned_lines: list[str] = []
         seen: set[str] = set()
@@ -234,6 +277,28 @@ class SocialSignalExtractionService:
 
         return self._extract_body_preview(soup)
 
+    def extract_article_payload(self, html: str) -> dict[str, str]:
+        soup = BeautifulSoup(html, "html.parser")
+        json_preview = self._extract_json_ld_preview(soup)
+        meta_preview = self._extract_meta_preview(soup)
+        body_preview = self._extract_body_preview(soup)
+
+        candidates = [
+            ("json", json_preview, False),
+            ("meta", meta_preview, False),
+            ("body", body_preview, True),
+        ]
+        best_name, best_preview, _ = max(
+            candidates,
+            key=lambda item: self._article_candidate_score(item[1], body_candidate=item[2]),
+        )
+
+        if best_name == "json":
+            return self._merge_preview_candidates(json_preview, meta_preview, body_preview)
+        if best_name == "body":
+            return self._merge_preview_candidates(body_preview, meta_preview, json_preview)
+        return self._merge_preview_candidates(meta_preview, body_preview, json_preview)
+
     def fetch_url_preview(self, url: str) -> dict[str, str]:
         response = requests.get(
             url,
@@ -243,6 +308,16 @@ class SocialSignalExtractionService:
         )
         response.raise_for_status()
         return self.extract_preview_payload(response.text)
+
+    def fetch_url_article_payload(self, url: str) -> dict[str, str]:
+        response = requests.get(
+            url,
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0 AICloneSocialFeedIngest/1.0"},
+            verify=certifi.where(),
+        )
+        response.raise_for_status()
+        return self.extract_article_payload(response.text)
 
 
 social_signal_extraction_service = SocialSignalExtractionService()

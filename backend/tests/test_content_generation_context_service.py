@@ -68,7 +68,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
         self.assertIn("Johnnie treats prompting plus agent orchestration", context.raw_primary_claims[0])
         self.assertEqual(
             context.primary_claims[0],
-            "Prompting plus agent orchestration is a stronger AI operating pattern than prompting alone.",
+            "AI helps when the workflow is coordinated, not improvised.",
         )
         self.assertEqual(context.public_safe_primary_claims[0]["transform_rule"], "generalize")
         self.assertIn("third_person_persona", context.public_safe_primary_claims[0]["policy_notes"])
@@ -123,6 +123,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[proof_chunk]),
         ):
             context = build_content_generation_context(
@@ -242,6 +243,89 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
         self.assertTrue(context.primary_claims)
         reservoir_mock.assert_not_called()
 
+    def test_selected_source_mode_prefers_content_safe_operator_lessons_for_linkedin_posts(self) -> None:
+        core_chunk = {
+            "chunk": "Workflow clarity is what keeps AI adoption honest.",
+            "metadata": {
+                "bundle_path": "identity/claims.md",
+                "memory_role": "core",
+                "domain_tags": ["ai_systems", "operator_workflows", "identity_core"],
+                "audience_tags": ["tech_ai"],
+                "proof_strength": "medium",
+                "artifact_backed": False,
+                "claim_type": "positioning",
+            },
+        }
+        safe_chunk = {
+            "chunk": "Workflow clarity becomes trustworthy when operators and AI read from the same reviewed system. Public-facing proof: Recent system work turned fragmented review into one shared operating layer. Use when: Show how AI adoption gets stronger when human review stays visible.",
+            "persona_tag": "PUBLIC_PROOF",
+            "metadata": {
+                "source_kind": "content_safe_operator_lessons",
+                "source_lane": "content_safe_operator_lessons",
+                "source": "content-safe-lesson-1",
+                "file_name": "memory/reports/content_safe_operator_lessons_latest.json",
+                "memory_role": "proof",
+                "domain_tags": ["ai_systems", "operator_workflows", "content_strategy"],
+                "audience_tags": ["tech_ai", "entrepreneurs"],
+                "proof_strength": "medium",
+                "artifact_backed": True,
+                "claim_type": "operational",
+            },
+        }
+        reservoir_chunk = {
+            "chunk": "This fallback reservoir chunk should not be used.",
+            "persona_tag": "PHILOSOPHY",
+            "metadata": {
+                "memory_role": "proof",
+                "domain_tags": ["ai_systems", "operator_workflows"],
+                "audience_tags": ["tech_ai"],
+                "proof_strength": "medium",
+                "artifact_backed": True,
+                "claim_type": "operational",
+            },
+        }
+
+        with (
+            patch("app.services.content_generation_context_service.embed_text", return_value=[0.1, 0.2]),
+            patch("app.services.content_generation_context_service.load_bundle_persona_chunks", return_value=[core_chunk]),
+            patch("app.services.content_generation_context_service.retrieve_bundle_persona_chunks", return_value=[core_chunk]),
+            patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[safe_chunk]),
+            patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[reservoir_chunk]) as reservoir_mock,
+        ):
+            context = build_content_generation_context(
+                user_id="johnnie_fields",
+                topic="ai adoption",
+                context="Use a public-safe operator lesson.",
+                content_type="linkedin_post",
+                category="value",
+                tone="expert_direct",
+                audience="tech_ai",
+                source_mode="selected_source",
+                include_audit=True,
+            )
+
+        self.assertEqual(len(context.content_reservoir_chunks), 1)
+        self.assertEqual(context.content_signal_source, "content_safe_operator_lessons")
+        self.assertEqual(context.content_signal_chunks, context.content_reservoir_chunks)
+        self.assertEqual(
+            (context.content_reservoir_chunks[0].get("metadata") or {}).get("source_kind"),
+            "content_safe_operator_lessons",
+        )
+        self.assertIn(
+            "Workflow clarity becomes trustworthy when operators and AI read from the same reviewed system.",
+            context.raw_primary_claims,
+        )
+        self.assertTrue(any("shared operating layer" in packet.lower() for packet in context.proof_packets))
+        self.assertEqual(context.audit["retrieval"]["content_signal_source"], "content_safe_operator_lessons")
+        self.assertEqual(
+            context.audit["retrieval"]["content_signal_candidates"]["count"],
+            1,
+        )
+        reservoir_mock.assert_not_called()
+
     def test_selected_source_mode_uses_ranked_content_reservoir_support(self) -> None:
         core_chunk = {
             "chunk": "Admissions is not just enrollment. It is translation.",
@@ -277,6 +361,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[reservoir_chunk]) as reservoir_mock,
         ):
             context = build_content_generation_context(
@@ -291,6 +376,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             )
 
         self.assertEqual(len(context.content_reservoir_chunks), 1)
+        self.assertEqual(context.content_signal_source, "content_reservoir")
         self.assertIn("student journey is leaking trust", context.content_reservoir_chunks[0]["chunk"])
         self.assertTrue(
             any(
@@ -343,6 +429,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[reservoir_chunk]) as reservoir_mock,
         ):
             context = build_content_generation_context(
@@ -357,6 +444,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             )
 
         self.assertEqual(len(context.content_reservoir_chunks), 1)
+        self.assertEqual(context.content_signal_source, "content_reservoir")
         self.assertIn("AI systems fail when the human review layer disappears.", context.content_reservoir_chunks[0]["chunk"])
         self.assertTrue(
             any(
@@ -421,6 +509,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[proof_chunk, voice_chunk]),
         ):
             context = build_content_generation_context(
@@ -470,6 +559,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[retrieval_chunk]),
         ):
             context = build_content_generation_context(
@@ -525,6 +615,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[retrieval_chunk]),
         ):
             context = build_content_generation_context(
@@ -591,6 +682,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch(
                 "app.services.content_generation_context_service.retrieve_content_reservoir_chunks",
                 return_value=[proof_chunk_one, proof_chunk_two],
@@ -646,6 +738,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[]) as reservoir_mock,
         ):
             context = build_content_generation_context(
@@ -853,6 +946,7 @@ class ContentGenerationContextSourceModeTests(unittest.TestCase):
             patch("app.services.content_generation_context_service.retrieve_legacy_support_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_curated_example_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_bundle_example_chunks", return_value=[]),
+            patch("app.services.content_generation_context_service.retrieve_content_safe_operator_lesson_chunks", return_value=[]),
             patch("app.services.content_generation_context_service.retrieve_content_reservoir_chunks", return_value=[proof_chunk]),
             patch("app.services.content_generation_context_service._snapshot_store_configured", return_value=True),
             patch(

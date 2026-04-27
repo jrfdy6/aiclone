@@ -26,6 +26,9 @@ As of the current production implementation:
 - the Workspace UI now renders one unified lane that combines source decisions and owner-review drafts
 - the feed uses `source_lifecycle` plus the owner-review queue to keep stage timing intact instead of flattening the workflow into one undifferentiated action set
 - source-stage actions remain upstream, while only owner-review `approve` and `revise` queue Jean-Claude follow-up
+- latent-transform owner-review drafts should now stay source-grounded: the first-pass draft must name the source signal it is translating, not just reuse a generic persona claim
+- RSS/Substack harvested articles should be captured from the canonical source page when possible; feed summaries are a fallback, not the preferred downstream artifact
+- older RSS/Substack items that have already fallen out of the live fetch window should be repairable through `scripts/personal-brand/backfill_article_signals.py`
 - the Workspace is LinkedIn-first, but not LinkedIn-only; Reddit, Substack/RSS, web links, and manually pasted text should ultimately flow through the same interpretation path
 - LinkedIn URL previews should prefer structured metadata extraction in this order:
   - JSON-LD `SocialMediaPosting` / `articleBody`
