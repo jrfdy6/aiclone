@@ -1339,6 +1339,11 @@ _PIPELINE_PHASE_CATALOG: list[dict[str, str]] = [
         "description": "Make sure source-backed belief/proof slices are present before retrieval begins.",
     },
     {
+        "id": "content_safe_operator_lessons",
+        "label": "Content-Safe Lessons",
+        "description": "Keep the public-safe lesson snapshot fresh enough to steer post generation before fallback retrieval begins.",
+    },
+    {
         "id": "context_assembly",
         "label": "Context Assembly",
         "description": "Ensure source-driven retrieval support actually reaches the curated prompt packet.",
@@ -1349,9 +1354,9 @@ _PIPELINE_PHASE_CATALOG: list[dict[str, str]] = [
         "description": "Verify selected_source and recent_signals change the thesis instead of collapsing back to canon.",
     },
     {
-        "id": "reservoir_quality",
-        "label": "Reservoir Quality",
-        "description": "Pressure-test whether retrieved reservoir slices are proof-rich enough to steer the draft.",
+        "id": "content_signal_quality",
+        "label": "Content Signal Quality",
+        "description": "Pressure-test whether the chosen source-backed signal lane is proof-rich enough to steer the draft.",
     },
 ]
 
@@ -1365,7 +1370,15 @@ def _count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
 
 
 def _pipeline_phase_status(issues: list[dict[str, Any]], phase_id: str) -> str:
-    matching = [item for item in issues if str(item.get("phase") or "") == phase_id]
+    matching = [
+        item
+        for item in issues
+        if str(item.get("phase") or "") == phase_id
+        or (
+            phase_id == "content_signal_quality"
+            and str(item.get("phase") or "") == "reservoir_quality"
+        )
+    ]
     if any(str(item.get("severity") or "").lower() == "high" for item in matching):
         return "fail"
     if matching:
@@ -1380,6 +1393,11 @@ def _phase_detail_lines(
     mode_summaries: dict[str, dict[str, Any]],
 ) -> list[str]:
     source_assets = ((audit.get("phases") or {}).get("source_assets") or {}) if isinstance(audit.get("phases"), dict) else {}
+    content_safe_operator_lessons = (
+        ((audit.get("phases") or {}).get("content_safe_operator_lessons") or {})
+        if isinstance(audit.get("phases"), dict)
+        else {}
+    )
     content_reservoir = (
         ((audit.get("phases") or {}).get("content_reservoir") or {}) if isinstance(audit.get("phases"), dict) else {}
     )
@@ -1405,6 +1423,21 @@ def _phase_detail_lines(
             f"Persisted reservoir slices: {int(persisted.get('item_count') or 0)}.",
             f"Runtime reservoir slices: {int(runtime.get('item_count') or 0)}.",
         ]
+    if phase_id == "content_safe_operator_lessons":
+        persisted = (
+            (content_safe_operator_lessons.get("persisted") or {})
+            if isinstance(content_safe_operator_lessons.get("persisted"), dict)
+            else {}
+        )
+        runtime = (
+            (content_safe_operator_lessons.get("runtime") or {})
+            if isinstance(content_safe_operator_lessons.get("runtime"), dict)
+            else {}
+        )
+        return [
+            f"Persisted safe lessons: {int(persisted.get('item_count') or 0)}.",
+            f"Runtime safe lessons: {int(runtime.get('item_count') or 0)}.",
+        ]
     if phase_id == "context_assembly":
         return [
             f"{mode}: retrieval support {int(summary.get('retrieval_support_count') or 0)} of {int(summary.get('curated_persona_chunk_count') or 0)} curated chunks."
@@ -1420,14 +1453,20 @@ def _phase_detail_lines(
             changed = "changed" if (summary.get("primary_claims") or []) != persona_claims else "collapsed"
             lines.append(f"{mode}: thesis {changed} relative to persona_only.")
         return lines
-    if phase_id == "reservoir_quality":
+    if phase_id == "content_signal_quality":
         lines = []
         for mode, summary in mode_summaries.items():
             if mode == "persona_only":
                 continue
-            roles = summary.get("reservoir_candidate_memory_roles") if isinstance(summary.get("reservoir_candidate_memory_roles"), dict) else {}
+            roles = (
+                summary.get("content_signal_candidate_memory_roles")
+                if isinstance(summary.get("content_signal_candidate_memory_roles"), dict)
+                else summary.get("reservoir_candidate_memory_roles")
+                if isinstance(summary.get("reservoir_candidate_memory_roles"), dict)
+                else {}
+            )
             lines.append(
-                f"{mode}: proof {int(roles.get('proof') or 0)}, ambient {int(roles.get('ambient') or 0)}, candidates {int(summary.get('reservoir_candidate_count') or 0)}."
+                f"{mode}: lane {str(summary.get('content_signal_source') or 'persona_only')}, proof {int(roles.get('proof') or 0)}, ambient {int(roles.get('ambient') or 0)}, candidates {int(summary.get('content_signal_candidate_count') or summary.get('reservoir_candidate_count') or 0)}."
             )
         return lines
     return []
@@ -1439,7 +1478,9 @@ def _build_content_pipeline_audit_view(audit: dict[str, Any]) -> dict[str, Any]:
     issue_count = len(issues)
     high_issue_count = sum(1 for item in issues if str(item.get("severity") or "").lower() == "high")
     snapshot_drift_count = sum(
-        1 for item in issues if str(item.get("phase") or "") in {"source_assets", "content_reservoir"}
+        1
+        for item in issues
+        if str(item.get("phase") or "") in {"source_assets", "content_reservoir", "content_safe_operator_lessons"}
     )
     source_mode_collapse_count = sum(1 for item in issues if str(item.get("phase") or "") == "source_mode_effect")
     retrieval_reach_count = sum(
@@ -1450,7 +1491,15 @@ def _build_content_pipeline_audit_view(audit: dict[str, Any]) -> dict[str, Any]:
     phase_health = []
     for phase in _PIPELINE_PHASE_CATALOG:
         phase_id = phase["id"]
-        phase_issues = [item for item in issues if str(item.get("phase") or "") == phase_id]
+        phase_issues = [
+            item
+            for item in issues
+            if str(item.get("phase") or "") == phase_id
+            or (
+                phase_id == "content_signal_quality"
+                and str(item.get("phase") or "") == "reservoir_quality"
+            )
+        ]
         phase_health.append(
             {
                 **phase,
@@ -1473,6 +1522,9 @@ def _build_content_pipeline_audit_view(audit: dict[str, Any]) -> dict[str, Any]:
                 "grounding_reason": summary.get("grounding_reason"),
                 "retrieval_support_count": int(summary.get("retrieval_support_count") or 0),
                 "canonical_bundle_count": int(summary.get("canonical_bundle_count") or 0),
+                "content_signal_source": str(summary.get("content_signal_source") or "persona_only"),
+                "content_signal_candidate_count": int(summary.get("content_signal_candidate_count") or summary.get("reservoir_candidate_count") or 0),
+                "content_signal_chunk_count": int(summary.get("content_signal_chunk_count") or summary.get("content_reservoir_chunk_count") or 0),
                 "reservoir_candidate_count": int(summary.get("reservoir_candidate_count") or 0),
                 "content_reservoir_chunk_count": int(summary.get("content_reservoir_chunk_count") or 0),
                 "example_count": int(summary.get("example_count") or 0),
@@ -1504,6 +1556,18 @@ def _build_content_pipeline_audit_view(audit: dict[str, Any]) -> dict[str, Any]:
                 "label": "Source Assets Runtime",
                 "value": int((((audit.get("phases") or {}).get("source_assets") or {}).get("runtime") or {}).get("item_count") or 0),
                 "tone": "#14b8a6",
+            },
+            {
+                "id": "content_safe_operator_lessons_persisted",
+                "label": "Safe Lessons Persisted",
+                "value": int((((audit.get("phases") or {}).get("content_safe_operator_lessons") or {}).get("persisted") or {}).get("item_count") or 0),
+                "tone": "#22c55e",
+            },
+            {
+                "id": "content_safe_operator_lessons_runtime",
+                "label": "Safe Lessons Runtime",
+                "value": int((((audit.get("phases") or {}).get("content_safe_operator_lessons") or {}).get("runtime") or {}).get("item_count") or 0),
+                "tone": "#10b981",
             },
             {
                 "id": "content_reservoir_persisted",

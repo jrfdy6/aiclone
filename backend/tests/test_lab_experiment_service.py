@@ -35,6 +35,10 @@ class LabExperimentServiceTests(unittest.TestCase):
                     "persisted": {"item_count": 23},
                     "runtime": {"item_count": 38},
                 },
+                "content_safe_operator_lessons": {
+                    "persisted": {"item_count": 6},
+                    "runtime": {"item_count": 11},
+                },
                 "content_reservoir": {
                     "persisted": {"item_count": 121},
                     "runtime": {"item_count": 171},
@@ -45,9 +49,13 @@ class LabExperimentServiceTests(unittest.TestCase):
                         "grounding_reason": "Canon-led baseline.",
                         "primary_claims": ["Canon claim."],
                         "curated_persona_chunk_count": 8,
+                        "content_signal_source": "persona_only",
+                        "content_signal_chunk_count": 0,
                         "content_reservoir_chunk_count": 0,
                         "retrieval_support_count": 0,
                         "canonical_bundle_count": 8,
+                        "content_signal_candidate_count": 0,
+                        "content_signal_candidate_memory_roles": {},
                         "reservoir_candidate_count": 0,
                         "reservoir_candidate_memory_roles": {},
                         "example_count": 0,
@@ -57,9 +65,13 @@ class LabExperimentServiceTests(unittest.TestCase):
                         "grounding_reason": "Source-backed context reached the packet.",
                         "primary_claims": ["Source claim."],
                         "curated_persona_chunk_count": 9,
+                        "content_signal_source": "content_safe_operator_lessons",
+                        "content_signal_chunk_count": 2,
                         "content_reservoir_chunk_count": 2,
                         "retrieval_support_count": 2,
                         "canonical_bundle_count": 7,
+                        "content_signal_candidate_count": 8,
+                        "content_signal_candidate_memory_roles": {"proof": 2, "ambient": 1},
                         "reservoir_candidate_count": 8,
                         "reservoir_candidate_memory_roles": {"proof": 2, "ambient": 1},
                         "example_count": 1,
@@ -69,9 +81,13 @@ class LabExperimentServiceTests(unittest.TestCase):
                         "grounding_reason": "Recent signals still collapse to canon.",
                         "primary_claims": ["Canon claim."],
                         "curated_persona_chunk_count": 9,
+                        "content_signal_source": "content_reservoir",
+                        "content_signal_chunk_count": 2,
                         "content_reservoir_chunk_count": 2,
                         "retrieval_support_count": 2,
                         "canonical_bundle_count": 7,
+                        "content_signal_candidate_count": 8,
+                        "content_signal_candidate_memory_roles": {"proof": 1, "ambient": 3},
                         "reservoir_candidate_count": 8,
                         "reservoir_candidate_memory_roles": {"proof": 1, "ambient": 3},
                         "example_count": 1,
@@ -87,9 +103,21 @@ class LabExperimentServiceTests(unittest.TestCase):
                 },
                 {
                     "severity": "high",
+                    "phase": "content_safe_operator_lessons",
+                    "summary": "Persisted content-safe operator lessons are lagging runtime inputs.",
+                    "details": {"persisted_count": 6, "runtime_count": 11},
+                },
+                {
+                    "severity": "high",
                     "phase": "content_reservoir",
                     "summary": "Persisted content reservoir is lagging runtime inputs.",
                     "details": {"persisted_count": 121, "runtime_count": 171},
+                },
+                {
+                    "severity": "medium",
+                    "phase": "content_signal_quality",
+                    "summary": "recent_signals source-backed support is skewing too ambient relative to proof.",
+                    "details": {"mode": "recent_signals", "content_signal_source": "content_reservoir"},
                 },
                 {
                     "severity": "medium",
@@ -145,8 +173,8 @@ class LabExperimentServiceTests(unittest.TestCase):
         self.assertGreater(record["current"]["structural_fallback_rate"], 0.0)
         self.assertIn("recovered_missing_planned_options", record["current"]["top_failure_modes"])
         self.assertIn("provider_failover", record["current"]["top_failure_modes"])
-        self.assertEqual(record["pipeline_audit"]["issue_count"], 3)
-        self.assertEqual(record["pipeline_audit"]["snapshot_drift_count"], 2)
+        self.assertEqual(record["pipeline_audit"]["issue_count"], 5)
+        self.assertEqual(record["pipeline_audit"]["snapshot_drift_count"], 3)
         self.assertEqual(record["pipeline_audit"]["source_mode_collapse_count"], 1)
         self.assertEqual(record["golden_evaluation"]["total"], len(lab_experiment_service.CONTENT_PROBES))
         self.assertTrue(all("golden_benchmark" in item for item in record["sample_runs"]))
@@ -178,7 +206,7 @@ class LabExperimentServiceTests(unittest.TestCase):
         self.assertIn("probe_errors", record["current"]["top_failure_modes"])
         self.assertEqual(record["current"]["stage_breakdown"]["probe_errors"], len(lab_experiment_service.CONTENT_PROBES))
         self.assertTrue(all("probe_error" in item["structural_fallbacks"] for item in record["sample_runs"]))
-        self.assertEqual(record["pipeline_audit"]["issue_count"], 3)
+        self.assertEqual(record["pipeline_audit"]["issue_count"], 5)
         self.assertEqual(record["golden_evaluation"]["fail_count"], len(lab_experiment_service.CONTENT_PROBES))
 
     def test_lab_provider_lane_sets_and_restores_stability_env(self) -> None:
@@ -266,9 +294,10 @@ class LabExperimentServiceTests(unittest.TestCase):
             },
             diagnostics=diagnostics,
             top_option=(
-                "One routed workspace snapshot now keeps context alive.\n\n"
+                "If the workflow is unclear, AI just scales confusion.\n\n"
+                "One routed workspace snapshot now keeps operator context alive across the handoff.\n\n"
                 "AI Clone / Brain System made the handoff visible.\n\n"
-                "Content generation now reads canon through typed lanes.\n\n"
+                "Content generation now reads canon through structured lanes.\n\n"
                 "That is the operating model."
             ),
             top_warnings=[],
