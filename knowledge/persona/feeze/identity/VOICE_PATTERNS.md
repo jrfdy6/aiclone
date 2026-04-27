@@ -2,6 +2,7 @@
 title: "Voice Patterns"
 persona_id: "johnnie_fields"
 target_file: "identity/VOICE_PATTERNS.md"
+generated_at: "2026-04-20T10:49:09.050064+00:00"
 ---
 
 # Voice Patterns
@@ -167,3 +168,6 @@ Reusable language patterns and stylistic constraints for public writing and resp
 - if it's not useful, it's just another tab
 - I can't rock with it
 - he lost me with
+- If it does not change the next step, it is still theory. (Evidence: Attention DEVS and SALES PERSONS · If it does not change the next step, it is still theory.)
+- This reads differently once you have had to carry it. (Evidence: Attention DEVS and SALES PERSONS · I have seen this pattern up close before. I keep reading this through the current-job lens. What matters is what shifts)
+- What matters is what shifts for the people actually carrying the work. (Evidence: Attention DEVS and SALES PERSONS · I have seen this pattern up close before. I keep reading this through the current-job lens. What matters is what shifts)

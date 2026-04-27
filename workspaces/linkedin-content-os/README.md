@@ -76,7 +76,9 @@ Current runtime status:
 - `/ops` already shows the shared source-intelligence and routing view
 - `weekly_plan` already exposes live `post_seed` / `belief_evidence` media overlays
 - Brain daily briefs now read that same live source-intelligence overlay instead of a separate brief-only inference path
-- the Workspace tab now renders one staged feed lane by combining source decisions from `source_lifecycle` with the owner-review queue, while keeping stage-specific side effects intact
+- the Workspace tab now reads a staged `activity_feed` from `GET /api/workspace/linkedin-os-snapshot`, so source reactions and owner-review drafts render in one ordered feed while keeping stage-specific side effects
+- RSS and Substack market-signal ingest now tries structured/article-body extraction from the source URL before falling back to feed-summary-only capture, so downstream drafts can stay grounded in source text instead of just RSS blurbs
+- `scripts/personal-brand/backfill_article_signals.py` is the historical repair path for older archived RSS/Substack items that are no longer in the current feed window but still need source-grounded refreshes
 
 The goal is not to build a second transcript stack inside the LinkedIn workspace. The goal is to reuse the parent transcript/ingestion surfaces and route the resulting signal into the right job.
 
@@ -95,6 +97,7 @@ Current live workspace surfaces:
 - manual URL/text preview ingestion through `/api/workspace/ingest-signal`
 - lane-aware comment and repost generation
 - owner-review decisions through `/api/workspace/linkedin-os-owner-review/{queue_id}`, with draft/queue/execution-log write-backs and Jean-Claude follow-up only on `approve` or `revise`
+- latent-transform owner-review drafts now carry the source signal into the first-pass draft itself so distinct source articles do not collapse into the same generic review copy
 - quote approval into persona deltas rather than direct persona-file writes
 - workspace feedback logging for like, dislike, reject, copy, and quote-approval training events through `POST /api/workspace/feedback`
 - a live backend snapshot path at `/api/workspace/linkedin-os-snapshot`

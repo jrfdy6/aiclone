@@ -10,11 +10,11 @@ risk_level: low
 role_alignment: ai_intrapreneur
 score: 12
 source_url: https://www.oneusefulthing.org/p/the-shape-of-the-thing
-source_path: workspaces/linkedin-content-os/research/market_signals/2026-03-12__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-the-shape-of-the-thing.md
+source_path: workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md
 latent_reason: needs_context_translation
 transform_type: context_translation
 generated_by: latent_transform_worker
-created_at: 2026-04-24T21:59:10+00:00
+created_at: 2026-04-27T22:03:39+00:00
 ---
 
 # The Shape of the Thing
@@ -25,7 +25,7 @@ created_at: 2026-04-24T21:59:10+00:00
 - Priority lane: `AI systems and operator clarity`
 
 ## Source signal
-- Source file: `workspaces/linkedin-content-os/research/market_signals/2026-03-12__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-the-shape-of-the-thing.md`
+- Source file: `workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md`
 - Source URL: https://www.oneusefulthing.org/p/the-shape-of-the-thing
 - Source summary: In October of 2023, I wrote about the “Shape of the Shadow of the Thing,” speculating on the Thing that AI might turn into in the coming years. I think we can see the Thing much more clearly now, and some of the consequences that come with it.
 - Why it matters: AI workflow design, operator judgment, and education implementation signals

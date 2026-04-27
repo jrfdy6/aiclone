@@ -2,7 +2,7 @@
 title: "Claims"
 persona_id: "johnnie_fields"
 target_file: "identity/claims.md"
-generated_at: "2026-04-01T20:01:32.919382+00:00"
+generated_at: "2026-04-15T21:00:06.428590+00:00"
 ---
 
 | Claim | Type | Evidence | Usage rule |
@@ -33,3 +33,9 @@ generated_at: "2026-04-01T20:01:32.919382+00:00"
 | Something working is not the same as something being valuable enough to change behavior. | operational | Easy Outfit worked end to end, but low repeat usage clarified the difference between technical function and product value. | Use when the topic is product-market fit, adoption, habit formation, or why shipping alone is not the finish line. |
 | Education changed Johnnie's life, so his education voice starts from trust, transformation, and honest guidance rather than institutional worship. | mission | He sees education as a real path forward, has spent most of his career with students and families, and built trust through honesty, curiosity, and authentic care. | Use when writing about education, admissions, families, access, or the human side of enrollment work. |
 | an AI practitioner, not just a passive user. | philosophical | That summary would be filtered by your personal AI system that knows the story lines and the facts that are important for you to know. | Promoted from Brain review and committed into the canonical persona bundle. |
+| people, process, and culture as the main levers of leadership. | philosophical | The founders who act now, who make the hard calls, who retool their teams, who reposition their products, they're going to dominate the next 5 years. | Promoted from Brain review and committed into the canonical persona bundle. |
+| The founders who act now, who make the hard calls, who retool their teams, who reposition their products, they're going to dominate the next 5 years. | factual | The founders who act now, who make the hard calls, who retool their teams, who reposition their products, they're going to dominate the n... | Promoted from Brain review and committed into the canonical persona bundle. |
+| AI agents are using software without humans ever opening it. | positioning | AI agents are using software without humans ever opening it. | Promoted from Brain review and committed into the canonical persona bundle. |
+| But, not unlimited time cuz this change is happening so fast. | positioning | But, not unlimited time cuz this change is happening so fast. | Promoted from Brain review and committed into the canonical persona bundle. |
+| You don't have to do all of this tomorrow, but you do need a plan. | positioning | You don't have to do all of this tomorrow, but you do need a plan. | Promoted from Brain review and committed into the canonical persona bundle. |
+| I Broke Down Anthropic's $2.5 Billion Leak. Your Agent Is Missing 12 Critical Pieces. | factual | It's really about how we can learn what Anthropic is building under the surface that sustains an agentic production system that's success... | Promoted from Brain review and committed into the canonical persona bundle. |

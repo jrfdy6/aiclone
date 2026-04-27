@@ -9,8 +9,13 @@
 ## Evidence Artifacts
 
 - `docs/backlog_seed_status_YYYY-MM-DD.md` — dated backlog evidence snapshots that map each queue item (FEEZIE-001..) to canon anchors, draft paths, and pending owner actions.
-  - Latest snapshot: `docs/backlog_seed_status_2026-04-10.md`
+  - Latest snapshot: `docs/backlog_seed_status_2026-04-15.md`
 - `drafts/feezie_owner_review_packet_YYYYMMDD.md` — dated owner-review packets for the active approval cycle.
+  - Latest packet: `drafts/feezie_owner_review_packet_20260412.md`
+- `docs/draft_batch_status_YYYY-MM-DD.md` — dated summaries of owner-ready draft batches plus next actions.
+  - Latest memo: `docs/draft_batch_status_2026-04-19.md`
+- `docs/publishing_schedule_YYYY-MM-DD.md` — scheduled release windows for owner-approved drafts ready to post.
+  - Latest schedule: `docs/publishing_schedule_2026-04-11.md`
 
 ## Active
 
@@ -420,3 +425,42 @@
 15. `LNK-033`
 16. `LNK-031`
 17. `LNK-023` (parked until tuning signals are trustworthy)
+
+## Autonomous Content Bank
+<!-- autonomous-content-bank -->
+
+### feezie-bank-308b8839e9f0 - The Shape of the Thing
+<!-- feezie-bank-308b8839e9f0 -->
+- Status: `banked`
+- Draft: `workspaces/linkedin-content-os/drafts/2026-04-10_the-shape-of-the-thing-latent-transform.md`
+- Source: workspaces/linkedin-content-os/research/market_signals/2026-03-12__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-the-shape-of-the-thing.md
+- Why it exists: If the workflow is unclear, AI just scales confusion. The part worth saying publicly is whether the workflow, interface, and surrounding context make better judgment easier or just scale confusion.
+- Review action: owner review
+- Bank run: `feezie-content-bank-20260423T114111Z`
+
+### feezie-bank-0a07d0315146 - Claude Dispatch and the Power of Interfaces
+<!-- feezie-bank-0a07d0315146 -->
+- Status: `banked`
+- Draft: `workspaces/linkedin-content-os/drafts/2026-04-10_claude-dispatch-and-the-power-of-interfaces-latent-transform.md`
+- Source: workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-claude-dispatch-and-the-power-of.md
+- Why it exists: If the workflow is unclear, AI just scales confusion. The part worth saying publicly is whether the workflow, interface, and surrounding context make better judgment easier or just scale confusion.
+- Review action: owner review
+- Bank run: `feezie-content-bank-20260423T114111Z`
+
+### feezie-bank-973d54e3c164 - Sign of the future: GPT-5.5
+<!-- feezie-bank-973d54e3c164 -->
+- Status: `banked`
+- Draft: `workspaces/linkedin-content-os/drafts/2026-04-23_sign-of-the-future-gpt-5-5-latent-transform.md`
+- Source: workspaces/linkedin-content-os/research/market_signals/2026-04-23__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-sign-of-the-future-gpt-55.md
+- Why it exists: Real AI maturity comes from building useful systems under constraints, not just using the. The part worth saying publicly is whether the workflow, interface, and surrounding context make better judgment easier or just scale confusion.
+- Review action: owner review
+- Bank run: `feezie-content-bank-20260423T211842Z`
+
+### feezie-bank-9c6d999e28d1 - The Shape of the Thing
+<!-- feezie-bank-9c6d999e28d1 -->
+- Status: `banked`
+- Draft: `workspaces/linkedin-content-os/drafts/2026-04-23_the-shape-of-the-thing-latent-transform.md`
+- Source: workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md
+- Why it exists: If the workflow is unclear, AI just scales confusion. The part worth saying publicly is whether the workflow, interface, and surrounding context make better judgment easier or just scale confusion.
+- Review action: owner review
+- Bank run: `feezie-content-bank-20260423T211842Z`

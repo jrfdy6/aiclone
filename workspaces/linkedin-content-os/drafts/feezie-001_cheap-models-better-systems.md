@@ -12,8 +12,8 @@ created_at: 2026-04-01T04:52:39+00:00
 owner_decision: approve
 owner_reviewed_at: 2026-04-19T18:53:49Z
 owner_review_source: "PM card 2d6d367a-7ad8-4d7b-92f4-4a58098df574"
-owner_review_notes: "Approved; bank for host copy/paste into LinkedIn when ready."
-banked_post_packet: workspaces/linkedin-content-os/docs/release_packets/feezie-001_schedule_packet_20260419.md
+owner_review_notes: "Approved; package into scheduling lane as the next concrete release step."
+scheduling_packet: workspaces/linkedin-content-os/docs/release_packets/feezie-001_schedule_packet_20260419.md
 ---
 
 # Cheap models, better systems

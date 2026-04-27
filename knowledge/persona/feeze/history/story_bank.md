@@ -2,6 +2,7 @@
 title: "Story Bank"
 persona_id: "johnnie_fields"
 target_file: "history/story_bank.md"
+generated_at: "2026-04-15T20:35:02.471424+00:00"
 ---
 
 ## Coffee and Convo
@@ -58,3 +59,13 @@ target_file: "history/story_bank.md"
 - Story type: leadership voice, self-advocacy, truth to power
 - Use when: Use when talking about boundaries, leadership maturity, authentic voice, or moments when empathy still needs a line.
 - Core point: Johnnie's leadership voice changed when he stopped letting people talk over him, kept the warmth, and learned to draw a clear line when something was off.
+
+## Maybe I can read the purchase order or the contract and make sure it comply with the terms,.
+- Story type: Proof point
+- Use when: Approved canon fragments from "5 Years Left Before Everything Changes #AI #Future".
+- Core point: 5 Years Left Before Everything Changes #AI #Future.
+
+## 5 Years Left Before Everything Changes #AI #Future
+- Story type: 5 Years Left Before Everything Changes #AI #Future
+- Use when: Approved canon fragments from "5 Years Left Before Everything Changes #AI #Future".
+- Core point: Maybe I can read the purchase order or the contract and make sure it comply with the terms,.

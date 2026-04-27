@@ -4,11 +4,14 @@ draft_kind: owner_review
 source_kind: feezie_queue
 lane: ops-pm
 priority_lane: ops-pm
-publish_posture: owner_review_required
+publish_posture: approved
 risk_level: low
 role_alignment: role_anchored
 source_path: workspaces/linkedin-content-os/drafts/queue_01.md
 created_at: 2026-04-01T04:52:39+00:00
+owner_decision: approve
+owner_reviewed_at: 2026-04-11T01:18:00Z
+owner_review_notes: "Approved without edits; schedule for Mon 13 Apr 2026 between 09:30-10:00 ET."
 ---
 
 # Quiet inefficiency is still failure

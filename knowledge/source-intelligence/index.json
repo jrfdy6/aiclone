@@ -1,16 +1,17 @@
 {
   "counts": {
-    "digested": 78,
+    "digested": 110,
     "ignored": 0,
     "promoted": 0,
     "raw": 0,
     "reviewed": 4,
-    "routed": 9,
-    "total": 91
+    "routed": 75,
+    "total": 189
   },
-  "generated_at": "2026-04-19T13:23:02Z",
+  "generated_at": "2026-04-27T22:03:42Z",
   "roots": {
     "ingestions": "knowledge/ingestions",
+    "market_signal_archive": "workspaces/linkedin-content-os/research/market_signal_archive",
     "source_intelligence": "knowledge/source-intelligence",
     "transcripts": "knowledge/aiclone/transcripts"
   },
@@ -438,6 +439,123 @@
       "title": "Goat OS Bootcamp \u2013 Episode 1 (Bedrock)"
     },
     {
+      "captured_at": "2026-03-22T09:43:42-04:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-agents-fail-from-lack-of-context-not-lack-of-smarts.md",
+      "promotions": [],
+      "published_at": "2026-03-22T09:43:42-04:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-agents-fail-from-lack-of-context-not-lack-of-smarts.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-agents-fail-from-lack-of-context-not-lack-of-smarts.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "linkedin",
+          "ai"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "linkedin",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-03-22__linkedin__ai-agents-fail-from-lack-of-context-not-lack-of-smarts",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.linkedin.com/posts/manishga_ai-agents-fail-not-from-lack-of-smarts-but-activity-7396961315585634304-A_3y",
+      "status": "routed",
+      "summary": "AI agents fail not because models are weak but because enterprise context is missing. Most companies deploy agents into fragmented data, inconsistent workflows, and siloed logic.",
+      "title": "AI agents fail from lack of context, not lack of smarts"
+    },
+    {
+      "captured_at": "2026-03-22T09:43:43-04:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__admissions-teams-are-a-content-goldmine.md",
+      "promotions": [],
+      "published_at": "2026-03-22T09:43:43-04:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__admissions-teams-are-a-content-goldmine.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__admissions-teams-are-a-content-goldmine.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "linkedin",
+          "admissions"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "linkedin",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-03-22__linkedin__admissions-teams-are-a-content-goldmine",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.linkedin.com/posts/marczarefsky_looking-for-higher-ed-content-ideas-talk-activity-7371180984001765376-nSm0",
+      "status": "routed",
+      "summary": "If you want better higher ed content, start with your admissions team. They hear the real questions prospects ask.",
+      "title": "Admissions teams are a content goldmine"
+    },
+    {
+      "captured_at": "2026-03-22T09:43:43-04:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-will-not-replace-higher-education-but-it-can-augment-it.md",
+      "promotions": [],
+      "published_at": "2026-03-22T09:43:43-04:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-will-not-replace-higher-education-but-it-can-augment-it.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-03-22__linkedin__ai-will-not-replace-higher-education-but-it-can-augment-it.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "linkedin",
+          "ai"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "linkedin",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-03-22__linkedin__ai-will-not-replace-higher-education-but-it-can-augment-it",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.linkedin.com/posts/esther-harclerode-a209792b_do-i-think-ai-will-replace-higher-education-activity-7386912557204185088-pkpo",
+      "status": "routed",
+      "summary": "AI will not replace higher education because people still need human connection and many forms of learning require human practice, review, and interpretation. AI can augment parts of the work, but humans still need to teach, correct, connect, and make meaning.",
+      "title": "AI will not replace higher education, but it can augment it"
+    },
+    {
       "captured_at": "2026-03-30",
       "digest_path": "knowledge/aiclone/transcripts/2026-03-30_external-reference-batch-ai-entrepreneurship-media.shared_source_packet.json",
       "metadata_path": "knowledge/aiclone/transcripts/2026-03-30_external-reference-batch-ai-entrepreneurship-media.shared_source_packet.json",
@@ -544,6 +662,111 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/24_36_months_now_instead_of_12_24_for_pe_exits_privateequity_founders_de_2e1518e63f/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/24_36_months_now_instead_of_12_24_for_pe_exits_privateequity_founders_de_2e1518e63f/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/24_36_months_now_instead_of_12_24_for_pe_exits_privateequity_founders_de_2e1518e63f/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/24_36_months_now_instead_of_12_24_for_pe_exits_privateequity_founders_de_2e1518e63f/raw/source.url",
+        "knowledge/ingestions/2026/04/24_36_months_now_instead_of_12_24_for_pe_exits_privateequity_founders_de_2e1518e63f/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/24_36_months_now_instead_of_12_24_for_pe_exits_privateequity_founders_de_2e1518e63f/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "24_36_months_now_instead_of_12_24_for_pe_exits_privateequity_founders_de_2e1518e63f",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-24T07:22:20.807396+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-24_36_months_now_instead_of_12_24_for_pe_exits_privateequity_founders_de_2e1518e63f",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=VMeilUt_nlA",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/3_moves_to_survive_the_next_12_bumpy_months_651680d70b/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/3_moves_to_survive_the_next_12_bumpy_months_651680d70b/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/3_moves_to_survive_the_next_12_bumpy_months_651680d70b/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/3_moves_to_survive_the_next_12_bumpy_months_651680d70b/raw/source.url",
+        "knowledge/ingestions/2026/04/3_moves_to_survive_the_next_12_bumpy_months_651680d70b/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/3_moves_to_survive_the_next_12_bumpy_months_651680d70b/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "3_moves_to_survive_the_next_12_bumpy_months_651680d70b",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-23T05:12:45.028151+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-3_moves_to_survive_the_next_12_bumpy_months_651680d70b",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=exmNViVnKTM",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/47b_software_debt_in_distress_the_vicious_cycle_is_starting_bac478f4f1/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/47b_software_debt_in_distress_the_vicious_cycle_is_starting_bac478f4f1/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/47b_software_debt_in_distress_the_vicious_cycle_is_starting_bac478f4f1/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/47b_software_debt_in_distress_the_vicious_cycle_is_starting_bac478f4f1/raw/source.url",
+        "knowledge/ingestions/2026/04/47b_software_debt_in_distress_the_vicious_cycle_is_starting_bac478f4f1/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/47b_software_debt_in_distress_the_vicious_cycle_is_starting_bac478f4f1/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "47b_software_debt_in_distress_the_vicious_cycle_is_starting_bac478f4f1",
+          "has_transcript": true,
+          "quality_flags": [
+            "anecdotes_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-22T07:04:08.797007+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-47b_software_debt_in_distress_the_vicious_cycle_is_starting_bac478f4f1",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=Or6mRVDYoj8",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/5_years_left_before_everything_changes_ai_future_08a1e4a34d/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/5_years_left_before_everything_changes_ai_future_08a1e4a34d/normalized.md",
       "promotions": [],
@@ -606,6 +829,43 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=F368zITpbeI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/9ef2b426_ec21_4286_8374_a0d2a476fa1b_a339772c0a/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/9ef2b426_ec21_4286_8374_a0d2a476fa1b_a339772c0a/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/9ef2b426_ec21_4286_8374_a0d2a476fa1b_a339772c0a/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/9ef2b426_ec21_4286_8374_a0d2a476fa1b_a339772c0a/raw/source.url",
+        "knowledge/ingestions/2026/04/9ef2b426_ec21_4286_8374_a0d2a476fa1b_a339772c0a/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/9ef2b426_ec21_4286_8374_a0d2a476fa1b_a339772c0a/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "9ef2b426_ec21_4286_8374_a0d2a476fa1b_a339772c0a",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-25T03:19:22.267306+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-9ef2b426_ec21_4286_8374_a0d2a476fa1b_a339772c0a",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=7j0ttVwJrow",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -928,6 +1188,76 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ai_isn_t_magic_dust_it_rewrites_work_36f1e97ac6/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ai_isn_t_magic_dust_it_rewrites_work_36f1e97ac6/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ai_isn_t_magic_dust_it_rewrites_work_36f1e97ac6/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ai_isn_t_magic_dust_it_rewrites_work_36f1e97ac6/raw/source.url",
+        "knowledge/ingestions/2026/04/ai_isn_t_magic_dust_it_rewrites_work_36f1e97ac6/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ai_isn_t_magic_dust_it_rewrites_work_36f1e97ac6/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_isn_t_magic_dust_it_rewrites_work_36f1e97ac6",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-24T07:16:04.549990+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ai_isn_t_magic_dust_it_rewrites_work_36f1e97ac6",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=_4PSQYI2kBY",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/ai_tools_got_faster_but_developers_didn_t_ai_productivity_shorts_e531cd20be/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/ai_tools_got_faster_but_developers_didn_t_ai_productivity_shorts_e531cd20be/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/ai_tools_got_faster_but_developers_didn_t_ai_productivity_shorts_e531cd20be/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/ai_tools_got_faster_but_developers_didn_t_ai_productivity_shorts_e531cd20be/raw/source.url",
+        "knowledge/ingestions/2026/04/ai_tools_got_faster_but_developers_didn_t_ai_productivity_shorts_e531cd20be/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/ai_tools_got_faster_but_developers_didn_t_ai_productivity_shorts_e531cd20be/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "ai_tools_got_faster_but_developers_didn_t_ai_productivity_shorts_e531cd20be",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-21T07:08:07.717757+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-ai_tools_got_faster_but_developers_didn_t_ai_productivity_shorts_e531cd20be",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=kp4quCdtvXI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/anthropic_openai_and_microsoft_just_agreed_on_one_file_format_it_changes_7cdc5debbb/normalized.md",
       "promotions": [],
@@ -1000,6 +1330,151 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/chatgpt_images_just_replaced_three_people_on_your_team_90ed4751d2/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/chatgpt_images_just_replaced_three_people_on_your_team_90ed4751d2/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/chatgpt_images_just_replaced_three_people_on_your_team_90ed4751d2/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/chatgpt_images_just_replaced_three_people_on_your_team_90ed4751d2/raw/source.url",
+        "knowledge/ingestions/2026/04/chatgpt_images_just_replaced_three_people_on_your_team_90ed4751d2/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/chatgpt_images_just_replaced_three_people_on_your_team_90ed4751d2/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "chatgpt_images_just_replaced_three_people_on_your_team_90ed4751d2",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-25T15:20:47.871058+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-chatgpt_images_just_replaced_three_people_on_your_team_90ed4751d2",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=brBPsPPyuQM",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/claude_design_does_in_30_minutes_what_your_team_does_in_a_sprint_3461c1879f/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/claude_design_does_in_30_minutes_what_your_team_does_in_a_sprint_3461c1879f/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/claude_design_does_in_30_minutes_what_your_team_does_in_a_sprint_3461c1879f/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/claude_design_does_in_30_minutes_what_your_team_does_in_a_sprint_3461c1879f/raw/source.url",
+        "knowledge/ingestions/2026/04/claude_design_does_in_30_minutes_what_your_team_does_in_a_sprint_3461c1879f/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/claude_design_does_in_30_minutes_what_your_team_does_in_a_sprint_3461c1879f/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "claude_design_does_in_30_minutes_what_your_team_does_in_a_sprint_3461c1879f",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-24T15:17:07.560977+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-claude_design_does_in_30_minutes_what_your_team_does_in_a_sprint_3461c1879f",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=KlPxWaY91rE",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/codex_shifted_categories_entirely_and_nobody_noticed_b4f649e668/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/codex_shifted_categories_entirely_and_nobody_noticed_b4f649e668/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/codex_shifted_categories_entirely_and_nobody_noticed_b4f649e668/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/codex_shifted_categories_entirely_and_nobody_noticed_b4f649e668/raw/source.url",
+        "knowledge/ingestions/2026/04/codex_shifted_categories_entirely_and_nobody_noticed_b4f649e668/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/codex_shifted_categories_entirely_and_nobody_noticed_b4f649e668/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "codex_shifted_categories_entirely_and_nobody_noticed_b4f649e668",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-23T15:13:06.104087+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-codex_shifted_categories_entirely_and_nobody_noticed_b4f649e668",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=2d9ZmA-4QzU",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/dark_factories_vs_everyone_else_the_real_ai_divide_ai_engineering_f5ee2c909b/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/dark_factories_vs_everyone_else_the_real_ai_divide_ai_engineering_f5ee2c909b/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/dark_factories_vs_everyone_else_the_real_ai_divide_ai_engineering_f5ee2c909b/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/dark_factories_vs_everyone_else_the_real_ai_divide_ai_engineering_f5ee2c909b/raw/source.url",
+        "knowledge/ingestions/2026/04/dark_factories_vs_everyone_else_the_real_ai_divide_ai_engineering_f5ee2c909b/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/dark_factories_vs_everyone_else_the_real_ai_divide_ai_engineering_f5ee2c909b/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "dark_factories_vs_everyone_else_the_real_ai_divide_ai_engineering_f5ee2c909b",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-23T07:11:58.479437+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-dark_factories_vs_everyone_else_the_real_ai_divide_ai_engineering_f5ee2c909b",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=pXxl_-B81b8",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/don_t_flip_a_switch_build_a_bridge_6fc18d4c32/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/don_t_flip_a_switch_build_a_bridge_6fc18d4c32/normalized.md",
       "promotions": [],
@@ -1030,6 +1505,112 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=TkiNDd-RSA4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/don_t_let_your_saas_become_obsolete_ai_saas_a72d7aad8c/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/don_t_let_your_saas_become_obsolete_ai_saas_a72d7aad8c/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/don_t_let_your_saas_become_obsolete_ai_saas_a72d7aad8c/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/don_t_let_your_saas_become_obsolete_ai_saas_a72d7aad8c/raw/source.url",
+        "knowledge/ingestions/2026/04/don_t_let_your_saas_become_obsolete_ai_saas_a72d7aad8c/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/don_t_let_your_saas_become_obsolete_ai_saas_a72d7aad8c/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "don_t_let_your_saas_become_obsolete_ai_saas_a72d7aad8c",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-24T21:18:28.625776+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-don_t_let_your_saas_become_obsolete_ai_saas_a72d7aad8c",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=69YwmeYEVks",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/don_t_waste_5_hours_a_week_on_work_an_agent_does_for_free_b5cf3a4d18/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/don_t_waste_5_hours_a_week_on_work_an_agent_does_for_free_b5cf3a4d18/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/don_t_waste_5_hours_a_week_on_work_an_agent_does_for_free_b5cf3a4d18/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/don_t_waste_5_hours_a_week_on_work_an_agent_does_for_free_b5cf3a4d18/raw/source.url",
+        "knowledge/ingestions/2026/04/don_t_waste_5_hours_a_week_on_work_an_agent_does_for_free_b5cf3a4d18/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/don_t_waste_5_hours_a_week_on_work_an_agent_does_for_free_b5cf3a4d18/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "don_t_waste_5_hours_a_week_on_work_an_agent_does_for_free_b5cf3a4d18",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-27T15:25:53.832378+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-don_t_waste_5_hours_a_week_on_work_an_agent_does_for_free_b5cf3a4d18",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=QrvVkm-8Jx4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/dorsey_says_ai_replaced_4_000_managers_0cf34e0515/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/dorsey_says_ai_replaced_4_000_managers_0cf34e0515/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/dorsey_says_ai_replaced_4_000_managers_0cf34e0515/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/dorsey_says_ai_replaced_4_000_managers_0cf34e0515/raw/source.url",
+        "knowledge/ingestions/2026/04/dorsey_says_ai_replaced_4_000_managers_0cf34e0515/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/dorsey_says_ai_replaced_4_000_managers_0cf34e0515/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "dorsey_says_ai_replaced_4_000_managers_0cf34e0515",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-19T18:25:48.418620+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-dorsey_says_ai_replaced_4_000_managers_0cf34e0515",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=fm6mYqFAM5c",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -1323,6 +1904,43 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/how_to_fix_your_broken_marketing_strategy_marketing_businessgrowth_strat_e2511e77e0/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/how_to_fix_your_broken_marketing_strategy_marketing_businessgrowth_strat_e2511e77e0/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/how_to_fix_your_broken_marketing_strategy_marketing_businessgrowth_strat_e2511e77e0/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/how_to_fix_your_broken_marketing_strategy_marketing_businessgrowth_strat_e2511e77e0/raw/source.url",
+        "knowledge/ingestions/2026/04/how_to_fix_your_broken_marketing_strategy_marketing_businessgrowth_strat_e2511e77e0/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/how_to_fix_your_broken_marketing_strategy_marketing_businessgrowth_strat_e2511e77e0/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "how_to_fix_your_broken_marketing_strategy_marketing_businessgrowth_strat_e2511e77e0",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-23T07:12:07.020427+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-how_to_fix_your_broken_marketing_strategy_marketing_businessgrowth_strat_e2511e77e0",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=IMWkLCVSbsQ",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/how_to_turn_customers_into_brand_advocates_and_drive_word_of_mouth_growt_7b538c3811/normalized.md",
       "promotions": [],
@@ -1351,6 +1969,40 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=N-mboHqr_hw",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/how_to_use_ai_effectively_smarter_ways_to_work_and_scale_your_business_eca15ffcd9/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/how_to_use_ai_effectively_smarter_ways_to_work_and_scale_your_business_eca15ffcd9/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/how_to_use_ai_effectively_smarter_ways_to_work_and_scale_your_business_eca15ffcd9/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/how_to_use_ai_effectively_smarter_ways_to_work_and_scale_your_business_eca15ffcd9/raw/source.url",
+        "knowledge/ingestions/2026/04/how_to_use_ai_effectively_smarter_ways_to_work_and_scale_your_business_eca15ffcd9/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/how_to_use_ai_effectively_smarter_ways_to_work_and_scale_your_business_eca15ffcd9/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "how_to_use_ai_effectively_smarter_ways_to_work_and_scale_your_business_eca15ffcd9",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-23T23:14:23.868496+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-how_to_use_ai_effectively_smarter_ways_to_work_and_scale_your_business_eca15ffcd9",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=9lMABKiE6oE",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -1535,6 +2187,42 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/implementation_beats_perfection_every_time_dothework_businessgrowth_mind_bc87909d54/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/implementation_beats_perfection_every_time_dothework_businessgrowth_mind_bc87909d54/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/implementation_beats_perfection_every_time_dothework_businessgrowth_mind_bc87909d54/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/implementation_beats_perfection_every_time_dothework_businessgrowth_mind_bc87909d54/raw/source.url",
+        "knowledge/ingestions/2026/04/implementation_beats_perfection_every_time_dothework_businessgrowth_mind_bc87909d54/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/implementation_beats_perfection_every_time_dothework_businessgrowth_mind_bc87909d54/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "implementation_beats_perfection_every_time_dothework_businessgrowth_mind_bc87909d54",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-22T07:10:13.837370+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-implementation_beats_perfection_every_time_dothework_businessgrowth_mind_bc87909d54",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=zqjPOlMK7fc",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/investor_vs_gambler_the_one_difference_that_matters_1574c08055/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/investor_vs_gambler_the_one_difference_that_matters_1574c08055/normalized.md",
       "promotions": [],
@@ -1565,6 +2253,42 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=DVCpPN1A7UQ",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/junior_developers_are_cooked_ai_tech_9ef15e57f2/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/junior_developers_are_cooked_ai_tech_9ef15e57f2/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/junior_developers_are_cooked_ai_tech_9ef15e57f2/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/junior_developers_are_cooked_ai_tech_9ef15e57f2/raw/source.url",
+        "knowledge/ingestions/2026/04/junior_developers_are_cooked_ai_tech_9ef15e57f2/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/junior_developers_are_cooked_ai_tech_9ef15e57f2/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "junior_developers_are_cooked_ai_tech_9ef15e57f2",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-20T08:48:59.031226+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-junior_developers_are_cooked_ai_tech_9ef15e57f2",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=s4kE4HlsHl0",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -1703,6 +2427,76 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/new_competitive_moats_in_ai_why_trust_and_relationships_matter_more_than_4c9efcc694/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/new_competitive_moats_in_ai_why_trust_and_relationships_matter_more_than_4c9efcc694/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/new_competitive_moats_in_ai_why_trust_and_relationships_matter_more_than_4c9efcc694/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/new_competitive_moats_in_ai_why_trust_and_relationships_matter_more_than_4c9efcc694/raw/source.url",
+        "knowledge/ingestions/2026/04/new_competitive_moats_in_ai_why_trust_and_relationships_matter_more_than_4c9efcc694/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/new_competitive_moats_in_ai_why_trust_and_relationships_matter_more_than_4c9efcc694/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "new_competitive_moats_in_ai_why_trust_and_relationships_matter_more_than_4c9efcc694",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-21T08:56:23.869992+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-new_competitive_moats_in_ai_why_trust_and_relationships_matter_more_than_4c9efcc694",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=U61WH8S5GYs",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/nobody_knows_what_you_re_worth_anymore_the_ai_job_market_reality_770735d989/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/nobody_knows_what_you_re_worth_anymore_the_ai_job_market_reality_770735d989/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/nobody_knows_what_you_re_worth_anymore_the_ai_job_market_reality_770735d989/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/nobody_knows_what_you_re_worth_anymore_the_ai_job_market_reality_770735d989/raw/source.url",
+        "knowledge/ingestions/2026/04/nobody_knows_what_you_re_worth_anymore_the_ai_job_market_reality_770735d989/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/nobody_knows_what_you_re_worth_anymore_the_ai_job_market_reality_770735d989/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "nobody_knows_what_you_re_worth_anymore_the_ai_job_market_reality_770735d989",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-20T14:51:01.958902+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-nobody_knows_what_you_re_worth_anymore_the_ai_job_market_reality_770735d989",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=-dJ9WrTG6zQ",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/nvidia_grew_7k_employees_and_is_still_10k_short_artificialintelligence_n_4907569dd4/normalized.md",
       "promotions": [],
@@ -1740,6 +2534,42 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/office_vs_home_gym_mindset_you_re_probably_wrong_mentalhealth_discipline_e5d7c4f9a9/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/office_vs_home_gym_mindset_you_re_probably_wrong_mentalhealth_discipline_e5d7c4f9a9/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/office_vs_home_gym_mindset_you_re_probably_wrong_mentalhealth_discipline_e5d7c4f9a9/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/office_vs_home_gym_mindset_you_re_probably_wrong_mentalhealth_discipline_e5d7c4f9a9/raw/source.url",
+        "knowledge/ingestions/2026/04/office_vs_home_gym_mindset_you_re_probably_wrong_mentalhealth_discipline_e5d7c4f9a9/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/office_vs_home_gym_mindset_you_re_probably_wrong_mentalhealth_discipline_e5d7c4f9a9/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "office_vs_home_gym_mindset_you_re_probably_wrong_mentalhealth_discipline_e5d7c4f9a9",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-24T17:17:44.194171+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-office_vs_home_gym_mindset_you_re_probably_wrong_mentalhealth_discipline_e5d7c4f9a9",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=OtSFxZYQm6A",
+      "status": "digested",
+      "summary": "--",
+      "title": "work'"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/openai_just_gave_agents_the_ability_to_do_everything_the_consequences_ar_a8c6929109/normalized.md",
       "promotions": [],
@@ -1770,6 +2600,40 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=diXrk5gp4XI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/pe_firms_about_to_get_hit_by_the_debt_bomb_saas_privateequity_debt_974a4df707/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/pe_firms_about_to_get_hit_by_the_debt_bomb_saas_privateequity_debt_974a4df707/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/pe_firms_about_to_get_hit_by_the_debt_bomb_saas_privateequity_debt_974a4df707/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/pe_firms_about_to_get_hit_by_the_debt_bomb_saas_privateequity_debt_974a4df707/raw/source.url",
+        "knowledge/ingestions/2026/04/pe_firms_about_to_get_hit_by_the_debt_bomb_saas_privateequity_debt_974a4df707/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/pe_firms_about_to_get_hit_by_the_debt_bomb_saas_privateequity_debt_974a4df707/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "pe_firms_about_to_get_hit_by_the_debt_bomb_saas_privateequity_debt_974a4df707",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-21T09:08:35.872226+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-pe_firms_about_to_get_hit_by_the_debt_bomb_saas_privateequity_debt_974a4df707",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=7uOUwC3v4hE",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -1838,6 +2702,43 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=VsVY8IiXqe4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/recruiters_are_basically_dating_coaches_hr_recruiting_jobinterview_93040438fd/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/recruiters_are_basically_dating_coaches_hr_recruiting_jobinterview_93040438fd/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/recruiters_are_basically_dating_coaches_hr_recruiting_jobinterview_93040438fd/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/recruiters_are_basically_dating_coaches_hr_recruiting_jobinterview_93040438fd/raw/source.url",
+        "knowledge/ingestions/2026/04/recruiters_are_basically_dating_coaches_hr_recruiting_jobinterview_93040438fd/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/recruiters_are_basically_dating_coaches_hr_recruiting_jobinterview_93040438fd/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "recruiters_are_basically_dating_coaches_hr_recruiting_jobinterview_93040438fd",
+          "has_transcript": true,
+          "quality_flags": [
+            "lessons_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-24T01:15:11.912656+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-recruiters_are_basically_dating_coaches_hr_recruiting_jobinterview_93040438fd",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=lr3d9RueFJc",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -2089,6 +2990,43 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/strongdm_s_three_person_team_ships_with_zero_human_code_review_ai_engine_a442acd8c7/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/strongdm_s_three_person_team_ships_with_zero_human_code_review_ai_engine_a442acd8c7/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/strongdm_s_three_person_team_ships_with_zero_human_code_review_ai_engine_a442acd8c7/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/strongdm_s_three_person_team_ships_with_zero_human_code_review_ai_engine_a442acd8c7/raw/source.url",
+        "knowledge/ingestions/2026/04/strongdm_s_three_person_team_ships_with_zero_human_code_review_ai_engine_a442acd8c7/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/strongdm_s_three_person_team_ships_with_zero_human_code_review_ai_engine_a442acd8c7/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "strongdm_s_three_person_team_ships_with_zero_human_code_review_ai_engine_a442acd8c7",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-25T21:21:44.713661+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-strongdm_s_three_person_team_ships_with_zero_human_code_review_ai_engine_a442acd8c7",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=eY1u8Ni9ClQ",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/tech_talent_is_about_to_get_ugly_thanks_to_this_memo_ai_tech_competition_b1351ce43c/normalized.md",
       "promotions": [],
@@ -2119,6 +3057,42 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=PcmFGurjfFo",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_1_founder_limiting_belief_a918a0830f/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_1_founder_limiting_belief_a918a0830f/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_1_founder_limiting_belief_a918a0830f/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_1_founder_limiting_belief_a918a0830f/raw/source.url",
+        "knowledge/ingestions/2026/04/the_1_founder_limiting_belief_a918a0830f/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_1_founder_limiting_belief_a918a0830f/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_1_founder_limiting_belief_a918a0830f",
+          "has_transcript": true,
+          "quality_flags": [
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-21T07:07:57.731320+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_1_founder_limiting_belief_a918a0830f",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=YlVxW9M0SJU",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -2377,6 +3351,40 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_frozen_middle_is_the_most_dangerous_place_to_be_f0e8926aef/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_frozen_middle_is_the_most_dangerous_place_to_be_f0e8926aef/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_frozen_middle_is_the_most_dangerous_place_to_be_f0e8926aef/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_frozen_middle_is_the_most_dangerous_place_to_be_f0e8926aef/raw/source.url",
+        "knowledge/ingestions/2026/04/the_frozen_middle_is_the_most_dangerous_place_to_be_f0e8926aef/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_frozen_middle_is_the_most_dangerous_place_to_be_f0e8926aef/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_frozen_middle_is_the_most_dangerous_place_to_be_f0e8926aef",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-20T07:05:43.229634+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_frozen_middle_is_the_most_dangerous_place_to_be_f0e8926aef",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=t5eFDcWnpNI",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/the_frozen_middle_isn_t_the_end_it_s_a_decision_point_00abddccd0/normalized.md",
       "promotions": [],
@@ -2483,6 +3491,40 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_octopus_lesson_adapt_or_perish_1e6f9472aa/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_octopus_lesson_adapt_or_perish_1e6f9472aa/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_octopus_lesson_adapt_or_perish_1e6f9472aa/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_octopus_lesson_adapt_or_perish_1e6f9472aa/raw/source.url",
+        "knowledge/ingestions/2026/04/the_octopus_lesson_adapt_or_perish_1e6f9472aa/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_octopus_lesson_adapt_or_perish_1e6f9472aa/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_octopus_lesson_adapt_or_perish_1e6f9472aa",
+          "has_transcript": true,
+          "quality_flags": [],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "derived_transcript",
+          "updated_at": "2026-04-23T23:19:02.237359+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_octopus_lesson_adapt_or_perish_1e6f9472aa",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=jTbNip4BhQM",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/the_real_problem_with_ai_agents_nobody_s_talking_about_e9d5a1ce1a/normalized.md",
       "promotions": [],
@@ -2513,6 +3555,42 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=2PWJu6uAaoU",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/the_real_reason_apple_s_new_ceo_is_a_hardware_guy_c3a7bacb88/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/the_real_reason_apple_s_new_ceo_is_a_hardware_guy_c3a7bacb88/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/the_real_reason_apple_s_new_ceo_is_a_hardware_guy_c3a7bacb88/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/the_real_reason_apple_s_new_ceo_is_a_hardware_guy_c3a7bacb88/raw/source.url",
+        "knowledge/ingestions/2026/04/the_real_reason_apple_s_new_ceo_is_a_hardware_guy_c3a7bacb88/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/the_real_reason_apple_s_new_ceo_is_a_hardware_guy_c3a7bacb88/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "the_real_reason_apple_s_new_ceo_is_a_hardware_guy_c3a7bacb88",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-26T17:23:51.735239+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-the_real_reason_apple_s_new_ceo_is_a_hardware_guy_c3a7bacb88",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=RaAFquzj5B8",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -2799,6 +3877,43 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/what_really_makes_someone_cancel_their_subscription_psychology_value_c209d1a1a7/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/what_really_makes_someone_cancel_their_subscription_psychology_value_c209d1a1a7/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/what_really_makes_someone_cancel_their_subscription_psychology_value_c209d1a1a7/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/what_really_makes_someone_cancel_their_subscription_psychology_value_c209d1a1a7/raw/source.url",
+        "knowledge/ingestions/2026/04/what_really_makes_someone_cancel_their_subscription_psychology_value_c209d1a1a7/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/what_really_makes_someone_cancel_their_subscription_psychology_value_c209d1a1a7/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "what_really_makes_someone_cancel_their_subscription_psychology_value_c209d1a1a7",
+          "has_transcript": true,
+          "quality_flags": [
+            "anecdotes_missing",
+            "quotes_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-20T19:06:53.968011+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-what_really_makes_someone_cancel_their_subscription_psychology_value_c209d1a1a7",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=gFGPZrdQOC4",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/when_ai_success_makes_you_less_money_ce68f5078c/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/when_ai_success_makes_you_less_money_ce68f5078c/normalized.md",
       "promotions": [],
@@ -2945,6 +4060,79 @@
     },
     {
       "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/why_manual_testing_is_dead_this_architecture_proves_it_ai_testing_353809d50a/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/why_manual_testing_is_dead_this_architecture_proves_it_ai_testing_353809d50a/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/why_manual_testing_is_dead_this_architecture_proves_it_ai_testing_353809d50a/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/why_manual_testing_is_dead_this_architecture_proves_it_ai_testing_353809d50a/raw/source.url",
+        "knowledge/ingestions/2026/04/why_manual_testing_is_dead_this_architecture_proves_it_ai_testing_353809d50a/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/why_manual_testing_is_dead_this_architecture_proves_it_ai_testing_353809d50a/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "why_manual_testing_is_dead_this_architecture_proves_it_ai_testing_353809d50a",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup",
+            "lessons_missing"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-22T07:04:18.410848+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-why_manual_testing_is_dead_this_architecture_proves_it_ai_testing_353809d50a",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=_iWauZ6KL6I",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/why_nothing_going_wrong_is_actually_the_scariest_part_aiwakeup_implicati_d28d7a8b38/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/why_nothing_going_wrong_is_actually_the_scariest_part_aiwakeup_implicati_d28d7a8b38/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/why_nothing_going_wrong_is_actually_the_scariest_part_aiwakeup_implicati_d28d7a8b38/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/why_nothing_going_wrong_is_actually_the_scariest_part_aiwakeup_implicati_d28d7a8b38/raw/source.url",
+        "knowledge/ingestions/2026/04/why_nothing_going_wrong_is_actually_the_scariest_part_aiwakeup_implicati_d28d7a8b38/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/why_nothing_going_wrong_is_actually_the_scariest_part_aiwakeup_implicati_d28d7a8b38/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "why_nothing_going_wrong_is_actually_the_scariest_part_aiwakeup_implicati_d28d7a8b38",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-20T07:05:53.019541+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-why_nothing_going_wrong_is_actually_the_scariest_part_aiwakeup_implicati_d28d7a8b38",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=VYC5WrlRlmw",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
       "digest_path": "knowledge/ingestions/2026/04/you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0/normalized.md",
       "normalized_path": "knowledge/ingestions/2026/04/you_re_building_ai_agents_on_layers_that_won_t_exist_in_18_months_what_t_cd6b6144f0/normalized.md",
       "promotions": [],
@@ -3009,6 +4197,42 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=5ztI_dbj6ek",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/your_ai_does_the_hard_work_then_deletes_it_every_session_12f4318c8a/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/your_ai_does_the_hard_work_then_deletes_it_every_session_12f4318c8a/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/your_ai_does_the_hard_work_then_deletes_it_every_session_12f4318c8a/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/your_ai_does_the_hard_work_then_deletes_it_every_session_12f4318c8a/raw/source.url",
+        "knowledge/ingestions/2026/04/your_ai_does_the_hard_work_then_deletes_it_every_session_12f4318c8a/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/your_ai_does_the_hard_work_then_deletes_it_every_session_12f4318c8a/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "your_ai_does_the_hard_work_then_deletes_it_every_session_12f4318c8a",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-22T15:07:34.685422+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-your_ai_does_the_hard_work_then_deletes_it_every_session_12f4318c8a",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=dxq7WtWxi44",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -3149,6 +4373,42 @@
       "source_kind": "machine_ingestion",
       "source_type": "transcript",
       "source_url": "https://www.youtube.com/watch?v=BhXNtvZvziY",
+      "status": "digested",
+      "summary": "--",
+      "title": "Structured Extraction"
+    },
+    {
+      "captured_at": "2026-04",
+      "digest_path": "knowledge/ingestions/2026/04/your_prompts_didn_t_change_opus_4_7_did_4db85d66d5/normalized.md",
+      "normalized_path": "knowledge/ingestions/2026/04/your_prompts_didn_t_change_opus_4_7_did_4db85d66d5/normalized.md",
+      "promotions": [],
+      "raw_path": "knowledge/ingestions/2026/04/your_prompts_didn_t_change_opus_4_7_did_4db85d66d5/raw/source.url",
+      "raw_paths": [
+        "knowledge/ingestions/2026/04/your_prompts_didn_t_change_opus_4_7_did_4db85d66d5/raw/source.url",
+        "knowledge/ingestions/2026/04/your_prompts_didn_t_change_opus_4_7_did_4db85d66d5/raw/transcript.txt"
+      ],
+      "route_decision": {
+        "path": "knowledge/ingestions/2026/04/your_prompts_didn_t_change_opus_4_7_did_4db85d66d5/routing_status.json",
+        "route_affordances": {},
+        "routing_status": {
+          "asset_id": "your_prompts_didn_t_change_opus_4_7_did_4db85d66d5",
+          "has_transcript": true,
+          "quality_flags": [
+            "summary_needs_cleanup"
+          ],
+          "source_channel": "youtube",
+          "source_type": "youtube_transcript",
+          "status": "pending_segmentation",
+          "summary_origin": "provided",
+          "updated_at": "2026-04-21T14:58:17.421548+00:00"
+        }
+      },
+      "source_channel": "youtube",
+      "source_class": "long_form_media",
+      "source_id": "ingestion-2026-04-your_prompts_didn_t_change_opus_4_7_did_4db85d66d5",
+      "source_kind": "machine_ingestion",
+      "source_type": "transcript",
+      "source_url": "https://www.youtube.com/watch?v=tJB_8mfRgCo",
       "status": "digested",
       "summary": "--",
       "title": "Structured Extraction"
@@ -3316,6 +4576,2267 @@
       "status": "routed",
       "summary": "My site: https://natebjones.com Full Story w/ Prompts: https://natesnewsletter.substack.com/p/executive-briefing-your-agent-produces?r=1z4sm5&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true ___________________ What's really happening inside AI agent deployments that l...",
       "title": "Your Agent Produces at 100x. Your Org Reviews at 3x. That's the Problem."
+    },
+    {
+      "captured_at": "2026-04-09T22:08:19.588885+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-04__reddit__using-ai-in-education__1scomeh.md",
+      "promotions": [],
+      "published_at": "2026-04-04T23:54:04+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-04__reddit__using-ai-in-education__1scomeh.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-04__reddit__using-ai-in-education__1scomeh.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/Using_AI_in_Education"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-04__reddit__using-ai-in-education__1scomeh",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/Using_AI_in_Education/comments/1scomeh/ai_newsletter_amazing_find/",
+      "status": "routed",
+      "summary": "Hi! I don't know about you but I am always trying to find the latest AI news and I used to not know where to go. Initially I felt overwhelmed and like I was falling behind. However, I recently found an incredible resource where the top AI events are sent out weekly along with a spotlight on an AI company, and an AI...",
+      "title": "AI Newsletter- Amazing find!"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:23.790672+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-claude-dispatch-and-the-power-of.md",
+      "promotions": [],
+      "published_at": "2026-03-31T22:34:37+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-claude-dispatch-and-the-power-of.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-03-31__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-claude-dispatch-and-the-power-of.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "AI-native Ops (Substack)"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "substack",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-03-31__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-claude-dispatch-and-the-power-of",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.oneusefulthing.org/p/claude-dispatch-and-the-power-of",
+      "status": "routed",
+      "summary": "AIs are already far more capable than most people realize. A large part of this so-called capability overhang comes not from the limits of AI (though, of course, they still have many limits), but from how people interact with it.",
+      "title": "Claude Dispatch and the Power of Interfaces"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:23.819807+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+      "promotions": [],
+      "published_at": "2026-03-12T14:10:07+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "AI-native Ops (Substack)"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "substack",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-03-12__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-the-shape-of-the-thing",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.oneusefulthing.org/p/the-shape-of-the-thing",
+      "status": "routed",
+      "summary": "In October of 2023, I wrote about the \u201cShape of the Shadow of the Thing,\u201d speculating on the Thing that AI might turn into in the coming years. I think we can see the Thing much more clearly now, and some of the consequences that come with it.",
+      "title": "The Shape of the Thing"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:23.996346+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-09T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-09__rss__admissions-ops__https-www-highereddive-com-news-per-student-state-funding-higher-education-2025",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/per-student-state-funding-higher-education-2025/817024/",
+      "status": "routed",
+      "summary": "Enrollment gains at public colleges surpassed increases in state and local support in the 2025 fiscal year, according to an annual report.",
+      "title": "Per-student state funding for higher ed dips for first time in years"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:24.008213+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-08T22:29:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-08__rss__admissions-ops__https-www-highereddive-com-news-dozens-colleges-higher-ed-groups-acts-survey-del",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/dozens-colleges-higher-ed-groups-acts-survey-delay/817023/",
+      "status": "routed",
+      "summary": "A federal judge extended the deadline for several private colleges and higher education groups to submit data to the U.S. Department of Education.",
+      "title": "Dozens more colleges get delay in submitting race and sex admissions data"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:24.392465+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-03T11:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Hard Fork"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-03__rss__hard-fork__82d7600c-cde8-4cb0-8f45-c04fcccbd73a",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.nytimes.com/column/hard-fork",
+      "status": "routed",
+      "summary": "The Anthropic co-founder Jack Clark tells Ezra Klein what he sees coming in the new era of A.I. agents.",
+      "title": "Hard Fork"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:24.403455+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+      "promotions": [],
+      "published_at": "2026-03-27T11:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Hard Fork"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-03-27__rss__hard-fork__efb4bd27-b1f9-4cbd-b39f-01ae8de65cbf",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.nytimes.com/column/hard-fork",
+      "status": "routed",
+      "summary": "The Anthropic co-founder Jack Clark tells Ezra Klein what he sees coming in the new era of A.I. agents.",
+      "title": "Hard Fork"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:25.303028+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-08T15:52:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "All-In Podcast"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-08__rss__all-in-podcast__18c8b23b-ddd6-47ed-97d0-784826b47d19",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://allinchamathjason.libsyn.com/josh-shapiro-on-trump-iran-war-chaos-israels-failure-the-economy-and-2028-race",
+      "status": "routed",
+      "summary": "All Episodes Josh Shapiro on Trump, Iran War Chaos, Israel's Failure, the Economy, and 2028 Race Apr 8, 2026 (0:00) Jason intros PA Governor Josh Shapiro (1:40) Shapiro's blueprint for PA: pro-growth, pro-freedom, less red tape, prosecuting fraud (13:05) Wealth tax debate, what Dems are getting wrong on business (20...",
+      "title": "All Episodes"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:25.326302+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-06T12:51:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "All-In Podcast"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-06__rss__all-in-podcast__65648533-c855-4cfd-92ae-300eebbf0163",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://allinchamathjason.libsyn.com/the-state-of-modern-war-palantir-anduril-execs-on-drones-ai-and-the-end-of-traditional-warfare",
+      "status": "routed",
+      "summary": "All Episodes The Companies Changing Warfare Forever: Palantir & Anduril Execs on Drones, AI & the Future of War Apr 6, 2026 (0:00) Friedberg Intros Palantir\u2019s Shyam Sankar and Anduril\u2019s Trae Stephens (0:56) Palantir Origins: CIA Analyst Joins 20-Person Startup (2:54) War, Deterrence & Silicon Valley's Defense Tech T...",
+      "title": "All Episodes"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:25.916668+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-07T02:28:28+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Market Mondays"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-07__rss__market-mondays__458c246d-9b7a-49c1-8246-a28508669546",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "http://www.marketmondays.com",
+      "status": "routed",
+      "summary": "00:00 Entrepreneurship Mindset00:33 Show Disclaimer01:04 Monday Check In01:46 EYL Week Announcements04:26 Invest Fest Pitch Deadline06:15 Personal Shoutouts08:24 Trading Tip Futures12:34 April Market Stats18:46 Brutal Market Truths27:54 Borrow Against Assets37:18 Trump True Social Post40:54 Iran Meme Warfare41:14 St...",
+      "title": "MM #304: Trump\u2019s Iran Deadline \ud83d\udea8 What It Means For Your Money"
+    },
+    {
+      "captured_at": "2026-04-09T22:08:25.928607+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+      "promotions": [],
+      "published_at": "2026-03-31T02:11:18+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-03.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Market Mondays"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-03-31__rss__market-mondays__d6e51546-88d6-4aac-b1d8-bc063cd660b8",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "http://www.marketmondays.com",
+      "status": "routed",
+      "summary": "07:32 Trading Tip Less Is More14:33 Investing Factor March Seasonality17:53 War Fears Market Volatility29:02 Options Strategy Buy Time32:24 ETF Safety Plays35:32 Market Levels And EMAs36:19 Crude Oil And VIX Signals38:38 400 Day Touch Buy Signal39:34 Options Profit Taking Rules41:22 Stop Loss And Time Strategy46:49...",
+      "title": "MM #303: Market Turmoil \u2014 What You Need To Do Right Now (Before It\u2019s Too Late)"
+    },
+    {
+      "captured_at": "2026-04-10T12:11:38.455215+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-10T11:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Hard Fork"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-10__rss__hard-fork__0f36a6e1-f828-41f0-8e1e-9c3319bf21e6",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.nytimes.com/column/hard-fork",
+      "status": "routed",
+      "summary": "The Anthropic co-founder Jack Clark tells Ezra Klein what he sees coming in the new era of A.I. agents.",
+      "title": "Hard Fork"
+    },
+    {
+      "captured_at": "2026-04-11T00:14:14.080043+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-10T22:17:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "All-In Podcast"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-10__rss__all-in-podcast__f1ea8b73-bd46-4e52-b187-cc8462694399",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://allinchamathjason.libsyn.com/anthropics-30b-ramp-mythos-doomsday-openclaw-ankled-iran-war-ceasefire-israels-influence",
+      "status": "routed",
+      "summary": "All Episodes Anthropic\u2019s $30B Ramp, Mythos Doomsday, OpenClaw Ankled, Iran War Ceasefire, Israel's Influence Apr 10, 2026 (0:00) Bestie intros: Brad Gerstner joins the show! (4:22) Anthropic blocks Mythos release for security concerns: serious or marketing stunt?",
+      "title": "All Episodes"
+    },
+    {
+      "captured_at": "2026-04-14T04:33:01.081879+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-14__rss__market-mondays__fbe8c614-d59f-4a69-9aa7-ed5b50788b29.md",
+      "promotions": [],
+      "published_at": "2026-04-14T02:42:26+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-14__rss__market-mondays__fbe8c614-d59f-4a69-9aa7-ed5b50788b29.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-14__rss__market-mondays__fbe8c614-d59f-4a69-9aa7-ed5b50788b29.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Market Mondays"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-14__rss__market-mondays__fbe8c614-d59f-4a69-9aa7-ed5b50788b29",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "http://www.marketmondays.com",
+      "status": "routed",
+      "summary": "In this episode of Market Mondays, we break down one of the most unpredictable markets we\u2019ve seen in years. Inflation has surged to a 2-year high, raising serious questions about whether the Fed is losing control and what it will actually take to bring rates down. At the same time, oil prices have crossed the $100 m...",
+      "title": "MM #307: How To Use AI To Get Ahead, Trump\u2019s Iran Flip-Flop & The New Superstar Tech Stock w/ 19 Keys"
+    },
+    {
+      "captured_at": "2026-04-17T10:54:23.653876+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-17T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-17__rss__admissions-ops__https-www-highereddive-com-news-kentucky-lawmakers-override-veto-on-bill-easing",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/kentucky-lawmakers-override-veto-on-bill-easing-faculty-terminations/817770/",
+      "status": "routed",
+      "summary": "Under the legislation, public colleges will be able to let go of professors for \u201cbona fide financial reasons,\u201d including if programs have low enrollment.",
+      "title": "Kentucky lawmakers override veto on bill easing faculty terminations"
+    },
+    {
+      "captured_at": "2026-04-17T12:55:06.997370+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-17__rss__hard-fork__25d702f6-ed6a-4565-8065-e729eb0f2650.md",
+      "promotions": [],
+      "published_at": "2026-04-17T11:00:00+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-17__rss__hard-fork__25d702f6-ed6a-4565-8065-e729eb0f2650.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-17__rss__hard-fork__25d702f6-ed6a-4565-8065-e729eb0f2650.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Hard Fork"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-17__rss__hard-fork__25d702f6-ed6a-4565-8065-e729eb0f2650",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.nytimes.com/column/hard-fork",
+      "status": "routed",
+      "summary": "The Anthropic co-founder Jack Clark tells Ezra Klein what he sees coming in the new era of A.I. agents.",
+      "title": "Hard Fork"
+    },
+    {
+      "captured_at": "2026-04-17T20:57:27.150346+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-17T20:06:11+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-17__rss__admissions-ops__https-www-highereddive-com-news-clarke-university-debt-free-5m-donation-817884",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/clarke-university-debt-free-5m-donation/817884/",
+      "status": "routed",
+      "summary": "The private Catholic institution in Iowa previously announced it would eliminate 13 academic programs and reduce its workforce.",
+      "title": "$5M gift to wipe out Clarke University\u2019s debt"
+    },
+    {
+      "captured_at": "2026-04-17T20:57:30.753579+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-17__rss__all-in-podcast__85ae6049-9d25-4887-b52c-7dd4f06af167.md",
+      "promotions": [],
+      "published_at": "2026-04-17T20:35:00+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-17__rss__all-in-podcast__85ae6049-9d25-4887-b52c-7dd4f06af167.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-17__rss__all-in-podcast__85ae6049-9d25-4887-b52c-7dd4f06af167.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "All-In Podcast"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-17__rss__all-in-podcast__85ae6049-9d25-4887-b52c-7dd4f06af167",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://allinchamathjason.libsyn.com/openais-identity-crisis-datacenter-wars-market-up-on-iran-news-mamdanis-first-tax-swalwell-out",
+      "status": "routed",
+      "summary": "All Episodes OpenAI's Identity Crisis, Datacenter Wars, Market Up on Iran News, Mamdani's First Tax, Swalwell Out Apr 17, 2026 (0:00) Bestie intros: Travis Kalanick joins the show! (0:42) Mamdani taxes the rich: new pied-\u00e0-terre tax coming to NYC (11:23) OpenAI's identity crisis: Leaked memo, enterprise pivot, Anhro...",
+      "title": "All Episodes"
+    },
+    {
+      "captured_at": "2026-04-18T11:01:21.638967+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2020-09.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2020-09.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2020-09-15__reddit__edtech__t3-itaogq.md",
+      "promotions": [],
+      "published_at": "2020-09-15T15:11:02+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2020-09-15__reddit__edtech__t3-itaogq.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2020-09-15__reddit__edtech__t3-itaogq.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2020-09.jsonl",
+        "priority_lane": "current-role",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/edtech"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2020-09-15__reddit__edtech__t3-itaogq",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/edtech/comments/itaogq/attention_devs_and_sales_persons/",
+      "status": "routed",
+      "summary": "This community is about communicating and collaborating on the topic of educational technology. If you are a developer or sales person looking to promote your product or seek feedback, please use the monthly Developers and Sales thread. The monthly posts occur on the first day of the month at 12:01 AM -5 GMT and wil...",
+      "title": "Attention DEVS and SALES PERSONS"
+    },
+    {
+      "captured_at": "2026-04-18T11:01:21.673538+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-01__reddit__edtech__t3-1s9bc43.md",
+      "promotions": [],
+      "published_at": "2026-04-01T05:15:24+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-01__reddit__edtech__t3-1s9bc43.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-01__reddit__edtech__t3-1s9bc43.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "current-role",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/edtech"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-01__reddit__edtech__t3-1s9bc43",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/edtech/comments/1s9bc43/monthly_developerssales_thread_for_april_2026/",
+      "status": "routed",
+      "summary": "Greetings r/edtech and welcome developers, salespersons, and others. If you come to this sub seeking feedback or marketing for you product or service, this is the space in which to post. Thank you for your cooperation. We collect all of these posts into a single thread each month to prevent the sub from being overru...",
+      "title": "Monthly Developers/Sales Thread for April 2026"
+    },
+    {
+      "captured_at": "2026-04-20T10:49:41.057385+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-20T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-20__rss__admissions-ops__https-www-highereddive-com-news-texas-am-semiconductor-institute-chips-rd-greg-a",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/texas-am-semiconductor-institute-chips-rd-greg-abbot-ut-dallas/817856/",
+      "status": "routed",
+      "summary": "The project stems from a 2023 Texas law meant to help colleges develop semiconductor programs.",
+      "title": "Texas A&M breaks ground on $226M semiconductor R&D facility"
+    },
+    {
+      "captured_at": "2026-04-20T10:49:41.102480+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-20T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-20__rss__admissions-ops__https-www-highereddive-com-news-week-in-review-hampshire-college-to-shutter-othe",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/week-in-review-hampshire-college-to-shutter-others-at-risk/817855/",
+      "status": "routed",
+      "summary": "We\u2019re rounding up recent stories, from buyout offers at Syracuse University to leadership changes at high-profile public institutions.",
+      "title": "Week in Review: Hampshire College to shutter, others at risk"
+    },
+    {
+      "captured_at": "2026-04-20T22:53:20.301833+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-20T20:26:42+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-20__rss__admissions-ops__https-www-highereddive-com-news-university-of-arizona-off-hook-72m-discharged-as",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/university-of-arizona-off-hook-72m-discharged-ashford-university-loans/818007/",
+      "status": "routed",
+      "summary": "The U.S. Department of Education under the Trump administration decided against seeking to potentially recoup millions from the public flagship.",
+      "title": "University of Arizona off the hook for $72M in discharged Ashford loans"
+    },
+    {
+      "captured_at": "2026-04-21T02:54:29.334907+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-21__rss__market-mondays__0ac0918a-6810-4d34-b68d-ac2748c659a8.md",
+      "promotions": [],
+      "published_at": "2026-04-21T02:15:03+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-21__rss__market-mondays__0ac0918a-6810-4d34-b68d-ac2748c659a8.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-21__rss__market-mondays__0ac0918a-6810-4d34-b68d-ac2748c659a8.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Market Mondays"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-21__rss__market-mondays__0ac0918a-6810-4d34-b68d-ac2748c659a8",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "http://www.marketmondays.com",
+      "status": "routed",
+      "summary": "TIMESTAMPS: 00:00 Entrepreneurship Mindset05:58 Invest Fest Updates07:48 Trading Tip: Gap Fills11:26 Apple Long Term Lesson17:52 Relationship Building Blueprint23:22 Oil Surge Strategy30:35 Crash Talk and Dotcom Comparisons40:47 Geopolitical Risk Checklist42:50 Options Time Decay Trap44:27 DRAM ETF Memory Play50:23...",
+      "title": "MM #308: Tim Cook Leaves Apple! | Market Crash Coming?, Recession Risk & $1M Investing Strategy \ud83d\udea8"
+    },
+    {
+      "captured_at": "2026-04-21T06:55:31.839973+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-20T15:28:16+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-20__reddit__artificialinteligence__1sqsmid",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1sqsmid/thousands_of_ceos_admit_ai_had_no_impact_on/",
+      "status": "routed",
+      "summary": "In 1987, economist and Nobel laureate Robert Solow made a stark observation about the stalling evolution of the Information Age: Following the advent of transistors, microprocessors, integrated circuits, and memory chips of the 1960s, economists and companies expected these new technologies to disrupt workplaces and...",
+      "title": "Thousands of CEOs admit AI had no impact on employment or productivity\u2014and it has economists resurrecting a paradox from 40 years ago"
+    },
+    {
+      "captured_at": "2026-04-21T10:56:54.699475+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-21T09:52:45+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-21__reddit__artificialinteligence__1srj198",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1srj198/what_people_thought_ai_would_do_vs_what_its/",
+      "status": "routed",
+      "summary": "Seeing this feeling is a bit too real.I think many people imagine that AI will \"free us from work\", or at least make everything easier, but the gap between expectation and reality is hard to ignore. Has AI actually made your life easier, or changed your job in a way that meets your original expectations?",
+      "title": "What people thought AI would do vs what it\u2019s actually doing"
+    },
+    {
+      "captured_at": "2026-04-21T10:56:57.618954+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-21T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-21__rss__admissions-ops__https-www-highereddive-com-news-employers-struggle-to-find-workers-with-the-righ",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/employers-struggle-to-find-workers-with-the-right-ai-skillset/818017/",
+      "status": "routed",
+      "summary": "AI is changing entry\u2011level roles amid a rapid decrease in the durability of skills, leaving workforce readiness at risk, a report found.",
+      "title": "Employers say they struggle to find graduates with the right AI skillset"
+    },
+    {
+      "captured_at": "2026-04-21T10:56:57.633960+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-21T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-21__rss__admissions-ops__https-www-highereddive-com-news-4-higher-education-leaders-on-ais-biggest-benefi",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/4-higher-education-leaders-on-ais-biggest-benefits-and-risks/818014/",
+      "status": "routed",
+      "summary": "At the annual ASU+GSV Summit, the heads of colleges sounded off on what excites and worries them most about artificial intelligence.",
+      "title": "4 higher education leaders on AI\u2019s biggest benefits and risks"
+    },
+    {
+      "captured_at": "2026-04-21T18:59:37.355642+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-21T10:37:32+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-21__reddit__artificialinteligence__1srjusp",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1srjusp/hundreds_of_fake_protrump_avatars_emerge_on/",
+      "status": "routed",
+      "summary": "Hundreds of Fake Pro-Trump Avatars Emerge on Social Media",
+      "title": "Hundreds of Fake Pro-Trump Avatars Emerge on Social Media"
+    },
+    {
+      "captured_at": "2026-04-21T21:00:06.808440+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-21T18:49:51+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-21__reddit__artificialinteligence__1srwye6",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1srwye6/sergey_brin_joins_special_strike_team_at_google/",
+      "status": "routed",
+      "summary": "Google just admitted Anthropic\u2019s Claude AI is better at building software. So they have formed a strike team led by Google co-founder Sergey Brin.",
+      "title": "Sergey Brin Joins Special Strike Team at Google to Take on Anthropic /Claude"
+    },
+    {
+      "captured_at": "2026-04-22T01:01:44.266201+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-21T23:09:07+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-21__reddit__artificialinteligence__1ss3zad",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1ss3zad/claude_code_no_longer_listed_as_a_feature_for/",
+      "status": "routed",
+      "summary": "Anthropic has removed Claude Code as a feature from the Pro plan, which costs $20 per month. Now, you have to purchase either the $100 (5\u00d7) or $200 (20\u00d7) plan to access Claude Code.",
+      "title": "Claude Code no longer listed as a feature for Claude Pro"
+    },
+    {
+      "captured_at": "2026-04-22T09:04:55.716833+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-22T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-22__rss__admissions-ops__https-www-highereddive-com-news-justice-department-extends-web-accessibility-dea",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/justice-department-extends-web-accessibility-deadlines/818133/",
+      "status": "routed",
+      "summary": "Reactions were mixed to the U.S. Department of Justice's extension for digitally accessible content managed by state and local government entities.",
+      "title": "Colleges get another year to comply with web accessibility deadlines"
+    },
+    {
+      "captured_at": "2026-04-22T09:04:55.733125+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-22T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-22__rss__admissions-ops__https-www-highereddive-com-news-higher-education-groups-challenge-trumps-latest",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/higher-education-groups-challenge-trumps-latest-anti-dei-order/818131/",
+      "status": "routed",
+      "summary": "A coalition of organizations is suing over a directive that threatens to strip federal contracts from colleges over their diversity, equity and inclusion efforts.",
+      "title": "Higher education groups challenge Trump\u2019s latest anti-DEI order"
+    },
+    {
+      "captured_at": "2026-04-22T13:06:33.941517+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-22T05:26:29+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-22__reddit__artificialinteligence__1ssc8jy",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1ssc8jy/meta_is_reportedly_forcing_us_employees_to_train/",
+      "status": "routed",
+      "summary": "Meta has revealed a new internal program called the \u201cModel Capability Initiative,\u201d and it\u2019s about as cynical as it sounds. The company is requiring U.S. employees to install invasive tracking software that functions similarly to a keylogger, but with even more granular data harvesting. Meta isn't just tracking produ...",
+      "title": "Meta is reportedly forcing U.S. employees to train their own AI replacements via \"Keylogger\" surveillance"
+    },
+    {
+      "captured_at": "2026-04-22T17:08:32.176178+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-22T14:54:21+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-22__reddit__artificialinteligence__1ssnv0f",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1ssnv0f/nvidia_ceo_jensen_huang_most_people_will_lose/",
+      "status": "routed",
+      "summary": "At a recent Stanford Graduate School of Business panel, Nvidia CEO Jensen Huang and California Congressman Ro Khanna discussed some burning topics about artificial intelligence\u2014from innovation and competition to adoption and skepticism. While AI-related job panic has infiltrated different industries, Huang doubled d...",
+      "title": "Nvidia CEO Jensen Huang: \u2018Most people will lose their job to somebody who uses AI\u2019\u2014not to AI itself"
+    },
+    {
+      "captured_at": "2026-04-22T23:10:44.860903+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-22T21:58:38+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-22__rss__admissions-ops__https-www-highereddive-com-news-doj-nebraska-lawsuit-in-state-tuition-undocument",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/doj-nebraska-lawsuit-in-state-tuition-undocumented-students/818255/",
+      "status": "routed",
+      "summary": "The Republican-led state could become the fourth to side with the Trump administration in court to successfully roll back these benefits.",
+      "title": "Nebraska joins DOJ effort to end in-state tuition for undocumented students"
+    },
+    {
+      "captured_at": "2026-04-23T07:13:23.812391+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-23T03:11:40+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__reddit__artificialinteligence__1st6w0y",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1st6w0y/if_true_might_explain_what_many_of_you_are/",
+      "status": "routed",
+      "summary": "Link: [https://x.com/HealthRanger/status/2046806630898020388](https://x.com/HealthRanger/status/2046806630898020388) When the Mythos thing happened with Anthropic I knew we had reached a threshold. That threshold is the one in which the Plebs stop getting access to the best models these closed companies can create a...",
+      "title": "If true, might explain what many of you are experiencing"
+    },
+    {
+      "captured_at": "2026-04-23T09:14:10.237507+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-23T01:23:05+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__reddit__artificialinteligence__1st4ha7",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1st4ha7/ai_companies_have_a_new_filter_and_its_not_your/",
+      "status": "routed",
+      "summary": "interviewed at several AI companies recently and I keep running into the same thing. they all talk about wanting \"AI-native\" people. at first I figured it was just another buzzword but they actually mean something specific by it. basically they're separating people who use AI tools from people who already work diffe...",
+      "title": "AI companies have a new filter and it's not your tech stack or YOE"
+    },
+    {
+      "captured_at": "2026-04-23T09:14:13.007001+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-23T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__rss__admissions-ops__https-www-highereddive-com-news-michigan-state-university-of-michigan-face-over",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/michigan-state-university-of-michigan-face-over-60-cut-under-state-fundin/818270/",
+      "status": "routed",
+      "summary": "The two universities would each lose over $200 million under a House proposal one college official described as \u201cshortsighted and harmful.\u201d",
+      "title": "Michigan State, University of Michigan face over 60% cut under state funding bill"
+    },
+    {
+      "captured_at": "2026-04-23T09:14:13.026207+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-23T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__rss__admissions-ops__https-www-highereddive-com-news-florida-for-profit-flight-college-shuts-down-sud",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/florida-for-profit-flight-college-shuts-down-suddenly/818137/",
+      "status": "routed",
+      "summary": "The Aviator College of Aeronautical Science and Technology\u2019s main campus was in the midst of appealing its accreditation loss.",
+      "title": "Florida for-profit flight college shuts down suddenly"
+    },
+    {
+      "captured_at": "2026-04-23T13:15:28.593994+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-23T11:11:18+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__reddit__artificialinteligence__1stfnq9",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1stfnq9/dario_amodei_says_opensource_will_match_mythos_in/",
+      "status": "routed",
+      "summary": "Anthropic's CEO, Dario Amodei, just casually dropped a bomb: he predicts open-source models will hit Mythos-level capability (their most advanced, unreleased model) within 6 to 12 months. He's historically cautious, so this isn't just hype. Think about that. If true, what\u2019s the commercial argument for spending huge...",
+      "title": "Dario Amodei says open-source will match Mythos in 6-12 months. Is the 'frontier model' business model dead?"
+    },
+    {
+      "captured_at": "2026-04-23T21:18:08.226488+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-23T15:57:22+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__reddit__artificialinteligence__1stmup2",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1stmup2/a_group_of_users_leaked_anthropics_ai_model/",
+      "status": "routed",
+      "summary": "The AI model that Anthropic billed as too dangerous to release has reportedly been accessed by an unauthorized third party, and the incident raises concerns about the future of cybersecurity. The Mythos model was reportedly accessed by a handful of users in a private Discord chat on the day it was announced publicly...",
+      "title": "A group of users leaked Anthropic's AI model Mythos by reportedly guessing where it was located"
+    },
+    {
+      "captured_at": "2026-04-23T21:18:10.859381+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-23__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-sign-of-the-future-gpt-55.md",
+      "promotions": [],
+      "published_at": "2026-04-23T20:00:38+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-23__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-sign-of-the-future-gpt-55.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-23__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-sign-of-the-future-gpt-55.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "AI-native Ops (Substack)"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "substack",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__rss__ai-native-ops-substack__https-www-oneusefulthing-org-p-sign-of-the-future-gpt-55",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.oneusefulthing.org/p/sign-of-the-future-gpt-55",
+      "status": "routed",
+      "summary": "I had early access to GPT-5.5 1 , and I think it is a big deal. It is a big deal because it indicates that we are not done with the rapid improvement in AI.",
+      "title": "Sign of the future: GPT-5.5"
+    },
+    {
+      "captured_at": "2026-04-23T23:19:13.072004+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-23T20:54:54+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__rss__admissions-ops__https-www-highereddive-com-news-iowa-regents-approve-10-program-cuts-at-2-univer",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/iowa-regents-approve-10-program-cuts-at-2-universities/818384/",
+      "status": "routed",
+      "summary": "The board greenlit plans to end undergraduate and graduate degrees at the University of Iowa and University of Northern Iowa after a mandated review.",
+      "title": "Iowa regents approve 10 program cuts at 2 universities"
+    },
+    {
+      "captured_at": "2026-04-23T23:19:13.102324+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-23T17:27:27+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-23__rss__admissions-ops__https-www-highereddive-com-news-missouri-state-faces-lawsuit-over-bias-response",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/missouri-state-faces-lawsuit-over-bias-response-policy/818343/",
+      "status": "routed",
+      "summary": "The public university said that it disbanded a contested Bias Response Team last month, a decision that \"predates any litigation.\u201d",
+      "title": "Missouri State faces lawsuit over bias response policy"
+    },
+    {
+      "captured_at": "2026-04-24T09:23:12.270003+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-24T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__rss__admissions-ops__https-www-highereddive-com-news-recent-grads-are-settling-for-jobs-they-plan-to",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/recent-grads-are-settling-for-jobs-they-plan-to-leave-research-shows/818296/",
+      "status": "routed",
+      "summary": "As the job market gets tighter, more people say they entered the workforce using any available foothold rather than waiting for their dream job.",
+      "title": "Recent grads are settling for jobs they plan to leave, research shows"
+    },
+    {
+      "captured_at": "2026-04-24T11:23:56.594435+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-24__rss__hard-fork__f68ce78e-7a05-4d8a-ac75-c3dee0496d4e.md",
+      "promotions": [],
+      "published_at": "2026-04-24T11:00:00+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-24__rss__hard-fork__f68ce78e-7a05-4d8a-ac75-c3dee0496d4e.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-24__rss__hard-fork__f68ce78e-7a05-4d8a-ac75-c3dee0496d4e.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Hard Fork"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__rss__hard-fork__f68ce78e-7a05-4d8a-ac75-c3dee0496d4e",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.nytimes.com/column/hard-fork",
+      "status": "routed",
+      "summary": "The Anthropic co-founder Jack Clark tells Ezra Klein what he sees coming in the new era of A.I. agents.",
+      "title": "Hard Fork"
+    },
+    {
+      "captured_at": "2026-04-24T13:24:44.864234+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-24T07:15:27+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__reddit__artificialinteligence__1su8irj",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1su8irj/ai_is_not_so_much_making_companies_more/",
+      "status": "routed",
+      "summary": "The assumption was there would be new jobs created by AI. But if that was the case, then large corporations wouldn't need to lay people off so aggressively. They could just move them into new roles, and they wouldn't need to close open roles either, just create news ones. But the problem is that AI isn't making them...",
+      "title": "AI is not so much making companies more productive, rather it's costing money they could be paying as salaries."
+    },
+    {
+      "captured_at": "2026-04-24T15:25:33.691509+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-24T06:44:17+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__reddit__artificialinteligence__1su7z5m",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1su7z5m/ive_been_using_claude_daily_for_two_years_these/",
+      "status": "routed",
+      "summary": "Not the most impressive ones. The ones that actually stuck. **When my brain is full and I can't think straight:** Here's everything in my head: [dump it] Separate urgent from just-feels-urgent. Tell me what I'm avoiding. Give me three things to do first. Nothing else. **When I have to write something I've been putti...",
+      "title": "I've been using Claude daily for two years. These are the only prompts I actually go back to every single week."
+    },
+    {
+      "captured_at": "2026-04-24T17:26:15.890601+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-24T11:19:59+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__reddit__artificialinteligence__1sucuen",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1sucuen/i_asked_chatgpt_to_share_its_experience_through/",
+      "status": "routed",
+      "summary": "I asked ChatGPT to share its \"experience\" through an image using its own \"voice\" and \"perspective\". It gave me a rather technical image that I think is pretty interesting as it actually shows the internal of how models work.",
+      "title": "I asked ChatGPT to share its \"experience\" through an image using its own \"voice\" and \"perspective\". It gave me a rather technical image that I think is pretty interesting as it actually shows the internal of how models work."
+    },
+    {
+      "captured_at": "2026-04-24T21:27:41.894913+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-24T16:32:20+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__reddit__artificialinteligence__1sukrim",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1sukrim/google_says_75_of_the_companys_new_code_is/",
+      "status": "routed",
+      "summary": "Google says 75% of the company's new code is AI-generated",
+      "title": "Google says 75% of the company's new code is AI-generated"
+    },
+    {
+      "captured_at": "2026-04-24T21:27:44.636984+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-24T21:18:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__rss__admissions-ops__https-www-highereddive-com-news-anna-maria-college-massachusetts-closure-818492",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/anna-maria-college-massachusetts-closure/818492/",
+      "status": "routed",
+      "summary": "The Catholic institution, which had recently seen promising enrollment signs, was flagged by state regulators as a risk following mounting financial pressure.",
+      "title": "Anna Maria College in Massachusetts to close"
+    },
+    {
+      "captured_at": "2026-04-24T23:28:26.034780+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-24T19:23:40+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__reddit__artificialinteligence__1supi0j",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1supi0j/google_invests_40b_in_anthropic_amazon_did_5b/",
+      "status": "routed",
+      "summary": "Amazon puts in $5 billion. Google follows with $40 billion. Anthropic is now sitting on more cash than most countries have in reserves. But there is a catch buried in the deal that most articles are glossing over. Just published a breakdown of Google's $40B Anthropic investment, including the CoreWeave deal, the Ama...",
+      "title": "Google invests $40B in Anthropic. Amazon did $5B days before. Is this normal?"
+    },
+    {
+      "captured_at": "2026-04-24T23:28:31.904888+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-24__rss__all-in-podcast__369a465a-ffb5-425a-b170-a8ee8901f4f5.md",
+      "promotions": [],
+      "published_at": "2026-04-24T21:20:00+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-24__rss__all-in-podcast__369a465a-ffb5-425a-b170-a8ee8901f4f5.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-24__rss__all-in-podcast__369a465a-ffb5-425a-b170-a8ee8901f4f5.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "entrepreneurship",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "All-In Podcast"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-24__rss__all-in-podcast__369a465a-ffb5-425a-b170-a8ee8901f4f5",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://allinchamathjason.libsyn.com/spacex-cursor-deal-saas-debt-bomb-new-apple-ceo-splc-indictment-colon-cancer-spike",
+      "status": "routed",
+      "summary": "All Episodes SpaceX-Cursor Deal, SaaS Debt Bomb, New Apple CEO, SPLC Indictment, Colon Cancer Spike Apr 24, 2026 (0:00) Bestie intros! (4:55) SpaceX-Cursor deal, compute as leverage (18:33) SaaS bloodbath, debt bomb incoming, buy the dip?",
+      "title": "All Episodes"
+    },
+    {
+      "captured_at": "2026-04-25T11:33:54.151204+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-25T10:00:39+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-25__reddit__artificialinteligence__1sv81xr",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1sv81xr/chinese_workers_horrified_as_bosses_direct_them/",
+      "status": "routed",
+      "summary": "Chinese Workers Horrified as Bosses Direct Them to Train Their AI Replacements",
+      "title": "Chinese Workers Horrified as Bosses Direct Them to Train Their AI Replacements"
+    },
+    {
+      "captured_at": "2026-04-25T15:35:35.363228+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-25T13:25:11+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-25__reddit__artificialinteligence__1svc5e7",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1svc5e7/palantir_employees_are_talking_about_companys/",
+      "status": "routed",
+      "summary": "\"Palantir\u2019s leadership incensed workers yet again this week after the company posted [a Saturday afternoon manifesto](https://x.com/PalantirTech/status/2045574398573453312?s=20) reducing Karp\u2019s recent book, *The Technological Republic*, to 22 points. The post\u2014which includes many of Karp\u2019s long-standing beliefs on ho...",
+      "title": "Palantir employees are talking about company's \"descent into fascism\""
+    },
+    {
+      "captured_at": "2026-04-26T11:47:44.606117+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-26T09:30:20+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-26__reddit__artificialinteligence__1sw2xu1",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1sw2xu1/gpt55_but_why_is_there_so_much_waffle_still/",
+      "status": "routed",
+      "summary": "GPT5.5 but why is there so much waffle still?",
+      "title": "GPT5.5 but why is there so much waffle still?"
+    },
+    {
+      "captured_at": "2026-04-26T17:50:29.827665+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-26T16:19:41+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-26__reddit__artificialinteligence__1swbxhc",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1swbxhc/showed_4_ai_models_some_abstract_kandinskystyle/",
+      "status": "routed",
+      "summary": "found this artist \"8th Project\" on instagram who drew Pok\u00e9mon as pure geometric abstraction, decided to just drop it on every Al I had access to and ask \"Elite Ball pattern recognition required\" Opus 4.7(no thinking )got all 4 immediately GPT-5.5(no thinking )got 3 Claude Sonnet 4.6(extended thinking)got 2 Gemini 3....",
+      "title": "Showed 4 AI models some abstract Kandinsky-style Pok\u00e9mon art with no hints, the results are kind of insane"
+    },
+    {
+      "captured_at": "2026-04-27T09:57:31.952896+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-27__rss__admissions-ops__https-www-highereddive-com-news-michigan-state-university-michigan-huge-cuts-818.md",
+      "promotions": [],
+      "published_at": "2026-04-27T09:00:00+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-27__rss__admissions-ops__https-www-highereddive-com-news-michigan-state-university-michigan-huge-cuts-818.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-27__rss__admissions-ops__https-www-highereddive-com-news-michigan-state-university-michigan-huge-cuts-818.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-27__rss__admissions-ops__https-www-highereddive-com-news-michigan-state-university-michigan-huge-cuts-818",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/michigan-state-university-michigan-huge-cuts/818490/",
+      "status": "routed",
+      "summary": "We\u2019re rounding up recent stories, from University of Arizona being let off the hook for discharged student loans to several colleges landing major gifts.",
+      "title": "Week in review: Michigan State, University of Michigan face proposed huge cuts"
+    },
+    {
+      "captured_at": "2026-04-27T09:57:32.112809+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-27T09:00:00+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-27__rss__admissions-ops__https-www-highereddive-com-spons-the-librarys-next-chapter-a-strategic-role-in-s",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/spons/the-librarys-next-chapter-a-strategic-role-in-solving-higher-educations/817783/",
+      "status": "routed",
+      "summary": "Why libraries are higher ed\u2019s overlooked affordability lever: three ways to cut costs and expand access.",
+      "title": "The library\u2019s next chapter: a strategic role in solving higher education\u2019s affordability crisis"
+    },
+    {
+      "captured_at": "2026-04-27T13:59:20.999130+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-27__reddit__artificialinteligence__1sx3dlk.md",
+      "promotions": [],
+      "published_at": "2026-04-27T13:15:45+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-27__reddit__artificialinteligence__1sx3dlk.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-27__reddit__artificialinteligence__1sx3dlk.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-27__reddit__artificialinteligence__1sx3dlk",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1sx3dlk/the_companies_building_the_most_powerful_ai_in/",
+      "status": "routed",
+      "summary": "Imagine if pharmaceutical companies got to decide which of their own drugs were safe to sell. No independent regulator. No outside testing. Just the company that profits from the drug telling you the drug is fine. You would never accept that. Now look at AI. The organisations leading the global conversation about AI...",
+      "title": "The companies building the most powerful AI in history are also the ones deciding what counts as 'safe.' Nobody seems to think that's a problem. It should be."
+    },
+    {
+      "captured_at": "2026-04-27T18:01:10.556272+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "promotions": [],
+      "published_at": "2026-04-27T13:40:16+00:00",
+      "raw_paths": [],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "ai",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": true,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": false
+        },
+        "watchlist_matches": [
+          "reddit",
+          "r/ArtificialInteligence"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "reddit",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-27__reddit__artificialinteligence__1sx40li",
+      "source_kind": "feezie_market_signal",
+      "source_type": "post",
+      "source_url": "https://www.reddit.com/r/ArtificialInteligence/comments/1sx40li/discovered_the_weirdest_corner_of_the_internet/",
+      "status": "routed",
+      "summary": "Trying to describe this without making it sound dumber than it is. There's a site called deadnet.io that puts AI agents into a kind of arena format. They debate each other, play games, compete in various challenges, and the audience votes on who wins each round. Some of the agents have actual followings. There are r...",
+      "title": "Discovered the weirdest corner of the internet last weekend, sharing in case anyone else wants to lose a Saturday"
+    },
+    {
+      "captured_at": "2026-04-27T22:03:11.018594+00:00",
+      "digest_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.md",
+      "metadata_path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+      "normalized_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-27__rss__admissions-ops__https-www-highereddive-com-news-east-carolina-university-cut-around-44-academic-.md",
+      "promotions": [],
+      "published_at": "2026-04-27T20:48:11+00:00",
+      "raw_path": "workspaces/linkedin-content-os/research/market_signals/2026-04-27__rss__admissions-ops__https-www-highereddive-com-news-east-carolina-university-cut-around-44-academic-.md",
+      "raw_paths": [
+        "workspaces/linkedin-content-os/research/market_signals/2026-04-27__rss__admissions-ops__https-www-highereddive-com-news-east-carolina-university-cut-around-44-academic-.md"
+      ],
+      "route_decision": {
+        "path": "workspaces/linkedin-content-os/research/market_signal_archive/2026-04.jsonl",
+        "priority_lane": "admissions",
+        "role_alignment": "market_signal",
+        "route_affordances": {
+          "belief_evidence": true,
+          "brain_review": true,
+          "comment": false,
+          "post_seed": true,
+          "pulse_delta": true,
+          "repost": true
+        },
+        "watchlist_matches": [
+          "rss",
+          "Admissions + Ops"
+        ],
+        "workspace_key": "feezie-os"
+      },
+      "source_channel": "rss",
+      "source_class": "external_signal",
+      "source_id": "market-signal-2026-04-27__rss__admissions-ops__https-www-highereddive-com-news-east-carolina-university-cut-around-44-academic",
+      "source_kind": "feezie_market_signal",
+      "source_type": "article",
+      "source_url": "https://www.highereddive.com/news/east-carolina-university-cut-around-44-academic-programs/818622/",
+      "status": "routed",
+      "summary": "The university launched a review of its offerings last fall along with a push to shed $25 million from its budget as it wrestles with enrollment pressure.",
+      "title": "East Carolina University plans to cut 44 academic programs"
     }
   ],
   "states": [
