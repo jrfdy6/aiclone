@@ -120,6 +120,8 @@ The first-pass enforcement lives in:
 - [build_standup_prep.py](/Users/neo/.openclaw/workspace/scripts/build_standup_prep.py)
 
 That script now:
+- injects the executive Chronicle decision loop into standup prep so the meeting asks what came in, what changed, what should change next cycle, and whether each signal belongs in memory, standup interpretation, PM execution, workspace handoff, or no action
+- refuses to reopen `Wire Chronicle into standup and PM flow` from generic standup-status residue unless the raw Chronicle signal actually names a Chronicle/Codex routing or PM-flow wiring action
 - normalizes weak PM candidate titles
 - rejects advisory phrasing
 - rejects duplicates when the same title already exists on the active PM board

@@ -38,6 +38,19 @@ JOBS_JSON = Path("/Users/neo/.openclaw/cron/jobs.json")
 REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
 INFERRED_BRIEF_PATH = WORKSPACE_ROOT / "docs" / "inferred_workspace_operating_brief_2026-03-31.md"
 DEFAULT_API_URL = os.environ.get("AICLONE_API_URL", "https://aiclone-production-32dc.up.railway.app")
+CHRONICLE_DECISION_LOOP_QUESTIONS = [
+    "What came in?",
+    "What changed?",
+    "What should the system do differently next cycle?",
+    "Should each signal route to canonical memory, standup interpretation, PM execution, workspace handoff, or no action?",
+]
+CHRONICLE_DECISION_LOOP_ROUTES = [
+    "canonical_memory",
+    "standup_interpretation",
+    "pm_execution",
+    "workspace_handoff",
+    "no_action",
+]
 
 
 def _now() -> datetime:
@@ -211,6 +224,13 @@ def _is_non_actionable_status_surface(value: Any) -> bool:
     text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
     if not text:
         return True
+    if text in {
+        "the operational problem is usually underneath it.",
+        "that's not really the issue.",
+        "directionally yes, but the practical issue usually sits one layer lower.",
+        "im looking in my psat standups from the last 24 hours and it shows that there are issues in the ai clone system",
+    }:
+        return True
     if "why does it say needs brain" in text:
         return True
     if "no active blockers reported" in text:
@@ -224,6 +244,29 @@ def _is_non_actionable_status_surface(value: Any) -> bool:
     if text.startswith("active blockers ") and ("automation drift remains" in text or "fallback watchdog" in text):
         return True
     return False
+
+
+def _is_resolved_ai_clone_issue_line(value: Any, *, automation_clean: bool) -> bool:
+    if not automation_clean:
+        return False
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    if not text:
+        return False
+    if "ai clone automation layer" in text:
+        return True
+    if "configuration drift" in text and "ai clone" in text:
+        return True
+    if "jobs.json" in text and "memory/learnings.md" in text:
+        return True
+    if "daily memory flush" in text and "mirrored openclaw run" in text and "error" in text:
+        return True
+    return False
+
+
+def _filter_resolved_ai_clone_issue_lines(items: list[str], *, automation_clean: bool) -> list[str]:
+    if not items or not automation_clean:
+        return items
+    return [item for item in items if not _is_resolved_ai_clone_issue_line(item, automation_clean=automation_clean)]
 
 
 def _filter_resolved_workspace_root_blockers(
@@ -344,10 +387,11 @@ def _compact_markdown_section(markdown: str, *, max_lines: int = 10) -> str:
 def _workspace_scope_matches(workspace_key: str, candidate_workspace: str, *, include_shared_ops: bool = False) -> bool:
     if workspace_key == "shared_ops":
         return True
-    allowed = {workspace_key}
+    allowed = set(_workspace_key_candidates(workspace_key))
     if include_shared_ops:
-        allowed.add("shared_ops")
-    return candidate_workspace in allowed
+        allowed.update(_workspace_key_candidates("shared_ops"))
+    candidate_keys = set(_workspace_key_candidates(candidate_workspace))
+    return bool(allowed & candidate_keys)
 
 
 def _load_pack_excerpt(base: Path | None, filename: str, *, max_lines: int = 12) -> tuple[Path | None, str]:
@@ -945,6 +989,9 @@ def _build_agenda(
         agenda.append(f"Pressure-test the next move against `{display_name}` mission, constraints, and lane boundaries.")
     elif standup_kind in {"executive_ops", "weekly_review"}:
         agenda.append("Start from PM truth, then test whether current motion still matches the inferred workspace operating brief.")
+        agenda.append(
+            "Run the Chronicle decision loop: what came in, what changed, what should change next cycle, and whether each signal belongs in canonical memory, standup interpretation, PM execution, workspace handoff, or no action."
+        )
 
     if pm_snapshot.get("available"):
         cards = pm_snapshot.get("cards") or []
@@ -971,6 +1018,23 @@ def _build_agenda(
         label = display_name if workspace_key != "shared_ops" else "shared ops"
         agenda.append(f"Nothing to report from the PM board for {label}. Keep the lane ready for the next real signal.")
     return _dedupe_strings(agenda, limit=6)
+
+
+def _build_decision_loop(workspace_key: str, standup_kind: str, pm_updates: list[dict[str, Any]]) -> dict[str, Any]:
+    active = workspace_key == "shared_ops" and standup_kind in {"executive_ops", "weekly_review"}
+    return {
+        "active": active,
+        "source": "codex_chronicle",
+        "governing_rule": (
+            "Executive standups are recurring decision loops, not static reports."
+            if active
+            else "Workspace standups inherit Chronicle context through lane-local sections."
+        ),
+        "questions": CHRONICLE_DECISION_LOOP_QUESTIONS if active else [],
+        "routing_targets": CHRONICLE_DECISION_LOOP_ROUTES if active else [],
+        "pm_recommendation_count": len(pm_updates),
+        "pm_gate": "PM recommendations are emitted only after PM snapshot availability, duplicate checks, and action-shaped title checks.",
+    }
 
 
 def _load_pm_context_from_api(workspace_key: str, api_url: str) -> dict[str, Any]:
@@ -1238,11 +1302,14 @@ def _is_actionable_pm_title(title: str) -> bool:
         "clarify ",
         "create ",
         "define ",
+        "draft ",
         "document ",
         "make ",
+        "plan ",
         "promote ",
         "refine ",
         "run ",
+        "ship ",
         "standardize ",
         "tighten ",
         "turn ",
@@ -1250,6 +1317,150 @@ def _is_actionable_pm_title(title: str) -> bool:
         "wire ",
     )
     return lowered.startswith(allowed_prefixes)
+
+
+def _is_chronicle_flow_action_candidate(candidate: str) -> bool:
+    lowered = " ".join(str(candidate).replace("\xa0", " ").split()).strip().lower()
+    if not lowered:
+        return False
+    has_chronicle_signal = "chronicle" in lowered or "codex" in lowered
+    has_flow_surface = any(
+        token in lowered
+        for token in (
+            "standup",
+            "stand-up",
+            "standup prep",
+            "pm board",
+            "pm flow",
+            "pm execution",
+            "pm recommendation",
+            "workspace handoff",
+            "decision loop",
+        )
+    )
+    has_action_verb = any(
+        token in lowered
+        for token in (
+            "wire",
+            "wiring",
+            "route",
+            "routing",
+            "flow",
+            "gate",
+            "gating",
+            "promot",
+            "inject",
+            "carry",
+            "feed",
+            "handoff",
+            "build",
+            "add ",
+            "create ",
+        )
+    )
+    return has_chronicle_signal and has_flow_surface and has_action_verb
+
+
+def _workspace_pm_display_name(workspace_key: str) -> str:
+    if _is_feezie_workspace_key(workspace_key):
+        return "FEEZIE OS"
+    return {
+        "fusion-os": "Fusion OS",
+        "easyoutfitapp": "Easy Outfit App",
+        "ai-swag-store": "AI Swag Store",
+        "agc": "AGC",
+        "shared_ops": "Shared Ops",
+    }.get(workspace_key, workspace_key)
+
+
+def _normalize_workspace_pm_title(candidate: str) -> str:
+    return " ".join(str(candidate).replace("`", "").split()).strip(" -.")[:120]
+
+
+def _workspace_has_active_pm_card(pm_snapshot: dict[str, Any]) -> bool:
+    for card in pm_snapshot.get("cards") or []:
+        if not isinstance(card, dict):
+            continue
+        if str(card.get("status") or "").strip() != "done":
+            return True
+    return False
+
+
+def _workspace_focus_pm_title(workspace_key: str, workspace_context: dict[str, Any]) -> tuple[str, str]:
+    audience_feedback = dict(workspace_context.get("audience_feedback") or {})
+    display_name = _workspace_pm_display_name(workspace_key)
+    for item in audience_feedback.get("recommended_next_focus") or []:
+        normalized = _normalize_workspace_pm_title(str(item))
+        if normalized and _is_actionable_pm_title(normalized):
+            return normalized, str(item).strip()
+    for item in audience_feedback.get("opportunity_signals") or []:
+        normalized = _normalize_workspace_pm_title(str(item))
+        lowered = normalized.lower()
+        if normalized and _is_actionable_pm_title(normalized):
+            return normalized, str(item).strip()
+        if "next concrete opportunity" in lowered or "underrepresented" in lowered or "cadence" in lowered:
+            title = f"Define next concrete opportunity for {display_name}"
+            return title, str(item).strip()
+    if workspace_context.get("latest_briefing_path"):
+        title = f"Define next concrete opportunity for {display_name}"
+        return title, "The latest workspace briefing should be reviewed for the next concrete opportunity."
+    return "", ""
+
+
+def _workspace_idle_pm_update(
+    workspace_key: str,
+    owner_agent: str,
+    workspace_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    title, signal = _workspace_focus_pm_title(workspace_key, workspace_context)
+    if not title:
+        return None
+    display_name = _workspace_pm_display_name(workspace_key)
+    briefing_path = str(workspace_context.get("latest_briefing_path") or "").strip()
+    execution_log_path = str(workspace_context.get("execution_log_path") or "").strip()
+    analytics_path = str(workspace_context.get("latest_analytics_path") or "").strip()
+    audience_feedback_path = str(workspace_context.get("audience_feedback_path") or "").strip()
+
+    instructions = [f"Advance `{title}` inside `{workspace_key}` without expanding scope beyond the standup-backed next move."]
+    if briefing_path:
+        instructions.append(f"Use `{briefing_path}` as the primary briefing artifact for `{display_name}`.")
+    if execution_log_path:
+        instructions.append(f"Check `{execution_log_path}` before proposing new work so the result reflects what already shipped.")
+    if signal:
+        instructions.append(f"Anchor the next move in this standup signal: {signal}")
+    if audience_feedback_path or analytics_path:
+        instructions.append(
+            f"Pressure-test the next move against `{audience_feedback_path or analytics_path}` before writing back the recommendation."
+        )
+
+    artifacts_expected = [
+        "updated PM execution result",
+        *[path for path in (briefing_path, execution_log_path, audience_feedback_path or analytics_path) if path],
+    ]
+
+    return {
+        "action": "recommend_only",
+        "pm_card_id": None,
+        "workspace_key": workspace_key,
+        "scope": "workspace",
+        "owner_agent": owner_agent,
+        "title": title,
+        "status": "todo",
+        "reason": "Derived from workspace next-focus signal during standup prep.",
+        "payload": {
+            "priority": "medium",
+            "source": "standup_prep",
+            "source_agent": owner_agent,
+            "supporting_signal": signal,
+            "instructions": instructions,
+            "acceptance_criteria": [
+                f"`{title}` resolves into one bounded next move for `{display_name}` instead of staying a placeholder.",
+                "The result cites the latest briefing or execution log that justified the next move.",
+                "PM write-back names the exact next artifact, deliverable, or blocker.",
+            ],
+            "artifacts_expected": artifacts_expected,
+        },
+    }
 
 
 def _pm_candidate_gate(
@@ -1270,6 +1481,9 @@ def _pm_candidate_gate(
     if title.lower() in existing_titles:
         return False, "duplicate_active_card"
 
+    if _is_non_actionable_status_surface(raw):
+        return False, "non_actionable_status"
+
     lowered_raw = raw.lower()
     advisory_prefixes = (
         "workspace execution should ",
@@ -1285,6 +1499,9 @@ def _pm_candidate_gate(
     if lowered_raw.startswith(advisory_prefixes):
         return False, "advisory_statement"
 
+    if title == "Wire Chronicle into standup and PM flow" and not _is_chronicle_flow_action_candidate(raw):
+        return False, "not_chronicle_flow_action"
+
     if not _is_actionable_pm_title(title):
         return False, "not_action_shaped"
 
@@ -1295,6 +1512,8 @@ def _build_promotions(entries: list[dict[str, Any]], workspace_key: str) -> list
     promotions: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for item in entries:
+        if _chronicle_entry_is_chat_derived(item):
+            continue
         for content in item.get("memory_promotions") or []:
             normalized = _normalize_memory_content(content)
             key = ("persistent_state", normalized.strip().lower())
@@ -1331,6 +1550,7 @@ def _build_pm_updates(
     workspace_key: str,
     owner_agent: str,
     pm_snapshot: dict[str, Any],
+    workspace_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     updates: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1343,8 +1563,7 @@ def _build_pm_updates(
         candidate_entries = [
             item for item in entries if str(item.get("workspace_key") or "shared_ops") == workspace_key
         ]
-        if not candidate_entries:
-            return updates
+    candidate_entries = [item for item in candidate_entries if not _chronicle_entry_is_chat_derived(item)]
     for item in candidate_entries:
         for candidate in item.get("pm_candidates") or []:
             title = _normalize_pm_title(candidate)
@@ -1374,7 +1593,30 @@ def _build_pm_updates(
                     },
                 }
             )
+    if updates or workspace_key == "shared_ops" or not workspace_context:
+        return updates[:10]
+    if _workspace_has_active_pm_card(pm_snapshot):
+        return updates[:10]
+    workspace_update = _workspace_idle_pm_update(workspace_key, owner_agent, workspace_context)
+    if workspace_update is not None:
+        updates.append(workspace_update)
     return updates[:10]
+
+
+def _chronicle_entry_is_chat_derived(item: dict[str, Any]) -> bool:
+    source = str(item.get("source") or "").strip().lower()
+    if source == "codex-history":
+        return True
+    source_refs = item.get("source_refs")
+    if not isinstance(source_refs, list):
+        return False
+    for ref in source_refs:
+        if not isinstance(ref, dict):
+            continue
+        ref_source = str(ref.get("source") or "").strip().lower()
+        if ref_source in {"codex-history", "codex-session-transcript"}:
+            return True
+    return False
 
 
 def _strategy_lines(strategy_context: dict[str, Any]) -> list[str]:
@@ -1403,6 +1645,41 @@ def _strategy_lines(strategy_context: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _build_provenance_summary(
+    chronicle_entries: list[dict[str, Any]],
+    memory_promotions: list[dict[str, Any]],
+    pm_updates: list[dict[str, Any]],
+    durable_memory_context: dict[str, Any],
+    pm_updates_blocked_reason: str | None,
+) -> dict[str, Any]:
+    chronicle_total = len(chronicle_entries)
+    chronicle_chat_derived = sum(1 for item in chronicle_entries if _chronicle_entry_is_chat_derived(item))
+    chronicle_curated = chronicle_total - chronicle_chat_derived
+    notes: list[str] = []
+    if chronicle_chat_derived:
+        notes.append(
+            "Chat-derived Chronicle entries are still visible in highlights, but they are excluded from durable memory promotions and PM recommendations."
+        )
+    if durable_memory_context.get("available"):
+        notes.append(
+            f"Durable memory recall contributed {int(durable_memory_context.get('result_count') or 0)} older markdown artifact(s) outside the recent Chronicle tail."
+        )
+    if pm_updates_blocked_reason == "pm_snapshot_unavailable":
+        notes.append("PM recommendations are suppressed when PM snapshot truth is unavailable.")
+    if not notes:
+        notes.append("Chronicle, durable memory, and PM recommendation lanes are aligned without a visible provenance exception in this prep.")
+    return {
+        "chronicle_entry_count": chronicle_total,
+        "chronicle_chat_derived_count": chronicle_chat_derived,
+        "chronicle_curated_count": chronicle_curated,
+        "durable_memory_result_count": int(durable_memory_context.get("result_count") or 0),
+        "memory_promotion_count": len(memory_promotions),
+        "pm_recommendation_count": len(pm_updates),
+        "pm_updates_blocked_reason": pm_updates_blocked_reason,
+        "notes": notes,
+    }
+
+
 def _build_markdown(prep: dict[str, Any]) -> str:
     lines = [
         f"# Standup Prep — {prep['standup_kind']} — {prep['workspace_key']}",
@@ -1425,6 +1702,16 @@ def _build_markdown(prep: dict[str, Any]) -> str:
     agenda = prep.get("agenda") or ["Nothing to report."]
     for item in agenda:
         lines.append(f"- {item}")
+    decision_loop = dict(prep.get("decision_loop") or {})
+    if decision_loop.get("active"):
+        lines.extend(["", "## Chronicle Decision Loop"])
+        for item in decision_loop.get("questions") or []:
+            lines.append(f"- {item}")
+        routes = decision_loop.get("routing_targets") or []
+        if routes:
+            lines.append("- Routing targets: " + ", ".join(f"`{item}`" for item in routes) + ".")
+        if decision_loop.get("pm_gate"):
+            lines.append(f"- PM gate: {decision_loop['pm_gate']}")
     lines.extend(["", "## Artifact Deltas"])
     artifact_deltas = prep.get("artifact_deltas") or ["No artifact deltas captured yet."]
     for item in artifact_deltas:
@@ -1433,6 +1720,25 @@ def _build_markdown(prep: dict[str, Any]) -> str:
     brain_context_lines = prep.get("brain_context_lines") or ["No active Brain Signal or portfolio blocker is attached to this prep."]
     for item in brain_context_lines:
         lines.append(f"- {item}")
+    lines.extend(["", "## Provenance Summary"])
+    provenance_summary = dict(prep.get("provenance_summary") or {})
+    if not provenance_summary:
+        lines.append("- None.")
+    else:
+        lines.append(
+            "- "
+            + f"Chronicle entries: `{int(provenance_summary.get('chronicle_entry_count') or 0)}` total, "
+            + f"`{int(provenance_summary.get('chronicle_curated_count') or 0)}` curated, "
+            + f"`{int(provenance_summary.get('chronicle_chat_derived_count') or 0)}` chat-derived."
+        )
+        lines.append(
+            "- "
+            + f"Durable memory results: `{int(provenance_summary.get('durable_memory_result_count') or 0)}`. "
+            + f"Memory promotions: `{int(provenance_summary.get('memory_promotion_count') or 0)}`. "
+            + f"PM recommendations: `{int(provenance_summary.get('pm_recommendation_count') or 0)}`."
+        )
+        for item in provenance_summary.get("notes") or []:
+            lines.append(f"- {item}")
     lines.extend(["", "## Blockers"])
     blockers = prep.get("blockers") or ["None."]
     for item in blockers:
@@ -1683,7 +1989,7 @@ def main() -> int:
     memory_promotions = _build_promotions(chronicle_entries, args.workspace_key)
     pm_updates_blocked_reason: str | None = None
     if pm_snapshot.get("available"):
-        pm_updates = _build_pm_updates(chronicle_entries, args.workspace_key, args.owner_agent, pm_snapshot)
+        pm_updates = _build_pm_updates(chronicle_entries, args.workspace_key, args.owner_agent, pm_snapshot, workspace_context)
     else:
         pm_updates = []
         pm_updates_blocked_reason = "pm_snapshot_unavailable"
@@ -1696,6 +2002,10 @@ def main() -> int:
             if title:
                 needs.append(f"Decide whether to create or queue `{title}` from current Chronicle signal.")
     artifact_deltas = _build_artifact_deltas(chronicle_entries, automation_context, workspace_context, memory_context)
+    automation_clean = mismatch_count == 0 and action_required == 0
+    blockers = _filter_resolved_ai_clone_issue_lines(blockers, automation_clean=automation_clean)
+    needs = _filter_resolved_ai_clone_issue_lines(needs, automation_clean=automation_clean)
+    artifact_deltas = _filter_resolved_ai_clone_issue_lines(artifact_deltas, automation_clean=automation_clean)
     for item in reversed(brain_context_lines[:5]):
         artifact_deltas.insert(0, f"Brain context: {item}")
     if pm_context_fallback_active:
@@ -1731,6 +2041,13 @@ def main() -> int:
         if report_path:
             artifact_deltas.insert(1, f"Fallback watchdog report: {report_path}")
     strategy_context_lines = _strategy_lines(strategy_context)
+    provenance_summary = _build_provenance_summary(
+        chronicle_entries,
+        memory_promotions,
+        pm_updates,
+        durable_memory_context,
+        pm_updates_blocked_reason,
+    )
     blockers = _filter_resolved_workspace_root_blockers(
         blockers,
         workspace_key=args.workspace_key,
@@ -1738,6 +2055,7 @@ def main() -> int:
         workspace_context=workspace_context,
     )
     agenda = _build_agenda(pm_snapshot, pm_updates, blockers, args.workspace_key, strategy_context, resolved_standup_kind)
+    decision_loop = _build_decision_loop(args.workspace_key, resolved_standup_kind, pm_updates)
 
     blockers = _dedupe_strings(blockers, limit=8)
     commitments = _dedupe_strings(commitments, limit=8)
@@ -1782,7 +2100,7 @@ def main() -> int:
         )
     if brain_context_lines:
         summary_parts.append("Brain context contributes portfolio snapshot, signal review, and source intelligence state.")
-    if mismatch_count == 0 and action_required == 0:
+    if automation_clean:
         summary_parts.append("Automation layer is currently clean.")
     if args.workspace_key != "shared_ops":
         if workspace_context.get("latest_briefing_path"):
@@ -1823,6 +2141,7 @@ def main() -> int:
         "owner_agent": args.owner_agent,
         "summary": " ".join(summary_parts) or "Standup prep generated.",
         "agenda": agenda,
+        "decision_loop": decision_loop,
         "artifact_deltas": artifact_deltas,
         "blockers": blockers,
         "commitments": commitments,
@@ -1845,6 +2164,7 @@ def main() -> int:
         "memory_promotions": memory_promotions,
         "pm_updates": pm_updates,
         "pm_updates_blocked_reason": pm_updates_blocked_reason,
+        "provenance_summary": provenance_summary,
         "standup_payload": {
             "owner": args.owner_agent,
             "status": "prepared",
@@ -1862,7 +2182,9 @@ def main() -> int:
                 "durable_memory_context": durable_memory_context,
                 "fallback_watchdog": fallback_watchdog,
                 "brain_context": brain_context,
+                "provenance_summary": provenance_summary,
                 "agenda": agenda,
+                "decision_loop": decision_loop,
                 "artifact_deltas": artifact_deltas,
                 "audience_response": audience_response,
                 "standup_sections": standup_sections,

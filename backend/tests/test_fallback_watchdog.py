@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -240,6 +241,88 @@ class FallbackWatchdogTests(unittest.TestCase):
 
         self.assertEqual(alerts, [])
         self.assertIn(str(runtime_path), source_paths)
+
+    def test_memory_alerts_ignore_non_material_daily_flush_learning_note(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            runtime_root = memory_root / "runtime"
+            runtime_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = runtime_root / "LEARNINGS.md"
+            live_path = memory_root / "LEARNINGS.md"
+            runtime_path.write_text("# LEARNINGS\n\n- Runtime learning.\n", encoding="utf-8")
+            live_path.write_text(
+                "# LEARNINGS\n\n### Daily Memory Flush Learnings\n"
+                "- Loaded SOP and SKILL contexts successfully for daily flush; "
+                "no immediate durable lessons identified. If future flushes reveal procedural "
+                "improvements, add them here.\n",
+                encoding="utf-8",
+            )
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            with mock.patch.object(self.watchdog, "WORKSPACE_ROOT", workspace_root), mock.patch.object(
+                self.watchdog, "MONITORED_MEMORY_PATHS", ("memory/LEARNINGS.md",)
+            ):
+                alerts, source_paths = self.watchdog._memory_alerts()
+
+        self.assertEqual(alerts, [])
+        self.assertIn(str(runtime_path), source_paths)
+
+    def test_memory_alerts_use_existing_daily_log_when_today_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            yesterday_path = memory_root / "2026-04-19.md"
+            yesterday_path.write_text("# Daily log\n", encoding="utf-8")
+
+            with mock.patch.object(self.watchdog, "WORKSPACE_ROOT", workspace_root), mock.patch.object(
+                self.watchdog, "MONITORED_MEMORY_PATHS", ("memory/{today}.md",)
+            ):
+                alerts, source_paths = self.watchdog._memory_alerts(now=datetime(2026, 4, 20, 0, 30))
+
+        self.assertEqual(alerts, [])
+        self.assertIn(str(yesterday_path), source_paths)
+
+    def test_memory_alerts_use_existing_daily_log_after_old_grace_cutoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            yesterday_path = memory_root / "2026-04-19.md"
+            yesterday_path.write_text("# Daily log\n", encoding="utf-8")
+
+            with mock.patch.object(self.watchdog, "WORKSPACE_ROOT", workspace_root), mock.patch.object(
+                self.watchdog, "MONITORED_MEMORY_PATHS", ("memory/{today}.md",)
+            ):
+                alerts, source_paths = self.watchdog._memory_alerts(now=datetime(2026, 4, 20, 4, 30))
+
+        self.assertEqual(alerts, [])
+        self.assertIn(str(yesterday_path), source_paths)
+
+    def test_memory_alerts_require_recent_daily_log_when_today_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            older_path = memory_root / "2026-04-18.md"
+            older_path.write_text("# Daily log\n", encoding="utf-8")
+
+            with mock.patch.object(self.watchdog, "WORKSPACE_ROOT", workspace_root), mock.patch.object(
+                self.watchdog, "MONITORED_MEMORY_PATHS", ("memory/{today}.md",)
+            ):
+                alerts, source_paths = self.watchdog._memory_alerts(now=datetime(2026, 4, 20, 4, 30))
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["id"], "core_memory::memory/2026-04-20.md")
+        self.assertIn(str(memory_root / "2026-04-20.md"), source_paths)
+        self.assertNotIn(str(older_path), source_paths)
 
 
 if __name__ == "__main__":

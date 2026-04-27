@@ -15,6 +15,19 @@ Codex should not dump raw chat into memory.
 
 Codex should write compact Chronicle chunks that preserve the highest-delta signal.
 
+## Chat-Derived Opt-In Boundary
+
+Chat-derived Chronicle signal may be preserved in Chronicle and surfaced in standup highlights.
+
+That does not mean it should auto-promote into durable memory or PM.
+
+Default rule:
+- chat-derived signal stays visible for operator context
+- automatic memory closeout is blocked unless there is explicit opt-in
+- PM recommendations should come from curated/action-shaped signal, not raw chat residue
+
+This keeps the Chronicle useful without turning the executive lane into a raw-chat spillway.
+
 ## Current canonical lane
 
 For compatibility with the current OpenClaw brain jobs, the Codex Chronicle lives at:

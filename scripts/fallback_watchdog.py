@@ -7,9 +7,10 @@ import hashlib
 import json
 import sys
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 from runtime_bootstrap import maybe_reexec_with_workspace_venv
 
@@ -35,6 +36,9 @@ MONITORED_MEMORY_PATHS: tuple[str, ...] = (
     "memory/{today}.md",
 )
 
+LOCAL_TZ = ZoneInfo("America/New_York")
+DAILY_MEMORY_ALLOWED_LAG_DAYS = 1
+
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 if str(BACKEND_ROOT) not in sys.path:
@@ -55,9 +59,20 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _today_relative_path(relative_path: str) -> str:
-    today = datetime.now().astimezone().strftime("%Y-%m-%d")
-    return relative_path.replace("{today}", today)
+def _daily_memory_date_label(now: datetime | None = None) -> str:
+    local_now = (now or _now()).astimezone(LOCAL_TZ)
+    today = local_now.date()
+    for days_ago in range(DAILY_MEMORY_ALLOWED_LAG_DAYS + 1):
+        candidate = today - timedelta(days=days_ago)
+        candidate_label = candidate.isoformat()
+        candidate_path = WORKSPACE_ROOT / f"memory/{candidate_label}.md"
+        if candidate_path.exists():
+            return candidate_label
+    return today.isoformat()
+
+
+def _today_relative_path(relative_path: str, *, now: datetime | None = None) -> str:
+    return relative_path.replace("{today}", _daily_memory_date_label(now))
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:
@@ -136,11 +151,11 @@ def _load_workspace_keys() -> list[str]:
     return workspace_keys
 
 
-def _memory_alerts() -> tuple[list[dict[str, Any]], list[str]]:
+def _memory_alerts(*, now: datetime | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     alerts: list[dict[str, Any]] = []
     source_paths: list[str] = []
     for relative_path in MONITORED_MEMORY_PATHS:
-        resolved_relative = _today_relative_path(relative_path)
+        resolved_relative = _today_relative_path(relative_path, now=now)
         resolution = resolve_memory_read_target(WORKSPACE_ROOT, resolved_relative)
         resolved_path = Path(resolution["resolved_path"])
         source_paths.append(str(resolved_path))
@@ -518,7 +533,7 @@ def build_report(
 ) -> dict[str, Any]:
     now = _now()
     workspace_keys = _load_workspace_keys()
-    memory_alerts, memory_source_paths = _memory_alerts()
+    memory_alerts, memory_source_paths = _memory_alerts(now=now)
     durable_checks, durable_alerts, durable_source_paths = _durable_checks(workspace_keys)
     progress_pulse_alerts, progress_pulse_report = _progress_pulse_alerts()
     runtime_alerts, runtime_checks, runtime_source_refs = _runtime_context_alerts(api_url)
