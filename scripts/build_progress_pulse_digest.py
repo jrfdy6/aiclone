@@ -268,6 +268,8 @@ def build_digest() -> str:
     lines.append("Alerts:")
     lines.extend(f"- {item}" for item in _alert_lines(entries, report))
     digest = "\n".join(lines)
+    if len(digest) > 1800:
+        digest = digest[:1800] + "\n... [truncated] ..."
     return ensure_digest("progress_pulse", digest)
 
 
