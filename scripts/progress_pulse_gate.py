@@ -111,17 +111,18 @@ def build_report() -> dict[str, Any]:
     )
 
     reasons: list[str] = []
-    if last_delivered_run_ms is None and (material_handoffs or persistent_state_material):
+    if last_delivered_run_ms is None and material_handoffs:
         reasons.append("no prior delivered Progress Pulse run found")
     if material_handoffs:
         reasons.append(f"{len(material_handoffs)} material handoff entries landed since the last delivered digest")
-    if persistent_state_material:
+    if persistent_state_material and material_handoffs:
         reasons.append("persistent_state.md changed since the last delivered digest")
 
     should_deliver = bool(reasons)
     latest_handoff = material_handoffs[-1] if material_handoffs else (new_handoffs[-1] if new_handoffs else None)
     latest_handoff_is_material = bool(latest_handoff and material_handoffs)
-    delivery_fallback_active = bool(persistent_state_material and not material_handoffs)
+    persistent_state_only_delivery_suppressed = bool(persistent_state_material and not material_handoffs)
+    delivery_fallback_active = bool(should_deliver and persistent_state_material and not material_handoffs)
     reporting_fallback_active = bool(latest_handoff and not latest_handoff_is_material)
     latest_handoff_created_at = latest_handoff.get("created_at") if latest_handoff else None
     latest_handoff_summary = latest_handoff.get("summary") if latest_handoff else None
@@ -137,6 +138,7 @@ def build_report() -> dict[str, Any]:
         "latest_material_signal": entry_primary_signal(latest_handoff) if latest_handoff else None,
         "persistent_state_newer": persistent_state_newer,
         "persistent_state_material": persistent_state_material,
+        "persistent_state_only_delivery_suppressed": persistent_state_only_delivery_suppressed,
         "persistent_state_diagnostics": {
             "snapshot_heading_stale": bool(persistent_state_diagnostics.get("snapshot_heading_stale")),
             "boilerplate_flags": persistent_state_diagnostics.get("boilerplate_flags") or [],

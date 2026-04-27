@@ -109,6 +109,185 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
         self.assertEqual(context["trust_constraint"], "Protect trust with families and partners")
         self.assertIn("report back clearly", context["execution_posture"])
 
+    def test_executive_standup_agenda_carries_chronicle_decision_loop(self) -> None:
+        pm_snapshot = {
+            "available": True,
+            "cards": [
+                {
+                    "title": "Wire Chronicle into standup and PM flow",
+                    "status": "ready",
+                }
+            ],
+        }
+        agenda = self.build_standup._build_agenda(
+            pm_snapshot,
+            [],
+            [],
+            "shared_ops",
+            {"display_name": "Executive"},
+            "executive_ops",
+        )
+        decision_loop = self.build_standup._build_decision_loop("shared_ops", "executive_ops", [])
+
+        self.assertTrue(decision_loop["active"])
+        self.assertIn(
+            "Run the Chronicle decision loop: what came in, what changed, what should change next cycle",
+            agenda[1],
+        )
+        self.assertEqual(
+            decision_loop["routing_targets"],
+            [
+                "canonical_memory",
+                "standup_interpretation",
+                "pm_execution",
+                "workspace_handoff",
+                "no_action",
+            ],
+        )
+
+    def test_chronicle_flow_pm_title_rejects_generic_standup_issue_lines(self) -> None:
+        updates = self.build_standup._build_pm_updates(
+            [
+                {
+                    "workspace_key": "shared_ops",
+                    "pm_candidates": [
+                        "That means the standup is reflecting a real configuration drift, not a generic AI clone outage."
+                    ],
+                }
+            ],
+            "shared_ops",
+            "jean-claude",
+            {"available": True, "cards": []},
+        )
+
+        self.assertEqual(updates, [])
+
+    def test_chronicle_flow_pm_title_requires_real_wiring_action(self) -> None:
+        updates = self.build_standup._build_pm_updates(
+            [
+                {
+                    "workspace_key": "shared_ops",
+                    "pm_candidates": [
+                        "Wire Chronicle routing into executive standup prep before PM execution recommendations."
+                    ],
+                }
+            ],
+            "shared_ops",
+            "jean-claude",
+            {"available": True, "cards": []},
+        )
+
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["title"], "Wire Chronicle into standup and PM flow")
+
+    def test_workspace_scope_matches_feezie_and_linkedin_aliases(self) -> None:
+        self.assertTrue(self.build_standup._workspace_scope_matches("feezie-os", "linkedin-os"))
+        self.assertTrue(self.build_standup._workspace_scope_matches("linkedin-os", "feezie-os"))
+        self.assertFalse(self.build_standup._workspace_scope_matches("agc", "linkedin-os"))
+
+    def test_workspace_idle_pm_update_uses_recommended_next_focus(self) -> None:
+        updates = self.build_standup._build_pm_updates(
+            [],
+            "fusion-os",
+            "jean-claude",
+            {"available": True, "cards": []},
+            {
+                "latest_briefing_path": "/tmp/fusion_briefing.md",
+                "execution_log_path": "/tmp/fusion_execution_log.md",
+                "audience_feedback_path": "/tmp/instagram_public_feedback_summary.json",
+                "audience_feedback": {
+                    "recommended_next_focus": [
+                        "Ship a `Partner Credibility` post in the next cycle so the weekly mix stays balanced."
+                    ]
+                },
+            },
+        )
+
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["title"], "Ship a Partner Credibility post in the next cycle so the weekly mix stays balanced")
+        payload = updates[0]["payload"]
+        self.assertTrue(any("/tmp/fusion_briefing.md" in item for item in payload["instructions"]))
+        self.assertTrue(any("/tmp/fusion_execution_log.md" in item for item in payload["instructions"]))
+        self.assertTrue(any("instagram_public_feedback_summary.json" in item for item in payload["instructions"]))
+
+    def test_workspace_idle_pm_update_uses_generic_briefing_title_when_no_focus_line_exists(self) -> None:
+        updates = self.build_standup._build_pm_updates(
+            [],
+            "agc",
+            "jean-claude",
+            {"available": True, "cards": []},
+            {
+                "latest_briefing_path": "/tmp/agc_briefing.md",
+                "execution_log_path": "/tmp/agc_execution_log.md",
+                "audience_feedback": {},
+            },
+        )
+
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["title"], "Define next concrete opportunity for AGC")
+
+    def test_workspace_idle_pm_update_skips_when_feezie_alias_has_active_cards(self) -> None:
+        updates = self.build_standup._build_pm_updates(
+            [],
+            "feezie-os",
+            "jean-claude",
+            {
+                "available": True,
+                "cards": [
+                    {
+                        "title": "Owner review - Latent transform - The Shape of the Thing",
+                        "status": "review",
+                        "workspace_key": "linkedin-os",
+                    }
+                ],
+            },
+            {
+                "latest_briefing_path": "/tmp/feezie_briefing.md",
+                "audience_feedback": {},
+            },
+        )
+
+        self.assertEqual(updates, [])
+
+    def test_chat_derived_chronicle_entries_do_not_create_pm_updates(self) -> None:
+        updates = self.build_standup._build_pm_updates(
+            [
+                {
+                    "workspace_key": "shared_ops",
+                    "source": "codex-history",
+                    "pm_candidates": [
+                        "Wire Chronicle routing into executive standup prep before PM execution recommendations."
+                    ],
+                }
+            ],
+            "shared_ops",
+            "jean-claude",
+            {"available": True, "cards": []},
+        )
+
+        self.assertEqual(updates, [])
+
+    def test_chat_derived_chronicle_entries_do_not_create_memory_promotions(self) -> None:
+        promotions = self.build_standup._build_promotions(
+            [
+                {
+                    "source": "codex-history",
+                    "memory_promotions": ["I want the posts to sound more direct and less polished."],
+                    "learning_updates": ["That means the current tone still feels too polished."],
+                },
+                {
+                    "source": "jean-claude-execution-result",
+                    "memory_promotions": ["Execution results should stay tied to durable proof."],
+                    "learning_updates": ["If a process matters more than once, it needs a playbook."],
+                },
+            ],
+            "shared_ops",
+        )
+
+        self.assertEqual(len(promotions), 2)
+        self.assertEqual({item["target"] for item in promotions}, {"persistent_state", "learnings"})
+        self.assertTrue(all("posts" not in item["content"] for item in promotions))
+
     def test_workspace_prep_filters_shared_ops_chronicle_noise(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             chronicle_path = Path(temp_dir) / "chronicle.jsonl"
@@ -819,7 +998,7 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
         self.assertEqual(command[0], "/usr/local/bin/qmd")
         self.assertEqual(command[1:4], ["search", "fusion", "-c"])
 
-    def test_progress_pulse_marks_persistent_state_only_delivery_as_fallback(self) -> None:
+    def test_progress_pulse_suppresses_persistent_state_only_delivery(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             run_log = Path(temp_dir) / "progress_pulse.jsonl"
             handoff_log = Path(temp_dir) / "handoff.jsonl"
@@ -843,9 +1022,11 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
             ), mock.patch.object(self.progress_gate, "PERSISTENT_STATE", persistent_state):
                 report = self.progress_gate.build_report()
 
-        self.assertTrue(report["should_deliver"])
+        self.assertFalse(report["should_deliver"])
         self.assertTrue(report["persistent_state_newer"])
-        self.assertTrue(report["delivery_fallback_active"])
+        self.assertTrue(report["persistent_state_material"])
+        self.assertTrue(report["persistent_state_only_delivery_suppressed"])
+        self.assertFalse(report["delivery_fallback_active"])
         self.assertEqual(report["material_handoff_count"], 0)
         self.assertFalse(report["latest_handoff_is_material"])
 

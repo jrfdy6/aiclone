@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create stale or missing portfolio standup-prep entries."""
+"""Create and promote stale or missing portfolio standups."""
 from __future__ import annotations
 
 import argparse
@@ -19,6 +19,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from automation_run_mirror import build_run_payload, mirror_runs  # noqa: E402
+from promote_standup_packet import _build_payload as build_promoted_standup_payload  # noqa: E402
 
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
 REPORT_PATH = WORKSPACE_ROOT / "memory/reports/portfolio_standup_prep_latest.json"
@@ -84,6 +85,13 @@ def _post_json(url: str, payload: dict[str, Any]) -> Any:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _read_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} did not contain a JSON object")
+    return payload
+
+
 def _standup_kind(entry: dict[str, Any]) -> str:
     payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
     value = payload.get("standup_kind")
@@ -105,6 +113,11 @@ def _needs_refresh(entry: dict[str, Any] | None, target: StandupTarget, now: dat
         return True, "force"
     if entry is None:
         return True, "missing"
+    status = str(entry.get("status") or "").strip().lower()
+    if status == "prepared":
+        return True, "prepared_needs_promotion"
+    if status != "completed":
+        return True, "not_completed"
     created_at = _parse_datetime(entry.get("created_at"))
     if created_at is None:
         return True, "timestamp_missing"
@@ -121,7 +134,105 @@ def _load_recent_standups(api_url: str, limit: int) -> list[dict[str, Any]]:
     return [item for item in payload if isinstance(item, dict)]
 
 
-def _run_builder(target: StandupTarget, *, api_url: str, chronicle_limit: int, create_entry: bool) -> dict[str, Any]:
+def _prep_path_from_standup(entry: dict[str, Any] | None) -> Path | None:
+    if not isinstance(entry, dict):
+        return None
+    payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+    for key in ("prep_json_path", "json_path"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return Path(value).expanduser()
+    return None
+
+
+def _promotion_payload_from_prep(prep: dict[str, Any]) -> dict[str, Any]:
+    chronicle_entries = prep.get("chronicle_entries") or []
+    chronicle_entry = chronicle_entries[-1] if chronicle_entries else None
+    return build_promoted_standup_payload(
+        prep,
+        None,
+        chronicle_entry if isinstance(chronicle_entry, dict) else None,
+    )
+
+
+def _summarize_promotion(result: Any) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {
+            "created_standup_id": None,
+            "created_card_count": 0,
+            "existing_card_count": 0,
+            "created_card_ids": [],
+            "existing_card_ids": [],
+        }
+    standup = result.get("standup") if isinstance(result.get("standup"), dict) else {}
+    created_cards = [item for item in (result.get("created_cards") or []) if isinstance(item, dict)]
+    existing_cards = [item for item in (result.get("existing_cards") or []) if isinstance(item, dict)]
+    return {
+        "created_standup_id": standup.get("id"),
+        "created_card_count": len(created_cards),
+        "existing_card_count": len(existing_cards),
+        "created_card_ids": [item.get("id") for item in created_cards if item.get("id")],
+        "existing_card_ids": [item.get("id") for item in existing_cards if item.get("id")],
+    }
+
+
+def _promote_prep_path(api_url: str, prep_path: Path) -> dict[str, Any]:
+    prep = _read_json(prep_path)
+    payload = _promotion_payload_from_prep(prep)
+    result = _post_json(f"{api_url.rstrip('/')}/api/standups/promote", payload)
+    return _summarize_promotion(result)
+
+
+def _promote_existing_prepared(
+    target: StandupTarget,
+    *,
+    api_url: str,
+    entry: dict[str, Any],
+    prep_path: Path,
+) -> dict[str, Any]:
+    try:
+        promotion = _promote_prep_path(api_url, prep_path)
+        return {
+            "workspace_key": target.workspace_key,
+            "standup_kind": target.standup_kind,
+            "status": "promoted",
+            "returncode": 0,
+            "prep_json_path": str(prep_path),
+            "promoted_from_standup_id": entry.get("id"),
+            "promotion_error": None,
+            "create_error": None,
+            "stdout_tail": "",
+            "stderr_tail": "",
+            **promotion,
+        }
+    except Exception as exc:
+        return {
+            "workspace_key": target.workspace_key,
+            "standup_kind": target.standup_kind,
+            "status": "failed",
+            "returncode": 0,
+            "prep_json_path": str(prep_path),
+            "promoted_from_standup_id": entry.get("id"),
+            "created_standup_id": None,
+            "created_card_count": 0,
+            "existing_card_count": 0,
+            "created_card_ids": [],
+            "existing_card_ids": [],
+            "promotion_error": str(exc),
+            "create_error": str(exc),
+            "stdout_tail": "",
+            "stderr_tail": "",
+        }
+
+
+def _run_builder(
+    target: StandupTarget,
+    *,
+    api_url: str,
+    chronicle_limit: int,
+    create_entry: bool,
+    promote_entry: bool,
+) -> dict[str, Any]:
     command = [
         sys.executable,
         str(WORKSPACE_ROOT / "scripts/build_standup_prep.py"),
@@ -148,29 +259,44 @@ def _run_builder(target: StandupTarget, *, api_url: str, chronicle_limit: int, c
     json_path = _json_path_from_stdout(stdout)
     created_entry: Any = None
     create_error: str | None = None
+    promotion_error: str | None = None
+    promotion: dict[str, Any] = {
+        "created_standup_id": None,
+        "created_card_count": 0,
+        "existing_card_count": 0,
+        "created_card_ids": [],
+        "existing_card_ids": [],
+    }
     if result.returncode == 0 and create_entry:
         if json_path is None:
             create_error = "standup prep JSON path was not found in builder stdout"
         else:
             try:
-                prep = json.loads(json_path.read_text(encoding="utf-8"))
-                standup_payload = prep.get("standup_payload")
-                if not isinstance(standup_payload, dict):
-                    raise ValueError("standup_payload missing from generated prep JSON")
-                created_entry = _post_json(f"{api_url.rstrip('/')}/api/standups/", standup_payload)
+                if promote_entry:
+                    promotion = _promote_prep_path(api_url, json_path)
+                else:
+                    prep = _read_json(json_path)
+                    standup_payload = prep.get("standup_payload")
+                    if not isinstance(standup_payload, dict):
+                        raise ValueError("standup_payload missing from generated prep JSON")
+                    created_entry = _post_json(f"{api_url.rstrip('/')}/api/standups/", standup_payload)
+                    promotion["created_standup_id"] = created_entry.get("id") if isinstance(created_entry, dict) else None
             except Exception as exc:
                 create_error = str(exc)
-    status = "failed" if result.returncode != 0 or create_error else ("created" if create_entry else "prepared")
+                if promote_entry:
+                    promotion_error = str(exc)
+    status = "failed" if result.returncode != 0 or create_error else ("promoted" if create_entry and promote_entry else ("created" if create_entry else "prepared"))
     return {
         "workspace_key": target.workspace_key,
         "standup_kind": target.standup_kind,
         "status": status,
         "returncode": result.returncode,
         "prep_json_path": str(json_path) if json_path else None,
-        "created_standup_id": created_entry.get("id") if isinstance(created_entry, dict) else None,
+        "promotion_error": promotion_error,
         "create_error": create_error,
         "stdout_tail": stdout[-1200:],
         "stderr_tail": (result.stderr or "")[-1200:],
+        **promotion,
     }
 
 
@@ -189,6 +315,7 @@ def build_portfolio_standups(
     chronicle_limit: int,
     force: bool,
     create_entry: bool,
+    promote_entry: bool = True,
     targets: tuple[StandupTarget, ...] = TARGETS,
 ) -> dict[str, Any]:
     now = _now()
@@ -196,6 +323,19 @@ def build_portfolio_standups(
     results: list[dict[str, Any]] = []
     for target in targets:
         latest = _latest_for(rows, target)
+        prep_path = _prep_path_from_standup(latest)
+        if (
+            create_entry
+            and promote_entry
+            and str((latest or {}).get("status") or "").strip().lower() == "prepared"
+            and prep_path is not None
+            and prep_path.exists()
+        ):
+            promoted = _promote_existing_prepared(target, api_url=api_url, entry=latest or {}, prep_path=prep_path)
+            promoted["reason"] = "prepared_needs_promotion"
+            results.append(promoted)
+            continue
+
         should_run, reason = _needs_refresh(latest, target, now, force=force)
         if not should_run:
             results.append(
@@ -209,7 +349,13 @@ def build_portfolio_standups(
                 }
             )
             continue
-        created = _run_builder(target, api_url=api_url, chronicle_limit=chronicle_limit, create_entry=create_entry)
+        created = _run_builder(
+            target,
+            api_url=api_url,
+            chronicle_limit=chronicle_limit,
+            create_entry=create_entry,
+            promote_entry=promote_entry,
+        )
         created["reason"] = reason
         results.append(created)
 
@@ -218,12 +364,16 @@ def build_portfolio_standups(
         "generated_at": _iso(now),
         "source": AUTOMATION_ID,
         "create_entry": create_entry,
+        "promote_entry": promote_entry,
         "force": force,
         "counts": {
             "targets": len(results),
             "created": sum(1 for item in results if item.get("status") == "created"),
+            "promoted": sum(1 for item in results if item.get("status") == "promoted"),
+            "prepared": sum(1 for item in results if item.get("status") == "prepared"),
             "skipped": sum(1 for item in results if item.get("status") == "skipped"),
             "failed": sum(1 for item in results if item.get("status") == "failed"),
+            "pm_cards_created": sum(int(item.get("created_card_count") or 0) for item in results),
         },
         "results": results,
     }
@@ -238,7 +388,10 @@ def _mirror(report: dict[str, Any], *, api_url: str, started_at: datetime, finis
     counts = report.get("counts") if isinstance(report.get("counts"), dict) else {}
     failed = int(counts.get("failed") or 0)
     created = int(counts.get("created") or 0)
+    promoted = int(counts.get("promoted") or 0)
+    prepared = int(counts.get("prepared") or 0)
     skipped = int(counts.get("skipped") or 0)
+    pm_cards_created = int(counts.get("pm_cards_created") or 0)
     status = "error" if failed else "ok"
     run = build_run_payload(
         run_id=f"{AUTOMATION_ID}::{finished_at.isoformat()}",
@@ -255,7 +408,10 @@ def _mirror(report: dict[str, Any], *, api_url: str, started_at: datetime, finis
         action_required=bool(failed),
         metadata={
             "has_observed_run": True,
-            "summary": f"Created {created} standup prep entries; skipped {skipped}; failed {failed}.",
+            "summary": (
+                f"Promoted {promoted} standup(s); created {created} prepared entry/entries; "
+                f"prepared-only {prepared}; created {pm_cards_created} PM card(s); skipped {skipped}; failed {failed}."
+            ),
             "portfolio_standup_counts": counts,
             "portfolio_standup_results": report.get("results") or [],
         },
@@ -271,6 +427,11 @@ def main() -> int:
     parser.add_argument("--report-path", default=str(REPORT_PATH))
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--no-create-standup-entry", action="store_true")
+    parser.add_argument(
+        "--prepared-only",
+        action="store_true",
+        help="Keep the legacy behavior: write prep and create a prepared standup entry without promotion.",
+    )
     parser.add_argument("--no-mirror", action="store_true")
     args = parser.parse_args()
 
@@ -281,6 +442,7 @@ def main() -> int:
         chronicle_limit=args.chronicle_limit,
         force=args.force,
         create_entry=not args.no_create_standup_entry,
+        promote_entry=not args.prepared_only,
     )
     report_path = Path(args.report_path)
     _write_report(report, report_path)

@@ -18,7 +18,6 @@ WORKSPACE_ROOT = Path("/Users/neo/.openclaw/workspace")
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
 TZ = ZoneInfo("America/New_York")
-LIVE_PERSISTENT_STATE_PATH = WORKSPACE_ROOT / "memory" / "persistent_state.md"
 DREAM_CYCLE_LOG_PATH = WORKSPACE_ROOT / "memory" / "dream_cycle_log.md"
 LOG_HEADING_RE = re.compile(r"(?m)^# Dream Cycle Log - ([A-Za-z]+ \d{1,2}, \d{4})$")
 
@@ -245,7 +244,8 @@ def build_payload() -> dict[str, Any]:
             *(f"{index}. {item}" for index, item in enumerate(finding_lines or snapshot_lines[:2], start=1)),
             "",
             "**Actions Taken**",
-            f"- Updated `{RUNTIME_PERSISTENT_STATE_PATH}` and mirrored `{LIVE_PERSISTENT_STATE_PATH}` from deterministic Dream Cycle inputs.",
+            f"- Updated `{RUNTIME_PERSISTENT_STATE_PATH}` from deterministic Dream Cycle inputs.",
+            "- Canonical readers should keep resolving `memory/persistent_state.md` through the runtime lane instead of mirroring tracked content.",
             "- Grounded the daily snapshot in Chronicle, PM context, Brain Signals, portfolio snapshot state, automation status, and heartbeat diagnostics.",
             "",
             "**Next Steps**",
@@ -271,7 +271,6 @@ def build_payload() -> dict[str, Any]:
 
     source_paths = [
         str(RUNTIME_PERSISTENT_STATE_PATH),
-        str(LIVE_PERSISTENT_STATE_PATH),
         str(DREAM_CYCLE_LOG_PATH),
         *(memory_payload.get("source_paths") or []),
         *(pm_context.get("source_ref") and [pm_context["source_ref"]] or []),
@@ -319,9 +318,7 @@ def _upsert_log(path: Path, block: str, heading_date: str) -> None:
 
 def write_payload(payload: dict[str, Any]) -> None:
     snapshot_markdown = str(payload["snapshot_markdown"])
-    LIVE_PERSISTENT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     RUNTIME_PERSISTENT_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LIVE_PERSISTENT_STATE_PATH.write_text(snapshot_markdown, encoding="utf-8")
     RUNTIME_PERSISTENT_STATE_PATH.write_text(snapshot_markdown, encoding="utf-8")
     _upsert_log(DREAM_CYCLE_LOG_PATH, str(payload["log_markdown"]), _long_date())
 

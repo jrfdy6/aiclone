@@ -98,6 +98,67 @@ def _is_runtime_pointer_file(path: Path, runtime_relative: Path) -> bool:
     )
 
 
+def _is_runtime_placeholder_file(path: Path, relative_path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) != 1:
+        return False
+    heading = lines[0].lstrip("#").strip().lower()
+    expected_heading = relative_path.stem.replace("-", " ").replace("_", " ").lower()
+    return bool(lines[0].startswith("#") and heading == expected_heading)
+
+
+def _is_non_material_learning_note(path: Path, relative_path: Path) -> bool:
+    if relative_path.as_posix() != "memory/LEARNINGS.md" or not path.exists():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) != 3:
+        return False
+    heading, section_heading, note = lines
+    if heading.lower() != "# learnings":
+        return False
+    if section_heading.lstrip("#").strip().lower() != "daily memory flush learnings":
+        return False
+    normalized_note = " ".join(note.split()).lower()
+    if not normalized_note.startswith("-"):
+        return False
+    return any(
+        phrase in normalized_note
+        for phrase in (
+            "no immediate durable lessons identified",
+            "no durable lessons identified",
+            "no new durable lessons identified",
+        )
+    )
+
+
+def _is_stale_runtime_mirror(
+    live_hash: str | None,
+    runtime_hash: str | None,
+    live_path: Path,
+    runtime_path: Path,
+) -> bool:
+    if not live_hash or not runtime_hash or live_hash == runtime_hash:
+        return False
+    if not live_path.exists() or not runtime_path.exists():
+        return False
+    try:
+        live_text = live_path.read_text(encoding="utf-8", errors="replace").strip()
+        runtime_text = runtime_path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return False
+    return bool(live_text and runtime_text.startswith(live_text))
+
+
 def _line_count(path: Path) -> int:
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         return sum(1 for _ in handle)
@@ -172,6 +233,15 @@ def resolve_memory_read_target(workspace_root: Path, relative_path: str | Path) 
     live_is_runtime_pointer = bool(
         expected_mode == "runtime" and _is_runtime_pointer_file(live_path, runtime_relative_path(relative))
     )
+    live_is_runtime_placeholder = bool(
+        expected_mode == "runtime" and _is_runtime_placeholder_file(live_path, relative)
+    )
+    live_is_non_material_learning_note = bool(
+        expected_mode == "runtime" and _is_non_material_learning_note(live_path, relative)
+    )
+    live_is_stale_runtime_mirror = bool(
+        expected_mode == "runtime" and _is_stale_runtime_mirror(live_hash, runtime_hash, live_path, runtime_path)
+    )
     runtime_out_of_sync = bool(
         expected_mode == "runtime"
         and runtime_exists
@@ -180,6 +250,9 @@ def resolve_memory_read_target(workspace_root: Path, relative_path: str | Path) 
         and runtime_mtime is not None
         and live_mtime > runtime_mtime + 1
         and not live_is_runtime_pointer
+        and not live_is_runtime_placeholder
+        and not live_is_non_material_learning_note
+        and not live_is_stale_runtime_mirror
         and live_hash != runtime_hash
     )
     live_newer_by_hours = None
@@ -203,6 +276,9 @@ def resolve_memory_read_target(workspace_root: Path, relative_path: str | Path) 
         "runtime_sha256": runtime_hash,
         "live_sha256": live_hash,
         "live_is_runtime_pointer": live_is_runtime_pointer,
+        "live_is_runtime_placeholder": live_is_runtime_placeholder,
+        "live_is_non_material_learning_note": live_is_non_material_learning_note,
+        "live_is_stale_runtime_mirror": live_is_stale_runtime_mirror,
     }
 
 

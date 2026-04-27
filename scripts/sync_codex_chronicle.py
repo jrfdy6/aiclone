@@ -576,7 +576,17 @@ def main() -> int:
     parser.add_argument("--context-usage-pct", type=int)
     parser.add_argument("--session-file-limit", type=int, default=4)
     parser.add_argument("--session-record-limit", type=int, default=8)
+    parser.add_argument(
+        "--include-session-transcripts",
+        action="store_true",
+        help="Opt in to assistant transcript harvesting during Chronicle sync.",
+    )
     parser.add_argument("--skip-session-transcripts", action="store_true")
+    parser.add_argument(
+        "--allow-chat-memory-closeout",
+        action="store_true",
+        help="Allow codex-history syncs to append directly into durable runtime memory.",
+    )
     parser.add_argument("--skip-memory-closeout", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -593,7 +603,8 @@ def main() -> int:
     history_records, state = _load_new_records(history_path, state_path, args.initial_tail)
     session_records: list[dict[str, Any]] = []
     latest_session_synced_at: str | None = None
-    if not args.skip_session_transcripts:
+    include_session_transcripts = args.include_session_transcripts and not args.skip_session_transcripts
+    if include_session_transcripts:
         session_records, latest_session_synced_at = _load_new_session_records(
             session_root,
             state,
@@ -612,6 +623,7 @@ def main() -> int:
     registry_terms = _load_registry_terms()
     tags, detected_workspace = _match_workspace_tags(records, registry_terms)
     workspace_key = args.workspace_key or detected_workspace or "shared_ops"
+    chat_derived_signal = bool(history_records or session_records)
 
     decisions = _select_signal_items(records, DECISION_PATTERNS, category="decision")
     blockers = _select_signal_items(records, BLOCKER_PATTERNS, category="blocker")
@@ -691,6 +703,12 @@ def main() -> int:
             "history": len(history_records),
             "session_transcript": len(session_records),
         },
+        "provenance": {
+            "chat_derived": chat_derived_signal,
+            "assistant_transcripts_included": include_session_transcripts,
+            "history_record_count": len(history_records),
+            "assistant_transcript_record_count": len(session_records),
+        },
     }
 
     if args.dry_run:
@@ -721,14 +739,23 @@ def main() -> int:
         print(f"State: {state_path}")
         return 0
 
+    closeout_blocked_reason: str | None = None
+    closeout_enabled = not args.skip_memory_closeout
+    if args.skip_memory_closeout:
+        closeout_blocked_reason = "skip_memory_closeout_flag"
+    elif chat_derived_signal and not args.allow_chat_memory_closeout:
+        closeout_enabled = False
+        closeout_blocked_reason = "chat_derived_signal_requires_explicit_opt_in"
+
     closeout = {
-        "enabled": not args.skip_memory_closeout,
+        "enabled": closeout_enabled,
         "learnings_path": str(learnings_path),
         "persistent_state_path": str(persistent_state_path),
         "learning_count": 0,
         "persistent_count": 0,
+        "blocked_reason": closeout_blocked_reason,
     }
-    if not args.skip_memory_closeout:
+    if closeout_enabled:
         closeout.update(
             _append_memory_closeout(
                 payload,

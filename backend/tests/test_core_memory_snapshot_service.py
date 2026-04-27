@@ -149,6 +149,33 @@ class CoreMemorySnapshotServiceTest(unittest.TestCase):
         self.assertFalse(target["runtime_out_of_sync"])
         self.assertEqual(target["runtime_sha256"], target["live_sha256"])
 
+    def test_resolve_memory_read_target_ignores_stale_live_runtime_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            base_state = "# Snapshot\n\n- Existing state.\n"
+            runtime_path = resolve_live_memory_write_path(workspace_root, "memory/persistent_state.md")
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text(base_state + "\n## Promotion\n\n- Runtime-only promotion.\n", encoding="utf-8")
+            live_path = memory_root / "persistent_state.md"
+            live_path.write_text(base_state, encoding="utf-8")
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            target = resolve_memory_read_target(workspace_root, "memory/persistent_state.md")
+
+        self.assertEqual(target["resolved_mode"], "runtime")
+        self.assertFalse(target["fallback_active"])
+        self.assertFalse(target["runtime_out_of_sync"])
+        self.assertTrue(target["live_is_stale_runtime_mirror"])
+        self.assertNotEqual(target["runtime_sha256"], target["live_sha256"])
+
     def test_resolve_memory_read_target_ignores_live_runtime_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace_root = Path(temp_dir)
@@ -179,6 +206,87 @@ class CoreMemorySnapshotServiceTest(unittest.TestCase):
         self.assertFalse(target["fallback_active"])
         self.assertFalse(target["runtime_out_of_sync"])
         self.assertTrue(target["live_is_runtime_pointer"])
+
+    def test_resolve_memory_read_target_ignores_header_only_runtime_placeholder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = resolve_live_memory_write_path(workspace_root, "memory/LEARNINGS.md")
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text("# LEARNINGS\n\n- Canonical runtime learning.\n", encoding="utf-8")
+            live_path = memory_root / "LEARNINGS.md"
+            live_path.write_text("# LEARNINGS\n", encoding="utf-8")
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            target = resolve_memory_read_target(workspace_root, "memory/LEARNINGS.md")
+
+        self.assertEqual(target["resolved_mode"], "runtime")
+        self.assertFalse(target["fallback_active"])
+        self.assertFalse(target["runtime_out_of_sync"])
+        self.assertTrue(target["live_is_runtime_placeholder"])
+
+    def test_resolve_memory_read_target_ignores_non_material_daily_flush_learning_note(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = resolve_live_memory_write_path(workspace_root, "memory/LEARNINGS.md")
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text("# LEARNINGS\n\n- Canonical runtime learning.\n", encoding="utf-8")
+            live_path = memory_root / "LEARNINGS.md"
+            live_path.write_text(
+                "# LEARNINGS\n\n### Daily Memory Flush Learnings\n"
+                "- Loaded SOP and SKILL contexts successfully for daily flush; "
+                "no immediate durable lessons identified. If future flushes reveal procedural "
+                "improvements, add them here.\n",
+                encoding="utf-8",
+            )
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            target = resolve_memory_read_target(workspace_root, "memory/LEARNINGS.md")
+
+        self.assertEqual(target["resolved_mode"], "runtime")
+        self.assertFalse(target["fallback_active"])
+        self.assertFalse(target["runtime_out_of_sync"])
+        self.assertTrue(target["live_is_non_material_learning_note"])
+
+    def test_resolve_memory_read_target_keeps_contentful_live_runtime_drift_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            memory_root = workspace_root / "memory"
+            memory_root.mkdir(parents=True, exist_ok=True)
+            (workspace_root / "docs").mkdir(parents=True, exist_ok=True)
+
+            runtime_path = resolve_live_memory_write_path(workspace_root, "memory/LEARNINGS.md")
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text("# LEARNINGS\n\n- Runtime learning.\n", encoding="utf-8")
+            live_path = memory_root / "LEARNINGS.md"
+            live_path.write_text("# LEARNINGS\n\n- New live learning outside runtime.\n", encoding="utf-8")
+
+            older = runtime_path.stat().st_mtime
+            newer = older + 7200
+            os.utime(live_path, (newer, newer))
+            os.utime(runtime_path, (older, older))
+
+            target = resolve_memory_read_target(workspace_root, "memory/LEARNINGS.md")
+
+        self.assertEqual(target["resolved_mode"], "runtime")
+        self.assertFalse(target["fallback_active"])
+        self.assertTrue(target["runtime_out_of_sync"])
+        self.assertFalse(target["live_is_runtime_placeholder"])
 
 
 if __name__ == "__main__":

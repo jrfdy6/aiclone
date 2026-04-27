@@ -16,7 +16,7 @@ For the local scheduling boundary between `launchd`, `OpenClaw`, `Railway`, and 
 4. Use `memory/cron-prune.md` to keep a lightweight running log of what each cron left behind. Mention this in the digest if the message has follow-up actions.
 
 ## Recommended cron flow
-- `daily-memory-flush`: append insights/decisions to `memory/LEARNINGS.md` and `memory/YYYY-MM-DD.md`.
+- `daily-memory-flush`: append insights/decisions to `memory/runtime/LEARNINGS.md` and `memory/YYYY-MM-DD.md`; leave the live `memory/LEARNINGS.md` compatibility shell untouched unless the runtime mirror process updates it.
 - `progress-pulse-digest`: archive context-control insights into `memory/cron-prune.md` and only post to Discord when there is a material change since the last delivered digest.
 - `morning-daily-brief`: read `memory/persistent_state.md`, `memory/cron-prune.md`, and `memory/daily-briefs.md` so the summary points you to the single next opportunity each day.
 - `dream-cycle`: rewrite `memory/persistent_state.md` nightly so the next session can resume from a compact snapshot; report issues through the `memory/reports/` folder instead of flooding Discord.
