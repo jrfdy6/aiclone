@@ -20,10 +20,20 @@ LIVE_PLIST="$LAUNCH_AGENTS_DIR/$PLIST_NAME"
 
 mkdir -p "$TARGET_SCRIPT_DIR" "$TARGET_AUTOMATION_DIR" "$LAUNCH_AGENTS_DIR" /Users/neo/.openclaw/logs
 
-install -m 755 "$SOURCE_BRIDGE" "$TARGET_BRIDGE"
-install -m 755 "$SOURCE_WRAPPER" "$TARGET_WRAPPER"
-install -m 644 "$SOURCE_PLIST" "$TARGET_PLIST"
-install -m 644 "$SOURCE_PLIST" "$LIVE_PLIST"
+install_if_changed() {
+  local mode="$1"
+  local source_path="$2"
+  local target_path="$3"
+  if [ "$source_path" = "$target_path" ]; then
+    return
+  fi
+  install -m "$mode" "$source_path" "$target_path"
+}
+
+install_if_changed 755 "$SOURCE_BRIDGE" "$TARGET_BRIDGE"
+install_if_changed 755 "$SOURCE_WRAPPER" "$TARGET_WRAPPER"
+install_if_changed 644 "$SOURCE_PLIST" "$TARGET_PLIST"
+install_if_changed 644 "$SOURCE_PLIST" "$LIVE_PLIST"
 
 launchctl bootout "gui/$UID" "$LIVE_PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/$UID" "$LIVE_PLIST"

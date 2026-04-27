@@ -18,6 +18,10 @@
     <dict>
       <key>PATH</key>
       <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>LOCAL_CODEX_WORKSPACE_SLUG</key>
+      <string>linkedin-content-os</string>
+      <key>LOCAL_CODEX_WORKER_SUFFIX</key>
+      <string>feezie-codex-bridge</string>
     </dict>
 
     <key>RunAtLoad</key>
