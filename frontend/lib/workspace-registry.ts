@@ -124,7 +124,7 @@ export const fallbackWorkspaceRegistry = [
     short_label: 'Easy Outfit',
     brief_heading: 'Easy Outfit App',
     workspace_root: 'easyoutfitapp',
-    status: 'standing_up',
+    status: 'live',
     priority_order: 3,
     operator_name: 'Easy Outfit App Operator Agent',
     manager_agent: 'Jean-Claude',
@@ -142,7 +142,7 @@ export const fallbackWorkspaceRegistry = [
     aliases: ['easyoutfitapp', 'easy outfit app', 'easy outfit'],
     route: null,
     accent: '#f472b6',
-    snapshot_mode: 'scaffold',
+    snapshot_mode: 'live',
     portfolio_visible: true,
   },
   {

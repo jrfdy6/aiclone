@@ -2,6 +2,9 @@
 
 This is the isolated execution lane for `easyoutfitapp`.
 
+Canonical EasyOutfit runtime and deploy playbook:
+- `/Users/neo/Desktop/closetgptrenew/docs/technical/EASYOUTFIT_OPERATOR_PLAYBOOK.md`
+
 Canonical workspace key:
 - `easyoutfitapp`
 

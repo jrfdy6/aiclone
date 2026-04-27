@@ -25,7 +25,7 @@ The current canonical portfolio is:
 | `shared_ops` | executive | Executive | `live` | `shared-ops` | Cross-workspace executive lane |
 | `feezie-os` | workspace | FEEZIE OS | `live` | `linkedin-content-os` | Active live workspace; legacy root slug remains in use |
 | `fusion-os` | workspace | Fusion OS | `standing_up` | `fusion-os` | Second workspace; currently being stood up |
-| `easyoutfitapp` | workspace | EasyOutfitApp | `planned` | `easyoutfitapp` | Planned workspace |
+| `easyoutfitapp` | workspace | EasyOutfitApp | `live` | `easyoutfitapp` | Live product repo at `/Users/neo/Desktop/closetgptrenew`; runtime/deploy truth lives in that repo's canonical operator playbook |
 | `ai-swag-store` | workspace | AI Swag Store | `planned` | `ai-swag-store` | Planned workspace |
 | `agc` | workspace | AGC | `planned` | `agc` | Planned workspace |
 
