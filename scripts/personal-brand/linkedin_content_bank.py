@@ -120,8 +120,7 @@ def _source_refs(item: dict[str, Any]) -> list[str]:
 
 def _canon_refs(repo_root: Path) -> list[str]:
     candidates = [
-        "memory/runtime/LEARNINGS.md",
-        "memory/runtime/persistent_state.md",
+        "memory/reports/content_safe_operator_lessons_latest.json",
         "knowledge/persona/feeze/identity/VOICE_PATTERNS.md",
         "knowledge/persona/feeze/history/story_bank.md",
         "knowledge/source-intelligence/index.json",

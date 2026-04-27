@@ -122,8 +122,8 @@ LANE_CONSEQUENCE_FOCUS = {
     "entrepreneurship": "whether the builder lesson changes how operators make decisions in the real work",
 }
 
-IDEA_QUALIFICATION_VERSION = "2026-04-10-latent-tuning-v1"
-LATENT_IDEA_VERSION = "2026-04-10-latent-transform-v1"
+IDEA_QUALIFICATION_VERSION = "2026-04-24-latent-source-grounding-v1"
+LATENT_IDEA_VERSION = "2026-04-24-latent-source-grounding-v1"
 
 
 def _clean_list(values: list[Any] | None, *, limit: int | None = None) -> list[str]:
@@ -239,6 +239,8 @@ class IdeaCandidate:
     current_belief: str
     new_belief: str
     delta: str
+    source_summary: str
+    source_supporting_claim: str
     audience: str
     audience_consequence: str
     strategic_goal: str
@@ -299,6 +301,9 @@ def normalize_feed_item_to_idea_candidate(item: dict[str, Any]) -> IdeaCandidate
     content_type = _derive_content_type(item)
     article_understanding = item.get("article_understanding") or {}
     belief = item.get("belief_assessment") or {}
+    supporting_claims = _clean_list(item.get("supporting_claims"), limit=3)
+    source_summary = clean_text(article_understanding.get("summary")) or clean_text(item.get("summary")) or (supporting_claims[0] if supporting_claims else "")
+    source_supporting_claim = clean_text(article_understanding.get("comparison_summary")) or (supporting_claims[0] if supporting_claims else "")
     current_belief = clean_text(article_understanding.get("main_claim")) or clean_text(item.get("core_claim")) or clean_text(item.get("title"))
     new_belief = _derive_new_belief(item)
     raw_angle = new_belief or clean_text(item.get("why_it_matters")) or current_belief
@@ -330,6 +335,8 @@ def normalize_feed_item_to_idea_candidate(item: dict[str, Any]) -> IdeaCandidate
         current_belief=current_belief,
         new_belief=new_belief,
         delta=_derive_delta(current_belief, new_belief, item),
+        source_summary=source_summary,
+        source_supporting_claim=source_supporting_claim,
         audience=_audience_for_lane(lane),
         audience_consequence=clean_text(item.get("why_it_matters")) or clean_text(article_understanding.get("world_stakes")),
         strategic_goal=_strategic_goal_for_lane(lane),
@@ -720,19 +727,25 @@ def _latent_transform_plan(candidate: dict[str, Any], report: dict[str, Any]) ->
     delta = clean_text(candidate.get("delta"))
     audience = clean_text(candidate.get("audience"))
     proof_summary = clean_text(candidate.get("proof_summary"))
+    source_signal = clean_text(candidate.get("source_summary")) or clean_text(candidate.get("source_supporting_claim")) or clean_text(candidate.get("current_belief")) or title
     focus = _lane_consequence_focus(lane)
     base_claim = raw_angle or delta or title
 
     if latent_reason == "needs_context_translation":
         proof_prompt = proof_summary or "the closest lived proof artifact for this lane"
+        if base_claim and source_signal and _is_distinct(source_signal, base_claim):
+            proposed_angle = f"{base_claim}. Anchor it in the source signal: {source_signal.rstrip('.')}."
+        else:
+            proposed_angle = base_claim or title
         return {
             "transform_type": "context_translation",
             "autotransform_ready": True,
             "proposed_angle": (
-                f"{base_claim}. The part worth saying publicly is {focus}."
-                if base_claim
+                f"{proposed_angle} The part worth saying publicly is {focus}."
+                if proposed_angle
                 else f"The part worth saying publicly is {focus}."
             ),
+            "source_signal": source_signal,
             "owner_question": f"What concrete change should {audience.lower()} notice if this is true?",
             "revision_goals": [
                 "replace generic relevance with a concrete audience consequence",
@@ -841,6 +854,8 @@ def build_latent_idea_payload(workspace_dir: Path) -> dict[str, Any]:
                 "source_kind": clean_text(candidate.get("source_kind")),
                 "content_lane": clean_text(candidate.get("content_lane")),
                 "content_type": clean_text(candidate.get("content_type")),
+                "source_summary": clean_text(candidate.get("source_summary")),
+                "source_supporting_claim": clean_text(candidate.get("source_supporting_claim")),
                 "source_path": source_path,
                 "source_url": clean_text(source_ref.get("source_url")),
                 "latent_reason": latent_reason,

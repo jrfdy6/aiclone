@@ -75,6 +75,11 @@ class LinkedInContentBankTests(unittest.TestCase):
             draft = workspace / "drafts" / "workflow-clarity.md"
             draft.parent.mkdir(parents=True, exist_ok=True)
             draft.write_text("# Workflow clarity beats model novelty\n", encoding="utf-8")
+            (repo_root / "memory" / "reports").mkdir(parents=True, exist_ok=True)
+            (repo_root / "memory" / "reports" / "content_safe_operator_lessons_latest.json").write_text(
+                json.dumps({"generated_at": "2026-04-23T11:15:10Z", "lessons": []}),
+                encoding="utf-8",
+            )
             (repo_root / "memory" / "runtime").mkdir(parents=True, exist_ok=True)
             (repo_root / "memory" / "runtime" / "LEARNINGS.md").write_text("# Learnings\n", encoding="utf-8")
             write_json(workspace / "plans" / "latent_ideas.json", latent_payload(drafted_item()))
@@ -88,7 +93,8 @@ class LinkedInContentBankTests(unittest.TestCase):
             self.assertEqual(len(posts), 1)
             self.assertEqual(posts[0]["status"], "banked")
             self.assertEqual(posts[0]["draft_path"], "workspaces/linkedin-content-os/drafts/workflow-clarity.md")
-            self.assertIn("memory/runtime/LEARNINGS.md", posts[0]["canon_refs"])
+            self.assertIn("memory/reports/content_safe_operator_lessons_latest.json", posts[0]["canon_refs"])
+            self.assertNotIn("memory/runtime/LEARNINGS.md", posts[0]["canon_refs"])
             self.assertEqual(events[0]["terminal_state"], "banked")
             backlog = (workspace / "backlog.md").read_text(encoding="utf-8")
             self.assertIn("## Autonomous Content Bank", backlog)

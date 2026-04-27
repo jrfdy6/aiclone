@@ -66,6 +66,35 @@ def _draft_path_for_title(workspace_dir: Path, title: str) -> Path:
         index += 1
 
 
+def _first_non_empty(*values: Any) -> str:
+    for value in values:
+        text = clean_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _first_list_entry(values: Any) -> str:
+    if not isinstance(values, list):
+        return ""
+    for value in values:
+        text = clean_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _source_signal(item: dict[str, Any], source_item: dict[str, Any] | None, transform_plan: dict[str, Any]) -> str:
+    return _first_non_empty(
+        transform_plan.get("source_signal"),
+        (source_item or {}).get("summary"),
+        _first_list_entry((source_item or {}).get("supporting_claims")),
+        item.get("source_summary"),
+        item.get("source_supporting_claim"),
+        item.get("title"),
+    )
+
+
 def _draft_body(item: dict[str, Any], source_item: dict[str, Any] | None) -> str:
     transform_plan = item.get("transform_plan") if isinstance(item.get("transform_plan"), dict) else {}
     lane = clean_text(item.get("content_lane"))
@@ -78,10 +107,29 @@ def _draft_body(item: dict[str, Any], source_item: dict[str, Any] | None) -> str
     proof_prompt = clean_text(transform_plan.get("proof_prompt"))
     promotion_rule = clean_text(transform_plan.get("promotion_rule"))
     owner_prompt = owner_question.rstrip("?").strip()
-    summary = clean_text((source_item or {}).get("summary"))
+    summary = _first_non_empty((source_item or {}).get("summary"), item.get("source_summary"))
+    source_signal = _source_signal(item, source_item, transform_plan)
     why_it_matters = clean_text((source_item or {}).get("why_it_matters")) or clean_text(item.get("suggested_fix"))
     revision_goals = [clean_text(entry) for entry in (transform_plan.get("revision_goals") or []) if clean_text(entry)]
     revision_lines = "\n".join(f"- {goal}" for goal in revision_goals) or "- Tighten the angle before promotion."
+    first_pass_lines = [
+        f'"{title}" is useful because the source signal is {source_signal.rstrip(".")}.'
+        if source_signal
+        else "",
+        proposed_angle or title,
+        (
+            f"The operator consequence still needs to answer this clearly: {owner_prompt}."
+            if owner_prompt
+            else "The operator consequence still needs to become unmistakably concrete."
+        ),
+        f"The proof line I would want in the next pass is: {proof_prompt or 'add one lived example or artifact before promotion.'}",
+        (
+            f"The next pass only deserves promotion if it can satisfy this rule: {promotion_rule}"
+            if promotion_rule
+            else "The next pass only deserves promotion if it can satisfy one clear audience consequence plus one defendable proof line."
+        ),
+    ]
+    first_pass = "\n\n".join(line for line in first_pass_lines if line)
     return "\n".join(
         [
             "---",
@@ -127,21 +175,7 @@ def _draft_body(item: dict[str, Any], source_item: dict[str, Any] | None) -> str
             "",
             "## First-pass transformed draft",
             "",
-            proposed_angle or title,
-            "",
-            (
-                f"The useful public move is not the source headline itself. It is answering this clearly: {owner_prompt}."
-                if owner_prompt
-                else "The useful public move is not the source headline itself. It is making the audience consequence unmistakably concrete."
-            ),
-            "",
-            f"The proof line I would want in the next pass is: {proof_prompt or 'add one lived example or artifact before promotion.'}",
-            "",
-            (
-                f"The next pass only deserves promotion if it can satisfy this rule: {promotion_rule}"
-                if promotion_rule
-                else "The next pass only deserves promotion if it can satisfy one clear audience consequence plus one defendable proof line."
-            ),
+            first_pass,
             "",
             "## Owner notes",
             "- Keep or revise the proposed angle.",
