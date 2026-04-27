@@ -63,6 +63,7 @@ memory/self-improvement.md
 memory/audit_log_day_1.md
 workspaces/*/briefings/20*.md
 workspaces/*/analytics/
+workspaces/*/agent-ledgers/*.jsonl
 workspaces/*/memory/execution_log.md
 workspaces/*/runtime/
 workspaces/*/reports/
@@ -90,6 +91,7 @@ workspaces/shared-ops/docs/openclaw_codex_smoke_followup_20??-??-??.md
 workspaces/shared-ops/docs/workspace_identity_alignment_20??-??-??.md
 frontend/app/brain/workspaceSnapshot.ts
 frontend/legacy/content-pipeline/workspaceSnapshot.ts
+scripts/build_progress_pulse_digest.py.bak
 
 .next/
 frontend/.next/
