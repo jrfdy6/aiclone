@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -41,11 +42,31 @@ def qmd_env() -> dict[str, str]:
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(QMD_CONFIG_HOME)
     env["XDG_CACHE_HOME"] = str(QMD_CACHE_HOME)
+    path_entries = [
+        str(Path("/Users/neo/.bun/bin")),
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        env.get("PATH", ""),
+    ]
+    env["PATH"] = ":".join([entry for entry in path_entries if entry])
     return env
+
+def resolve_qmd_binary() -> str:
+    env = qmd_env()
+    env_candidate = os.environ.get("QMD_BIN")
+    candidates = [Path(env_candidate)] if env_candidate else []
+    discovered = shutil.which("qmd", path=env.get("PATH"))
+    if discovered:
+        return discovered
+    candidates.extend([Path("/usr/local/bin/qmd"), Path("/opt/homebrew/bin/qmd")])
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return "qmd"
 
 def run_qmd(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["qmd", *args],
+        [resolve_qmd_binary(), *args],
         capture_output=True,
         text=True,
         env=qmd_env(),
