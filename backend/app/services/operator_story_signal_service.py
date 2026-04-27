@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+from app.services.core_memory_snapshot_service import resolve_memory_read_target, resolve_snapshot_fallback_path
 
 
 def resolve_workspace_root() -> Path:
@@ -284,6 +284,22 @@ def _signal_id(source_kind: str, source_ref: str, claim: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", basis.lower()).strip("-")[:80]
 
 
+def _chronicle_entry_is_chat_derived(entry: dict[str, Any]) -> bool:
+    source = _normalize_text(entry.get("source")).lower()
+    if source == "codex-history":
+        return True
+    source_refs = entry.get("source_refs")
+    if not isinstance(source_refs, list):
+        return False
+    for item in source_refs:
+        if not isinstance(item, dict):
+            continue
+        ref_source = _normalize_text(item.get("source")).lower()
+        if ref_source in {"codex-history", "codex-session-transcript"}:
+            return True
+    return False
+
+
 def _chronicle_signals(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -325,14 +341,17 @@ def _chronicle_signals(path: Path) -> list[dict[str, Any]]:
         if not workspace_keys and str(entry.get("workspace_key") or "").strip():
             workspace_keys = [str(entry.get("workspace_key") or "").strip()]
         artifact_paths = list(dict.fromkeys(artifacts + _extract_artifact_paths(claim, proof, lesson)))
-        route = _recommend_route(
-            claim=claim,
-            proof=proof,
-            lesson=lesson,
-            source_kind="chronicle",
-            identity_bias=bool(identity_signals),
-            artifact_paths=artifact_paths,
-        )
+        if _chronicle_entry_is_chat_derived(entry):
+            route = "keep_in_ops"
+        else:
+            route = _recommend_route(
+                claim=claim,
+                proof=proof,
+                lesson=lesson,
+                source_kind="chronicle",
+                identity_bias=bool(identity_signals),
+                artifact_paths=artifact_paths,
+            )
         signals.append(
             {
                 "id": _signal_id("chronicle", str(entry.get("entry_id") or entry.get("handoff_id") or summary), claim),
@@ -572,12 +591,18 @@ def build_operator_story_signals_payload(
 ) -> dict[str, Any]:
     resolved_memory_root = (memory_root or MEMORY_ROOT).resolve()
     source_paths: dict[str, str] = {}
+    use_canonical_resolution = resolved_memory_root == MEMORY_ROOT.resolve()
     for name in DEFAULT_SOURCE_FILE_NAMES:
+        relative_path = Path("memory") / name
+        if use_canonical_resolution:
+            resolution = resolve_memory_read_target(ROOT, relative_path)
+            source_paths[name] = str(Path(resolution["resolved_path"]).resolve())
+            continue
         live_path = (resolved_memory_root / name).resolve()
         if live_path.exists():
             source_paths[name] = str(live_path)
             continue
-        source_paths[name] = str(resolve_snapshot_fallback_path(ROOT, Path("memory") / name).resolve())
+        source_paths[name] = str(resolve_snapshot_fallback_path(ROOT, relative_path).resolve())
     collected: list[dict[str, Any]] = []
     collected.extend(_chronicle_signals(Path(source_paths["codex_session_handoff.jsonl"])))
     collected.extend(_persistent_state_signal(Path(source_paths["persistent_state.md"])))

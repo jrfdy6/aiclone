@@ -49,11 +49,22 @@ class OperatorStorySignalServiceTests(unittest.TestCase):
                     "schema_version": "codex_chronicle/v1",
                     "entry_id": "chronicle-identity-1",
                     "created_at": "2026-04-06T23:41:35Z",
-                    "source": "codex-history",
+                    "source": "owner-review",
                     "workspace_key": "linkedin-content-os",
                     "summary": "Synced 2 new Codex history entries across 1 sessions.",
                     "identity_signals": ["Johnnie should sound like an operator, not a consultant."],
                     "mindset_signals": ["Favor direct language when the workflow proof is strong."],
+                    "tags": ["linkedin-content-os", "persona"],
+                },
+                {
+                    "schema_version": "codex_chronicle/v1",
+                    "entry_id": "chronicle-chat-identity-1",
+                    "created_at": "2026-04-06T23:49:35Z",
+                    "source": "codex-history",
+                    "workspace_key": "linkedin-content-os",
+                    "summary": "Synced 1 new Codex history entry across 1 sessions.",
+                    "identity_signals": ["I want the posts to sound more direct and less polished."],
+                    "mindset_signals": ["That means the voice should be cleaner, not softer."],
                     "tags": ["linkedin-content-os", "persona"],
                 },
                 {
@@ -153,9 +164,11 @@ Follow-up: yes (Jean-Claude)
         self.assertIn("persona_candidate", routes)
         self.assertIn("keep_in_ops", routes)
         self.assertIn("chronicle", source_kinds)
-        self.assertEqual(len([item for item in signals if isinstance(item, dict) and item.get("source_kind") == "chronicle"]), 2)
+        self.assertEqual(len([item for item in signals if isinstance(item, dict) and item.get("source_kind") == "chronicle"]), 3)
         proof_signal = next(item for item in signals if item.get("source_kind") == "chronicle" and item.get("route") == "content_reservoir")
         self.assertTrue(proof_signal.get("artifact_paths"))
+        chat_signal = next(item for item in signals if item.get("claim") == "I want the posts to sound more direct and less polished.")
+        self.assertEqual(chat_signal.get("route"), "keep_in_ops")
         markdown = render_operator_story_signals_markdown(payload)
         self.assertIn("# Operator Story Signals", markdown)
         self.assertIn("content_reservoir", markdown)
