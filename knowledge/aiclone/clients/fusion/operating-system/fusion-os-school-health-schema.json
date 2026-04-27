@@ -1,0 +1,467 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FusionOSCampusHealthRecord",
+  "type": "object",
+  "required": [
+    "school_id",
+    "school_name",
+    "review_date",
+    "domains",
+    "pro_portfolio",
+    "family_journey",
+    "session_metrics",
+    "package_mix",
+    "risks",
+    "interventions"
+  ],
+  "properties": {
+    "school_id": {
+      "type": "string"
+    },
+    "school_name": {
+      "type": "string"
+    },
+    "region": {
+      "type": "string"
+    },
+    "term_label": {
+      "type": "string"
+    },
+    "season": {
+      "type": "string",
+      "enum": ["fall", "spring", "summer", "other"]
+    },
+    "programs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "review_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "review_owner": {
+      "type": "string"
+    },
+    "domains": {
+      "type": "object",
+      "required": [
+        "pro_demand",
+        "family_journey_package",
+        "session_staffing",
+        "campus_social_confidence",
+        "student_fit_retention",
+        "team_execution",
+        "systems_intelligence"
+      ],
+      "properties": {
+        "pro_demand": {
+          "$ref": "#/$defs/domainScore"
+        },
+        "family_journey_package": {
+          "$ref": "#/$defs/domainScore"
+        },
+        "session_staffing": {
+          "$ref": "#/$defs/domainScore"
+        },
+        "campus_social_confidence": {
+          "$ref": "#/$defs/domainScore"
+        },
+        "student_fit_retention": {
+          "$ref": "#/$defs/domainScore"
+        },
+        "team_execution": {
+          "$ref": "#/$defs/domainScore"
+        },
+        "systems_intelligence": {
+          "$ref": "#/$defs/domainScore"
+        }
+      },
+      "additionalProperties": false
+    },
+    "pro_portfolio": {
+      "type": "object",
+      "required": [
+        "owned_total",
+        "unmet",
+        "contacted",
+        "referring",
+        "power_referring",
+        "meetings",
+        "follow_ups",
+        "referral_inquiries",
+        "referred_tours"
+      ],
+      "properties": {
+        "owned_total": {
+          "type": "number"
+        },
+        "unmet": {
+          "type": "number"
+        },
+        "contacted": {
+          "type": "number"
+        },
+        "referring": {
+          "type": "number"
+        },
+        "power_referring": {
+          "type": "number"
+        },
+        "meetings": {
+          "type": "number"
+        },
+        "follow_ups": {
+          "type": "number"
+        },
+        "referral_inquiries": {
+          "type": "number"
+        },
+        "referred_tours": {
+          "type": "number"
+        },
+        "segment_mix": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/segmentMetric"
+          }
+        },
+        "concentration_risk_note": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "family_journey": {
+      "type": "object",
+      "required": [
+        "inquiries",
+        "intakes_completed",
+        "tours",
+        "packages_presented",
+        "packages_paid",
+        "students_scheduled",
+        "students_attending"
+      ],
+      "properties": {
+        "inquiries": {
+          "type": "number"
+        },
+        "intakes_completed": {
+          "type": "number"
+        },
+        "tours": {
+          "type": "number"
+        },
+        "packages_presented": {
+          "type": "number"
+        },
+        "packages_paid": {
+          "type": "number"
+        },
+        "students_scheduled": {
+          "type": "number"
+        },
+        "students_attending": {
+          "type": "number"
+        },
+        "cost_objection_count": {
+          "type": "number"
+        },
+        "social_fit_objection_count": {
+          "type": "number"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "session_metrics": {
+      "type": "object",
+      "required": [
+        "scheduled_sessions_total",
+        "full_time_sessions_registered"
+      ],
+      "properties": {
+        "scheduled_sessions_total": {
+          "type": "number"
+        },
+        "full_time_sessions_registered": {
+          "type": "number"
+        },
+        "academic_sessions": {
+          "type": "number"
+        },
+        "tutoring_sessions": {
+          "type": "number"
+        },
+        "mentoring_sessions": {
+          "type": "number"
+        },
+        "new_student_sessions": {
+          "type": "number"
+        },
+        "returning_student_sessions": {
+          "type": "number"
+        },
+        "teacher_utilization_note": {
+          "type": "string"
+        },
+        "staffing_risk_note": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "package_mix": {
+      "type": "object",
+      "properties": {
+        "full_time_students": {
+          "type": "number"
+        },
+        "part_time_students": {
+          "type": "number"
+        },
+        "tutoring_only_students": {
+          "type": "number"
+        },
+        "mentoring_only_students": {
+          "type": "number"
+        },
+        "hybrid_students": {
+          "type": "number"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "campus_social_confidence": {
+      "type": "object",
+      "properties": {
+        "social_confidence_score": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "same_age_peer_density_note": {
+          "type": "string"
+        },
+        "homework_cafe_note": {
+          "type": "string"
+        },
+        "clubs_events_note": {
+          "type": "string"
+        },
+        "campus_energy_note": {
+          "type": "string"
+        },
+        "lost_deals_social_concern": {
+          "type": "number"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "student_fit_retention": {
+      "type": "object",
+      "properties": {
+        "culture_risk_count": {
+          "type": "number"
+        },
+        "first_week_attendance_flags": {
+          "type": "number"
+        },
+        "leaves_count": {
+          "type": "number"
+        },
+        "returns_count": {
+          "type": "number"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "leading_indicators": {
+      "type": "object",
+      "properties": {
+        "risk_whispers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "health_signals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/risk"
+      }
+    },
+    "interventions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/intervention"
+      }
+    },
+    "evidence_notes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceNote"
+      }
+    }
+  },
+  "$defs": {
+    "domainScore": {
+      "type": "object",
+      "required": ["score", "summary"],
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "summary": {
+          "type": "string"
+        },
+        "leading_signals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "weak_signals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "segmentMetric": {
+      "type": "object",
+      "required": ["segment", "count"],
+      "properties": {
+        "segment": {
+          "type": "string"
+        },
+        "count": {
+          "type": "number"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "risk": {
+      "type": "object",
+      "required": ["title", "domain", "severity", "owner", "status"],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "owner": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "watching", "blocked", "closed"]
+        },
+        "next_action": {
+          "type": "string"
+        },
+        "due_date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "additionalProperties": false
+    },
+    "intervention": {
+      "type": "object",
+      "required": ["name", "target_domain", "owner", "status"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "target_domain": {
+          "type": "string"
+        },
+        "target_stage": {
+          "type": "string"
+        },
+        "hypothesis": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["planned", "active", "paused", "complete"]
+        },
+        "success_metric": {
+          "type": "string"
+        },
+        "review_date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidenceNote": {
+      "type": "object",
+      "required": ["domain", "note"],
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "source_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
