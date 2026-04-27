@@ -8,7 +8,13 @@ from typing import Any
 from app.services import open_brain_metrics, open_brain_service
 from app.services.automation_service import list_automations
 from app.services.brain_signal_service import count_signals, list_signals
+from app.services.donor_repo_boundary_service import build_donor_repo_boundary_report
+from app.services.email_draft_canary_service import build_email_draft_canary_report
+from app.services.fallback_policy_service import build_fallback_policy_report
 from app.services.portfolio_workspace_snapshot_service import build_portfolio_workspace_snapshot
+from app.services.repo_surface_registry_service import build_repo_surface_registry
+from app.services.truth_lane_cleanup_service import build_truth_lane_cleanup_report
+from app.services.work_lifecycle_service import build_work_lifecycle_report
 from app.services.workspace_registry_service import REPO_ROOT
 from app.services.workspace_snapshot_store import get_snapshot_payload
 from app.services.workspace_snapshot_service import workspace_snapshot_service
@@ -347,12 +353,28 @@ def build_brain_control_plane() -> dict[str, Any]:
     workspace_snapshot = _compact_workspace_snapshot(workspace_snapshot)
     brain_memory_sync = get_snapshot_payload("shared_ops", "brain_memory_sync")
     portfolio_snapshot = build_portfolio_workspace_snapshot()
+    repo_surface_registry = build_repo_surface_registry(include_entries=False)
+    fallback_policy = build_fallback_policy_report(include_entries=False)
+    truth_lane_cleanup = build_truth_lane_cleanup_report(include_findings=False)
+    work_lifecycle = build_work_lifecycle_report(include_samples=False)
+    donor_repo_boundary = build_donor_repo_boundary_report(include_targets=False)
+    email_draft_canary = build_email_draft_canary_report(include_samples=False)
     recent_brain_signals = [signal.model_dump(mode="json") for signal in list_signals(limit=8)]
     brain_signal_count = count_signals()
     source_intelligence_index = _load_source_intelligence_index()
     persona_counts = ((workspace_snapshot.get("persona_review_summary") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
     source_asset_counts = ((workspace_snapshot.get("source_assets") or {}).get("counts") or {}) if isinstance(workspace_snapshot, dict) else {}
     source_intelligence_counts = (source_intelligence_index or {}).get("counts") or {}
+    repo_surface_summary = (repo_surface_registry or {}).get("summary") or {}
+    repo_surface_status_counts = repo_surface_summary.get("status_counts") if isinstance(repo_surface_summary, dict) else {}
+    fallback_policy_summary = (fallback_policy or {}).get("summary") or {}
+    fallback_policy_counts = fallback_policy_summary.get("policy_class_counts") if isinstance(fallback_policy_summary, dict) else {}
+    truth_lane_summary = (truth_lane_cleanup or {}).get("summary") or {}
+    cleanup_decision = (truth_lane_cleanup or {}).get("cleanup_decision") or {}
+    work_lifecycle_summary = (work_lifecycle or {}).get("summary") or {}
+    donor_repo_summary = (donor_repo_boundary or {}).get("summary") or {}
+    email_draft_canary_summary = (email_draft_canary or {}).get("summary") or {}
+    email_draft_queue_summary = (email_draft_canary or {}).get("queue") or {}
     doc_count = _count_brain_docs()
     if not doc_count and isinstance(workspace_snapshot, dict):
         doc_count = len(workspace_snapshot.get("doc_entries") or [])
@@ -365,6 +387,12 @@ def build_brain_control_plane() -> dict[str, Any]:
         "brain_memory_sync": brain_memory_sync,
         "workspace_snapshot": workspace_snapshot,
         "portfolio_snapshot": portfolio_snapshot,
+        "repo_surface_registry": repo_surface_registry,
+        "fallback_policy": fallback_policy,
+        "truth_lane_cleanup": truth_lane_cleanup,
+        "work_lifecycle": work_lifecycle,
+        "donor_repo_boundary": donor_repo_boundary,
+        "email_draft_canary": email_draft_canary,
         "brain_signals": recent_brain_signals,
         "source_intelligence_index": source_intelligence_index,
         "summary": {
@@ -382,5 +410,24 @@ def build_brain_control_plane() -> dict[str, Any]:
             "brain_signal_count": brain_signal_count,
             "source_intelligence_total": int(source_intelligence_counts.get("total") or 0),
             "source_intelligence_routed": int(source_intelligence_counts.get("routed") or 0),
+            "repo_surface_count": int(repo_surface_summary.get("total_surfaces") or 0),
+            "repo_surface_mismatch_count": int(repo_surface_summary.get("mismatch_count") or 0),
+            "repo_surface_live_count": int(repo_surface_status_counts.get("live_and_production_relevant") or 0),
+            "repo_surface_legacy_count": int(repo_surface_status_counts.get("present_but_dormant_legacy") or 0),
+            "fallback_policy_count": int(fallback_policy_summary.get("total_policies") or 0),
+            "fallback_allowed_count": int(fallback_policy_counts.get("allowed_in_production") or 0),
+            "fallback_temporary_scaffold_count": int(fallback_policy_counts.get("temporary_scaffold") or 0),
+            "fallback_failure_count": int(fallback_policy_counts.get("treat_as_failure") or 0),
+            "truth_lane_cleanup_mode": str(cleanup_decision.get("mode") or ""),
+            "truth_lane_suspect_count": int(truth_lane_summary.get("suspect_line_count") or 0),
+            "lifecycle_open_count": int(work_lifecycle_summary.get("open_count") or 0),
+            "lifecycle_written_back_count": int(work_lifecycle_summary.get("written_back_count") or 0),
+            "lifecycle_closed_count": int(work_lifecycle_summary.get("closed_count") or 0),
+            "donor_repo_count": int(donor_repo_summary.get("donor_repo_count") or 0),
+            "donor_porting_target_count": int(donor_repo_summary.get("worth_porting_count") or 0),
+            "donor_pending_extraction_count": int(donor_repo_summary.get("pending_extraction_count") or 0),
+            "email_draft_canary_status": str(email_draft_canary_summary.get("status") or ""),
+            "email_draft_queue_active_count": int(email_draft_queue_summary.get("active_count") or 0),
+            "email_draft_queue_stale_count": int(email_draft_queue_summary.get("stale_job_count") or 0),
         },
     }

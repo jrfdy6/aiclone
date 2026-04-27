@@ -23,10 +23,15 @@ from app.services.brain_signal_intake_service import run_brain_signal_intake
 from app.services.brain_signal_service import create_signal, get_signal, list_signals, review_signal, route_signal
 from app.services.brain_system_route_service import route_delta_signal
 from app.services.brain_control_plane_service import build_brain_control_plane
+from app.services.donor_repo_boundary_service import build_donor_repo_boundary_report
+from app.services.fallback_policy_service import build_fallback_policy_report
 from app.services.portfolio_workspace_snapshot_service import build_portfolio_workspace_snapshot
+from app.services.repo_surface_registry_service import build_repo_surface_registry
+from app.services.truth_lane_cleanup_service import build_truth_lane_cleanup_report
 from app.services.persona_promotion_service import build_committed_persona_overlay, promote_delta_to_canon, reroute_delta_promotion
 from app.services.persona_review_queue_service import annotate_for_brain_queue
 from app.services.social_belief_engine import load_persona_truth
+from app.services.work_lifecycle_service import build_work_lifecycle_report
 from app.services.workspace_snapshot_store import upsert_snapshot
 from app.services.workspace_snapshot_service import workspace_snapshot_service
 from app.services.youtube_watchlist_service import build_youtube_watchlist_payload, list_ingest_jobs, queue_youtube_ingest, run_ingest_job
@@ -48,6 +53,51 @@ async def get_portfolio_snapshot(response: Response):
     try:
         response.headers["Cache-Control"] = "no-store, max-age=0"
         return build_portfolio_workspace_snapshot()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/repo-surface-registry")
+async def get_repo_surface_registry(response: Response):
+    try:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return build_repo_surface_registry()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/fallback-policy")
+async def get_fallback_policy(response: Response):
+    try:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return build_fallback_policy_report()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/truth-lanes")
+async def get_truth_lanes(response: Response):
+    try:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return build_truth_lane_cleanup_report()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/lifecycle")
+async def get_lifecycle(response: Response):
+    try:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return build_work_lifecycle_report()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/donor-boundary")
+async def get_donor_boundary(response: Response):
+    try:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return build_donor_repo_boundary_report()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

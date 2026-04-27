@@ -18,6 +18,7 @@ Startup procedure:
    memory/persistent_state.md
    SOPs/_index.md
    SOPs/openclaw_local_automation_sop.md
+   SOPs/repo_surface_truth_map_sop.md when the task touches whether a page, route, or subtree is live, scaffolded, dormant legacy, or reference only
    SOPs/social_persona_synthesis_roadmap_sop.md when the task touches article understanding, social response quality, persona-aware drafting, comment/repost synthesis, or Lab content observability
    workspaces/linkedin-content-os/docs/article_world_understanding_phase1_implementation_plan.md when the task is specifically about Phase 1 article/world understanding, article stance, world-model comparison, or Lab article-side observability
    workspaces/linkedin-content-os/docs/persona_retrieval_phase2_implementation_plan.md when the task is specifically about Phase 2 persona retrieval, approved-delta reuse, belief/experience selection quality, or Lab retrieval observability

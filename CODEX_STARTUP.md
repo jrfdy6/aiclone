@@ -20,6 +20,9 @@ Then load only the additional docs needed for the task at hand. Keep `SOPs/_inde
 When the task touches local scheduling, media-heavy automations, or machine-side runtime behavior, also load:
 - `SOPs/openclaw_local_automation_sop.md`
 
+When the task touches whether a page, route, service, or subtree is live, scaffolded, dormant legacy, or reference only, also load:
+- `SOPs/repo_surface_truth_map_sop.md`
+
 When the task touches article understanding, social response quality, persona-aware drafting, comment/repost synthesis, or Lab content observability, also load:
 - `SOPs/social_persona_synthesis_roadmap_sop.md`
 
@@ -202,6 +205,7 @@ Use those commands when the task is "seed production data" rather than "ship new
 - `SOPs/source_system_contract_sop.md`
 - `SOPs/brain_workspace_boundary_sop.md`
 - `SOPs/openclaw_local_automation_sop.md`
+- `SOPs/repo_surface_truth_map_sop.md`
 - `SOPs/social_persona_synthesis_roadmap_sop.md`
 - `workspaces/linkedin-content-os/docs/article_world_understanding_phase1_implementation_plan.md`
 - `workspaces/linkedin-content-os/docs/persona_retrieval_phase2_implementation_plan.md`
