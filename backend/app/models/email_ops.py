@@ -10,6 +10,10 @@ EmailDirection = Literal["inbound", "outbound"]
 EmailThreadStatus = Literal["new", "triaged", "routed", "drafted", "human_review", "sent", "waiting", "closed"]
 EmailDataMode = Literal["sample_only", "provider_sync"]
 EmailDraftType = Literal["acknowledge", "qualify", "schedule", "decline_or_redirect"]
+EmailDraftMode = Literal["email_reply", "email_follow_up", "outbound_email"]
+EmailDraftEngine = Literal["template", "content_generation", "codex_job"]
+EmailDraftSourceMode = Literal["email_thread_grounded", "persona_only", "selected_source", "recent_signals"]
+EmailThreadDraftLifecycleAction = Literal["clear_local_draft", "unlink_provider_draft", "clear_all_draft_state"]
 
 
 class EmailMessage(BaseModel):
@@ -21,6 +25,9 @@ class EmailMessage(BaseModel):
     cc_addresses: list[str] = Field(default_factory=list)
     subject: str
     body_text: str
+    internet_message_id: Optional[str] = None
+    references_header: Optional[str] = None
+    in_reply_to_header: Optional[str] = None
     received_at: datetime
 
 
@@ -51,7 +58,17 @@ class EmailThread(BaseModel):
     draft_subject: Optional[str] = None
     draft_body: Optional[str] = None
     draft_type: Optional[EmailDraftType] = None
+    draft_mode: Optional[EmailDraftMode] = None
+    draft_engine: Optional[EmailDraftEngine] = None
+    draft_source_mode: Optional[EmailDraftSourceMode] = None
     draft_generated_at: Optional[datetime] = None
+    draft_job_id: Optional[str] = None
+    draft_audit: Optional[dict] = None
+    draft_confidence: Optional[float] = None
+    provider_draft_id: Optional[str] = None
+    provider_draft_status: Optional[str] = None
+    provider_draft_saved_at: Optional[datetime] = None
+    provider_draft_error: Optional[str] = None
     last_message_at: datetime
     manual_workspace_key: Optional[str] = None
     manual_lane: Optional[str] = None
@@ -92,6 +109,10 @@ class EmailThreadRouteRequest(BaseModel):
 
 class EmailThreadDraftRequest(BaseModel):
     draft_type: Optional[EmailDraftType] = None
+    draft_mode: Optional[EmailDraftMode] = None
+    draft_engine: Optional[EmailDraftEngine] = None
+    source_mode: Optional[EmailDraftSourceMode] = None
+    operator_notes: Optional[str] = None
 
 
 class EmailThreadDraftResponse(BaseModel):
@@ -99,6 +120,30 @@ class EmailThreadDraftResponse(BaseModel):
     draft_subject: str
     draft_body: str
     draft_type: EmailDraftType
+    draft_mode: Optional[EmailDraftMode] = None
+    draft_engine: Optional[EmailDraftEngine] = None
+    source_mode: Optional[EmailDraftSourceMode] = None
+
+
+class EmailThreadSaveDraftRequest(BaseModel):
+    overwrite_existing: bool = True
+
+
+class EmailThreadSaveDraftResponse(BaseModel):
+    thread: EmailThread
+    provider_draft_id: Optional[str] = None
+    provider_draft_status: Optional[str] = None
+    message: str
+
+
+class EmailThreadDraftLifecycleRequest(BaseModel):
+    action: EmailThreadDraftLifecycleAction
+
+
+class EmailThreadDraftLifecycleResponse(BaseModel):
+    thread: EmailThread
+    action: EmailThreadDraftLifecycleAction
+    message: str
 
 
 class EmailThreadEscalateRequest(BaseModel):
@@ -116,6 +161,8 @@ class EmailProviderStatusResponse(BaseModel):
     configured: bool = False
     connected: bool = False
     dependencies_ready: bool = False
+    drafts_enabled: bool = False
+    send_enabled: bool = False
     account_email: Optional[str] = None
     client_file: Optional[str] = None
     token_file: Optional[str] = None

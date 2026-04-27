@@ -9,10 +9,26 @@ from threading import Lock
 from typing import Any
 from uuid import uuid4
 
+try:
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+except Exception:  # pragma: no cover
+    dict_row = None  # type: ignore
+    Jsonb = None  # type: ignore
+
+try:
+    from app.services.open_brain_db import get_pool
+except Exception:  # pragma: no cover
+    get_pool = None  # type: ignore
 
 _LOCK = Lock()
 _NONTERMINAL_STATUSES = {"pending", "claimed", "running"}
 _TERMINAL_STATUSES = {"completed", "failed", "canceled"}
+_JOB_SELECT_COLUMNS = (
+    "id, workspace_slug, requested_by, job_kind, status, request_payload, context_packet, "
+    "claimed_by, claimed_at, started_at, completed_at, failed_at, canceled_at, error_message, "
+    "result_payload, artifacts, idempotency_key, created_at, updated_at"
+)
 
 
 def _utcnow_iso() -> str:
@@ -38,6 +54,15 @@ def _artifact_dir(job_id: str) -> Path:
     return _artifact_root() / job_id
 
 
+def _maybe_pool():
+    if get_pool is None or dict_row is None or Jsonb is None:
+        return None
+    try:
+        return get_pool()
+    except Exception:
+        return None
+
+
 def _ensure_store_dir() -> None:
     _store_dir().mkdir(parents=True, exist_ok=True)
 
@@ -47,6 +72,9 @@ def _ensure_artifact_dir(job_id: str) -> None:
 
 
 def _load_jobs() -> list[dict[str, Any]]:
+    pool = _maybe_pool()
+    if pool is not None:
+        return _load_jobs_from_db(pool)
     path = _store_path()
     if not path.exists():
         return []
@@ -58,6 +86,10 @@ def _load_jobs() -> list[dict[str, Any]]:
 
 
 def _write_jobs(jobs: list[dict[str, Any]]) -> None:
+    pool = _maybe_pool()
+    if pool is not None:
+        _upsert_jobs_to_db(pool, jobs)
+        return
     _ensure_store_dir()
     path = _store_path()
     tmp_path = path.with_suffix(".tmp")
@@ -94,6 +126,167 @@ def _touch(job: dict[str, Any], *, status: str | None = None) -> None:
     if status:
         job["status"] = _normalize_status(status)
     job["updated_at"] = _utcnow_iso()
+
+
+def _coerce_db_timestamp(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _optional_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _serialize_job_row(row: dict[str, Any]) -> dict[str, Any]:
+    serialized = {key: _coerce_db_timestamp(value) for key, value in row.items()}
+    request_payload = serialized.get("request_payload")
+    serialized["request_payload"] = request_payload if isinstance(request_payload, dict) else {}
+    context_packet = serialized.get("context_packet")
+    serialized["context_packet"] = context_packet if isinstance(context_packet, dict) else {}
+    result_payload = serialized.get("result_payload")
+    serialized["result_payload"] = result_payload if isinstance(result_payload, dict) else None
+    artifacts = serialized.get("artifacts")
+    serialized["artifacts"] = [dict(item) for item in artifacts if isinstance(item, dict)] if isinstance(artifacts, list) else []
+    serialized["status"] = _normalize_status(serialized.get("status"))
+    return serialized
+
+
+def _job_db_params(job: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        str(job.get("id") or ""),
+        _normalize_workspace_slug(job.get("workspace_slug")),
+        str(job.get("requested_by") or ""),
+        str(job.get("job_kind") or "content_generation"),
+        _normalize_status(job.get("status")),
+        Jsonb(job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {}),
+        Jsonb(job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}),
+        str(job.get("claimed_by") or "") or None,
+        _optional_datetime(job.get("claimed_at")),
+        _optional_datetime(job.get("started_at")),
+        _optional_datetime(job.get("completed_at")),
+        _optional_datetime(job.get("failed_at")),
+        _optional_datetime(job.get("canceled_at")),
+        str(job.get("error_message") or "") or None,
+        Jsonb(job.get("result_payload")) if isinstance(job.get("result_payload"), dict) else None,
+        Jsonb([dict(item) for item in job.get("artifacts") if isinstance(item, dict)] if isinstance(job.get("artifacts"), list) else []),
+        str(job.get("idempotency_key") or ""),
+        _optional_datetime(job.get("created_at")),
+        _optional_datetime(job.get("updated_at")),
+    )
+
+
+def _load_jobs_from_db(pool) -> list[dict[str, Any]]:
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT {_JOB_SELECT_COLUMNS}
+                FROM local_codex_jobs
+                ORDER BY created_at ASC
+                """
+            )
+            rows = cur.fetchall() or []
+    return [_serialize_job_row(row) for row in rows]
+
+
+def _upsert_jobs_to_db(pool, jobs: list[dict[str, Any]]) -> None:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            for job in jobs:
+                cur.execute(
+                    """
+                    INSERT INTO local_codex_jobs (
+                        id, workspace_slug, requested_by, job_kind, status, request_payload, context_packet,
+                        claimed_by, claimed_at, started_at, completed_at, failed_at, canceled_at, error_message,
+                        result_payload, artifacts, idempotency_key, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE
+                    SET workspace_slug = EXCLUDED.workspace_slug,
+                        requested_by = EXCLUDED.requested_by,
+                        job_kind = EXCLUDED.job_kind,
+                        status = EXCLUDED.status,
+                        request_payload = EXCLUDED.request_payload,
+                        context_packet = EXCLUDED.context_packet,
+                        claimed_by = EXCLUDED.claimed_by,
+                        claimed_at = EXCLUDED.claimed_at,
+                        started_at = EXCLUDED.started_at,
+                        completed_at = EXCLUDED.completed_at,
+                        failed_at = EXCLUDED.failed_at,
+                        canceled_at = EXCLUDED.canceled_at,
+                        error_message = EXCLUDED.error_message,
+                        result_payload = EXCLUDED.result_payload,
+                        artifacts = EXCLUDED.artifacts,
+                        idempotency_key = EXCLUDED.idempotency_key,
+                        created_at = COALESCE(local_codex_jobs.created_at, EXCLUDED.created_at, NOW()),
+                        updated_at = COALESCE(EXCLUDED.updated_at, NOW())
+                    """,
+                    _job_db_params(job),
+                )
+        conn.commit()
+
+
+def _write_artifact_content_to_db(pool, *, artifact: dict[str, Any], content: str) -> None:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO local_codex_job_artifacts (
+                    artifact_id, job_id, kind, label, filename, mime_type, size_bytes, relative_path, content, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (artifact_id) DO UPDATE
+                SET job_id = EXCLUDED.job_id,
+                    kind = EXCLUDED.kind,
+                    label = EXCLUDED.label,
+                    filename = EXCLUDED.filename,
+                    mime_type = EXCLUDED.mime_type,
+                    size_bytes = EXCLUDED.size_bytes,
+                    relative_path = EXCLUDED.relative_path,
+                    content = EXCLUDED.content,
+                    updated_at = NOW()
+                """,
+                (
+                    str(artifact.get("artifact_id") or ""),
+                    str(artifact.get("job_id") or ""),
+                    str(artifact.get("kind") or "artifact"),
+                    str(artifact.get("label") or ""),
+                    str(artifact.get("filename") or ""),
+                    str(artifact.get("mime_type") or "text/plain"),
+                    int(artifact.get("size_bytes") or 0),
+                    str(artifact.get("relative_path") or "") or None,
+                    content,
+                    _optional_datetime(artifact.get("created_at")),
+                ),
+            )
+        conn.commit()
+
+
+def _read_artifact_content_from_db(pool, *, job_id: str, artifact_id: str) -> str | None:
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT content
+                FROM local_codex_job_artifacts
+                WHERE artifact_id = %s AND job_id = %s
+                """,
+                (artifact_id, job_id),
+            )
+            row = cur.fetchone() or {}
+    content = row.get("content")
+    return str(content) if content is not None else None
 
 
 def _normalize_artifact_name(value: str, *, fallback: str) -> str:
@@ -158,6 +351,19 @@ def get_codex_job(job_id: str) -> dict[str, Any] | None:
         jobs = _load_jobs()
         job = _find_job(jobs, job_id)
         return dict(job) if job else None
+
+
+def list_codex_jobs(*, workspace_slug: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+    with _LOCK:
+        jobs = [
+            dict(job)
+            for job in _load_jobs()
+            if _job_matches_workspace(job, workspace_slug)
+        ]
+    jobs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    if isinstance(limit, int) and limit > 0:
+        return jobs[:limit]
+    return jobs
 
 
 def claim_next_codex_job(*, worker_id: str, workspace_slug: str | None = None) -> dict[str, Any] | None:
@@ -258,7 +464,7 @@ def write_job_artifact(
     path = _artifact_dir(job_id) / normalized_filename
     encoded = content.encode("utf-8")
     path.write_bytes(encoded)
-    return {
+    artifact = {
         "artifact_id": artifact_id,
         "job_id": job_id,
         "kind": " ".join((kind or "").split()).strip() or "artifact",
@@ -269,6 +475,10 @@ def write_job_artifact(
         "size_bytes": len(encoded),
         "created_at": _utcnow_iso(),
     }
+    pool = _maybe_pool()
+    if pool is not None:
+        _write_artifact_content_to_db(pool, artifact=artifact, content=content)
+    return artifact
 
 
 def append_job_artifacts(*, job_id: str, artifacts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -302,6 +512,11 @@ def read_job_artifact_content(*, job_id: str, artifact_id: str) -> str | None:
     match = next((item for item in artifacts if str(item.get("artifact_id") or "") == artifact_id), None)
     if not match:
         raise ValueError("Codex job artifact not found.")
+    pool = _maybe_pool()
+    if pool is not None:
+        content = _read_artifact_content_from_db(pool, job_id=job_id, artifact_id=artifact_id)
+        if content is not None:
+            return content
     relative_path = str(match.get("relative_path") or "").strip()
     if not relative_path:
         return None

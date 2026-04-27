@@ -245,6 +245,58 @@ _BASE_SCHEMA_STATEMENTS = (
     """,
     "CREATE INDEX IF NOT EXISTS automation_runs_automation_idx ON automation_runs(automation_id, run_at DESC)",
     "CREATE INDEX IF NOT EXISTS automation_runs_status_idx ON automation_runs(status, action_required, run_at DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS email_thread_state (
+        provider_key TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        provider_thread_id TEXT,
+        state JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS email_thread_state_provider_idx ON email_thread_state(provider, provider_thread_id)",
+    """
+    CREATE TABLE IF NOT EXISTS local_codex_jobs (
+        id TEXT PRIMARY KEY,
+        workspace_slug TEXT NOT NULL,
+        requested_by TEXT NOT NULL,
+        job_kind TEXT DEFAULT 'content_generation',
+        status TEXT DEFAULT 'pending',
+        request_payload JSONB DEFAULT '{}'::jsonb,
+        context_packet JSONB DEFAULT '{}'::jsonb,
+        claimed_by TEXT,
+        claimed_at TIMESTAMPTZ,
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        failed_at TIMESTAMPTZ,
+        canceled_at TIMESTAMPTZ,
+        error_message TEXT,
+        result_payload JSONB,
+        artifacts JSONB DEFAULT '[]'::jsonb,
+        idempotency_key TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS local_codex_jobs_workspace_status_idx ON local_codex_jobs(workspace_slug, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS local_codex_jobs_idempotency_idx ON local_codex_jobs(idempotency_key)",
+    """
+    CREATE TABLE IF NOT EXISTS local_codex_job_artifacts (
+        artifact_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES local_codex_jobs(id) ON DELETE CASCADE,
+        kind TEXT,
+        label TEXT,
+        filename TEXT,
+        mime_type TEXT,
+        size_bytes INT,
+        relative_path TEXT,
+        content TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS local_codex_job_artifacts_job_idx ON local_codex_job_artifacts(job_id, created_at)",
 )
 
 

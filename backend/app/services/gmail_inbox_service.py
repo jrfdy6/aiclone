@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
+from email.message import EmailMessage as MimeEmailMessage
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from app.models.email_ops import EmailThread
 
 try:
     from google.auth.transport.requests import Request
@@ -35,9 +40,19 @@ def _truthy(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def gmail_drafts_enabled() -> bool:
+    return _truthy(os.getenv("GOOGLE_GMAIL_ENABLE_DRAFTS"))
+
+
+def gmail_send_enabled() -> bool:
+    return _truthy(os.getenv("GOOGLE_GMAIL_ENABLE_SEND"))
+
+
 def gmail_scopes() -> list[str]:
     scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
-    if _truthy(os.getenv("GOOGLE_GMAIL_ENABLE_SEND")):
+    if gmail_drafts_enabled():
+        scopes.append("https://www.googleapis.com/auth/gmail.compose")
+    if gmail_send_enabled():
         scopes.append("https://www.googleapis.com/auth/gmail.send")
     return scopes
 
@@ -168,6 +183,8 @@ def gmail_connection_status() -> dict[str, Any]:
         "configured": configured,
         "connected": connected and configured and dependencies_ready,
         "dependencies_ready": dependencies_ready,
+        "drafts_enabled": gmail_drafts_enabled(),
+        "send_enabled": gmail_send_enabled(),
         "account_email": gmail_account_email(),
         "client_file": str(client_path),
         "token_file": str(token_path),
@@ -255,3 +272,112 @@ def fetch_gmail_threads() -> list[dict[str, Any]]:
         item["_openclaw_label_names"] = sorted(label_names)
         items.append(item)
     return items
+
+
+def save_gmail_draft(thread: "EmailThread", *, overwrite_existing: bool = True) -> dict[str, Any]:
+    if build is None:
+        raise GmailInboxConfigurationError("google-api-python-client is unavailable. Gmail draft save cannot run.")
+    if not gmail_drafts_enabled():
+        raise GmailInboxConfigurationError(
+            "Gmail draft persistence is disabled. Enable GOOGLE_GMAIL_ENABLE_DRAFTS and reconnect the Gmail account with compose scope."
+        )
+    if thread.provider != "gmail":
+        raise ValueError("Only Gmail-backed threads can be saved into Gmail Drafts.")
+    if not thread.provider_thread_id:
+        raise ValueError("Gmail thread id is missing for this thread.")
+    if not thread.draft_body:
+        raise ValueError("No draft body exists on this thread yet.")
+
+    creds = _load_credentials()
+    service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+    raw_message = _build_gmail_draft_message(thread)
+    message_payload = {
+        "raw": raw_message,
+        "threadId": thread.provider_thread_id,
+    }
+    if thread.provider_draft_id and overwrite_existing:
+        response = (
+            service.users()
+            .drafts()
+            .update(
+                userId="me",
+                id=thread.provider_draft_id,
+                body={
+                    "id": thread.provider_draft_id,
+                    "message": message_payload,
+                },
+            )
+            .execute()
+        )
+        action = "updated"
+    else:
+        response = (
+            service.users()
+            .drafts()
+            .create(
+                userId="me",
+                body={
+                    "message": message_payload,
+                },
+            )
+            .execute()
+        )
+        action = "created"
+
+    message = response.get("message") or {}
+    return {
+        "action": action,
+        "draft_id": str(response.get("id") or ""),
+        "message_id": str(message.get("id") or ""),
+        "thread_id": str(message.get("threadId") or thread.provider_thread_id or ""),
+    }
+
+
+def _build_gmail_draft_message(thread: "EmailThread") -> str:
+    mime = MimeEmailMessage()
+    mime["From"] = gmail_account_email()
+    recipients = _draft_recipients(thread)
+    if not recipients:
+        raise ValueError("Could not determine a recipient address for this Gmail draft.")
+    mime["To"] = ", ".join(recipients)
+    mime["Subject"] = thread.draft_subject or f"Re: {thread.subject}"
+
+    latest_inbound = _latest_inbound_message(thread)
+    if latest_inbound and latest_inbound.internet_message_id:
+        mime["In-Reply-To"] = latest_inbound.internet_message_id
+    references = _references_header(latest_inbound)
+    if references:
+        mime["References"] = references
+
+    mime.set_content(thread.draft_body or "")
+    return base64.urlsafe_b64encode(mime.as_bytes()).decode("utf-8").rstrip("=")
+
+
+def _latest_inbound_message(thread: "EmailThread"):
+    inbound = [message for message in thread.messages if str(getattr(message, "direction", "inbound")) == "inbound"]
+    if inbound:
+        return max(inbound, key=lambda item: item.received_at)
+    if thread.messages:
+        return max(thread.messages, key=lambda item: item.received_at)
+    return None
+
+
+def _draft_recipients(thread: "EmailThread") -> list[str]:
+    latest_inbound = _latest_inbound_message(thread)
+    if latest_inbound and latest_inbound.from_address:
+        return [latest_inbound.from_address]
+    if thread.from_address:
+        return [thread.from_address]
+    return []
+
+
+def _references_header(message) -> str:
+    if message is None:
+        return ""
+    references = str(getattr(message, "references_header", "") or "").strip()
+    internet_message_id = str(getattr(message, "internet_message_id", "") or "").strip()
+    if references and internet_message_id and internet_message_id not in references:
+        return f"{references} {internet_message_id}".strip()
+    if references:
+        return references
+    return internet_message_id

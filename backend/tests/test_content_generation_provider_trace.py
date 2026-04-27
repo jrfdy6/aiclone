@@ -13,9 +13,12 @@ from app.routes.content_generation import (
     CONTENT_EDITOR_MODEL_ALIAS,
     CONTENT_FAST_MODEL_ALIAS,
     ContentLLMProvider,
+    ContentGenerationRequest,
+    _content_provider_order_for_request,
     _normalize_chat_completion_kwargs,
     _parse_provider_order,
     _provider_is_configured,
+    _provider_timeout_seconds,
     _provider_trace_indicates_fallback,
     _resolve_provider_model,
 )
@@ -86,6 +89,65 @@ class ProviderTraceFallbackTests(unittest.TestCase):
         self.assertNotIn("max_tokens", kwargs)
         self.assertEqual(kwargs["max_completion_tokens"], 256)
         self.assertNotIn("temperature", kwargs)
+
+    def test_email_thread_grounded_requests_move_ollama_to_the_end_of_provider_order(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            req = ContentGenerationRequest(
+                user_id="johnnie_fields",
+                topic="reply",
+                content_type="email_reply",
+                source_mode="email_thread_grounded",
+            )
+
+            self.assertEqual(_content_provider_order_for_request(req), ["openai", "ollama"])
+
+    def test_provider_timeout_defaults_are_provider_specific(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(_provider_timeout_seconds("ollama"), 20.0)
+            self.assertEqual(_provider_timeout_seconds("openai"), 45.0)
+
+    def test_email_request_uses_faster_provider_timeout_defaults(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            req = ContentGenerationRequest(
+                user_id="johnnie_fields",
+                topic="reply",
+                content_type="email_reply",
+                source_mode="email_thread_grounded",
+            )
+
+            self.assertEqual(_provider_timeout_seconds("ollama", req), 4.0)
+            self.assertEqual(_provider_timeout_seconds("openai", req), 12.0)
+
+    def test_provider_timeout_honors_specific_override_before_global_default(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "CONTENT_GENERATION_PROVIDER_TIMEOUT_SECONDS": "33",
+                "CONTENT_GENERATION_OLLAMA_TIMEOUT_SECONDS": "12",
+            },
+            clear=True,
+        ):
+            self.assertEqual(_provider_timeout_seconds("ollama"), 12.0)
+            self.assertEqual(_provider_timeout_seconds("openai"), 33.0)
+
+    def test_email_timeout_honors_email_specific_override_before_general_default(self) -> None:
+        req = ContentGenerationRequest(
+            user_id="johnnie_fields",
+            topic="reply",
+            content_type="email_reply",
+            source_mode="email_thread_grounded",
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "CONTENT_GENERATION_EMAIL_PROVIDER_TIMEOUT_SECONDS": "9",
+                "CONTENT_GENERATION_EMAIL_OLLAMA_TIMEOUT_SECONDS": "3",
+                "CONTENT_GENERATION_PROVIDER_TIMEOUT_SECONDS": "33",
+            },
+            clear=True,
+        ):
+            self.assertEqual(_provider_timeout_seconds("ollama", req), 3.0)
+            self.assertEqual(_provider_timeout_seconds("openai", req), 9.0)
 
 
 if __name__ == "__main__":

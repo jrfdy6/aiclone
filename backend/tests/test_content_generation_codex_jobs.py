@@ -42,6 +42,8 @@ def _fake_context() -> ContentGenerationContext:
         story_beats=[],
         disallowed_moves=["Do not default to generic leadership filler."],
         persona_context_summary="Workflow clarity beats prompting alone.",
+        content_signal_chunks=[],
+        content_signal_source="persona_only",
         content_reservoir_chunks=[],
         audit={},
     )
@@ -130,6 +132,8 @@ class ContentGenerationCodexJobsRouteTest(unittest.TestCase):
         context_artifact = next(item for item in artifacts_response.json()["artifacts"] if item["kind"] == "context_packet")
         context_content = read_job_artifact_content(job_id=job_id, artifact_id=context_artifact["artifact_id"])
         self.assertIn('"cache_hit": false', context_content)
+        self.assertIn('"content_signal_source": "persona_only"', context_content)
+        self.assertIn('"content_signal_count": 0', context_content)
 
         claim_response = self.client.post(
             "/api/content-generation/codex-jobs/claim-next",

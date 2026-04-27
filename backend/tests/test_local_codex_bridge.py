@@ -54,6 +54,56 @@ class LocalCodexBridgeTests(unittest.TestCase):
         self.assertEqual(options, ["one", "two", "three"])
         self.assertEqual(command[command.index("--model") + 1], "gpt-5.4-mini")
 
+    def test_run_once_processes_email_job_with_email_result_payload(self) -> None:
+        job = {
+            "job_id": "job-1",
+            "request_payload": {
+                "content_type": "email_reply",
+                "source_mode": "email_thread_grounded",
+            },
+            "context_packet": {
+                "job_kind": "email_draft",
+                "thread_id": "thread-1",
+                "draft_mode": "email_reply",
+                "draft_type": "acknowledge",
+                "signature_block": "Johnnie",
+                "requested_model": "gpt-5.4-mini",
+                "expected_option_count": 1,
+                "prompt": "Return one email draft.",
+            },
+        }
+
+        with (
+            mock.patch.object(self.bridge, "_claim_next_job", return_value=job),
+            mock.patch.object(
+                self.bridge,
+                "_run_codex_job",
+                return_value=(
+                    ["Happy to continue the conversation and learn more about the format you have in mind."],
+                    '{"options":["Happy to continue the conversation and learn more about the format you have in mind."]}',
+                    "stdout",
+                    "",
+                ),
+            ),
+            mock.patch.object(self.bridge, "_complete_job") as complete_job,
+        ):
+            claimed = self.bridge.run_once(
+                api_base="http://example.test/api/content-generation",
+                token="token",
+                worker_id="worker-1",
+                workspace_slug="email-drafts",
+                workspace_root=ROOT,
+                model="gpt-5.4-mini",
+                reasoning_effort="medium",
+                timeout_seconds=30,
+            )
+
+        self.assertTrue(claimed)
+        payload = complete_job.call_args.kwargs["result_payload"]
+        self.assertEqual(payload["diagnostics"]["generation_strategy"], "codex_terminal")
+        self.assertEqual(payload["diagnostics"]["email_thread_id"], "thread-1")
+        self.assertEqual(payload["options"][0], "Happy to continue the conversation and learn more about the format you have in mind.\n\nThanks,\nJohnnie")
+
 
 if __name__ == "__main__":
     unittest.main()

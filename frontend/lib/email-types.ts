@@ -1,4 +1,8 @@
 export type EmailDraftType = 'acknowledge' | 'qualify' | 'schedule' | 'decline_or_redirect';
+export type EmailDraftMode = 'email_reply' | 'email_follow_up' | 'outbound_email';
+export type EmailDraftEngine = 'template' | 'content_generation' | 'codex_job';
+export type EmailDraftSourceMode = 'email_thread_grounded' | 'persona_only' | 'selected_source' | 'recent_signals';
+export type EmailThreadDraftLifecycleAction = 'clear_local_draft' | 'unlink_provider_draft' | 'clear_all_draft_state';
 
 export type EmailMessage = {
   id: string;
@@ -9,6 +13,9 @@ export type EmailMessage = {
   cc_addresses: string[];
   subject: string;
   body_text: string;
+  internet_message_id?: string | null;
+  references_header?: string | null;
+  in_reply_to_header?: string | null;
   received_at: string;
 };
 
@@ -39,7 +46,17 @@ export type EmailThread = {
   draft_subject?: string | null;
   draft_body?: string | null;
   draft_type?: EmailDraftType | null;
+  draft_mode?: EmailDraftMode | null;
+  draft_engine?: EmailDraftEngine | null;
+  draft_source_mode?: EmailDraftSourceMode | null;
   draft_generated_at?: string | null;
+  draft_job_id?: string | null;
+  draft_audit?: Record<string, unknown> | null;
+  draft_confidence?: number | null;
+  provider_draft_id?: string | null;
+  provider_draft_status?: string | null;
+  provider_draft_saved_at?: string | null;
+  provider_draft_error?: string | null;
   last_message_at: string;
   manual_workspace_key?: string | null;
   manual_lane?: string | null;
@@ -75,6 +92,22 @@ export type EmailThreadDraftResponse = {
   draft_subject: string;
   draft_body: string;
   draft_type: EmailDraftType;
+  draft_mode?: EmailDraftMode | null;
+  draft_engine?: EmailDraftEngine | null;
+  source_mode?: EmailDraftSourceMode | null;
+};
+
+export type EmailThreadSaveDraftResponse = {
+  thread: EmailThread;
+  provider_draft_id?: string | null;
+  provider_draft_status?: string | null;
+  message: string;
+};
+
+export type EmailThreadDraftLifecycleResponse = {
+  thread: EmailThread;
+  action: EmailThreadDraftLifecycleAction;
+  message: string;
 };
 
 export type EmailThreadEscalateResponse = {
@@ -87,6 +120,8 @@ export type EmailProviderStatusResponse = {
   configured: boolean;
   connected: boolean;
   dependencies_ready: boolean;
+  drafts_enabled: boolean;
+  send_enabled: boolean;
   account_email?: string | null;
   client_file?: string | null;
   token_file?: string | null;

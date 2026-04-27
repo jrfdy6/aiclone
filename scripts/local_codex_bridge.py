@@ -30,6 +30,7 @@ DEFAULT_HTTP_RETRIES = int(os.getenv("LOCAL_CODEX_BRIDGE_HTTP_RETRIES", "3"))
 DEFAULT_ERROR_BACKOFF_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_ERROR_BACKOFF_SECONDS", "8"))
 DEFAULT_MAX_ERROR_BACKOFF_SECONDS = float(os.getenv("LOCAL_CODEX_BRIDGE_MAX_ERROR_BACKOFF_SECONDS", "60"))
 RETRYABLE_HTTP_STATUS_CODES = {502, 503, 504}
+EMAIL_CONTENT_TYPES = {"email_reply", "email_follow_up", "outbound_email"}
 UNSUPPORTED_CODEX_CLI_MODELS = frozenset(
     {
         "gpt-5.1-codex",
@@ -259,6 +260,8 @@ def run_once(
 
     job_id = str(job.get("job_id") or "")
     context_packet = job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}
+    request_payload = job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {}
+    content_type = str(request_payload.get("content_type") or "").strip().lower()
     prompt = str(context_packet.get("prompt") or "").strip()
     expected_option_count = int(context_packet.get("expected_option_count") or 3)
     requested_model = _resolve_codex_cli_model(str(context_packet.get("requested_model") or model or DEFAULT_MODEL).strip() or DEFAULT_MODEL)
@@ -268,8 +271,79 @@ def run_once(
             if str(candidate) not in sys.path:
                 sys.path.insert(0, str(candidate))
             break
-    from app.services import local_content_generation_execution_service as execution_service
+    is_email_job = str(context_packet.get("job_kind") or "").strip().lower() == "email_draft" or content_type in EMAIL_CONTENT_TYPES
+    if is_email_job:
+        from app.services import email_drafting_bridge_service as email_bridge
 
+        if not prompt:
+            _fail_job(
+                api_base=api_base,
+                token=token,
+                job_id=job_id,
+                worker_id=worker_id,
+                error_message="Claimed email Codex job did not include a prompt packet.",
+            )
+            return True
+
+        try:
+            options, raw_output, stdout, stderr = _run_codex_job(
+                workspace_root=workspace_root,
+                model=requested_model,
+                reasoning_effort=reasoning_effort,
+                prompt=prompt,
+                expected_option_count=expected_option_count,
+                timeout_seconds=timeout_seconds,
+            )
+            artifact_items = [
+                {
+                    "kind": "codex_output",
+                    "label": "codex-output.json",
+                    "filename": "codex-output.json",
+                    "mime_type": "application/json",
+                    "content": raw_output.rstrip() + "\n",
+                }
+            ]
+            result_payload = email_bridge.build_local_codex_email_result_payload(
+                request_payload=request_payload,
+                context_packet=context_packet,
+                options=options,
+                model=requested_model,
+                raw_output=raw_output,
+                command_stdout=stdout,
+                command_stderr=stderr,
+            )
+            _complete_job(
+                api_base=api_base,
+                token=token,
+                job_id=job_id,
+                worker_id=worker_id,
+                options=list(result_payload.get("options") or options),
+                model=requested_model,
+                raw_output=raw_output,
+                command_stdout=stdout,
+                command_stderr=stderr,
+                result_payload=result_payload,
+                artifacts=artifact_items,
+            )
+        except subprocess.TimeoutExpired:
+            _fail_job(
+                api_base=api_base,
+                token=token,
+                job_id=job_id,
+                worker_id=worker_id,
+                error_message=f"codex exec timed out after {timeout_seconds} seconds.",
+            )
+        except Exception as exc:
+            _fail_job(
+                api_base=api_base,
+                token=token,
+                job_id=job_id,
+                worker_id=worker_id,
+                error_message=str(exc),
+            )
+        return True
+
+    from app.services import local_content_generation_execution_service as execution_service
     local_options = execution_service.compose_local_template_options(context_packet)
     quality_gate = execution_service.evaluate_local_quality(context_packet, local_options)
     artifact_items = execution_service.build_local_template_artifacts(
@@ -332,7 +406,7 @@ def run_once(
             }
         )
         result_payload = execution_service.build_result_payload(
-            request_payload=job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {},
+            request_payload=request_payload,
             context_packet=context_packet,
             options=options,
             provider="codex_terminal",

@@ -232,6 +232,10 @@ export default function InboxPage({ searchParams }: InboxPageProps) {
               <div style={{ borderRadius: '14px', border: '1px solid rgba(34,197,94,0.25)', backgroundColor: 'rgba(34,197,94,0.08)', padding: '12px 14px' }}>
                 <p style={{ color: '#bbf7d0', fontSize: '13px', margin: 0, lineHeight: 1.55 }}>
                   Gmail is connected for <strong>{providerStatus.account_email}</strong>. Sync will pull live inbox threads using query <code>{providerStatus.sync_query}</code>.
+                  {' '}
+                  {providerStatus.drafts_enabled
+                    ? 'Draft persistence is enabled for save-to-Gmail-drafts actions.'
+                    : 'Draft persistence is not enabled yet; set GOOGLE_GMAIL_ENABLE_DRAFTS and reconnect the account to save drafts back into Gmail.'}
                 </p>
               </div>
             ) : providerStatus.configured ? (
@@ -341,41 +345,53 @@ export default function InboxPage({ searchParams }: InboxPageProps) {
           {loading ? (
             <EmptyPanel message="Loading inbox threads…" />
           ) : payload && visibleItems.length > 0 ? (
-            visibleItems.map((thread) => (
-              <Link
-                key={thread.id}
-                href={`/inbox/${thread.id}`}
-                style={{
-                  display: 'block',
-                  borderRadius: '16px',
-                  border: '1px solid rgba(148,163,184,0.14)',
-                  backgroundColor: '#08101f',
-                  padding: '14px',
-                  textDecoration: 'none',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                  <div>
-                    <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: 0 }}>{thread.subject}</p>
-                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: '6px 0 0' }}>
-                      {thread.from_name || thread.organization || thread.from_address} · {formatUiTimestamp(thread.last_message_at)}
-                    </p>
+            visibleItems.map((thread) => {
+              const badge = draftBadge(thread);
+              return (
+                <Link
+                  key={thread.id}
+                  href={`/inbox/${thread.id}`}
+                  style={{
+                    display: 'block',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(148,163,184,0.14)',
+                    backgroundColor: '#08101f',
+                    padding: '14px',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    <div>
+                      <p style={{ color: 'white', fontSize: '16px', fontWeight: 700, margin: 0 }}>{thread.subject}</p>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', margin: '6px 0 0' }}>
+                        {thread.from_name || thread.organization || thread.from_address} · {formatUiTimestamp(thread.last_message_at)}
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                      {pill(`workspace:${thread.workspace_key}`, '#38bdf8')}
+                      {pill(`lane:${thread.lane}`, thread.workspace_key === 'agc' ? '#a78bfa' : '#94a3b8')}
+                      {thread.needs_human ? pill('needs human', '#fbbf24') : null}
+                      {thread.high_value ? pill('high value', '#34d399') : null}
+                      {thread.high_risk ? pill('high risk', '#f87171') : null}
+                      {badge ? pill(badge.label, badge.tone) : null}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                    {pill(`workspace:${thread.workspace_key}`, '#38bdf8')}
-                    {pill(`lane:${thread.lane}`, thread.workspace_key === 'agc' ? '#a78bfa' : '#94a3b8')}
-                    {thread.needs_human ? pill('needs human', '#fbbf24') : null}
-                    {thread.high_value ? pill('high value', '#34d399') : null}
-                    {thread.high_risk ? pill('high risk', '#f87171') : null}
+                  <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: '0 0 10px' }}>{thread.excerpt || thread.summary || 'No excerpt yet.'}</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', color: '#94a3b8', fontSize: '12px' }}>
+                    <span>Confidence {(thread.confidence_score * 100).toFixed(0)}%</span>
+                    <span>
+                      {thread.draft_job_id
+                        ? 'Codex draft queued'
+                        : thread.draft_generated_at
+                        ? `Draft updated ${formatUiTimestamp(thread.draft_generated_at)}`
+                        : thread.last_route_source === 'manual'
+                          ? 'Manually routed'
+                          : 'Auto-routed'}
+                    </span>
                   </div>
-                </div>
-                <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.55, margin: '0 0 10px' }}>{thread.excerpt || thread.summary || 'No excerpt yet.'}</p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', color: '#94a3b8', fontSize: '12px' }}>
-                  <span>Confidence {(thread.confidence_score * 100).toFixed(0)}%</span>
-                  <span>{thread.last_route_source === 'manual' ? 'Manually routed' : 'Auto-routed'}</span>
-                </div>
-              </Link>
-            ))
+                </Link>
+              );
+            })
           ) : error && !payload ? (
             <EmptyPanel message="Inbox is unavailable right now, and no cached inbox threads are available." />
           ) : (
@@ -437,6 +453,37 @@ function deriveMetricCounts(items: EmailThread[]) {
     highValue: items.filter((thread) => thread.high_value).length,
     highRisk: items.filter((thread) => thread.high_risk).length,
   };
+}
+
+function draftBadge(thread: EmailThread) {
+  if (thread.provider_draft_status === 'saved') {
+    return { label: 'gmail draft saved', tone: '#22c55e' };
+  }
+  if (thread.draft_job_id) {
+    return { label: 'codex drafting', tone: '#a78bfa' };
+  }
+  if (!thread.draft_generated_at && !thread.draft_subject) {
+    return null;
+  }
+  const selectedPath = readDraftSelectedPath(thread);
+  if (selectedPath === 'codex_job') {
+    return { label: 'codex draft ready', tone: '#a78bfa' };
+  }
+  if (selectedPath === 'codex_job_failed') {
+    return { label: 'codex failed', tone: '#f87171' };
+  }
+  if (selectedPath === 'content_generation') {
+    return { label: 'ai draft ready', tone: '#60a5fa' };
+  }
+  if (selectedPath === 'template_fallback') {
+    return { label: 'draft ready · fallback', tone: '#fbbf24' };
+  }
+  return { label: 'template draft ready', tone: '#cbd5e1' };
+}
+
+function readDraftSelectedPath(thread: EmailThread) {
+  const value = thread.draft_audit?.selected_path;
+  return typeof value === 'string' ? value : null;
 }
 
 function MetricCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) {

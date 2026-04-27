@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import json
 import re
 import base64
@@ -18,9 +17,25 @@ from app.models import (
     EmailThreadEscalateResponse,
     EmailThreadListResponse,
     EmailThreadRouteRequest,
+    EmailThreadSaveDraftResponse,
     PMCardCreate,
 )
-from app.services.gmail_inbox_service import fetch_gmail_threads, gmail_account_email, gmail_connection_status
+from app.services.email_drafting_bridge_service import (
+    build_local_codex_email_context_packet,
+    build_local_codex_email_request_payload,
+    build_content_generation_request_payload,
+    build_email_drafting_packet,
+    codex_job_eligibility,
+    content_generation_eligibility,
+    normalize_generated_email_body,
+    resolve_draft_engine,
+    resolve_draft_mode,
+    resolve_source_mode,
+)
+from app.services.gmail_inbox_service import fetch_gmail_threads, gmail_account_email, gmail_connection_status, save_gmail_draft
+from app.services.local_codex_generation_service import cancel_codex_job, create_codex_job, get_codex_job
+from app.services.email_thread_state_store import load_persisted_threads, replace_persisted_threads
+from app.services.trigger_identity_service import build_content_job_idempotency_key
 from app.services import pm_card_service
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -253,7 +268,96 @@ def _thread_list_item(thread: EmailThread) -> EmailThread:
     return thread.model_copy(update={"messages": [], "draft_body": None})
 
 
+def _parse_optional_datetime(value: object) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _hydrate_codex_job_result(thread: EmailThread) -> tuple[EmailThread, bool]:
+    if thread.draft_engine != "codex_job" or not thread.draft_job_id:
+        return thread, False
+    job = get_codex_job(thread.draft_job_id)
+    if not job:
+        return thread, False
+
+    status = str(job.get("status") or "").strip().lower()
+    if status in {"pending", "claimed", "running"}:
+        audit = dict(thread.draft_audit or {})
+        diagnostics = dict(audit.get("generation_diagnostics") or {})
+        diagnostics["job_status"] = status
+        diagnostics["job_id"] = str(job.get("id") or thread.draft_job_id)
+        audit["generation_diagnostics"] = diagnostics
+        if audit.get("selected_path") != "codex_job_pending":
+            audit["selected_path"] = "codex_job_pending"
+            updated = thread.model_copy(deep=True)
+            updated.draft_audit = audit
+            return updated, True
+        return thread, False
+
+    updated = thread.model_copy(deep=True)
+    audit = dict(updated.draft_audit or {})
+    diagnostics = dict(audit.get("generation_diagnostics") or {})
+    diagnostics["job_status"] = status
+    diagnostics["job_id"] = str(job.get("id") or updated.draft_job_id)
+
+    if status == "completed":
+        result_payload = job.get("result_payload") if isinstance(job.get("result_payload"), dict) else {}
+        diagnostics.update(dict(result_payload.get("diagnostics") or {}))
+        options = list(result_payload.get("options") or [])
+        candidate = next((option for option in options if isinstance(option, str) and option.strip()), "")
+        normalized_candidate = normalize_generated_email_body(
+            candidate,
+            signature_block=_signature_for_workspace(updated.workspace_key),
+        )
+        if normalized_candidate:
+            updated.draft_subject = updated.draft_subject or f"Re: {updated.subject}"
+            updated.draft_body = normalized_candidate
+            updated.draft_generated_at = _parse_optional_datetime(job.get("completed_at")) or _now_utc()
+            updated.draft_job_id = None
+            updated.draft_confidence = updated.confidence_score
+            audit["selected_path"] = "codex_job"
+            audit["generation_reason"] = "eligible"
+            audit["generation_request_payload"] = job.get("request_payload") if isinstance(job.get("request_payload"), dict) else audit.get("generation_request_payload")
+            audit["generation_diagnostics"] = diagnostics
+            updated.draft_audit = audit
+            updated.status = "drafted" if not updated.needs_human else "human_review"
+            return updated, True
+
+    if status in {"failed", "canceled"}:
+        diagnostics["error"] = str(job.get("error_message") or "")[:500]
+        audit["selected_path"] = "codex_job_failed"
+        audit["generation_reason"] = f"codex_job_{status}"
+        audit["generation_diagnostics"] = diagnostics
+        updated.draft_body = None
+        updated.draft_generated_at = None
+        updated.draft_job_id = None
+        updated.draft_audit = audit
+        return updated, True
+
+    return thread, False
+
+
+def _refresh_codex_job_threads(threads: list[EmailThread]) -> tuple[list[EmailThread], bool]:
+    refreshed: list[EmailThread] = []
+    changed = False
+    for thread in threads:
+        hydrated, thread_changed = _hydrate_codex_job_result(thread)
+        refreshed.append(hydrated)
+        changed = changed or thread_changed
+    return refreshed, changed
+
+
 def _read_threads() -> list[EmailThread]:
+    persisted = load_persisted_threads()
+    if persisted is not None:
+        return persisted
     if not EMAIL_THREADS_CACHE.exists():
         return []
     try:
@@ -271,6 +375,7 @@ def _read_threads() -> list[EmailThread]:
 
 def _write_threads(threads: list[EmailThread]) -> None:
     EMAIL_THREADS_CACHE.write_text(json.dumps([_thread_to_payload(thread) for thread in threads], indent=2, default=_json_default))
+    replace_persisted_threads(threads)
 
 
 def _extract_alias_hint(addresses: list[str]) -> Optional[str]:
@@ -451,6 +556,9 @@ def _thread_from_gmail_payload(payload: dict, account_email: str) -> EmailThread
                 cc_addresses=cc_addresses,
                 subject=subject,
                 body_text=body_text,
+                internet_message_id=headers.get("message-id") or None,
+                references_header=headers.get("references") or None,
+                in_reply_to_header=headers.get("in-reply-to") or None,
                 received_at=received_at,
             )
         )
@@ -768,20 +876,23 @@ def _load_or_seed_threads() -> tuple[list[EmailThread], bool]:
     threads = _read_threads()
     if threads:
         refreshed = [_classify_thread(thread) for thread in threads]
-        _write_threads(refreshed)
+        refreshed, changed = _refresh_codex_job_threads(refreshed)
+        if changed or refreshed != threads:
+            _write_threads(refreshed)
         return refreshed, False
     status = gmail_connection_status()
     if status.get("connected"):
-        live_threads = _fetch_live_gmail_threads()
+        live_threads = _fetch_live_gmail_threads(existing_threads=threads)
         if live_threads:
             _write_threads(live_threads)
             return live_threads, False
     seeded = _seed_threads()
+    seeded, _ = _refresh_codex_job_threads(seeded)
     _write_threads(seeded)
     return seeded, True
 
 
-def _fetch_live_gmail_threads() -> list[EmailThread]:
+def _fetch_live_gmail_threads(existing_threads: Optional[list[EmailThread]] = None) -> list[EmailThread]:
     account_email = gmail_account_email()
     payloads = fetch_gmail_threads()
     live_threads: list[EmailThread] = []
@@ -790,7 +901,54 @@ def _fetch_live_gmail_threads() -> list[EmailThread]:
             live_threads.append(_classify_thread(_thread_from_gmail_payload(payload, account_email)))
         except Exception:
             continue
+    if existing_threads:
+        live_threads = _merge_live_thread_state(existing_threads, live_threads)
+    live_threads, _ = _refresh_codex_job_threads(live_threads)
     return sorted(live_threads, key=lambda item: item.last_message_at, reverse=True)
+
+
+def _merge_live_thread_state(existing_threads: list[EmailThread], live_threads: list[EmailThread]) -> list[EmailThread]:
+    existing_by_key = {
+        _thread_provider_key(thread): thread
+        for thread in existing_threads
+        if _thread_provider_key(thread)
+    }
+    merged: list[EmailThread] = []
+    for live_thread in live_threads:
+        existing = existing_by_key.get(_thread_provider_key(live_thread))
+        if existing is None:
+            merged.append(live_thread)
+            continue
+        candidate = live_thread.model_copy(deep=True)
+        for field_name in (
+            "manual_workspace_key",
+            "manual_lane",
+            "manual_notes",
+            "draft_subject",
+            "draft_body",
+            "draft_type",
+            "draft_mode",
+            "draft_engine",
+            "draft_source_mode",
+            "draft_generated_at",
+            "draft_job_id",
+            "draft_audit",
+            "draft_confidence",
+            "provider_draft_id",
+            "provider_draft_status",
+            "provider_draft_saved_at",
+            "provider_draft_error",
+            "pm_card_id",
+        ):
+            setattr(candidate, field_name, getattr(existing, field_name))
+        merged.append(_classify_thread(candidate))
+    return merged
+
+
+def _thread_provider_key(thread: EmailThread) -> str:
+    if thread.provider == "gmail" and thread.provider_thread_id:
+        return f"gmail:{thread.provider_thread_id}"
+    return f"{thread.provider}:{thread.id}"
 
 
 def list_threads(
@@ -847,7 +1005,7 @@ def get_thread(thread_id: str) -> Optional[EmailThread]:
 def sync_threads() -> EmailSyncResponse:
     status = gmail_connection_status()
     if status.get("connected"):
-        threads = _fetch_live_gmail_threads()
+        threads = _fetch_live_gmail_threads(existing_threads=_read_threads())
         if threads:
             _write_threads(threads)
         return EmailSyncResponse(
@@ -903,6 +1061,17 @@ def reroute_thread(thread_id: str, payload: EmailThreadRouteRequest) -> EmailThr
         return updated
 
     return _update_thread(thread_id, apply_route)
+
+
+def restore_auto_route(thread_id: str) -> EmailThread:
+    def apply_auto_route(thread: EmailThread) -> EmailThread:
+        updated = thread.model_copy(deep=True)
+        updated.manual_workspace_key = None
+        updated.manual_lane = None
+        updated.manual_notes = None
+        return _classify_thread(updated)
+
+    return _update_thread(thread_id, apply_auto_route)
 
 
 def _default_draft_type(thread: EmailThread) -> str:
@@ -978,24 +1147,179 @@ def _draft_body(thread: EmailThread, draft_type: str) -> str:
     )
 
 
-def generate_draft(thread_id: str, payload: EmailThreadDraftRequest) -> EmailThreadDraftResponse:
-    draft_type = payload.draft_type or _default_draft_type(get_thread(thread_id) or EmailThread(
-        id="missing",
-        subject="",
-        from_address="",
-        last_message_at=_now_utc(),
-        created_at=_now_utc(),
-        updated_at=_now_utc(),
-    ))
+async def _run_content_generation_for_thread(
+    thread: EmailThread,
+    *,
+    payload: EmailThreadDraftRequest,
+    draft_type: str,
+    signature_block: str,
+):
+    from app.routes.content_generation import ContentGenerationRequest, run_content_generation
+
+    request_payload = build_content_generation_request_payload(
+        thread,
+        payload=payload,
+        draft_type=draft_type,
+        signature_block=signature_block,
+    )
+    request = ContentGenerationRequest(
+        user_id=str(request_payload.get("user_id") or "johnnie_fields"),
+        topic=str(request_payload.get("topic") or thread.subject or "email reply"),
+        context=str(request_payload.get("context") or ""),
+        content_type=str(request_payload.get("content_type") or "email_reply"),
+        category=str(request_payload.get("category") or "value"),
+        tone=str(request_payload.get("tone") or "expert_direct"),
+        audience=str(request_payload.get("audience") or "general"),
+        source_mode=str(request_payload.get("source_mode") or "email_thread_grounded"),
+    )
+    result = await run_content_generation(request)
+    return result, request_payload
+
+
+def _queue_codex_job_for_thread(
+    thread: EmailThread,
+    *,
+    payload: EmailThreadDraftRequest,
+    draft_type: str,
+    signature_block: str,
+) -> tuple[dict, dict[str, object], dict[str, object]]:
+    request_payload = build_local_codex_email_request_payload(
+        thread,
+        payload=payload,
+        draft_type=draft_type,
+        signature_block=signature_block,
+    )
+    context_packet = build_local_codex_email_context_packet(
+        thread,
+        payload=payload,
+        draft_type=draft_type,
+        signature_block=signature_block,
+        generated_at=_now_utc(),
+    )
+    idempotency_key = build_content_job_idempotency_key(
+        {
+            **request_payload,
+            "workspace_slug": request_payload.get("workspace_slug") or "email-drafts",
+            "context": f"{request_payload.get('context') or ''}\n\nThread id: {thread.id}",
+        }
+    )
+    job = create_codex_job(
+        workspace_slug=str(request_payload.get("workspace_slug") or "email-drafts"),
+        requested_by=str(request_payload.get("user_id") or "johnnie_fields"),
+        request_payload=request_payload,
+        context_packet=context_packet,
+        idempotency_key=idempotency_key,
+    )
+    return job, request_payload, context_packet
+
+
+async def generate_draft(thread_id: str, payload: EmailThreadDraftRequest) -> EmailThreadDraftResponse:
+    thread_snapshot = get_thread(thread_id)
+    if thread_snapshot is None:
+        raise ValueError("Email thread not found")
+    draft_type = payload.draft_type or _default_draft_type(thread_snapshot)
+    signature_block = _signature_for_workspace(thread_snapshot.workspace_key)
+    packet_generated_at = _now_utc()
+    draft_packet = build_email_drafting_packet(
+        thread_snapshot,
+        payload=payload,
+        draft_type=draft_type,
+        generated_at=packet_generated_at,
+        signature_block=signature_block,
+    )
+    selected_path = "template"
+    generation_request_payload = None
+    generation_context_packet = None
+    generation_diagnostics = None
+    generated_body = None
+    queued_job_id: Optional[str] = None
+    requested_engine = resolve_draft_engine(payload)
+
+    generation_reason = "draft_engine_not_requested"
+    if requested_engine == "codex_job":
+        codex_job_allowed, generation_reason = codex_job_eligibility(thread_snapshot, payload)
+        if codex_job_allowed:
+            try:
+                job, generation_request_payload, generation_context_packet = _queue_codex_job_for_thread(
+                    thread_snapshot,
+                    payload=payload,
+                    draft_type=draft_type,
+                    signature_block=signature_block,
+                )
+                queued_job_id = str(job.get("id") or "")
+                selected_path = "codex_job_pending"
+                generation_diagnostics = {
+                    "job_status": str(job.get("status") or "pending"),
+                    "job_id": queued_job_id,
+                    "fallback_triggered": False,
+                }
+            except Exception as exc:
+                selected_path = "codex_job_failed"
+                generation_reason = f"codex_job_queue_error:{type(exc).__name__}"
+                generation_diagnostics = {
+                    "error": str(exc)[:500],
+                    "fallback_triggered": False,
+                }
+    elif requested_engine == "content_generation":
+        eligible_for_generation, generation_reason = content_generation_eligibility(thread_snapshot, payload)
+        if eligible_for_generation:
+            try:
+                generation_result, generation_request_payload = await _run_content_generation_for_thread(
+                    thread_snapshot,
+                    payload=payload,
+                    draft_type=draft_type,
+                    signature_block=signature_block,
+                )
+                generation_diagnostics = dict(getattr(generation_result, "diagnostics", {}) or {})
+                options = list(getattr(generation_result, "options", []) or [])
+                candidate = next((option for option in options if isinstance(option, str) and option.strip()), "")
+                normalized_candidate = normalize_generated_email_body(candidate, signature_block=signature_block)
+                if normalized_candidate:
+                    generated_body = normalized_candidate
+                    selected_path = "content_generation"
+                else:
+                    selected_path = "template_fallback"
+                    generation_reason = "content_generation_returned_no_usable_body"
+            except Exception as exc:
+                selected_path = "template_fallback"
+                generation_reason = f"content_generation_error:{type(exc).__name__}"
+                generation_diagnostics = {
+                    "error": str(exc)[:500],
+                    "fallback_triggered": True,
+                }
 
     def apply_draft(thread: EmailThread) -> EmailThread:
         updated = thread.model_copy(deep=True)
         effective_type = payload.draft_type or _default_draft_type(updated)
+        generated_at = _now_utc()
         updated.draft_subject = f"Re: {updated.subject}"
-        updated.draft_body = _draft_body(updated, effective_type)
+        if queued_job_id:
+            updated.draft_body = None
+            updated.draft_generated_at = None
+            updated.draft_job_id = queued_job_id
+            updated.draft_confidence = None
+        else:
+            updated.draft_body = generated_body or _draft_body(updated, effective_type)
+            updated.draft_generated_at = generated_at
+            updated.draft_job_id = None
+            updated.draft_confidence = updated.confidence_score
         updated.draft_type = effective_type
-        updated.draft_generated_at = _now_utc()
-        updated.status = "drafted" if not updated.needs_human else "human_review"
+        updated.draft_mode = resolve_draft_mode(payload)
+        updated.draft_engine = resolve_draft_engine(payload)
+        updated.draft_source_mode = resolve_source_mode(payload)
+        updated.draft_audit = {
+            "bridge_version": "email_drafting_bridge/v1",
+            "packet": draft_packet,
+            "selected_path": selected_path,
+            "generation_reason": generation_reason,
+            "generation_request_payload": generation_request_payload,
+            "generation_context_packet": generation_context_packet,
+            "generation_diagnostics": generation_diagnostics,
+        }
+        if queued_job_id:
+            updated.status = "waiting" if not updated.needs_human else "human_review"
+        else:
+            updated.status = "drafted" if not updated.needs_human else "human_review"
         return updated
 
     updated = _update_thread(thread_id, apply_draft)
@@ -1004,7 +1328,182 @@ def generate_draft(thread_id: str, payload: EmailThreadDraftRequest) -> EmailThr
         draft_subject=updated.draft_subject or f"Re: {updated.subject}",
         draft_body=updated.draft_body or "",
         draft_type=updated.draft_type or draft_type,
+        draft_mode=updated.draft_mode,
+        draft_engine=updated.draft_engine,
+        source_mode=updated.draft_source_mode,
     )
+
+
+def save_thread_draft(thread_id: str, *, overwrite_existing: bool = True) -> EmailThreadSaveDraftResponse:
+    thread_snapshot = get_thread(thread_id)
+    if thread_snapshot is None:
+        raise ValueError("Email thread not found")
+    if not thread_snapshot.draft_body:
+        raise ValueError("No draft exists on this thread yet.")
+
+    try:
+        persist_result = save_gmail_draft(thread_snapshot, overwrite_existing=overwrite_existing)
+    except Exception as exc:
+        failed_at = _now_utc()
+
+        def apply_provider_draft_error(thread: EmailThread) -> EmailThread:
+            updated = thread.model_copy(deep=True)
+            updated.provider_draft_status = "error"
+            updated.provider_draft_error = str(exc)
+            audit = dict(updated.draft_audit or {})
+            audit["provider_persist"] = {
+                "provider": "gmail",
+                "status": "error",
+                "failed_at": failed_at.isoformat(),
+                "error": str(exc),
+            }
+            updated.draft_audit = audit
+            return updated
+
+        _update_thread(thread_id, apply_provider_draft_error)
+        raise
+    saved_at = _now_utc()
+
+    def apply_provider_draft(thread: EmailThread) -> EmailThread:
+        updated = thread.model_copy(deep=True)
+        updated.provider_draft_id = str(persist_result.get("draft_id") or "") or updated.provider_draft_id
+        updated.provider_draft_status = "saved"
+        updated.provider_draft_saved_at = saved_at
+        updated.provider_draft_error = None
+        audit = dict(updated.draft_audit or {})
+        audit["provider_persist"] = {
+            "provider": "gmail",
+            "action": persist_result.get("action") or "created",
+            "draft_id": updated.provider_draft_id,
+            "saved_at": saved_at.isoformat(),
+            "thread_id": persist_result.get("thread_id"),
+            "message_id": persist_result.get("message_id"),
+        }
+        updated.draft_audit = audit
+        return updated
+
+    updated = _update_thread(thread_id, apply_provider_draft)
+    action = str(persist_result.get("action") or "created")
+    return EmailThreadSaveDraftResponse(
+        thread=updated,
+        provider_draft_id=updated.provider_draft_id,
+        provider_draft_status=updated.provider_draft_status,
+        message=f"Gmail draft {action}.",
+    )
+
+
+def _record_draft_lifecycle_action(
+    audit: dict | None,
+    *,
+    action: str,
+    occurred_at: datetime,
+    details: Optional[dict[str, object]] = None,
+) -> dict:
+    base = dict(audit or {})
+    lifecycle = dict(base.get("lifecycle") or {})
+    lifecycle["last_action"] = action
+    lifecycle["last_action_at"] = occurred_at.isoformat()
+    if details:
+        lifecycle["details"] = details
+    else:
+        lifecycle.pop("details", None)
+    base["lifecycle"] = lifecycle
+    return base
+
+
+def _cancel_thread_draft_job(thread: EmailThread) -> Optional[dict[str, str]]:
+    if not thread.draft_job_id:
+        return None
+    job = get_codex_job(thread.draft_job_id)
+    if not job:
+        return {
+            "job_id": thread.draft_job_id,
+            "job_status": "missing",
+        }
+    status = str(job.get("status") or "").strip().lower() or "unknown"
+    if status in {"pending", "claimed", "running"}:
+        canceled = cancel_codex_job(thread.draft_job_id)
+        return {
+            "job_id": thread.draft_job_id,
+            "job_status": str(canceled.get("status") or status),
+        }
+    return {
+        "job_id": thread.draft_job_id,
+        "job_status": status,
+    }
+
+
+def _status_after_draft_lifecycle(thread: EmailThread) -> str:
+    if thread.needs_human:
+        return "human_review"
+    if thread.draft_body or thread.provider_draft_id:
+        return "drafted"
+    return "routed"
+
+
+def update_thread_draft_lifecycle(thread_id: str, *, action: str) -> tuple[EmailThread, str]:
+    normalized_action = " ".join((action or "").split()).strip().lower()
+    if normalized_action not in {"clear_local_draft", "unlink_provider_draft", "clear_all_draft_state"}:
+        raise ValueError("Unsupported email draft lifecycle action.")
+
+    occurred_at = _now_utc()
+    thread_snapshot = get_thread(thread_id)
+    if thread_snapshot is None:
+        raise ValueError("Email thread not found")
+
+    canceled_job = (
+        _cancel_thread_draft_job(thread_snapshot)
+        if normalized_action in {"clear_local_draft", "clear_all_draft_state"}
+        else None
+    )
+
+    def apply_lifecycle(thread: EmailThread) -> EmailThread:
+        updated = thread.model_copy(deep=True)
+        details: dict[str, object] = {}
+        if canceled_job:
+            details.update(canceled_job)
+
+        if normalized_action in {"clear_local_draft", "clear_all_draft_state"}:
+            updated.draft_subject = None
+            updated.draft_body = None
+            updated.draft_type = None
+            updated.draft_mode = None
+            updated.draft_engine = None
+            updated.draft_source_mode = None
+            updated.draft_generated_at = None
+            updated.draft_job_id = None
+            updated.draft_confidence = None
+            updated.draft_audit = _record_draft_lifecycle_action(
+                {},
+                action=normalized_action,
+                occurred_at=occurred_at,
+                details=details or None,
+            )
+
+        if normalized_action in {"unlink_provider_draft", "clear_all_draft_state"}:
+            updated.provider_draft_id = None
+            updated.provider_draft_status = None
+            updated.provider_draft_saved_at = None
+            updated.provider_draft_error = None
+            audit = dict(updated.draft_audit or {})
+            audit.pop("provider_persist", None)
+            updated.draft_audit = _record_draft_lifecycle_action(
+                audit if normalized_action == "unlink_provider_draft" else {},
+                action=normalized_action,
+                occurred_at=occurred_at,
+                details=details or None,
+            )
+
+        updated.status = _status_after_draft_lifecycle(updated)
+        return updated
+
+    updated = _update_thread(thread_id, apply_lifecycle)
+    message_map = {
+        "clear_local_draft": "Local draft cleared.",
+        "unlink_provider_draft": "Gmail draft link cleared.",
+        "clear_all_draft_state": "Local draft and Gmail draft link cleared.",
+    }
+    return updated, message_map[normalized_action]
 
 
 def escalate_thread(thread_id: str, payload: EmailThreadEscalateRequest) -> EmailThreadEscalateResponse:

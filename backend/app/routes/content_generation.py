@@ -49,6 +49,7 @@ router = APIRouter()
 
 CONTENT_FAST_MODEL_ALIAS = "content-fast"
 CONTENT_EDITOR_MODEL_ALIAS = "content-editor"
+EMAIL_CONTENT_TYPES = {"email_reply", "email_follow_up", "outbound_email"}
 
 CORE_BUNDLE_PATHS = {
     "identity/claims.md",
@@ -385,7 +386,7 @@ class ContentGenerationRequest(BaseModel):
     user_id: str = Field(..., description="User ID for knowledge base lookup")
     topic: str = Field(..., description="Content topic")
     context: Optional[str] = Field(None, description="Additional context")
-    content_type: str = Field("linkedin_post", description="Type: linkedin_post, cold_email, linkedin_dm, instagram_post")
+    content_type: str = Field("linkedin_post", description="Type: linkedin_post, cold_email, linkedin_dm, instagram_post, email_reply, email_follow_up, outbound_email")
     category: str = Field("value", description="Chris Do category: value, sales, personal")
     pacer_elements: List[str] = Field(default_factory=list, description="PACER elements to include: Problem, Amplify, Credibility, Educate, Request")
     tone: str = Field("expert_direct", description="Tone: expert_direct, inspiring, conversational")
@@ -1786,11 +1787,25 @@ def _deserialize_content_option_briefs(items: List[Dict[str, Any]] | None) -> Li
     return briefs
 
 
-def _serialize_content_reservoir_support(content_context: ContentGenerationContext) -> List[Dict[str, Any]]:
+def _content_signal_chunks(content_context: ContentGenerationContext) -> List[Dict[str, Any]]:
+    signal_chunks = getattr(content_context, "content_signal_chunks", None)
+    if isinstance(signal_chunks, list):
+        return signal_chunks
+    reservoir_chunks = getattr(content_context, "content_reservoir_chunks", None)
+    return reservoir_chunks if isinstance(reservoir_chunks, list) else []
+
+
+def _content_signal_source(content_context: ContentGenerationContext) -> str:
+    return str(getattr(content_context, "content_signal_source", "") or "persona_only")
+
+
+def _serialize_content_signal_support(content_context: ContentGenerationContext) -> List[Dict[str, Any]]:
     return [
         {
             "source_id": str(item.get("source_id") or ""),
             "asset_id": str(item.get("source_file_id") or ""),
+            "signal_lane": str((item.get("metadata") or {}).get("source_lane") or ""),
+            "source_kind": str((item.get("metadata") or {}).get("source_kind") or ""),
             "reservoir_lane": str((item.get("metadata") or {}).get("content_reservoir_lane") or ""),
             "primary_type": str((item.get("metadata") or {}).get("claim_type") or ""),
             "score": int((item.get("weighted_score") or item.get("similarity_score") or 0)),
@@ -1799,8 +1814,12 @@ def _serialize_content_reservoir_support(content_context: ContentGenerationConte
             "source_path": str((item.get("metadata") or {}).get("source_path") or ""),
             "source_url": str((item.get("metadata") or {}).get("source_url") or ""),
         }
-        for item in (content_context.content_reservoir_chunks or [])[:8]
+        for item in _content_signal_chunks(content_context)[:8]
     ]
+
+
+def _serialize_content_reservoir_support(content_context: ContentGenerationContext) -> List[Dict[str, Any]]:
+    return _serialize_content_signal_support(content_context)
 
 
 def _build_local_codex_idempotency_key(req: LocalCodexJobCreateRequest) -> str:
@@ -2065,12 +2084,19 @@ FINAL RESPONSE CONTRACT:
             _render_anchor_chunk(item)[:220]
             for item in local_proof_anchor_chunks[:4]
         ],
+        "content_signal_source": _content_signal_source(content_context),
+        "content_signal_preview": [
+            str(item.get("chunk") or "")[:220]
+            for item in _content_signal_chunks(content_context)[:6]
+        ],
+        "content_signal_count": len(_content_signal_chunks(content_context)),
+        "content_signal_support": _serialize_content_signal_support(content_context),
         "content_reservoir_preview": [
             str(item.get("chunk") or "")[:220]
-            for item in (content_context.content_reservoir_chunks or [])[:6]
+            for item in _content_signal_chunks(content_context)[:6]
         ],
-        "content_reservoir_count": len(content_context.content_reservoir_chunks or []),
-        "content_reservoir_support": _serialize_content_reservoir_support(content_context),
+        "content_reservoir_count": len(_content_signal_chunks(content_context)),
+        "content_reservoir_support": _serialize_content_signal_support(content_context),
         "persona_context_summary": content_context.persona_context_summary,
         "examples_used": [c.get("metadata", {}).get("source", "")[:50] for c in content_context.example_chunks[:3]],
     }
@@ -2250,9 +2276,13 @@ def _build_local_codex_result_payload(
             "topic_anchor_preview": list(packet.get("topic_anchor_preview") or []),
             "core_chunk_preview": list(packet.get("core_chunk_preview") or []),
             "proof_anchor_preview": list(packet.get("proof_anchor_preview") or []),
-            "content_reservoir_preview": list(packet.get("content_reservoir_preview") or []),
-            "content_reservoir_count": int(packet.get("content_reservoir_count") or 0),
-            "content_reservoir_support": list(packet.get("content_reservoir_support") or []),
+            "content_signal_source": packet.get("content_signal_source") or "persona_only",
+            "content_signal_preview": list(packet.get("content_signal_preview") or packet.get("content_reservoir_preview") or []),
+            "content_signal_count": int(packet.get("content_signal_count") or packet.get("content_reservoir_count") or 0),
+            "content_signal_support": list(packet.get("content_signal_support") or packet.get("content_reservoir_support") or []),
+            "content_reservoir_preview": list(packet.get("content_reservoir_preview") or packet.get("content_signal_preview") or []),
+            "content_reservoir_count": int(packet.get("content_reservoir_count") or packet.get("content_signal_count") or 0),
+            "content_reservoir_support": list(packet.get("content_reservoir_support") or packet.get("content_signal_support") or []),
             "llm_provider_trace": [
                 {
                     "provider": "codex_terminal",
@@ -2311,6 +2341,25 @@ def _default_content_provider_order() -> List[str]:
     if _runtime_is_production():
         return ["gemini", "openai"]
     return ["ollama", "openai"]
+
+
+def _default_email_content_provider_order() -> List[str]:
+    configured = _parse_provider_order(os.getenv("CONTENT_GENERATION_EMAIL_PROVIDER_ORDER", ""))
+    if configured:
+        return configured
+    base_order = _default_content_provider_order()
+    non_ollama = [provider for provider in base_order if provider != "ollama"]
+    ollama = [provider for provider in base_order if provider == "ollama"]
+    return non_ollama + ollama
+
+
+def _request_uses_email_provider_policy(req: "ContentGenerationRequest | None" = None) -> bool:
+    if not req:
+        return False
+    return (
+        str(req.content_type or "").strip().lower() in EMAIL_CONTENT_TYPES
+        or str(req.source_mode or "").strip().lower() == "email_thread_grounded"
+    )
 
 
 def _normalize_openai_base_url(url: str) -> str:
@@ -2427,18 +2476,59 @@ def _should_fallback_provider(exc: Exception) -> bool:
     return any(signal in message for signal in fallback_signals)
 
 
-def get_openai_client():
+def _provider_timeout_seconds(provider_name: str, req: "ContentGenerationRequest | None" = None) -> float | None:
+    uses_email_policy = _request_uses_email_provider_policy(req)
+    candidates: List[str] = []
+    if uses_email_policy:
+        candidates.extend(
+            [
+                os.getenv(f"CONTENT_GENERATION_EMAIL_{provider_name.upper()}_TIMEOUT_SECONDS", "").strip(),
+                os.getenv("CONTENT_GENERATION_EMAIL_PROVIDER_TIMEOUT_SECONDS", "").strip(),
+            ]
+        )
+    candidates.extend(
+        [
+            os.getenv(f"CONTENT_GENERATION_{provider_name.upper()}_TIMEOUT_SECONDS", "").strip(),
+            os.getenv("CONTENT_GENERATION_PROVIDER_TIMEOUT_SECONDS", "").strip(),
+        ]
+    )
+    for raw in candidates:
+        if not raw:
+            continue
+        try:
+            timeout_seconds = float(raw)
+        except ValueError:
+            continue
+        if timeout_seconds > 0:
+            return timeout_seconds
+    if uses_email_policy:
+        if provider_name == "ollama":
+            return 4.0
+        return 12.0
+    if provider_name == "ollama":
+        return 20.0
+    return 45.0
+
+
+def _content_provider_order_for_request(req: "ContentGenerationRequest | None" = None) -> List[str]:
+    if _request_uses_email_provider_policy(req):
+        return _default_email_content_provider_order()
+    return _default_content_provider_order()
+
+
+def get_openai_client(req: "ContentGenerationRequest | None" = None):
     """Get routed LLM client for content generation."""
     import openai
 
     providers: List[ContentLLMProvider] = []
-    for provider_name in _default_content_provider_order():
+    for provider_name in _content_provider_order_for_request(req):
         if not _provider_is_configured(provider_name):
             continue
+        timeout_seconds = _provider_timeout_seconds(provider_name, req)
         if provider_name == "codex":
             codex_api_key = os.getenv("CONTENT_GENERATION_CODEX_API_KEY") or os.getenv("OPENAI_API_KEY")
             codex_base_url = _normalize_openai_base_url(os.getenv("CONTENT_GENERATION_CODEX_BASE_URL", ""))
-            client_kwargs: Dict[str, Any] = {"api_key": codex_api_key}
+            client_kwargs: Dict[str, Any] = {"api_key": codex_api_key, "timeout": timeout_seconds}
             if codex_base_url:
                 client_kwargs["base_url"] = codex_base_url
             providers.append(
@@ -2457,7 +2547,7 @@ def get_openai_client():
             providers.append(
                 ContentLLMProvider(
                     name="openai",
-                    client=openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY")),
+                    client=openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=timeout_seconds),
                     fast_model=os.getenv("CONTENT_GENERATION_OPENAI_FAST_MODEL", "gpt-4o-mini"),
                     editor_model=os.getenv("CONTENT_GENERATION_OPENAI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o-mini")),
                 )
@@ -2472,6 +2562,7 @@ def get_openai_client():
                         base_url=_normalize_openai_base_url(
                             os.getenv("GEMINI_OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
                         ),
+                        timeout=timeout_seconds,
                     ),
                     fast_model=os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash"),
                     editor_model=os.getenv("CONTENT_GENERATION_GEMINI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash")),
@@ -2485,6 +2576,7 @@ def get_openai_client():
                     client=openai.OpenAI(
                         api_key=os.getenv("OLLAMA_API_KEY", "ollama"),
                         base_url=_normalize_openai_base_url(os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")),
+                        timeout=timeout_seconds,
                     ),
                     fast_model=os.getenv("CONTENT_GENERATION_OLLAMA_FAST_MODEL", "llama3.1"),
                     editor_model=os.getenv("CONTENT_GENERATION_OLLAMA_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_OLLAMA_FAST_MODEL", "llama3.1")),
@@ -2778,6 +2870,62 @@ Voice markers to include:
 
 PULL REAL ANECDOTES FROM PERSONA DATA - do not fabricate stories.
 """,
+        "email_reply": """
+EMAIL REPLY STYLE (thread-grounded):
+
+Structure:
+- answer the actual message
+- short skimmable paragraphs
+- one clear next step
+- no social-post rhythm
+
+Voice markers:
+- direct and warm
+- grounded in the sender's request
+- no invented familiarity
+- no jargon-heavy filler
+
+Rules:
+- do not fabricate pricing, compliance posture, or prior relationship
+- do not force personal-story framing
+- preserve a clean professional close
+""",
+        "email_follow_up": """
+EMAIL FOLLOW-UP STYLE:
+
+Structure:
+- quickly re-anchor the thread
+- clarify the one thing needed next
+- keep the ask narrow
+
+Voice markers:
+- concise
+- warm but direct
+- operational, not salesy
+
+Rules:
+- assume the recipient is skimming
+- one concrete CTA only
+- do not restate the entire thread
+""",
+        "outbound_email": """
+OUTBOUND EMAIL STYLE:
+
+Structure:
+- specific opener
+- why this outreach is relevant
+- one clear ask
+
+Voice markers:
+- personal and credible
+- no corporate jargon
+- no generic cold-pitch cadence
+
+Rules:
+- stay contextual
+- do not oversell
+- keep the note easy to scan
+""",
         "linkedin_dm": """
 LINKEDIN DM STYLE (based on this person's voice):
 
@@ -3070,6 +3218,74 @@ Structure:
 Voice audit:
 - Does it sound authentic to this person?
 - Is it direct without being cold?""",
+
+        "email_reply": """You write email replies that are grounded in a live thread.
+
+VOICE PRESERVATION:
+- Keep direct, human language
+- Be warm without sounding casual to the point of drift
+- Stay anchored to what the sender actually asked
+- NO fabricated relationship history
+- NO unsupported promises or commitments
+
+Tone:
+- clear and competent
+- skimmable
+- operationally useful
+
+Structure:
+- acknowledge the message
+- answer or clarify the next step
+- end with one concrete CTA
+- close like a real operator, not a marketer
+
+Voice audit:
+- Does this reply feel grounded in the actual thread?
+- Does it avoid social-post cadence?
+- Does it stay helpful without overcommitting?""",
+
+        "email_follow_up": """You write follow-up emails that move a thread forward cleanly.
+
+VOICE PRESERVATION:
+- Keep the note short
+- Re-anchor the last relevant point
+- Ask for exactly one next-step item
+
+Tone:
+- warm
+- direct
+- efficient
+
+Rules:
+- no corporate filler
+- no long recap paragraphs
+- no invented urgency
+
+Voice audit:
+- Would a busy person read this quickly?
+- Is the ask specific?
+- Does it avoid sounding generic?""",
+
+        "outbound_email": """You write proactive emails that are specific, contextual, and credible.
+
+VOICE PRESERVATION:
+- Keep direct, human language
+- Reference real context only
+- Avoid generic cold-email cliches
+
+Tone:
+- warm
+- credible
+- not overly polished
+
+Structure:
+- relevant opening
+- tight reason for reaching out
+- one clear CTA
+
+Voice audit:
+- Does this feel specific to the recipient?
+- Is it direct without sounding templated?""",
 
         "linkedin_dm": """You write DMs that feel like messages from a friend, not a salesperson.
 
@@ -6263,7 +6479,7 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
             tag_summary[tag] = tag_summary.get(tag, 0) + 1
         print(f"[content_gen] Retrieved persona chunks by tag: {tag_summary}", flush=True)
     example_chunks = content_context.example_chunks
-    client = get_openai_client()
+    client = get_openai_client(req)
     options, option_briefs, generation_strategy, fallback_trace = _generate_staged_options(
         client=client,
         req=req,
@@ -6394,15 +6610,18 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
             "topic_anchor_preview": topic_anchor_preview,
             "core_chunk_preview": core_chunk_preview,
             "proof_anchor_preview": proof_anchor_preview,
-            "content_reservoir_preview": [
+            "content_signal_source": _content_signal_source(content_context),
+            "content_signal_preview": [
                 str(item.get("chunk") or "")[:220]
-                for item in (content_context.content_reservoir_chunks or [])[:6]
+                for item in _content_signal_chunks(content_context)[:6]
             ],
-            "content_reservoir_count": len(content_context.content_reservoir_chunks or []),
-            "content_reservoir_support": [
+            "content_signal_count": len(_content_signal_chunks(content_context)),
+            "content_signal_support": [
                 {
                     "source_id": str(item.get("source_id") or ""),
                     "asset_id": str(item.get("source_file_id") or ""),
+                    "signal_lane": str((item.get("metadata") or {}).get("source_lane") or ""),
+                    "source_kind": str((item.get("metadata") or {}).get("source_kind") or ""),
                     "reservoir_lane": str((item.get("metadata") or {}).get("content_reservoir_lane") or ""),
                     "primary_type": str((item.get("metadata") or {}).get("claim_type") or ""),
                     "score": int((item.get("weighted_score") or item.get("similarity_score") or 0)),
@@ -6411,8 +6630,14 @@ async def run_content_generation(req: ContentGenerationRequest) -> ContentGenera
                     "source_path": str((item.get("metadata") or {}).get("source_path") or ""),
                     "source_url": str((item.get("metadata") or {}).get("source_url") or ""),
                 }
-                for item in (content_context.content_reservoir_chunks or [])[:8]
+                for item in _content_signal_chunks(content_context)[:8]
             ],
+            "content_reservoir_preview": [
+                str(item.get("chunk") or "")[:220]
+                for item in _content_signal_chunks(content_context)[:6]
+            ],
+            "content_reservoir_count": len(_content_signal_chunks(content_context)),
+            "content_reservoir_support": _serialize_content_signal_support(content_context),
             "fallback_trace": fallback_trace,
             "provider_fallback_used": _provider_trace_indicates_fallback(provider_trace),
             "llm_request_count": len(provider_trace),

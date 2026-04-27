@@ -460,9 +460,13 @@ def build_result_payload(
             "topic_anchor_preview": list(context_packet.get("topic_anchor_preview") or []),
             "core_chunk_preview": list(context_packet.get("core_chunk_preview") or []),
             "proof_anchor_preview": list(context_packet.get("proof_anchor_preview") or []),
-            "content_reservoir_preview": list(context_packet.get("content_reservoir_preview") or []),
-            "content_reservoir_count": int(context_packet.get("content_reservoir_count") or 0),
-            "content_reservoir_support": list(context_packet.get("content_reservoir_support") or []),
+            "content_signal_source": context_packet.get("content_signal_source") or "persona_only",
+            "content_signal_preview": list(context_packet.get("content_signal_preview") or context_packet.get("content_reservoir_preview") or []),
+            "content_signal_count": int(context_packet.get("content_signal_count") or context_packet.get("content_reservoir_count") or 0),
+            "content_signal_support": list(context_packet.get("content_signal_support") or context_packet.get("content_reservoir_support") or []),
+            "content_reservoir_preview": list(context_packet.get("content_reservoir_preview") or context_packet.get("content_signal_preview") or []),
+            "content_reservoir_count": int(context_packet.get("content_reservoir_count") or context_packet.get("content_signal_count") or 0),
+            "content_reservoir_support": list(context_packet.get("content_reservoir_support") or context_packet.get("content_signal_support") or []),
             "llm_provider_trace": [
                 {
                     "provider": provider,
