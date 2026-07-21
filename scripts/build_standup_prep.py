@@ -1,0 +1,2699 @@
+#!/usr/bin/env python3
+"""Build standup prep from Chronicle, memory, automation state, and PM context."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+import uuid
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from brain_automation_context import (
+    build_brain_automation_context,
+    portfolio_attention_lines,
+    source_intelligence_lines,
+    workspace_brain_signal_lines,
+)
+from durable_memory_context import build_durable_memory_context
+from runtime_bootstrap import maybe_reexec_with_workspace_venv
+from runtime_http import control_plane_headers
+from runtime_paths import AUTOMATION_RUNS_ROOT, PROJECT_ROOT
+from workspace_registry_legacy import build_legacy_workspace_registry_payload
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
+BACKEND_ROOT = WORKSPACE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
+from app.services.instagram_public_feedback_service import load_workspace_feedback_snapshot
+
+MEMORY_ROOT = WORKSPACE_ROOT / "memory"
+CODEX_CHRONICLE_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+CODEX_RUN_LEDGER_PATH = AUTOMATION_RUNS_ROOT / "all.jsonl"
+REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
+INFERRED_BRIEF_PATH = WORKSPACE_ROOT / "docs" / "inferred_workspace_operating_brief_2026-03-31.md"
+DEFAULT_API_URL = os.environ.get("AICLONE_API_URL", "https://aiclone-production-32dc.up.railway.app")
+CHRONICLE_DECISION_LOOP_QUESTIONS = [
+    "What came in?",
+    "What changed?",
+    "What should the system do differently next cycle?",
+    "Should each signal route to canonical memory, standup interpretation, PM execution, workspace handoff, or no action?",
+]
+CHRONICLE_DECISION_LOOP_ROUTES = [
+    "canonical_memory",
+    "standup_interpretation",
+    "pm_execution",
+    "workspace_handoff",
+    "no_action",
+]
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _stamp(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _tail_text(path: Path, *, max_chars: int = 1800) -> str:
+    if not path.exists():
+        return ""
+    text = path.read_text(encoding="utf-8", errors="ignore").strip()
+    return text[-max_chars:]
+
+
+def _read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _fetch_api_json(url: str) -> Any:
+    request = urllib.request.Request(url, headers=control_plane_headers({"Accept": "application/json"}))
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _read_jsonl_tail(path: Path, *, max_items: int = 8) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    items: list[dict[str, Any]] = []
+    for line in lines[-max_items:]:
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            items.append(payload)
+    return items
+
+
+def _latest_report(pattern: str) -> Path | None:
+    matches = sorted((MEMORY_ROOT / "reports").glob(pattern))
+    return matches[-1] if matches else None
+
+
+def _pm_api_source_ref(api_url: str) -> str:
+    return f"{api_url.rstrip('/')}/api/pm/cards?limit=100"
+
+
+def _load_fallback_watchdog_report() -> dict[str, Any]:
+    path = MEMORY_ROOT / "reports" / "fallback_watchdog_latest.json"
+    if not path.exists():
+        return {"available": False, "active": False, "report_path": str(path), "source_paths": []}
+    try:
+        payload = _read_json(path)
+    except Exception as exc:
+        return {
+            "available": False,
+            "active": False,
+            "report_path": str(path),
+            "source_paths": [str(path)],
+            "error": str(exc),
+        }
+    if not isinstance(payload, dict):
+        return {
+            "available": False,
+            "active": False,
+            "report_path": str(path),
+            "source_paths": [str(path)],
+            "error": "fallback watchdog payload is not a JSON object",
+        }
+    report = dict(payload)
+    report["available"] = True
+    report["report_path"] = str(path)
+    report["source_paths"] = list(
+        dict.fromkeys(
+            [
+                str(path),
+                *[str(item).strip() for item in (report.get("source_paths") or []) if str(item).strip()],
+            ]
+        )
+    )
+    return report
+
+
+def _read_registry() -> dict[str, dict[str, Any]]:
+    payload = build_legacy_workspace_registry_payload(include_executive=True)
+    items = payload.get("workspaces") or []
+    return {
+        str(item["workspace_key"]): dict(item)
+        for item in items
+        if isinstance(item, dict) and item.get("workspace_key")
+    }
+
+
+def _workspace_key_candidates(workspace_key: str) -> list[str]:
+    normalized = str(workspace_key or "").strip()
+    if not normalized:
+        return []
+    lowered = normalized.lower()
+    variants = {
+        normalized,
+        lowered,
+        lowered.replace("_", "-"),
+        lowered.replace("-", " "),
+        lowered.replace("_", " "),
+    }
+    if lowered in {"linkedin-os", "linkedin os", "linkedin", "linkedin-content-os", "linkedin content os"}:
+        variants.update({"feezie-os", "feezie os", "feezie", "linkedin-content-os", "linkedin content os"})
+    return [variant for variant in variants if variant]
+
+
+def _is_feezie_workspace_key(workspace_key: str) -> bool:
+    return bool(
+        set(_workspace_key_candidates(workspace_key))
+        & {"feezie-os", "feezie os", "feezie", "linkedin-os", "linkedin os", "linkedin-content-os", "linkedin content os"}
+    )
+
+
+def _canonical_workspace_key(workspace_key: str, registry: dict[str, dict[str, Any]]) -> str:
+    candidates = set(_workspace_key_candidates(workspace_key))
+    for key, item in registry.items():
+        item_candidates = set(_workspace_key_candidates(key))
+        for field in ("workspace_root", "display_name", "legacy_name", "future_name"):
+            value = item.get(field)
+            if isinstance(value, str) and value.strip():
+                item_candidates.update(_workspace_key_candidates(value))
+        if candidates & item_candidates:
+            return key
+    return workspace_key
+
+
+def _workspace_root(workspace_key: str, registry: dict[str, dict[str, Any]]) -> Path | None:
+    workspace_key = _canonical_workspace_key(workspace_key, registry)
+    if workspace_key == "shared_ops":
+        return WORKSPACE_ROOT / "workspaces" / "shared-ops"
+    item = registry.get(workspace_key) or {}
+    configured = item.get("filesystem_path")
+    if isinstance(configured, str) and configured.strip():
+        return Path(configured)
+    if _is_feezie_workspace_key(workspace_key):
+        return WORKSPACE_ROOT / "workspaces" / "linkedin-content-os"
+    return None
+
+
+def _is_workspace_root_missing_blocker(value: Any) -> bool:
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    return bool(text and "has no local artifact root yet" in text)
+
+
+def _is_non_actionable_status_surface(value: Any) -> bool:
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    if not text:
+        return True
+    if text in {
+        "the operational problem is usually underneath it.",
+        "that's not really the issue.",
+        "directionally yes, but the practical issue usually sits one layer lower.",
+        "im looking in my psat standups from the last 24 hours and it shows that there are issues in the ai clone system",
+    }:
+        return True
+    if "why does it say needs brain" in text:
+        return True
+    if "no active blockers reported" in text:
+        return True
+    if "recent standups" in text and "0 blockers" in text and "no open pm cards" in text:
+        return True
+    if "open pm lane" in text and "no open pm cards" in text and "0 blockers" in text:
+        return True
+    if text.startswith("fallback watchdog found") and "last execution result" in text:
+        return True
+    if text.startswith("active blockers ") and ("automation drift remains" in text or "fallback watchdog" in text):
+        return True
+    return False
+
+
+def _is_chat_ingestion_residue(value: Any) -> bool:
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    if not text:
+        return False
+    if text.count("uploaded image") >= 2:
+        return True
+    noisy_patterns = (
+        "from the photos you shared",
+        "what i recommend you upload",
+        "original google sheet export",
+        "standardized best practices tracker",
+        "visible kpi areas include",
+        "student engagement / admissions success playbook",
+        "recurring themes include",
+        "risks these are operational blockers or threats to conversion",
+        "late admits need monitoring",
+        "webinar initiative ownership",
+        "you were helping acs navigate",
+        "you wanted to solve problems before they became big",
+        "clean knowledge base your system can actually use",
+    )
+    return any(pattern in text for pattern in noisy_patterns)
+
+
+def _is_standup_review_residue(value: Any) -> bool:
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    if not text:
+        return False
+    residue_patterns = (
+        "generated from standup prep",
+        "generated from stand",
+        "attendee snapshot",
+        "shown in the meeting reader",
+        "conversation evidence outcomes raw",
+        "round 1: jean-claude",
+        "signal - recent codex discussion for",
+        "- chronicle:",
+        "- chronicle decision:",
+        "artifacts are available to support board decisions",
+        "charter and workspace pack loaded for",
+        "agenda starts with",
+        "look at the executive stand up",
+    )
+    if any(pattern in text for pattern in residue_patterns):
+        return True
+    if "standup" in text and (
+        "completed feezie-os" in text
+        or "completed feezie os" in text
+        or "conversation evidence" in text
+        or "generated from stand" in text
+    ):
+        return True
+    return False
+
+
+def _is_workspace_process_meta_signal(value: str, *, workspace_key: str) -> bool:
+    if workspace_key == "shared_ops":
+        return False
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    if not text:
+        return False
+    if text in {
+        "codex work should be preserved as high-signal chronicle chunks before context loss.",
+        "codex conversations need periodic chronicle writes so openclaw stays aligned with current work.",
+        "chronicle should preserve persona, phrasing, and project-development signal from codex work.",
+    }:
+        return True
+    meta_patterns = (
+        "runtime memory resolution",
+        "dream-cycle",
+        "progress-pulse",
+        "standup promotion",
+        "keeping the runtime/log noise out",
+        "staging only that lane now",
+        "moving through the remaining dirty set",
+    )
+    return any(pattern in text for pattern in meta_patterns)
+
+
+def _sanitize_standup_entry_values(values: list[Any], *, drop_chat_ingestion_residue: bool, workspace_key: str) -> list[str]:
+    cleaned: list[str] = []
+    for item in values:
+        raw = " ".join(str(item or "").replace("\xa0", " ").split()).strip()
+        if not raw:
+            continue
+        if drop_chat_ingestion_residue and _is_chat_ingestion_residue(raw):
+            continue
+        if drop_chat_ingestion_residue and _is_standup_review_residue(raw):
+            continue
+        if drop_chat_ingestion_residue and (
+            raw.startswith("- ")
+            or raw.lower().startswith("round ")
+            or raw.lower().startswith("decision set:")
+        ):
+            continue
+        normalized = _normalize_standup_signal_text(raw)
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if drop_chat_ingestion_residue and (
+            "bring the latest workspace briefing into the next standup" in lowered
+            or "is the next board item to queue" in lowered
+            or "challenge whether the next move still aligns with the north star" in lowered
+        ):
+            continue
+        if drop_chat_ingestion_residue and _is_workspace_process_meta_signal(normalized, workspace_key=workspace_key):
+            continue
+        cleaned.append(normalized)
+    return _dedupe_strings(cleaned, limit=6)
+
+
+def _standup_ready_chronicle_entries(entries: list[dict[str, Any]], *, workspace_key: str) -> list[dict[str, Any]]:
+    ready: list[dict[str, Any]] = []
+    tracked_fields = (
+        "decisions",
+        "blockers",
+        "project_updates",
+        "learning_updates",
+        "outcomes",
+        "follow_ups",
+        "memory_promotions",
+        "pm_candidates",
+    )
+    signal_fields = ("decisions", "follow_ups", "project_updates", "blockers", "outcomes", "learning_updates")
+
+    for entry in entries:
+        cleaned = dict(entry)
+        drop_chat_ingestion_residue = _chronicle_entry_is_chat_derived(entry)
+        for field in tracked_fields:
+            values = entry.get(field)
+            if not isinstance(values, list):
+                continue
+            cleaned[field] = _sanitize_standup_entry_values(
+                values,
+                drop_chat_ingestion_residue=drop_chat_ingestion_residue,
+                workspace_key=workspace_key,
+            )
+        if drop_chat_ingestion_residue and not any(cleaned.get(field) for field in signal_fields):
+            continue
+        ready.append(cleaned)
+    return ready
+
+
+def _is_resolved_ai_clone_issue_line(value: Any, *, automation_clean: bool) -> bool:
+    if not automation_clean:
+        return False
+    text = " ".join(str(value or "").replace("\xa0", " ").split()).strip().lower()
+    if not text:
+        return False
+    if "ai clone automation layer" in text:
+        return True
+    if "configuration drift" in text and "ai clone" in text:
+        return True
+    if "jobs.json" in text and "memory/learnings.md" in text:
+        return True
+    if "daily memory flush" in text and "mirrored openclaw run" in text and "error" in text:
+        return True
+    return False
+
+
+def _filter_resolved_ai_clone_issue_lines(items: list[str], *, automation_clean: bool) -> list[str]:
+    if not items or not automation_clean:
+        return items
+    return [item for item in items if not _is_resolved_ai_clone_issue_line(item, automation_clean=automation_clean)]
+
+
+def _filter_resolved_workspace_root_blockers(
+    blockers: list[str],
+    *,
+    workspace_key: str,
+    registry: dict[str, dict[str, Any]],
+    workspace_context: dict[str, Any],
+) -> list[str]:
+    if not blockers:
+        return []
+    root = _workspace_root(workspace_key, registry)
+    root_exists = bool(workspace_context.get("available")) or bool(root and root.exists())
+    if not root_exists:
+        return blockers
+    return [item for item in blockers if not _is_workspace_root_missing_blocker(item)]
+
+
+def _latest_file(directory: Path, suffix: str) -> Path | None:
+    if not directory.exists():
+        return None
+    matches = sorted(directory.glob(f"*{suffix}"))
+    if not matches:
+        return None
+    non_readme = [path for path in matches if path.stem.lower() != "readme"]
+    return non_readme[-1] if non_readme else matches[-1]
+
+
+def _workspace_context(workspace_key: str, registry: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    root = _workspace_root(workspace_key, registry)
+    if root is None or not root.exists():
+        return {"available": False, "workspace_root": None, "source_paths": []}
+    latest_sop = _latest_file(root / "dispatch", ".json")
+    latest_briefing = _latest_file(root / "briefings", ".md")
+    latest_analytics = _latest_file(root / "analytics", ".md")
+    execution_log = root / "memory" / "execution_log.md"
+    audience_feedback = load_workspace_feedback_snapshot(root)
+    source_paths = [
+        str(path)
+        for path in (latest_sop, latest_briefing, latest_analytics, execution_log if execution_log.exists() else None)
+        if path
+    ]
+    for key in ("json_path", "markdown_path"):
+        value = audience_feedback.get(key)
+        if isinstance(value, str) and value.strip():
+            source_paths.append(value.strip())
+    return {
+        "available": True,
+        "workspace_root": str(root),
+        "latest_sop_path": str(latest_sop) if latest_sop else None,
+        "latest_briefing_path": str(latest_briefing) if latest_briefing else None,
+        "latest_analytics_path": str(latest_analytics) if latest_analytics else None,
+        "execution_log_path": str(execution_log) if execution_log.exists() else None,
+        "latest_sop_tail": _tail_text(latest_sop, max_chars=1200) if latest_sop else "",
+        "latest_briefing_tail": _tail_text(latest_briefing, max_chars=1200) if latest_briefing else "",
+        "latest_analytics_tail": _tail_text(latest_analytics, max_chars=1200) if latest_analytics else "",
+        "execution_log_tail": _tail_text(execution_log, max_chars=1200) if execution_log.exists() else "",
+        "audience_feedback_available": bool(audience_feedback),
+        "audience_feedback_path": str(audience_feedback.get("json_path") or "").strip() or None,
+        "audience_feedback_markdown_path": str(audience_feedback.get("markdown_path") or "").strip() or None,
+        "audience_feedback": audience_feedback,
+        "source_paths": source_paths,
+    }
+
+
+def _workspace_display_name(workspace_key: str, registry: dict[str, dict[str, Any]]) -> str:
+    workspace_key = _canonical_workspace_key(workspace_key, registry)
+    if workspace_key == "shared_ops":
+        return "Executive"
+    item = registry.get(workspace_key) or {}
+    value = item.get("display_name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return workspace_key
+
+
+def _workspace_label(workspace_key: str, display_name: str | None) -> str:
+    normalized_display = (display_name or workspace_key).strip()
+    normalized_key = workspace_key.strip()
+    if not normalized_key:
+        return "`shared_ops`"
+    if not normalized_display or normalized_display.lower() == normalized_key.lower():
+        return f"`{normalized_key}`"
+    return f"{normalized_display} (`{normalized_key}`)"
+
+
+def _extract_markdown_section(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    normalized_heading = heading.strip().lower()
+    collected: list[str] = []
+    capture = False
+    base_level = None
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if stripped.startswith("#"):
+            level = len(stripped) - len(stripped.lstrip("#"))
+            title = stripped[level:].strip().lower()
+            if title == normalized_heading:
+                capture = True
+                base_level = level
+                collected = [raw_line]
+                continue
+            if capture and base_level is not None and level <= base_level:
+                break
+        if capture:
+            collected.append(raw_line)
+    return "\n".join(collected).strip()
+
+
+def _compact_markdown_section(markdown: str, *, max_lines: int = 10) -> str:
+    if not markdown.strip():
+        return ""
+    lines = [line.rstrip() for line in markdown.splitlines()]
+    compacted = [line for line in lines if line.strip()]
+    return "\n".join(compacted[:max_lines]).strip()
+
+
+def _workspace_scope_matches(workspace_key: str, candidate_workspace: str, *, include_shared_ops: bool = False) -> bool:
+    if workspace_key == "shared_ops":
+        return True
+    allowed = set(_workspace_key_candidates(workspace_key))
+    if include_shared_ops:
+        allowed.update(_workspace_key_candidates("shared_ops"))
+    candidate_keys = set(_workspace_key_candidates(candidate_workspace))
+    return bool(allowed & candidate_keys)
+
+
+def _load_pack_excerpt(base: Path | None, filename: str, *, max_lines: int = 12) -> tuple[Path | None, str]:
+    if base is None:
+        return None, ""
+    path = base / filename
+    if not path.exists():
+        return None, ""
+    return path, _compact_markdown_section(_read_text(path), max_lines=max_lines)
+
+
+def _pack_signal_lines(markdown: str, *, limit: int = 8) -> list[str]:
+    signals: list[str] = []
+    seen: set[str] = set()
+    for raw_line in markdown.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("- "):
+            stripped = stripped[2:].strip()
+        elif stripped.startswith("* "):
+            stripped = stripped[2:].strip()
+        lowered = stripped.lower()
+        if lowered.startswith(("name:", "role:", "temperament:", "values:", "judgment style:", "tone:")):
+            continue
+        if lowered == "known owner preferences for this lane:":
+            continue
+        key = lowered.rstrip(".")
+        if key in seen:
+            continue
+        seen.add(key)
+        signals.append(stripped.rstrip())
+        if len(signals) >= limit:
+            break
+    return signals
+
+
+def _first_signal_line(signals: list[str], keywords: tuple[str, ...]) -> str:
+    for signal in signals:
+        lowered = signal.lower()
+        if any(keyword in lowered for keyword in keywords):
+            return signal.rstrip(".")
+    return ""
+
+
+def _load_strategy_context(workspace_key: str, registry: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    display_name = _workspace_display_name(workspace_key, registry)
+    charter_path: Path | None = None
+    workspace_root = _workspace_root(workspace_key, registry)
+    if workspace_root is not None:
+        candidate = workspace_root / "CHARTER.md"
+        if candidate.exists():
+            charter_path = candidate
+    charter_excerpt = _compact_markdown_section(_read_text(charter_path), max_lines=18) if charter_path else ""
+    identity_path, identity_excerpt = _load_pack_excerpt(workspace_root, "IDENTITY.md", max_lines=12)
+    soul_path, soul_excerpt = _load_pack_excerpt(workspace_root, "SOUL.md", max_lines=14)
+    user_path, user_excerpt = _load_pack_excerpt(workspace_root, "USER.md", max_lines=14)
+    pack_signals = []
+    for excerpt in (user_excerpt, soul_excerpt, identity_excerpt):
+        for signal in _pack_signal_lines(excerpt):
+            if signal not in pack_signals:
+                pack_signals.append(signal)
+    lane_boundary = _first_signal_line(
+        pack_signals,
+        ("inside `", "inside ", "is not:", "contained", "containment", "lane", "workspace"),
+    )
+    trust_constraint = _first_signal_line(
+        pack_signals,
+        ("trust", "families", "students", "partners", "frontline", "school"),
+    )
+    execution_posture = _first_signal_line(
+        pack_signals,
+        ("artifact", "report back", "clear", "discipline", "execute", "escalate", "blocker", "status"),
+    )
+
+    inferred_heading = {
+        "feezie-os": "FEEZIE OS",
+        "linkedin-os": "FEEZIE OS",
+        "fusion-os": "Fusion OS",
+        "easyoutfitapp": "Easy Outfit App",
+        "ai-swag-store": "AI Swag Store",
+        "agc": "AGC",
+        "shared_ops": "Executive Interpretation Rule",
+    }.get(workspace_key, display_name)
+    inferred_excerpt = ""
+    if INFERRED_BRIEF_PATH.exists():
+        inferred_text = _read_text(INFERRED_BRIEF_PATH)
+        inferred_excerpt = _compact_markdown_section(_extract_markdown_section(inferred_text, inferred_heading), max_lines=18)
+
+    default_routing = "Strong signal should usually go to canonical memory plus standup before PM."
+    if _is_feezie_workspace_key(workspace_key):
+        default_routing = "FEEZIE signal should usually go to canonical memory plus executive standup first, then persona canon or PM when justified."
+    return {
+        "workspace_key": workspace_key,
+        "display_name": display_name,
+        "charter_path": str(charter_path) if charter_path else None,
+        "charter_excerpt": charter_excerpt,
+        "identity_path": str(identity_path) if identity_path else None,
+        "identity_excerpt": identity_excerpt,
+        "soul_path": str(soul_path) if soul_path else None,
+        "soul_excerpt": soul_excerpt,
+        "user_path": str(user_path) if user_path else None,
+        "user_excerpt": user_excerpt,
+        "pack_signal_lines": pack_signals[:6],
+        "lane_boundary": lane_boundary,
+        "trust_constraint": trust_constraint,
+        "execution_posture": execution_posture,
+        "inferred_brief_path": str(INFERRED_BRIEF_PATH) if INFERRED_BRIEF_PATH.exists() else None,
+        "inferred_excerpt": inferred_excerpt,
+        "default_routing": default_routing,
+    }
+
+
+def _load_local_codex_automation_context() -> dict[str, Any]:
+    """Summarize the private local-first run ledger without a network dependency."""
+
+    rows = _read_jsonl_tail(CODEX_RUN_LEDGER_PATH, max_items=500)
+    latest_by_automation: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        automation_id = str(row.get("automation_id") or "").strip()
+        if automation_id:
+            latest_by_automation[automation_id] = row
+
+    latest_rows = list(latest_by_automation.values())
+    failed = [
+        row
+        for row in latest_rows
+        if str(row.get("status") or "").strip().lower() not in {"ok", "success", "completed"}
+    ]
+    action_required = [row for row in latest_rows if bool(row.get("action_required"))]
+    return {
+        "available": CODEX_RUN_LEDGER_PATH.exists(),
+        "source": "codex_run_ledger",
+        "source_ref": str(CODEX_RUN_LEDGER_PATH),
+        "primary_source": "codex_registry+codex_run_ledger",
+        "run_count": len(rows),
+        "job_count": len(latest_by_automation),
+        "job_names": [
+            str(row.get("automation_name") or row.get("automation_id") or "Unnamed")
+            for row in latest_rows[:20]
+        ],
+        "mismatch_count": len(failed),
+        "action_required_count": len(action_required),
+        "latest_failures": [
+            {
+                "automation_id": row.get("automation_id"),
+                "automation_name": row.get("automation_name"),
+                "status": row.get("status"),
+                "error": str(row.get("error") or "")[:500] or None,
+            }
+            for row in failed[:10]
+        ],
+    }
+
+
+def _optional_backend_imports() -> dict[str, Any]:
+    if str(BACKEND_ROOT) not in sys.path:
+        sys.path.insert(0, str(BACKEND_ROOT))
+    loaded: dict[str, Any] = {}
+    try:
+        from app.services.pm_card_service import list_cards  # type: ignore
+
+        loaded["list_cards"] = list_cards
+    except Exception as exc:
+        loaded["pm_error"] = str(exc)
+    try:
+        from app.services.workspace_runtime_contract_service import default_standup_kind_for_workspace  # type: ignore
+
+        loaded["default_standup_kind_for_workspace"] = default_standup_kind_for_workspace
+    except Exception as exc:
+        loaded["runtime_contract_error"] = str(exc)
+    try:
+        from app.models import StandupCreate  # type: ignore
+        from app.services.standup_service import create_standup  # type: ignore
+
+        loaded["StandupCreate"] = StandupCreate
+        loaded["create_standup"] = create_standup
+    except Exception as exc:
+        loaded["standup_error"] = str(exc)
+    try:
+        from app.services.automation_mismatch_service import build_mismatch_report  # type: ignore
+        from app.services.automation_service import (  # type: ignore
+            automation_source_of_truth,
+            list_automation_runs,
+            list_automations,
+        )
+
+        loaded["build_mismatch_report"] = build_mismatch_report
+        loaded["automation_source_of_truth"] = automation_source_of_truth
+        loaded["list_automation_runs"] = list_automation_runs
+        loaded["list_automations"] = list_automations
+    except Exception as exc:
+        loaded["automation_error"] = str(exc)
+    return loaded
+
+
+def _workspace_key_from_card(card: dict[str, Any]) -> str:
+    payload = card.get("payload") or {}
+    for key in ("workspace_key", "workspace", "belongs_to_workspace"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "shared_ops"
+
+
+def _normalize_status(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"ready", "todo", "to_do", "pending"}:
+        return "ready"
+    if normalized in {"queued", "queue"}:
+        return "queued"
+    if normalized in {"running", "in_progress", "in-progress", "active"}:
+        return "in_progress"
+    if normalized in {"review", "in_review"}:
+        return "review"
+    if normalized in {"blocked", "stalled", "failed"}:
+        return "blocked"
+    if normalized in {"done", "complete", "completed"}:
+        return "done"
+    return normalized or "ready"
+
+
+def _dedupe_strings(values: list[str], *, limit: int = 10) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        normalized = " ".join(str(item).split()).strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(normalized)
+        if len(ordered) >= limit:
+            break
+    return ordered
+
+
+def _build_pm_snapshot(pm_context: dict[str, Any], workspace_key: str, workspace_label: str) -> dict[str, Any]:
+    if not pm_context.get("available"):
+        return {
+            "available": False,
+            "workspace_key": workspace_key,
+            "card_count": 0,
+            "open_count": 0,
+            "status_counts": {},
+            "cards": [],
+            "lines": [
+                f"PM board is not reachable for {workspace_label}.",
+                "Treat this standup as recommendation-only until live PM state is available.",
+            ],
+        }
+
+    cards = []
+    status_counts: Counter[str] = Counter()
+    for item in pm_context.get("cards") or []:
+        if not isinstance(item, dict):
+            continue
+        normalized_status = _normalize_status(str(item.get("status") or "ready"))
+        status_counts[normalized_status] += 1
+        cards.append(
+            {
+                "id": item.get("id"),
+                "title": str(item.get("title") or "Untitled").strip(),
+                "owner": item.get("owner"),
+                "status": normalized_status,
+                "workspace_key": item.get("workspace_key") or workspace_key,
+                "updated_at": item.get("updated_at"),
+                "source": item.get("source"),
+                "link_type": item.get("link_type"),
+                "payload": item.get("payload") if isinstance(item.get("payload"), dict) else {},
+            }
+        )
+
+    open_count = sum(count for key, count in status_counts.items() if key != "done")
+    lines = [f"{open_count} open PM card(s) across {workspace_label}."]
+    if status_counts:
+        fragments = []
+        for key in ("blocked", "review", "in_progress", "queued", "ready", "done"):
+            if status_counts.get(key):
+                fragments.append(f"{key}={status_counts[key]}")
+        if fragments:
+            lines.append("Status mix: " + ", ".join(fragments) + ".")
+    focus_cards = cards[:5]
+    if focus_cards:
+        focus_titles = ", ".join(f"{card['title']} ({card['status']})" for card in focus_cards)
+        lines.append(f"Top board focus: {focus_titles}.")
+
+    return {
+        "available": True,
+        "workspace_key": workspace_key,
+        "card_count": len(cards),
+        "open_count": open_count,
+        "status_counts": dict(status_counts),
+        "cards": cards[:12],
+        "lines": lines,
+    }
+
+
+def _build_artifact_deltas(
+    chronicle_entries: list[dict[str, Any]],
+    automation_context: dict[str, Any],
+    workspace_context: dict[str, Any],
+    memory_context: dict[str, Any],
+) -> list[str]:
+    deltas: list[str] = []
+    if chronicle_entries:
+        latest = chronicle_entries[-1]
+        summary = _standup_chronicle_summary(latest)
+        if summary:
+            deltas.append(f"Chronicle: {summary}")
+        for item in latest.get("decisions") or []:
+            normalized_item = _normalize_standup_signal_text(item)
+            if normalized_item:
+                deltas.append(f"Chronicle decision: {normalized_item}")
+    mismatch_count = int(
+        automation_context.get("mismatch_count")
+        or (automation_context.get("fallback") or {}).get("mismatch_count")
+        or 0
+    )
+    action_required = int(
+        automation_context.get("action_required_count")
+        or (automation_context.get("fallback") or {}).get("action_required_count")
+        or 0
+    )
+    if mismatch_count or action_required:
+        deltas.append(
+            f"Automation: mismatch_count={mismatch_count}, action_required_count={action_required}."
+        )
+    if workspace_context.get("latest_briefing_path"):
+        deltas.append(f"Workspace briefing ready: {workspace_context['latest_briefing_path']}")
+    if workspace_context.get("latest_analytics_path"):
+        deltas.append(f"Workspace analytics note ready: {workspace_context['latest_analytics_path']}")
+    if workspace_context.get("latest_sop_path"):
+        deltas.append(f"Latest SOP: {workspace_context['latest_sop_path']}")
+    audience_feedback = dict(workspace_context.get("audience_feedback") or {})
+    if audience_feedback:
+        profile = dict(audience_feedback.get("profile") or {})
+        recent_summary = dict(audience_feedback.get("recent_summary") or {})
+        fragments: list[str] = []
+        followers = profile.get("followers")
+        sample_size = recent_summary.get("sample_size")
+        avg_visible_engagement = recent_summary.get("average_visible_engagement")
+        if isinstance(followers, (int, float)):
+            fragments.append(f"followers={int(followers)}")
+        if isinstance(sample_size, (int, float)) and sample_size:
+            fragments.append(f"recent_sample={int(sample_size)}")
+        if isinstance(avg_visible_engagement, (int, float)):
+            fragments.append(f"avg_visible_engagement={avg_visible_engagement}")
+        top_post = dict(recent_summary.get("top_post") or {})
+        if top_post.get("shortcode") and isinstance(top_post.get("visible_engagement"), (int, float)):
+            fragments.append(f"top_post={top_post['shortcode']}({int(top_post['visible_engagement'])})")
+        if fragments:
+            deltas.append("Audience feedback: " + ", ".join(fragments) + ".")
+        feedback_path = str(workspace_context.get("audience_feedback_path") or "").strip()
+        if feedback_path:
+            deltas.append(f"Audience feedback snapshot: {feedback_path}")
+    if memory_context.get("daily_briefs_tail"):
+        deltas.append("Daily brief is populated and ready for standup review.")
+    if memory_context.get("automation_ledger_available"):
+        deltas.append("Local automation run history is available for continuity checks.")
+    return _dedupe_strings(deltas, limit=8)
+
+
+def _build_audience_response(workspace_context: dict[str, Any]) -> list[str]:
+    audience_feedback = dict(workspace_context.get("audience_feedback") or {})
+    if not audience_feedback:
+        return []
+    lines: list[str] = []
+    feedback_path = str(workspace_context.get("audience_feedback_path") or "").strip()
+    if feedback_path:
+        lines.append(f"Public audience-feedback snapshot is ready: {feedback_path}")
+    profile = dict(audience_feedback.get("profile") or {})
+    recent_summary = dict(audience_feedback.get("recent_summary") or {})
+    fragments: list[str] = []
+    followers = profile.get("followers")
+    sample_size = recent_summary.get("sample_size")
+    avg_likes = recent_summary.get("average_visible_likes")
+    avg_comments = recent_summary.get("average_visible_comments")
+    avg_engagement = recent_summary.get("average_visible_engagement")
+    if isinstance(followers, (int, float)):
+        fragments.append(f"followers={int(followers)}")
+    if isinstance(sample_size, (int, float)) and sample_size:
+        fragments.append(f"recent_sample={int(sample_size)}")
+    if isinstance(avg_likes, (int, float)):
+        fragments.append(f"avg_visible_likes={avg_likes}")
+    if isinstance(avg_comments, (int, float)):
+        fragments.append(f"avg_visible_comments={avg_comments}")
+    if isinstance(avg_engagement, (int, float)):
+        fragments.append(f"avg_visible_engagement={avg_engagement}")
+    if fragments:
+        lines.append("Instagram public response: " + ", ".join(fragments) + ".")
+    top_post = dict(recent_summary.get("top_post") or {})
+    if top_post.get("shortcode") and top_post.get("url"):
+        lines.append(
+            f"Top visible-response post: `{top_post['shortcode']}` at {top_post['url']} with visible engagement {top_post.get('visible_engagement') or 0}."
+        )
+    limitations = [str(item).strip() for item in (audience_feedback.get("limitations") or []) if str(item).strip()]
+    if limitations:
+        lines.append(limitations[0])
+    return _dedupe_strings(lines, limit=4)
+
+
+def _build_signals_captured(workspace_key: str, chronicle_entries: list[dict[str, Any]], workspace_context: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    if chronicle_entries:
+        summary = _standup_chronicle_summary(chronicle_entries[-1])
+        if summary:
+            lines.append(summary)
+    audience_feedback = dict(workspace_context.get("audience_feedback") or {})
+    for item in audience_feedback.get("signal_lines") or []:
+        normalized = str(item).strip()
+        if normalized:
+            lines.append(normalized)
+    recent_summary = dict(audience_feedback.get("recent_summary") or {})
+    posts_last_30d = recent_summary.get("posts_last_30d")
+    if isinstance(posts_last_30d, (int, float)):
+        lines.append(f"Public Instagram sample shows {int(posts_last_30d)} post(s) inside the last 30 days.")
+    return _dedupe_strings(lines, limit=5)
+
+
+def _build_content_produced(workspace_context: dict[str, Any]) -> list[str]:
+    audience_feedback = dict(workspace_context.get("audience_feedback") or {})
+    recent_posts = list(audience_feedback.get("recent_posts") or [])
+    if not recent_posts:
+        return []
+    lines: list[str] = []
+    for post in recent_posts[:4]:
+        shortcode = str(post.get("shortcode") or "unknown").strip()
+        taken_at = str(post.get("taken_at") or "unknown").strip()
+        pillar = str(post.get("content_pillar") or "Unknown pillar").strip()
+        audience = str(post.get("audience") or "unknown audience").strip()
+        visible_engagement = int(post.get("visible_engagement") or 0)
+        caption = str(post.get("caption_excerpt") or "No caption excerpt.").strip()
+        lines.append(
+            f"`{shortcode}` | {taken_at} | {pillar} for {audience} | visible engagement={visible_engagement} | {caption}"
+        )
+    return _dedupe_strings(lines, limit=4)
+
+
+def _build_generic_work_produced(workspace_context: dict[str, Any], pm_snapshot: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    if workspace_context.get("latest_sop_path"):
+        lines.append(f"Latest SOP is staged at `{workspace_context['latest_sop_path']}`.")
+    if workspace_context.get("latest_briefing_path"):
+        lines.append(f"Latest workspace briefing is ready at `{workspace_context['latest_briefing_path']}`.")
+    if workspace_context.get("latest_analytics_path"):
+        lines.append(f"Latest analytics note is ready at `{workspace_context['latest_analytics_path']}`.")
+    if workspace_context.get("execution_log_path"):
+        lines.append(f"Execution log is available at `{workspace_context['execution_log_path']}` for ship-state review.")
+    for card in pm_snapshot.get("cards") or []:
+        status = str(card.get("status") or "").strip()
+        title = str(card.get("title") or "").strip()
+        if title and status in {"in_progress", "review", "done"}:
+            lines.append(f"PM board reflects `{title}` in `{status}` status.")
+        if len(lines) >= 4:
+            break
+    return _dedupe_strings(lines, limit=4)
+
+
+def _build_opportunities_created(workspace_context: dict[str, Any]) -> list[str]:
+    audience_feedback = dict(workspace_context.get("audience_feedback") or {})
+    opportunities = [str(item).strip() for item in (audience_feedback.get("opportunity_signals") or []) if str(item).strip()]
+    return _dedupe_strings(opportunities, limit=5)
+
+
+def _build_generic_traction(workspace_context: dict[str, Any], pm_snapshot: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    if workspace_context.get("audience_feedback_path"):
+        lines.append(f"Feedback snapshot is available at `{workspace_context['audience_feedback_path']}`.")
+    if workspace_context.get("latest_analytics_path"):
+        lines.append(f"Latest traction note is ready at `{workspace_context['latest_analytics_path']}`.")
+    if pm_snapshot.get("available"):
+        open_count = int(pm_snapshot.get("open_count") or 0)
+        lines.append(f"PM board is reachable with {open_count} open card(s); live traction still needs explicit measurement artifacts.")
+    elif workspace_context.get("latest_briefing_path") or workspace_context.get("execution_log_path"):
+        lines.append("Local execution artifacts exist, but no explicit traction snapshot has been captured yet.")
+    return _dedupe_strings(lines, limit=4)
+
+
+def _build_generic_opportunities(workspace_context: dict[str, Any], pm_snapshot: dict[str, Any], needs: list[str]) -> list[str]:
+    lines: list[str] = []
+    for card in pm_snapshot.get("cards") or []:
+        status = str(card.get("status") or "").strip()
+        title = str(card.get("title") or "").strip()
+        if title and status in {"review", "queued", "ready", "in_progress"}:
+            lines.append(f"`{title}` is the next visible opportunity to qualify or advance.")
+        if len(lines) >= 3:
+            break
+    for item in needs[:2]:
+        normalized = str(item).strip()
+        if normalized:
+            lines.append(normalized)
+    if not lines:
+        followthrough_line = _workspace_followthrough_opportunity_line(workspace_context)
+        if followthrough_line:
+            lines.append(followthrough_line)
+    return _dedupe_strings(lines, limit=5)
+
+
+def _build_next_focus_section(
+    workspace_context: dict[str, Any],
+    pm_snapshot: dict[str, Any],
+    needs: list[str],
+) -> list[str]:
+    lines: list[str] = []
+    audience_feedback = dict(workspace_context.get("audience_feedback") or {})
+    for item in audience_feedback.get("recommended_next_focus") or []:
+        normalized = str(item).strip()
+        if normalized:
+            lines.append(normalized)
+    for card in pm_snapshot.get("cards") or []:
+        if str(card.get("status") or "") == "review":
+            title = str(card.get("title") or "").strip()
+            if title:
+                lines.append(f"Resolve whether `{title}` closes or reopens before new narrative work expands.")
+            break
+    for item in needs[:1]:
+        normalized = str(item).strip()
+        if normalized:
+            lines.append(normalized)
+    return _dedupe_strings(lines, limit=5)
+
+
+def _load_feezie_source_lifecycle() -> dict[str, Any]:
+    try:
+        from app.services.workspace_snapshot_service import workspace_snapshot_service
+
+        snapshot = workspace_snapshot_service.get_linkedin_os_snapshot(include_workspace_files=False, include_doc_entries=False)
+    except Exception as exc:
+        return {"available": False, "error": str(exc), "items": [], "counts": {}}
+    lifecycle = snapshot.get("source_lifecycle") if isinstance(snapshot, dict) else None
+    if not isinstance(lifecycle, dict):
+        return {"available": False, "items": [], "counts": {}}
+    payload = dict(lifecycle)
+    payload["available"] = True
+    return payload
+
+
+def _stage_titles(source_lifecycle: dict[str, Any], *stages: str, limit: int = 3) -> list[str]:
+    items = source_lifecycle.get("items") if isinstance(source_lifecycle.get("items"), list) else []
+    titles: list[str] = []
+    wanted = {stage.strip().lower() for stage in stages}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("stage") or "").strip().lower() not in wanted:
+            continue
+        title = str(item.get("title") or item.get("queue_id") or "").strip()
+        if title:
+            titles.append(title)
+        if len(titles) >= limit:
+            break
+    return titles
+
+
+def _build_feezie_source_loop_section(source_lifecycle: dict[str, Any]) -> list[str]:
+    if not source_lifecycle.get("available"):
+        error = str(source_lifecycle.get("error") or "").strip()
+        return [f"FEEZIE source lifecycle is unavailable{f': {error}' if error else '.'}"]
+    counts = source_lifecycle.get("counts") if isinstance(source_lifecycle.get("counts"), dict) else {}
+    by_stage = counts.get("by_stage") if isinstance(counts.get("by_stage"), dict) else {}
+    lines = [
+        f"Incoming decisions: {counts.get('needs_decision', 0)} source(s) still need feed-level choice.",
+        f"Potential posts: {by_stage.get('post_seed', 0)} active seed(s), {by_stage.get('latent_seed', 0)} needing anecdote/taste.",
+        f"Owner/banked lane: {by_stage.get('owner_review', 0)} owner-review draft(s), {by_stage.get('banked', 0)} banked post(s).",
+        f"Resolution lane: {by_stage.get('scheduled', 0)} scheduled post(s), {by_stage.get('published', 0)} published post(s), {by_stage.get('parked', 0)} parked item(s), {by_stage.get('rejected', 0)} rejected source(s).",
+    ]
+    owner_review_titles = _stage_titles(source_lifecycle, "owner_review")
+    if owner_review_titles:
+        lines.append("Owner review focus: " + "; ".join(owner_review_titles) + ".")
+    latent_titles = _stage_titles(source_lifecycle, "latent_seed")
+    if latent_titles:
+        lines.append("Needs anecdote/taste: " + "; ".join(latent_titles) + ".")
+    rejected_titles = _stage_titles(source_lifecycle, "rejected")
+    if rejected_titles:
+        lines.append("Rejected/not for FEEZIE: " + "; ".join(rejected_titles) + ".")
+    return _dedupe_strings(lines, limit=7)
+
+
+def _build_standup_sections(
+    workspace_key: str,
+    chronicle_entries: list[dict[str, Any]],
+    workspace_context: dict[str, Any],
+    pm_snapshot: dict[str, Any],
+    audience_response: list[str],
+    needs: list[str],
+    source_lifecycle: dict[str, Any] | None = None,
+) -> dict[str, list[str]]:
+    if workspace_key == "shared_ops":
+        return {}
+
+    signal_lines = _build_signals_captured(workspace_key, chronicle_entries, workspace_context)
+    if not signal_lines and workspace_context.get("latest_briefing_path"):
+        signal_lines = [f"Latest workspace briefing is available at `{workspace_context['latest_briefing_path']}`."]
+
+    work_lines = _build_content_produced(workspace_context)
+    if not work_lines:
+        work_lines = _build_generic_work_produced(workspace_context, pm_snapshot)
+
+    traction_lines = audience_response or _build_generic_traction(workspace_context, pm_snapshot)
+    opportunity_lines = _build_opportunities_created(workspace_context)
+    if not opportunity_lines:
+        opportunity_lines = _build_generic_opportunities(workspace_context, pm_snapshot, needs)
+
+    sections = {
+        "signals_captured": signal_lines,
+        "feezie_source_loop": _build_feezie_source_loop_section(source_lifecycle or {}) if _is_feezie_workspace_key(workspace_key) else [],
+        "content_produced": work_lines,
+        "audience_response": traction_lines,
+        "opportunities_created": opportunity_lines,
+        "next_focus": _build_next_focus_section(workspace_context, pm_snapshot, needs),
+    }
+    return {key: value for key, value in sections.items() if value}
+
+
+def _build_agenda(
+    pm_snapshot: dict[str, Any],
+    pm_updates: list[dict[str, Any]],
+    blockers: list[str],
+    workspace_key: str,
+    strategy_context: dict[str, Any],
+    standup_kind: str,
+) -> list[str]:
+    agenda: list[str] = []
+    display_name = str(strategy_context.get("display_name") or workspace_key)
+    carry_forward_line = ""
+    for item in pm_updates:
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item.get("payload") or {})
+        if payload.get("carry_forward_required"):
+            carry_forward_line = str(payload.get("carry_forward_summary") or "").strip()
+            if not carry_forward_line:
+                carry_forward_line = _carry_forward_resolution_line(
+                    str(item.get("title") or "this lane").strip(),
+                    str(item.get("status") or "ready"),
+                )
+            break
+    if carry_forward_line:
+        agenda.append(carry_forward_line)
+    if _is_feezie_workspace_key(workspace_key):
+        agenda.append(
+            "Check whether the next public move strengthens Feeze's brand, career narrative, and trust before optimizing for content output."
+        )
+    elif workspace_key != "shared_ops":
+        agenda.append(f"Pressure-test the next move against `{display_name}` mission, constraints, and lane boundaries.")
+    elif standup_kind in {"executive_ops", "weekly_review"}:
+        agenda.append("Start from PM truth, then test whether current motion still matches the inferred workspace operating brief.")
+        agenda.append(
+            "Run the Chronicle decision loop: what came in, what changed, what should change next cycle, and whether each signal belongs in canonical memory, standup interpretation, PM execution, workspace handoff, or no action."
+        )
+
+    if pm_snapshot.get("available"):
+        cards = pm_snapshot.get("cards") or []
+        blocked = [card for card in cards if card.get("status") == "blocked"]
+        review = [card for card in cards if card.get("status") == "review"]
+        active = [card for card in cards if card.get("status") in {"in_progress", "queued", "ready"}]
+
+        for card in blocked[:2]:
+            agenda.append(f"Unblock `{card['title']}` before new work enters the lane.")
+        for card in review[:2]:
+            agenda.append(f"Decide whether `{card['title']}` closes or returns to execution.")
+        for card in active[:2]:
+            agenda.append(f"Confirm the next move for `{card['title']}` on the PM board.")
+
+    for item in pm_updates[:2]:
+        title = str(item.get("title") or "").strip()
+        if title:
+            agenda.append(f"Decide whether to create or queue `{title}`.")
+
+    if blockers:
+        agenda.append(f"Resolve the top blocker: {blockers[0]}")
+
+    if not agenda:
+        label = display_name if workspace_key != "shared_ops" else "shared ops"
+        agenda.append(f"Nothing to report from the PM board for {label}. Keep the lane ready for the next real signal.")
+    return _dedupe_strings(agenda, limit=6)
+
+
+def _build_decision_loop(workspace_key: str, standup_kind: str, pm_updates: list[dict[str, Any]]) -> dict[str, Any]:
+    active = workspace_key == "shared_ops" and standup_kind in {"executive_ops", "weekly_review"}
+    return {
+        "active": active,
+        "source": "codex_chronicle",
+        "governing_rule": (
+            "Executive standups are recurring decision loops, not static reports."
+            if active
+            else "Workspace standups inherit Chronicle context through lane-local sections."
+        ),
+        "questions": CHRONICLE_DECISION_LOOP_QUESTIONS if active else [],
+        "routing_targets": CHRONICLE_DECISION_LOOP_ROUTES if active else [],
+        "pm_recommendation_count": len(pm_updates),
+        "pm_gate": "PM recommendations are emitted only after PM snapshot availability, duplicate checks, and action-shaped title checks.",
+    }
+
+
+def _load_pm_context_from_api(workspace_key: str, api_url: str) -> dict[str, Any]:
+    url = _pm_api_source_ref(api_url)
+    payload = _fetch_api_json(url)
+    rows = payload if isinstance(payload, list) else payload.get("cards") or []
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_workspace = _workspace_key_from_card(row)
+        if not _workspace_scope_matches(workspace_key, row_workspace):
+            continue
+        filtered.append(
+            {
+                "id": row.get("id"),
+                "title": row.get("title"),
+                "owner": row.get("owner"),
+                "status": row.get("status"),
+                "workspace_key": row_workspace,
+                "updated_at": row.get("updated_at"),
+                "source": row.get("source"),
+                "link_type": row.get("link_type"),
+                "payload": row.get("payload") if isinstance(row.get("payload"), dict) else {},
+            }
+        )
+    return {
+        "available": True,
+        "cards": filtered[:25],
+        "card_count": len(filtered),
+        "source": "pm_api",
+        "source_ref": url,
+        "primary_source": "pm_api",
+        "fallback_active": False,
+    }
+
+
+def _load_pm_context(imports: dict[str, Any], workspace_key: str, api_url: str) -> dict[str, Any]:
+    api_error: str | None = None
+    try:
+        return _load_pm_context_from_api(workspace_key, api_url)
+    except Exception as exc:
+        api_error = str(exc)
+
+    list_cards = imports.get("list_cards")
+    if list_cards is None:
+        return {
+            "available": False,
+            "error": f"{api_error}; local fallback failed: {imports.get('pm_error', 'pm unavailable')}",
+            "cards": [],
+            "card_count": 0,
+            "source": "pm_unavailable",
+            "source_ref": _pm_api_source_ref(api_url),
+            "primary_source": "pm_api",
+            "fallback_active": True,
+            "fallback_reason": "pm_api_error",
+            "primary_error": api_error,
+        }
+    try:
+        rows = [item.model_dump(mode="json") for item in list_cards(limit=100)]
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": f"{api_error}; local fallback failed: {exc}",
+            "cards": [],
+            "card_count": 0,
+            "source": "pm_unavailable",
+            "source_ref": _pm_api_source_ref(api_url),
+            "primary_source": "pm_api",
+            "fallback_active": True,
+            "fallback_reason": "pm_api_error",
+            "primary_error": api_error,
+            "fallback_error": str(exc),
+        }
+
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        row_workspace = _workspace_key_from_card(row)
+        if not _workspace_scope_matches(workspace_key, row_workspace):
+            continue
+        filtered.append(
+            {
+                "id": row.get("id"),
+                "title": row.get("title"),
+                "owner": row.get("owner"),
+                "status": row.get("status"),
+                "workspace_key": row_workspace,
+                "updated_at": row.get("updated_at"),
+                "source": row.get("source"),
+                "link_type": row.get("link_type"),
+                "payload": row.get("payload") if isinstance(row.get("payload"), dict) else {},
+            }
+        )
+    return {
+        "available": True,
+        "cards": filtered[:25],
+        "card_count": len(filtered),
+        "source": "pm_backend_service",
+        "source_ref": "app.services.pm_card_service.list_cards",
+        "primary_source": "pm_api",
+        "fallback_active": True,
+        "fallback_reason": "pm_api_error",
+        "primary_error": api_error,
+    }
+
+
+def _load_automation_context(imports: dict[str, Any]) -> dict[str, Any]:
+    build_mismatch_report = imports.get("build_mismatch_report")
+    list_automation_runs = imports.get("list_automation_runs")
+    list_automations = imports.get("list_automations")
+    if build_mismatch_report is not None and list_automation_runs is not None and list_automations is not None:
+        try:
+            runs = list_automation_runs()
+            automations = list_automations(runs=runs)
+            payload = build_mismatch_report(automations=automations, runs=runs).model_dump(mode="json")
+            payload["available"] = True
+            payload["source"] = "codex_registry+codex_run_ledger"
+            payload["source_ref"] = str(CODEX_RUN_LEDGER_PATH)
+            payload["primary_source"] = "codex_registry+codex_run_ledger"
+            payload["job_count"] = len(automations)
+            payload["job_names"] = [str(item.name) for item in automations[:20]]
+            payload["fallback_active"] = False
+            return payload
+        except Exception as exc:
+            fallback = _load_local_codex_automation_context()
+            fallback.update(
+                {
+                    "fallback_active": True,
+                    "fallback_reason": "codex_registry_error",
+                    "primary_error": str(exc),
+                }
+            )
+            return fallback
+    fallback = _load_local_codex_automation_context()
+    fallback.update(
+        {
+            "fallback_active": True,
+            "fallback_reason": "codex_registry_unavailable",
+            "primary_error": imports.get("automation_error", "Codex automation registry unavailable"),
+        }
+    )
+    return fallback
+
+
+def _filter_chronicle_entries(workspace_key: str, max_items: int) -> list[dict[str, Any]]:
+    entries = _read_jsonl_tail(CODEX_CHRONICLE_PATH, max_items=max_items)
+    filtered: list[dict[str, Any]] = []
+    for item in entries:
+        entry_workspace = str(item.get("workspace_key") or "shared_ops")
+        if not _workspace_scope_matches(workspace_key, entry_workspace):
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def _normalize_memory_content(content: str) -> str:
+    lowered = content.lower()
+    if lowered.startswith("--- ## context") or "current fusion-os workspace is internally inconsistent" in lowered:
+        return "Fusion OS needed a coherent content-and-signal operating model before weekly automation could be trusted."
+    if "voice system" in lowered and "fusion academy dc" in lowered and "observation" in lowered and "guidance" in lowered:
+        return (
+            "Fusion content should use institutional voice, represent Fusion Academy DC, avoid first-person singular, "
+            "and follow Observation -> Clarification -> Guidance."
+        )
+    if lowered.startswith("excellent please let me know what you need to implement"):
+        return "Implement the approved Fusion operating model and audience-feedback loop."
+    if "ai clone" in lowered and "workspace" in lowered and ("stand up" in lowered or "standup" in lowered):
+        return "Jean-Claude should use whole-system AI Clone context to inform each workspace while only routing workspace-relevant signal into standups."
+    if "jean claude" in lowered and ("multiple wrkspaces" in lowered or "multiple workspaces" in lowered):
+        return "Jean-Claude needs a routing contract for using whole-system context across multiple workspaces."
+    if lowered.startswith("i think a great place to start") and "jean claude" in lowered:
+        return "Start with Jean-Claude's cross-workspace routing contract."
+    if lowered.startswith("so he will need") and "workspace" in lowered:
+        return "Jean-Claude should filter whole-system context down to the signals that matter for each workspace."
+    if "kodex" in lowered or "codex" in lowered:
+        if "open claw" in lowered or "openclaw" in lowered:
+            return "Codex conversations need periodic Chronicle writes so durable project context stays aligned with current work."
+        return "Codex work should be preserved as high-signal Chronicle chunks before context loss."
+    if "heartbeat" in lowered and "discord" in lowered:
+        return "Heartbeat outputs need to be diagnostically useful, not just generic summaries."
+    if "heartbeat" in lowered:
+        return "Heartbeat should wake the system and produce actionable state, not just silent status."
+    if "tell the story" in lowered or "perfect memory" in lowered or "second brain" in lowered:
+        return "The AI clone should preserve project, learning, voice, and identity signal as second-brain memory."
+    if "persona" in lowered or "how i talk" in lowered or "phrase" in lowered:
+        return "Chronicle should preserve persona, phrasing, and project-development signal from Codex work."
+    return content.strip()
+
+
+def _normalize_standup_signal_text(content: Any) -> str:
+    normalized = _normalize_memory_content(" ".join(str(content or "").split()).strip())
+    if _is_non_actionable_status_surface(normalized):
+        return ""
+    lowered = normalized.lower()
+    if lowered in {"please continue", "please continue.", "please contniue", "please contniue."}:
+        return ""
+    if lowered.startswith("love it") and "plan" in lowered and "execute" in lowered:
+        return "Recent Codex discussion tightened the execution plan."
+    if lowered in {"yes please do that.", "yes please do that", "please execute on both.", "please execute on both"}:
+        return "Recent Codex discussion confirmed the next execution step."
+    return normalized
+
+
+def _standup_chronicle_summary(entry: dict[str, Any]) -> str:
+    source = str(entry.get("source") or "").strip().lower()
+    if source == "codex-history":
+        candidates = [
+            _normalize_standup_signal_text(item) for item in (entry.get("decisions") or [])[:1]
+        ]
+        candidates.extend(_normalize_standup_signal_text(item) for item in (entry.get("follow_ups") or [])[:1])
+        candidates.extend(_normalize_standup_signal_text(item) for item in (entry.get("project_updates") or [])[:1])
+        for candidate in candidates:
+            if candidate:
+                return f"Recent Codex discussion for `{entry.get('workspace_key') or 'shared_ops'}`: {candidate}"
+        return f"Recent Codex discussion updated Chronicle context for `{entry.get('workspace_key') or 'shared_ops'}`."
+    return _normalize_standup_signal_text(entry.get("summary") or "")
+
+
+def _normalize_pm_title(candidate: str) -> str:
+    lowered = candidate.lower()
+    if lowered.startswith("jean-claude should ") or "promotion boundary" in lowered or "narrowed sop" in lowered:
+        return "Tighten Chronicle-to-PM promotion criteria for autonomous execution"
+    if "openclaw" in lowered and "codex" in lowered:
+        return "Complete the Codex-native workflow cutover"
+    if "heartbeat" in lowered and "discord" in lowered:
+        return "Make automation health summaries diagnostically useful"
+    if "heartbeat" in lowered:
+        return "Verify heartbeat wake, logging, and summary quality"
+    if "pm board" in lowered or "stand-up" in lowered or "standup" in lowered:
+        return "Wire Chronicle into standup and PM flow"
+    if "memory" in lowered or "persistent" in lowered:
+        return "Promote Codex Chronicle into durable memory"
+    if "workspace standup" in lowered and "fusion" in lowered:
+        return "Create the first recurring Fusion OS workspace standup"
+    if "fusion" in lowered and "execution lane" in lowered:
+        return "Turn Fusion OS delegated proof into a recurring workspace execution lane"
+    return candidate.strip()[:120]
+
+
+def _is_actionable_pm_title(title: str) -> bool:
+    normalized = " ".join(title.split()).strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    disallowed_prefixes = (
+        "jean-claude should ",
+        "neo should ",
+        "yoda should ",
+        "workspace execution should ",
+        "complete ",
+        "keep ",
+        "decide whether ",
+        "review ",
+    )
+    if lowered.startswith(disallowed_prefixes):
+        return False
+    if lowered.startswith("nothing to report"):
+        return False
+
+    allowed_prefixes = (
+        "align ",
+        "backfill ",
+        "build ",
+        "clarify ",
+        "create ",
+        "define ",
+        "draft ",
+        "document ",
+        "make ",
+        "plan ",
+        "promote ",
+        "refine ",
+        "run ",
+        "ship ",
+        "standardize ",
+        "tighten ",
+        "turn ",
+        "verify ",
+        "wire ",
+    )
+    return lowered.startswith(allowed_prefixes)
+
+
+def _is_chronicle_flow_action_candidate(candidate: str) -> bool:
+    lowered = " ".join(str(candidate).replace("\xa0", " ").split()).strip().lower()
+    if not lowered:
+        return False
+    has_chronicle_signal = "chronicle" in lowered or "codex" in lowered
+    has_flow_surface = any(
+        token in lowered
+        for token in (
+            "standup",
+            "stand-up",
+            "standup prep",
+            "pm board",
+            "pm flow",
+            "pm execution",
+            "pm recommendation",
+            "workspace handoff",
+            "decision loop",
+        )
+    )
+    has_action_verb = any(
+        token in lowered
+        for token in (
+            "wire",
+            "wiring",
+            "route",
+            "routing",
+            "flow",
+            "gate",
+            "gating",
+            "promot",
+            "inject",
+            "carry",
+            "feed",
+            "handoff",
+            "build",
+            "add ",
+            "create ",
+        )
+    )
+    return has_chronicle_signal and has_flow_surface and has_action_verb
+
+
+def _workspace_pm_display_name(workspace_key: str) -> str:
+    if _is_feezie_workspace_key(workspace_key):
+        return "FEEZIE OS"
+    return {
+        "fusion-os": "Fusion OS",
+        "easyoutfitapp": "Easy Outfit App",
+        "ai-swag-store": "AI Swag Store",
+        "agc": "AGC",
+        "shared_ops": "Shared Ops",
+    }.get(workspace_key, workspace_key)
+
+
+def _normalize_workspace_pm_title(candidate: str) -> str:
+    return " ".join(str(candidate).replace("`", "").split()).strip(" -.")[:120]
+
+
+def _workspace_followthrough_title(workspace_key: str, workspace_context: dict[str, Any]) -> tuple[str, str]:
+    display_name = _workspace_pm_display_name(workspace_key)
+    if workspace_context.get("latest_sop_path"):
+        return (
+            f"Refine the staged {display_name} SOP into one runnable execution packet",
+            "Latest SOP is already staged and should be tightened into one runnable execution packet before new planning work opens.",
+        )
+    if workspace_context.get("audience_feedback_path"):
+        return (
+            f"Draft the next {display_name} experiment SOP from the latest audience-feedback snapshot",
+            "Latest audience-feedback snapshot should be converted into one bounded experiment SOP before another planning cycle starts.",
+        )
+    if workspace_context.get("latest_analytics_path"):
+        return (
+            f"Draft the next {display_name} experiment SOP from the latest traction note",
+            "Latest traction note should be converted into one bounded experiment SOP before another planning cycle starts.",
+        )
+    if workspace_context.get("latest_briefing_path"):
+        return (
+            f"Draft the next {display_name} SOP from the latest workspace briefing",
+            "Latest workspace briefing should be converted into the next bounded SOP instead of looping back into another planning-only standup.",
+        )
+    if workspace_context.get("execution_log_path"):
+        return (
+            f"Draft the next {display_name} follow-through SOP from the execution log",
+            "Execution log should be used to define the next follow-through SOP before new planning work starts.",
+        )
+    return "", ""
+
+
+def _workspace_followthrough_opportunity_line(workspace_context: dict[str, Any]) -> str:
+    if workspace_context.get("latest_sop_path"):
+        return "Latest SOP is staged and can be tightened into one runnable execution packet."
+    if workspace_context.get("audience_feedback_path"):
+        return "Latest audience-feedback snapshot can be converted into one bounded experiment SOP."
+    if workspace_context.get("latest_analytics_path"):
+        return "Latest traction note can be converted into one bounded experiment SOP."
+    if workspace_context.get("latest_briefing_path"):
+        return "Latest workspace briefing can be converted into the next bounded SOP."
+    if workspace_context.get("execution_log_path"):
+        return "Execution log can be converted into the next follow-through SOP."
+    return ""
+
+
+def _workspace_followthrough_commitment_line(workspace_context: dict[str, Any]) -> str:
+    if workspace_context.get("latest_sop_path"):
+        return "Use the staged workspace SOP to produce one runnable execution packet before opening fresh planning work."
+    if workspace_context.get("audience_feedback_path") or workspace_context.get("latest_analytics_path"):
+        return "Turn the latest traction snapshot into one bounded experiment SOP before opening new narrative work."
+    if workspace_context.get("latest_briefing_path"):
+        return "Turn the latest workspace briefing into one bounded SOP before bringing the lane back for another planning cycle."
+    if workspace_context.get("execution_log_path"):
+        return "Use the execution log to open one follow-through SOP before starting another planning cycle."
+    return ""
+
+
+def _workspace_followthrough_acceptance_line(title: str, display_name: str) -> str:
+    lowered = title.lower()
+    if "sop" in lowered or "packet" in lowered:
+        return f"`{title}` produces one bounded artifact for `{display_name}` instead of another planning-only loop."
+    return f"`{title}` resolves into one bounded next move for `{display_name}` instead of staying a placeholder."
+
+
+def _workspace_placeholder_title(workspace_key: str) -> str:
+    return f"Define next concrete opportunity for {_workspace_pm_display_name(workspace_key)}"
+
+
+def _workspace_has_active_pm_card(pm_snapshot: dict[str, Any]) -> bool:
+    for card in pm_snapshot.get("cards") or []:
+        if not isinstance(card, dict):
+            continue
+        if str(card.get("status") or "").strip() != "done":
+            return True
+    return False
+
+
+def _pm_card_payload(card: dict[str, Any]) -> dict[str, Any]:
+    payload = card.get("payload")
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _pm_card_is_standup_generated(card: dict[str, Any]) -> bool:
+    payload = _pm_card_payload(card)
+    source = str(card.get("source") or "").strip().lower()
+    completion_contract = payload.get("completion_contract")
+    contract_source = (
+        str(completion_contract.get("source") or "").strip().lower()
+        if isinstance(completion_contract, dict)
+        else ""
+    )
+    return bool(
+        str(card.get("link_type") or "").strip().lower() == "standup"
+        or payload.get("created_from_standup_id")
+        or source.startswith("standup-prep:")
+        or source.startswith("post-sync-dispatch:")
+        or contract_source in {"standup_promotion", "post_sync_dispatch"}
+    )
+
+
+def _pm_card_is_open(card: dict[str, Any]) -> bool:
+    return _normalize_status(str(card.get("status") or "ready")) != "done"
+
+
+def _pm_card_status_rank(card: dict[str, Any]) -> int:
+    normalized = _normalize_status(str(card.get("status") or "ready"))
+    return {
+        "blocked": 0,
+        "review": 1,
+        "in_progress": 2,
+        "queued": 3,
+        "ready": 4,
+        "todo": 5,
+        "done": 6,
+    }.get(normalized, 5)
+
+
+def _pm_card_is_generic_placeholder(card: dict[str, Any], workspace_key: str) -> bool:
+    title = " ".join(str(card.get("title") or "").replace("`", "").split()).strip(" -.")
+    return title.lower() == _workspace_placeholder_title(workspace_key).lower()
+
+
+def _carry_forward_focus_card(pm_snapshot: dict[str, Any], workspace_key: str) -> dict[str, Any] | None:
+    candidates = [
+        card
+        for card in (pm_snapshot.get("cards") or [])
+        if isinstance(card, dict)
+        and _pm_card_is_open(card)
+        and _pm_card_is_standup_generated(card)
+        and _workspace_scope_matches(workspace_key, str(card.get("workspace_key") or workspace_key))
+    ]
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda card: (
+            _pm_card_status_rank(card),
+            str(card.get("updated_at") or ""),
+        ),
+    )
+    return candidates[0]
+
+
+def _carry_forward_resolution_line(title: str, status: str) -> str:
+    normalized_status = _normalize_status(status)
+    if normalized_status == "blocked":
+        return (
+            f"Carry `{title}` first: either close it if the blocker is gone, or return it with one specific blocker named on the PM board before new scope opens."
+        )
+    if normalized_status == "review":
+        return f"Carry `{title}` first: either close it or return it to execution with one specific gap before new scope opens."
+    return f"Carry `{title}` first: close it, return it with a specific blocker, or replace it with a sharper successor before opening a parallel lane."
+
+
+def _build_carry_forward_pm_update(
+    workspace_key: str,
+    owner_agent: str,
+    pm_snapshot: dict[str, Any],
+    workspace_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    focus_card = _carry_forward_focus_card(pm_snapshot, workspace_key)
+    if focus_card is None:
+        return None
+
+    focus_id = str(focus_card.get("id") or "").strip()
+    focus_title = str(focus_card.get("title") or "Untitled PM card").strip()
+    focus_status = _normalize_status(str(focus_card.get("status") or "ready"))
+    display_name = _workspace_pm_display_name(workspace_key)
+    resolution_line = _carry_forward_resolution_line(focus_title, focus_status)
+
+    if _pm_card_is_generic_placeholder(focus_card, workspace_key):
+        replacement_update = _workspace_idle_pm_update(workspace_key, owner_agent, workspace_context)
+        if replacement_update is not None and str(replacement_update.get("title") or "").strip().lower() != focus_title.lower():
+            refreshed_payload = dict(replacement_update.get("payload") or {})
+            refreshed_payload.update(
+                {
+                    "pm_card_id": focus_id,
+                    "carry_forward_required": True,
+                    "carry_forward_action": "refresh_existing_lane",
+                    "carry_forward_card_id": focus_id,
+                    "carry_forward_card_title": focus_title,
+                    "carry_forward_resolution_rule": "replace_with_sharper_successor",
+                    "carry_forward_status": focus_status,
+                    "carry_forward_summary": resolution_line,
+                }
+            )
+            replacement_update.update(
+                {
+                    "reason": f"Carry-forward pressure refreshed `{focus_title}` into a sharper successor instead of opening a parallel placeholder lane.",
+                    "payload": refreshed_payload,
+                }
+            )
+            return replacement_update
+
+    return {
+        "action": "recommend_only",
+        "pm_card_id": focus_id,
+        "workspace_key": workspace_key,
+        "scope": "workspace" if workspace_key != "shared_ops" else "shared_ops",
+        "owner_agent": owner_agent,
+        "title": focus_title,
+        "status": focus_status,
+        "reason": f"Carry-forward pressure: resolve `{focus_title}` before opening a parallel lane in `{display_name}`.",
+        "payload": {
+            "priority": "high",
+            "source": "standup_prep",
+            "source_agent": owner_agent,
+            "pm_card_id": focus_id,
+            "carry_forward_required": True,
+            "carry_forward_action": "reuse_existing_lane",
+            "carry_forward_card_id": focus_id,
+            "carry_forward_card_title": focus_title,
+            "carry_forward_resolution_rule": "close_return_or_sharpen_before_parallel_scope",
+            "carry_forward_status": focus_status,
+            "carry_forward_summary": resolution_line,
+            "instructions": [
+                resolution_line,
+                "Do not open a parallel lane while this standup-created card is still unresolved.",
+            ],
+            "acceptance_criteria": [
+                f"`{focus_title}` is either closed, returned with one specific blocker, or explicitly replaced by a sharper successor.",
+                "The PM board shows one resolved path instead of multiple parallel standup lanes.",
+            ],
+            "artifacts_expected": ["updated PM board state"],
+        },
+    }
+
+
+def _workspace_focus_pm_title(workspace_key: str, workspace_context: dict[str, Any]) -> tuple[str, str]:
+    audience_feedback = dict(workspace_context.get("audience_feedback") or {})
+    display_name = _workspace_pm_display_name(workspace_key)
+    followthrough_title, followthrough_signal = _workspace_followthrough_title(workspace_key, workspace_context)
+    for item in audience_feedback.get("recommended_next_focus") or []:
+        normalized = _normalize_workspace_pm_title(str(item))
+        if normalized and _is_actionable_pm_title(normalized):
+            return normalized, str(item).strip()
+    for item in audience_feedback.get("opportunity_signals") or []:
+        normalized = _normalize_workspace_pm_title(str(item))
+        lowered = normalized.lower()
+        if normalized and _is_actionable_pm_title(normalized):
+            return normalized, str(item).strip()
+        if "next concrete opportunity" in lowered or "underrepresented" in lowered or "cadence" in lowered:
+            if followthrough_title:
+                return followthrough_title, followthrough_signal or str(item).strip()
+            title = f"Define next concrete opportunity for {display_name}"
+            return title, str(item).strip()
+    if followthrough_title:
+        return followthrough_title, followthrough_signal
+    return "", ""
+
+
+def _workspace_idle_pm_update(
+    workspace_key: str,
+    owner_agent: str,
+    workspace_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    title, signal = _workspace_focus_pm_title(workspace_key, workspace_context)
+    if not title:
+        return None
+    display_name = _workspace_pm_display_name(workspace_key)
+    briefing_path = str(workspace_context.get("latest_briefing_path") or "").strip()
+    execution_log_path = str(workspace_context.get("execution_log_path") or "").strip()
+    analytics_path = str(workspace_context.get("latest_analytics_path") or "").strip()
+    audience_feedback_path = str(workspace_context.get("audience_feedback_path") or "").strip()
+
+    instructions = [f"Advance `{title}` inside `{workspace_key}` without expanding scope beyond the standup-backed next move."]
+    if briefing_path:
+        instructions.append(f"Use `{briefing_path}` as the primary briefing artifact for `{display_name}`.")
+    if execution_log_path:
+        instructions.append(f"Check `{execution_log_path}` before proposing new work so the result reflects what already shipped.")
+    if signal:
+        instructions.append(f"Anchor the next move in this standup signal: {signal}")
+    if audience_feedback_path or analytics_path:
+        instructions.append(
+            f"Pressure-test the next move against `{audience_feedback_path or analytics_path}` before writing back the recommendation."
+        )
+
+    artifacts_expected = [
+        "updated PM execution result",
+        *[path for path in (briefing_path, execution_log_path, audience_feedback_path or analytics_path) if path],
+    ]
+
+    return {
+        "action": "recommend_only",
+        "pm_card_id": None,
+        "workspace_key": workspace_key,
+        "scope": "workspace",
+        "owner_agent": owner_agent,
+        "title": title,
+        "status": "todo",
+        "reason": "Derived from workspace next-focus signal during standup prep.",
+        "payload": {
+            "priority": "medium",
+            "source": "standup_prep",
+            "source_agent": owner_agent,
+            "supporting_signal": signal,
+            "instructions": instructions,
+            "acceptance_criteria": [
+                _workspace_followthrough_acceptance_line(title, display_name),
+                "The result cites the latest briefing or execution log that justified the next move.",
+                "PM write-back names the exact artifact path, deliverable, or blocker.",
+            ],
+            "artifacts_expected": artifacts_expected,
+        },
+    }
+
+
+def _pm_candidate_gate(
+    candidate: str,
+    normalized_title: str,
+    pm_snapshot: dict[str, Any],
+) -> tuple[bool, str]:
+    raw = " ".join(str(candidate).split()).strip()
+    title = " ".join(normalized_title.split()).strip()
+    if not raw or not title:
+        return False, "empty"
+
+    existing_titles = {
+        str(card.get("title") or "").strip().lower()
+        for card in (pm_snapshot.get("cards") or [])
+        if isinstance(card, dict) and str(card.get("title") or "").strip()
+    }
+    if title.lower() in existing_titles:
+        return False, "duplicate_active_card"
+
+    if _is_non_actionable_status_surface(raw):
+        return False, "non_actionable_status"
+
+    lowered_raw = raw.lower()
+    advisory_prefixes = (
+        "workspace execution should ",
+        "jean-claude should ",
+        "neo should ",
+        "yoda should ",
+        "keep ",
+        "complete ",
+        "review ",
+        "decide whether ",
+        "nothing to report",
+    )
+    if lowered_raw.startswith(advisory_prefixes):
+        return False, "advisory_statement"
+
+    if title == "Wire Chronicle into standup and PM flow" and not _is_chronicle_flow_action_candidate(raw):
+        return False, "not_chronicle_flow_action"
+
+    if not _is_actionable_pm_title(title):
+        return False, "not_action_shaped"
+
+    return True, "promote_to_pm"
+
+
+def _build_promotions(entries: list[dict[str, Any]], workspace_key: str) -> list[dict[str, Any]]:
+    promotions: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in entries:
+        if _chronicle_entry_is_chat_derived(item):
+            continue
+        for content in item.get("memory_promotions") or []:
+            normalized = _normalize_memory_content(content)
+            key = ("persistent_state", normalized.strip().lower())
+            if not normalized or key in seen:
+                continue
+            seen.add(key)
+            promotions.append(
+                {
+                    "target": "persistent_state",
+                    "workspace_key": workspace_key,
+                    "reason": "Chronicle signal marked for durable memory.",
+                    "content": normalized,
+                }
+            )
+        for content in item.get("learning_updates") or []:
+            normalized = _normalize_memory_content(content)
+            key = ("learnings", normalized.strip().lower())
+            if not normalized or key in seen:
+                continue
+            seen.add(key)
+            promotions.append(
+                {
+                    "target": "learnings",
+                    "workspace_key": workspace_key,
+                    "reason": "Implementation learning should survive beyond the current session.",
+                    "content": normalized,
+                }
+            )
+    return promotions[:10]
+
+
+def _build_pm_updates(
+    entries: list[dict[str, Any]],
+    workspace_key: str,
+    owner_agent: str,
+    pm_snapshot: dict[str, Any],
+    workspace_context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    updates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    if not pm_snapshot.get("available"):
+        return updates
+
+    if workspace_key != "shared_ops" and workspace_context:
+        carry_forward_update = _build_carry_forward_pm_update(workspace_key, owner_agent, pm_snapshot, workspace_context)
+        if carry_forward_update is not None:
+            return [carry_forward_update]
+
+    if workspace_key == "shared_ops":
+        candidate_entries = entries
+    else:
+        candidate_entries = [
+            item for item in entries if str(item.get("workspace_key") or "shared_ops") == workspace_key
+        ]
+    candidate_entries = [item for item in candidate_entries if not _chronicle_entry_is_chat_derived(item)]
+    for item in candidate_entries:
+        for candidate in item.get("pm_candidates") or []:
+            title = _normalize_pm_title(candidate)
+            if not title:
+                continue
+            key = title.lower()
+            if key in seen:
+                continue
+            should_promote, _ = _pm_candidate_gate(candidate, title, pm_snapshot)
+            if not should_promote:
+                continue
+            seen.add(key)
+            updates.append(
+                {
+                    "action": "recommend_only",
+                    "pm_card_id": None,
+                    "workspace_key": workspace_key,
+                    "scope": "workspace" if workspace_key != "shared_ops" else "shared_ops",
+                    "owner_agent": owner_agent,
+                    "title": title[:120],
+                    "status": "todo",
+                    "reason": "Derived from recent Codex Chronicle signal during standup prep.",
+                    "payload": {
+                        "priority": "medium",
+                        "source": "standup_prep",
+                        "source_agent": owner_agent,
+                    },
+                }
+            )
+    if updates or workspace_key == "shared_ops" or not workspace_context:
+        return updates[:10]
+    if _workspace_has_active_pm_card(pm_snapshot):
+        return updates[:10]
+    workspace_update = _workspace_idle_pm_update(workspace_key, owner_agent, workspace_context)
+    if workspace_update is not None:
+        updates.append(workspace_update)
+    return updates[:10]
+
+
+def _chronicle_entry_is_chat_derived(item: dict[str, Any]) -> bool:
+    source = str(item.get("source") or "").strip().lower()
+    if source == "codex-history":
+        return True
+    source_refs = item.get("source_refs")
+    if not isinstance(source_refs, list):
+        return False
+    for ref in source_refs:
+        if not isinstance(ref, dict):
+            continue
+        ref_source = str(ref.get("source") or "").strip().lower()
+        if ref_source in {"codex-history", "codex-session-transcript"}:
+            return True
+    return False
+
+
+def _strategy_lines(strategy_context: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    charter_excerpt = str(strategy_context.get("charter_excerpt") or "").strip()
+    identity_excerpt = str(strategy_context.get("identity_excerpt") or "").strip()
+    soul_excerpt = str(strategy_context.get("soul_excerpt") or "").strip()
+    user_excerpt = str(strategy_context.get("user_excerpt") or "").strip()
+    inferred_excerpt = str(strategy_context.get("inferred_excerpt") or "").strip()
+    if charter_excerpt or identity_excerpt or soul_excerpt or user_excerpt:
+        lines.append(f"Charter and workspace pack loaded for `{strategy_context.get('display_name')}`.")
+    lane_boundary = str(strategy_context.get("lane_boundary") or "").strip()
+    if lane_boundary:
+        lines.append(f"Workspace boundary: {lane_boundary}.")
+    trust_constraint = str(strategy_context.get("trust_constraint") or "").strip()
+    if trust_constraint:
+        lines.append(f"Trust constraint: {trust_constraint}.")
+    execution_posture = str(strategy_context.get("execution_posture") or "").strip()
+    if execution_posture:
+        lines.append(f"Execution posture: {execution_posture}.")
+    if inferred_excerpt:
+        lines.append("Inferred operating brief is available and should shape interpretation.")
+    routing = str(strategy_context.get("default_routing") or "").strip()
+    if routing:
+        lines.append(routing)
+    return lines
+
+
+def _build_provenance_summary(
+    chronicle_entries: list[dict[str, Any]],
+    memory_promotions: list[dict[str, Any]],
+    pm_updates: list[dict[str, Any]],
+    durable_memory_context: dict[str, Any],
+    pm_updates_blocked_reason: str | None,
+) -> dict[str, Any]:
+    chronicle_total = len(chronicle_entries)
+    chronicle_chat_derived = sum(1 for item in chronicle_entries if _chronicle_entry_is_chat_derived(item))
+    chronicle_curated = chronicle_total - chronicle_chat_derived
+    notes: list[str] = []
+    if chronicle_chat_derived:
+        notes.append(
+            "Chat-derived Chronicle entries are still visible in highlights, but they are excluded from durable memory promotions and PM recommendations."
+        )
+    if durable_memory_context.get("available"):
+        notes.append(
+            f"Durable memory recall contributed {int(durable_memory_context.get('result_count') or 0)} older markdown artifact(s) outside the recent Chronicle tail."
+        )
+    if pm_updates_blocked_reason == "pm_snapshot_unavailable":
+        notes.append("PM recommendations are suppressed when PM snapshot truth is unavailable.")
+    if not notes:
+        notes.append("Chronicle, durable memory, and PM recommendation lanes are aligned without a visible provenance exception in this prep.")
+    return {
+        "chronicle_entry_count": chronicle_total,
+        "chronicle_chat_derived_count": chronicle_chat_derived,
+        "chronicle_curated_count": chronicle_curated,
+        "durable_memory_result_count": int(durable_memory_context.get("result_count") or 0),
+        "memory_promotion_count": len(memory_promotions),
+        "pm_recommendation_count": len(pm_updates),
+        "pm_updates_blocked_reason": pm_updates_blocked_reason,
+        "notes": notes,
+    }
+
+
+def _build_markdown(prep: dict[str, Any]) -> str:
+    lines = [
+        f"# Standup Prep — {prep['standup_kind']} — {prep['workspace_key']}",
+        "",
+        f"- Generated: `{prep['generated_at']}`",
+        f"- Owner Agent: `{prep['owner_agent']}`",
+        "",
+        "## Summary",
+        prep["summary"],
+        "",
+        "## PM Snapshot",
+    ]
+    pm_snapshot_lines = list((prep.get("pm_snapshot") or {}).get("lines") or [])
+    if not pm_snapshot_lines:
+        lines.append("- No PM snapshot available.")
+    else:
+        for item in pm_snapshot_lines:
+            lines.append(f"- {item}")
+    lines.extend(["", "## Agenda"])
+    agenda = prep.get("agenda") or ["Nothing to report."]
+    for item in agenda:
+        lines.append(f"- {item}")
+    decision_loop = dict(prep.get("decision_loop") or {})
+    if decision_loop.get("active"):
+        lines.extend(["", "## Chronicle Decision Loop"])
+        for item in decision_loop.get("questions") or []:
+            lines.append(f"- {item}")
+        routes = decision_loop.get("routing_targets") or []
+        if routes:
+            lines.append("- Routing targets: " + ", ".join(f"`{item}`" for item in routes) + ".")
+        if decision_loop.get("pm_gate"):
+            lines.append(f"- PM gate: {decision_loop['pm_gate']}")
+    lines.extend(["", "## Artifact Deltas"])
+    artifact_deltas = prep.get("artifact_deltas") or ["No artifact deltas captured yet."]
+    for item in artifact_deltas:
+        lines.append(f"- {item}")
+    lines.extend(["", "## Brain Context"])
+    brain_context_lines = prep.get("brain_context_lines") or ["No active Brain Signal or portfolio blocker is attached to this prep."]
+    for item in brain_context_lines:
+        lines.append(f"- {item}")
+    lines.extend(["", "## Provenance Summary"])
+    provenance_summary = dict(prep.get("provenance_summary") or {})
+    if not provenance_summary:
+        lines.append("- None.")
+    else:
+        lines.append(
+            "- "
+            + f"Chronicle entries: `{int(provenance_summary.get('chronicle_entry_count') or 0)}` total, "
+            + f"`{int(provenance_summary.get('chronicle_curated_count') or 0)}` curated, "
+            + f"`{int(provenance_summary.get('chronicle_chat_derived_count') or 0)}` chat-derived."
+        )
+        lines.append(
+            "- "
+            + f"Durable memory results: `{int(provenance_summary.get('durable_memory_result_count') or 0)}`. "
+            + f"Memory promotions: `{int(provenance_summary.get('memory_promotion_count') or 0)}`. "
+            + f"PM recommendations: `{int(provenance_summary.get('pm_recommendation_count') or 0)}`."
+        )
+        for item in provenance_summary.get("notes") or []:
+            lines.append(f"- {item}")
+    lines.extend(["", "## Blockers"])
+    blockers = prep.get("blockers") or ["None."]
+    for item in blockers:
+        lines.append(f"- {item}")
+    lines.extend(["", "## Commitments"])
+    commitments = prep.get("commitments") or ["None."]
+    for item in commitments:
+        lines.append(f"- {item}")
+    lines.extend(["", "## Needs"])
+    needs = prep.get("needs") or ["None."]
+    for item in needs:
+        lines.append(f"- {item}")
+    standup_sections = dict(prep.get("standup_sections") or {})
+    if standup_sections:
+        for title, key in (
+            ("Signal", "signals_captured"),
+            ("FEEZIE Source Loop", "feezie_source_loop"),
+            ("Work Produced", "content_produced"),
+            ("Traction", "audience_response"),
+            ("Opportunities", "opportunities_created"),
+            ("Next Focus", "next_focus"),
+        ):
+            lines.extend(["", f"## {title}"])
+            section_items = standup_sections.get(key) or ["None."]
+            for item in section_items:
+                lines.append(f"- {item}")
+    else:
+        lines.extend(["", "## Traction"])
+        audience_response = prep.get("audience_response") or ["None."]
+        for item in audience_response:
+            lines.append(f"- {item}")
+    lines.extend(["", "## Memory Promotions"])
+    promotions = prep.get("memory_promotions") or []
+    if not promotions:
+        lines.append("- None.")
+    else:
+        for item in promotions:
+            lines.append(f"- `{item['target']}`: {item['content']}")
+    lines.extend(["", "## PM Recommendations"])
+    pm_updates = prep.get("pm_updates") or []
+    if not pm_updates:
+        lines.append("- None.")
+    else:
+        for item in pm_updates:
+            lines.append(f"- `{item['workspace_key']}`: {item['title']}")
+    lines.extend(["", "## Strategy Context"])
+    for item in prep.get("strategy_context_lines") or ["No strategy context loaded."]:
+        lines.append(f"- {item}")
+    lines.extend(["", "## Chronicle Highlights"])
+    entries = prep.get("chronicle_entries") or []
+    if not entries:
+        lines.append("- None.")
+    else:
+        for item in entries:
+            lines.append(f"- {_standup_chronicle_summary(item)}")
+    lines.extend(["", "## Durable Memory Recall"])
+    durable_memory = (prep.get("durable_memory_context") or {}).get("results") or []
+    if not durable_memory:
+        lines.append("- None.")
+    else:
+        for item in durable_memory:
+            title = str(item.get("title") or "Untitled").strip()
+            excerpt = str(item.get("excerpt") or "").strip()
+            path_str = str(item.get("path") or "").strip()
+            if excerpt:
+                lines.append(f"- `{title}` ({path_str}): {excerpt}")
+            else:
+                lines.append(f"- `{title}` ({path_str})")
+    lines.extend(["", "## Source Paths"])
+    for item in prep.get("source_paths") or []:
+        lines.append(f"- `{item}`")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _durable_memory_hints(
+    workspace_key: str,
+    workspace_display_name: str,
+    chronicle_entries: list[dict[str, Any]],
+) -> list[str]:
+    hints: list[str] = [workspace_key, workspace_display_name]
+    for entry in chronicle_entries:
+        for field in (
+            entry.get("summary"),
+            *(entry.get("decisions") or [])[:1],
+            *(entry.get("memory_promotions") or [])[:1],
+            *(entry.get("learning_updates") or [])[:1],
+            *(entry.get("pm_candidates") or [])[:1],
+        ):
+            if isinstance(field, str) and field.strip():
+                hints.append(field)
+    return hints
+
+
+def main() -> int:
+    maybe_reexec_with_workspace_venv()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--standup-kind", default="auto")
+    parser.add_argument("--workspace-key", default="shared_ops")
+    parser.add_argument("--owner-agent", default="jean-claude")
+    parser.add_argument("--chronicle-limit", type=int, default=8)
+    parser.add_argument("--output-root", default=str(MEMORY_ROOT / "standup-prep"))
+    parser.add_argument("--api-url", default=DEFAULT_API_URL)
+    parser.add_argument("--create-standup-entry", action="store_true")
+    args = parser.parse_args()
+
+    imports = _optional_backend_imports()
+    resolved_standup_kind = (
+        imports["default_standup_kind_for_workspace"](args.workspace_key)
+        if args.standup_kind == "auto" and imports.get("default_standup_kind_for_workspace")
+        else args.standup_kind
+    )
+    generated_at = _now()
+    stamp = _stamp(generated_at)
+    output_root = Path(args.output_root)
+    json_path = output_root / resolved_standup_kind / f"{stamp}.json"
+    md_path = output_root / resolved_standup_kind / f"{stamp}.md"
+
+    registry = _read_registry()
+    strategy_context = _load_strategy_context(args.workspace_key, registry)
+    chronicle_entries_raw = _filter_chronicle_entries(args.workspace_key, args.chronicle_limit)
+    chronicle_entries = _standup_ready_chronicle_entries(chronicle_entries_raw, workspace_key=args.workspace_key)
+    pm_context = _load_pm_context(imports, args.workspace_key, args.api_url)
+    workspace_display_name = str(strategy_context.get("display_name") or args.workspace_key)
+    workspace_label = _workspace_label(args.workspace_key, workspace_display_name)
+    pm_snapshot = _build_pm_snapshot(pm_context, args.workspace_key, workspace_label)
+    automation_context = _load_automation_context(imports)
+    workspace_context = _workspace_context(args.workspace_key, registry)
+    source_lifecycle = _load_feezie_source_lifecycle() if _is_feezie_workspace_key(args.workspace_key) else {}
+    durable_memory_context = build_durable_memory_context(
+        args.workspace_key,
+        _durable_memory_hints(args.workspace_key, workspace_display_name, chronicle_entries),
+    )
+    fallback_watchdog = _load_fallback_watchdog_report()
+    brain_context = build_brain_automation_context(signal_limit=5)
+    raw_brain_context_lines = [
+        *portfolio_attention_lines(brain_context, limit=2),
+        *workspace_brain_signal_lines(brain_context, args.workspace_key, limit=3),
+        *source_intelligence_lines(brain_context, limit=1),
+    ]
+    brain_context_lines: list[str] = []
+    for item in raw_brain_context_lines:
+        if _is_chat_ingestion_residue(item):
+            continue
+        normalized = _normalize_standup_signal_text(item)
+        if normalized:
+            brain_context_lines.append(normalized)
+    brain_context_lines = _dedupe_strings(brain_context_lines, limit=6)
+    memory_context = {
+        "persistent_state_tail": _tail_text(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md")),
+        "automation_ledger_available": CODEX_RUN_LEDGER_PATH.exists(),
+        "daily_briefs_tail": _tail_text(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/daily-briefs.md")),
+        "today_log_tail": _tail_text(
+            resolve_snapshot_fallback_path(WORKSPACE_ROOT, f"memory/{datetime.now().astimezone():%Y-%m-%d}.md")
+        ),
+    }
+    if workspace_context.get("available"):
+        memory_context["workspace_briefing_tail"] = workspace_context.get("latest_briefing_tail", "")
+        memory_context["workspace_execution_log_tail"] = workspace_context.get("execution_log_tail", "")
+
+    blockers: list[str] = []
+    commitments: list[str] = []
+    needs: list[str] = []
+    audience_response = _build_audience_response(workspace_context)
+    pm_context_fallback_active = bool(pm_context.get("fallback_active"))
+    pm_context_source = str(pm_context.get("source") or "").strip()
+    pm_context_fallback_reason = str(pm_context.get("fallback_reason") or "").strip()
+    automation_fallback_active = bool(automation_context.get("fallback_active"))
+    automation_context_source = str(automation_context.get("source") or "").strip()
+    automation_fallback_reason = str(automation_context.get("fallback_reason") or "").strip()
+    if pm_context_fallback_active:
+        blockers.append(
+            "PM context used a fallback source"
+            + (f" (`{pm_context_source}`)" if pm_context_source else "")
+            + (
+                f" because `{pm_context_fallback_reason}`."
+                if pm_context_fallback_reason
+                else "."
+            )
+        )
+    if automation_fallback_active:
+        blockers.append(
+            "Automation context used a fallback source"
+            + (f" (`{automation_context_source}`)" if automation_context_source else "")
+            + (
+                f" because `{automation_fallback_reason}`."
+                if automation_fallback_reason
+                else "."
+            )
+        )
+    fallback_watchdog_active = bool(fallback_watchdog.get("active"))
+    fallback_watchdog_count = int(fallback_watchdog.get("active_count") or 0)
+    fallback_watchdog_headline = str(fallback_watchdog.get("headline") or "").strip()
+    fallback_followup = dict(fallback_watchdog.get("followup_card") or {})
+    if fallback_watchdog_active:
+        blockers.append(
+            fallback_watchdog_headline
+            or f"Fallback watchdog reports {fallback_watchdog_count} active degraded source contract(s)."
+        )
+        followup_title = str(fallback_followup.get("title") or "").strip()
+        if followup_title:
+            needs.append(
+                f"Review `{followup_title}` on the PM board and repair the degraded source contract before trusting downstream automation."
+            )
+        elif fallback_watchdog.get("report_path"):
+            needs.append(
+                f"Review `{fallback_watchdog['report_path']}` and repair the degraded source contract before trusting downstream automation."
+            )
+    if chronicle_entries:
+        for entry in chronicle_entries:
+            for item in entry.get("blockers") or []:
+                normalized_blocker = _normalize_standup_signal_text(item)
+                if normalized_blocker:
+                    blockers.append(normalized_blocker)
+        for entry in chronicle_entries:
+            for item in entry.get("follow_ups") or []:
+                normalized_follow_up = _normalize_standup_signal_text(item)
+                if normalized_follow_up:
+                    needs.append(normalized_follow_up)
+    mismatch_count = int(
+        automation_context.get("mismatch_count")
+        or (automation_context.get("fallback") or {}).get("mismatch_count")
+        or 0
+    )
+    action_required = int(
+        automation_context.get("action_required_count")
+        or (automation_context.get("fallback") or {}).get("action_required_count")
+        or 0
+    )
+    if mismatch_count or action_required:
+        blockers.append(
+            f"Automation drift remains: mismatch_count={mismatch_count}, action_required_count={action_required}."
+        )
+    for card in pm_snapshot.get("cards") or []:
+        status = str(card.get("status") or "ready")
+        title = str(card.get("title") or "Untitled").strip()
+        if status == "blocked":
+            blockers.append(f"PM board marks `{title}` as blocked.")
+        elif status == "review":
+            commitments.append(f"Review `{title}` and decide whether it closes or returns to execution.")
+        elif status == "in_progress":
+            commitments.append(f"Keep `{title}` moving and bring the result back to the next standup.")
+        elif status == "queued":
+            commitments.append(f"Jean-Claude should open the SOP for `{title}` and move it into execution.")
+        elif status == "ready":
+            commitments.append(f"Decide whether `{title}` is the next board item to queue.")
+    if not pm_context.get("available"):
+        needs.append("PM board is not reachable from the current runtime; treat PM updates as recommendations only.")
+    if args.workspace_key != "shared_ops" and not workspace_context.get("available"):
+        blockers.append(f"{workspace_label} has no local artifact root yet.")
+    followthrough_commitment = _workspace_followthrough_commitment_line(workspace_context)
+    if followthrough_commitment and args.workspace_key != "shared_ops":
+        commitments.append(followthrough_commitment)
+    if workspace_context.get("execution_log_path"):
+        commitments.append("Use the workspace execution log to confirm what actually shipped before adding new work.")
+    if audience_response:
+        commitments.append("Review the latest public audience-feedback snapshot before changing narrative direction.")
+
+    memory_promotions = _build_promotions(chronicle_entries, args.workspace_key)
+    pm_updates_blocked_reason: str | None = None
+    if pm_snapshot.get("available"):
+        pm_updates = _build_pm_updates(chronicle_entries, args.workspace_key, args.owner_agent, pm_snapshot, workspace_context)
+    else:
+        pm_updates = []
+        pm_updates_blocked_reason = "pm_snapshot_unavailable"
+    if resolved_standup_kind == "saturday_vision":
+        pm_updates = []
+        needs.append("Keep Saturday Vision Sync strategy-only unless a conclusion clearly deserves PM promotion.")
+    else:
+        for item in pm_updates[:3]:
+            title = str(item.get("title") or "").strip()
+            if title:
+                payload = dict(item.get("payload") or {})
+                if payload.get("carry_forward_required"):
+                    needs.append(
+                        f"Use the PM board to resolve `{title}` in place before another standup-created lane is allowed to open."
+                    )
+                else:
+                    needs.append(f"Decide whether to create or queue `{title}` from current Chronicle signal.")
+    carry_forward_update = next(
+        (
+            item
+            for item in pm_updates
+            if isinstance(item, dict) and bool(dict(item.get("payload") or {}).get("carry_forward_required"))
+        ),
+        None,
+    )
+    if carry_forward_update is not None:
+        carry_forward_payload = dict(carry_forward_update.get("payload") or {})
+        carry_forward_title = str(carry_forward_update.get("title") or "this lane").strip()
+        carry_forward_status = str(carry_forward_update.get("status") or "ready")
+        carry_forward_summary = str(carry_forward_payload.get("carry_forward_summary") or "").strip() or _carry_forward_resolution_line(
+            carry_forward_title,
+            carry_forward_status,
+        )
+        commitments.insert(0, carry_forward_summary)
+        needs.insert(0, "Do not open a parallel standup lane while the current carry-forward lane is unresolved.")
+        if _normalize_status(carry_forward_status) == "blocked":
+            blockers.insert(0, f"Carry-forward lane `{carry_forward_title}` is still blocked and needs one specific blocker named on the PM board.")
+        elif _normalize_status(carry_forward_status) == "review":
+            blockers.insert(0, f"Carry-forward lane `{carry_forward_title}` is still waiting on a close-or-return decision.")
+    artifact_deltas = _build_artifact_deltas(chronicle_entries, automation_context, workspace_context, memory_context)
+    automation_clean = mismatch_count == 0 and action_required == 0
+    blockers = _filter_resolved_ai_clone_issue_lines(blockers, automation_clean=automation_clean)
+    needs = _filter_resolved_ai_clone_issue_lines(needs, automation_clean=automation_clean)
+    artifact_deltas = _filter_resolved_ai_clone_issue_lines(artifact_deltas, automation_clean=automation_clean)
+    for item in reversed(brain_context_lines[:5]):
+        artifact_deltas.insert(0, f"Brain context: {item}")
+    if pm_context_fallback_active:
+        artifact_deltas.insert(
+            0,
+            "PM context fallback: "
+            + (
+                f"using `{pm_context_source}` because `{pm_context_fallback_reason}`."
+                if pm_context_source and pm_context_fallback_reason
+                else "the primary PM backend contract was unavailable."
+            ),
+        )
+    if automation_fallback_active:
+        artifact_deltas.insert(
+            0,
+            "Automation context fallback: "
+            + (
+                f"using `{automation_context_source}` because `{automation_fallback_reason}`."
+                if automation_context_source and automation_fallback_reason
+                else "the primary automation mismatch contract was unavailable."
+            ),
+        )
+    if fallback_watchdog_active:
+        artifact_deltas.insert(
+            0,
+            "Fallback watchdog: "
+            + (
+                fallback_watchdog_headline
+                or f"{fallback_watchdog_count} degraded source contract(s) are active."
+            ),
+        )
+        report_path = str(fallback_watchdog.get("report_path") or "").strip()
+        if report_path:
+            artifact_deltas.insert(1, f"Fallback watchdog report: {report_path}")
+    strategy_context_lines = _strategy_lines(strategy_context)
+    provenance_summary = _build_provenance_summary(
+        chronicle_entries,
+        memory_promotions,
+        pm_updates,
+        durable_memory_context,
+        pm_updates_blocked_reason,
+    )
+    blockers = _filter_resolved_workspace_root_blockers(
+        blockers,
+        workspace_key=args.workspace_key,
+        registry=registry,
+        workspace_context=workspace_context,
+    )
+    agenda = _build_agenda(pm_snapshot, pm_updates, blockers, args.workspace_key, strategy_context, resolved_standup_kind)
+    decision_loop = _build_decision_loop(args.workspace_key, resolved_standup_kind, pm_updates)
+
+    blockers = _dedupe_strings(blockers, limit=8)
+    commitments = _dedupe_strings(commitments, limit=8)
+    needs = _dedupe_strings(needs, limit=8)
+    standup_sections = _build_standup_sections(
+        args.workspace_key,
+        chronicle_entries,
+        workspace_context,
+        pm_snapshot,
+        audience_response,
+        needs,
+        source_lifecycle,
+    )
+
+    summary_parts = []
+    if pm_snapshot.get("available"):
+        summary_parts.append(
+            f"PM board shows {pm_snapshot.get('open_count', 0)} open scoped card(s) and sets the meeting agenda first."
+        )
+    else:
+        summary_parts.append("PM board is unavailable from this runtime, so the meeting stays recommendation-only.")
+    if chronicle_entries:
+        summary_parts.append(f"Chronicle contributes {len(chronicle_entries)} recent high-signal chunk(s).")
+    elif chronicle_entries_raw:
+        summary_parts.append("Chronicle activity was present, but no standup-safe workspace signal cleared the productivity filter.")
+    if durable_memory_context.get("available"):
+        summary_parts.append(
+            f"Durable memory retrieval surfaced {durable_memory_context.get('result_count', 0)} older markdown artifact(s)."
+        )
+    if pm_context_fallback_active:
+        summary_parts.append(
+            "PM context is currently running on a fallback source"
+            + (f" (`{pm_context_source}`)." if pm_context_source else ".")
+        )
+    if automation_fallback_active:
+        summary_parts.append(
+            "Automation context is currently running on a fallback source"
+            + (f" (`{automation_context_source}`)." if automation_context_source else ".")
+        )
+    if fallback_watchdog_active:
+        summary_parts.append(
+            fallback_watchdog_headline
+            or f"Fallback watchdog reports {fallback_watchdog_count} active degraded source contract(s)."
+        )
+    if brain_context_lines:
+        summary_parts.append("Brain context contributes portfolio snapshot, signal review, and source intelligence state.")
+    if automation_clean:
+        summary_parts.append("Automation layer is currently clean.")
+    if args.workspace_key != "shared_ops":
+        if workspace_context.get("latest_briefing_path"):
+            summary_parts.append(f"{workspace_label} artifacts are available to support board decisions.")
+        else:
+            summary_parts.append(f"{workspace_label} artifact lane is still sparse and needs its first recurring meeting cadence.")
+        if carry_forward_update is not None:
+            summary_parts.append("Carry-forward pressure is active, so this meeting should resolve the prior standup lane before opening another one.")
+        if audience_response:
+            summary_parts.append("Public audience response is available to pressure-test narrative quality before the next content move.")
+    if strategy_context_lines:
+        summary_parts.append(strategy_context_lines[0])
+
+    for item in pm_updates:
+        payload = dict(item.get("payload") or {})
+        payload.update(
+            {
+                "strategy_context": {
+                    "display_name": strategy_context.get("display_name"),
+                    "default_routing": strategy_context.get("default_routing"),
+                    "charter_path": strategy_context.get("charter_path"),
+                    "identity_path": strategy_context.get("identity_path"),
+                    "soul_path": strategy_context.get("soul_path"),
+                    "user_path": strategy_context.get("user_path"),
+                    "lane_boundary": strategy_context.get("lane_boundary"),
+                    "trust_constraint": strategy_context.get("trust_constraint"),
+                    "execution_posture": strategy_context.get("execution_posture"),
+                    "inferred_brief_path": strategy_context.get("inferred_brief_path"),
+                }
+            }
+        )
+        item["payload"] = payload
+
+    prep = {
+        "schema_version": "standup_prep/v2",
+        "prep_id": str(uuid.uuid4()),
+        "generated_at": _iso(generated_at),
+        "standup_kind": resolved_standup_kind,
+        "workspace_key": args.workspace_key,
+        "owner_agent": args.owner_agent,
+        "summary": " ".join(summary_parts) or "Standup prep generated.",
+        "agenda": agenda,
+        "decision_loop": decision_loop,
+        "artifact_deltas": artifact_deltas,
+        "blockers": blockers,
+        "commitments": commitments,
+        "needs": needs,
+        "audience_response": audience_response,
+        "standup_sections": standup_sections,
+        "chronicle_entries": chronicle_entries,
+        "durable_memory_context": durable_memory_context,
+        "fallback_watchdog": fallback_watchdog,
+        "brain_context": brain_context,
+        "brain_context_lines": brain_context_lines,
+        "memory_context": memory_context,
+        "workspace_context": workspace_context,
+        "strategy_context": strategy_context,
+        "strategy_context_lines": strategy_context_lines,
+        "pm_context": pm_context,
+        "pm_snapshot": pm_snapshot,
+        "automation_context": automation_context,
+        "source_lifecycle": source_lifecycle,
+        "memory_promotions": memory_promotions,
+        "pm_updates": pm_updates,
+        "pm_updates_blocked_reason": pm_updates_blocked_reason,
+        "provenance_summary": provenance_summary,
+        "standup_payload": {
+            "owner": args.owner_agent,
+            "status": "prepared",
+            "blockers": blockers,
+            "commitments": commitments,
+            "needs": needs,
+            "source": "codex-chronicle-standup-prep",
+            "conversation_path": str(md_path),
+            "workspace_key": args.workspace_key,
+            "payload": {
+                "standup_kind": resolved_standup_kind,
+                "summary": " ".join(summary_parts) or "Standup prep generated.",
+                "prep_json_path": str(json_path),
+                "chronicle_path": str(CODEX_CHRONICLE_PATH),
+                "durable_memory_context": durable_memory_context,
+                "fallback_watchdog": fallback_watchdog,
+                "brain_context": brain_context,
+                "provenance_summary": provenance_summary,
+                "agenda": agenda,
+                "decision_loop": decision_loop,
+                "artifact_deltas": artifact_deltas,
+                "audience_response": audience_response,
+                "standup_sections": standup_sections,
+                "pm_snapshot": pm_snapshot,
+                "strategy_context": strategy_context,
+            },
+        },
+        "source_paths": list(
+            dict.fromkeys(
+                [
+                    str(CODEX_CHRONICLE_PATH),
+                    str(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md")),
+                    *([str(CODEX_RUN_LEDGER_PATH)] if CODEX_RUN_LEDGER_PATH.exists() else []),
+                    str(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/daily-briefs.md")),
+                    *([str(INFERRED_BRIEF_PATH)] if INFERRED_BRIEF_PATH.exists() else []),
+                    *([strategy_context["charter_path"]] if strategy_context.get("charter_path") else []),
+                    *([strategy_context["identity_path"]] if strategy_context.get("identity_path") else []),
+                    *([strategy_context["soul_path"]] if strategy_context.get("soul_path") else []),
+                    *([strategy_context["user_path"]] if strategy_context.get("user_path") else []),
+                    *([pm_context["source_ref"]] if pm_context.get("source_ref") else []),
+                    *([automation_context["source_ref"]] if automation_context.get("source_ref") else []),
+                    *(fallback_watchdog.get("source_paths") or []),
+                    *([source_lifecycle.get("source_ref")] if isinstance(source_lifecycle, dict) and source_lifecycle.get("source_ref") else []),
+                    *(brain_context.get("source_paths") or []),
+                    *durable_memory_context.get("source_paths", []),
+                    *workspace_context.get("source_paths", []),
+                ]
+            )
+        ),
+    }
+
+    if args.create_standup_entry and imports.get("create_standup") and imports.get("StandupCreate"):
+        try:
+            standup_payload = imports["StandupCreate"](**prep["standup_payload"])
+            entry = imports["create_standup"](standup_payload)
+            prep["created_standup"] = entry.model_dump(mode="json")
+        except Exception as exc:
+            prep["created_standup_error"] = str(exc)
+
+    _write_json(json_path, prep)
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(_build_markdown(prep), encoding="utf-8")
+    print(prep["summary"])
+    print(f"JSON: {json_path}")
+    print(f"Markdown: {md_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

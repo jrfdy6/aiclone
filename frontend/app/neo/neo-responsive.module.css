@@ -1,0 +1,11 @@
+@media (max-width: 600px) {
+  .accessCard {
+    box-sizing: border-box;
+    width: calc(100% - 32px);
+  }
+
+  .chatCard {
+    box-sizing: border-box;
+    width: 100%;
+  }
+}

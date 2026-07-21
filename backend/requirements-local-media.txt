@@ -1,0 +1,5 @@
+# Local Codex/launchd media workers only. Railway installs requirements.txt,
+# which intentionally excludes Whisper and its heavyweight PyTorch runtime.
+# External PATH binaries are not pip-managed: yt-dlp and ffmpeg are required.
+# Validated local baseline: yt-dlp 2026.03.13 and ffmpeg 8.0.1.
+openai-whisper==20240930

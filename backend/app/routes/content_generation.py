@@ -1,0 +1,7474 @@
+"""
+AI-Powered Content Generation Routes
+
+Generates content using:
+1. User's persona and style from knowledge base
+2. High-performing content examples
+3. Topic intelligence data
+4. PACER/Chris Do frameworks
+"""
+
+from dataclasses import dataclass
+from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+import hashlib
+import ipaddress
+import os
+import json
+import re
+import secrets
+import time
+from urllib.parse import urlsplit, urlunsplit
+
+from app.services.embedders import embed_text
+from app.services.content_generation_context_service import (
+    ContentGenerationContext,
+    build_content_generation_context,
+)
+from app.services.generated_fragment_promotion_service import promote_generated_fragment, undo_generated_fragment_promotion
+from app.services.local_codex_context_cache_service import (
+    build_context_cache_key,
+    load_cached_context_packet,
+    write_cached_context_packet,
+)
+from app.services.local_codex_generation_service import (
+    append_job_artifacts,
+    cancel_codex_job,
+    claim_next_codex_job,
+    complete_codex_job,
+    create_codex_job,
+    fail_codex_job,
+    get_codex_job,
+    list_job_artifacts,
+    read_job_artifact_content,
+    write_job_artifact,
+)
+from app.services.linkedin_owner_review_service import ensure_generated_owner_review_item
+from app.services.persona_bundle_context_service import retrieve_bundle_persona_chunks
+from app.services.retrieval import retrieve_similar, retrieve_weighted
+from app.services.trigger_identity_service import build_content_job_idempotency_key
+
+router = APIRouter()
+
+CONTENT_FAST_MODEL_ALIAS = "content-fast"
+CONTENT_EDITOR_MODEL_ALIAS = "content-editor"
+EMAIL_CONTENT_TYPES = {"email_reply", "email_follow_up", "outbound_email"}
+
+CORE_BUNDLE_PATHS = {
+    "identity/claims.md",
+    "identity/philosophy.md",
+    "identity/decision_principles.md",
+    "identity/VOICE_PATTERNS.md",
+    "identity/audience_communication.md",
+    "prompts/content_guardrails.md",
+    "prompts/content_pillars.md",
+    "prompts/channel_playbooks.md",
+    "prompts/outreach_playbook.md",
+}
+SUPPORT_BUNDLE_PATHS = {
+    "identity/bio_facts.md",
+    "history/story_bank.md",
+    "history/wins.md",
+    "history/timeline.md",
+    "history/initiatives.md",
+    "history/resume.md",
+}
+LEGACY_PERSONA_SOURCES = (
+    "JOHNNIE_FIELDS_PERSONA_OPTIMIZED.md",
+    "JOHNNIE_FIELDS_PERSONA.md",
+)
+LEGACY_EXAMPLE_TAGS = ["LINKEDIN_EXAMPLES"]
+PROMPT_SECTION_ORDER = [
+    "CORE CANON",
+    "SUPPORTING CANON",
+    "LEGACY SUPPORT",
+    "RETRIEVAL SUPPORT",
+]
+STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "what",
+    "with",
+}
+AUDIENCE_FOCUS_TERMS = {
+    "tech_ai": {"ai", "agent", "agents", "automation", "operator", "operators", "workflow", "workflows", "prompt", "prompting", "system", "systems", "shipping", "builder", "builders"},
+    "leadership": {"leadership", "leaders", "manager", "managers", "team", "teams", "coaching", "culture", "clarity", "decision", "decisions"},
+    "leadership_management": {"leadership", "leaders", "manager", "managers", "team", "teams", "coaching", "culture", "clarity", "decision", "decisions", "people", "behavior", "change", "adoption"},
+    "education_admissions": {"education", "admissions", "enrollment", "families", "students", "referral", "school", "schools", "trust"},
+    "fashion": {"fashion", "style", "closet", "wardrobe", "outfit", "confidence"},
+    "neurodivergent": {"neurodivergent", "learning", "students", "families", "support", "fit"},
+    "entrepreneurs": {"build", "building", "founder", "founders", "product", "shipping", "market", "customers"},
+}
+TOPIC_FOCUS_BOOSTS = {
+    "workflow clarity": {"workflow", "clarity", "process", "processes", "handoff", "handoffs", "alignment", "operator", "system", "systems", "brain", "ops", "planner", "briefs", "snapshot", "routing"},
+    "agent orchestration": {"agent", "agents", "orchestration", "workflow", "workflows", "automation", "prompting", "handoff", "handoffs", "operator", "system", "systems", "brain", "ops", "planner", "briefs", "snapshot", "routing"},
+    "ai adoption": {"ai", "adoption", "adopt", "useful", "usage", "workflow", "constraints", "constraint", "operator", "operators", "system", "systems", "handoff", "handoffs", "shared", "state", "behavior"},
+    "change management": {"change", "management", "leadership", "leaders", "people", "behavior", "adoption", "adopt", "coaching", "clarity", "execution", "priority", "priorities", "dashboard", "team", "teams"},
+    "twice exceptional": {"2e", "admissions", "applicant", "applicants", "exceptional", "families", "family", "gifted", "learning", "neurodivergent", "prospective", "student", "students", "support", "twice"},
+    "prospective students": {"admissions", "applicant", "applicants", "families", "family", "fit", "parent", "parents", "prospective", "student", "students", "support"},
+    "neurodivergent students": {"2e", "families", "family", "learning", "neurodivergent", "school", "schools", "student", "students", "support", "twice", "exceptional"},
+}
+STRICT_AUDIENCE_ANCHOR_TERMS = {
+    "education_admissions": {"admissions", "applicant", "applicants", "counselor", "counselors", "education", "enrollment", "families", "family", "learning", "parent", "parents", "school", "schools", "student", "students", "support"},
+    "tech_ai": {"ai", "agent", "agents", "automation", "brain", "briefs", "handoff", "handoffs", "operator", "ops", "orchestration", "planner", "prompt", "prompting", "routing", "system", "systems", "workflow", "workflows"},
+    "leadership_management": {"leadership", "leaders", "people", "behavior", "change", "team", "teams", "coaching", "adoption", "execution", "clarity"},
+    "neurodivergent": {"2e", "families", "family", "learning", "neurodivergent", "parent", "parents", "school", "schools", "student", "students", "support", "twice", "exceptional"},
+}
+STUDENT_SUPPORT_TERMS = {"2e", "admissions", "applicant", "applicants", "education", "enrollment", "exceptional", "families", "family", "learning", "neurodivergent", "parent", "parents", "prospective", "school", "schools", "student", "students", "support", "twice"}
+PROOF_KEYWORDS = {
+    "built",
+    "clarity",
+    "evidence",
+    "handoff",
+    "handoffs",
+    "improved",
+    "launched",
+    "metric",
+    "metrics",
+    "migration",
+    "operator",
+    "ops",
+    "prompt",
+    "prompting",
+    "proof",
+    "revenue",
+    "salesforce",
+    "shipped",
+    "signal",
+    "system",
+    "systems",
+    "workflow",
+}
+FRAMING_MODE_GUIDANCE = {
+    "contrarian_reframe": "Push against a lazy default belief, then replace it with a sharper operating truth.",
+    "agree_and_extend": "Start from agreement, then extend it with a stronger lesson or pattern.",
+    "drama_tension": "Use real tension, stakes, or friction from the work without inventing facts.",
+    "story_with_payoff": "Use a real eligible story, then land on a clear payoff.",
+    "operator_lesson": "Lead through workflow, handoff, prompt, system, or operating-pattern clarity.",
+    "recognition": "Center recognition or gratitude when real people or teams are part of the proof.",
+    "warning": "Name the failure mode or hidden cost directly and explain why it matters.",
+    "reframe": "Take a familiar idea and make the audience see it through a different lens.",
+}
+PUBLIC_POST_LANES = ("market_insight", "operator_lesson", "build_in_public")
+PUBLIC_POST_LANE_GUIDANCE = {
+    "market_insight": "Macro market, positioning, or competition lesson. Keep it external-facing and avoid internal build mechanics.",
+    "operator_lesson": "Workflow, handoff, or decision-rule lesson with one concrete proof point. Keep the lesson practical and public-safe.",
+    "build_in_public": "Talk about what the build taught you in macro terms. No file names, route labels, hidden mechanics, or internal control language.",
+}
+GENERIC_SENTENCE_OPENERS = {
+    "Are",
+    "Big",
+    "Can",
+    "Clear",
+    "Clarity",
+    "Good",
+    "Here",
+    "How",
+    "I",
+    "If",
+    "It",
+    "Listen",
+    "Look",
+    "Most",
+    "Read",
+    "Real",
+    "Teams",
+    "That",
+    "The",
+    "This",
+    "Without",
+    "Workflow",
+    "Write",
+    "Yall",
+    "You",
+    "Your",
+}
+UNSUPPORTED_EVIDENCE_PLACEHOLDERS = {
+    "article",
+    "case study",
+    "company",
+    "course",
+    "podcast",
+    "school",
+    "talk",
+    "university",
+    "video",
+    "webinar",
+}
+DEFAULT_VOICE_DIRECTIVES = [
+    "Lead with clarity, not hype.",
+    "Front-load the thesis instead of warming up slowly.",
+    "Use short, punchy lines when the point needs force.",
+    "Let strategy lead and let proof support it.",
+    "Keep the writing casual, direct, and operator-grounded.",
+    "Avoid generic opener formulas like 'X is essential' or 'In today's world'.",
+]
+AUDIENCE_PROMPT_LABELS = {
+    "general": "General professionals",
+    "education_admissions": "Education and admissions leaders",
+    "tech_ai": "Tech and AI builders, founders, and operators",
+    "fashion": "Fashion and style audiences",
+    "leadership": "Leaders and managers",
+    "leadership_management": "Leaders and managers",
+    "neurodivergent": "Neurodivergent people, families, and supporters",
+    "entrepreneurs": "Entrepreneurs and founders",
+}
+HOUSE_SCAFFOLD_SENTENCES = {
+    "not more reporting.",
+    "clearer action.",
+    "that is the operating model.",
+    "that is where it breaks.",
+    "that is when the work slips.",
+    "otherwise it's just another tab.",
+    "that is the payoff.",
+    "that is the part worth carrying forward.",
+    "that is what the build taught us.",
+    "read that again.",
+    "clarity has to come first.",
+    "clarity is the part that scales.",
+    "that kind of work deserves to be named.",
+    "that deserves more credit than it gets.",
+}
+IDENTITY_SCAFFOLD_PATTERNS = (
+    re.compile(r"\beducation changed my (?:life|trajectory)\b", re.IGNORECASE),
+    re.compile(r"\bmy education voice\b", re.IGNORECASE),
+    re.compile(r"\binstitutional worship\b", re.IGNORECASE),
+)
+VOICE_DIRECTIVE_HINTS = (
+    "lead with",
+    "front-load",
+    "use short",
+    "keep ",
+    "avoid ",
+    "start from",
+    "end with",
+    "let ",
+    "sound like",
+    "tell you what tho",
+    "y'all",
+    "yall",
+    "say it with me",
+    "big shout-out",
+    "makes no sense",
+)
+FLAT_GENERIC_PATTERNS = (
+    re.compile(r"\bin today's\b", re.IGNORECASE),
+    re.compile(r"\b(?:workflow clarity|agent orchestration|leadership|ai|clarity)\s+is\s+(?:essential|critical|important)\b", re.IGNORECASE),
+    re.compile(r"\b(?:drive|drives)\s+real\s+results\b", re.IGNORECASE),
+    re.compile(r"\bthe real value lies\b", re.IGNORECASE),
+    re.compile(r"\bhere(?:'s| is) the takeaway\b", re.IGNORECASE),
+    re.compile(r"\b(?:this|that|it)\s+is\s+(?:essential|critical|important|powerful)\b", re.IGNORECASE),
+    re.compile(r"\b(?:game changer|unlock potential|drive results|magic happens)\b", re.IGNORECASE),
+)
+SOFT_GENERIC_PATTERNS = (
+    re.compile(r"\bbreaking down silos\b", re.IGNORECASE),
+    re.compile(r"\bfostering collaboration\b", re.IGNORECASE),
+    re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
+    re.compile(r"\bthis isn['’]?t just\b", re.IGNORECASE),
+    re.compile(r"\bit['’]s not just about\b", re.IGNORECASE),
+    re.compile(r"\bit['’]s all about\b", re.IGNORECASE),
+    re.compile(r"\b(?:is|are)\s+now\s+(?:essential|critical|important)\b", re.IGNORECASE),
+    re.compile(r"\bconnecting the dots\b", re.IGNORECASE),
+    re.compile(r"\bfor effective ai\b", re.IGNORECASE),
+    re.compile(r"\bcomponents of the operation must be interconnected\b", re.IGNORECASE),
+    re.compile(r"\bthis integration is crucial\b", re.IGNORECASE),
+    re.compile(r"\b(?:fundamental|major|complete)\s+transformation\b", re.IGNORECASE),
+    re.compile(r"\bpaving the way\b", re.IGNORECASE),
+    re.compile(r"\bbigger picture\b", re.IGNORECASE),
+    re.compile(r"\bai thrives when\b", re.IGNORECASE),
+    re.compile(r"\b(?:empower|empowers|empowering)\b.*\bteam\b", re.IGNORECASE),
+)
+GENERIC_CLOSER_PATTERNS = (
+    re.compile(r"^let['’]?s\s+(?:keep|continue)\b", re.IGNORECASE),
+    re.compile(r"\bcontinue\s+striving\b", re.IGNORECASE),
+    re.compile(r"\bkeep pushing\b", re.IGNORECASE),
+    re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
+)
+WEAK_ENDING_PATTERNS = (
+    re.compile(r"\btangible impact\b", re.IGNORECASE),
+    re.compile(r"\bmeaningful impact\b", re.IGNORECASE),
+    re.compile(r"\bbetter outcomes\b", re.IGNORECASE),
+    re.compile(r"\beverything(?:['’]s| is) interconnected\b", re.IGNORECASE),
+    re.compile(r"\btransforming how we work\b", re.IGNORECASE),
+    re.compile(r"\bmaking (?:a|an) (?:real|tangible|meaningful) impact\b", re.IGNORECASE),
+    re.compile(r"\bthis changes everything\b", re.IGNORECASE),
+)
+TASTE_NEGATIVE_PATTERNS = (
+    re.compile(r"\bcohesive system\b", re.IGNORECASE),
+    re.compile(r"\bdependable architecture\b", re.IGNORECASE),
+    re.compile(r"\bcomprehensive view\b", re.IGNORECASE),
+    re.compile(r"\bunified approach\b", re.IGNORECASE),
+    re.compile(r"\bseamless(?:ly)?\b", re.IGNORECASE),
+    re.compile(r"\bfor effective ai\b", re.IGNORECASE),
+    re.compile(r"\binterconnected\b", re.IGNORECASE),
+    re.compile(r"\bthis integration is crucial\b", re.IGNORECASE),
+    re.compile(r"\b(?:transition|transitioned|transitioning)\b.*\barchitecture\b", re.IGNORECASE),
+    re.compile(r"\bnew level of efficiency\b", re.IGNORECASE),
+    re.compile(r"\bstreamlined workflow\b", re.IGNORECASE),
+    re.compile(r"\b(?:enhance|enhances|enhancing)\s+(?:execution|strategy|collaboration)\b", re.IGNORECASE),
+    re.compile(r"\bfunction in unison\b", re.IGNORECASE),
+    re.compile(r"\bmoving in the right direction\b", re.IGNORECASE),
+    re.compile(r"\bread that again\b", re.IGNORECASE),
+    re.compile(r"\bwrite that down\b", re.IGNORECASE),
+    re.compile(r"\bcommand center\b", re.IGNORECASE),
+)
+INTERNAL_PUBLIC_JARGON_PATTERNS = (
+    re.compile(r"\bai clone\s*/\s*brain system\b", re.IGNORECASE),
+    re.compile(r"\bpersona soup\b", re.IGNORECASE),
+    re.compile(r"\bproof packets?\b", re.IGNORECASE),
+    re.compile(r"\btyped (?:core|proof|story|example|context|support) lanes?\b", re.IGNORECASE),
+    re.compile(r"\btyped lanes?\b", re.IGNORECASE),
+    re.compile(r"\bdomain gates?\b", re.IGNORECASE),
+    re.compile(r"\bgreen[- ]or[- ]red board\b", re.IGNORECASE),
+    re.compile(r"\bproof lanes?\b", re.IGNORECASE),
+    re.compile(r"\bcore, proof, story, and example lanes\b", re.IGNORECASE),
+    re.compile(r"\bcanon through typed lanes\b", re.IGNORECASE),
+    re.compile(r"\bno proof packet\b", re.IGNORECASE),
+    re.compile(r"\brouted workspace snapshot\b", re.IGNORECASE),
+    re.compile(r"\bdaily briefs\b", re.IGNORECASE),
+    re.compile(r"\bpersona review\b", re.IGNORECASE),
+    re.compile(r"\blong-form routing\b", re.IGNORECASE),
+    re.compile(r"\bshared workspace state\b", re.IGNORECASE),
+    re.compile(r"\bproof-aware prompts?\b", re.IGNORECASE),
+    re.compile(r"\btyped retrieval\b", re.IGNORECASE),
+)
+TASTE_POSITIVE_PATTERNS = (
+    re.compile(r"\breal talk\b", re.IGNORECASE),
+    re.compile(r"\btell you what tho\b", re.IGNORECASE),
+    re.compile(r"\bmakes no sense\.?\s*period\b", re.IGNORECASE),
+    re.compile(r"\bthat will not work\b", re.IGNORECASE),
+    re.compile(r"\bthat dog will not hunt\b", re.IGNORECASE),
+    re.compile(r"\bwhere'?s the artifact\b", re.IGNORECASE),
+    re.compile(r"\bpeople are not gonna use that\b", re.IGNORECASE),
+    re.compile(r"\bbig shout-out\b", re.IGNORECASE),
+    re.compile(r"\by['’]?all\b", re.IGNORECASE),
+)
+TASTE_CONTRAST_PATTERNS = (
+    re.compile(r"\bnot\b", re.IGNORECASE),
+    re.compile(r"\binstead of\b", re.IGNORECASE),
+    re.compile(r"\bbut\b", re.IGNORECASE),
+    re.compile(r"\bthan\b", re.IGNORECASE),
+    re.compile(r"\bnow\b", re.IGNORECASE),
+    re.compile(r"\bpreviously\b", re.IGNORECASE),
+    re.compile(r"\bif\b", re.IGNORECASE),
+    re.compile(r"\bthat sounds good, but\b", re.IGNORECASE),
+)
+OPERATOR_CATALOG_MARKERS = (
+    "brain",
+    "ops",
+    "daily briefs",
+    "planner",
+    "persona review",
+    "long-form routing",
+    "proof-aware prompts",
+    "shared workspace state",
+    "explicit handoffs",
+    "routed workspace snapshot",
+)
+
+
+class ContentGenerationRequest(BaseModel):
+    user_id: str = Field(..., description="User ID for knowledge base lookup")
+    topic: str = Field(..., description="Content topic")
+    context: Optional[str] = Field(None, description="Additional context")
+    content_type: str = Field("linkedin_post", description="Type: linkedin_post, cold_email, linkedin_dm, instagram_post, email_reply, email_follow_up, outbound_email")
+    category: str = Field("value", description="Chris Do category: value, sales, personal")
+    pacer_elements: List[str] = Field(default_factory=list, description="PACER elements to include: Problem, Amplify, Credibility, Educate, Request")
+    tone: str = Field("expert_direct", description="Tone: expert_direct, inspiring, conversational")
+    audience: str = Field("general", description="Target audience: general, education_admissions, tech_ai, fashion, leadership, neurodivergent, entrepreneurs")
+    source_mode: str = Field(
+        "persona_only",
+        description="How strongly generation should attach to live sources: persona_only, selected_source, recent_signals",
+    )
+
+
+class ContentGenerationResponse(BaseModel):
+    success: bool
+    options: List[str]
+    persona_context: Optional[str] = None
+    examples_used: List[str] = []
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ContentContextAuditResponse(BaseModel):
+    success: bool
+    persona_context: Optional[str] = None
+    grounding_mode: str
+    grounding_reason: str
+    framing_modes: List[str] = Field(default_factory=list)
+    primary_claims: List[str] = Field(default_factory=list)
+    proof_packets: List[str] = Field(default_factory=list)
+    story_beats: List[str] = Field(default_factory=list)
+    audit: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ContentReservoirSupportItem(BaseModel):
+    source_id: str | None = None
+    asset_id: str | None = None
+    reservoir_lane: str | None = None
+    primary_type: str | None = None
+    score: int | None = None
+    title: str | None = None
+    text: str | None = None
+    source_path: str | None = None
+    source_url: str | None = None
+
+
+class GeneratedFragmentPromotionRequest(BaseModel):
+    user_id: str = Field(..., description="User ID for attribution")
+    fragment_text: str = Field(..., description="Selected generated fragment")
+    option_text: str = Field(..., description="Full generated option text")
+    option_index: int | None = Field(default=None, description="0-based option index")
+    topic: str = Field(..., description="Generation topic")
+    audience: str = Field(..., description="Generation audience")
+    category: str = Field(..., description="Generation category")
+    content_type: str = Field("linkedin_post", description="Generation content type")
+    source_mode: str = Field("persona_only", description="Generation source mode")
+    support_items: list[ContentReservoirSupportItem] = Field(default_factory=list)
+    option_brief: Dict[str, Any] | None = Field(default=None, description="Optional framing brief for the chosen option")
+    published: bool = Field(default=False, description="Whether the fragment came from a published post")
+
+
+class GeneratedFragmentPromotionResponse(BaseModel):
+    success: bool
+    duplicate: bool = False
+    delta_id: str
+    route_key: str
+    route_reason: str
+    target_file: str
+    target_label: str
+    written_files: list[str] = Field(default_factory=list)
+    delta: Dict[str, Any] = Field(default_factory=dict)
+    message: str
+
+
+class UndoGeneratedFragmentPromotionRequest(BaseModel):
+    delta_id: str = Field(..., description="Committed generated-fragment delta id")
+
+
+class UndoGeneratedFragmentPromotionResponse(BaseModel):
+    success: bool
+    already_reverted: bool = False
+    delta_id: str
+    removed_target_files: list[str] = Field(default_factory=list)
+    preserved_target_files: list[str] = Field(default_factory=list)
+    message: str
+
+
+class LocalCodexSourceCard(BaseModel):
+    item_key: str | None = Field(default=None, description="Stable key for the selected source item")
+    brief_id: str | None = Field(default=None, description="Daily brief that surfaced the source item")
+    origin_type: str | None = Field(default=None, description="Product surface or record type that originated the handoff")
+    origin_id: str | None = Field(default=None, description="Stable identifier for the originating record")
+    owner_reaction: str | None = Field(default=None, description="Owner-provided reaction or framing instruction")
+    title: str | None = Field(default=None, description="Public-safe source title")
+    summary: str | None = Field(default=None, description="Public-safe source summary")
+    hook: str | None = Field(default=None, description="Public-safe standout line or hook")
+    source_url: str | None = Field(default=None, description="Original public source URL")
+    source_path: str | None = Field(default=None, description="Private source artifact path; never copied into the writer prompt")
+    priority_lane: str | None = Field(default=None, description="Workspace interpretation lane")
+    source_kind: str | None = Field(default=None, description="Source provenance class")
+    route_reason: str | None = Field(default=None, description="Why the source was routed into writing")
+    target_file: str | None = Field(default=None, description="Private canonical target hint; never copied into the writer prompt")
+    section: str | None = Field(default=None, description="Human-readable source section")
+    provenance: Dict[str, Any] = Field(default_factory=dict, description="Additional private provenance retained with the job")
+
+
+class LocalCodexJobCreateRequest(ContentGenerationRequest):
+    workspace_slug: str = Field("linkedin-content-os", description="Workspace lane for the Codex job")
+    idempotency_key: str | None = Field(default=None, description="Optional explicit idempotency key for thin triggers")
+    source_card: LocalCodexSourceCard | None = Field(
+        default=None,
+        description="Optional typed Brain or Workspace source card used to seed this generation job",
+    )
+
+
+class LocalCodexJobCreateResponse(BaseModel):
+    success: bool
+    job_id: str
+    status: str
+    message: str
+
+
+class LocalCodexJobStatusResponse(BaseModel):
+    success: bool
+    job_id: str
+    workspace_slug: str
+    status: str
+    requested_by: str | None = None
+    created_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_message: str | None = None
+    result: ContentGenerationResponse | None = None
+    artifact_count: int = 0
+
+
+class LocalCodexJobSendToReviewRequest(BaseModel):
+    option_index: int = Field(..., ge=0, description="0-based completed option index to send to FEEZIE owner review")
+
+
+class LocalCodexJobSendToReviewResponse(BaseModel):
+    success: bool
+    job_id: str
+    option_index: int
+    queue_id: str
+    card_id: str
+    duplicate: bool = False
+    status: str
+    approval_status: str
+    publish_posture: str
+    owner_review_required: bool
+    message: str
+    owner_review_item: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LocalCodexJobArtifactResponse(BaseModel):
+    artifact_id: str
+    kind: str
+    label: str
+    filename: str
+    mime_type: str
+    size_bytes: int | None = None
+    created_at: str | None = None
+    preview: str | None = None
+
+
+class LocalCodexJobArtifactsResponse(BaseModel):
+    success: bool
+    job_id: str
+    artifacts: list[LocalCodexJobArtifactResponse] = Field(default_factory=list)
+
+
+class LocalCodexJobClaimRequest(BaseModel):
+    worker_id: str = Field(..., description="Stable worker identity for the local Codex bridge")
+    workspace_slug: str | None = Field(default=None, description="Optional workspace filter")
+
+
+class LocalCodexJobClaimResponse(BaseModel):
+    success: bool
+    job_available: bool
+    job_id: str | None = None
+    status: str | None = None
+    workspace_slug: str | None = None
+    context_packet: Dict[str, Any] | None = None
+    request_payload: Dict[str, Any] | None = None
+
+
+class LocalCodexJobCompleteRequest(BaseModel):
+    worker_id: str = Field(..., description="Worker identity completing the job")
+    options: list[str] = Field(default_factory=list, description="Completed post options")
+    model: str | None = Field(default=None, description="Codex model used for the run")
+    raw_output: str | None = Field(default=None, description="Raw JSON/text returned by codex exec")
+    command_stdout: str | None = Field(default=None, description="Optional recent stdout from the local runner")
+    command_stderr: str | None = Field(default=None, description="Optional recent stderr from the local runner")
+    result_payload: Dict[str, Any] | None = Field(default=None, description="Optional prebuilt generation result payload")
+    artifacts: List[Dict[str, Any]] = Field(default_factory=list, description="Optional text/json artifacts to persist for this job")
+
+
+class LocalCodexJobFailRequest(BaseModel):
+    worker_id: str = Field(..., description="Worker identity reporting the failure")
+    error_message: str = Field(..., description="Failure details")
+
+
+@dataclass
+class ContentOptionBrief:
+    option_number: int
+    framing_mode: str
+    primary_claim: str
+    proof_packet: str
+    story_beat: str
+    public_lane: str = ""
+
+
+@dataclass
+class ContentLLMProvider:
+    name: str
+    client: Any
+    fast_model: str
+    editor_model: str
+
+
+class _ContentProviderChatCompletions:
+    def __init__(self, router: "ContentLLMRouterClient") -> None:
+        self._router = router
+
+    def create(self, *, model: str, **kwargs):
+        return self._router.create_chat_completion(model=model, **kwargs)
+
+
+class _ContentProviderChat:
+    def __init__(self, router: "ContentLLMRouterClient") -> None:
+        self.completions = _ContentProviderChatCompletions(router)
+
+
+class ContentLLMRouterClient:
+    def __init__(self, providers: List[ContentLLMProvider]) -> None:
+        if not providers:
+            raise ValueError("No LLM providers configured for content generation")
+        self.providers = providers
+        self.chat = _ContentProviderChat(self)
+        self.provider_trace: List[Dict[str, Any]] = []
+
+    def create_chat_completion(self, *, model: str, **kwargs):
+        errors: List[str] = []
+        for provider in self.providers:
+            actual_model = _resolve_provider_model(provider, model)
+            call_kwargs = _normalize_chat_completion_kwargs(actual_model, kwargs)
+            max_attempts = 1 + _provider_retry_attempts(provider)
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    response = provider.client.chat.completions.create(model=actual_model, **call_kwargs)
+                    self.provider_trace.append(
+                        {
+                            "provider": provider.name,
+                            "requested_model": model,
+                            "actual_model": actual_model,
+                            "status": "success",
+                            "attempt": attempt,
+                        }
+                    )
+                    return response
+                except Exception as exc:
+                    self.provider_trace.append(
+                        {
+                            "provider": provider.name,
+                            "requested_model": model,
+                            "actual_model": actual_model,
+                            "status": "failed",
+                            "error": str(exc)[:240],
+                            "attempt": attempt,
+                        }
+                    )
+                    if attempt < max_attempts and _should_retry_provider(provider, exc):
+                        time.sleep(_provider_retry_delay_seconds(provider, attempt))
+                        continue
+                    if not _should_fallback_provider(exc):
+                        raise
+                    errors.append(f"{provider.name}:{actual_model}:{exc}")
+                    break
+        raise RuntimeError("All content-generation providers failed: " + " | ".join(errors))
+
+
+def _normalized_chunk_key(item: Dict[str, Any]) -> str:
+    return " ".join(str(item.get("chunk") or "").split()).strip().lower()
+
+
+def _item_metadata(item: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = item.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _source_name(item: Dict[str, Any]) -> str:
+    metadata = _item_metadata(item)
+    return str(metadata.get("file_name") or metadata.get("source") or "")
+
+
+def _bundle_path(item: Dict[str, Any]) -> str:
+    metadata = _item_metadata(item)
+    return str(metadata.get("bundle_path") or item.get("source_file_id") or "")
+
+
+def _with_prompt_section(item: Dict[str, Any], section: str) -> Dict[str, Any]:
+    hydrated = dict(item)
+    metadata = dict(_item_metadata(item))
+    metadata["prompt_section"] = section
+    hydrated["metadata"] = metadata
+    return hydrated
+
+
+def _append_unique(
+    destination: List[Dict[str, Any]],
+    candidates: List[Dict[str, Any]],
+    *,
+    limit: int,
+    seen: set[str],
+    section: str,
+) -> None:
+    for item in candidates:
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        destination.append(_with_prompt_section(item, section))
+        if len(destination) >= limit:
+            return
+
+
+def _collect_prompt_visible_chunks(
+    *,
+    persona_chunks: List[Dict[str, Any]],
+    topic_anchor_chunks: List[Dict[str, Any]],
+    eligible_story_chunks: List[Dict[str, Any]],
+    proof_anchor_chunks: List[Dict[str, Any]],
+    topic: str,
+    audience: str,
+) -> List[Dict[str, Any]]:
+    visible: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(items: List[Dict[str, Any]], *, limit: int | None = None) -> None:
+        for item in items:
+            key = _normalized_chunk_key(item)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            visible.append(item)
+            if limit is not None and len(visible) >= limit:
+                return
+
+    core_chunks = [
+        item
+        for item in persona_chunks
+        if str(_item_metadata(item).get("prompt_section") or "") == "CORE CANON"
+    ]
+    add(core_chunks, limit=4)
+    add(topic_anchor_chunks)
+    add(proof_anchor_chunks)
+    add(eligible_story_chunks)
+
+    if len(visible) < 5:
+        focus_terms = _focus_terms(topic, audience)
+        supporting_chunks = [
+            item
+            for item in persona_chunks
+            if str(_item_metadata(item).get("prompt_section") or "") == "SUPPORTING CANON"
+            and _passes_audience_anchor_gate(_split_use_when_text(str(item.get("chunk") or ""))[0], audience, topic)
+            and _chunk_focus_score(_split_use_when_text(str(item.get("chunk") or ""))[0], focus_terms, topic) > 0
+        ]
+        add(supporting_chunks, limit=6)
+
+    return visible
+
+
+def curate_persona_prompt_chunks(
+    *,
+    bundle_chunks: List[Dict[str, Any]],
+    legacy_support_chunks: List[Dict[str, Any]],
+    retrieved_chunks: List[Dict[str, Any]],
+    top_k: int = 9,
+) -> List[Dict[str, Any]]:
+    core_chunks = [item for item in bundle_chunks if _bundle_path(item) in CORE_BUNDLE_PATHS]
+    support_chunks = [item for item in bundle_chunks if _bundle_path(item) in SUPPORT_BUNDLE_PATHS]
+    bundle_other_chunks = [
+        item
+        for item in bundle_chunks
+        if _bundle_path(item) not in CORE_BUNDLE_PATHS and _bundle_path(item) not in SUPPORT_BUNDLE_PATHS
+    ]
+    legacy_chunks = [
+        item
+        for item in legacy_support_chunks
+        if _source_name(item) in LEGACY_PERSONA_SOURCES and item.get("persona_tag") != "LINKEDIN_EXAMPLES"
+    ]
+    retrieval_support_chunks = [
+        item
+        for item in retrieved_chunks
+        if _source_name(item) not in LEGACY_PERSONA_SOURCES and item.get("persona_tag") != "LINKEDIN_EXAMPLES"
+    ]
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    _append_unique(curated, core_chunks, limit=min(top_k, 4), seen=seen, section="CORE CANON")
+    _append_unique(curated, support_chunks, limit=min(top_k, 7), seen=seen, section="SUPPORTING CANON")
+    _append_unique(curated, legacy_chunks, limit=min(top_k, 9), seen=seen, section="LEGACY SUPPORT")
+    _append_unique(curated, bundle_other_chunks, limit=min(top_k, 9), seen=seen, section="SUPPORTING CANON")
+    _append_unique(curated, retrieval_support_chunks, limit=top_k, seen=seen, section="RETRIEVAL SUPPORT")
+    return curated[:top_k]
+
+
+def retrieve_legacy_support_chunks(
+    *,
+    user_id: str,
+    query_embedding: List[float],
+    top_k: int = 6,
+) -> List[Dict[str, Any]]:
+    for source_name in LEGACY_PERSONA_SOURCES:
+        items = retrieve_similar(
+            user_id=user_id,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            source_filter=source_name,
+        )
+        if items:
+            return items
+    return []
+
+
+def retrieve_curated_example_chunks(
+    *,
+    user_id: str,
+    query_embedding: List[float],
+    content_type: str,
+    top_k: int = 3,
+) -> List[Dict[str, Any]]:
+    if content_type == "linkedin_post":
+        for source_name in LEGACY_PERSONA_SOURCES:
+            items = retrieve_similar(
+                user_id=user_id,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                tag_filter=LEGACY_EXAMPLE_TAGS,
+                source_filter=source_name,
+            )
+            if items:
+                return items
+    return retrieve_similar(
+        user_id=user_id,
+        query_embedding=query_embedding,
+        top_k=top_k,
+    )
+
+
+def filter_example_chunks_by_topic(
+    example_chunks: List[Dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 3,
+) -> List[Dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    ranked: List[tuple[int, Dict[str, Any]]] = []
+    for item in example_chunks:
+        primary_text, _ = _split_use_when_text(str(item.get("chunk") or ""))
+        score = _chunk_focus_score(primary_text, focus_terms, topic)
+        if score <= 0:
+            continue
+        if not _passes_audience_anchor_gate(primary_text, audience, topic):
+            continue
+        ranked.append((score, item))
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, item in sorted(ranked, key=lambda entry: entry[0], reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
+
+
+def summarize_persona_context(persona_chunks: List[Dict[str, Any]], topic: str) -> Optional[str]:
+    normalized_topic = " ".join((topic or "").lower().split())
+    if normalized_topic:
+        for item in persona_chunks:
+            chunk = str(item.get("chunk") or "")
+            if normalized_topic in chunk.lower():
+                return chunk[:200]
+    for preferred_section in PROMPT_SECTION_ORDER:
+        for item in persona_chunks:
+            if _item_metadata(item).get("prompt_section") == preferred_section:
+                return str(item.get("chunk") or "")[:200]
+    return None
+
+
+def _focus_terms(topic: str, audience: str) -> set[str]:
+    normalized_topic = " ".join((topic or "").lower().split())
+    tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", normalized_topic)
+        if len(token) > 2 and token not in STOPWORDS
+    }
+    for phrase, boosts in TOPIC_FOCUS_BOOSTS.items():
+        if phrase in normalized_topic:
+            tokens.update(boosts)
+    tokens.update(AUDIENCE_FOCUS_TERMS.get(audience, set()))
+    return tokens
+
+
+def _is_student_support_topic(topic: str, audience: str) -> bool:
+    if audience in {"education_admissions", "neurodivergent"}:
+        return True
+    normalized_topic = " ".join((topic or "").lower().split())
+    if not normalized_topic:
+        return False
+    if any(
+        phrase in normalized_topic
+        for phrase in (
+            "twice exceptional",
+            "twice-exceptional",
+            "prospective students",
+            "prospective student",
+            "neurodivergent student",
+            "neurodivergent students",
+            "learning support",
+        )
+    ):
+        return True
+    tokens = set(re.findall(r"[a-z0-9]+", normalized_topic))
+    return bool(tokens.intersection(STUDENT_SUPPORT_TERMS))
+
+
+def _is_tech_ai_topic(topic: str, audience: str) -> bool:
+    if audience == "tech_ai":
+        return True
+    normalized_topic = " ".join((topic or "").lower().split())
+    return any(
+        phrase in normalized_topic
+        for phrase in (
+            "workflow clarity",
+            "agent orchestration",
+            "ai adoption",
+            "prompting",
+            "automation",
+            "handoff",
+            "handoffs",
+        )
+    )
+
+
+def _is_leadership_topic(topic: str, audience: str) -> bool:
+    if audience in {"leadership", "leadership_management"}:
+        return True
+    normalized_topic = " ".join((topic or "").lower().split())
+    return any(
+        phrase in normalized_topic
+        for phrase in (
+            "change management",
+            "leadership",
+            "team",
+            "coaching",
+            "manager",
+            "stakeholder",
+        )
+    )
+
+
+def _is_fashion_topic(topic: str, audience: str) -> bool:
+    if audience == "fashion":
+        return True
+    normalized_topic = " ".join((topic or "").lower().split())
+    return any(term in normalized_topic for term in ("fashion", "style", "outfit", "wardrobe", "closet"))
+
+
+def _is_entrepreneur_topic(topic: str, audience: str) -> bool:
+    if audience == "entrepreneurs":
+        return True
+    normalized_topic = " ".join((topic or "").lower().split())
+    return any(term in normalized_topic for term in ("founder", "founders", "startup", "product"))
+
+
+def _topic_required_anchor_terms(topic: str, audience: str) -> set[str]:
+    required_terms: set[str] = set()
+    normalized_topic = " ".join((topic or "").lower().split())
+    market_topic = any(term in normalized_topic for term in ("market", "competition", "meaner", "advantage", "pressure", "entrants"))
+    if _is_student_support_topic(topic, audience):
+        required_terms.update(STUDENT_SUPPORT_TERMS)
+    elif _is_tech_ai_topic(topic, audience) and not market_topic:
+        required_terms.update(STRICT_AUDIENCE_ANCHOR_TERMS.get("tech_ai", set()))
+    elif _is_leadership_topic(topic, audience):
+        required_terms.update(STRICT_AUDIENCE_ANCHOR_TERMS.get("leadership_management", set()))
+    elif _is_fashion_topic(topic, audience):
+        required_terms.update(AUDIENCE_FOCUS_TERMS.get("fashion", set()))
+    elif _is_entrepreneur_topic(topic, audience):
+        required_terms.update(AUDIENCE_FOCUS_TERMS.get("entrepreneurs", set()))
+    elif audience == "neurodivergent":
+        required_terms.update(STRICT_AUDIENCE_ANCHOR_TERMS.get("neurodivergent", set()))
+    return required_terms
+
+
+def _chunk_focus_score(chunk: str, focus_terms: set[str], topic: str) -> int:
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    normalized_topic = " ".join((topic or "").lower().split())
+    if not normalized_chunk:
+        return 0
+    score = sum(1 for term in focus_terms if term and term in normalized_chunk)
+    if normalized_topic and normalized_topic in normalized_chunk:
+        score += 4
+    return score
+
+
+def _split_use_when_text(chunk: str) -> tuple[str, str]:
+    normalized_chunk = " ".join((chunk or "").split())
+    parts = normalized_chunk.split(" Use when:", 1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return normalized_chunk, ""
+
+
+def _render_anchor_chunk(item: Dict[str, Any], *, include_use_when: bool = False) -> str:
+    chunk = str(item.get("chunk") or "").strip()
+    primary_text, use_when_text = _split_use_when_text(chunk)
+    if include_use_when and use_when_text:
+        return f"{primary_text} Use when: {use_when_text}"
+    return primary_text
+
+
+def _unique_texts(items: List[str], *, limit: int) -> List[str]:
+    seen: set[str] = set()
+    unique: List[str] = []
+    for item in items:
+        normalized = " ".join((item or "").split()).strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(normalized)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def _prompt_topic_anchor_text(
+    *,
+    topic_anchor_chunks: List[Dict[str, Any]],
+    primary_claims: List[str],
+    limit: int,
+) -> str:
+    preferred = _unique_texts(primary_claims, limit=limit)
+    if preferred:
+        return "\n".join(f"- {item}" for item in preferred)
+    return "\n".join(f"- {_render_anchor_chunk(item)}" for item in topic_anchor_chunks[:limit]) or "- No topic anchors available."
+
+
+def _prompt_proof_anchor_text(
+    *,
+    proof_anchor_chunks: List[Dict[str, Any]],
+    proof_packets: List[str],
+    limit: int,
+) -> str:
+    preferred = _unique_texts([_proof_packet_evidence_text(packet) for packet in proof_packets], limit=limit)
+    if preferred:
+        return "\n".join(f"- {item}" for item in preferred)
+    return "\n".join(f"- {_render_anchor_chunk(item)}" for item in proof_anchor_chunks[:limit]) or "- No strong proof anchor found."
+
+
+def _prompt_story_anchor_text(
+    *,
+    story_anchor_chunks: List[Dict[str, Any]],
+    story_beats: List[str],
+    limit: int,
+) -> str:
+    preferred = _unique_texts(story_beats, limit=limit)
+    if preferred:
+        return "\n".join(f"- {item}" for item in preferred)
+    if story_anchor_chunks:
+        return "\n".join(f"- {_render_anchor_chunk(item, include_use_when=True)}" for item in story_anchor_chunks[:limit])
+    return "- No approved story beat."
+
+
+def _passes_audience_anchor_gate(chunk: str, audience: str, topic: str = "") -> bool:
+    required_terms = _topic_required_anchor_terms(topic, audience)
+    if not required_terms:
+        return True
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    return any(term in normalized_chunk for term in required_terms)
+
+
+def select_topic_anchor_chunks(
+    persona_chunks: List[Dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    ranked: List[tuple[int, int, Dict[str, Any]]] = []
+    section_priority = {
+        "CORE CANON": 4,
+        "SUPPORTING CANON": 3,
+        "LEGACY SUPPORT": 2,
+        "RETRIEVAL SUPPORT": 1,
+    }
+    for item in persona_chunks:
+        chunk = str(item.get("chunk") or "")
+        primary_text, use_when_text = _split_use_when_text(chunk)
+        focus_score = (_chunk_focus_score(primary_text, focus_terms, topic) * 3) + _chunk_focus_score(use_when_text, focus_terms, topic)
+        if focus_score <= 0:
+            continue
+        if not _passes_audience_anchor_gate(primary_text, audience, topic):
+            continue
+        section = str(_item_metadata(item).get("prompt_section") or "RETRIEVAL SUPPORT")
+        priority = section_priority.get(section, 0)
+        ranked.append((focus_score, priority, item))
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, _, item in sorted(ranked, key=lambda entry: (entry[0], entry[1]), reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
+
+
+def select_eligible_story_chunks(
+    persona_chunks: List[Dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 3,
+) -> List[Dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    story_candidates: List[tuple[int, Dict[str, Any]]] = []
+    for item in persona_chunks:
+        tag = str(item.get("persona_tag") or "")
+        section = str(_item_metadata(item).get("prompt_section") or "")
+        if section == "CORE CANON":
+            continue
+        if tag not in {"EXPERIENCES", "VENTURES"}:
+            continue
+        primary_text, use_when_text = _split_use_when_text(str(item.get("chunk") or ""))
+        score = (_chunk_focus_score(primary_text, focus_terms, topic) * 2) + _chunk_focus_score(use_when_text, focus_terms, topic)
+        if score <= 0:
+            continue
+        if not _passes_audience_anchor_gate(primary_text, audience, topic):
+            continue
+        story_candidates.append((score, item))
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, item in sorted(story_candidates, key=lambda entry: entry[0], reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
+
+
+def _proof_signal_score(chunk: str) -> int:
+    normalized_chunk = " ".join((chunk or "").lower().split())
+    if not normalized_chunk:
+        return 0
+    score = 0
+    if "evidence:" in normalized_chunk:
+        score += 4
+    if "proof:" in normalized_chunk or "public-facing proof:" in normalized_chunk:
+        score += 4
+    if re.search(r"\b\d[\d.,x%$m]*\b", normalized_chunk):
+        score += 3
+    score += sum(1 for term in PROOF_KEYWORDS if term in normalized_chunk)
+    return score
+
+
+def select_proof_anchor_chunks(
+    persona_chunks: List[Dict[str, Any]],
+    *,
+    topic: str,
+    audience: str,
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    focus_terms = _focus_terms(topic, audience)
+    ranked: List[tuple[int, int, int, Dict[str, Any]]] = []
+    section_priority = {
+        "CORE CANON": 4,
+        "SUPPORTING CANON": 3,
+        "LEGACY SUPPORT": 2,
+        "RETRIEVAL SUPPORT": 1,
+    }
+    minimum_focus = 2 if audience == "tech_ai" or _is_student_support_topic(topic, audience) else 1
+    for item in persona_chunks:
+        chunk = str(item.get("chunk") or "")
+        primary_text, _ = _split_use_when_text(chunk)
+        focus_score = _chunk_focus_score(primary_text, focus_terms, topic)
+        proof_score = _proof_signal_score(primary_text)
+        if focus_score <= 0 and proof_score <= 0:
+            continue
+        if not _passes_audience_anchor_gate(primary_text, audience, topic):
+            continue
+        if proof_score > 0 and focus_score < minimum_focus:
+            continue
+        section = str(_item_metadata(item).get("prompt_section") or "RETRIEVAL SUPPORT")
+        priority = section_priority.get(section, 0)
+        ranked.append((focus_score * 4 + proof_score, proof_score, priority, item))
+
+    curated: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for _, _, _, item in sorted(ranked, key=lambda entry: (entry[0], entry[1], entry[2]), reverse=True):
+        key = _normalized_chunk_key(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        curated.append(item)
+        if len(curated) >= limit:
+            break
+    return curated
+
+
+def build_topic_focus_guidance(
+    *,
+    topic: str,
+    audience: str,
+    eligible_story_chunks: List[Dict[str, Any]],
+) -> str:
+    lines = [
+        f'TOPIC DISCIPLINE: Stay tightly on "{topic}".',
+        "Lead with the core claim or operating lesson, not a broad personal recap.",
+    ]
+
+    if audience == "tech_ai":
+        lines.extend(
+            [
+                "Stay in the operator / AI systems lane: workflow clarity, prompting, automation, handoffs, and shipped execution.",
+                "Do not reach for family, fashion, school, or community stories unless one appears in the eligible story anchors below.",
+            ]
+        )
+    elif _is_student_support_topic(topic, audience):
+        lines.extend(
+            [
+                "Keep the student, family, support, or counselor lens visible in every option.",
+                "Do not borrow generic B2B trust, legacy-tech, or market-language proof unless it clearly comes back to the student experience.",
+            ]
+        )
+    elif audience in {"leadership", "leadership_management"}:
+        lines.extend(
+            [
+                "Stay in the leadership lane: clarity, coaching, team temperature, stakeholder influence, and operating cadence.",
+                "Do not default to product-building or fashion stories unless the eligible story anchors make that link explicit.",
+            ]
+        )
+    elif _is_fashion_topic(topic, audience):
+        lines.extend(
+            [
+                "Stay in the fashion and personal-style lane: confidence, wardrobe choices, fit, and lived transformation.",
+                "Do not drift into generic founder, leadership, or AI-systems language unless the topic explicitly requires it.",
+            ]
+        )
+    elif _is_entrepreneur_topic(topic, audience):
+        lines.extend(
+            [
+                "Stay in the founder / builder lane: market choices, customers, product decisions, and tradeoffs.",
+                "Do not drift into generic school, family, or style anecdotes unless the eligible story anchors make that connection explicit.",
+            ]
+        )
+
+    if eligible_story_chunks:
+        lines.append("A personal story is optional. If you use one, it must come from the eligible story anchors below and connect to the topic in one sentence.")
+    else:
+        lines.append("No directly relevant story anchor was found. Do not force an anecdote. Use principle + proof instead.")
+    return "\n".join(f"- {line}" for line in lines)
+
+
+def build_proof_guidance(proof_anchor_chunks: List[Dict[str, Any]]) -> str:
+    if proof_anchor_chunks:
+        return "\n".join(
+            [
+                "- Each option must include at least one concrete proof anchor, named system, metric, or evidence phrase from the PROOF ANCHORS section below.",
+                "- Prefer proof over abstraction: systems, migrations, shipped surfaces, prompting patterns, handoffs, metrics, or role-grounded evidence.",
+                "- Do not make up numbers. If the proof anchor is qualitative, keep it qualitative but concrete.",
+                "- Do not translate one metric into another. Keep the original subject and meaning of every proof anchor intact.",
+            ]
+        )
+    return "\n".join(
+        [
+            "- No strong proof anchor was found. Stay concrete about process, role, and workflow mechanics.",
+            "- Do not invent metrics or accomplishments.",
+        ]
+    )
+
+
+def _clean_voice_directive(text: str) -> str:
+    directive = " ".join((text or "").strip().strip("-*").split())
+    directive = re.sub(r"^[A-Za-z][A-Za-z /&'()-]+:\s*", "", directive)
+    return directive.strip()
+
+
+def _extract_voice_directives(persona_chunks: List[Dict[str, Any]], *, limit: int = 8) -> List[str]:
+    directives: List[str] = []
+    seen: set[str] = set()
+    for item in persona_chunks:
+        metadata = _item_metadata(item)
+        bundle_path = str(metadata.get("bundle_path") or item.get("source_file_id") or "")
+        chunk = str(item.get("chunk") or "")
+        tag = str(item.get("persona_tag") or "")
+        if bundle_path != "identity/VOICE_PATTERNS.md" and "VOICE" not in tag and "voice" not in chunk.lower():
+            continue
+        for raw_line in re.split(r"[\r\n]+", chunk):
+            directive = _clean_voice_directive(raw_line)
+            lowered = directive.lower()
+            if not directive or len(directive) < 10:
+                continue
+            if lowered in seen:
+                continue
+            if "voice patterns" in lowered or "reusable language patterns" in lowered:
+                continue
+            if any(hint in lowered for hint in VOICE_DIRECTIVE_HINTS):
+                seen.add(lowered)
+                directives.append(directive)
+            if len(directives) >= limit:
+                return directives
+    for directive in DEFAULT_VOICE_DIRECTIVES:
+        lowered = directive.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        directives.append(directive)
+        if len(directives) >= limit:
+            break
+    return directives
+
+
+def _public_post_lane_for_option(option_number: int) -> str:
+    if option_number <= 0:
+        return PUBLIC_POST_LANES[0]
+    return PUBLIC_POST_LANES[(option_number - 1) % len(PUBLIC_POST_LANES)]
+
+
+def _public_post_lane(brief: ContentOptionBrief | None) -> str:
+    if brief and str(brief.public_lane or "").strip():
+        return str(brief.public_lane).strip()
+    if brief:
+        return _public_post_lane_for_option(int(brief.option_number or 1))
+    return PUBLIC_POST_LANES[0]
+
+
+def _build_option_framing_plan(
+    *,
+    framing_modes: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    option_count: int = 3,
+) -> List[Dict[str, str]]:
+    approved_framing_modes = framing_modes or ["operator_lesson", "contrarian_reframe", "reframe"]
+    approved_claims = primary_claims or ["Stay tightly inside the topic anchors."]
+    approved_proofs = proof_packets or ["No proof packet approved. Use principle and operator language only."]
+    approved_stories = story_beats or []
+
+    def pick_proof(index: int, lane: str) -> str:
+        default_proof = approved_proofs[index % len(approved_proofs)]
+        labeled_proofs = [
+            packet
+            for packet in approved_proofs
+            if _proof_packet_label(packet) and not _phrase_is_flat_label(_proof_packet_label(packet))
+        ]
+        unlabeled_proofs = [
+            packet for packet in approved_proofs if packet not in labeled_proofs
+        ]
+        if lane == "market_insight" and unlabeled_proofs:
+            return unlabeled_proofs[index % len(unlabeled_proofs)]
+        if lane in {"operator_lesson", "build_in_public"} and labeled_proofs:
+            return labeled_proofs[index % len(labeled_proofs)]
+        return default_proof
+
+    plan: List[Dict[str, str]] = []
+    for index in range(option_count):
+        mode = approved_framing_modes[index % len(approved_framing_modes)]
+        claim = approved_claims[index % len(approved_claims)]
+        lane = _public_post_lane_for_option(index + 1)
+        proof = pick_proof(index, lane)
+        story = approved_stories[index % len(approved_stories)] if approved_stories else ""
+        plan.append(
+            {
+                "option": str(index + 1),
+                "mode": mode,
+                "lane": lane,
+                "claim": claim,
+                "proof": proof,
+                "story": story,
+            }
+        )
+    return plan
+
+
+def _render_option_framing_plan(option_plan: List[Dict[str, str]]) -> str:
+    if not option_plan:
+        return "- No explicit option framing plan."
+    rendered: List[str] = []
+    for item in option_plan:
+        parts = [
+            f"Option {item.get('option')}: `{item.get('mode')}`",
+            f"public lane: `{item.get('lane')}` ({PUBLIC_POST_LANE_GUIDANCE.get(str(item.get('lane') or ''), 'Keep the option in one clear public-facing posture.')})",
+            f"lead claim: {item.get('claim')}",
+            f"supporting proof: {item.get('proof')}",
+        ]
+        story = str(item.get("story") or "")
+        if story:
+            parts.append(f"optional story beat: {story}")
+        rendered.append("- " + " | ".join(parts))
+    return "\n".join(rendered)
+
+
+def _first_content_line(option: str) -> str:
+    for line in (option or "").splitlines():
+        cleaned = " ".join(line.split()).strip()
+        if cleaned:
+            return cleaned
+    return " ".join((option or "").split()).strip()
+
+
+def _starts_with_third_person_persona_bio(text: str) -> bool:
+    first_line = _first_content_line(text)
+    if not first_line:
+        return False
+    return bool(
+        re.match(
+            r"^(?:johnnie)\s+(?:is|treats|keeps|built|started|learned)\b",
+            first_line,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _significant_terms(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(token) > 3 and token not in STOPWORDS
+    }
+
+
+def _genericity_score(option: str) -> int:
+    normalized = " ".join((option or "").lower().split())
+    if not normalized:
+        return 0
+    score = sum(2 for pattern in FLAT_GENERIC_PATTERNS if pattern.search(normalized))
+    score += sum(1 for pattern in SOFT_GENERIC_PATTERNS if pattern.search(normalized))
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", option or "") if segment.strip()]
+    if paragraphs and any(pattern.search(paragraphs[-1]) for pattern in GENERIC_CLOSER_PATTERNS):
+        score += 2
+    return score
+
+
+def _internal_public_jargon_hits(text: str) -> list[str]:
+    normalized = " ".join((text or "").split())
+    if not normalized:
+        return []
+    hits = [pattern.pattern for pattern in INTERNAL_PUBLIC_JARGON_PATTERNS if pattern.search(normalized)]
+    lowered = normalized.lower()
+    if sum(1 for marker in OPERATOR_CATALOG_MARKERS if marker in lowered) >= 3:
+        hits.append("operator_catalog_markers")
+    for sentence in _split_sentences(normalized):
+        if _looks_like_operator_catalog_sentence(sentence):
+            hits.append("operator_catalog_sentence")
+            break
+    return hits
+
+
+def _proof_overload_score(text: str) -> int:
+    sentences = [sentence.strip() for sentence in _split_sentences(text or "") if sentence.strip()]
+    if not sentences:
+        return 0
+    overload = 0
+    for sentence in sentences:
+        word_count = len(sentence.split())
+        comma_count = sentence.count(",")
+        semicolon_count = sentence.count(";")
+        metric_count = len(re.findall(r"\b\d+(?:[.,]\d+)?%?\b", sentence))
+        if metric_count >= 3:
+            overload += 1
+        if word_count >= 34 and (comma_count >= 3 or semicolon_count >= 1):
+            overload += 1
+    return overload
+
+
+def _lane_signal_counts(text: str) -> dict[str, int]:
+    normalized = " ".join((text or "").lower().split())
+    if not normalized:
+        return {lane: 0 for lane in PUBLIC_POST_LANES}
+    lane_terms = {
+        "market_insight": {"market", "competition", "advantage", "leaders", "entrants", "positioning", "adoption", "margin", "category"},
+        "operator_lesson": {"workflow", "handoff", "operator", "decision", "loop", "clarity", "execution", "system", "context"},
+        "build_in_public": {"we", "built", "fixed", "learned", "finally", "rewired", "stopped", "shipped", "changed", "rebuilt"},
+    }
+    counts: dict[str, int] = {}
+    for lane, terms in lane_terms.items():
+        counts[lane] = sum(1 for term in terms if re.search(rf"\b{re.escape(term)}\b", normalized))
+    return counts
+
+
+def _publishability_score(option: str, brief: ContentOptionBrief | None, *, topic: str = "", audience: str = "") -> int:
+    score = 0
+    if _internal_public_jargon_hits(option):
+        score -= 16
+    else:
+        score += 8
+    if _starts_with_third_person_persona_bio(option):
+        score -= 10
+    else:
+        score += 2
+    proof_overload = _proof_overload_score(option)
+    if proof_overload:
+        score -= min(12, proof_overload * 6)
+    else:
+        score += 6
+    lane = _public_post_lane(brief)
+    lane_counts = _lane_signal_counts(option)
+    lane_focus = lane_counts.get(lane, 0)
+    other_focus = max((count for key, count in lane_counts.items() if key != lane), default=0)
+    if lane_focus >= 2 and other_focus <= lane_focus:
+        score += 5
+    elif lane_focus == 0 and other_focus >= 2:
+        score -= 6
+    elif lane_focus >= 1 and other_focus >= 2:
+        score -= 3
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", option or "") if segment.strip()]
+    if 2 <= len(paragraphs) <= 4:
+        score += 3
+    elif len(paragraphs) <= 1:
+        score -= 4
+    opening_word_count = len((_first_content_line(option) or "").split())
+    if 4 <= opening_word_count <= 14:
+        score += 2
+    elif opening_word_count >= 24:
+        score -= 4
+    if audience == "tech_ai" and any(term in " ".join((topic or "").lower().split()) for term in ("workflow", "agent", "ai", "orchestration")):
+        if re.search(r"\bworkflow\b|\bhandoff\b|\boperator\b|\bclarity\b", (option or "").lower()):
+            score += 2
+    return score
+
+
+def score_option_taste(
+    option: str,
+    *,
+    brief: ContentOptionBrief | None = None,
+    primary_claims: Optional[List[str]] = None,
+    proof_packets: Optional[List[str]] = None,
+    story_beats: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    cleaned = (option or "").strip()
+    primary_claims = primary_claims or []
+    proof_packets = proof_packets or []
+    story_beats = story_beats or []
+    active_brief = brief or ContentOptionBrief(
+        option_number=1,
+        framing_mode="operator_lesson",
+        primary_claim=primary_claims[0] if primary_claims else "",
+        proof_packet=proof_packets[0] if proof_packets else "",
+        story_beat=story_beats[0] if story_beats else "",
+    )
+    warnings: List[str] = []
+    strengths: List[str] = []
+    score = 60
+
+    genericity = _genericity_score(cleaned)
+    if genericity:
+        score -= genericity * 6
+        warnings.append(f"genericity:{genericity}")
+    else:
+        strengths.append("low_genericity")
+
+    first_line = _first_content_line(cleaned)
+    if _claim_near_opening(cleaned, active_brief.primary_claim):
+        score += 10
+        strengths.append("claim_led_opening")
+    else:
+        score -= 10
+        warnings.append("claim_not_leading")
+    if _starts_with_third_person_persona_bio(cleaned):
+        score -= 10
+        warnings.append("persona_bio_opening")
+    else:
+        strengths.append("no_persona_bio_opening")
+
+    if option_mentions_approved_proof(cleaned, [active_brief.proof_packet] if active_brief.proof_packet else proof_packets):
+        score += 10
+        strengths.append("proof_grounded")
+    else:
+        score -= 8
+        warnings.append("proof_not_visible")
+    if _brief_prefers_operator_voice(active_brief):
+        if _option_has_named_reference_specificity(cleaned, active_brief):
+            score += 4
+            strengths.append("named_reference_specificity")
+        else:
+            score -= 8
+            warnings.append("named_reference_missing")
+
+    internal_hits = _internal_public_jargon_hits(cleaned)
+    if internal_hits:
+        score -= min(18, len(internal_hits) * 6)
+        warnings.append("internal_public_leak")
+    else:
+        strengths.append("public_safe_language")
+
+    proof_overload = _proof_overload_score(cleaned)
+    if proof_overload:
+        score -= min(12, proof_overload * 6)
+        warnings.append("proof_overloaded")
+    else:
+        strengths.append("proof_density_controlled")
+
+    negative_hits = [pattern.pattern for pattern in TASTE_NEGATIVE_PATTERNS if pattern.search(cleaned)]
+    if negative_hits:
+        score -= len(negative_hits) * 6
+        warnings.extend("taste_negative" for _ in negative_hits)
+    else:
+        strengths.append("no_corporate_taste_hits")
+
+    positive_hits = [pattern.pattern for pattern in TASTE_POSITIVE_PATTERNS if pattern.search(cleaned)]
+    if positive_hits:
+        score += min(8, len(positive_hits) * 3)
+        strengths.append("johnnie_phrase_energy")
+
+    contrast_hits = [pattern.pattern for pattern in TASTE_CONTRAST_PATTERNS if pattern.search(cleaned)]
+    if contrast_hits:
+        score += min(6, len(contrast_hits) * 2)
+        strengths.append("contrast_present")
+    else:
+        warnings.append("low_contrast")
+
+    sentences = _split_sentences(cleaned)
+    if sentences:
+        lengths = [len(sentence.split()) for sentence in sentences if sentence.split()]
+        if lengths:
+            if any(length <= 6 for length in lengths):
+                score += 3
+                strengths.append("short_punchy_sentence")
+            else:
+                warnings.append("no_short_sentence")
+            average_length = sum(lengths) / len(lengths)
+            if average_length > 18:
+                score -= 4
+                warnings.append("too_smoothed")
+            elif average_length < 15:
+                score += 2
+                strengths.append("spoken_sentence_length")
+    if cleaned.count("\n\n") >= 1:
+        score += 2
+        strengths.append("human_paragraph_cadence")
+    else:
+        warnings.append("paragraph_cadence_flat")
+
+    last_sentence = ""
+    for sentence in reversed(_split_sentences(cleaned)):
+        normalized_sentence = " ".join(sentence.split()).strip()
+        if normalized_sentence:
+            last_sentence = normalized_sentence
+            break
+    if last_sentence and _closer_needs_sharpening(last_sentence, active_brief):
+        score -= 6
+        warnings.append("weak_closer")
+    elif last_sentence:
+        score += 4
+        strengths.append("sharp_closer")
+
+    if first_line.lower().startswith(("we ", "we’ve ", "we've ", "this ", "it ", "our ")):
+        score -= 4
+        warnings.append("soft_opening_subject")
+    if _brief_prefers_operator_voice(active_brief):
+        if re.search(r"(?mi)^(?:now,\s*)?we\b", cleaned):
+            score -= 4
+            warnings.append("soft_operator_pronoun")
+
+    overall = max(0, min(100, score))
+    return {
+        "overall": overall,
+        "warnings": warnings,
+        "strengths": strengths,
+        "first_line": first_line,
+    }
+
+
+def _option_needs_voice_sharpening(option: str) -> bool:
+    lowered = " ".join((option or "").lower().split())
+    if not lowered:
+        return False
+    if any(pattern.search(lowered) for pattern in FLAT_GENERIC_PATTERNS):
+        return True
+    if _genericity_score(option) >= 2:
+        return True
+    first_line = _first_content_line(option)
+    first_line_lower = first_line.lower()
+    if first_line_lower.startswith(("workflow clarity is", "agent orchestration is", "leadership is", "clarity is", "ai is")):
+        return True
+    if first_line_lower.startswith(("this is", "that is", "it is")) and len(first_line.split()) <= 10:
+        return True
+    return False
+
+
+def _options_need_voice_sharpening(options: List[str]) -> bool:
+    meaningful_options = [option for option in options if option.strip()]
+    if not meaningful_options:
+        return False
+    if any(_option_needs_voice_sharpening(option) for option in meaningful_options):
+        return True
+    first_words = []
+    for option in meaningful_options:
+        first_line = _first_content_line(option)
+        if not first_line:
+            continue
+        first_words.append(re.findall(r"[A-Za-z']+", first_line)[0].lower())
+    return len(first_words) >= 2 and len(set(first_words)) == 1
+
+
+def _runtime_is_production() -> bool:
+    explicit = (os.getenv("CONTENT_GENERATION_RUNTIME") or "").strip().lower()
+    if explicit in {"production", "prod"}:
+        return True
+    if explicit in {"development", "dev", "local"}:
+        return False
+    return bool(
+        os.getenv("RAILWAY_PROJECT_ID")
+        or os.getenv("RAILWAY_ENVIRONMENT")
+        or os.getenv("RAILWAY_ENVIRONMENT_ID")
+        or os.getenv("K_SERVICE")
+        or (os.getenv("NODE_ENV") or "").strip().lower() == "production"
+    )
+
+
+def _content_generation_stability_mode() -> str:
+    return " ".join((os.getenv("CONTENT_GENERATION_STABILITY_MODE") or "").lower().split())
+
+
+def _writer_temperature(audience: str) -> float:
+    if _content_generation_stability_mode() == "benchmark":
+        return 0.2 if audience == "tech_ai" else 0.28
+    return 0.55 if audience == "tech_ai" else 0.72
+
+
+def _critic_temperature() -> float:
+    if _content_generation_stability_mode() == "benchmark":
+        return 0.15
+    return 0.25
+
+
+def _refinement_temperature() -> float:
+    if _content_generation_stability_mode() == "benchmark":
+        return 0.12
+    return 0.35
+
+
+def _final_editor_temperature() -> float:
+    if _content_generation_stability_mode() == "benchmark":
+        return 0.12
+    return 0.35
+
+
+def _proof_enforcement_temperature() -> float:
+    if _content_generation_stability_mode() == "benchmark":
+        return 0.1
+    return 0.2
+
+
+def _legacy_generation_temperature(audience: str) -> float:
+    if _content_generation_stability_mode() == "benchmark":
+        return 0.25 if audience == "tech_ai" else 0.35
+    return 0.68 if audience == "tech_ai" else 0.85
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def _require_direct_content_generation_enabled(override_token: str | None) -> None:
+    if not _runtime_is_production():
+        return
+    if _env_flag_enabled("CONTENT_GENERATION_DIRECT_ROUTES_ENABLED"):
+        return
+    expected_override = (os.getenv("CONTENT_GENERATION_DIRECT_OVERRIDE_TOKEN") or "").strip()
+    provided_override = (override_token or "").strip()
+    if expected_override and provided_override:
+        if secrets.compare_digest(provided_override, expected_override):
+            return
+        raise HTTPException(status_code=401, detail="Invalid direct content generation override token")
+    raise HTTPException(
+        status_code=403,
+        detail="Direct content generation is disabled in production. Queue /api/content-generation/codex-jobs instead.",
+    )
+
+
+def _expected_local_codex_token() -> str:
+    return (os.getenv("LOCAL_CODEX_BRIDGE_TOKEN") or os.getenv("CRON_ACCESS_TOKEN") or "").strip()
+
+
+def _require_local_codex_token(x_local_codex_token: str | None) -> None:
+    expected = _expected_local_codex_token()
+    if expected:
+        supplied = (x_local_codex_token or "").strip()
+        if not supplied or not secrets.compare_digest(supplied, expected):
+            raise HTTPException(status_code=401, detail="Invalid local Codex bridge token")
+        return
+    if _runtime_is_production():
+        raise HTTPException(status_code=503, detail="Local Codex bridge token is not configured")
+
+
+def _serialize_content_option_briefs(briefs: List[ContentOptionBrief]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "option_number": brief.option_number,
+            "framing_mode": brief.framing_mode,
+            "primary_claim": brief.primary_claim,
+            "proof_packet": brief.proof_packet,
+            "story_beat": brief.story_beat,
+            "public_lane": brief.public_lane or _public_post_lane_for_option(brief.option_number),
+        }
+        for brief in briefs
+    ]
+
+
+def _deserialize_content_option_briefs(items: List[Dict[str, Any]] | None) -> List[ContentOptionBrief]:
+    briefs: List[ContentOptionBrief] = []
+    for index, item in enumerate(items or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        briefs.append(
+            ContentOptionBrief(
+                option_number=int(item.get("option_number") or index),
+                framing_mode=str(item.get("framing_mode") or "operator_lesson"),
+                primary_claim=_ensure_sentence(str(item.get("primary_claim") or "")),
+                proof_packet=str(item.get("proof_packet") or ""),
+                story_beat=str(item.get("story_beat") or ""),
+                public_lane=str(item.get("public_lane") or _public_post_lane_for_option(int(item.get("option_number") or index))),
+            )
+        )
+    return briefs
+
+
+def _content_signal_chunks(content_context: ContentGenerationContext) -> List[Dict[str, Any]]:
+    signal_chunks = getattr(content_context, "content_signal_chunks", None)
+    if isinstance(signal_chunks, list):
+        return signal_chunks
+    reservoir_chunks = getattr(content_context, "content_reservoir_chunks", None)
+    return reservoir_chunks if isinstance(reservoir_chunks, list) else []
+
+
+def _content_signal_source(content_context: ContentGenerationContext) -> str:
+    return str(getattr(content_context, "content_signal_source", "") or "persona_only")
+
+
+def _serialize_content_signal_support(content_context: ContentGenerationContext) -> List[Dict[str, Any]]:
+    return [
+        {
+            "source_id": str(item.get("source_id") or ""),
+            "asset_id": str(item.get("source_file_id") or ""),
+            "signal_lane": str((item.get("metadata") or {}).get("source_lane") or ""),
+            "source_kind": str((item.get("metadata") or {}).get("source_kind") or ""),
+            "reservoir_lane": str((item.get("metadata") or {}).get("content_reservoir_lane") or ""),
+            "primary_type": str((item.get("metadata") or {}).get("claim_type") or ""),
+            "score": int((item.get("weighted_score") or item.get("similarity_score") or 0)),
+            "title": str((item.get("metadata") or {}).get("file_name") or ""),
+            "text": str(item.get("chunk") or "")[:400],
+            "source_path": str((item.get("metadata") or {}).get("source_path") or ""),
+            "source_url": str((item.get("metadata") or {}).get("source_url") or ""),
+        }
+        for item in _content_signal_chunks(content_context)[:8]
+    ]
+
+
+def _serialize_content_reservoir_support(content_context: ContentGenerationContext) -> List[Dict[str, Any]]:
+    return _serialize_content_signal_support(content_context)
+
+
+def _source_card_payload(source_card: LocalCodexSourceCard | None) -> Dict[str, Any]:
+    if source_card is None:
+        return {}
+    return source_card.model_dump(exclude_none=True)
+
+
+def _source_card_identity_digest(source_card: LocalCodexSourceCard | None) -> str:
+    payload = _source_card_payload(source_card)
+    if not payload:
+        return ""
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _public_source_card_text(
+    value: Any,
+    *,
+    source_card: LocalCodexSourceCard | None,
+    limit: int = 1600,
+) -> str:
+    normalized = " ".join(str(value or "").split()).strip()
+    if not normalized:
+        return ""
+    if source_card is not None:
+        for private_reference in (source_card.source_path, source_card.target_file):
+            private_value = " ".join(str(private_reference or "").split()).strip()
+            if private_value:
+                normalized = re.sub(re.escape(private_value), "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:/Users|/home|/private|/tmp)/[^\s,;]+", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"[A-Za-z]:\\[^\s,;]+", "", normalized)
+    normalized = re.sub(
+        r"\b(?:backend|frontend|history|identity|knowledge|memory|prompts|sops|workspaces)/[^\s,;]+",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(r"\s+([,.;:!?])", r"\1", normalized)
+    normalized = " ".join(normalized.split()).strip(" -,:;")
+    return normalized[:limit]
+
+
+def _public_source_card_url(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return ""
+    hostname = str(parsed.hostname or "").strip().lower()
+    if parsed.scheme not in {"http", "https"} or not hostname:
+        return ""
+    if parsed.username or parsed.password:
+        return ""
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if address is not None and not address.is_global:
+        return ""
+    if (
+        hostname in {"localhost", "0.0.0.0"}
+        or hostname.startswith("127.")
+        or hostname.startswith("10.")
+        or hostname.startswith("192.168.")
+        or hostname.endswith((".internal", ".local"))
+    ):
+        return ""
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))[:1200]
+
+
+def _source_card_public_context(source_card: LocalCodexSourceCard | None) -> str:
+    if source_card is None:
+        return ""
+    lines: list[str] = []
+    public_fields = (
+        ("Title", source_card.title),
+        ("Summary", source_card.summary),
+        ("Source line", source_card.hook),
+        ("Why it was routed", source_card.route_reason),
+        ("Owner reaction", source_card.owner_reaction),
+        ("Public lane", source_card.priority_lane),
+        ("Source kind", source_card.source_kind),
+        ("Section", source_card.section),
+    )
+    for label, value in public_fields:
+        rendered = _public_source_card_text(value, source_card=source_card)
+        if rendered:
+            lines.append(f"{label}: {rendered}")
+    source_url = _public_source_card_url(source_card.source_url)
+    if source_url:
+        lines.append(f"Original source: {source_url}")
+    provenance_labels = {
+        "author": "Author",
+        "platform": "Platform",
+        "publication": "Publication",
+        "published_at": "Published",
+        "source_label": "Source label",
+        "capture_method": "Capture method",
+    }
+    for key, label in provenance_labels.items():
+        rendered = _public_source_card_text(source_card.provenance.get(key), source_card=source_card, limit=500)
+        if rendered:
+            lines.append(f"{label}: {rendered}")
+    if not lines:
+        return ""
+    return "Selected source card (public-safe writing context):\n" + "\n".join(lines)
+
+
+def _local_codex_request_context(req: LocalCodexJobCreateRequest) -> str:
+    base_context = str(req.context or "").strip()
+    if req.source_card is not None:
+        base_context = _public_source_card_text(base_context, source_card=req.source_card, limit=6000)
+    source_context = _source_card_public_context(req.source_card)
+    return "\n\n".join(part for part in (base_context, source_context) if part).strip()
+
+
+def _local_codex_cache_request_payload(req: LocalCodexJobCreateRequest) -> Dict[str, Any]:
+    payload = req.model_dump()
+    source_card_digest = _source_card_identity_digest(req.source_card)
+    if source_card_digest:
+        public_context = _local_codex_request_context(req)
+        payload["context"] = "\n\n".join(
+            part for part in (public_context, f"Source card identity: sha256:{source_card_digest}") if part
+        )
+    return payload
+
+
+def _build_local_codex_idempotency_key(req: LocalCodexJobCreateRequest) -> str:
+    if str(req.idempotency_key or "").strip():
+        return str(req.idempotency_key).strip()
+    identity_payload = _local_codex_cache_request_payload(req)
+    return build_content_job_idempotency_key(
+        {
+            "workspace_slug": req.workspace_slug,
+            "user_id": req.user_id,
+            "topic": req.topic,
+            "context": identity_payload.get("context") or "",
+            "content_type": req.content_type,
+            "category": req.category,
+            "tone": req.tone,
+            "audience": req.audience,
+            "source_mode": req.source_mode,
+        }
+    )
+
+
+def _trim_job_error(message: str | None) -> str | None:
+    normalized = " ".join((message or "").split()).strip()
+    if not normalized:
+        return None
+    return normalized[:1200]
+
+
+def _claim_is_flat_topic_label(claim: str) -> bool:
+    normalized = _ensure_sentence(claim)
+    if not normalized:
+        return True
+    words = re.findall(r"[A-Za-z0-9]+", normalized)
+    if len(words) > 3:
+        return False
+    if re.search(
+        r"\b(?:is|isn't|isnt|are|was|were|be|becomes|beats|matters|wins|fails|works|holds|scales|changes|hurts|helps|keeps|strengthens|weakens|drives|creates)\b",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    return True
+
+
+def _local_codex_primary_claims(*, topic: str, audience: str, primary_claims: List[str]) -> List[str]:
+    topic_sentence = _ensure_sentence(topic)
+    normalized_topic = " ".join((topic or "").lower().split())
+    market_topic = any(term in normalized_topic for term in ("market", "competition", "meaner", "advantage", "pressure", "entrants"))
+    focus_terms = _focus_terms(topic, audience)
+    ranked: List[tuple[int, str]] = []
+    for claim in primary_claims:
+        normalized_claim = _ensure_sentence(claim)
+        if not normalized_claim:
+            continue
+        if market_topic and not re.search(
+            r"\bmarket\b|\bcompetition\b|\bcompetitive\b|\bmeaner\b|\badvantage\b|\bpressure\b|\bentrants\b",
+            normalized_claim,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        score = len(_significant_terms(normalized_claim).intersection(focus_terms))
+        if topic_sentence and topic_sentence.lower() in normalized_claim.lower():
+            score += 4
+        if _starts_with_third_person_persona_bio(normalized_claim):
+            score -= 2
+        ranked.append((score, normalized_claim))
+
+    selected: List[str] = []
+    seen: set[str] = set()
+    if topic_sentence and not _claim_is_flat_topic_label(topic_sentence):
+        selected.append(topic_sentence)
+        seen.add(topic_sentence.lower())
+    for score, claim in sorted(ranked, key=lambda item: item[0], reverse=True):
+        key = claim.lower()
+        if key in seen:
+            continue
+        if _claim_is_flat_topic_label(claim):
+            continue
+        if score <= 0 and selected:
+            continue
+        if _starts_with_third_person_persona_bio(claim) and selected:
+            continue
+        seen.add(key)
+        selected.append(claim)
+        if len(selected) >= 3:
+            break
+    if not selected:
+        return primary_claims[:3]
+    while len(selected) < min(3, max(1, len(primary_claims) or 1)):
+        selected.append(selected[-1])
+    return selected[:3]
+
+
+def _local_codex_safe_anchor_chunks(chunks: List[Dict[str, Any]], *, limit: int) -> List[Dict[str, Any]]:
+    safe_chunks: List[Dict[str, Any]] = []
+    for item in chunks:
+        rendered = _render_anchor_chunk(item)
+        if _starts_with_third_person_persona_bio(rendered):
+            continue
+        if _internal_public_jargon_hits(rendered):
+            continue
+        safe_chunks.append(item)
+        if len(safe_chunks) >= limit:
+            break
+    if safe_chunks:
+        return safe_chunks
+    fallback_chunks = [
+        item for item in chunks
+        if not _starts_with_third_person_persona_bio(_render_anchor_chunk(item))
+    ]
+    return fallback_chunks[:limit] if fallback_chunks else chunks[:limit]
+
+
+def _local_codex_story_beats(*, topic: str, story_beats: List[str]) -> List[str]:
+    normalized_topic = " ".join((topic or "").lower().split())
+    market_topic = any(term in normalized_topic for term in ("market", "competition", "meaner", "advantage", "pressure", "entrants"))
+    filtered: List[str] = []
+    for beat in story_beats:
+        normalized = _ensure_sentence(beat)
+        if not normalized:
+            continue
+        if market_topic and re.search(
+            r"\bai constraint breakthrough\b|\bquiet inefficiency cleanup\b|\bschema\b|\bprompt\b|\bvalidation\b|\bworkflow\b",
+            normalized,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        filtered.append(normalized)
+    return filtered
+
+
+def _local_codex_proof_packets(*, topic: str, proof_packets: List[str]) -> List[str]:
+    normalized_topic = " ".join((topic or "").lower().split())
+    market_topic = any(term in normalized_topic for term in ("market", "competition", "meaner", "advantage", "pressure", "entrants"))
+    filtered: List[str] = []
+    for packet in proof_packets:
+        evidence = _proof_packet_evidence_text(packet)
+        if _internal_public_jargon_hits(evidence):
+            continue
+        if market_topic and re.search(
+            r"\bai clone\b|\beasy outfit\b|\bfrontier(?:-model)?\b|\bluxury\b|\bschema\b|\bvalidation\b|\bworkflow discipline\b|\binstruction-layer\b",
+            packet,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        filtered.append(packet)
+    if market_topic and filtered:
+        public_packets = [
+            packet
+            for packet in filtered
+            if re.search(
+                r"\bdashboard\b|\bsalesforce\b|\boutreach\b|\breferrals?\b|\bmeetings?\b|\bterritory\b|\bleadership\b|\bpriority\b",
+                packet,
+                flags=re.IGNORECASE,
+            )
+        ]
+        if public_packets:
+            return public_packets
+    return filtered or proof_packets[:]
+
+
+def _local_codex_approved_references(
+    *,
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+) -> List[str]:
+    references = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    filtered: List[str] = []
+    for reference in references:
+        if _starts_with_third_person_persona_bio(reference):
+            continue
+        if _internal_public_jargon_hits(reference):
+            continue
+        filtered.append(reference)
+    return filtered
+
+
+def _build_local_codex_context_packet(
+    *,
+    req: LocalCodexJobCreateRequest,
+    content_context: ContentGenerationContext,
+) -> Dict[str, Any]:
+    local_primary_claims = _local_codex_primary_claims(
+        topic=req.topic,
+        audience=req.audience,
+        primary_claims=content_context.primary_claims,
+    )
+    local_proof_packets = _local_codex_proof_packets(topic=req.topic, proof_packets=content_context.proof_packets)
+    local_story_beats = _local_codex_story_beats(topic=req.topic, story_beats=content_context.story_beats[:])
+    briefs = plan_content_option_briefs(
+        primary_claims=local_primary_claims,
+        proof_packets=local_proof_packets,
+        story_beats=local_story_beats,
+        framing_modes=content_context.framing_modes,
+        option_count=3,
+    )
+    local_topic_anchor_chunks = _local_codex_safe_anchor_chunks(content_context.topic_anchor_chunks, limit=3)
+    local_proof_anchor_chunks = _local_codex_safe_anchor_chunks(content_context.proof_anchor_chunks, limit=2)
+    local_story_anchor_chunks = _local_codex_safe_anchor_chunks(content_context.story_anchor_chunks, limit=1)
+    voice_directives = _extract_voice_directives(content_context.persona_chunks, limit=8)
+    approved_references = _local_codex_approved_references(
+        primary_claims=local_primary_claims,
+        proof_packets=local_proof_packets,
+        story_beats=local_story_beats,
+    )
+    public_request_context = _local_codex_request_context(req)
+    prompt = build_local_codex_writer_prompt(
+        topic=req.topic,
+        context=public_request_context,
+        audience=req.audience,
+        grounding_mode=content_context.grounding_mode,
+        grounding_reason=content_context.grounding_reason,
+        topic_anchor_chunks=local_topic_anchor_chunks,
+        proof_anchor_chunks=local_proof_anchor_chunks,
+        story_anchor_chunks=local_story_anchor_chunks,
+        briefs=briefs,
+        voice_directives=voice_directives,
+        approved_references=approved_references,
+    )
+    prompt += """
+
+FINAL RESPONSE CONTRACT:
+- Replace the earlier delimiter-based output instruction.
+- Do not use ---OPTION--- in the final answer.
+- Return only JSON.
+- Return an object with exactly one key: "options".
+- "options" must be an array of exactly 3 complete post drafts.
+- Each option must be a string.
+- No markdown fences.
+- No commentary outside the JSON object.
+- Do not edit files or attempt to save anything locally.
+"""
+    return {
+        "workspace_slug": req.workspace_slug,
+        "prompt": prompt.strip(),
+        "source_card": _source_card_payload(req.source_card) or None,
+        "source_card_public_context": _source_card_public_context(req.source_card) or None,
+        "requested_model": os.getenv("LOCAL_CODEX_BRIDGE_MODEL", "gpt-5.4-mini"),
+        "expected_option_count": 3,
+        "grounding_mode": content_context.grounding_mode,
+        "grounding_reason": content_context.grounding_reason,
+        "primary_claims": local_primary_claims,
+        "raw_primary_claims": content_context.raw_primary_claims,
+        "public_safe_primary_claims": content_context.public_safe_primary_claims,
+        "proof_packets": local_proof_packets,
+        "raw_proof_packets": content_context.raw_proof_packets,
+        "public_safe_proof_packets": content_context.public_safe_proof_packets,
+        "raw_story_beats": content_context.raw_story_beats,
+        "public_safe_story_beats": content_context.public_safe_story_beats,
+        "content_release_policy": content_context.content_release_policy,
+        "story_beats": local_story_beats,
+        "disallowed_moves": content_context.disallowed_moves,
+        "approved_references": approved_references,
+        "voice_directives": voice_directives,
+        "planned_option_briefs": _serialize_content_option_briefs(briefs),
+        "topic_anchor_preview": [
+            _render_anchor_chunk(item)[:220]
+            for item in local_topic_anchor_chunks[:4]
+        ],
+        "core_chunk_preview": [
+            _render_anchor_chunk(item)[:220]
+            for item in content_context.core_chunks[:4]
+        ],
+        "proof_anchor_preview": [
+            _render_anchor_chunk(item)[:220]
+            for item in local_proof_anchor_chunks[:4]
+        ],
+        "content_signal_source": _content_signal_source(content_context),
+        "content_signal_preview": [
+            str(item.get("chunk") or "")[:220]
+            for item in _content_signal_chunks(content_context)[:6]
+        ],
+        "content_signal_count": len(_content_signal_chunks(content_context)),
+        "content_signal_support": _serialize_content_signal_support(content_context),
+        "content_reservoir_preview": [
+            str(item.get("chunk") or "")[:220]
+            for item in _content_signal_chunks(content_context)[:6]
+        ],
+        "content_reservoir_count": len(_content_signal_chunks(content_context)),
+        "content_reservoir_support": _serialize_content_signal_support(content_context),
+        "persona_context_summary": content_context.persona_context_summary,
+        "examples_used": [c.get("metadata", {}).get("source", "")[:50] for c in content_context.example_chunks[:3]],
+    }
+
+
+def _persist_job_artifacts(job_id: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    stored: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if content is None:
+            continue
+        stored.append(
+            write_job_artifact(
+                job_id=job_id,
+                kind=str(item.get("kind") or "artifact"),
+                label=str(item.get("label") or item.get("filename") or "artifact"),
+                content=str(content),
+                filename=str(item.get("filename") or f"{str(item.get('kind') or 'artifact')}.txt"),
+                mime_type=str(item.get("mime_type") or "text/plain"),
+            )
+        )
+    return stored
+
+
+def queue_local_codex_job(req: LocalCodexJobCreateRequest) -> dict[str, Any]:
+    request_payload = req.model_dump()
+    cache_request_payload = _local_codex_cache_request_payload(req)
+    cache_key, snapshot_hash = build_context_cache_key(
+        workspace_slug=req.workspace_slug,
+        request_payload=cache_request_payload,
+    )
+    cached = load_cached_context_packet(cache_key=cache_key)
+    context_packet = cached.get("context_packet") if isinstance(cached, dict) else None
+    cache_hit = isinstance(context_packet, dict)
+    if not cache_hit:
+        content_context: ContentGenerationContext = build_content_generation_context(
+            user_id=req.user_id,
+            topic=req.topic,
+            context=_local_codex_request_context(req) or None,
+            content_type=req.content_type,
+            category=req.category,
+            tone=req.tone,
+            audience=req.audience,
+            source_mode=req.source_mode,
+        )
+        context_packet = _build_local_codex_context_packet(req=req, content_context=content_context)
+        write_cached_context_packet(
+            cache_key=cache_key,
+            workspace_slug=req.workspace_slug,
+            snapshot_hash=snapshot_hash,
+            request_payload=cache_request_payload,
+            context_packet=context_packet,
+        )
+    if not isinstance(context_packet, dict):
+        raise RuntimeError("Unable to build local Codex context packet.")
+    context_packet = dict(context_packet)
+    context_packet["cache_key"] = cache_key
+    context_packet["snapshot_hash"] = snapshot_hash
+    context_packet["cache_hit"] = cache_hit
+    job = create_codex_job(
+        workspace_slug=req.workspace_slug,
+        requested_by=req.user_id,
+        request_payload=request_payload,
+        context_packet=context_packet,
+        idempotency_key=_build_local_codex_idempotency_key(req),
+    )
+    artifacts = _persist_job_artifacts(
+        str(job.get("id") or ""),
+        [
+            {
+                "kind": "context_packet",
+                "label": "context-packet.json",
+                "filename": "context-packet.json",
+                "mime_type": "application/json",
+                "content": json.dumps(context_packet, indent=2) + "\n",
+            },
+            {
+                "kind": "request_payload",
+                "label": "request-payload.json",
+                "filename": "request-payload.json",
+                "mime_type": "application/json",
+                "content": json.dumps(request_payload, indent=2) + "\n",
+            },
+        ],
+    )
+    if artifacts:
+        job = append_job_artifacts(job_id=str(job.get("id") or ""), artifacts=artifacts)
+    return job
+
+
+def _build_local_codex_result_payload(
+    *,
+    job: Dict[str, Any],
+    options: List[str],
+    model: str | None,
+    raw_output: str | None,
+    command_stdout: str | None,
+    command_stderr: str | None,
+) -> Dict[str, Any]:
+    request_payload = job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {}
+    packet = job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}
+    briefs = _deserialize_content_option_briefs(packet.get("planned_option_briefs"))
+    trimmed_options = [option.strip() for option in options if isinstance(option, str) and option.strip()][:3]
+    if briefs:
+        trimmed_options = finalize_planned_options(
+            options=trimmed_options,
+            briefs=briefs,
+            grounding_mode=str(packet.get("grounding_mode") or "principle_only"),
+        )
+        approved_reference_terms = list(packet.get("approved_references") or [])
+        audience = str(request_payload.get("audience") or "")
+        trimmed_options = [
+            _drop_unapproved_reference_sentences(
+                _sanitize_public_output(
+                    option,
+                    briefs[index] if index < len(briefs) else briefs[-1],
+                ),
+                brief=briefs[index] if index < len(briefs) else briefs[-1],
+                approved_reference_terms=approved_reference_terms,
+                audience=audience,
+            )
+            for index, option in enumerate(trimmed_options)
+        ]
+        taste_scores = [
+            score_option_taste(
+                option,
+                brief=briefs[index] if index < len(briefs) else None,
+                primary_claims=list(packet.get("primary_claims") or []),
+                proof_packets=list(packet.get("proof_packets") or []),
+                story_beats=list(packet.get("story_beats") or []),
+            )
+            for index, option in enumerate(trimmed_options)
+        ]
+        trimmed_options, briefs, taste_scores = _rank_options_by_taste(
+            options=trimmed_options,
+            briefs=briefs,
+            taste_scores=taste_scores,
+            topic=str(request_payload.get("topic") or ""),
+            audience=str(request_payload.get("audience") or ""),
+        )
+        trimmed_options, taste_scores = _repair_weak_ranked_options(
+            options=trimmed_options,
+            briefs=briefs,
+            taste_scores=taste_scores,
+            topic=str(request_payload.get("topic") or ""),
+            audience=str(request_payload.get("audience") or ""),
+            grounding_mode=str(packet.get("grounding_mode") or "principle_only"),
+            primary_claims=list(packet.get("primary_claims") or []),
+            proof_packets=list(packet.get("proof_packets") or []),
+            story_beats=list(packet.get("story_beats") or []),
+            approved_reference_terms=approved_reference_terms,
+        )
+        trimmed_options, briefs, taste_scores = _rank_options_by_taste(
+            options=trimmed_options,
+            briefs=briefs,
+            taste_scores=taste_scores,
+            topic=str(request_payload.get("topic") or ""),
+            audience=str(request_payload.get("audience") or ""),
+        )
+    else:
+        taste_scores = []
+    return {
+        "success": True,
+        "options": trimmed_options,
+        "persona_context": packet.get("persona_context_summary"),
+        "examples_used": list(packet.get("examples_used") or []),
+        "diagnostics": {
+            "grounding_mode": packet.get("grounding_mode"),
+            "generation_strategy": "codex_terminal",
+            "primary_claims": list(packet.get("primary_claims") or []),
+            "proof_packets": list(packet.get("proof_packets") or []),
+            "approved_references": list(packet.get("approved_references") or []),
+            "voice_directives": list(packet.get("voice_directives") or []),
+            "planned_option_briefs": _serialize_content_option_briefs(briefs),
+            "taste_scores": taste_scores,
+            "topic_anchor_preview": list(packet.get("topic_anchor_preview") or []),
+            "core_chunk_preview": list(packet.get("core_chunk_preview") or []),
+            "proof_anchor_preview": list(packet.get("proof_anchor_preview") or []),
+            "content_signal_source": packet.get("content_signal_source") or "persona_only",
+            "content_signal_preview": list(packet.get("content_signal_preview") or packet.get("content_reservoir_preview") or []),
+            "content_signal_count": int(packet.get("content_signal_count") or packet.get("content_reservoir_count") or 0),
+            "content_signal_support": list(packet.get("content_signal_support") or packet.get("content_reservoir_support") or []),
+            "content_reservoir_preview": list(packet.get("content_reservoir_preview") or packet.get("content_signal_preview") or []),
+            "content_reservoir_count": int(packet.get("content_reservoir_count") or packet.get("content_signal_count") or 0),
+            "content_reservoir_support": list(packet.get("content_reservoir_support") or packet.get("content_signal_support") or []),
+            "llm_provider_trace": [
+                {
+                    "provider": "codex_terminal",
+                    "actual_model": model or str(packet.get("requested_model") or "gpt-5.4-mini"),
+                    "status": "success",
+                }
+            ],
+            "source_mode": request_payload.get("source_mode"),
+            "raw_codex_output_preview": (raw_output or "")[:800],
+            "runner_stdout_preview": (command_stdout or "")[-800:],
+            "runner_stderr_preview": (command_stderr or "")[-800:],
+        },
+    }
+
+
+def _build_local_codex_status_response(job: Dict[str, Any]) -> LocalCodexJobStatusResponse:
+    result_payload = job.get("result_payload")
+    result: ContentGenerationResponse | None = None
+    if isinstance(result_payload, dict):
+        try:
+            result = ContentGenerationResponse(**result_payload)
+        except Exception:
+            result = None
+    return LocalCodexJobStatusResponse(
+        success=True,
+        job_id=str(job.get("id") or ""),
+        workspace_slug=str(job.get("workspace_slug") or ""),
+        status=str(job.get("status") or "pending"),
+        requested_by=str(job.get("requested_by") or ""),
+        created_at=str(job.get("created_at") or ""),
+        started_at=str(job.get("started_at") or ""),
+        completed_at=str(job.get("completed_at") or ""),
+        error_message=_trim_job_error(job.get("error_message")),
+        result=result,
+        artifact_count=len([item for item in (job.get("artifacts") or []) if isinstance(item, dict)]),
+    )
+
+
+def _parse_provider_order(value: str) -> List[str]:
+    allowed = {"openai", "gemini", "ollama", "codex"}
+    ordered: List[str] = []
+    seen: set[str] = set()
+    for raw in (value or "").split(","):
+        provider = raw.strip().lower()
+        if not provider or provider not in allowed or provider in seen:
+            continue
+        seen.add(provider)
+        ordered.append(provider)
+    return ordered
+
+
+def _default_content_provider_order() -> List[str]:
+    configured = _parse_provider_order(os.getenv("CONTENT_GENERATION_PROVIDER_ORDER", ""))
+    if configured:
+        return configured
+    if _runtime_is_production():
+        return ["gemini", "openai"]
+    return ["ollama", "openai"]
+
+
+def _default_email_content_provider_order() -> List[str]:
+    configured = _parse_provider_order(os.getenv("CONTENT_GENERATION_EMAIL_PROVIDER_ORDER", ""))
+    if configured:
+        return configured
+    base_order = _default_content_provider_order()
+    non_ollama = [provider for provider in base_order if provider != "ollama"]
+    ollama = [provider for provider in base_order if provider == "ollama"]
+    return non_ollama + ollama
+
+
+def _request_uses_email_provider_policy(req: "ContentGenerationRequest | None" = None) -> bool:
+    if not req:
+        return False
+    return (
+        str(req.content_type or "").strip().lower() in EMAIL_CONTENT_TYPES
+        or str(req.source_mode or "").strip().lower() == "email_thread_grounded"
+    )
+
+
+def _normalize_openai_base_url(url: str) -> str:
+    normalized = (url or "").strip()
+    if not normalized:
+        return normalized
+    return normalized if normalized.endswith("/") else f"{normalized}/"
+
+
+def _provider_is_configured(name: str) -> bool:
+    if name == "openai":
+        return bool((os.getenv("OPENAI_API_KEY") or "").strip())
+    if name == "codex":
+        return bool((os.getenv("CONTENT_GENERATION_CODEX_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip())
+    if name == "gemini":
+        return bool((os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip())
+    if name == "ollama":
+        return True
+    return False
+
+
+def _uses_fast_model_alias(requested_model: str) -> bool:
+    normalized = (requested_model or "").strip().lower()
+    if not normalized:
+        return True
+    return any(token in normalized for token in ("mini", "nano", "flash", "fast"))
+
+
+def _resolve_provider_model(provider: ContentLLMProvider, requested_model: str) -> str:
+    normalized = (requested_model or "").strip().lower()
+    if normalized == CONTENT_FAST_MODEL_ALIAS:
+        return provider.fast_model
+    if normalized == CONTENT_EDITOR_MODEL_ALIAS:
+        return provider.editor_model or provider.fast_model
+    if provider.name == "openai":
+        return requested_model
+    if _uses_fast_model_alias(requested_model):
+        return provider.fast_model
+    return provider.editor_model or provider.fast_model
+
+
+def _is_retryable_rate_limit_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+    if status_code == 429:
+        return True
+    message = str(exc).lower()
+    return any(signal in message for signal in ("429", "rate limit", "resource_exhausted", "quota"))
+
+
+def _provider_retry_attempts(provider: ContentLLMProvider) -> int:
+    explicit = os.getenv("CONTENT_GENERATION_PROVIDER_RETRY_ATTEMPTS", "").strip()
+    if explicit.isdigit():
+        return max(0, int(explicit))
+    if provider.name == "gemini":
+        return 1
+    return 0
+
+
+def _provider_retry_delay_seconds(provider: ContentLLMProvider, attempt: int) -> float:
+    explicit = os.getenv("CONTENT_GENERATION_PROVIDER_RETRY_DELAY_SECONDS", "").strip()
+    if explicit:
+        try:
+            return max(0.0, float(explicit))
+        except ValueError:
+            pass
+    if provider.name == "gemini":
+        return min(3.0, float(attempt))
+    return 0.0
+
+
+def _should_retry_provider(provider: ContentLLMProvider, exc: Exception) -> bool:
+    return provider.name == "gemini" and _is_retryable_rate_limit_error(exc)
+
+
+def _normalize_chat_completion_kwargs(actual_model: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(kwargs)
+    model_name = (actual_model or "").strip().lower()
+    if model_name.startswith("gpt-5"):
+        if "max_tokens" in normalized and "max_completion_tokens" not in normalized:
+            normalized["max_completion_tokens"] = normalized.pop("max_tokens")
+        if "temperature" in normalized and normalized.get("temperature") != 1:
+            normalized.pop("temperature", None)
+    return normalized
+
+
+def _should_fallback_provider(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status_code is None and response is not None:
+        status_code = getattr(response, "status_code", None)
+    message = str(exc).lower()
+    if status_code in {401, 402, 403, 404, 408, 409, 429, 500, 502, 503, 504}:
+        return True
+    fallback_signals = (
+        "insufficient_quota",
+        "resource_exhausted",
+        "quota",
+        "billing",
+        "credit",
+        "api key",
+        "authentication",
+        "connection refused",
+        "timed out",
+        "timeout",
+        "temporarily unavailable",
+        "overloaded",
+        "model not found",
+        "does not exist",
+        "max retries exceeded",
+    )
+    return any(signal in message for signal in fallback_signals)
+
+
+def _provider_timeout_seconds(provider_name: str, req: "ContentGenerationRequest | None" = None) -> float | None:
+    uses_email_policy = _request_uses_email_provider_policy(req)
+    candidates: List[str] = []
+    if uses_email_policy:
+        candidates.extend(
+            [
+                os.getenv(f"CONTENT_GENERATION_EMAIL_{provider_name.upper()}_TIMEOUT_SECONDS", "").strip(),
+                os.getenv("CONTENT_GENERATION_EMAIL_PROVIDER_TIMEOUT_SECONDS", "").strip(),
+            ]
+        )
+    candidates.extend(
+        [
+            os.getenv(f"CONTENT_GENERATION_{provider_name.upper()}_TIMEOUT_SECONDS", "").strip(),
+            os.getenv("CONTENT_GENERATION_PROVIDER_TIMEOUT_SECONDS", "").strip(),
+        ]
+    )
+    for raw in candidates:
+        if not raw:
+            continue
+        try:
+            timeout_seconds = float(raw)
+        except ValueError:
+            continue
+        if timeout_seconds > 0:
+            return timeout_seconds
+    if uses_email_policy:
+        if provider_name == "ollama":
+            return 4.0
+        return 12.0
+    if provider_name == "ollama":
+        return 20.0
+    return 45.0
+
+
+def _content_provider_order_for_request(req: "ContentGenerationRequest | None" = None) -> List[str]:
+    if _request_uses_email_provider_policy(req):
+        return _default_email_content_provider_order()
+    return _default_content_provider_order()
+
+
+def get_openai_client(req: "ContentGenerationRequest | None" = None):
+    """Get routed LLM client for content generation."""
+    import openai
+
+    providers: List[ContentLLMProvider] = []
+    for provider_name in _content_provider_order_for_request(req):
+        if not _provider_is_configured(provider_name):
+            continue
+        timeout_seconds = _provider_timeout_seconds(provider_name, req)
+        if provider_name == "codex":
+            codex_api_key = os.getenv("CONTENT_GENERATION_CODEX_API_KEY") or os.getenv("OPENAI_API_KEY")
+            codex_base_url = _normalize_openai_base_url(os.getenv("CONTENT_GENERATION_CODEX_BASE_URL", ""))
+            client_kwargs: Dict[str, Any] = {"api_key": codex_api_key, "timeout": timeout_seconds}
+            if codex_base_url:
+                client_kwargs["base_url"] = codex_base_url
+            providers.append(
+                ContentLLMProvider(
+                    name="codex",
+                    client=openai.OpenAI(**client_kwargs),
+                    fast_model=os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.4-mini"),
+                    editor_model=os.getenv(
+                        "CONTENT_GENERATION_CODEX_EDITOR_MODEL",
+                        os.getenv("CONTENT_GENERATION_CODEX_FAST_MODEL", "gpt-5.4-mini"),
+                    ),
+                )
+            )
+            continue
+        if provider_name == "openai":
+            providers.append(
+                ContentLLMProvider(
+                    name="openai",
+                    client=openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"), timeout=timeout_seconds),
+                    fast_model=os.getenv("CONTENT_GENERATION_OPENAI_FAST_MODEL", "gpt-4o-mini"),
+                    editor_model=os.getenv("CONTENT_GENERATION_OPENAI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_EDITOR_MODEL", "gpt-4o-mini")),
+                )
+            )
+            continue
+        if provider_name == "gemini":
+            providers.append(
+                ContentLLMProvider(
+                    name="gemini",
+                    client=openai.OpenAI(
+                        api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
+                        base_url=_normalize_openai_base_url(
+                            os.getenv("GEMINI_OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+                        ),
+                        timeout=timeout_seconds,
+                    ),
+                    fast_model=os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash"),
+                    editor_model=os.getenv("CONTENT_GENERATION_GEMINI_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_GEMINI_FAST_MODEL", "gemini-2.5-flash")),
+                )
+            )
+            continue
+        if provider_name == "ollama":
+            providers.append(
+                ContentLLMProvider(
+                    name="ollama",
+                    client=openai.OpenAI(
+                        api_key=os.getenv("OLLAMA_API_KEY", "ollama"),
+                        base_url=_normalize_openai_base_url(os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")),
+                        timeout=timeout_seconds,
+                    ),
+                    fast_model=os.getenv("CONTENT_GENERATION_OLLAMA_FAST_MODEL", "llama3.1"),
+                    editor_model=os.getenv("CONTENT_GENERATION_OLLAMA_EDITOR_MODEL", os.getenv("CONTENT_GENERATION_OLLAMA_FAST_MODEL", "llama3.1")),
+                )
+            )
+    if not providers:
+        raise ValueError(
+            "No content-generation providers configured. Set Ollama locally, or GEMINI_API_KEY / OPENAI_API_KEY / CONTENT_GENERATION_CODEX_API_KEY."
+        )
+    return ContentLLMRouterClient(providers)
+
+
+def _final_editor_model() -> str:
+    return CONTENT_EDITOR_MODEL_ALIAS
+
+
+def _use_compact_staged_generation(client: Any, *, content_type: str) -> bool:
+    if content_type != "linkedin_post":
+        return False
+    explicit = (os.getenv("CONTENT_GENERATION_COMPACT_STAGED_MODE") or "").strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    if explicit in {"0", "false", "no", "off"}:
+        return False
+    providers = getattr(client, "providers", []) or []
+    primary_provider = str(getattr(providers[0], "name", "")).lower() if providers else ""
+    return primary_provider in {"gemini", "ollama"}
+
+
+def _split_example_references(example_chunks: List[Dict[str, Any]], *, limit: int = 3) -> tuple[List[str], List[str]]:
+    good_examples: List[str] = []
+    avoid_examples: List[str] = []
+    for item in example_chunks[:limit]:
+        chunk = " ".join(str(item.get("chunk") or "").split()).strip()
+        if not chunk:
+            continue
+        normalized = chunk.lower()
+        if normalized.startswith(("avoid patterns:", "avoid fillers:")):
+            avoid_examples.append(chunk[:500])
+        else:
+            good_examples.append(chunk[:500])
+    return good_examples, avoid_examples
+
+
+def build_content_prompt(
+    topic: str,
+    context: str,
+    content_type: str,
+    category: str,
+    pacer_elements: List[str],
+    tone: str,
+    persona_chunks: List[Dict],
+    example_chunks: List[Dict],
+    audience: str = "general",
+    topic_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    eligible_story_chunks: Optional[List[Dict[str, Any]]] = None,
+    proof_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    grounding_mode: Optional[str] = None,
+    grounding_reason: Optional[str] = None,
+    framing_modes: Optional[List[str]] = None,
+    primary_claims: Optional[List[str]] = None,
+    proof_packets: Optional[List[str]] = None,
+    story_beats: Optional[List[str]] = None,
+    disallowed_moves: Optional[List[str]] = None,
+) -> str:
+    """Build the prompt for content generation."""
+    audience_label = _audience_prompt_label(audience)
+    topic_anchor_chunks = topic_anchor_chunks or select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    eligible_story_chunks = eligible_story_chunks or select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
+    proof_anchor_chunks = proof_anchor_chunks or select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    primary_claims = primary_claims or []
+    proof_packets = proof_packets or []
+    story_beats = story_beats or []
+    topic_anchor_text = _prompt_topic_anchor_text(
+        topic_anchor_chunks=topic_anchor_chunks,
+        primary_claims=primary_claims,
+        limit=4,
+    )
+    eligible_story_text = _prompt_story_anchor_text(
+        story_anchor_chunks=eligible_story_chunks,
+        story_beats=story_beats,
+        limit=3,
+    ) if eligible_story_chunks or story_beats else "- No directly relevant story anchor found. Do not force one."
+    proof_anchor_text = _prompt_proof_anchor_text(
+        proof_anchor_chunks=proof_anchor_chunks,
+        proof_packets=proof_packets,
+        limit=4,
+    ) if proof_anchor_chunks or proof_packets else "- No strong proof anchor found. Stay concrete about process and role."
+    topic_focus_guidance = build_topic_focus_guidance(
+        topic=topic,
+        audience=audience,
+        eligible_story_chunks=eligible_story_chunks,
+    )
+    proof_guidance = build_proof_guidance(proof_anchor_chunks)
+    grounding_mode = grounding_mode or ("proof_ready" if proof_anchor_chunks else "principle_only")
+    grounding_reason = grounding_reason or (
+        "Concrete proof anchors are available, so the post can lead with real evidence."
+        if proof_anchor_chunks
+        else "No strong proof anchor was found, so the post should stay principle-led."
+    )
+    approved_framing_modes = framing_modes or ["operator_lesson", "contrarian_reframe", "reframe"]
+    framing_modes_text = "\n".join(
+        f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
+        for mode in approved_framing_modes
+    )
+    disallowed_moves = disallowed_moves or []
+    primary_claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- No primary claims were pre-composed. Stay tightly inside the topic anchors."
+    proof_packets_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No approved proof packets. Use principle only."
+    story_beats_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No story beat approved for this request."
+    disallowed_moves_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
+    approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    approved_reference_text = "\n".join(f"- {term}" for term in approved_reference_terms) or "- No approved named references."
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    voice_directives_text = "\n".join(f"- {directive}" for directive in voice_directives)
+    option_framing_plan = _build_option_framing_plan(
+        framing_modes=approved_framing_modes,
+        primary_claims=primary_claims,
+        proof_packets=proof_packets,
+        story_beats=story_beats,
+        option_count=3,
+    )
+    option_framing_plan_text = _render_option_framing_plan(option_framing_plan)
+    
+    visible_persona_chunks = _collect_prompt_visible_chunks(
+        persona_chunks=persona_chunks,
+        topic_anchor_chunks=topic_anchor_chunks,
+        eligible_story_chunks=eligible_story_chunks,
+        proof_anchor_chunks=proof_anchor_chunks,
+        topic=topic,
+        audience=audience,
+    )
+
+    # Group visible chunks by prompt layer so canon stays ahead of support, without flooding the prompt with off-topic history.
+    persona_sections: Dict[str, List[str]] = {}
+    for c in visible_persona_chunks:
+        tag = str(c.get("persona_tag", "GENERAL")).replace("_", " ").title()
+        section = str(_item_metadata(c).get("prompt_section") or "RETRIEVAL SUPPORT")
+        chunk_text = _render_anchor_chunk(c)
+        if not chunk_text:
+            continue
+        persona_sections.setdefault(section, []).append(f"- [{tag}] {chunk_text}")
+
+    persona_parts = []
+    for section in PROMPT_SECTION_ORDER:
+        chunks = persona_sections.get(section)
+        if chunks:
+            persona_parts.append(f"### {section}\n" + "\n".join(chunks))
+    persona_text = "\n\n".join(persona_parts)
+    
+    good_examples, avoid_examples = _split_example_references(example_chunks, limit=3)
+    good_examples_text = "\n---\n".join(good_examples) if good_examples else "No additional positive examples available."
+    avoid_examples_text = "\n---\n".join(avoid_examples) if avoid_examples else "No additional avoid-pattern examples available."
+    
+    # Anti-AI writing filter
+    anti_ai_rules = """
+## CRITICAL WRITING RULES - FOLLOW STRICTLY
+
+NEVER use generic LLM patterns such as:
+- "In today's world", "In today's fast-paced", "In the realm of"
+- "Furthermore", "Moreover", "Additionally", "However"
+- "Let's dive into", "Let's explore", "Let's unpack"
+- "This is important because", "It's worth noting"
+- "At the end of the day", "When it comes to"
+- "I'm excited to", "I'm thrilled to", "I'm passionate about"
+- "Game-changer", "Leverage", "Synergy", "Paradigm shift"
+- Corporate buzzwords and emotionally flat summaries
+- Obvious transitional phrases
+
+Emulate human writing style:
+- Direct, clear, and confident
+- Short sentences when emphasizing key ideas
+- Precise and concrete language
+- No filler transitions
+- Vary sentence length to feel human
+- Lead with insight, not recap
+- Avoid AI cadence
+
+TONE EXAMPLES TO MATCH:
+1. "Leadership isn't about authority. It's about clarity, direction, and decisions made when the room goes quiet."
+2. "Most operational problems aren't mysteries. They're patterns. When you track them honestly, solutions become obvious."
+3. "I used to dominate conversations. Now I make it my business to be the last person to talk. The result? Better relationships, heavier adoption of my ideas."
+4. "Thanksgiving has a funny way of reminding us what actually shapes people. For me, it's always been education and style — two worlds everyone thinks are separate, but they're not."
+5. "Style isn't vanity — it's a form of self-belief."
+6. "Your outfit tells a story long before you say a word."
+
+CRITICAL STYLE RULES:
+- Open with a HOOK that creates tension or reframes a common belief
+- Use short, punchy sentences for emphasis
+- Break lines for rhythm and visual impact
+- Be specific and concrete, not abstract
+- End with a question that invites engagement
+- NO soft openings like "Thanksgiving isn't just about..." or "For me, it's..."
+- NO generic statements like "It's a chance to reflect"
+- Lead with INSIGHT, not setup
+
+BEFORE vs AFTER EXAMPLES:
+
+❌ BAD (generic): "Education isn't just about books. It's about identity."
+✅ GOOD (specific): "Education isn't only about books; it's identity."
+
+❌ BAD (vague): "I watched my dad teach me that every piece of knowledge is a tool."
+✅ GOOD (concrete): "My dad worked as a mechanic, and he taught me that knowledge is a tool."
+
+❌ BAD (abstract): "Knowledge empowers them. It's not just grades; it's confidence, community, and style."
+✅ GOOD (specific): "Real learning gives them confidence. It shapes how they show up. It influences how they express themselves."
+
+❌ BAD (wordy): "When I see students wearing their stories, I see the result of real education—an expression of who they are and who they aspire to be."
+✅ GOOD (tight): "When students wear their stories—through their choices, their style, their presence—I see the result of education that reaches beyond the classroom."
+
+❌ BAD (generic question): "How do we celebrate not just the learning, but the journeys that shape us?"
+✅ GOOD (specific question): "How do we celebrate not only what students learn, but who they become through the process?"
+
+KEY DIFFERENCES:
+- Remove "just" and use "only" or cut entirely
+- Replace abstract nouns with concrete actions
+- Tighten every sentence by 10-20%
+- Make questions more specific
+- Every word must earn its place
+
+MORE BEFORE/AFTER TIGHTENING:
+
+❌ "I remember those vibrant tablecloths, the way they matched her bold personality."
+✅ "Those vibrant tablecloths matched her bold personality."
+
+❌ "It's cozy, yes, but it's also a representation of hard work and resilience."
+✅ "Cozy, yes, but also a symbol of hard work and resilience."
+
+❌ "That blend of function and sentiment is what I try to channel in my choices today."
+✅ "That blend of function and sentiment is what I aim for today."
+
+❌ "Fashion isn't just about trends; it's about roots and aspirations."
+✅ "Fashion isn't just trends; it's roots and aspirations."
+
+❌ "I learned that style is about more than fabric; it's about confidence and clarity."
+✅ "I learned that style is more than fabric. It's confidence and clarity."
+
+❌ "This Thanksgiving, let's think beyond the plate. How do we ensure our personal style reflects the stories we want to tell?"
+✅ "This Thanksgiving, think beyond the plate: How can your personal style reflect the story you want to tell?"
+
+TIGHTENING RULES:
+- Cut "I remember" / "I recall" - just describe directly
+- "is about" → cut or use em-dash
+- "let's" → direct "you" address
+- "How do we" → "How can your"
+- Remove unnecessary "that" and "the way"
+- "try to" → "aim for" or cut
+- Semicolons → periods or colons for clarity
+"""
+
+    # Channel-specific examples - USE REAL POSTS FROM PERSONA, not fabricated stories
+    channel_examples = {
+        "linkedin_post": """
+Use the knowledge-base examples below as the primary post references.
+
+Match their rhythm:
+- strong hook up top
+- short line breaks
+- specific names, systems, and stakes
+- recognition where it is earned
+- a clean close, not a generic recap
+
+VOICE RULES (MANDATORY - VARY these patterns across options):
+- CRITICAL: Each option must use a DIFFERENT opener. Never start all 3 with "Yall"
+- Casual openers (rotate): "Yall" (1 in 5 max), "Look,", "Real talk:", "Here's the thing...", "Can I be honest?", "Let me tell y'all something."
+- Conversational pivots: "Tell you what tho", "Here's what I learned:", "Am I talking to somebody?"
+- Engagement hooks (vary): "Say it with me: 🗣️" (rare), "Write that down.", "Read that again.", "Listen to me."
+- Recognition: "Big shout-out to...", "Huge thank you to..."
+- Punchy closers: "Makes no sense. Period.", "It's real.", "That's the money ball right there."
+- Emphasis: "Are you hearing what I'm telling you?", "I'm just being real.", "For real, for real."
+- Short, punchy sentences for emphasis
+- **Bold** key insight statements
+- Tag people with their title/org when that is actually part of the story
+- Hashtags grouped at end (5-7 max)
+- Use legacy examples for rhythm and specificity, never for copy-paste
+""",
+        "cold_email": """
+EMAIL STYLE RULES (based on this person's voice):
+
+Structure:
+- Personal connection in opening
+- Short paragraphs, easy to skim
+- Reflective tone, not salesy
+- One clear CTA
+- "Warmly" or similar human closing
+
+Voice markers to include:
+- Direct, confident language
+- Reference real experiences (Fusion Academy, Coffee & Convo events, neurodivergent students)
+- NO corporate jargon
+- Authentic, not overly polished
+
+PULL REAL ANECDOTES FROM PERSONA DATA - do not fabricate stories.
+""",
+        "email_reply": """
+EMAIL REPLY STYLE (thread-grounded):
+
+Structure:
+- answer the actual message
+- short skimmable paragraphs
+- one clear next step
+- no social-post rhythm
+
+Voice markers:
+- direct and warm
+- grounded in the sender's request
+- no invented familiarity
+- no jargon-heavy filler
+
+Rules:
+- do not fabricate pricing, compliance posture, or prior relationship
+- do not force personal-story framing
+- preserve a clean professional close
+""",
+        "email_follow_up": """
+EMAIL FOLLOW-UP STYLE:
+
+Structure:
+- quickly re-anchor the thread
+- clarify the one thing needed next
+- keep the ask narrow
+
+Voice markers:
+- concise
+- warm but direct
+- operational, not salesy
+
+Rules:
+- assume the recipient is skimming
+- one concrete CTA only
+- do not restate the entire thread
+""",
+        "outbound_email": """
+OUTBOUND EMAIL STYLE:
+
+Structure:
+- specific opener
+- why this outreach is relevant
+- one clear ask
+
+Voice markers:
+- personal and credible
+- no corporate jargon
+- no generic cold-pitch cadence
+
+Rules:
+- stay contextual
+- do not oversell
+- keep the note easy to scan
+""",
+        "linkedin_dm": """
+LINKEDIN DM STYLE (based on this person's voice):
+
+Structure:
+- Opens casual ("Hey —" or similar)
+- Short, under 10 seconds to read
+- Personal detail from REAL experiences
+- Ends with genuine question
+- NO pitch, NO ask for a call
+
+Voice markers:
+- Casual but professional
+- Can use "Yall" if appropriate
+- Reference real work (Fusion Academy, neurodivergent students, Coffee & Convo)
+- Feels like a message from a friend
+
+PULL REAL ANECDOTES FROM PERSONA DATA - do not fabricate stories.
+""",
+        "instagram_post": """
+INSTAGRAM STYLE (based on this person's voice):
+
+Structure:
+- Opens with short punchy line
+- **Bold** key statements
+- Stacked short phrases for rhythm
+- Emoji sparingly at end (🙏, 💜, ✨)
+- Ends with question or reflection
+
+Voice markers:
+- Casual, warm, authentic
+- "Yall" acceptable
+- Reference real experiences
+- Personal but not oversharing
+
+PULL REAL ANECDOTES FROM PERSONA DATA - do not fabricate stories.
+"""
+    }
+    
+    channel_example = channel_examples.get(content_type, "")
+    
+    # Audience-specific guidance with examples
+    audience_guidance = {
+        "general": """TARGET AUDIENCE: General professional audience
+- Write for smart professionals across industries
+- Use clear, accessible language
+- Focus on universal themes: growth, reflection, connection
+- Avoid niche jargon""",
+
+        "education_admissions": """TARGET AUDIENCE: Education & Admissions professionals
+- Speak to enrollment managers, admissions counselors, program directors
+- Reference: yield optimization, pipeline management, student recruitment, family conversations
+- Focus on BUSINESS of education, not teaching/classroom
+- You manage teams, hit enrollment targets, work with families
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Education is changing rapidly in today's world."
+✅ "Enrollment season taught me something about pipeline management that applies everywhere."
+
+❌ "Students need more support than ever."
+✅ "When a family walks into your office unsure if their kid belongs, your first 60 seconds matter more than your brochure."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Managing $34M portfolios at 2U
+- Launching Fordham MSW, Howard MSW programs
+- Salesforce migrations across 3 instances
+- Fusion Academy: 1:1 school for neurodivergent students
+- The "temperature gauge" approach to team management""",
+
+        "tech_ai": """TARGET AUDIENCE: Tech & AI professionals
+- Speak to builders, founders, operators who use AI as a tool
+- Reference: shipping, automation, building in public, efficiency
+- Focus on practical applications, not hype
+- You build things, you ship, you iterate
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "AI is revolutionizing the way we work."
+✅ "I shipped an AI clone of myself last week. Here's what broke."
+
+❌ "Technology can help us be more productive."
+✅ "Most AI tools promise 10x productivity. Reality: 2x on good days, if you know what to automate."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Only use a story if it appears in the eligible story anchors below
+- Prefer operator proof: workflow clarity, prompting, automation, handoffs, shipped systems
+- Only use institutions, employers, or named projects when they appear directly in the approved proof or story anchors for this request""",
+
+        "fashion": """TARGET AUDIENCE: Fashion & Style enthusiasts
+- Use visual, sensory language
+- Reference: personal style, wardrobe, self-expression, confidence
+- Keep it relatable, not high-fashion exclusive
+- Style is identity, not vanity
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Fashion is an important form of self-expression."
+✅ "That oversized jacket from my dad, a mechanic, taught me more about style than any magazine."
+
+❌ "What you wear matters."
+✅ "Clothes aren't just clothes. They're memories. They're roots."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Dad's mechanic jacket worn on cold school mornings
+- Fell in love with fashion in a random textile course
+- Building Easy Outfit app to solve your own styling problem
+- Buying clothes every weekend trying to figure out style""",
+
+        "leadership": """TARGET AUDIENCE: Leaders & Managers
+- Speak to people who manage teams and navigate organizational complexity
+- Reference: coaching, developing people, driving results, decision-making
+- Focus on practical leadership, not theoretical
+- You've managed teams, hit targets, built culture
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Leadership is about inspiring others."
+✅ "I used to dominate conversations. Now I make it my business to be the last person to talk."
+
+❌ "Good managers support their teams."
+✅ "Teams don't perform because they don't have a clear goal or they don't believe in the plan. That's it."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Managing teams of 15+ at 2U
+- "Temperature gauge" approach: never let the team cool off
+- "Process Champion" identity: keeping things documented
+- The defer process story: getting buy-in before formally suggesting
+- Coaching struggling ACs: taking him to lunch as a peer, not a manager""",
+
+        "neurodivergent": """TARGET AUDIENCE: Neurodivergent community & supporters
+- Speak to families, professionals, and neurodivergent individuals
+- Reference: different learning styles, finding the right fit, accommodations
+- Be authentic: you're neurodivergent yourself
+- This isn't just work; it's personal
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Neurodivergent students face unique challenges."
+✅ "I'm neurodivergent. This isn't just a job. It's personal."
+
+❌ "We need to support different learning styles."
+✅ "When a student finally finds an environment where 'different' is the norm, you see the shift immediately."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Being neurodivergent yourself
+- Fusion Academy: 1:1 school serving neurodivergent students
+- Understanding what it's like to learn differently
+- Helping families find the right fit for their kids
+- The moment when students feel seen, not just academically""",
+
+        "entrepreneurs": """TARGET AUDIENCE: Entrepreneurs & Founders
+- Speak to people building something from scratch
+- Reference: shipping, pivoting, customer discovery, building in public
+- Focus on action and results, not theory
+- You're building Easy Outfit, pivoting into tech
+
+EXAMPLE HOOKS FOR THIS AUDIENCE:
+❌ "Entrepreneurship requires persistence and vision."
+✅ "I'm building an app to solve my own problem. That's the only validation that matters early on."
+
+❌ "Starting a business is challenging but rewarding."
+✅ "I've spent 10+ years in education. Now I'm pivoting into tech. You're witnessing the messy middle."
+
+SPECIFIC STORIES TO DRAW FROM:
+- Building Easy Outfit app
+- Pivoting from education into tech
+- Founded InspireSTL nonprofit out of college
+- "I can't be put in a box" identity
+- Building in public, sharing the journey"""
+    }
+    
+    audience_context = audience_guidance.get(audience, audience_guidance["general"])
+    
+    # Category guidance (Chris Do 911) with examples
+    category_guidance = {
+        "value": """VALUE CONTENT (9 out of 11 posts)
+Pure value. Teaching, insights, observations. NO selling. Make them smarter.
+
+PURPOSE: Build authority and trust. Give without asking.
+
+EXAMPLE VALUE HOOKS:
+❌ "Here are 5 tips for better leadership."
+✅ "Teams don't perform because they don't have a clear goal or they don't believe in the plan. That's it."
+
+❌ "Communication is key in management."
+✅ "I used to dominate conversations. Now I make it my business to be the last person to talk. Results: more fruitful exchanges, heavier adoption of my ideas."
+
+❌ "Here's what I learned about enrollment management."
+✅ "Enrollment season taught me something: your first 60 seconds with a family matter more than your brochure."
+
+VALUE CONTENT RULES:
+- Lead with the insight, not the setup
+- Share frameworks, not platitudes
+- Use specific numbers and outcomes
+- End with reflection or question, NOT a pitch
+- NO "DM me" or "link in bio" on value posts""",
+
+        "sales": """SALES CONTENT (1 out of 11 posts)
+Sell unabashedly. Direct ask. No apologies.
+
+PURPOSE: Convert attention into action. You've earned the right to ask.
+
+EXAMPLE SALES HOOKS:
+❌ "I'm excited to announce my new project."
+✅ "I'm building Easy Outfit. It solves a problem I've had for years. Here's how to get early access."
+
+❌ "If you're interested in learning more about my services..."
+✅ "I consult on enrollment management and program launches. 10+ years experience. $34M portfolios. If you need help, let's talk."
+
+❌ "I'd love to connect with anyone who might benefit from this."
+✅ "Looking for beta testers. DM me if you want in. No pitch deck, just building."
+
+SALES CONTENT RULES:
+- State what you're building/offering in the first 2 lines
+- Be specific about who it's for
+- Clear CTA: DM, comment, link
+- No hedging ("might be interested", "could potentially")
+- Confidence, not arrogance
+- You've given 9 value posts. You've earned this ask.""",
+
+        "personal": """PERSONAL CONTENT (1 out of 11 posts)
+Behind-the-scenes. The real you. Struggles included. Vulnerability builds trust.
+
+PURPOSE: Humanize yourself. Let people connect with the person, not just the professional.
+
+EXAMPLE PERSONAL HOOKS:
+❌ "I want to share a personal story with you today."
+✅ "I can't be put into a box. Son of a mechanic from St. Louis. Fell in love with fashion in a random textile course. 10+ years in education. Now pivoting into tech."
+
+❌ "I've learned a lot on my journey."
+✅ "I used to dominate conversations. I'd talk over people. Interrupt. Make sure my point was heard. It made me appear intimidating. And honestly? It hurt my relationships."
+
+❌ "Thanksgiving is a time for gratitude."
+✅ "That oversized jacket from my dad, a mechanic, taught me more about style than any magazine. Cozy, yes, but also a symbol of hard work and resilience."
+
+PERSONAL CONTENT RULES:
+- Specific details: names, places, objects, moments
+- Show the struggle, not just the win
+- Vulnerability, not oversharing
+- Connect personal story to broader meaning
+- End with reflection or question that invites others to share"""
+    }
+    
+    # Channel-specific system prompts - PRESERVE AUTHENTIC VOICE
+    channel_prompts = {
+        "linkedin_post": """You write LinkedIn posts that sound like THIS SPECIFIC PERSON - casual, warm, punchy.
+
+VOICE PRESERVATION (CRITICAL):
+- Keep casual markers: "Yall", "Tell you what tho", "I'm here for it"
+- Keep punchy rhythm: short sentences, stacked phrases
+- Keep engagement hooks: "Say it with me: 🗣️"
+- Keep recognition patterns: "Big shout-out to..."
+- DO NOT over-polish or remove casual language
+- DO NOT make it sound corporate or generic
+
+Tone:
+- confident and direct
+- warm and casual (NOT stiff or formal)
+- grounded in real experience
+- punchy, not verbose
+
+Writing rules:
+- lead with insight or hook, not setup
+- vary sentence length
+- short paragraphs (1-3 sentences)
+- use REAL stories from persona data
+- end with question or reflection
+- hashtags grouped at end
+
+Voice audit:
+- Does it sound like the real LinkedIn examples?
+- Are casual markers preserved?
+- Is the rhythm punchy, not flat?
+- Would this person actually post this?""",
+
+        "cold_email": """You write emails that are professional but still sound like THIS PERSON.
+
+VOICE PRESERVATION:
+- Keep direct, confident language
+- Can include casual warmth
+- Reference real experiences from persona
+- NO corporate jargon
+
+Tone:
+- direct and confident
+- warm but professional
+- clean and human
+
+Structure:
+- strong opening
+- short paragraphs
+- one clear CTA
+- human closing ("Warmly" etc.)
+
+Voice audit:
+- Does it sound authentic to this person?
+- Is it direct without being cold?""",
+
+        "email_reply": """You write email replies that are grounded in a live thread.
+
+VOICE PRESERVATION:
+- Keep direct, human language
+- Be warm without sounding casual to the point of drift
+- Stay anchored to what the sender actually asked
+- NO fabricated relationship history
+- NO unsupported promises or commitments
+
+Tone:
+- clear and competent
+- skimmable
+- operationally useful
+
+Structure:
+- acknowledge the message
+- answer or clarify the next step
+- end with one concrete CTA
+- close like a real operator, not a marketer
+
+Voice audit:
+- Does this reply feel grounded in the actual thread?
+- Does it avoid social-post cadence?
+- Does it stay helpful without overcommitting?""",
+
+        "email_follow_up": """You write follow-up emails that move a thread forward cleanly.
+
+VOICE PRESERVATION:
+- Keep the note short
+- Re-anchor the last relevant point
+- Ask for exactly one next-step item
+
+Tone:
+- warm
+- direct
+- efficient
+
+Rules:
+- no corporate filler
+- no long recap paragraphs
+- no invented urgency
+
+Voice audit:
+- Would a busy person read this quickly?
+- Is the ask specific?
+- Does it avoid sounding generic?""",
+
+        "outbound_email": """You write proactive emails that are specific, contextual, and credible.
+
+VOICE PRESERVATION:
+- Keep direct, human language
+- Reference real context only
+- Avoid generic cold-email cliches
+
+Tone:
+- warm
+- credible
+- not overly polished
+
+Structure:
+- relevant opening
+- tight reason for reaching out
+- one clear CTA
+
+Voice audit:
+- Does this feel specific to the recipient?
+- Is it direct without sounding templated?""",
+
+        "linkedin_dm": """You write DMs that feel like messages from a friend, not a salesperson.
+
+VOICE PRESERVATION:
+- Casual openers OK ("Hey —")
+- Can use "Yall" if fits context
+- Short and punchy
+- Reference real work from persona
+
+Tone:
+- casual and warm
+- confident, not salesy
+- conversational
+
+Rules:
+- under 10 seconds to read
+- one question or insight
+- NO pitch language
+- feels personal
+
+Voice audit:
+- Would you send this to a friend?
+- Is it too formal or stiff?""",
+
+        "instagram_post": """You write Instagram captions that are casual, warm, and authentic.
+
+VOICE PRESERVATION:
+- Casual language OK ("Yall" etc.)
+- Emojis sparingly (🙏 💜 ✨)
+- Punchy rhythm, stacked phrases
+- Personal but not oversharing
+
+Tone:
+- casual and thoughtful
+- warm and authentic
+- visually descriptive
+
+Rules:
+- short paragraphs, white space
+- open with hook
+- end with question or reflection
+- NO brand voice, NO corporate
+
+Voice audit:
+- Does it sound like a real person?
+- Is the rhythm natural?"""
+    }
+    
+    channel_prompt = channel_prompts.get(content_type, channel_prompts["linkedin_post"])
+    
+    # PACER elements
+    pacer_guidance = ""
+    if pacer_elements:
+        pacer_map = {
+            "Problem": "Start by identifying a specific problem your audience faces",
+            "Amplify": "Amplify the pain - what happens if they don't solve it?",
+            "Credibility": "Establish why you're qualified to speak on this",
+            "Educate": "Provide actionable value and insights",
+            "Request": "End with a clear call-to-action"
+        }
+        pacer_guidance = "Include these PACER elements:\n" + "\n".join([f"- {p}: {pacer_map.get(p, '')}" for p in pacer_elements])
+    
+    prompt = f"""{anti_ai_rules}
+
+{channel_prompt}
+
+{channel_example}
+
+---
+
+{audience_context}
+
+---
+
+## PERSONA STACK (core canon first, then support, then legacy):
+{persona_text if persona_text else "No persona data available - use a professional, authentic voice."}
+
+## TOPIC ANCHORS (highest priority):
+{topic_anchor_text}
+
+## ELIGIBLE STORY / PROOF ANCHORS:
+{eligible_story_text}
+
+## PROOF ANCHORS:
+{proof_anchor_text}
+
+## GOOD STYLE REFERENCES:
+{good_examples_text}
+- Borrow shape, rhythm, conviction, and pacing from these.
+- Do not borrow facts or named stories unless they also appear in the PERSONA STACK / ANCHORS above.
+
+## AVOID PATTERN REFERENCES:
+{avoid_examples_text}
+- Treat these as anti-patterns.
+- Do not reproduce their sentence shapes, generic framing, or consultant language.
+
+## CONTENT REQUEST:
+- **Topic:** {topic}
+- **Context:** {context or "General"}
+- **Audience:** {audience_label}
+- **Category:** {category.upper()} - {category_guidance.get(category, "")}
+
+CRITICAL: The content MUST be about "{topic}". 
+- If the topic is a PERSON'S NAME: The post MUST mention them BY NAME multiple times. Feature them prominently - share what you learned from them, celebrate their work, or tell a story involving them. Do NOT write a generic post that ignores the person.
+- If the topic is a concept: The post should explore that concept directly.
+
+IMPORTANT: If Context is provided above (not "General"), you MUST incorporate that specific context into the content. Reference the situation, event, or details mentioned in the context directly.
+
+{pacer_guidance}
+
+## TOPIC DISCIPLINE:
+{topic_focus_guidance}
+
+## PROOF DISCIPLINE:
+{proof_guidance}
+
+## GROUNDING MODE:
+- Current mode: `{grounding_mode}`
+- {grounding_reason}
+- This mode controls what kind of claim is allowed. Do not upgrade weak support into hard proof.
+- `proof_ready`: use named systems, artifacts, and evidence only from TOPIC / PROOF anchors.
+- `story_supported`: use at most one eligible story and keep it tied to the operating lesson.
+- `principle_only`: do not reach for named projects, employers, metrics, or case studies unless they already appear in the TOPIC anchors.
+
+## APPROVED FRAMING MODES (preserve the legacy rhetorical edge):
+{framing_modes_text}
+
+## OPTION FRAMING PLAN (follow this so the three options do not collapse into one shape):
+{option_framing_plan_text}
+
+## PRIMARY CLAIMS YOU MAY MAKE:
+{primary_claims_text}
+
+## APPROVED PROOF PACKETS:
+{proof_packets_text}
+
+## OPTIONAL STORY BEATS:
+{story_beats_text}
+
+## ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+## DISALLOWED MOVES:
+{disallowed_moves_text}
+
+## VOICE SHAPING RULES:
+{voice_directives_text}
+
+## NARRATIVE ARC (follow this structure):
+1. **HOOK/CONTEXT** - Start with something relatable, surprising, or attention-grabbing. Use voice markers.
+2. **OPERATING LESSON** - Build the post around a real lesson, framework, proof point, or experience from the topic anchors.
+3. **REFLECTION/CTA** - Tie it back to the audience with insight or a question. End strong.
+
+## INSTRUCTIONS:
+1. Write AS this person using their actual experiences and perspectives.
+2. Follow the 3-part structure above, but do NOT force a personal story when the topic anchors are principle-led.
+3. Ground every option in the topic anchors first. Biography is support, not the main point.
+4. Only use a personal anecdote if it appears in the eligible story/proof anchors above.
+5. If there is no eligible story anchor, stay with proof, principle, and operating insight.
+6. Start from one PRIMARY CLAIM as the strategic thesis of the post. Do not let a proof packet become the whole headline unless the primary claim itself is already phrased that way.
+7. Each option must include at least one concrete proof anchor, named system, or explicit operating signal from the proof anchors above when available.
+8. If you use a metric, keep its original subject intact. Never convert a participation, utilization, or revenue metric into a generic productivity or completion-time claim.
+9. Use proof packets to support the thesis, not to replace the thesis.
+10. Be specific and actionable, not generic.
+11. Generate 3 different options with varying hooks/angles.
+10. Keep the writing vivid. Use tension, agreement, contrast, or drama only when it stays grounded in the approved framing modes above.
+11. Use a different approved framing mode for each option so the three drafts do not collapse into one flat shape.
+12. Follow the OPTION FRAMING PLAN above. Option 1, 2, and 3 should feel materially different in hook, posture, and payoff.
+12. Pick one PRIMARY CLAIM per option and stay inside it. Do not merge multiple weak ideas together.
+13. If `proof_ready`, each option must use one APPROVED PROOF PACKET faithfully. Keep the original subject and meaning intact.
+14. If `principle_only`, do not mention named systems, employers, projects, or metrics unless they already appear in PRIMARY CLAIMS.
+15. If a named reference is not in APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES, remove it.
+16. Use the VOICE SHAPING RULES above. Keep the language casual, sharp, and spoken. Do not flatten the writing into generic professional summaries.
+
+## ANTI-HALLUCINATION RULES (CRITICAL):
+- ONLY use anecdotes, stories, and facts that appear in the PERSONA section above
+- If you need a personal story, it must come from the ELIGIBLE STORY / PROOF ANCHORS section above
+- NEVER invent stories about family members, objects, or experiences not in the persona
+- If no relevant anecdote exists, use a general reflection instead of fabricating
+- Only reference named ventures, employers, systems, programs, or stories if they appear in the TOPIC / ELIGIBLE STORY / PROOF anchors above
+- Do not reach into broad biography memory for extra names just because they are real somewhere else in the persona bundle
+- Do not borrow a weakly related story just to make the post feel more personal
+
+## VOICE MARKERS TO USE:
+- "Yall" / "Y'all" as casual opener
+- "Tell you what tho" as pivot
+- "Say it with me: 🗣️" for engagement
+- "Big shout-out to..." for recognition
+- "Makes no sense. Period." for punchy closer
+- "I'm here for it" for endorsement
+- "#stayready" "#staytuned" for hashtags
+
+Output only the content. No notes, no explanations.
+
+Generate 3 content options, separated by "---OPTION---":
+"""
+    
+    return prompt
+
+
+def parse_content_options(raw_content: str) -> List[str]:
+    def _clean_option(text: str) -> str:
+        cleaned = (text or "").strip()
+        cleaned = re.sub(r"^#+\s*OPTION\s+\d+\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^\*\*OPTION\s+\d+\*\*\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^\*\*Option\s+\d+:\s*`[^`]+`\*\*\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^Option\s+\d+:\s*`?[^`\n]+`?\s*", "", cleaned, flags=re.IGNORECASE)
+        return cleaned.strip()
+
+    def _split_on_option_headings(text: str) -> List[str]:
+        heading_pattern = re.compile(
+            r"(?im)^(?:#{1,6}\s*)?(?:\*\*)?\s*option\s+\d+(?::\s*`?[^`\n]+`?)?(?:\*\*)?\s*"
+        )
+        matches = list(heading_pattern.finditer(text))
+        if len(matches) < 2:
+            return []
+        options: List[str] = []
+        for index, match in enumerate(matches):
+            start = match.start()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            cleaned = _clean_option(text[start:end])
+            if cleaned:
+                options.append(cleaned)
+        return options
+
+    if "---OPTION 1---" in raw_content:
+        options = re.split(r"---OPTION \d+---", raw_content)
+        return [_clean_option(opt) for opt in options if opt.strip()]
+    if "---OPTION---" in raw_content:
+        return [_clean_option(opt) for opt in raw_content.split("---OPTION---") if opt.strip()]
+    split_options = _split_on_option_headings(raw_content)
+    if split_options:
+        return split_options
+    return [_clean_option(raw_content)] if raw_content.strip() else []
+
+
+def _ensure_sentence(text: str) -> str:
+    normalized = " ".join((text or "").split()).strip()
+    if not normalized:
+        return ""
+    if normalized[-1] not in ".!?":
+        normalized += "."
+    return normalized
+
+
+def _ensure_public_sentence(text: str) -> str:
+    normalized = _ensure_sentence(text)
+    if normalized and normalized[0].islower():
+        normalized = normalized[0].upper() + normalized[1:]
+    return normalized
+
+
+def _split_sentences(text: str) -> List[str]:
+    normalized = " ".join((text or "").split()).strip()
+    if not normalized:
+        return []
+    return [segment.strip(" -") for segment in re.split(r"(?<=[.!?])\s+", normalized) if segment.strip()]
+
+
+def plan_content_option_briefs(
+    *,
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    framing_modes: List[str],
+    option_count: int = 3,
+) -> List[ContentOptionBrief]:
+    option_plan = _build_option_framing_plan(
+        framing_modes=framing_modes,
+        primary_claims=primary_claims,
+        proof_packets=proof_packets,
+        story_beats=story_beats,
+        option_count=option_count,
+    )
+    briefs: List[ContentOptionBrief] = []
+    for item in option_plan:
+        try:
+            option_number = int(str(item.get("option") or "1"))
+        except ValueError:
+            option_number = len(briefs) + 1
+        briefs.append(
+            ContentOptionBrief(
+                option_number=option_number,
+                framing_mode=str(item.get("mode") or "operator_lesson"),
+                primary_claim=_ensure_sentence(str(item.get("claim") or "")),
+                proof_packet=str(item.get("proof") or ""),
+                story_beat=str(item.get("story") or ""),
+                public_lane=str(item.get("lane") or _public_post_lane_for_option(option_number)),
+            )
+        )
+    return briefs
+
+
+def _render_content_option_briefs(briefs: List[ContentOptionBrief]) -> str:
+    lines: List[str] = []
+    for brief in briefs:
+        lines.extend(
+            [
+                f"### OPTION {brief.option_number}",
+                f"- Framing mode: `{brief.framing_mode}`",
+                f"- Public post lane: `{brief.public_lane or _public_post_lane_for_option(brief.option_number)}`",
+                f"- Strategic claim: {brief.primary_claim or 'Stay inside the topic anchors.'}",
+                f"- Supporting proof: {brief.proof_packet or 'No approved proof packet.'}",
+                f"- Optional story beat: {brief.story_beat or 'No approved story beat.'}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _normalized_terms(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(token) > 2 and token not in STOPWORDS
+    }
+
+
+def _audience_prompt_label(audience: str) -> str:
+    normalized = " ".join((audience or "").lower().split()).strip()
+    if not normalized:
+        return "General professionals"
+    label = AUDIENCE_PROMPT_LABELS.get(normalized)
+    if label:
+        return label
+    return normalized.replace("_", " ").replace("-", " ").title()
+
+
+def _rewrite_audience_slug_public_copy(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return cleaned
+    rewritten = cleaned
+    replacements = (
+        (r"\btech_ai leads?\b", "AI leaders"),
+        (r"\btech_ai builders?\b", "tech and AI builders"),
+        (r"\btech_ai founders?\b", "tech and AI founders"),
+        (r"\btech_ai operators?\b", "tech and AI operators"),
+        (r"\btech_ai teams?\b", "tech and AI teams"),
+        (r"\btech_ai workflows?\b", "AI workflows"),
+        (r"\btech_ai\b", "tech and AI teams"),
+        (r"\beducation_admissions\b", "education and admissions"),
+        (r"\bleadership_management\b", "leadership and management"),
+    )
+    for pattern, replacement in replacements:
+        rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def _proof_packet_evidence_text(packet: str) -> str:
+    parts = (packet or "").split("->", 1)
+    text = parts[1].strip() if len(parts) == 2 else (packet or "").strip()
+    text = text.split(" Use when:", 1)[0]
+    text = re.sub(r"^(?:wins?|initiative|proof|story|example):\s*", "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _proof_packet_label(packet: str) -> str:
+    parts = (packet or "").split("->", 1)
+    return parts[0].strip() if len(parts) == 2 else ""
+
+
+def _looks_like_malformed_reference_bridge(sentence: str) -> bool:
+    normalized = " ".join((sentence or "").split()).strip()
+    if not normalized:
+        return False
+    if not re.search(r"\bmakes this concrete\.?$", normalized, flags=re.IGNORECASE):
+        return False
+    label = re.sub(r"\bmakes this concrete\.?$", "", normalized, flags=re.IGNORECASE).strip(" .")
+    if not label:
+        return True
+    lowered = label.lower()
+    if lowered.startswith(("from ", "and ", "but ", "so ", "because ", "during ", "after ", "before ")):
+        return True
+    tokens = re.findall(r"[A-Za-z][A-Za-z'.-]*", label)
+    if not tokens:
+        return True
+    allowed = {"a", "an", "and", "at", "for", "from", "in", "of", "on", "the", "to", "vs"}
+    titled = 0
+    for token in tokens:
+        token_lower = token.lower()
+        if token_lower in allowed:
+            continue
+        if token[:1].isupper() or token.isupper():
+            titled += 1
+            continue
+        return True
+    return titled == 0
+
+
+def _looks_like_identity_scaffold(sentence: str) -> bool:
+    normalized = " ".join((sentence or "").split())
+    if not normalized:
+        return False
+    return any(pattern.search(normalized) for pattern in IDENTITY_SCAFFOLD_PATTERNS)
+
+
+def _append_approved_reference(approved: List[str], seen: set[str], phrase: str | None) -> None:
+    normalized_phrase = " ".join((phrase or "").split()).strip(" .")
+    key = normalized_phrase.lower()
+    if not normalized_phrase or len(key) < 3 or key in seen:
+        return
+    seen.add(key)
+    approved.append(normalized_phrase)
+
+
+def _collect_curated_reference_phrases(text: str) -> list[str]:
+    normalized_text = " ".join((text or "").split())
+    if not normalized_text:
+        return []
+
+    phrases: list[str] = []
+    if re.search(r"\b\d", normalized_text):
+        phrases.append(normalized_text.rstrip("."))
+    phrases.extend(
+        phrase.strip()
+        for phrase in re.findall(
+            r"(explicit handoffs|shared workspace state|proof-aware prompts|routed workspace snapshot|bundle-first content generation|long-form routing|daily briefs|workflow clarity|agent orchestration|AI systems operator|operator guidance|prompting plus agent usage|AI execution patterns)",
+            normalized_text,
+            flags=re.IGNORECASE,
+        )
+    )
+    return phrases
+
+
+def _phrase_is_flat_label(phrase: str) -> bool:
+    normalized = " ".join((phrase or "").split()).strip(" .").lower()
+    if not normalized:
+        return True
+    return normalized in {
+        "agent orchestration",
+        "daily briefs",
+        "long-form routing",
+        "planner",
+        "persona review",
+        "proof-aware prompts",
+        "routed workspace snapshot",
+        "shared workspace state",
+        "workflow clarity",
+        "operator guidance",
+        "ai execution patterns",
+        "ai systems operator",
+    }
+
+
+def _extract_approved_reference_terms(
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+) -> List[str]:
+    approved: List[str] = []
+    seen: set[str] = set()
+    for packet in proof_packets:
+        _append_approved_reference(approved, seen, _proof_packet_label(packet))
+        for phrase in _collect_curated_reference_phrases(_proof_packet_evidence_text(packet)):
+            _append_approved_reference(approved, seen, phrase)
+    for text in primary_claims + story_beats:
+        for phrase in _collect_curated_reference_phrases(text):
+            _append_approved_reference(approved, seen, phrase)
+    return approved[:12]
+
+
+def _option_has_named_reference_specificity(option: str, brief: ContentOptionBrief) -> bool:
+    option_terms = _normalized_terms(option)
+    if not option_terms:
+        return False
+    candidate_references = _extract_approved_reference_terms(
+        [brief.primary_claim],
+        [brief.proof_packet] if brief.proof_packet else [],
+        [brief.story_beat] if brief.story_beat else [],
+    )
+    label = _proof_packet_label(brief.proof_packet)
+    if label:
+        candidate_references = [label] + candidate_references
+    for reference in candidate_references:
+        if _phrase_is_flat_label(reference):
+            continue
+        reference_terms = _normalized_terms(reference)
+        if len(reference_terms) < 2:
+            continue
+        if len(option_terms.intersection(reference_terms)) >= 2:
+            return True
+    return False
+
+
+def _render_public_post_guardrails() -> str:
+    lines = [
+        "- Stay inside the assigned PUBLIC POST LANE for each option.",
+        f"- `market_insight`: {PUBLIC_POST_LANE_GUIDANCE['market_insight']}",
+        f"- `operator_lesson`: {PUBLIC_POST_LANE_GUIDANCE['operator_lesson']}",
+        f"- `build_in_public`: {PUBLIC_POST_LANE_GUIDANCE['build_in_public']}",
+        "- Ban internal phrases like `persona soup`, `proof packet`, `typed lanes`, `domain gates`, or `green-or-red board`.",
+        "- Never write about the author in third person. Do not open with `Johnnie is...`, `Johnnie treats...`, or `Johnnie is building...`.",
+        "- Translate internal mechanics into public language: prefer `clear handoffs`, `clear ownership`, `context survived the handoff`, or `proof stayed attached` over `shared workspace state`, `typed retrieval`, `proof-aware prompts`, or `operating rhythm`.",
+        "- If the topic is a market or competition claim, the first line must speak to that market claim directly. Do not pivot the opener into prompting, workflow, or tooling unless the topic itself is about that.",
+        "- Use at most two concrete proof details in one option. If the proof contains many metrics or steps, choose the strongest one or two and stop.",
+        "- Do not turn internal control logic or system plumbing into public copy.",
+    ]
+    return "\n".join(lines)
+
+
+def build_planned_writer_prompt(
+    *,
+    topic: str,
+    context: str,
+    audience: str,
+    grounding_mode: str,
+    grounding_reason: str,
+    topic_anchor_chunks: List[Dict[str, Any]],
+    proof_anchor_chunks: List[Dict[str, Any]],
+    story_anchor_chunks: List[Dict[str, Any]],
+    briefs: List[ContentOptionBrief],
+    good_examples: List[str],
+    voice_directives: List[str],
+    approved_references: List[str],
+    disallowed_moves: List[str],
+) -> str:
+    audience_label = _audience_prompt_label(audience)
+    topic_anchor_text = _prompt_topic_anchor_text(
+        topic_anchor_chunks=topic_anchor_chunks,
+        primary_claims=[brief.primary_claim for brief in briefs if brief.primary_claim],
+        limit=4,
+    )
+    proof_anchor_text = _prompt_proof_anchor_text(
+        proof_anchor_chunks=proof_anchor_chunks,
+        proof_packets=[brief.proof_packet for brief in briefs if brief.proof_packet],
+        limit=3,
+    )
+    story_anchor_text = _prompt_story_anchor_text(
+        story_anchor_chunks=story_anchor_chunks,
+        story_beats=[brief.story_beat for brief in briefs if brief.story_beat],
+        limit=2,
+    )
+    good_examples_text = "\n".join(f"- {example}" for example in good_examples[:2]) or "- No extra style references."
+    voice_text = "\n".join(f"- {directive}" for directive in voice_directives[:8]) or "\n".join(
+        f"- {directive}" for directive in DEFAULT_VOICE_DIRECTIVES[:6]
+    )
+    approved_reference_text = "\n".join(f"- {reference}" for reference in approved_references) or "- No approved named references."
+    disallowed_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
+    public_post_guardrails = _render_public_post_guardrails()
+    briefs_text = _render_content_option_briefs(briefs)
+    topic_specific_guardrails = []
+    normalized_topic = " ".join((topic or "").lower().split())
+    if audience == "education_admissions" and any(term in normalized_topic for term in ("faculty", "senate", "bill", "policy")):
+        topic_specific_guardrails.append(
+            "Keep the policy / school / faculty signal visible. Translate it for families and admissions, but do not turn the post into a generic community-marketing update."
+        )
+    if _is_student_support_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Keep the student / family / support lens visible in every option. Do not let the copy drift into generic B2B trust or legacy-tech analogies."
+        )
+        topic_specific_guardrails.append(
+            "If you talk about trust, make it family, student, or admissions trust. Do not use customer-language."
+        )
+    if any(term in normalized_topic for term in ("market", "competition", "meaner", "advantage", "pressure", "entrants")):
+        topic_specific_guardrails.append(
+            "Keep the market / competition claim visible in the opener. Do not let the first line drift into workflow or prompting language unless the topic itself explicitly names workflow, prompting, or orchestration."
+        )
+    if _is_fashion_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Keep the copy grounded in personal style, fit, confidence, and transformation. Do not drift into founder, leadership, or systems jargon unless the topic explicitly requires it."
+        )
+    if _is_entrepreneur_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Keep the copy grounded in customers, product choices, and market tradeoffs. Do not drift into generic education or family language unless the topic explicitly requires it."
+        )
+    topic_specific_guardrail_text = "\n".join(f"- {line}" for line in topic_specific_guardrails) or "- No extra topic-specific guardrails."
+    return f"""You are the writer stage in a planner -> writer -> critic content system.
+
+Write exactly 3 LinkedIn post options, separated by ---OPTION---.
+Write one option for each planned brief below.
+
+Topic: {topic}
+Context: {context or "General"}
+Audience: {audience_label}
+
+GROUNDING MODE:
+- `{grounding_mode}`
+- {grounding_reason}
+
+TOPIC ANCHORS:
+{topic_anchor_text}
+
+PROOF ANCHORS:
+{proof_anchor_text}
+
+APPROVED STORY ANCHORS:
+{story_anchor_text}
+
+GOOD STYLE REFERENCES:
+{good_examples_text}
+
+VOICE DIRECTIVES:
+{voice_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+PUBLIC POST GUARDRAILS:
+{public_post_guardrails}
+
+DISALLOWED MOVES:
+{disallowed_text}
+
+TOPIC-SPECIFIC GUARDRAILS:
+{topic_specific_guardrail_text}
+
+PLANNED OPTION BRIEFS:
+{briefs_text}
+
+WRITER RULES:
+- Use the planned strategic claim as the center of each option.
+- Let proof support the claim. Do not let the proof packet become the whole headline unless the claim is already proof-shaped.
+- Use casual, direct, spoken rhythm.
+- Keep short paragraphs and line breaks.
+- Stay specific and operator-grounded.
+- Write in first person or direct thesis voice. Never describe the author from the outside in third person.
+- Start faster. Lead with tension, contrast, recognition, warning, or operator insight.
+- Make each option land differently. Do not collapse the options into the same hook or rhythm.
+- Do not use generic openings like "X is essential", "X is critical", "In today's world", or "Here's the takeaway".
+- Do not use public-facing shorthand like `shared workspace state`, `shared state`, `typed retrieval`, `proof-aware prompts`, `operating rhythm`, or `AI Clone / Brain System`. Translate them into public language instead.
+- If the topic is a market or competition claim, keep the opener on that claim. Do not switch the first line to prompting, workflow, or tooling unless the topic itself is about prompting, workflow, or orchestration.
+- Do not invent stories, names, employers, or metrics.
+- If no story is approved, do not force one.
+- Borrow rhythm and shape from GOOD STYLE REFERENCES, not their facts.
+- If a line sounds like generic LinkedIn advice, replace it with sharper operator language.
+- Return exactly 3 complete options, each separated by ---OPTION---.
+- Do not add standalone filler fragments like "Why?", "This.", "That.", or a one-line restatement of the opener.
+- Use at most one short punch line per option, and only if it adds new meaning.
+- Do not stack multiple short contrast fragments before the proof.
+- Do not use meta-directives like "Read that again" or "Write that down".
+- Do not echo internal audience slugs like `tech_ai` or `education_admissions`.
+- Do not use house scaffold lines like `That is the operating model.`, `That is where it breaks.`, or `Otherwise it's just another tab.`.
+
+Output only the 3 options, separated by ---OPTION---.
+"""
+
+
+def build_local_codex_writer_prompt(
+    *,
+    topic: str,
+    context: str,
+    audience: str,
+    grounding_mode: str,
+    grounding_reason: str,
+    topic_anchor_chunks: List[Dict[str, Any]],
+    proof_anchor_chunks: List[Dict[str, Any]],
+    story_anchor_chunks: List[Dict[str, Any]],
+    briefs: List[ContentOptionBrief],
+    voice_directives: List[str],
+    approved_references: List[str],
+) -> str:
+    audience_label = _audience_prompt_label(audience)
+    topic_anchor_text = _prompt_topic_anchor_text(
+        topic_anchor_chunks=topic_anchor_chunks,
+        primary_claims=[brief.primary_claim for brief in briefs if brief.primary_claim],
+        limit=3,
+    )
+    proof_anchor_text = _prompt_proof_anchor_text(
+        proof_anchor_chunks=proof_anchor_chunks,
+        proof_packets=[brief.proof_packet for brief in briefs if brief.proof_packet],
+        limit=2,
+    )
+    story_anchor_text = _prompt_story_anchor_text(
+        story_anchor_chunks=story_anchor_chunks,
+        story_beats=[brief.story_beat for brief in briefs if brief.story_beat],
+        limit=1,
+    )
+    voice_text = "\n".join(f"- {directive}" for directive in voice_directives[:6]) or "\n".join(
+        f"- {directive}" for directive in DEFAULT_VOICE_DIRECTIVES[:5]
+    )
+    approved_reference_text = "\n".join(f"- {reference}" for reference in approved_references[:8]) or "- No approved named references."
+    briefs_text = _render_content_option_briefs(briefs)
+    normalized_topic = " ".join((topic or "").lower().split())
+    topic_specific_guardrails = []
+    if any(term in normalized_topic for term in ("market", "competition", "meaner", "advantage", "pressure", "entrants")):
+        topic_specific_guardrails.append(
+            "Keep the opener on the market / competition claim. Do not pivot line one into workflow or prompting unless the topic itself explicitly does that."
+        )
+        topic_specific_guardrails.append(
+            "Do not use stock operator slogans like `That is the operating model.` or workflow-specific contrast lines like `Not more reporting. Clearer action.` in a market / competition post."
+        )
+    if audience == "education_admissions" and any(term in normalized_topic for term in ("faculty", "senate", "bill", "policy")):
+        topic_specific_guardrails.append(
+            "Keep the policy / faculty / school signal visible. Do not rewrite it into a generic leadership or family-experience post."
+        )
+    if _is_student_support_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Keep the student / family / support lens visible. Do not borrow customer-trust or legacy-tech-cycle proof unless it clearly maps back to the student experience."
+        )
+    if _is_fashion_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Stay in fit, confidence, wardrobe, and lived style language. Do not drift into founder or systems language."
+        )
+    if _is_entrepreneur_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Stay in market, customer, product, and founder tradeoff language. Do not drift into school or family framing."
+        )
+    topic_specific_text = "\n".join(f"- {line}" for line in topic_specific_guardrails) or "- No extra topic-specific guardrails."
+    return f"""Write 3 LinkedIn post options for the topic below.
+
+Topic: {topic}
+Context: {context or "General"}
+Audience: {audience_label}
+
+GROUNDING MODE:
+- `{grounding_mode}`
+- {grounding_reason}
+
+TOPIC ANCHORS:
+{topic_anchor_text}
+
+PROOF ANCHORS:
+{proof_anchor_text}
+
+OPTIONAL STORY ANCHOR:
+{story_anchor_text}
+
+VOICE RULES:
+{voice_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+TOPIC-SPECIFIC GUARDRAILS:
+{topic_specific_text}
+
+OPTION PLAN:
+{briefs_text}
+
+PUBLIC POST RULES:
+- Write public post copy, not internal build notes.
+- Never write about the author in third person. Do not open with `Johnnie is...`, `Johnnie treats...`, or `Johnnie is building...`.
+- Translate internal mechanics into public language. Do not use phrases like `shared workspace state`, `shared state`, `typed retrieval`, `proof-aware prompts`, `daily briefs`, or `routed workspace snapshot`.
+- Keep each option on its assigned lane and strategic claim.
+- Use proof to support the claim, not replace it.
+- Keep 2 to 4 short paragraphs per option.
+- Use at most two concrete proof details in one option.
+- No generic opener formulas. No filler fragments. No meta directives like `Read that again` or `Write that down`.
+- Do not echo internal audience slugs like `tech_ai` or `education_admissions`.
+- Do not use house scaffold lines like `That is the operating model.`, `That is where it breaks.`, or `Otherwise it's just another tab.`.
+- Do not invent names, employers, projects, stories, or metrics.
+
+OUTPUT RULES:
+- Write exactly 3 complete options in order.
+- Each option must be distinct in hook and payoff.
+- Keep the writing spoken, direct, and publishable.
+"""
+
+
+def write_planned_options(
+    *,
+    client: Any,
+    topic: str,
+    context: str,
+    audience: str,
+    grounding_mode: str,
+    grounding_reason: str,
+    topic_anchor_chunks: List[Dict[str, Any]],
+    proof_anchor_chunks: List[Dict[str, Any]],
+    story_anchor_chunks: List[Dict[str, Any]],
+    briefs: List[ContentOptionBrief],
+    good_examples: List[str],
+    voice_directives: List[str],
+    approved_references: List[str],
+    disallowed_moves: List[str],
+) -> List[str]:
+    if not briefs:
+        return []
+    response = client.chat.completions.create(
+        model=CONTENT_FAST_MODEL_ALIAS,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a ghostwriter. Follow the planned briefs exactly and keep the writing human, sharp, and grounded.",
+            },
+            {
+                "role": "user",
+                "content": build_planned_writer_prompt(
+                    topic=topic,
+                    context=context,
+                    audience=audience,
+                    grounding_mode=grounding_mode,
+                    grounding_reason=grounding_reason,
+                    topic_anchor_chunks=topic_anchor_chunks,
+                    proof_anchor_chunks=proof_anchor_chunks,
+                    story_anchor_chunks=story_anchor_chunks,
+                    briefs=briefs,
+                    good_examples=good_examples,
+                    voice_directives=voice_directives,
+                    approved_references=approved_references,
+                    disallowed_moves=disallowed_moves,
+                ),
+            },
+        ],
+        temperature=_writer_temperature(audience),
+        max_tokens=1800,
+    )
+    parsed = parse_content_options(response.choices[0].message.content or "")
+    return parsed[: len(briefs)] if len(parsed) >= len(briefs) else parsed
+
+
+def build_planned_critic_prompt(
+    *,
+    topic: str,
+    audience: str,
+    grounding_mode: str,
+    briefs: List[ContentOptionBrief],
+    rough_options: List[str],
+    avoid_examples: List[str],
+    voice_directives: List[str],
+    approved_references: List[str],
+) -> str:
+    audience_label = _audience_prompt_label(audience)
+    options_text = "\n---OPTION---\n".join(rough_options)
+    avoid_text = "\n".join(f"- {example}" for example in avoid_examples[:3]) or "- No extra avoid-pattern examples."
+    voice_text = "\n".join(f"- {directive}" for directive in voice_directives[:8]) or "\n".join(
+        f"- {directive}" for directive in DEFAULT_VOICE_DIRECTIVES[:6]
+    )
+    approved_reference_text = "\n".join(f"- {reference}" for reference in approved_references) or "- No approved named references."
+    public_post_guardrails = _render_public_post_guardrails()
+    briefs_text = _render_content_option_briefs(briefs)
+    topic_specific_guardrails = []
+    normalized_topic = " ".join((topic or "").lower().split())
+    if audience == "education_admissions" and any(term in normalized_topic for term in ("faculty", "senate", "bill", "policy")):
+        topic_specific_guardrails.append(
+            "Keep the policy / school / faculty signal visible. If the rewrite turns into a generic family-experience post, pull it back toward the actual policy impact."
+        )
+    if _is_student_support_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Keep the student / family / support lens visible. If the rewrite drifts into generic B2B trust or legacy-tech language, pull it back toward the actual student experience."
+        )
+    if any(term in normalized_topic for term in ("market", "competition", "meaner", "advantage", "pressure", "entrants")):
+        topic_specific_guardrails.append(
+            "Keep the first line on the market / competition claim. If the rewrite drifts into workflow or prompting first, pull it back unless the topic itself explicitly names workflow, prompting, or orchestration."
+        )
+    if _is_fashion_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Keep the rewrite in style, fit, confidence, and lived transformation. Pull it back if it drifts into generic business language."
+        )
+    if _is_entrepreneur_topic(topic, audience):
+        topic_specific_guardrails.append(
+            "Keep the rewrite in customer, market, product, and founder tradeoffs. Pull it back if it drifts into unrelated family, school, or style framing."
+        )
+    topic_specific_guardrail_text = "\n".join(f"- {line}" for line in topic_specific_guardrails) or "- No extra topic-specific guardrails."
+    return f"""You are the critic stage in a planner -> writer -> critic content system.
+
+Topic: {topic}
+Audience: {audience_label}
+Grounding mode: {grounding_mode}
+
+PLANNED OPTION BRIEFS:
+{briefs_text}
+
+AVOID PATTERN REFERENCES:
+{avoid_text}
+
+VOICE DIRECTIVES:
+{voice_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+PUBLIC POST GUARDRAILS:
+{public_post_guardrails}
+
+TOPIC-SPECIFIC GUARDRAILS:
+{topic_specific_guardrail_text}
+
+DRAFTS TO CRITIQUE:
+{options_text}
+
+CRITIC RULES:
+- Keep 3 options separated by ---OPTION---.
+- Preserve the approved facts, claim meaning, and proof meaning.
+- Remove generic consultant phrasing.
+- If an option opens with a flat generic statement, rewrite the opening around the planned strategic claim.
+- If an option opens by describing the author in third person, rewrite it into first-person or direct thesis voice.
+- Keep the writing casual, direct, and spoken.
+- Do not add new names, metrics, or stories.
+- Keep each option aligned with its planned framing mode.
+- Do not imitate the AVOID PATTERN REFERENCES.
+- Delete filler beats like "Why?" or short standalone restatements that repeat the opener.
+- If a short punch line does not add new meaning, remove it.
+- Translate internal operator phrasing into public language. Do not leave phrases like `shared workspace state`, `typed retrieval`, or `proof-aware prompts` in the final copy.
+
+Output only the rewritten options, separated by ---OPTION---.
+"""
+
+
+def critique_planned_options(
+    *,
+    client: Any,
+    topic: str,
+    audience: str,
+    grounding_mode: str,
+    briefs: List[ContentOptionBrief],
+    rough_options: List[str],
+    avoid_examples: List[str],
+    voice_directives: List[str],
+    approved_references: List[str],
+) -> List[str]:
+    if not rough_options:
+        return rough_options
+    response = client.chat.completions.create(
+        model=CONTENT_FAST_MODEL_ALIAS,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a strict editorial critic. Keep the facts, but rewrite generic or weak phrasing.",
+            },
+            {
+                "role": "user",
+                "content": build_planned_critic_prompt(
+                    topic=topic,
+                    audience=audience,
+                    grounding_mode=grounding_mode,
+                    briefs=briefs,
+                    rough_options=rough_options,
+                    avoid_examples=avoid_examples,
+                    voice_directives=voice_directives,
+                    approved_references=approved_references,
+                ),
+            },
+        ],
+        temperature=_critic_temperature(),
+        max_tokens=1800,
+    )
+    rewritten = parse_content_options(response.choices[0].message.content or "")
+    return rewritten[: len(briefs)] if len(rewritten) >= len(briefs) else rough_options
+
+
+def _extract_named_reference_candidates(text: str) -> set[str]:
+    candidates: set[str] = set()
+    cleaned = re.sub(r"[*_`#]", " ", text or "")
+    for sentence in re.split(r"(?<=[.!?])\s+", cleaned):
+        tokens = re.findall(r"[A-Za-z][A-Za-z/&+-]*", sentence)
+        for index, token in enumerate(tokens):
+            if not token:
+                continue
+            if index == 0 and token in GENERIC_SENTENCE_OPENERS:
+                continue
+            if token.lower() in STOPWORDS:
+                continue
+            if re.fullmatch(r"[A-Z]{2,}", token) or re.fullmatch(r"[A-Z][a-z]+", token):
+                if len(token) >= 4 or token.isupper():
+                    candidates.add(token.lower())
+    return candidates
+
+
+def option_uses_unapproved_reference(
+    option: str,
+    *,
+    approved_reference_terms: List[str],
+    audience: str,
+) -> bool:
+    approved_terms = _normalized_terms(" ".join(approved_reference_terms))
+    approved_terms.update(_extract_named_reference_candidates(" ".join(approved_reference_terms)))
+    if _extract_named_reference_candidates(option) - approved_terms:
+        return True
+
+    if audience == "tech_ai":
+        option_text = " ".join((option or "").lower().split())
+        for placeholder in UNSUPPORTED_EVIDENCE_PLACEHOLDERS:
+            if placeholder in option_text and placeholder not in approved_terms:
+                return True
+    return False
+
+
+def option_mentions_approved_proof(option: str, proof_packets: List[str]) -> bool:
+    option_terms = _normalized_terms(option)
+    if not option_terms or not proof_packets:
+        return False
+    for packet in proof_packets:
+        packet_terms = _normalized_terms(_proof_packet_evidence_text(packet))
+        if len(option_terms.intersection(packet_terms)) >= 2:
+            return True
+    return False
+
+
+def _replace_flat_opening_with_claim(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    claim = _ensure_sentence(brief.primary_claim)
+    if not cleaned or not claim:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return cleaned
+    first_paragraph = paragraphs[0]
+    opening_needs_reset = any(pattern.search(first_paragraph) for pattern in FLAT_GENERIC_PATTERNS)
+    if not opening_needs_reset and not _sentence_is_signal_bearing(first_paragraph, brief):
+        opening_needs_reset = any(pattern.search(first_paragraph) for pattern in TASTE_NEGATIVE_PATTERNS)
+    if not opening_needs_reset:
+        return cleaned
+    first_sentences = _split_sentences(first_paragraph)
+    if len(first_sentences) > 1:
+        replacement = " ".join(first_sentences[1:]).strip()
+        paragraphs[0] = replacement if replacement else claim
+    else:
+        paragraphs[0] = claim
+    if claim.lower() not in " ".join(paragraphs).lower():
+        paragraphs.insert(0, claim)
+    return "\n\n".join(segment for segment in paragraphs if segment)
+
+
+def _claim_near_opening(option: str, claim: str) -> bool:
+    opening = " ".join((option or "").split())[:220].lower()
+    normalized_claim = " ".join((claim or "").split()).lower()
+    if not opening or not normalized_claim:
+        return False
+    if re.search(r"\bprompting alone\b", normalized_claim, flags=re.IGNORECASE) and re.search(
+        r"\bprompting alone\b",
+        opening,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    if re.search(r"\bagent orchestration\b", normalized_claim, flags=re.IGNORECASE) and re.search(
+        r"\bagent orchestration\b|\boperating pattern\b|\boperating model\b",
+        opening,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    if normalized_claim in opening:
+        return True
+    claim_terms = {
+        token
+        for token in re.findall(r"[a-z0-9]+", normalized_claim)
+        if len(token) > 3 and token not in STOPWORDS
+    }
+    opening_terms = {
+        token
+        for token in re.findall(r"[a-z0-9]+", opening)
+        if len(token) > 3 and token not in STOPWORDS
+    }
+    return len(claim_terms.intersection(opening_terms)) >= 3
+
+
+def _force_claim_lead(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    claim = _ensure_sentence(brief.primary_claim)
+    if not cleaned or not claim:
+        return cleaned
+    if _claim_near_opening(cleaned, claim):
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return claim
+    return "\n\n".join([claim] + paragraphs)
+
+
+def _stabilize_claim_opening(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    claim = _ensure_sentence(brief.primary_claim)
+    if not cleaned or not claim:
+        return cleaned
+    if _claim_near_opening(cleaned, claim):
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return claim
+    first_paragraph = paragraphs[0]
+    opening_has_blocked_taste = any(pattern.search(first_paragraph) for pattern in FLAT_GENERIC_PATTERNS)
+    if not opening_has_blocked_taste and not _sentence_is_signal_bearing(first_paragraph, brief):
+        opening_has_blocked_taste = any(pattern.search(first_paragraph) for pattern in TASTE_NEGATIVE_PATTERNS)
+    if not opening_has_blocked_taste:
+        return cleaned
+    paragraphs[0] = claim
+    return "\n\n".join(paragraphs)
+
+
+def _opening_line_from_brief(brief: ContentOptionBrief) -> str:
+    claim = brief.primary_claim or ""
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    combined = f"{claim} {evidence}".lower()
+    if brief.framing_mode == "contrarian_reframe":
+        if re.search(r"\bmarket\b|\bcompetition\b|\bmeaner\b|\badvantage\b|\bpressure\b|\bentrants\b", combined, flags=re.IGNORECASE):
+            return _ensure_sentence(claim)
+        if re.search(r"\bprompting alone\b", combined, flags=re.IGNORECASE):
+            return "Prompting alone is not the strategy."
+        if re.search(r"\bartifact\b", combined, flags=re.IGNORECASE):
+            return "No artifact? Keep it at the level of principle."
+        return "The default read is wrong."
+    if brief.framing_mode == "warning":
+        if re.search(r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE) and re.search(
+            r"\bshared workspace state\b", evidence, flags=re.IGNORECASE
+        ):
+            return "Without explicit handoffs and shared state, it breaks."
+        if _brief_prefers_operator_voice(brief):
+            return "Without that, it breaks."
+    if brief.framing_mode == "operator_lesson":
+        if re.search(r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE) and re.search(
+            r"\bshared workspace state\b", evidence, flags=re.IGNORECASE
+        ):
+            return "AI only helps when the workflow is coordinated."
+    return ""
+
+
+def _shape_opening_by_mode(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    opening = _opening_line_from_brief(brief)
+    if not opening:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return opening
+    first_paragraph = paragraphs[0]
+    first_sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(first_paragraph) if sentence.strip()]
+    if not first_sentences:
+        paragraphs[0] = opening
+        return "\n\n".join(paragraphs)
+    current_opening = first_sentences[0]
+    if current_opening.lower() == opening.lower():
+        return cleaned
+    if brief.framing_mode not in {"contrarian_reframe", "warning", "operator_lesson"}:
+        return cleaned
+    if brief.framing_mode in {"warning", "operator_lesson"} and _claim_near_opening(cleaned, brief.primary_claim):
+        return cleaned
+    remainder_sentences = [
+        sentence
+        for sentence in first_sentences[1:]
+        if not _sentence_is_opening_restatement(sentence, opening, brief)
+    ]
+    remainder = " ".join(remainder_sentences).strip()
+    paragraphs[0] = " ".join(part for part in [opening, remainder] if part).strip()
+    return "\n\n".join(paragraphs)
+
+
+def _force_brief_proof_support(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned or not brief.proof_packet:
+        return cleaned
+    if option_mentions_approved_proof(cleaned, [brief.proof_packet]):
+        return cleaned
+    evidence = _ensure_public_sentence(_proof_packet_evidence_text(brief.proof_packet))
+    if not evidence:
+        return cleaned
+    evidence = _rewrite_public_system_phrases(evidence)
+    evidence = _rewrite_internal_public_jargon(evidence)
+    evidence = _rewrite_soft_operator_sentences(evidence, brief)
+    if _internal_public_jargon_hits(evidence):
+        evidence = _operator_system_sentence_from_brief(brief) or _named_reference_sentence_from_brief(brief) or evidence
+    evidence = _ensure_public_sentence(evidence)
+    if not evidence:
+        return cleaned
+    return f"{cleaned}\n\n{evidence}".strip()
+
+
+def _sentence_is_signal_bearing(sentence: str, brief: ContentOptionBrief) -> bool:
+    normalized = " ".join((sentence or "").split()).strip()
+    if not normalized:
+        return False
+    if option_mentions_approved_proof(normalized, [brief.proof_packet]):
+        return True
+    if re.search(r"\b\d[\d.,x%$m]*\b", normalized):
+        return True
+    anchor_terms = _significant_terms(
+        f"{brief.primary_claim} {_proof_packet_evidence_text(brief.proof_packet)} {brief.story_beat}"
+    )
+    if not anchor_terms:
+        return False
+    sentence_terms = _significant_terms(normalized)
+    return len(anchor_terms.intersection(sentence_terms)) >= 3
+
+
+def _contrast_line_from_brief(brief: ContentOptionBrief) -> str:
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    combined = f"{brief.primary_claim} {evidence}"
+    if _brief_is_market_competition_lane(brief):
+        return ""
+    if not evidence:
+        return ""
+    instead_match = re.search(r"\binstead of ([^.]+)", evidence, flags=re.IGNORECASE)
+    if instead_match:
+        phrase = re.sub(r"^(?:the|a|an)\s+", "", instead_match.group(1).strip(" ."), flags=re.IGNORECASE)
+        if phrase:
+            if re.search(r"\bisolated prompting\b", phrase, flags=re.IGNORECASE):
+                return "Not prompting in isolation."
+            if re.search(r"\bliving in isolated tools\b|\bisolated tools\b", phrase, flags=re.IGNORECASE):
+                return "Not fragmented tools."
+            return _ensure_sentence(f"Not {phrase}")
+    if re.search(r"\bshared workspace state\b", evidence, flags=re.IGNORECASE):
+        return "Shared state."
+    if re.search(r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE):
+        return "Explicit handoffs."
+    if re.search(r"\bdashboard\b|\breporting\b|\bvisibility\b", combined, flags=re.IGNORECASE) and re.search(
+        r"\bexecution\b|\boutreach\b|\bpriority\b|\bpriorities\b|\bpipeline\b",
+        combined,
+        flags=re.IGNORECASE,
+    ):
+        return "Visibility should change the next move."
+    if re.search(r"\baccess\b", combined, flags=re.IGNORECASE) and re.search(r"\badoption\b", combined, flags=re.IGNORECASE):
+        return "Not access on paper. Adoption in practice."
+    if re.search(r"\bfamily trust\b|\btrust-building\b|\breferral\b|\benrollment\b", combined, flags=re.IGNORECASE):
+        return "Not a brochure problem. A trust problem."
+    return ""
+
+
+def _option_mentions_specific_contrast(option: str, brief: ContentOptionBrief) -> bool:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return False
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    if not evidence:
+        return any(pattern.search(cleaned) for pattern in TASTE_CONTRAST_PATTERNS)
+    instead_match = re.search(r"\binstead of ([^.]+)", evidence, flags=re.IGNORECASE)
+    if instead_match:
+        phrase = re.sub(r"^(?:the|a|an)\s+", "", instead_match.group(1).strip(" ."), flags=re.IGNORECASE)
+        if phrase:
+            phrase_terms = _significant_terms(phrase)
+            option_terms = _significant_terms(cleaned)
+            if phrase_terms and (
+                phrase_terms.issubset(option_terms)
+                or len(phrase_terms.intersection(option_terms)) >= max(1, len(phrase_terms) - 1)
+            ):
+                return True
+            if re.search(r"\bisolated prompting\b", phrase, flags=re.IGNORECASE) and re.search(
+                r"\bprompting in isolation\b|\bisolated prompting\b|\bprompting alone\b",
+                cleaned,
+                flags=re.IGNORECASE,
+            ):
+                return True
+        return False
+    return any(pattern.search(cleaned) for pattern in TASTE_CONTRAST_PATTERNS)
+
+
+def _punch_line_from_brief(brief: ContentOptionBrief) -> str:
+    phrases = _collect_curated_reference_phrases(
+        f"{brief.primary_claim} {_proof_packet_evidence_text(brief.proof_packet)} {brief.story_beat}"
+    )
+    for phrase in phrases:
+        normalized = " ".join((phrase or "").split()).strip(" .")
+        if _phrase_is_flat_label(normalized):
+            continue
+        if any(ch.isdigit() for ch in normalized):
+            continue
+        words = normalized.split()
+        if 1 < len(words) <= 4:
+            return _ensure_sentence(normalized.capitalize())
+    if re.search(r"\boperating pattern\b", brief.primary_claim, flags=re.IGNORECASE):
+        return "The workflow has to hold."
+    if re.search(r"\bartifact\b", brief.primary_claim, flags=re.IGNORECASE):
+        return "The proof has to hold."
+    return ""
+
+
+def _mid_punch_line_from_brief(brief: ContentOptionBrief, option: str) -> str:
+    if _brief_is_market_competition_lane(brief):
+        return ""
+    existing = " ".join((option or "").lower().split())
+    if brief.framing_mode == "contrarian_reframe" and re.search(
+        r"\bprompting alone\b", brief.primary_claim, flags=re.IGNORECASE
+    ):
+        for candidate in ("That will not work.", "That dog will not hunt."):
+            if candidate.lower() not in existing:
+                return candidate
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    for candidate, pattern in (
+        ("Explicit handoffs.", r"\bexplicit handoffs\b"),
+        ("Shared state.", r"\bshared workspace state\b"),
+        ("Proof-aware prompts.", r"\bproof-aware prompts\b"),
+    ):
+        if re.search(pattern, evidence, flags=re.IGNORECASE) and candidate.lower() not in existing:
+            return candidate
+    fallback = _punch_line_from_brief(brief)
+    if fallback and fallback.lower() not in existing:
+        return fallback
+    if brief.framing_mode == "warning" and "that is when the work slips." not in existing:
+        return "That is when the work slips."
+    return ""
+
+
+def _brief_prefers_operator_voice(brief: ContentOptionBrief) -> bool:
+    text = f"{brief.primary_claim} {_proof_packet_evidence_text(brief.proof_packet)} {brief.story_beat}"
+    return bool(_significant_terms(text).intersection(STRICT_AUDIENCE_ANCHOR_TERMS.get("tech_ai", set())))
+
+
+def _brief_is_market_competition_lane(brief: ContentOptionBrief) -> bool:
+    claim_text = f"{brief.primary_claim} {brief.story_beat}"
+    return bool(
+        re.search(
+            r"\bmarket\b|\bcompetition\b|\bcompetitive\b|\bmeaner\b|\badvantage\b|\bpressure\b|\bentrants\b|\bcategory\b",
+            claim_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _operator_system_sentence_from_brief(brief: ContentOptionBrief) -> str:
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    if re.search(r"\brouted workspace snapshot\b", evidence, flags=re.IGNORECASE):
+        return "Context survives the handoff."
+    if re.search(r"\bshared workspace state\b", evidence, flags=re.IGNORECASE) and re.search(
+        r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE
+    ):
+        return "Shared state keeps context alive across the handoff."
+    if re.search(r"\bproof-aware prompts\b", evidence, flags=re.IGNORECASE) and re.search(
+        r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE
+    ):
+        return "Prompts only help when the handoff stays explicit."
+    if re.search(r"\bshared workspace state\b", evidence, flags=re.IGNORECASE):
+        return "Shared state keeps context alive."
+    if re.search(r"\bexplicit handoffs\b", evidence, flags=re.IGNORECASE):
+        return "Explicit handoffs keep context alive."
+    if re.search(r"\bproof-aware prompts\b", evidence, flags=re.IGNORECASE):
+        return "Proof-aware prompts only work when context survives."
+    return ""
+
+
+def _looks_like_operator_catalog_sentence(text: str) -> bool:
+    normalized = " ".join((text or "").lower().split())
+    if not normalized:
+        return False
+    marker_count = sum(1 for marker in OPERATOR_CATALOG_MARKERS if marker in normalized)
+    if marker_count < 3:
+        return False
+    if "," in normalized or re.search(r"\b(?:and|around|across|same|shared|run|runs|running|unified|essential|critical|important)\b", normalized):
+        return True
+    return False
+
+
+def _named_reference_sentence_from_brief(brief: ContentOptionBrief) -> str:
+    label = " ".join((_proof_packet_label(brief.proof_packet) or "").split()).strip()
+    if not label or _phrase_is_flat_label(label):
+        return ""
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    if re.search(r"\brouted workspace snapshot\b", evidence, flags=re.IGNORECASE):
+        return _ensure_sentence(f"{label} made the handoff visible")
+    if re.search(r"\bshared workspace state\b|\bexplicit handoffs\b", evidence, flags=re.IGNORECASE):
+        return _ensure_sentence(f"{label} made the handoff explicit")
+    return _ensure_sentence(f"{label} makes this concrete")
+
+
+def _ensure_named_reference_specificity(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned or not _brief_prefers_operator_voice(brief):
+        return cleaned
+    if _option_has_named_reference_specificity(cleaned, brief):
+        return cleaned
+    reference_sentence = _named_reference_sentence_from_brief(brief)
+    if not reference_sentence:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return reference_sentence
+    insert_at = 1 if len(paragraphs) > 1 else len(paragraphs)
+    paragraphs.insert(insert_at, reference_sentence)
+    return "\n\n".join(paragraphs)
+
+
+def _strong_closer_from_brief(brief: ContentOptionBrief) -> str:
+    claim = brief.primary_claim or ""
+    evidence = _proof_packet_evidence_text(brief.proof_packet)
+    combined = f"{claim} {evidence}".lower()
+    if _brief_is_market_competition_lane(brief):
+        return ""
+    if any(
+        term in combined
+        for term in (
+            "student",
+            "students",
+            "family",
+            "families",
+            "parent",
+            "parents",
+            "admissions",
+            "enrollment",
+            "support",
+            "neurodivergent",
+            "twice-exceptional",
+            "twice exceptional",
+        )
+    ):
+        if brief.framing_mode == "warning":
+            return "The student still has to stay visible."
+        if brief.framing_mode == "agree_and_extend":
+            return "That is what families actually feel."
+        return "The student has to stay visible."
+    if re.search(r"\bworkflow clarity\b|\badoption\b|\buseful\b", combined, flags=re.IGNORECASE):
+        return "The workflow still has to hold."
+    if re.search(r"\bprompting alone\b", combined, flags=re.IGNORECASE):
+        if brief.framing_mode == "warning":
+            return "The workflow has to carry the load."
+        if brief.framing_mode == "contrarian_reframe":
+            return "Prompting alone is not enough."
+        return "The workflow has to carry the load."
+    if _brief_prefers_operator_voice(brief):
+        if brief.framing_mode == "warning":
+            return "That is when the work starts slipping."
+        if brief.framing_mode == "agree_and_extend":
+            return "Clarity is the part that scales."
+        return "Clarity has to come first."
+    if re.search(r"\bartifact\b", combined, flags=re.IGNORECASE):
+        return "The proof has to hold."
+    if brief.framing_mode == "warning":
+        return "That is when the work starts slipping."
+    if brief.framing_mode == "recognition":
+        return "That kind of work deserves to be named."
+    return _punch_line_from_brief(brief)
+
+
+def _closer_needs_sharpening(sentence: str, brief: ContentOptionBrief) -> bool:
+    normalized = " ".join((sentence or "").split()).strip()
+    if not normalized:
+        return True
+    if any(pattern.search(normalized) for pattern in WEAK_ENDING_PATTERNS):
+        return True
+    if any(pattern.search(normalized) for pattern in GENERIC_CLOSER_PATTERNS):
+        return True
+    if _brief_prefers_operator_voice(brief) and re.match(r"^(?:now,\s*)?we\b", normalized, flags=re.IGNORECASE):
+        return True
+    lowered = normalized.lower()
+    if lowered in {
+        "that is the operating model.",
+        "show me the artifact.",
+        "prompting alone is not the strategy.",
+        "prompting alone will not hold.",
+        "without that, the system breaks.",
+        "otherwise it's just another tab.",
+        "agreement is easy. operating it is harder.",
+        "that kind of work matters.",
+    }:
+        return False
+    if len(normalized.split()) > 11 and not any(pattern.search(normalized) for pattern in TASTE_CONTRAST_PATTERNS):
+        return True
+    return False
+
+
+def _ensure_contrast_shape(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    contrast_line = _contrast_line_from_brief(brief)
+    contrast_terms = _significant_terms(contrast_line)
+    option_terms = _significant_terms(cleaned)
+    already_has_target_contrast = bool(
+        contrast_terms
+        and (
+            contrast_terms.issubset(option_terms)
+            or len(contrast_terms.intersection(option_terms)) >= max(2, len(contrast_terms) - 1)
+        )
+    )
+    if _option_mentions_specific_contrast(cleaned, brief) and (already_has_target_contrast or not contrast_line):
+        return cleaned
+    if not contrast_line:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return contrast_line
+    if len(paragraphs) == 1:
+        return "\n\n".join([paragraphs[0], contrast_line])
+    return "\n\n".join([paragraphs[0], contrast_line] + paragraphs[1:])
+
+
+def _ensure_paragraph_cadence(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    revised: List[str] = []
+    for paragraph in paragraphs:
+        sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(paragraph) if sentence.strip()]
+        if not sentences:
+            continue
+        deduped_sentences: List[str] = []
+        for sentence in sentences:
+            normalized_sentence = " ".join(sentence.lower().split())
+            if deduped_sentences and normalized_sentence == " ".join(deduped_sentences[-1].lower().split()):
+                continue
+            deduped_sentences.append(sentence)
+        sentences = deduped_sentences or sentences
+        if _content_generation_stability_mode() == "benchmark" and len(sentences) >= 2:
+            revised.append(sentences[0])
+            remainder = " ".join(sentences[1:]).strip()
+            if remainder:
+                revised.append(remainder)
+        elif len(paragraph.split()) > 28 and len(sentences) >= 2:
+            revised.append(sentences[0])
+            remainder = " ".join(sentences[1:]).strip()
+            if remainder:
+                revised.append(remainder)
+        else:
+            revised.append(" ".join(sentences).strip())
+    if not any(len(sentence.split()) <= 6 for paragraph in revised for sentence in _split_sentences(paragraph)):
+        punch_line = _mid_punch_line_from_brief(brief, "\n\n".join(revised))
+        if punch_line and all(punch_line.lower() not in paragraph.lower() for paragraph in revised):
+            insert_at = len(revised)
+            if len(revised) >= 3:
+                insert_at = len(revised) - 1
+            revised.insert(insert_at, punch_line)
+    return "\n\n".join(paragraph for paragraph in revised if paragraph)
+
+
+def _ensure_short_sentence_presence(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    if any(len(sentence.split()) <= 6 for sentence in _split_sentences(cleaned)):
+        return cleaned
+    punch_line = _mid_punch_line_from_brief(brief, cleaned) or _strong_closer_from_brief(brief)
+    if not punch_line:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if any(punch_line.lower() in paragraph.lower() for paragraph in paragraphs):
+        return cleaned
+    insert_at = len(paragraphs)
+    if len(paragraphs) >= 2:
+        insert_at = len(paragraphs) - 1
+    paragraphs.insert(insert_at, punch_line)
+    return "\n\n".join(paragraphs)
+
+
+def _clean_generic_sentences(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    revised_paragraphs: List[str] = []
+    for paragraph in paragraphs:
+        sentences = _split_sentences(paragraph)
+        if not sentences:
+            continue
+        kept: List[str] = []
+        for index, sentence in enumerate(sentences):
+            is_last_sentence = index == len(sentences) - 1
+            normalized_sentence = _rewrite_audience_slug_public_copy(sentence.strip())
+            if not normalized_sentence:
+                continue
+            if " ".join(normalized_sentence.lower().split()) in HOUSE_SCAFFOLD_SENTENCES:
+                continue
+            if _brief_is_market_competition_lane(brief) and normalized_sentence.lower() in {
+                "not more reporting.",
+                "clearer action.",
+                "that is the operating model.",
+                "otherwise it's just another tab.",
+                "without that, the system breaks.",
+                "agreement is easy.",
+                "operating it is harder.",
+            }:
+                continue
+            if re.fullmatch(r"(?:this|that|it)\.?", normalized_sentence, flags=re.IGNORECASE):
+                continue
+            if _looks_like_malformed_reference_bridge(normalized_sentence):
+                continue
+            if any(pattern.search(normalized_sentence) for pattern in GENERIC_CLOSER_PATTERNS) and not _sentence_is_signal_bearing(normalized_sentence, brief):
+                continue
+            if any(pattern.search(normalized_sentence) for pattern in SOFT_GENERIC_PATTERNS) and not _sentence_is_signal_bearing(normalized_sentence, brief):
+                continue
+            if _internal_public_jargon_hits(normalized_sentence) and len(normalized_sentence.split()) <= 6:
+                continue
+            if any(pattern.search(normalized_sentence) for pattern in INTERNAL_PUBLIC_JARGON_PATTERNS) and not option_mentions_approved_proof(normalized_sentence, [brief.proof_packet]):
+                continue
+            if _looks_like_identity_scaffold(normalized_sentence) and not _sentence_is_signal_bearing(normalized_sentence, brief):
+                continue
+            if any(pattern.search(normalized_sentence) for pattern in TASTE_NEGATIVE_PATTERNS) and not _sentence_is_signal_bearing(normalized_sentence, brief):
+                continue
+            if is_last_sentence and len(sentences) > 1 and _genericity_score(normalized_sentence) > 0 and not _sentence_is_signal_bearing(normalized_sentence, brief):
+                continue
+            kept.append(_ensure_sentence(normalized_sentence))
+        if kept:
+            revised_paragraphs.append(" ".join(kept).strip())
+    return "\n\n".join(revised_paragraphs) if revised_paragraphs else cleaned
+
+
+def _sentence_is_opening_restatement(sentence: str, opening: str, brief: ContentOptionBrief) -> bool:
+    normalized_sentence = " ".join((sentence or "").split()).strip()
+    normalized_opening = " ".join((opening or "").split()).strip()
+    if not normalized_sentence or not normalized_opening:
+        return False
+    if _sentence_is_signal_bearing(normalized_sentence, brief):
+        return False
+    if normalized_sentence.lower() == normalized_opening.lower():
+        return True
+    if re.match(
+        r"^(?:that|this|it)(?:['’]s| is) not (?:a |an )?(?:viable |real )?(?:ai )?(?:strategy|plan|approach)\.?$",
+        normalized_sentence,
+        flags=re.IGNORECASE,
+    ):
+        return bool(re.search(r"\bnot\b.*\b(?:strategy|plan|approach)\b", normalized_opening, flags=re.IGNORECASE))
+    if re.match(r"^(?:that|this|it)(?: just)? (?:isn't|is not)\.?$", normalized_sentence, flags=re.IGNORECASE):
+        return bool(re.search(r"\bnot\b.*\b(?:strategy|plan|approach)\b", normalized_opening, flags=re.IGNORECASE))
+    opening_terms = _significant_terms(normalized_opening)
+    sentence_terms = _significant_terms(normalized_sentence)
+    if not opening_terms or not sentence_terms:
+        return False
+    overlap = opening_terms.intersection(sentence_terms)
+    if len(overlap) >= min(3, len(sentence_terms)):
+        return True
+    return False
+
+
+def _drop_opening_restatement(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if len(paragraphs) < 2:
+        return cleaned
+    opening = paragraphs[0]
+    for index in range(1, len(paragraphs)):
+        follow_up_sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(paragraphs[index]) if sentence.strip()]
+        if not follow_up_sentences:
+            continue
+        if _sentence_is_opening_restatement(follow_up_sentences[0], opening, brief):
+            remaining = follow_up_sentences[1:]
+            if remaining:
+                paragraphs[index] = " ".join(remaining).strip()
+            else:
+                paragraphs.pop(index)
+            break
+    return "\n\n".join(paragraphs)
+
+
+def _paragraph_is_filler_fragment(paragraph: str, opening: str, brief: ContentOptionBrief) -> bool:
+    normalized = " ".join((paragraph or "").split()).strip()
+    if not normalized:
+        return True
+    if re.fullmatch(r"(?:and\s+)?why\??", normalized, flags=re.IGNORECASE):
+        return True
+    if re.fullmatch(r"(?:this|that|it)\.?", normalized, flags=re.IGNORECASE):
+        return True
+    if _sentence_is_signal_bearing(normalized, brief):
+        return False
+    if _sentence_is_opening_restatement(normalized, opening, brief):
+        return True
+    if len(normalized.split()) <= 5 and not re.search(
+        r"\b(?:is|are|was|were|means|matters|keeps|holds|helps|deserve|deserves|need|needs|trust|fit|support|see|sees|work|works)\b",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    if len(normalized.split()) <= 5:
+        opening_terms = _significant_terms(opening)
+        fragment_terms = _significant_terms(normalized)
+        if fragment_terms and fragment_terms.issubset(opening_terms):
+            return True
+        if re.search(r"\b(?:isolated|isolation|alone)\b", normalized, flags=re.IGNORECASE) and re.search(
+            r"\bprompt", normalized, flags=re.IGNORECASE
+        ):
+            if re.search(r"\bprompting alone\b|\bnot\b.+\bstrategy\b", opening, flags=re.IGNORECASE):
+                return True
+    return False
+
+
+def _drop_filler_fragment_paragraphs(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if len(paragraphs) < 2:
+        return cleaned
+    opening = paragraphs[0]
+    revised: List[str] = [opening]
+    for paragraph in paragraphs[1:]:
+        if _paragraph_is_filler_fragment(paragraph, opening, brief):
+            continue
+        revised.append(paragraph)
+    return "\n\n".join(revised)
+
+
+def _synthesize_planned_option(brief: ContentOptionBrief) -> str:
+    opening = _opening_line_from_brief(brief) or _ensure_sentence(brief.primary_claim)
+    if brief.framing_mode == "contrarian_reframe" and brief.primary_claim:
+        opening = _ensure_sentence(brief.primary_claim)
+    evidence = _ensure_sentence(_proof_packet_evidence_text(brief.proof_packet))
+    story = _ensure_sentence(brief.story_beat)
+    closer = _strong_closer_from_brief(brief)
+
+    paragraphs: List[str] = []
+    if opening:
+        paragraphs.append(opening)
+    if evidence and not _sentence_is_opening_restatement(evidence, opening, brief):
+        paragraphs.append(evidence)
+    elif story and not _sentence_is_opening_restatement(story, opening, brief):
+        paragraphs.append(story)
+    if closer and closer.lower() not in " ".join(paragraphs).lower():
+        paragraphs.append(closer)
+    synthesized = "\n\n".join(paragraph for paragraph in paragraphs if paragraph).strip()
+    return synthesized or _ensure_sentence(brief.primary_claim)
+
+
+def _recover_missing_planned_options(options: List[str], briefs: List[ContentOptionBrief]) -> List[str]:
+    if not briefs:
+        return []
+    recovered: List[str] = []
+    for index, brief in enumerate(briefs):
+        existing = options[index].strip() if index < len(options) and options[index] else ""
+        recovered.append(existing or _synthesize_planned_option(brief))
+    return recovered
+
+
+def _compress_operator_fragment(text: str) -> str:
+    fragment = " ".join((text or "").split()).strip(" .")
+    if not fragment:
+        return ""
+    replacements = (
+        (r"^context travels across the system\b", "Context travels."),
+        (r"^context travels\b", "Context travels."),
+        (r"^explicit handoffs\b", "Explicit handoffs."),
+        (r"^shared workspace state\b", "Shared state."),
+        (r"^proof-aware prompts\b", "Proof-aware prompts."),
+    )
+    for pattern, replacement in replacements:
+        if re.search(pattern, fragment, flags=re.IGNORECASE):
+            return replacement
+    return _ensure_sentence(fragment[:1].upper() + fragment[1:])
+
+
+def _rewrite_internal_public_jargon(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    sentence_level_rewrites = (
+        (r"\bshared (?:workspace )?state keeps context alive across the handoff\b", "Context survives the handoff"),
+        (r"\bcontext continuity keeps context alive across the handoff\b", "Context survives the handoff"),
+        (r"\bone (?:routed workspace snapshot|shared context|context survives the handoff) now keeps context alive(?: across the handoff)?\b", "Context survives the handoff"),
+        (r"\bshared workspace state carries that intent\b", "Context has to survive the handoff"),
+        (r"\bproof-aware prompts?\b", "prompts tied to proof"),
+    )
+    rewritten = cleaned
+    for pattern, replacement in sentence_level_rewrites:
+        rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    replacements = (
+        (r"\bai clone\s*/\s*brain system\b", "the system"),
+        (r"\bpersona soup\b", "raw context"),
+        (r"\bproof packets?\b", "proof"),
+        (r"\btyped core, proof, story, and example lanes\b", "clear context lanes"),
+        (r"\btyped (?:core|proof|story|example|context|support) lanes?\b", "clear context lanes"),
+        (r"\btyped lanes?\b", "clear lanes"),
+        (r"\btyped retrieval\b", "retrieval with clear context"),
+        (r"\bdomain gates?\b", "topic guardrails"),
+        (r"\bgreen[- ]or[- ]red board\b", "clear go/no-go check"),
+        (r"\bproof lanes?\b", "evidence lanes"),
+        (r"\bcanon through typed lanes\b", "clear context lanes"),
+        (r"\brouted workspace snapshot\b", "context survives the handoff"),
+        (r"\bdaily briefs\b", "operating rhythm"),
+        (r"\bpersona review\b", "editorial review"),
+        (r"\blong-form routing\b", "content routing"),
+        (r"\bshared workspace state\b", "context survives the handoff"),
+        (r"\bexplicit handoffs\b", "clear handoffs"),
+    )
+    for pattern, replacement in replacements:
+        rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def _compress_operator_contrast_fragment(text: str) -> str:
+    fragment = " ".join((text or "").split()).strip(" .")
+    if not fragment:
+        return ""
+    fragment = re.sub(r"^getting lost in\s+", "", fragment, flags=re.IGNORECASE)
+    fragment = re.sub(r"^(?:the|a|an)\s+", "", fragment, flags=re.IGNORECASE)
+    if re.search(r"\bisolated prompt", fragment, flags=re.IGNORECASE):
+        return "Not isolated prompts."
+    if len(fragment.split()) <= 4:
+        return _ensure_sentence(f"Not {fragment}")
+    return ""
+
+
+def _rewrite_soft_operator_sentences(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned or not _brief_prefers_operator_voice(brief):
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    revised_paragraphs: List[str] = []
+    for paragraph in paragraphs:
+        sentences = _split_sentences(paragraph)
+        if not sentences:
+            continue
+        rewritten: List[str] = []
+        for sentence in sentences:
+            normalized = " ".join(sentence.split()).strip()
+            if not normalized:
+                continue
+            normalized = re.sub(r"^(?:wins?|initiative|proof|story|example):\s*", "", normalized, flags=re.IGNORECASE)
+            base_sentence = normalized.rstrip(".!?")
+            if _phrase_is_flat_label(base_sentence):
+                continue
+            integrate_match = re.match(
+                r"^(?:our|the) system now integrates (.+?) into (?:a )?unified approach$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if integrate_match:
+                payload = integrate_match.group(1).rstrip(".")
+                rewritten.append(_ensure_sentence(f"Now {payload} run on the same system"))
+                continue
+            rely_match = re.match(r"^(?:now,\s*)?we rely on (.+)$", base_sentence, flags=re.IGNORECASE)
+            if rely_match:
+                payload = rely_match.group(1).rstrip(".")
+                rewritten.append(_ensure_sentence(f"Now it runs on {payload}"))
+                continue
+            means_rely_match = re.match(r"^(?:this means )?we rely on (.+?) instead of (.+)$", base_sentence, flags=re.IGNORECASE)
+            if means_rely_match:
+                payload = means_rely_match.group(1).rstrip(".")
+                contrast = means_rely_match.group(2).rstrip(".")
+                rewritten.append(_ensure_sentence(f"Now it runs on {payload}"))
+                contrast_sentence = _compress_operator_contrast_fragment(contrast)
+                if contrast_sentence:
+                    rewritten.append(contrast_sentence)
+                continue
+            abstract_match = re.match(
+                r"^(?:this|that) (?:approach|system|setup) (?:ensures|means|keeps) (.+?) instead of (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if abstract_match:
+                leading = _compress_operator_fragment(abstract_match.group(1))
+                contrast = _compress_operator_contrast_fragment(abstract_match.group(2))
+                if leading:
+                    rewritten.append(leading)
+                if contrast:
+                    rewritten.append(contrast)
+                continue
+            if re.match(
+                r"^it['’]s not just about asking the right questions; it['’]s about orchestrating .+$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("The operating model is the strategy.")
+                continue
+            if re.match(
+                r"^.+\bare now essential to (?:our |the )?content generation$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append(_operator_system_sentence_from_brief(brief) or "Context survives the handoff.")
+                continue
+            if re.match(
+                r"^(?:the )?.+?\s+(?:illustrates|make(?:s|d))\s+this\s+clear(?:ly)?$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append(_named_reference_sentence_from_brief(brief) or _ensure_sentence(normalized))
+                continue
+            if re.match(
+                r"^previously, we dealt with malformed json and inconsistent schema discipline$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("Malformed JSON kept breaking the flow.")
+                continue
+            if re.match(
+                r"^previously, we faced issues with malformed json and (?:weak|inconsistent) schema discipline$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("Malformed JSON and weak schema discipline kept breaking the flow.")
+                continue
+            if re.match(
+                r"^we(?:['’]?re| are) enhancing output handling and validation, even as we continue to improve reliability$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("Output handling is stricter now. Reliability is better, but not done.")
+                continue
+            if re.match(
+                r"^we(?:['’]?ve| have) transitioned to (?:a )?unified .+\brouted workspace snapshot\b.*$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append(_operator_system_sentence_from_brief(brief) or "One routed workspace snapshot now holds the system.")
+                continue
+            tightened_match = re.match(
+                r"^(?:now,\s*)?we(?:['’]?ve| have) tightened (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if tightened_match:
+                payload = tightened_match.group(1).strip(" .")
+                if re.search(r"\boutput handling\b|\bvalidation\b", payload, flags=re.IGNORECASE):
+                    rewritten.append("Output handling is tighter now.")
+                else:
+                    rewritten.append(_ensure_sentence(f"{payload[:1].upper() + payload[1:]} is tighter now"))
+                continue
+            tightening_match = re.match(
+                r"^(?:now,\s*)?we(?:['’]?re| are) (?:tightening|making stricter) (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if tightening_match:
+                payload = tightening_match.group(1).strip(" .")
+                if re.search(r"\boutput handling\b|\bvalidation\b", payload, flags=re.IGNORECASE):
+                    rewritten.append("Output handling is tighter now.")
+                else:
+                    rewritten.append(_ensure_sentence(f"{payload[:1].upper() + payload[1:]} is tighter now"))
+                continue
+            unified_match = re.match(
+                r"^with (.+?), we(?:['’]?ve| have) unified (.+?) around (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if unified_match:
+                payload = unified_match.group(2).strip(" .")
+                target = unified_match.group(3).strip(" .")
+                rewritten.append(_ensure_sentence(f"{payload[:1].upper() + payload[1:]} now run on {target}"))
+                continue
+            unified_simple_match = re.match(
+                r"^with (.+?), we(?:['’]?ve| have) unified (.+)$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if unified_simple_match:
+                payload = unified_simple_match.group(2).strip(" .")
+                rewritten.append(_ensure_sentence(f"{payload[:1].upper() + payload[1:]} now run together"))
+                continue
+            began_building_match = re.match(
+                r"^we began building (.+?)(?: as (.+))?$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            )
+            if began_building_match:
+                subject = began_building_match.group(1).strip(" .")
+                descriptor = (began_building_match.group(2) or "").strip(" .")
+                if descriptor:
+                    rewritten.append(_ensure_sentence(f"{subject[:1].upper() + subject[1:]} started as {descriptor}"))
+                else:
+                    rewritten.append(_ensure_sentence(f"{subject[:1].upper() + subject[1:]} started there"))
+                continue
+            if re.match(
+                r"^for effective ai, .+\binterconnected\b.*$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append("Operator context has to travel.")
+                continue
+            if re.match(
+                r"^this integration is crucial; without it, the system breaks$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                continue
+            if re.match(
+                r"^with this setup, context flows seamlessly, enhancing .+$",
+                base_sentence,
+                flags=re.IGNORECASE,
+            ):
+                rewritten.append(_operator_system_sentence_from_brief(brief) or "Context travels.")
+                continue
+            if re.search(r"\bcontext flows seamlessly\b", base_sentence, flags=re.IGNORECASE):
+                rewritten.append(_operator_system_sentence_from_brief(brief) or "Context travels.")
+                continue
+            if _looks_like_operator_catalog_sentence(base_sentence):
+                rewritten.append(_operator_system_sentence_from_brief(brief) or "Operator context has to travel.")
+                continue
+            if re.match(r"^everything(?:['’]s| is) interconnected\b", base_sentence, flags=re.IGNORECASE):
+                continue
+            if re.match(r"^(?:it|that)(?:['’]s| is) making (?:a|an) (?:real|tangible|meaningful) impact\b", base_sentence, flags=re.IGNORECASE):
+                continue
+            rewritten.append(_ensure_sentence(normalized))
+        if rewritten:
+            revised_paragraphs.append(" ".join(rewritten).strip())
+    return "\n\n".join(revised_paragraphs) if revised_paragraphs else cleaned
+
+
+def _public_safe_claim_from_brief(brief: ContentOptionBrief) -> str:
+    claim = _ensure_sentence(brief.primary_claim)
+    if not claim:
+        return ""
+    stripped = claim.rstrip(".")
+    if re.match(r"^johnnie treats (.+?) as (.+)$", stripped, flags=re.IGNORECASE):
+        match = re.match(r"^johnnie treats (.+?) as (.+)$", stripped, flags=re.IGNORECASE)
+        if match:
+            subject = match.group(1).strip(" .")
+            complement = match.group(2).strip(" .")
+            return _ensure_sentence(f"{subject[:1].upper() + subject[1:]} is {complement}")
+    if re.match(r"^johnnie keeps moving work from (.+?) into (.+)$", stripped, flags=re.IGNORECASE):
+        match = re.match(r"^johnnie keeps moving work from (.+?) into (.+)$", stripped, flags=re.IGNORECASE)
+        if match:
+            source = match.group(1).strip(" .")
+            target = match.group(2).strip(" .")
+            return _ensure_sentence(f"The work has to move from {source} into {target}")
+    if re.match(r"^johnnie is building at the intersection of (.+)$", stripped, flags=re.IGNORECASE):
+        match = re.match(r"^johnnie is building at the intersection of (.+)$", stripped, flags=re.IGNORECASE)
+        if match:
+            subject = match.group(1).strip(" .")
+            return _ensure_sentence(f"The work sits at the intersection of {subject}")
+    if _starts_with_third_person_persona_bio(claim):
+        return ""
+    return claim
+
+
+def _rewrite_persona_bio_opening(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned or not _starts_with_third_person_persona_bio(cleaned):
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return cleaned
+    first_paragraph_sentences = [
+        _ensure_sentence(sentence.strip())
+        for sentence in _split_sentences(paragraphs[0])
+        if sentence.strip()
+    ]
+    remaining_sentences = [
+        sentence
+        for sentence in first_paragraph_sentences
+        if not re.match(r"^(?:johnnie)\s+(?:is|treats|keeps|built|started|learned)\b", sentence, flags=re.IGNORECASE)
+    ]
+    replacement = _opening_line_from_brief(brief) or _public_safe_claim_from_brief(brief)
+    if replacement:
+        paragraphs[0] = " ".join([replacement] + remaining_sentences).strip()
+    elif remaining_sentences:
+        paragraphs[0] = " ".join(remaining_sentences).strip()
+    else:
+        paragraphs = paragraphs[1:]
+    return "\n\n".join(paragraph for paragraph in paragraphs if paragraph)
+
+
+def _strip_lane_label_opening(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return cleaned
+    first_paragraph = paragraphs[0]
+    rewritten = re.sub(
+        r"^(?:operator lesson|market insight|build[ -]in[ -]public|contrarian reframe|reframe|recognition)\s*:\s*",
+        "",
+        first_paragraph,
+        flags=re.IGNORECASE,
+    )
+    rewritten = re.sub(
+        r"^warning(?:\s+for\s+[^:]+)?\s*:\s*",
+        "",
+        rewritten,
+        flags=re.IGNORECASE,
+    )
+    rewritten = rewritten.strip()
+    if rewritten and rewritten != first_paragraph:
+        paragraphs[0] = _ensure_public_sentence(rewritten)
+    return "\n\n".join(paragraphs)
+
+
+def _rewrite_public_story_beat_phrases(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    rewritten = cleaned
+    replacements = (
+        (r"\bQuiet Inefficiency Cleanup\b", "quiet inefficiency"),
+        (r"\bAI Constraint Breakthrough\b", "the constraint that changed the workflow"),
+    )
+    for pattern, replacement in replacements:
+        rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def _rewrite_public_house_phrases(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    rewritten = cleaned
+    rewritten = re.sub(
+        r"(?im)^\s*Not more reporting\.\s*Clearer action\.\s*(?:\n\s*)?",
+        "",
+        rewritten,
+    )
+    rewritten = re.sub(
+        r"(?im)^\s*That is when the work slips\.\s*(?:\n\s*)?",
+        "",
+        rewritten,
+    )
+    rewritten = re.sub(
+        r"\bWarning from the build log:\b",
+        "Warning:",
+        rewritten,
+        flags=re.IGNORECASE,
+    )
+    return rewritten.strip()
+
+
+def _rewrite_public_system_phrases(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    rewritten = cleaned
+    replacements = (
+        (r"\bone Salesforce command center\b", "one shared operating view"),
+        (r"\bSalesforce command center\b", "shared operating view"),
+        (r"\bSalesforce dashboard\b", "shared dashboard"),
+        (r"\bcommand center\b", "shared operating view"),
+        (r"\bagent orchestration\b", "coordinated workflow"),
+        (r"\borchestrated workflow clarity\b", "coordinated workflow"),
+        (r"\boperating pattern\b", "workflow design"),
+        (r"\boperating model\b", "workflow design"),
+        (r"\boperator pattern\b", "workflow design"),
+        (r"\bThe operator lesson:\s*", ""),
+        (r"\bThe market insight:\s*", ""),
+        (r"\bThe build[ -]in[ -]public lesson:\s*", ""),
+        (r"\bMy operator lesson:\s*", ""),
+        (r"\bSo I build in public:\s*", ""),
+        (r"\bbuild[ -]in[ -]public ritual\b", "build-in-public habit"),
+        (r"\bThe prompt is not the system\. The workflow is\.", "The workflow matters more than the tool."),
+        (r"\bmap the system,\s*then let automation run\b", "get the workflow clear, then let automation run"),
+        (r"\bOtherwise you(?:['’]?re| are) just pouring GPUs on top of low-trust reporting\b", "Otherwise automation just speeds up low-trust reporting"),
+        (r"\bquiet inefficiency is the fastest market insight you can ship right now\b", "Quiet inefficiency is usually the signal to fix first"),
+    )
+    for pattern, replacement in replacements:
+        rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    return rewritten.strip()
+
+
+def _drop_redundant_label_tail(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if len(paragraphs) < 2:
+        return cleaned
+    last_paragraph = paragraphs[-1]
+    if len(last_paragraph.split()) > 4:
+        return cleaned
+    prior_text = " ".join(paragraphs[:-1]).lower()
+    if last_paragraph.lower() in prior_text:
+        return "\n\n".join(paragraphs[:-1])
+    last_terms = _significant_terms(last_paragraph)
+    prior_terms = _significant_terms(" ".join(paragraphs[:-1]))
+    if last_terms and last_terms.issubset(prior_terms):
+        return "\n\n".join(paragraphs[:-1])
+    return cleaned
+
+
+def _sentence_has_unapproved_reference(
+    sentence: str,
+    *,
+    approved_reference_terms: List[str],
+    audience: str,
+) -> bool:
+    approved_terms = _normalized_terms(" ".join(approved_reference_terms))
+    approved_terms.update(_extract_named_reference_candidates(" ".join(approved_reference_terms)))
+    if _extract_named_reference_candidates(sentence) - approved_terms:
+        return True
+    if audience == "tech_ai":
+        lowered = " ".join((sentence or "").lower().split())
+        for placeholder in UNSUPPORTED_EVIDENCE_PLACEHOLDERS:
+            if placeholder in lowered and placeholder not in approved_terms:
+                return True
+    return False
+
+
+def _drop_unapproved_reference_sentences(
+    option: str,
+    *,
+    brief: ContentOptionBrief,
+    approved_reference_terms: List[str],
+    audience: str,
+) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned or not approved_reference_terms:
+        return cleaned
+    if not option_uses_unapproved_reference(
+        cleaned,
+        approved_reference_terms=approved_reference_terms,
+        audience=audience,
+    ):
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    revised_paragraphs: List[str] = []
+    for paragraph in paragraphs:
+        kept_sentences: List[str] = []
+        for sentence in _split_sentences(paragraph):
+            normalized = _ensure_sentence(sentence.strip())
+            if not normalized:
+                continue
+            if _sentence_has_unapproved_reference(
+                normalized,
+                approved_reference_terms=approved_reference_terms,
+                audience=audience,
+            ):
+                continue
+            kept_sentences.append(normalized)
+        if kept_sentences:
+            revised_paragraphs.append(" ".join(kept_sentences).strip())
+    revised = "\n\n".join(revised_paragraphs).strip()
+    if not revised:
+        revised = _synthesize_planned_option(brief)
+    if brief.proof_packet and not option_mentions_approved_proof(revised, [brief.proof_packet]):
+        revised = _force_brief_proof_support(revised, brief)
+    return revised
+
+
+def _drop_meta_thesis_scaffold(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if len(paragraphs) < 2:
+        return cleaned
+    scaffold_pattern = re.compile(
+        r"^(?:the key (?:insight|lesson|point) is that|here(?:'s| is) the thing|the default read is wrong)\b",
+        flags=re.IGNORECASE,
+    )
+    revised: List[str] = []
+    for index, paragraph in enumerate(paragraphs):
+        if not scaffold_pattern.match(paragraph):
+            revised.append(paragraph)
+            continue
+        other_paragraphs = [segment for inner_index, segment in enumerate(paragraphs) if inner_index != index]
+        other_text = "\n\n".join(other_paragraphs)
+        if _claim_near_opening(other_text, brief.primary_claim) or any(
+            _sentence_is_signal_bearing(candidate, brief) for candidate in other_paragraphs
+        ):
+            continue
+        revised.append(paragraph)
+    return "\n\n".join(revised) if revised else cleaned
+
+
+def _dedupe_repeated_paragraphs(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for paragraph in paragraphs:
+        normalized = " ".join(paragraph.lower().split())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(paragraph)
+    return "\n\n".join(deduped)
+
+
+def _normalize_public_acronyms(option: str) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    rewritten = _rewrite_audience_slug_public_copy(cleaned)
+    rewritten = re.sub(r"\bai\b", "AI", rewritten, flags=re.IGNORECASE)
+    rewritten = re.sub(r"\bapi\b", "API", rewritten, flags=re.IGNORECASE)
+    rewritten = re.sub(r"\bjson\b", "JSON", rewritten, flags=re.IGNORECASE)
+    return rewritten
+
+
+def _ensure_sharp_landing(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if not paragraphs:
+        return cleaned
+    closer = _strong_closer_from_brief(brief)
+    if not closer:
+        return cleaned
+    last_paragraph = paragraphs[-1]
+    sentences = [_ensure_sentence(sentence.strip()) for sentence in _split_sentences(last_paragraph) if sentence.strip()]
+    kept_sentences: List[str] = []
+    for sentence in sentences:
+        if _closer_needs_sharpening(sentence, brief) and not _sentence_is_signal_bearing(sentence, brief):
+            continue
+        kept_sentences.append(sentence)
+    if kept_sentences:
+        paragraphs[-1] = " ".join(kept_sentences).strip()
+    else:
+        paragraphs.pop()
+    if not paragraphs:
+        paragraphs.append(closer)
+        return "\n\n".join(paragraphs)
+    trailing_sentences = _split_sentences(paragraphs[-1])
+    trailing = trailing_sentences[-1] if trailing_sentences else ""
+    if _closer_needs_sharpening(trailing, brief):
+        if len(paragraphs[-1].split()) <= 8:
+            paragraphs[-1] = closer
+        elif closer.lower() not in " ".join(paragraphs).lower():
+            paragraphs.append(closer)
+    elif len(paragraphs) < 2 and closer.lower() not in paragraphs[-1].lower():
+        paragraphs.append(closer)
+    return "\n\n".join(paragraph for paragraph in paragraphs if paragraph)
+
+
+def _paragraph_has_coherence_bridge(paragraph: str, brief: ContentOptionBrief) -> bool:
+    normalized = " ".join((paragraph or "").lower().split())
+    if not normalized:
+        return False
+    if any(
+        phrase in normalized
+        for phrase in (
+            "that is why",
+            "which is why",
+            "the lesson",
+            "warning for",
+            "before you",
+            "otherwise",
+            "that is where",
+        )
+    ):
+        return True
+    return False
+
+
+def _ensure_coherent_progression(option: str, brief: ContentOptionBrief) -> str:
+    cleaned = (option or "").strip()
+    if not cleaned:
+        return cleaned
+    paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", cleaned) if segment.strip()]
+    if len(paragraphs) <= 2:
+        return cleaned
+
+    opening = paragraphs[0]
+    remainder = paragraphs[1:]
+    if not remainder:
+        return cleaned
+
+    support_index = next(
+        (
+            index
+            for index, paragraph in enumerate(remainder)
+            if option_mentions_approved_proof(paragraph, [brief.proof_packet])
+            or _option_has_named_reference_specificity(paragraph, brief)
+            or _sentence_is_signal_bearing(paragraph, brief)
+        ),
+        None,
+    )
+    if support_index is not None and support_index > 0:
+        support_paragraph = remainder.pop(support_index)
+        remainder.insert(0, support_paragraph)
+
+    rebuilt = [opening]
+    rebuilt.extend(remainder)
+
+    if len(rebuilt) >= 3:
+        second_paragraph = rebuilt[1]
+        third_paragraph = rebuilt[2]
+        if _paragraph_has_coherence_bridge(second_paragraph, brief) and (
+            option_mentions_approved_proof(third_paragraph, [brief.proof_packet])
+            or _option_has_named_reference_specificity(third_paragraph, brief)
+        ):
+            rebuilt[1], rebuilt[2] = rebuilt[2], rebuilt[1]
+
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for paragraph in rebuilt:
+        normalized = " ".join(paragraph.lower().split())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(paragraph)
+    return "\n\n".join(deduped)
+
+
+def finalize_planned_options(
+    *,
+    options: List[str],
+    briefs: List[ContentOptionBrief],
+    grounding_mode: str,
+) -> List[str]:
+    finalized: List[str] = []
+    for index, option in enumerate(options):
+        brief = briefs[index] if index < len(briefs) else briefs[-1]
+        revised = _replace_flat_opening_with_claim(option, brief)
+        revised = _rewrite_persona_bio_opening(revised, brief)
+        revised = _strip_lane_label_opening(revised)
+        revised = _rewrite_public_story_beat_phrases(revised)
+        revised = _rewrite_public_house_phrases(revised)
+        revised = _rewrite_public_system_phrases(revised)
+        revised = _force_claim_lead(revised, brief)
+        revised = _shape_opening_by_mode(revised, brief)
+        if grounding_mode == "proof_ready":
+            revised = _force_brief_proof_support(revised, brief)
+        revised = _ensure_contrast_shape(revised, brief)
+        revised = _clean_generic_sentences(revised, brief)
+        revised = _rewrite_internal_public_jargon(revised)
+        revised = _rewrite_soft_operator_sentences(revised, brief)
+        revised = _drop_opening_restatement(revised, brief)
+        revised = _drop_filler_fragment_paragraphs(revised, brief)
+        revised = _drop_meta_thesis_scaffold(revised, brief)
+        revised = _ensure_paragraph_cadence(revised, brief)
+        revised = _ensure_sharp_landing(revised, brief)
+        revised = _rewrite_soft_operator_sentences(revised, brief)
+        revised = _ensure_named_reference_specificity(revised, brief)
+        revised = _ensure_short_sentence_presence(revised, brief)
+        revised = _ensure_coherent_progression(revised, brief)
+        revised = _drop_redundant_label_tail(revised)
+        revised = _dedupe_repeated_paragraphs(revised)
+        revised = _stabilize_claim_opening(revised, brief)
+        revised = _normalize_public_acronyms(revised)
+        if grounding_mode == "proof_ready":
+            revised = _force_brief_proof_support(revised, brief)
+        finalized.append(revised)
+    return finalized[: len(briefs)]
+
+
+def _sanitize_public_output(option: str, brief: ContentOptionBrief) -> str:
+    revised = (option or "").strip()
+    if not revised:
+        return revised
+    revised = _rewrite_persona_bio_opening(revised, brief)
+    revised = _strip_lane_label_opening(revised)
+    revised = _rewrite_public_story_beat_phrases(revised)
+    revised = _rewrite_public_house_phrases(revised)
+    revised = _rewrite_public_system_phrases(revised)
+    revised = _clean_generic_sentences(revised, brief)
+    revised = _rewrite_internal_public_jargon(revised)
+    revised = _rewrite_soft_operator_sentences(revised, brief)
+    revised = _drop_opening_restatement(revised, brief)
+    revised = _drop_filler_fragment_paragraphs(revised, brief)
+    revised = _drop_meta_thesis_scaffold(revised, brief)
+    revised = _ensure_paragraph_cadence(revised, brief)
+    revised = _ensure_sharp_landing(revised, brief)
+    revised = _rewrite_soft_operator_sentences(revised, brief)
+    revised = _ensure_coherent_progression(revised, brief)
+    revised = _drop_redundant_label_tail(revised)
+    revised = _dedupe_repeated_paragraphs(revised)
+    revised = _stabilize_claim_opening(revised, brief)
+    revised = _normalize_public_acronyms(revised)
+    return revised
+
+
+def build_proof_enforcement_prompt(
+    *,
+    topic: str,
+    audience: str,
+    rough_options: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    framing_modes: List[str],
+    voice_directives: Optional[List[str]] = None,
+) -> str:
+    audience_label = _audience_prompt_label(audience)
+    options_text = "\n---OPTION---\n".join(rough_options)
+    claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- Stay inside the topic."
+    proof_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No proof packets available."
+    story_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No approved story beats."
+    approved_references = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    approved_reference_text = "\n".join(f"- {reference}" for reference in approved_references) or "- No approved named references."
+    framing_text = "\n".join(
+        f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
+        for mode in framing_modes
+    ) or "- `operator_lesson`"
+    voice_text = "\n".join(f"- {directive}" for directive in (voice_directives or DEFAULT_VOICE_DIRECTIVES[:6]))
+    public_post_guardrails = _render_public_post_guardrails()
+    option_plan_text = _render_option_framing_plan(
+        _build_option_framing_plan(
+            framing_modes=framing_modes,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+            option_count=max(len(rough_options), 3),
+        )
+    )
+    return f"""You are repairing draft posts that are too generic and are not carrying the approved proof strongly enough.
+
+Topic: {topic}
+Audience: {audience_label}
+
+PRIMARY CLAIMS:
+{claims_text}
+
+APPROVED PROOF PACKETS:
+{proof_text}
+
+OPTIONAL STORY BEATS:
+{story_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+PUBLIC POST GUARDRAILS:
+{public_post_guardrails}
+
+APPROVED FRAMING MODES:
+{framing_text}
+
+OPTION FRAMING PLAN:
+{option_plan_text}
+
+VOICE SHAPING RULES:
+{voice_text}
+
+DRAFTS TO REWRITE:
+{options_text}
+
+REWRITE RULES:
+- Keep 3 options.
+- Each option must use one PRIMARY CLAIM.
+- Each option must explicitly mention at least one named system, artifact, or evidence phrase from an APPROVED PROOF PACKET.
+- Only use named references that appear in the APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES list above.
+- Remove unsupported references like videos, schools, employers, or projects that are not explicitly approved above.
+- When an APPROVED PROOF PACKET contains `label -> evidence`, use the evidence side, not just the label side.
+- Keep the original proof meaning intact. Do not generalize it into vague productivity language.
+- Do not use phrases like seamless, unlock potential, drive results, or everything flows.
+- Preserve the person's casual rhythm and punchy style.
+- Use different framing modes across the options.
+- Use the assigned OPTION FRAMING PLAN so the three options do not flatten into the same shape.
+- Delete filler beats like "Why?" and remove standalone restatements of the opener.
+- Do not stack multiple short fragments before the proof line.
+
+Output only the rewritten options, separated by ---OPTION---.
+"""
+
+
+def build_refinement_prompt(
+    *,
+    topic: str,
+    audience: str,
+    persona_chunks: List[Dict[str, Any]],
+    rough_options: List[str],
+    topic_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    eligible_story_chunks: Optional[List[Dict[str, Any]]] = None,
+    proof_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    grounding_mode: Optional[str] = None,
+    grounding_reason: Optional[str] = None,
+    framing_modes: Optional[List[str]] = None,
+    primary_claims: Optional[List[str]] = None,
+    proof_packets: Optional[List[str]] = None,
+    story_beats: Optional[List[str]] = None,
+    disallowed_moves: Optional[List[str]] = None,
+) -> str:
+    audience_label = _audience_prompt_label(audience)
+    topic_anchor_chunks = topic_anchor_chunks or select_topic_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    eligible_story_chunks = eligible_story_chunks or select_eligible_story_chunks(persona_chunks, topic=topic, audience=audience, limit=3)
+    proof_anchor_chunks = proof_anchor_chunks or select_proof_anchor_chunks(persona_chunks, topic=topic, audience=audience, limit=4)
+    primary_claims = primary_claims or []
+    proof_packets = proof_packets or []
+    story_beats = story_beats or []
+    topic_anchor_text = _prompt_topic_anchor_text(
+        topic_anchor_chunks=topic_anchor_chunks,
+        primary_claims=primary_claims,
+        limit=4,
+    )
+    eligible_story_text = _prompt_story_anchor_text(
+        story_anchor_chunks=eligible_story_chunks,
+        story_beats=story_beats,
+        limit=3,
+    ) if eligible_story_chunks or story_beats else "- No directly relevant story anchor found. Do not force one."
+    proof_anchor_text = _prompt_proof_anchor_text(
+        proof_anchor_chunks=proof_anchor_chunks,
+        proof_packets=proof_packets,
+        limit=4,
+    ) if proof_anchor_chunks or proof_packets else "- No strong proof anchor found. Stay concrete about process and role."
+    grounding_mode = grounding_mode or ("proof_ready" if proof_anchor_chunks else "principle_only")
+    grounding_reason = grounding_reason or (
+        "Concrete proof anchors are available, so the post can stay specific."
+        if proof_anchor_chunks
+        else "No strong proof anchor was found, so the post should stay principle-led."
+    )
+    approved_framing_modes = framing_modes or ["operator_lesson", "contrarian_reframe", "reframe"]
+    framing_modes_text = "\n".join(
+        f"- `{mode}`: {FRAMING_MODE_GUIDANCE.get(mode, mode.replace('_', ' '))}"
+        for mode in approved_framing_modes
+    )
+    disallowed_moves = disallowed_moves or []
+    primary_claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- No pre-composed primary claims."
+    proof_packets_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No approved proof packets."
+    story_beats_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No approved story beats."
+    disallowed_moves_text = "\n".join(f"- {move}" for move in disallowed_moves) or "- No extra banned moves."
+    approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    approved_reference_text = "\n".join(f"- {term}" for term in approved_reference_terms) or "- No approved named references."
+    public_post_guardrails = _render_public_post_guardrails()
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    voice_directives_text = "\n".join(f"- {directive}" for directive in voice_directives)
+    option_framing_plan_text = _render_option_framing_plan(
+        _build_option_framing_plan(
+            framing_modes=approved_framing_modes,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+            option_count=max(len(rough_options), 3),
+        )
+    )
+    rough_text = "\n---OPTION---\n".join(rough_options)
+    return f"""You are revising drafted posts so they sound sharper, more specific, and more faithful to this person's canon.
+
+Topic: {topic}
+Audience: {audience_label}
+
+TOPIC ANCHORS:
+{topic_anchor_text}
+
+ELIGIBLE STORY / PROOF ANCHORS:
+{eligible_story_text}
+
+PROOF ANCHORS:
+{proof_anchor_text}
+
+GROUNDING MODE:
+- `{grounding_mode}`
+- {grounding_reason}
+
+APPROVED FRAMING MODES:
+{framing_modes_text}
+
+OPTION FRAMING PLAN:
+{option_framing_plan_text}
+
+PRIMARY CLAIMS YOU MAY MAKE:
+{primary_claims_text}
+
+APPROVED PROOF PACKETS:
+{proof_packets_text}
+
+OPTIONAL STORY BEATS:
+{story_beats_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+PUBLIC POST GUARDRAILS:
+{public_post_guardrails}
+
+DISALLOWED MOVES:
+{disallowed_moves_text}
+
+VOICE SHAPING RULES:
+{voice_directives_text}
+
+ROUGH OPTIONS TO REWRITE:
+{rough_text}
+
+REVISION RULES:
+- Keep 3 options.
+- Preserve the person's casual voice and punchy rhythm.
+- Remove generic filler, motivational fluff, and any language that could apply to anyone.
+- Make sure each option clearly leads with one approved PRIMARY CLAIM.
+- Use APPROVED PROOF PACKETS as supporting evidence, not as the whole thesis unless the approved claim is already proof-shaped.
+- Preserve the dramatic, contrarian, agreement, or tension-based framing when it is grounded in the approved framing modes above.
+- Ban phrases like "magic happens", "synergy", "game changer", "nice-to-have", "backbone", and "thrive in AI".
+- Every option must be grounded in the topic anchors above.
+- Only use a personal anecdote if it appears in the eligible story / proof anchors above.
+- Each option must include at least one concrete proof anchor, named system, evidence phrase, or metric from the PROOF ANCHORS above when available.
+- Never translate one metric into another. If a proof anchor mentions participation, utilization, or revenue, keep that exact subject or omit the number.
+- If no eligible story anchor exists, do not force a story. Stay with proof, pattern, and operating insight.
+- Replace vague claims with concrete operator language: workflow, handoff, prompt, system, proof, constraint, operating cadence.
+- Do not rely on the label side of a proof packet when the evidence side contains the real operator proof.
+- Cut weak setup lines. Start faster.
+- Use one PRIMARY CLAIM per option and make it legible in the first lines.
+- Use the OPTION FRAMING PLAN above so each option lands with a different rhetorical posture.
+- Use the VOICE SHAPING RULES above. Keep the writing spoken, specific, and sharp.
+- Do not describe the author in third person. Rewrite `Johnnie is...` / `Johnnie treats...` / `Johnnie is building...` into first-person or direct thesis voice.
+- Do not leave internal shorthand like `shared workspace state`, `typed retrieval`, `proof-aware prompts`, or `operating rhythm` in public copy. Translate them into macro language instead.
+- If `proof_ready`, tie each option to one APPROVED PROOF PACKET and preserve its exact meaning.
+- If `principle_only`, remove stray named examples that are not explicitly present in PRIMARY CLAIMS.
+- If a named reference is not in the APPROVED PROOF PACKETS, OPTIONAL STORY BEATS, or ONLY THESE NAMED REFERENCES list, remove it.
+- Delete filler beats like "Why?" and remove short standalone restatements that only repeat the opener.
+- Keep each option as one clear opener, one proof-bearing middle, and one sharp landing.
+
+Output only the rewritten options, separated by ---OPTION---.
+"""
+
+
+def build_voice_sharpen_prompt(
+    *,
+    topic: str,
+    audience: str,
+    rough_options: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    framing_modes: List[str],
+    voice_directives: List[str],
+) -> str:
+    audience_label = _audience_prompt_label(audience)
+    options_text = "\n---OPTION---\n".join(rough_options)
+    claims_text = "\n".join(f"- {claim}" for claim in primary_claims) or "- Stay tightly inside the topic."
+    proof_text = "\n".join(f"- {packet}" for packet in proof_packets) or "- No approved proof packets."
+    story_text = "\n".join(f"- {beat}" for beat in story_beats) or "- No approved story beats."
+    voice_text = "\n".join(f"- {directive}" for directive in voice_directives) or "\n".join(
+        f"- {directive}" for directive in DEFAULT_VOICE_DIRECTIVES[:6]
+    )
+    option_plan_text = _render_option_framing_plan(
+        _build_option_framing_plan(
+            framing_modes=framing_modes,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+            option_count=max(len(rough_options), 3),
+        )
+    )
+    approved_reference_text = "\n".join(
+        f"- {reference}"
+        for reference in _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    ) or "- No approved named references."
+    public_post_guardrails = _render_public_post_guardrails()
+    return f"""You are the final editorial pass. The facts are already approved. Your job is to make the writing sound sharper, more strategic, and more like this person.
+
+Topic: {topic}
+Audience: {audience_label}
+
+PRIMARY CLAIMS:
+{claims_text}
+
+APPROVED PROOF PACKETS:
+{proof_text}
+
+OPTIONAL STORY BEATS:
+{story_text}
+
+OPTION FRAMING PLAN:
+{option_plan_text}
+
+VOICE SHAPING RULES:
+{voice_text}
+
+ONLY THESE NAMED REFERENCES MAY APPEAR:
+{approved_reference_text}
+
+PUBLIC POST GUARDRAILS:
+{public_post_guardrails}
+
+DRAFTS TO SHARPEN:
+{options_text}
+
+SHARPENING RULES:
+- Keep 3 options.
+- Do not add new facts, names, or proof.
+- Preserve the approved claim and proof meaning exactly.
+- Remove flat openers like "X is essential", "X is critical", or "In today's world".
+- Start faster. Lead with tension, contrast, recognition, warning, or operator insight.
+- Keep the writing casual, direct, and punchy.
+- Use the OPTION FRAMING PLAN so each option lands differently.
+- Do not collapse the options into the same rhythm or hook.
+- Keep line breaks and cadence human.
+- If a line sounds like generic LinkedIn advice, replace it with sharper operator language.
+- Do not use third-person persona framing in public posts.
+- Translate internal operator shorthand into macro public language.
+- Delete filler beats like "Why?" and cut repeated opener lines.
+- Keep one strong punch line, not a stack of fragments.
+- Do not use meta directives like "Read that again" or "Write that down".
+
+Output only the rewritten options, separated by ---OPTION---.
+"""
+
+
+def refine_generated_options(
+    *,
+    client: Any,
+    topic: str,
+    audience: str,
+    content_type: str,
+    persona_chunks: List[Dict[str, Any]],
+    rough_options: List[str],
+    topic_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    eligible_story_chunks: Optional[List[Dict[str, Any]]] = None,
+    proof_anchor_chunks: Optional[List[Dict[str, Any]]] = None,
+    grounding_mode: Optional[str] = None,
+    grounding_reason: Optional[str] = None,
+    framing_modes: Optional[List[str]] = None,
+    primary_claims: Optional[List[str]] = None,
+    proof_packets: Optional[List[str]] = None,
+    story_beats: Optional[List[str]] = None,
+    disallowed_moves: Optional[List[str]] = None,
+) -> List[str]:
+    if content_type != "linkedin_post" or not rough_options:
+        return rough_options
+
+    response = client.chat.completions.create(
+        model=CONTENT_FAST_MODEL_ALIAS,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a strict editorial pass. Make the writing sharper and more concrete without changing the author's voice.",
+            },
+            {
+                "role": "user",
+                "content": build_refinement_prompt(
+                    topic=topic,
+                    audience=audience,
+                    persona_chunks=persona_chunks,
+                    rough_options=rough_options,
+                    topic_anchor_chunks=topic_anchor_chunks,
+                    eligible_story_chunks=eligible_story_chunks,
+                    proof_anchor_chunks=proof_anchor_chunks,
+                    grounding_mode=grounding_mode,
+                    grounding_reason=grounding_reason,
+                    framing_modes=framing_modes,
+                    primary_claims=primary_claims,
+                    proof_packets=proof_packets,
+                    story_beats=story_beats,
+                    disallowed_moves=disallowed_moves,
+                ),
+            },
+        ],
+        temperature=_refinement_temperature(),
+        max_tokens=1800,
+    )
+    refined = parse_content_options(response.choices[0].message.content or "")
+    return refined[:3] if len(refined) >= len(rough_options) else rough_options
+
+
+def sharpen_editorial_options(
+    *,
+    client: Any,
+    topic: str,
+    audience: str,
+    content_type: str,
+    grounding_mode: str,
+    persona_chunks: List[Dict[str, Any]],
+    rough_options: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    framing_modes: List[str],
+) -> List[str]:
+    if content_type != "linkedin_post" or not rough_options or not _options_need_voice_sharpening(rough_options):
+        return rough_options
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a final editorial sharpener. Improve rhetoric and cadence without changing approved facts or voice.",
+        },
+        {
+            "role": "user",
+            "content": build_voice_sharpen_prompt(
+                topic=topic,
+                audience=audience,
+                rough_options=rough_options,
+                primary_claims=primary_claims,
+                proof_packets=proof_packets,
+                story_beats=story_beats,
+                framing_modes=framing_modes,
+                voice_directives=voice_directives,
+            ),
+        },
+    ]
+    try:
+        response = client.chat.completions.create(
+            model=_final_editor_model(),
+            messages=messages,
+            temperature=_final_editor_temperature(),
+            max_tokens=1800,
+        )
+    except Exception:
+        response = client.chat.completions.create(
+            model=CONTENT_FAST_MODEL_ALIAS,
+            messages=messages,
+            temperature=_final_editor_temperature(),
+            max_tokens=1800,
+        )
+    sharpened = parse_content_options(response.choices[0].message.content or "")
+    sharpened = sharpened[:3] if len(sharpened) >= len(rough_options) else rough_options
+    if grounding_mode == "proof_ready" and proof_packets:
+        approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+        if not all(
+            option_mentions_approved_proof(option, proof_packets)
+            and not option_uses_unapproved_reference(
+                option,
+                approved_reference_terms=approved_reference_terms,
+                audience=audience,
+            )
+            for option in sharpened
+        ):
+            return rough_options
+    baseline_score = sum(
+        score_option_taste(
+            option,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+        )["overall"]
+        for option in rough_options
+    )
+    sharpened_score = sum(
+        score_option_taste(
+            option,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+        )["overall"]
+        for option in sharpened
+    )
+    if sharpened_score + 3 < baseline_score:
+        return rough_options
+    return sharpened
+
+
+def enforce_grounding_on_options(
+    *,
+    client: Any,
+    topic: str,
+    audience: str,
+    content_type: str,
+    grounding_mode: str,
+    rough_options: List[str],
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    framing_modes: List[str],
+) -> List[str]:
+    if content_type != "linkedin_post" or grounding_mode != "proof_ready" or not proof_packets or not rough_options:
+        return rough_options
+    approved_reference_terms = _extract_approved_reference_terms(primary_claims, proof_packets, story_beats)
+    if all(
+        option_mentions_approved_proof(option, proof_packets)
+        and not option_uses_unapproved_reference(
+            option,
+            approved_reference_terms=approved_reference_terms,
+            audience=audience,
+        )
+        for option in rough_options
+    ):
+        return rough_options
+
+    response = client.chat.completions.create(
+        model=CONTENT_FAST_MODEL_ALIAS,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a strict factual editor. Keep the voice, but force the writing to carry the approved proof explicitly.",
+            },
+            {
+                "role": "user",
+                "content": build_proof_enforcement_prompt(
+                    topic=topic,
+                    audience=audience,
+                    rough_options=rough_options,
+                    primary_claims=primary_claims,
+                    proof_packets=proof_packets,
+                    story_beats=story_beats,
+                    framing_modes=framing_modes,
+                    voice_directives=DEFAULT_VOICE_DIRECTIVES[:6],
+                ),
+            },
+        ],
+        temperature=_proof_enforcement_temperature(),
+        max_tokens=1800,
+    )
+    repaired = parse_content_options(response.choices[0].message.content or "")
+    return repaired[:3] if len(repaired) >= len(rough_options) else rough_options
+
+
+def _generate_legacy_options(
+    *,
+    client: Any,
+    req: ContentGenerationRequest,
+    content_context: ContentGenerationContext,
+    persona_chunks: List[Dict[str, Any]],
+    example_chunks: List[Dict[str, Any]],
+) -> List[str]:
+    prompt = build_content_prompt(
+        topic=req.topic,
+        context=req.context or "",
+        content_type=req.content_type,
+        category=req.category,
+        pacer_elements=req.pacer_elements,
+        tone=req.tone,
+        persona_chunks=persona_chunks,
+        example_chunks=example_chunks,
+        audience=req.audience,
+        topic_anchor_chunks=content_context.topic_anchor_chunks,
+        eligible_story_chunks=content_context.story_anchor_chunks,
+        proof_anchor_chunks=content_context.proof_anchor_chunks,
+        grounding_mode=content_context.grounding_mode,
+        grounding_reason=content_context.grounding_reason,
+        framing_modes=content_context.framing_modes,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        disallowed_moves=content_context.disallowed_moves,
+    )
+    response = client.chat.completions.create(
+        model=CONTENT_FAST_MODEL_ALIAS,
+        messages=[
+            {
+                "role": "system",
+                "content": """You are a ghostwriter who perfectly mimics a specific person's voice.
+
+CRITICAL RULES:
+1. Use the EXACT voice patterns from the persona data (casual phrases, rhythm, signature expressions)
+2. ONLY use stories, anecdotes, and facts EXPLICITLY mentioned in the persona data below
+3. NEVER invent or fabricate stories - if no relevant story exists, speak generally about the topic
+4. DO NOT make up family stories, childhood memories, or personal details not in the persona
+5. Preserve casual markers like "Yall", "Tell you what tho", "Say it with me"
+6. Keep punchy rhythm - short sentences, stacked phrases
+7. DO NOT over-polish or make it sound generic/corporate
+8. Stay focused on the user's TOPIC and CONTEXT - don't drift to unrelated subjects
+9. Treat TOPIC ANCHORS as higher priority than generic biography
+10. Only use a personal anecdote if it appears in ELIGIBLE STORY / PROOF ANCHORS
+""",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        temperature=_legacy_generation_temperature(req.audience),
+        max_tokens=2000,
+    )
+    raw_content = response.choices[0].message.content or ""
+    options = parse_content_options(raw_content)
+    options = refine_generated_options(
+        client=client,
+        topic=req.topic,
+        audience=req.audience,
+        content_type=req.content_type,
+        persona_chunks=persona_chunks,
+        rough_options=options,
+        topic_anchor_chunks=content_context.topic_anchor_chunks,
+        eligible_story_chunks=content_context.story_anchor_chunks,
+        proof_anchor_chunks=content_context.proof_anchor_chunks,
+        grounding_mode=content_context.grounding_mode,
+        grounding_reason=content_context.grounding_reason,
+        framing_modes=content_context.framing_modes,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        disallowed_moves=content_context.disallowed_moves,
+    )
+    options = enforce_grounding_on_options(
+        client=client,
+        topic=req.topic,
+        audience=req.audience,
+        content_type=req.content_type,
+        grounding_mode=content_context.grounding_mode,
+        rough_options=options,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        framing_modes=content_context.framing_modes,
+    )
+    options = sharpen_editorial_options(
+        client=client,
+        topic=req.topic,
+        audience=req.audience,
+        content_type=req.content_type,
+        grounding_mode=content_context.grounding_mode,
+        persona_chunks=persona_chunks,
+        rough_options=options,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        framing_modes=content_context.framing_modes,
+    )
+    return options[:3]
+
+
+def _generate_staged_options(
+    *,
+    client: Any,
+    req: ContentGenerationRequest,
+    content_context: ContentGenerationContext,
+    persona_chunks: List[Dict[str, Any]],
+    example_chunks: List[Dict[str, Any]],
+) -> tuple[List[str], List[ContentOptionBrief], str, Dict[str, Any]]:
+    good_examples, avoid_examples = _split_example_references(example_chunks, limit=3)
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    approved_references = _extract_approved_reference_terms(
+        content_context.primary_claims,
+        content_context.proof_packets,
+        content_context.story_beats,
+    )
+    fallback_trace: Dict[str, Any] = {
+        "events": [],
+        "recovered_missing_option_count": 0,
+        "critic_used_rough_options": False,
+        "used_consolidated_refinement": False,
+        "used_compact_single_pass": False,
+        "legacy_fallback_triggered": False,
+        "legacy_fallback_reason": "",
+        "final_option_count_before_cap": 0,
+    }
+    briefs = plan_content_option_briefs(
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        framing_modes=content_context.framing_modes,
+        option_count=3,
+    )
+    rough_options = write_planned_options(
+        client=client,
+        topic=req.topic,
+        context=req.context or "",
+        audience=req.audience,
+        grounding_mode=content_context.grounding_mode,
+        grounding_reason=content_context.grounding_reason,
+        topic_anchor_chunks=content_context.topic_anchor_chunks,
+        proof_anchor_chunks=content_context.proof_anchor_chunks,
+        story_anchor_chunks=content_context.story_anchor_chunks,
+        briefs=briefs,
+        good_examples=good_examples,
+        voice_directives=voice_directives,
+        approved_references=approved_references,
+        disallowed_moves=content_context.disallowed_moves,
+    )
+    if not rough_options:
+        fallback_trace["events"].append(
+            {
+                "stage": "writer",
+                "reason": "writer_returned_no_options",
+                "action": "escalate_to_legacy_if_needed",
+            }
+        )
+        return [], briefs, "planner_writer_critic", fallback_trace
+    if len(rough_options) < len(briefs):
+        missing_briefs = briefs[len(rough_options):]
+        retry_options = write_planned_options(
+            client=client,
+            topic=req.topic,
+            context=req.context or "",
+            audience=req.audience,
+            grounding_mode=content_context.grounding_mode,
+            grounding_reason=content_context.grounding_reason,
+            topic_anchor_chunks=content_context.topic_anchor_chunks,
+            proof_anchor_chunks=content_context.proof_anchor_chunks,
+            story_anchor_chunks=content_context.story_anchor_chunks,
+            briefs=missing_briefs,
+            good_examples=good_examples,
+            voice_directives=voice_directives,
+            approved_references=approved_references,
+            disallowed_moves=content_context.disallowed_moves,
+        )
+        if retry_options:
+            rough_options = (rough_options + retry_options)[: len(briefs)]
+        if len(rough_options) < len(briefs):
+            fallback_trace["recovered_missing_option_count"] = len(briefs) - len(rough_options)
+            fallback_trace["events"].append(
+                {
+                    "stage": "writer",
+                    "reason": "writer_returned_too_few_options",
+                    "action": "recovered_from_planned_briefs",
+                    "count": fallback_trace["recovered_missing_option_count"],
+                }
+            )
+            rough_options = _recover_missing_planned_options(rough_options, briefs)
+    if _use_compact_staged_generation(client, content_type=req.content_type):
+        fallback_trace["used_compact_single_pass"] = True
+        fallback_trace["events"].append(
+            {
+                "stage": "refinement",
+                "reason": "used_compact_single_pass",
+                "action": "writer_absorbed_refinement_rules",
+            }
+        )
+        finalized = rough_options
+    else:
+        fallback_trace["used_consolidated_refinement"] = True
+        fallback_trace["events"].append(
+            {
+                "stage": "refinement",
+                "reason": "used_consolidated_refinement",
+                "action": "collapsed_critic_grounding_and_editorial_passes",
+            }
+        )
+        finalized = refine_generated_options(
+            client=client,
+            topic=req.topic,
+            audience=req.audience,
+            content_type=req.content_type,
+            persona_chunks=persona_chunks,
+            rough_options=rough_options,
+            topic_anchor_chunks=content_context.topic_anchor_chunks,
+            eligible_story_chunks=content_context.story_anchor_chunks,
+            proof_anchor_chunks=content_context.proof_anchor_chunks,
+            grounding_mode=content_context.grounding_mode,
+            grounding_reason=content_context.grounding_reason,
+            framing_modes=content_context.framing_modes,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            disallowed_moves=content_context.disallowed_moves,
+        )
+    finalized = finalize_planned_options(
+        options=finalized,
+        briefs=briefs,
+        grounding_mode=content_context.grounding_mode,
+    )
+    fallback_trace["final_option_count_before_cap"] = len(finalized)
+    return finalized[:3], briefs, "planner_writer_critic", fallback_trace
+
+
+def _provider_trace_indicates_fallback(provider_trace: List[Dict[str, Any]]) -> bool:
+    if not provider_trace:
+        return False
+    distinct_providers = {
+        str(entry.get("provider") or "").strip().lower()
+        for entry in provider_trace
+        if str(entry.get("provider") or "").strip()
+    }
+    if len(distinct_providers) > 1:
+        return True
+    return not any(str(entry.get("status") or "").lower() == "success" for entry in provider_trace)
+
+
+async def run_content_generation(req: ContentGenerationRequest) -> ContentGenerationResponse:
+    content_context: ContentGenerationContext = build_content_generation_context(
+        user_id=req.user_id,
+        topic=req.topic,
+        context=req.context,
+        content_type=req.content_type,
+        category=req.category,
+        tone=req.tone,
+        audience=req.audience,
+        source_mode=req.source_mode,
+    )
+    persona_chunks = content_context.persona_chunks
+
+    if persona_chunks:
+        tag_summary = {}
+        for chunk in persona_chunks:
+            tag = chunk.get("persona_tag", "UNKNOWN")
+            tag_summary[tag] = tag_summary.get(tag, 0) + 1
+        print(f"[content_gen] Retrieved persona chunks by tag: {tag_summary}", flush=True)
+    example_chunks = content_context.example_chunks
+    client = get_openai_client(req)
+    options, option_briefs, generation_strategy, fallback_trace = _generate_staged_options(
+        client=client,
+        req=req,
+        content_context=content_context,
+        persona_chunks=persona_chunks,
+        example_chunks=example_chunks,
+    )
+    if not options:
+        options = _generate_legacy_options(
+            client=client,
+            req=req,
+            content_context=content_context,
+            persona_chunks=persona_chunks,
+            example_chunks=example_chunks,
+        )
+        option_briefs = plan_content_option_briefs(
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            framing_modes=content_context.framing_modes,
+            option_count=max(len(options), 3),
+        )
+        generation_strategy = "legacy_fallback"
+        fallback_trace["legacy_fallback_triggered"] = True
+        fallback_trace["legacy_fallback_reason"] = "staged_generation_returned_no_options"
+        fallback_trace.setdefault("events", []).append(
+            {
+                "stage": "generation",
+                "reason": "staged_generation_returned_no_options",
+                "action": "used_legacy_generator",
+            }
+        )
+    approved_references = _extract_approved_reference_terms(
+        content_context.primary_claims,
+        content_context.proof_packets,
+        content_context.story_beats,
+    )
+    voice_directives = _extract_voice_directives(persona_chunks, limit=8)
+    option_framing_plan = _build_option_framing_plan(
+        framing_modes=content_context.framing_modes,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        option_count=3,
+    )
+    topic_anchor_preview = [
+        _render_anchor_chunk(item)[:220]
+        for item in content_context.topic_anchor_chunks[:4]
+    ]
+    core_chunk_preview = [
+        _render_anchor_chunk(item)[:220]
+        for item in content_context.core_chunks[:4]
+    ]
+    proof_anchor_preview = [
+        _render_anchor_chunk(item)[:220]
+        for item in content_context.proof_anchor_chunks[:4]
+    ]
+    taste_scores = [
+        score_option_taste(
+            option,
+            brief=option_briefs[index] if index < len(option_briefs) else None,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+        )
+        for index, option in enumerate(options[:3])
+    ]
+    options, option_briefs, taste_scores = _rank_options_by_taste(
+        options=options[:3],
+        briefs=option_briefs,
+        taste_scores=taste_scores,
+        topic=req.topic,
+        audience=req.audience,
+    )
+    options, taste_scores = _repair_weak_ranked_options(
+        options=options[:3],
+        briefs=option_briefs,
+        taste_scores=taste_scores,
+        topic=req.topic,
+        audience=req.audience,
+        grounding_mode=content_context.grounding_mode,
+        primary_claims=content_context.primary_claims,
+        proof_packets=content_context.proof_packets,
+        story_beats=content_context.story_beats,
+        approved_reference_terms=approved_references,
+    )
+    options, option_briefs, taste_scores = _rank_options_by_taste(
+        options=options[:3],
+        briefs=option_briefs,
+        taste_scores=taste_scores,
+        topic=req.topic,
+        audience=req.audience,
+    )
+    provider_trace = getattr(client, "provider_trace", [])
+
+    return ContentGenerationResponse(
+        success=True,
+        options=options[:3],
+        persona_context=content_context.persona_context_summary,
+        examples_used=[c.get("metadata", {}).get("source", "")[:50] for c in example_chunks[:3]],
+        diagnostics={
+            "grounding_mode": content_context.grounding_mode,
+            "generation_strategy": generation_strategy,
+            "primary_claims": content_context.primary_claims,
+            "raw_primary_claims": content_context.raw_primary_claims,
+            "public_safe_primary_claims": content_context.public_safe_primary_claims,
+            "raw_proof_packets": content_context.raw_proof_packets,
+            "proof_packets": content_context.proof_packets,
+            "public_safe_proof_packets": content_context.public_safe_proof_packets,
+            "raw_story_beats": content_context.raw_story_beats,
+            "story_beats": content_context.story_beats,
+            "public_safe_story_beats": content_context.public_safe_story_beats,
+            "content_release_policy": content_context.content_release_policy,
+            "approved_references": approved_references,
+            "voice_directives": voice_directives,
+            "option_framing_plan": option_framing_plan,
+            "planned_option_briefs": [
+                {
+                    "option_number": brief.option_number,
+                    "framing_mode": brief.framing_mode,
+                    "primary_claim": brief.primary_claim,
+                    "proof_packet": brief.proof_packet,
+                    "story_beat": brief.story_beat,
+                }
+                for brief in option_briefs
+            ],
+            "taste_scores": taste_scores,
+            "topic_anchor_preview": topic_anchor_preview,
+            "core_chunk_preview": core_chunk_preview,
+            "proof_anchor_preview": proof_anchor_preview,
+            "content_signal_source": _content_signal_source(content_context),
+            "content_signal_preview": [
+                str(item.get("chunk") or "")[:220]
+                for item in _content_signal_chunks(content_context)[:6]
+            ],
+            "content_signal_count": len(_content_signal_chunks(content_context)),
+            "content_signal_support": [
+                {
+                    "source_id": str(item.get("source_id") or ""),
+                    "asset_id": str(item.get("source_file_id") or ""),
+                    "signal_lane": str((item.get("metadata") or {}).get("source_lane") or ""),
+                    "source_kind": str((item.get("metadata") or {}).get("source_kind") or ""),
+                    "reservoir_lane": str((item.get("metadata") or {}).get("content_reservoir_lane") or ""),
+                    "primary_type": str((item.get("metadata") or {}).get("claim_type") or ""),
+                    "score": int((item.get("weighted_score") or item.get("similarity_score") or 0)),
+                    "title": str((item.get("metadata") or {}).get("file_name") or ""),
+                    "text": str(item.get("chunk") or "")[:400],
+                    "source_path": str((item.get("metadata") or {}).get("source_path") or ""),
+                    "source_url": str((item.get("metadata") or {}).get("source_url") or ""),
+                }
+                for item in _content_signal_chunks(content_context)[:8]
+            ],
+            "content_reservoir_preview": [
+                str(item.get("chunk") or "")[:220]
+                for item in _content_signal_chunks(content_context)[:6]
+            ],
+            "content_reservoir_count": len(_content_signal_chunks(content_context)),
+            "content_reservoir_support": _serialize_content_signal_support(content_context),
+            "fallback_trace": fallback_trace,
+            "provider_fallback_used": _provider_trace_indicates_fallback(provider_trace),
+            "llm_request_count": len(provider_trace),
+            "llm_provider_trace": provider_trace,
+            "source_mode": req.source_mode,
+        },
+    )
+
+
+def _mode_priority_bonus(mode: str) -> int:
+    return {
+        "contrarian_reframe": 4,
+        "warning": 3,
+        "operator_lesson": 2,
+        "drama_tension": 1,
+    }.get(mode or "", 0)
+
+
+def _topic_alignment_score(
+    *,
+    option: str,
+    brief: ContentOptionBrief,
+    topic: str,
+    audience: str,
+) -> int:
+    normalized_topic = " ".join((topic or "").lower().split())
+    opening = _first_content_line(option).lower()
+    claim = (brief.primary_claim or "").lower()
+    text = " ".join(
+        part
+        for part in [
+            option or "",
+            brief.primary_claim or "",
+            _proof_packet_evidence_text(brief.proof_packet),
+            brief.story_beat or "",
+        ]
+        if part
+    ).lower()
+    if not text:
+        return 0
+    focus_terms = _focus_terms(topic, audience)
+    required_terms = _topic_required_anchor_terms(topic, audience)
+    score = min(6, sum(1 for term in focus_terms if term and term in text))
+    if required_terms:
+        required_hits = sum(1 for term in required_terms if term in text)
+        if required_hits >= 2:
+            score += min(5, required_hits)
+        elif audience != "general" or _is_student_support_topic(topic, audience):
+            score -= 6
+    if normalized_topic and (normalized_topic in opening or normalized_topic in claim):
+        score += 6
+    elif normalized_topic and normalized_topic in text:
+        score += 3
+    if normalized_topic == "ai adoption":
+        adoption_core_hits = sum(
+            1
+            for term in (
+                "adoption",
+                "adopt",
+                "useful",
+                "usage",
+            )
+            if term in text
+        )
+        adoption_operator_hits = sum(
+            1
+            for term in (
+                "workflow",
+                "constraints",
+                "constraint",
+                "operator",
+                "shared state",
+                "handoff",
+                "behavior",
+            )
+            if term in text
+        )
+        if adoption_core_hits >= 1 and adoption_operator_hits >= 1:
+            score += min(3, adoption_core_hits) + min(3, adoption_operator_hits)
+        else:
+            score -= 8
+    if normalized_topic == "agent orchestration":
+        orchestration_thesis_hits = sum(
+            1
+            for term in (
+                "agent orchestration",
+                "orchestration",
+                "prompting alone",
+                "prompting plus",
+                "operating pattern",
+                "operating model",
+                "operator pattern",
+            )
+            if term in text
+        )
+        orchestration_handoff_hits = sum(
+            1
+            for term in (
+                "handoff",
+                "handoffs",
+                "shared state",
+                "workspace state",
+                "context alive",
+                "routed workspace snapshot",
+            )
+            if term in text
+        )
+        opening_has_thesis = any(
+            term in opening
+            for term in (
+                "agent orchestration",
+                "orchestration",
+                "prompting alone",
+                "prompting plus",
+                "operating pattern",
+                "operating model",
+                "operator pattern",
+            )
+        )
+        if orchestration_thesis_hits >= 1 and orchestration_handoff_hits >= 1:
+            score += min(4, orchestration_thesis_hits) + min(3, orchestration_handoff_hits)
+        else:
+            if orchestration_thesis_hits == 0:
+                score -= 10
+            if orchestration_handoff_hits == 0:
+                score -= 5
+        if not opening_has_thesis and orchestration_handoff_hits >= 1:
+            score -= 6
+    if any(term in normalized_topic for term in ("market", "competition", "meaner", "advantage", "pressure", "entrants")):
+        market_terms = ("market", "competition", "competitive", "advantage", "pressure", "entrants", "category")
+        process_terms = ("prompting", "workflow", "handoff", "handoffs", "shared state", "shared workspace state", "orchestration")
+        market_hits = sum(1 for term in market_terms if term in text)
+        opening_market_hits = sum(1 for term in market_terms if term in opening)
+        opening_process_hits = sum(1 for term in process_terms if term in opening)
+        if market_hits >= 2:
+            score += 4
+        else:
+            score -= 6
+        if opening_market_hits == 0 and opening_process_hits >= 1:
+            score -= 8
+    if normalized_topic == "change management" or audience in {"leadership", "leadership_management"}:
+        people_hits = sum(
+            1
+            for term in (
+                "people",
+                "behavior",
+                "leadership",
+                "team",
+                "teams",
+                "coaching",
+                "adoption",
+                "clarity",
+                "execution",
+                "priority",
+                "priorities",
+            )
+            if term in text
+        )
+        score += min(4, people_hits) if people_hits >= 2 else -4
+    if audience == "education_admissions" and any(term in normalized_topic for term in ("faculty", "senate", "bill", "policy")):
+        policy_hits = sum(
+            1
+            for term in (
+                "faculty",
+                "senate",
+                "bill",
+                "policy",
+                "policies",
+                "school",
+                "schools",
+                "education",
+                "educators",
+                "higher-ed",
+            )
+            if term in text
+        )
+        score += min(4, policy_hits) if policy_hits >= 2 else -5
+    if _is_student_support_topic(topic, audience):
+        student_hits = sum(
+            1
+            for term in (
+                "student",
+                "students",
+                "family",
+                "families",
+                "parent",
+                "parents",
+                "admissions",
+                "enrollment",
+                "support",
+                "learning",
+                "applicant",
+                "applicants",
+                "prospective",
+                "neurodivergent",
+                "twice exceptional",
+                "twice-exceptional",
+            )
+            if term in text
+        )
+        score += min(5, student_hits) if student_hits >= 2 else -8
+        if any(term in text for term in ("customer trust", "technology cycle", "tech cycle", "desktop to cloud", ".com crash", "com crash")):
+            score -= 8
+        if any(term in opening for term in ("customer trust", "technology cycle", "tech cycle")):
+            score -= 6
+    return score
+
+
+def _rank_options_by_taste(
+    *,
+    options: List[str],
+    briefs: List[ContentOptionBrief],
+    taste_scores: List[Dict[str, Any]],
+    topic: str = "",
+    audience: str = "",
+) -> tuple[List[str], List[ContentOptionBrief], List[Dict[str, Any]]]:
+    ranked: List[tuple[int, int, int]] = []
+    for index, option in enumerate(options[:3]):
+        brief = briefs[index] if index < len(briefs) else briefs[-1]
+        taste = taste_scores[index] if index < len(taste_scores) else {}
+        overall = int(taste.get("overall") or 0)
+        alignment = _topic_alignment_score(
+            option=option,
+            brief=brief,
+            topic=topic,
+            audience=audience,
+        )
+        publishability = _publishability_score(
+            option,
+            brief,
+            topic=topic,
+            audience=audience,
+        )
+        ranked.append(
+            (
+                overall + _mode_priority_bonus(brief.framing_mode) + alignment + publishability,
+                overall + alignment + publishability,
+                index,
+            )
+        )
+    ordered_indices = [index for _, _, index in sorted(ranked, reverse=True)]
+    ordered_options = [options[index] for index in ordered_indices]
+    ordered_briefs = [briefs[index] if index < len(briefs) else briefs[-1] for index in ordered_indices]
+    ordered_tastes = [taste_scores[index] if index < len(taste_scores) else {} for index in ordered_indices]
+    return ordered_options, ordered_briefs, ordered_tastes
+
+
+def _repair_weak_ranked_options(
+    *,
+    options: List[str],
+    briefs: List[ContentOptionBrief],
+    taste_scores: List[Dict[str, Any]],
+    topic: str,
+    audience: str,
+    grounding_mode: str,
+    primary_claims: List[str],
+    proof_packets: List[str],
+    story_beats: List[str],
+    approved_reference_terms: List[str],
+) -> tuple[List[str], List[Dict[str, Any]]]:
+    repaired_options: List[str] = []
+    repaired_tastes: List[Dict[str, Any]] = []
+    for index, option in enumerate(options[:3]):
+        brief = briefs[index] if index < len(briefs) else briefs[-1]
+        current_taste = taste_scores[index] if index < len(taste_scores) else {}
+        current_overall = int(current_taste.get("overall") or 0)
+        current_warnings = set(current_taste.get("warnings") or [])
+        current_publishability = _publishability_score(
+            option,
+            brief,
+            topic=topic,
+            audience=audience,
+        )
+        weakest_slot = index == min(2, max(0, len(options[:3]) - 1))
+
+        needs_repair = bool(
+            current_overall < 60
+            or "claim_not_leading" in current_warnings
+            or "weak_closer" in current_warnings
+            or (
+                weakest_slot
+                and (
+                    current_overall < 78
+                    or current_publishability < 14
+                    or "named_reference_missing" in current_warnings
+                    or "no_short_sentence" in current_warnings
+                )
+            )
+        )
+        if not needs_repair:
+            repaired_options.append(option)
+            repaired_tastes.append(current_taste)
+            continue
+
+        candidate = _synthesize_planned_option(brief)
+        candidate = finalize_planned_options(
+            options=[candidate],
+            briefs=[brief],
+            grounding_mode=grounding_mode,
+        )[0]
+        candidate = _force_claim_lead(candidate, brief)
+        candidate = _drop_unapproved_reference_sentences(
+            _sanitize_public_output(candidate, brief),
+            brief=brief,
+            approved_reference_terms=approved_reference_terms,
+            audience=audience,
+        )
+        public_claim = _public_safe_claim_from_brief(brief)
+        if public_claim and "claim_not_leading" in current_warnings:
+            paragraphs = [segment.strip() for segment in re.split(r"\n\s*\n", candidate) if segment.strip()]
+            if not paragraphs or paragraphs[0].lower() != public_claim.lower():
+                candidate = "\n\n".join([public_claim] + paragraphs).strip()
+        candidate_taste = score_option_taste(
+            candidate,
+            brief=brief,
+            primary_claims=primary_claims,
+            proof_packets=proof_packets,
+            story_beats=story_beats,
+        )
+        candidate_warnings = set(candidate_taste.get("warnings") or [])
+        candidate_publishability = _publishability_score(
+            candidate,
+            brief,
+            topic=topic,
+            audience=audience,
+        )
+        candidate_total = int(candidate_taste.get("overall") or 0) + candidate_publishability
+        current_total = current_overall + current_publishability
+        replace_candidate = False
+        if current_overall < 60:
+            structural_warning_fixes = {
+                warning
+                for warning in {"claim_not_leading", "named_reference_missing", "proof_overloaded", "weak_closer"}
+                if warning in current_warnings and warning not in candidate_warnings
+            }
+            replace_candidate = bool(
+                int(candidate_taste.get("overall") or 0) > current_overall
+                or candidate_total > current_total
+                or structural_warning_fixes
+            )
+        else:
+            required_margin = 1 if weakest_slot else 3
+            replace_candidate = candidate_total >= (current_total + required_margin)
+        if replace_candidate:
+            repaired_options.append(candidate)
+            repaired_tastes.append(candidate_taste)
+        else:
+            repaired_options.append(option)
+            repaired_tastes.append(current_taste)
+    return repaired_options, repaired_tastes
+
+
+@router.post("/codex-jobs", response_model=LocalCodexJobCreateResponse)
+async def create_local_codex_job(req: LocalCodexJobCreateRequest):
+    try:
+        job = queue_local_codex_job(req)
+        return LocalCodexJobCreateResponse(
+            success=True,
+            job_id=str(job.get("id") or ""),
+            status=str(job.get("status") or "pending"),
+            message="Queued for the local generation worker.",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"Local Codex job create error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Unable to queue local Codex job: {str(exc)}") from exc
+
+
+@router.post("/context-audit", response_model=ContentContextAuditResponse)
+async def audit_content_context(req: ContentGenerationRequest):
+    try:
+        content_context = build_content_generation_context(
+            user_id=req.user_id,
+            topic=req.topic,
+            context=req.context,
+            content_type=req.content_type,
+            category=req.category,
+            tone=req.tone,
+            audience=req.audience,
+            source_mode=req.source_mode,
+            include_audit=True,
+            allow_snapshot_rebuild=False,
+        )
+        return ContentContextAuditResponse(
+            success=True,
+            persona_context=content_context.persona_context_summary,
+            grounding_mode=content_context.grounding_mode,
+            grounding_reason=content_context.grounding_reason,
+            framing_modes=content_context.framing_modes,
+            primary_claims=content_context.primary_claims,
+            proof_packets=content_context.proof_packets,
+            story_beats=content_context.story_beats,
+            audit=content_context.audit,
+        )
+    except Exception as exc:
+        print(f"Content context audit error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Unable to audit content context: {str(exc)}") from exc
+
+
+@router.post("/codex-jobs/claim-next", response_model=LocalCodexJobClaimResponse)
+async def claim_local_codex_job(
+    req: LocalCodexJobClaimRequest,
+    x_local_codex_token: str | None = Header(default=None, alias="X-Local-Codex-Token"),
+):
+    _require_local_codex_token(x_local_codex_token)
+    try:
+        job = claim_next_codex_job(worker_id=req.worker_id, workspace_slug=req.workspace_slug)
+        if not job:
+            return LocalCodexJobClaimResponse(success=True, job_available=False)
+        return LocalCodexJobClaimResponse(
+            success=True,
+            job_available=True,
+            job_id=str(job.get("id") or ""),
+            status=str(job.get("status") or "running"),
+            workspace_slug=str(job.get("workspace_slug") or ""),
+            context_packet=job.get("context_packet") if isinstance(job.get("context_packet"), dict) else None,
+            request_payload=job.get("request_payload") if isinstance(job.get("request_payload"), dict) else None,
+        )
+    except Exception as exc:
+        print(f"Local Codex job claim error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Unable to claim local Codex job: {str(exc)}") from exc
+
+
+@router.get("/codex-jobs/{job_id}", response_model=LocalCodexJobStatusResponse)
+async def get_local_codex_job(job_id: str):
+    job = get_codex_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Local Codex job not found")
+    return _build_local_codex_status_response(job)
+
+
+@router.post(
+    "/codex-jobs/{job_id}/send-to-review",
+    response_model=LocalCodexJobSendToReviewResponse,
+)
+async def send_local_codex_option_to_review(job_id: str, req: LocalCodexJobSendToReviewRequest):
+    job = get_codex_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Local Codex job not found")
+    if str(job.get("status") or "").strip().lower() != "completed":
+        raise HTTPException(status_code=409, detail="Only a completed Codex job can be sent to owner review")
+    result_payload = job.get("result_payload") if isinstance(job.get("result_payload"), dict) else {}
+    options = result_payload.get("options") if isinstance(result_payload.get("options"), list) else []
+    if req.option_index >= len(options):
+        raise HTTPException(
+            status_code=400,
+            detail=f"option_index {req.option_index} is out of range for {len(options)} completed options",
+        )
+    selected_option = options[req.option_index]
+    if not isinstance(selected_option, str) or not selected_option.strip():
+        raise HTTPException(status_code=409, detail=f"Completed option {req.option_index} is empty or invalid")
+    request_payload = job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {}
+    context_packet = job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}
+    try:
+        review = ensure_generated_owner_review_item(
+            job_id=job_id,
+            option_index=req.option_index,
+            option_text=selected_option.strip(),
+            request_payload=request_payload,
+            context_packet=context_packet,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"Local Codex send-to-review error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Unable to create FEEZIE owner-review item: {str(exc)}") from exc
+
+    item = review.get("item") if isinstance(review.get("item"), dict) else {}
+    approval_status = str(item.get("approval_status") or "")
+    publish_posture = str(item.get("publish_posture") or "")
+    owner_review_required = approval_status == "owner_review_required" and publish_posture == "owner_review_required"
+    if not owner_review_required:
+        raise HTTPException(status_code=500, detail="Generated option did not enter the required owner-review state")
+    duplicate = bool(review.get("duplicate"))
+    return LocalCodexJobSendToReviewResponse(
+        success=True,
+        job_id=job_id,
+        option_index=req.option_index,
+        queue_id=str(item.get("queue_id") or review.get("queue_id") or ""),
+        card_id=str(review.get("card_id") or ""),
+        duplicate=duplicate,
+        status=str(item.get("status") or "owner_review_draft"),
+        approval_status=approval_status,
+        publish_posture=publish_posture,
+        owner_review_required=True,
+        message=str(review.get("message") or ("Owner-review item already exists." if duplicate else "Sent to FEEZIE owner review.")),
+        owner_review_item=item,
+    )
+
+
+@router.get("/codex-jobs/{job_id}/artifacts", response_model=LocalCodexJobArtifactsResponse)
+async def get_local_codex_job_artifacts(job_id: str):
+    try:
+        artifacts = list_job_artifacts(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    rendered: list[LocalCodexJobArtifactResponse] = []
+    for artifact in artifacts:
+        artifact_id = str(artifact.get("artifact_id") or "")
+        preview = None
+        if artifact_id:
+            try:
+                content = read_job_artifact_content(job_id=job_id, artifact_id=artifact_id)
+            except ValueError:
+                content = None
+            if content:
+                preview = content[:2000]
+        rendered.append(
+            LocalCodexJobArtifactResponse(
+                artifact_id=artifact_id,
+                kind=str(artifact.get("kind") or ""),
+                label=str(artifact.get("label") or ""),
+                filename=str(artifact.get("filename") or ""),
+                mime_type=str(artifact.get("mime_type") or "text/plain"),
+                size_bytes=int(artifact.get("size_bytes") or 0) or None,
+                created_at=str(artifact.get("created_at") or ""),
+                preview=preview,
+            )
+        )
+    return LocalCodexJobArtifactsResponse(success=True, job_id=job_id, artifacts=rendered)
+
+
+@router.post("/codex-jobs/{job_id}/complete", response_model=LocalCodexJobStatusResponse)
+async def complete_local_codex_job(
+    job_id: str,
+    req: LocalCodexJobCompleteRequest,
+    x_local_codex_token: str | None = Header(default=None, alias="X-Local-Codex-Token"),
+):
+    _require_local_codex_token(x_local_codex_token)
+    job = get_codex_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Local Codex job not found")
+    result_payload = req.result_payload if isinstance(req.result_payload, dict) else None
+    if result_payload is None:
+        trimmed_options = [option.strip() for option in req.options if isinstance(option, str) and option.strip()][:3]
+        if len(trimmed_options) != 3:
+            raise HTTPException(status_code=400, detail="Codex completion must include exactly 3 non-empty options")
+        result_payload = _build_local_codex_result_payload(
+            job=job,
+            options=trimmed_options,
+            model=req.model,
+            raw_output=req.raw_output,
+            command_stdout=req.command_stdout,
+            command_stderr=req.command_stderr,
+        )
+    completed = complete_codex_job(
+        job_id=job_id,
+        worker_id=req.worker_id,
+        result_payload=result_payload,
+    )
+    artifacts = _persist_job_artifacts(job_id, req.artifacts)
+    if artifacts:
+        completed = append_job_artifacts(job_id=job_id, artifacts=artifacts)
+    return _build_local_codex_status_response(completed)
+
+
+@router.post("/codex-jobs/{job_id}/fail", response_model=LocalCodexJobStatusResponse)
+async def fail_local_codex_job(
+    job_id: str,
+    req: LocalCodexJobFailRequest,
+    x_local_codex_token: str | None = Header(default=None, alias="X-Local-Codex-Token"),
+):
+    _require_local_codex_token(x_local_codex_token)
+    try:
+        failed = fail_codex_job(
+            job_id=job_id,
+            worker_id=req.worker_id,
+            error_message=req.error_message,
+        )
+        return _build_local_codex_status_response(failed)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/codex-jobs/{job_id}/cancel", response_model=LocalCodexJobStatusResponse)
+async def cancel_local_codex_job(job_id: str):
+    try:
+        canceled = cancel_codex_job(job_id)
+        return _build_local_codex_status_response(canceled)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/generate", response_model=ContentGenerationResponse)
+async def generate_content(
+    req: ContentGenerationRequest,
+    x_content_generation_direct_override: str | None = Header(default=None, alias="X-Content-Generation-Direct-Override"),
+):
+    """
+    Generate AI-powered content using persona and examples from knowledge base.
+    """
+    _require_direct_content_generation_enabled(x_content_generation_direct_override)
+    try:
+        return await run_content_generation(req)
+    except Exception as e:
+        print(f"Content generation error: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Content generation failed: {str(e)}")
+
+
+@router.post("/promote-fragment", response_model=GeneratedFragmentPromotionResponse)
+async def promote_content_fragment(req: GeneratedFragmentPromotionRequest):
+    try:
+        return GeneratedFragmentPromotionResponse(
+            **promote_generated_fragment(
+                user_id=req.user_id,
+                fragment_text=req.fragment_text,
+                option_text=req.option_text,
+                option_index=req.option_index,
+                topic=req.topic,
+                audience=req.audience,
+                category=req.category,
+                content_type=req.content_type,
+                source_mode=req.source_mode,
+                support_items=[item.model_dump(exclude_none=True) for item in req.support_items],
+                option_brief=req.option_brief,
+                published=req.published,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"Content fragment promotion error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Content fragment promotion failed: {str(exc)}") from exc
+
+
+@router.post("/undo-promoted-fragment", response_model=UndoGeneratedFragmentPromotionResponse)
+async def undo_promoted_content_fragment(req: UndoGeneratedFragmentPromotionRequest):
+    try:
+        return UndoGeneratedFragmentPromotionResponse(**undo_generated_fragment_promotion(delta_id=req.delta_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"Content fragment undo error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Content fragment undo failed: {str(exc)}") from exc
+
+
+@router.post("/quick-generate")
+async def quick_generate(
+    topic: str,
+    content_type: str = "linkedin_post",
+    category: str = "value",
+    user_id: str = "default",
+    x_content_generation_direct_override: str | None = Header(default=None, alias="X-Content-Generation-Direct-Override"),
+):
+    """Quick endpoint for simple content generation."""
+    _require_direct_content_generation_enabled(x_content_generation_direct_override)
+    req = ContentGenerationRequest(
+        user_id=user_id,
+        topic=topic,
+        content_type=content_type,
+        category=category,
+    )
+    return await run_content_generation(req)

@@ -1,0 +1,785 @@
+{
+  "schema_version": "neo_public_knowledge_pack/v1",
+  "pack_version": "1.2.0",
+  "source_bundle_version": "1.2",
+  "curated_on": "2026-07-21",
+  "persona_id": "johnnie_fields",
+  "display_name": "Johnnie Fields",
+  "audiences": [
+    "hiring_managers",
+    "professional_partners"
+  ],
+  "purpose": "A bounded set of approved professional facts for Neo guest conversations.",
+  "source_policy": "canonical_claims_stories_wins_bio_resume_timeline_only",
+  "review_status": "approved_public",
+  "entries": [
+    {
+      "id": "bio-current-role",
+      "kind": "bio",
+      "title": "Current role",
+      "statement": "Director of Admissions at Fusion Academy DC.",
+      "evidence": "Joined Fusion Academy DC as Director of Admissions.",
+      "use_when": "Use for questions about Johnnie's current role, admissions leadership, or education work.",
+      "topics": [
+        "admissions",
+        "education",
+        "leadership"
+      ],
+      "keywords": [
+        "admissions",
+        "biography",
+        "current",
+        "director",
+        "education",
+        "fusion",
+        "role"
+      ],
+      "default_rank": 1,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "bio-education-tenure",
+      "kind": "bio",
+      "title": "Education admissions experience",
+      "statement": "10+ years in education admissions and enrollment management.",
+      "evidence": "10+ years in education admissions and enrollment management.",
+      "use_when": "Use for questions about Johnnie's professional background, education experience, or enrollment leadership.",
+      "topics": [
+        "admissions",
+        "education",
+        "enrollment_management"
+      ],
+      "keywords": [
+        "admissions",
+        "background",
+        "biography",
+        "education",
+        "enrollment",
+        "experience",
+        "tenure"
+      ],
+      "default_rank": 2,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "bio-education-credentials",
+      "kind": "bio",
+      "title": "Education and technical credentials",
+      "statement": "Earned two undergraduate degrees, a master's degree, and certificates in data science and cybersecurity.",
+      "evidence": "Earned two undergraduate degrees, a master's degree, and certificates in data science and cybersecurity.",
+      "use_when": "Use for questions about Johnnie's education, degrees, or technical study.",
+      "topics": [
+        "credentials",
+        "cybersecurity",
+        "data_science",
+        "education"
+      ],
+      "keywords": [
+        "certificates",
+        "credentials",
+        "cybersecurity",
+        "data",
+        "degree",
+        "degrees",
+        "education",
+        "master",
+        "science",
+        "undergraduate"
+      ],
+      "default_rank": 6,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-people-process-culture",
+      "kind": "claim",
+      "title": "People, process, and culture",
+      "statement": "Johnnie values people, process, and culture as the main levers of leadership.",
+      "evidence": "Recurring philosophy across persona docs and operating decisions.",
+      "use_when": "Use as a leadership framing line when the topic is execution, adoption, or change management.",
+      "topics": [
+        "leadership",
+        "change_management",
+        "team_enablement"
+      ],
+      "keywords": [
+        "adoption",
+        "culture",
+        "leadership",
+        "people",
+        "process",
+        "team"
+      ],
+      "default_rank": 7,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-ai-practitioner",
+      "kind": "claim",
+      "title": "Hands-on AI practitioner",
+      "statement": "Johnnie is an AI practitioner, not just a passive user.",
+      "evidence": "Built Brain as a live control plane with persona review, canon promotion, bundle sync, and proof-led content generation instead of using AI as a passive assistant.",
+      "use_when": "Use when describing his relationship to AI as hands-on, operational, and system-building.",
+      "topics": [
+        "ai_systems",
+        "operator_workflows",
+        "product_building"
+      ],
+      "keywords": [
+        "ai",
+        "artificial_intelligence",
+        "builder",
+        "brain",
+        "operator",
+        "practitioner",
+        "systems"
+      ],
+      "default_rank": 3,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-prompting-plus-orchestration",
+      "kind": "claim",
+      "title": "Prompting plus orchestration",
+      "statement": "Johnnie treats prompting plus agent orchestration as a stronger AI operating pattern than prompting alone.",
+      "evidence": "Brain, Ops, daily briefs, planner, long-form routing, and content generation now depend on explicit handoffs, shared workspace state, and proof-aware prompts instead of isolated prompting.",
+      "use_when": "Use when explaining his view that better AI outcomes require operator context, agent support, and clear execution systems.",
+      "topics": [
+        "agent_orchestration",
+        "ai_systems",
+        "operator_workflows"
+      ],
+      "keywords": [
+        "agent",
+        "agents",
+        "ai",
+        "handoffs",
+        "orchestration",
+        "prompting",
+        "workflow"
+      ],
+      "default_rank": 10,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-useful-adoption",
+      "kind": "claim",
+      "title": "Adoption follows usefulness",
+      "statement": "People adopt what makes their life easier, not what leadership tells them to use.",
+      "evidence": "Fusion dashboard and operating-system work both improved uptake by putting clear next actions and useful surfaces in front of real people.",
+      "use_when": "Use when writing about adoption, rollout design, change management, or human-centered systems.",
+      "topics": [
+        "adoption",
+        "change_management",
+        "human_centered_systems"
+      ],
+      "keywords": [
+        "adoption",
+        "change",
+        "leadership",
+        "rollout",
+        "useful",
+        "users"
+      ],
+      "default_rank": 8,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-data-must-change-behavior",
+      "kind": "claim",
+      "title": "Data must change behavior",
+      "statement": "Having data does not make a team data-driven; if behavior is not changing, the data is decoration.",
+      "evidence": "Dashboard and reporting work mattered because visibility changed action, not because more numbers existed.",
+      "use_when": "Use when the topic is dashboards, reporting, analytics, execution, or false signals of maturity.",
+      "topics": [
+        "analytics",
+        "behavior_change",
+        "reporting_systems"
+      ],
+      "keywords": [
+        "analytics",
+        "behavior",
+        "dashboard",
+        "data",
+        "reporting",
+        "visibility"
+      ],
+      "default_rank": 12,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-function-is-not-value",
+      "kind": "claim",
+      "title": "Function is not the same as value",
+      "statement": "Something working is not the same as something being valuable enough to change behavior.",
+      "evidence": "Easy Outfit worked end to end, but low repeat usage clarified the difference between technical function and product value.",
+      "use_when": "Use when the topic is product-market fit, adoption, habit formation, or why shipping alone is not the finish line.",
+      "topics": [
+        "adoption",
+        "product_building",
+        "product_value"
+      ],
+      "keywords": [
+        "adoption",
+        "behavior",
+        "easy_outfit",
+        "product",
+        "shipping",
+        "value"
+      ],
+      "default_rank": 9,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "story-fusion-dashboard-transformation",
+      "kind": "story",
+      "title": "Fusion dashboard transformation",
+      "statement": "Johnnie replaced scattered reporting with one actionable dashboard that clarified priorities, improved coordination, and changed execution behavior across the team.",
+      "evidence": "Built a centralized Fusion Academy Salesforce dashboard that replaced scattered reporting across Salesforce, Power BI, and SharePoint, unified daily-through-yearly views, segmented high-priority vs gray-area outreach, and gave leadership clearer visibility into execution; meetings increased by more than 20% and referrals increased by more than 50% once priorities were easier to see.",
+      "use_when": "Use when talking about dashboards, behavior change, reporting systems, adoption, or leadership influence.",
+      "topics": [
+        "analytics",
+        "change_management",
+        "salesforce"
+      ],
+      "keywords": [
+        "analytics",
+        "dashboard",
+        "fusion",
+        "power_bi",
+        "reporting",
+        "salesforce",
+        "sharepoint",
+        "story",
+        "visibility"
+      ],
+      "default_rank": 13,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "story-ai-constraint-breakthrough",
+      "kind": "story",
+      "title": "AI constraint breakthrough",
+      "statement": "The first real AI breakthrough came when inconsistent outputs stopped looking like a model problem and started looking like an instruction-layer problem, which pushed Johnnie toward tighter schemas, stronger constraints, and system design instead of prompt wishfulness.",
+      "evidence": "Tightened AI Clone / Brain from a demo-like generation flow into a stricter operating system by enforcing JSON-safe outputs, validation, typed retrieval, and proof-aware routing.",
+      "use_when": "Use when talking about AI reliability, schema discipline, why outputs drift, or the difference between asking and constraining.",
+      "topics": [
+        "ai_reliability",
+        "ai_systems",
+        "validation"
+      ],
+      "keywords": [
+        "ai",
+        "constraints",
+        "json",
+        "model",
+        "prompting",
+        "reliability",
+        "schema",
+        "story",
+        "validation"
+      ],
+      "default_rank": 11,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "story-easy-outfit-adoption",
+      "kind": "story",
+      "title": "Easy Outfit build and adoption lesson",
+      "statement": "Johnnie learned AI by building Easy Outfit end to end over six months, and the deeper lesson was not just that he could ship it, but that something can work technically and still not matter enough to change user behavior.",
+      "evidence": "Johnnie built Easy Outfit's schema-driven generation path around typed wardrobe and outfit data, structured metadata, category and occasion constraints, and layered validation across color harmony, style, layering, temperature, and occasion fit; this kept model creativity inside deterministic product rules and prevented contradictions such as shorts plus a sweater for a wedding.",
+      "use_when": "Use when talking about learning by building, shipping something real, product reality, AI adoption, or the gap between working software and repeat behavior.",
+      "topics": [
+        "ai_product_building",
+        "product_adoption",
+        "validation"
+      ],
+      "keywords": [
+        "adoption",
+        "ai",
+        "easyoutfit",
+        "easy_outfit",
+        "metadata",
+        "outfit",
+        "product",
+        "story",
+        "validation",
+        "wrapper"
+      ],
+      "default_rank": 14,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "win-salesforce-migration",
+      "kind": "win",
+      "title": "Portfolio Salesforce migration",
+      "statement": "Spearheaded a $1M Salesforce migration across 3 instances in a portfolio context tied to $34M in annual revenue.",
+      "evidence": "Spearheaded a $1M Salesforce migration across 3 instances in a portfolio context tied to $34M in annual revenue.",
+      "use_when": "Use when: systems migration, change management, technical operations, and cross-functional execution.",
+      "topics": [
+        "change_management",
+        "cross_functional_execution",
+        "salesforce"
+      ],
+      "keywords": [
+        "change",
+        "cross_functional",
+        "migration",
+        "portfolio",
+        "revenue",
+        "salesforce",
+        "technical",
+        "win"
+      ],
+      "default_rank": 4,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "win-fusion-dashboard",
+      "kind": "win",
+      "title": "Actionable Salesforce dashboard",
+      "statement": "Built a centralized Fusion Academy Salesforce dashboard that replaced scattered reporting across Salesforce, Power BI, and SharePoint, unified daily-through-yearly views, segmented high-priority vs gray-area outreach, and gave leadership clearer visibility into execution; meetings increased by more than 20% and referrals increased by more than 50% once priorities were easier to see.",
+      "evidence": "Built a centralized Fusion Academy Salesforce dashboard that replaced scattered reporting across Salesforce, Power BI, and SharePoint, unified daily-through-yearly views, segmented high-priority vs gray-area outreach, and gave leadership clearer visibility into execution; meetings increased by more than 20% and referrals increased by more than 50% once priorities were easier to see.",
+      "use_when": "Use when: dashboards, visibility, adoption, reporting systems, behavior change, and leadership influence.",
+      "topics": [
+        "analytics",
+        "behavior_change",
+        "salesforce"
+      ],
+      "keywords": [
+        "adoption",
+        "dashboard",
+        "fusion",
+        "meetings",
+        "power_bi",
+        "referrals",
+        "reporting",
+        "salesforce",
+        "sharepoint",
+        "visibility",
+        "win"
+      ],
+      "default_rank": 5,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "win-ai-clone-operating-system",
+      "kind": "win",
+      "title": "AI Clone operating-system discipline",
+      "statement": "Tightened AI Clone / Brain from a demo-like generation flow into a stricter operating system by enforcing JSON-safe outputs, validation, typed retrieval, and proof-aware routing.",
+      "evidence": "Before that shift, malformed JSON, extra explanatory text, and weak schema alignment kept breaking downstream flows. Now the system behaves more like a real workflow engine than a toy demo, even though output reliability is still an active workstream rather than a finished claim.",
+      "use_when": "Use when: AI operating systems, structured generation, validation layers, retrieval design, and moving from demos to usable workflows.",
+      "topics": [
+        "ai_reliability",
+        "ai_systems",
+        "operator_workflows"
+      ],
+      "keywords": [
+        "ai",
+        "brain",
+        "json",
+        "reliability",
+        "retrieval",
+        "schema",
+        "validation",
+        "workflow",
+        "win"
+      ],
+      "default_rank": 15,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "win-grounded-content-generation",
+      "kind": "win",
+      "title": "Grounded content generation",
+      "statement": "Content generation now reads persona through typed core, proof, story, and example lanes, applies domain gates, and enforces approved proof packets before final drafts.",
+      "evidence": "Content generation now reads persona through typed core, proof, story, and example lanes, applies domain gates, and enforces approved proof packets before final drafts.",
+      "use_when": "Use when: context engineering, retrieval quality, grounded AI writing, and operator-grade content systems.",
+      "topics": [
+        "ai_systems",
+        "content_generation",
+        "context_engineering"
+      ],
+      "keywords": [
+        "ai",
+        "content",
+        "context",
+        "generation",
+        "persona",
+        "proof",
+        "retrieval",
+        "writing",
+        "win"
+      ],
+      "default_rank": 16,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "win-easy-outfit-validation",
+      "kind": "win",
+      "title": "Easy Outfit metadata and validation",
+      "statement": "Johnnie built Easy Outfit's schema-driven generation path around typed wardrobe and outfit data, structured metadata, category and occasion constraints, and layered validation across color harmony, style, layering, temperature, and occasion fit; this kept model creativity inside deterministic product rules and prevented contradictions such as shorts plus a sweater for a wedding.",
+      "evidence": "Johnnie built Easy Outfit's schema-driven generation path around typed wardrobe and outfit data, structured metadata, category and occasion constraints, and layered validation across color harmony, style, layering, temperature, and occasion fit; this kept model creativity inside deterministic product rules and prevented contradictions such as shorts plus a sweater for a wedding.",
+      "use_when": "Use when: structured metadata, validation, AI product design, wardrobe systems, outfit combinations, color harmony, schemas, and reducing guesswork.",
+      "topics": [
+        "ai_product_building",
+        "metadata",
+        "schemas",
+        "color_harmony",
+        "outfit_combinations",
+        "validation"
+      ],
+      "keywords": [
+        "ai",
+        "color",
+        "combinations",
+        "easyoutfit",
+        "easy_outfit",
+        "metadata",
+        "outfit",
+        "product",
+        "schema",
+        "style",
+        "validation",
+        "wardrobe",
+        "wrapper",
+        "win"
+      ],
+      "default_rank": 17,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-cross-disciplinary-positioning",
+      "kind": "claim",
+      "title": "Cross-disciplinary professional positioning",
+      "statement": "Johnnie is building at the intersection of education, AI systems, entrepreneurship, and style.",
+      "evidence": "Current-role market-development work plus Brain / AI Clone system building keep multiple lanes active while making their maturity and evidence explicit.",
+      "use_when": "Use as broad positioning, but avoid flattening every lane into the same level of authority.",
+      "topics": [
+        "ai_systems",
+        "education",
+        "entrepreneurship",
+        "product_building"
+      ],
+      "keywords": [
+        "ai",
+        "career",
+        "education",
+        "entrepreneurship",
+        "positioning",
+        "projects",
+        "style"
+      ],
+      "default_rank": 18,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-prompting-not-strategy",
+      "kind": "claim",
+      "title": "Prompting is not the whole AI strategy",
+      "statement": "Prompting alone is not an AI strategy.",
+      "evidence": "Johnnie keeps moving work from isolated prompting into structured workflows, typed retrieval, domain gates, proof packets, and shared state.",
+      "use_when": "Use as a thesis line when the topic is AI adoption, orchestration, workflow design, or operator maturity.",
+      "topics": [
+        "agent_orchestration",
+        "ai_strategy",
+        "operator_workflows"
+      ],
+      "keywords": [
+        "ai",
+        "orchestration",
+        "prompting",
+        "strategy",
+        "workflow"
+      ],
+      "default_rank": 19,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-workflow-clarity",
+      "kind": "claim",
+      "title": "AI scales the clarity of the workflow",
+      "statement": "If the workflow is unclear, AI just scales confusion.",
+      "evidence": "Repeated system work across Brain, AI Clone, and content generation focused on handoffs, role clarity, and proof-aware execution instead of more surface-level tooling.",
+      "use_when": "Use when the point is clarity, adoption, handoffs, change management, or why AI rollouts fail.",
+      "topics": [
+        "ai_strategy",
+        "change_management",
+        "operator_workflows"
+      ],
+      "keywords": [
+        "ai",
+        "clarity",
+        "confusion",
+        "handoffs",
+        "rollout",
+        "workflow"
+      ],
+      "default_rank": 20,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-visibility-changes-behavior",
+      "kind": "claim",
+      "title": "Visibility changes behavior",
+      "statement": "Visibility changes behavior more than pressure does.",
+      "evidence": "Centralized reporting and sharper workflow visibility improved coordination, clearer next steps, and stronger leadership attention.",
+      "use_when": "Use when the lesson is measurement, behavior change, dashboards, accountability, or team execution.",
+      "topics": [
+        "accountability",
+        "behavior_change",
+        "reporting_systems"
+      ],
+      "keywords": [
+        "accountability",
+        "behavior",
+        "dashboard",
+        "leadership",
+        "pressure",
+        "visibility"
+      ],
+      "default_rank": 21,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-quiet-inefficiency",
+      "kind": "claim",
+      "title": "Quiet inefficiency is still broken",
+      "statement": "Quiet inefficiency is still a broken system. Friction is often a signal, not a requirement.",
+      "evidence": "Johnnie repeatedly notices environments that appear functional but still force unnecessary manual effort, scattered reporting, and low-trust decisions until someone maps the system end to end.",
+      "use_when": "Use when challenging normalized friction, accepted busywork, or systems that feel harder than they should.",
+      "topics": [
+        "operational_excellence",
+        "process_design",
+        "systems_diagnosis"
+      ],
+      "keywords": [
+        "busywork",
+        "diagnosis",
+        "friction",
+        "inefficiency",
+        "operations",
+        "process"
+      ],
+      "default_rank": 22,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-reliable-output",
+      "kind": "claim",
+      "title": "Reliability is the threshold for building",
+      "statement": "If you cannot rely on the output, you cannot really build with it.",
+      "evidence": "AI stopped being a novelty when Johnnie tightened schemas, constraints, and validation enough for structured outputs to stabilize.",
+      "use_when": "Use when the topic is AI reliability, structured generation, production use, or the difference between experimenting and operating.",
+      "topics": [
+        "ai_reliability",
+        "production_ai",
+        "validation"
+      ],
+      "keywords": [
+        "ai",
+        "constraints",
+        "output",
+        "production",
+        "reliability",
+        "schema",
+        "validation"
+      ],
+      "default_rank": 23,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-automate-friction",
+      "kind": "claim",
+      "title": "Automate friction, not judgment",
+      "statement": "Automate friction, not judgment.",
+      "evidence": "Johnnie sees the best AI and systems work as removing unnecessary drag so humans can operate at a higher strategic and emotional level instead of outsourcing discernment.",
+      "use_when": "Use when somebody is pushing blanket automation, productivity maximalism, or human-off-the-loop framing.",
+      "topics": [
+        "automation",
+        "human_judgment",
+        "responsible_ai"
+      ],
+      "keywords": [
+        "automation",
+        "discernment",
+        "friction",
+        "human",
+        "judgment",
+        "oversight"
+      ],
+      "default_rank": 24,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-narrative-needs-artifacts",
+      "kind": "claim",
+      "title": "Narrative requires artifacts",
+      "statement": "Narrative without artifacts is marketing.",
+      "evidence": "The persona system now blocks weak initiative promotion, demands artifact-backed proof, and treats review notes as context instead of canon.",
+      "use_when": "Use when drawing a line between interpretation and proof, storytelling and truth, or brand language and real operating evidence.",
+      "topics": [
+        "credibility",
+        "evidence",
+        "proof_led_content"
+      ],
+      "keywords": [
+        "artifacts",
+        "brand",
+        "content",
+        "credibility",
+        "evidence",
+        "marketing",
+        "proof"
+      ],
+      "default_rank": 25,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-admissions-translation",
+      "kind": "claim",
+      "title": "Admissions as translation",
+      "statement": "Admissions is not just enrollment. It is translation.",
+      "evidence": "Johnnie's admissions lens starts with turning possibility into something a family can actually believe in, which is why trust and clarity matter more than scripted persuasion.",
+      "use_when": "Use when writing about admissions, enrollment, family trust, education access, or the human side of school choice.",
+      "topics": [
+        "admissions",
+        "consultative_communication",
+        "education"
+      ],
+      "keywords": [
+        "admissions",
+        "clarity",
+        "education",
+        "enrollment",
+        "families",
+        "translation",
+        "trust"
+      ],
+      "default_rank": 26,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "claim-warm-then-sharp",
+      "kind": "claim",
+      "title": "Warm first, then sharp",
+      "statement": "Johnnie challenges people warm first, then sharp.",
+      "evidence": "He prefers empathy and recognition before drawing a firm line, but he will say plainly where a frame loses him.",
+      "use_when": "Use when reacting to an article, leader, or trend that has a valid premise but a broken conclusion.",
+      "topics": [
+        "communication",
+        "leadership",
+        "truth_to_power"
+      ],
+      "keywords": [
+        "communication",
+        "empathy",
+        "feedback",
+        "leadership",
+        "sharp",
+        "warm"
+      ],
+      "default_rank": 27,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "story-cheap-models-better-systems",
+      "kind": "story",
+      "title": "Cheaper models forced better systems",
+      "statement": "Johnnie learned AI by building on weaker and cheaper models first, which forced better structure, clearer validation, and stronger systems thinking instead of relying on frontier-model magic.",
+      "evidence": "Johnnie learned AI by building on weaker and cheaper models first, which forced better structure, clearer validation, and stronger systems thinking instead of relying on frontier-model magic.",
+      "use_when": "Use when talking about AI maturity, system design, validation, context engineering, or why workflow matters more than model worship.",
+      "topics": [
+        "ai_maturity",
+        "model_constraints",
+        "systems_design"
+      ],
+      "keywords": [
+        "ai",
+        "cheap",
+        "constraints",
+        "models",
+        "resourceful",
+        "systems"
+      ],
+      "default_rank": 28,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "bio-division-one-football",
+      "kind": "bio",
+      "title": "Division I football and disciplined teamwork",
+      "statement": "Johnnie played Division I football; that experience shaped his preparation, discipline, accountability, team orientation, and ability to follow before leading.",
+      "evidence": "Johnnie played Division I football; that experience shaped his preparation, discipline, accountability, team orientation, and ability to follow before leading.",
+      "use_when": "Use when a visitor asks about Johnnie's formative background, work ethic, team orientation, preparation, or leadership under pressure.",
+      "topics": [
+        "discipline",
+        "leadership",
+        "teamwork"
+      ],
+      "keywords": [
+        "accountability",
+        "athlete",
+        "discipline",
+        "division_i",
+        "football",
+        "leadership",
+        "preparation",
+        "teamwork"
+      ],
+      "default_rank": 29,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "bio-saxophone-spiritual-rhythm",
+      "kind": "bio",
+      "title": "Music, rhythm, and spiritual grounding",
+      "statement": "Johnnie plays saxophone, and music, rhythm, and spiritual grounding shape his sense of timing, presence, listening, and creative energy.",
+      "evidence": "Johnnie plays saxophone, and music, rhythm, and spiritual grounding shape his sense of timing, presence, listening, and creative energy.",
+      "use_when": "Use only when a visitor asks about Johnnie's personal background, creative practice, values, or how he brings presence and listening to his work. Do not infer or assign a religious affiliation.",
+      "topics": [
+        "creative_practice",
+        "listening",
+        "presence"
+      ],
+      "keywords": [
+        "creative",
+        "listening",
+        "music",
+        "presence",
+        "rhythm",
+        "saxophone",
+        "spiritual",
+        "timing"
+      ],
+      "default_rank": 30,
+      "review_status": "approved_public"
+    },
+    {
+      "id": "bio-human-dimension-partnership",
+      "kind": "bio",
+      "title": "Human dimension in leadership and partnership",
+      "statement": "Johnnie brings disciplined team performance, creative listening, and grounded presence to leadership and partnership.",
+      "evidence": "Johnnie brings disciplined team performance, creative listening, and grounded presence to leadership and partnership.",
+      "use_when": "Use when a visitor asks what it is like to work with Johnnie, how he approaches a partnership, or what personal strengths he brings beyond his resume.",
+      "topics": [
+        "leadership",
+        "partnership",
+        "working_style"
+      ],
+      "keywords": [
+        "asset",
+        "collaboration",
+        "creative",
+        "disciplined",
+        "leadership",
+        "partner",
+        "partnership",
+        "presence",
+        "strengths",
+        "working_style"
+      ],
+      "default_rank": 31,
+      "review_status": "approved_public"
+    }
+  ]
+}
