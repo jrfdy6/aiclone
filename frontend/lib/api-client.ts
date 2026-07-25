@@ -1,43 +1,15 @@
 /**
  * API Client Utilities
  *
- * Provides helper functions for API calls and URL configuration
+ * Provides helper functions for authenticated, same-origin API calls.
  */
 
-const LOCAL_FALLBACK = 'http://localhost:3001';
+const CONTROL_API_BASE = '/api/control';
 const DEFAULT_API_TIMEOUT_MS = 40_000;
 
 type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
 };
-
-function isLocalhost(url: string) {
-  return /localhost|127\.0\.0\.1/i.test(url);
-}
-
-function ensureProtocol(url: string) {
-  if (url.startsWith('/')) {
-    return url;
-  }
-  if (/^https?:\/\//i.test(url)) {
-    return url;
-  }
-  return `https://${url}`;
-}
-
-function stripTrailingSlash(url: string) {
-  return url.endsWith('/') ? url.slice(0, -1) : url;
-}
-
-function preferHttps(url: string) {
-  if (url.startsWith('/')) {
-    return url;
-  }
-  if (url.startsWith('http://') && !isLocalhost(url)) {
-    return `https://${url.slice('http://'.length)}`;
-  }
-  return url;
-}
 
 function isAbortError(error: unknown) {
   return error instanceof Error && error.name === 'AbortError';
@@ -65,19 +37,17 @@ function buildTimedSignal(timeoutMs: number, upstreamSignal?: AbortSignal) {
 }
 
 /**
- * Get the API URL from environment variables.
- * Falls back to localhost for development and enforces HTTPS for non-local hosts.
+ * Return the authenticated same-origin control-plane proxy.
+ *
+ * Keeping this compatibility helper pinned to a relative URL prevents legacy
+ * browser screens from bypassing the frontend's session gate.
  */
 export function getApiUrl(): string {
-  const envValue = (process.env.NEXT_PUBLIC_API_URL ?? '').trim();
-  const base = envValue.length > 0 ? envValue : LOCAL_FALLBACK;
-  const withProtocol = ensureProtocol(base);
-  const normalized = stripTrailingSlash(withProtocol);
-  return stripTrailingSlash(preferHttps(normalized));
+  return CONTROL_API_BASE;
 }
 
 export function hasConfiguredApiUrl(): boolean {
-  return (process.env.NEXT_PUBLIC_API_URL ?? '').trim().length > 0;
+  return true;
 }
 
 /**
@@ -88,15 +58,11 @@ export async function apiFetch(
   options: ApiFetchOptions = {}
 ): Promise<Response> {
   const { timeoutMs = DEFAULT_API_TIMEOUT_MS, ...requestOptions } = options;
-  const apiUrl = getApiUrl();
-
-  if (!apiUrl) {
-    throw new Error('NEXT_PUBLIC_API_URL is not configured');
+  if (/^https?:\/\//i.test(endpoint)) {
+    throw new Error('Absolute backend URLs are not supported in the browser client');
   }
 
-  const url = endpoint.startsWith('http')
-    ? endpoint
-    : `${apiUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const url = `${CONTROL_API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
   const method = String(requestOptions.method ?? 'GET').toUpperCase();
   const headers = new Headers(requestOptions.headers);
