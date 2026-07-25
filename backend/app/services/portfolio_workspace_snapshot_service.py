@@ -382,6 +382,20 @@ def _is_current_system_issue(card: dict[str, Any]) -> bool:
     return str((card.get("truth") or {}).get("freshness") or "") not in {"stale", "historical"}
 
 
+def _is_system_issue_card(card: dict[str, Any]) -> bool:
+    truth = card.get("truth") or {}
+    attention_kind = str(card.get("attention_kind") or "")
+    return (
+        str(truth.get("execution_class") or "") in {"failed", "blocked"}
+        or bool(truth.get("state_mismatch"))
+        or str(truth.get("freshness") or "") == "expired"
+        or (
+            bool(truth.get("legacy_instruction"))
+            and attention_kind not in {"needs_owner", "needs_host"}
+        )
+    )
+
+
 def _attention_summary(
     *,
     operator_cards: list[dict[str, Any]],
@@ -576,14 +590,7 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
     operator_cards = [
         card for card in active_cards if str(card.get("attention_kind") or "") in {"needs_owner", "needs_host"}
     ]
-    system_issue_cards = [
-        card
-        for card in active_cards
-        if str((card.get("truth") or {}).get("execution_class") or "") in {"failed", "blocked"}
-        or bool((card.get("truth") or {}).get("state_mismatch"))
-        or bool((card.get("truth") or {}).get("legacy_instruction"))
-        or str((card.get("truth") or {}).get("freshness") or "") == "expired"
-    ]
+    system_issue_cards = [card for card in active_cards if _is_system_issue_card(card)]
     historical_recovery_cards = [
         card for card in system_issue_cards if not _is_current_system_issue(card)
     ]

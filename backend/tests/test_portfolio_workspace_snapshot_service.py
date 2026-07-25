@@ -544,6 +544,39 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
         self.assertEqual(current_readiness["state"], "watch")
         self.assertEqual(current_readiness["legacy_instructions"], 1)
 
+    def test_operator_gate_with_legacy_audit_path_is_not_a_system_issue(self) -> None:
+        host_card = {
+            "attention_kind": "needs_host",
+            "truth": {
+                "execution_class": "host_action",
+                "freshness": "current",
+                "state_mismatch": False,
+                "legacy_instruction": True,
+            },
+        }
+        owner_card = {
+            "attention_kind": "needs_owner",
+            "truth": {
+                "execution_class": "review",
+                "freshness": "current",
+                "state_mismatch": False,
+                "legacy_instruction": True,
+            },
+        }
+        autonomous_card = {
+            "attention_kind": "informational",
+            "truth": {
+                "execution_class": "unverified",
+                "freshness": "current",
+                "state_mismatch": False,
+                "legacy_instruction": True,
+            },
+        }
+
+        self.assertFalse(service._is_system_issue_card(host_card))
+        self.assertFalse(service._is_system_issue_card(owner_card))
+        self.assertTrue(service._is_system_issue_card(autonomous_card))
+
     def test_build_snapshot_treats_stale_standup_blocker_as_history(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace_root = Path(temp_dir) / "workspaces" / "agc"
