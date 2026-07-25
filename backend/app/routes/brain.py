@@ -41,6 +41,7 @@ from app.services.brain_response_privacy_service import sanitize_brain_payload
 from app.services.brain_signal_service import build_signal_route_effect, get_signal, list_signals
 from app.services.brain_system_route_service import route_delta_signal
 from app.services.brain_control_plane_service import build_brain_control_plane
+from app.services.decision_snapshot_service import build_decision_snapshot
 from app.services.donor_repo_boundary_service import build_donor_repo_boundary_report
 from app.services.fallback_policy_service import build_fallback_policy_report
 from app.services.portfolio_workspace_snapshot_service import build_portfolio_workspace_snapshot
@@ -173,6 +174,16 @@ async def get_portfolio_snapshot(response: Response):
         build_portfolio_workspace_snapshot,
         timeout_seconds=BRAIN_READ_TIMEOUT_SECONDS,
         label="Brain portfolio snapshot",
+    )
+
+
+@router.get("/decision-snapshot")
+async def get_decision_snapshot(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return await _run_bounded_read(
+        build_decision_snapshot,
+        timeout_seconds=BRAIN_READ_TIMEOUT_SECONDS,
+        label="Brain decision snapshot",
     )
 
 

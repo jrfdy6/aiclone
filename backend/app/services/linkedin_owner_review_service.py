@@ -254,7 +254,8 @@ def _set_frontmatter_fields(text: str, updates: dict[str, str]) -> str:
         if key in keys_seen:
             continue
         updated_lines.append(f"{key}: {_yaml_scalar(value)}")
-    return f"---\n{'\n'.join(updated_lines)}\n---\n{body}"
+    updated_frontmatter = "\n".join(updated_lines)
+    return f"---\n{updated_frontmatter}\n---\n{body}"
 
 
 def _extract_section_body(text: str, heading: str) -> str:

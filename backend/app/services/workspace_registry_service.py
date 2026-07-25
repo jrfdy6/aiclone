@@ -21,6 +21,76 @@ WORKSPACES_ROOT = REPO_ROOT / "workspaces"
 WORKSPACE_STATUS_VALUES = ("live", "standing_up", "planned")
 WORKSPACE_KIND_VALUES = ("executive", "workspace")
 
+BASE_WORKSPACE_CAPABILITY_KEYS = ("system_health", "pm_work", "standups")
+
+WORKSPACE_CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
+    "system_health": {
+        "label": "System health",
+        "description": "Health, freshness, blockers, and execution-state visibility.",
+        "remote_data_policy": "status_and_counts",
+    },
+    "pm_work": {
+        "label": "PM work",
+        "description": "Prioritized work cards, review gates, and operator handoffs.",
+        "remote_data_policy": "safe_priority_metadata",
+    },
+    "standups": {
+        "label": "Standups",
+        "description": "Standup freshness, status, and blocker counts.",
+        "remote_data_policy": "status_and_counts",
+    },
+    "portfolio_operations": {
+        "label": "Portfolio operations",
+        "description": "Cross-workspace health, prioritization, and escalation.",
+        "remote_data_policy": "status_and_counts",
+    },
+    "source_ingestion": {
+        "label": "Source ingestion",
+        "description": "Capture, normalization, classification, and routing of source material.",
+        "remote_data_policy": "counts_and_stable_ids",
+    },
+    "persona_curation": {
+        "label": "Persona curation",
+        "description": "Human-reviewed beliefs, voice patterns, examples, and lived stories.",
+        "remote_data_policy": "coverage_and_review_counts",
+    },
+    "content_pipeline": {
+        "label": "Content pipeline",
+        "description": "Content candidates, generation stages, review, and publication readiness.",
+        "remote_data_policy": "counts_and_approved_recommendations",
+    },
+    "education_operations": {
+        "label": "Education operations",
+        "description": "Admissions, enrollment, referral, and school-operations workflows.",
+        "remote_data_policy": "status_and_approved_recommendations",
+    },
+    "product_delivery": {
+        "label": "Product delivery",
+        "description": "Product planning, implementation, validation, and release workflows.",
+        "remote_data_policy": "status_and_approved_recommendations",
+    },
+    "recommendation_logic": {
+        "label": "Recommendation logic",
+        "description": "Multi-variable decision logic and recommendation-quality validation.",
+        "remote_data_policy": "status_and_aggregate_metrics",
+    },
+    "commerce_operations": {
+        "label": "Commerce operations",
+        "description": "Demand validation, catalog, storefront, and fulfillment workflows.",
+        "remote_data_policy": "status_and_aggregate_metrics",
+    },
+    "government_contracting": {
+        "label": "Government contracting",
+        "description": "Capability positioning, opportunity qualification, and buyer workflows.",
+        "remote_data_policy": "status_and_approved_recommendations",
+    },
+    "career_tools": {
+        "label": "Career tools",
+        "description": "Utility-product, audience, acquisition, and monetization workflows.",
+        "remote_data_policy": "status_and_aggregate_metrics",
+    },
+}
+
 _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
     {
         "key": "shared_ops",
@@ -49,6 +119,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "accent": "#f59e0b",
         "snapshot_mode": "scaffold",
         "portfolio_visible": False,
+        "capability_keys": ["portfolio_operations"],
     },
     {
         "key": "feezie-os",
@@ -89,6 +160,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "accent": "#38bdf8",
         "snapshot_mode": "live",
         "portfolio_visible": True,
+        "capability_keys": ["source_ingestion", "persona_curation", "content_pipeline"],
     },
     {
         "key": "fusion-os",
@@ -117,6 +189,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "accent": "#22c55e",
         "snapshot_mode": "scaffold",
         "portfolio_visible": True,
+        "capability_keys": ["education_operations"],
     },
     {
         "key": "easyoutfitapp",
@@ -145,6 +218,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "accent": "#f472b6",
         "snapshot_mode": "live",
         "portfolio_visible": True,
+        "capability_keys": ["product_delivery", "recommendation_logic"],
     },
     {
         "key": "ai-swag-store",
@@ -174,6 +248,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "accent": "#f59e0b",
         "snapshot_mode": "scaffold",
         "portfolio_visible": True,
+        "capability_keys": ["product_delivery", "commerce_operations"],
     },
     {
         "key": "agc",
@@ -202,6 +277,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "accent": "#a78bfa",
         "snapshot_mode": "scaffold",
         "portfolio_visible": True,
+        "capability_keys": ["government_contracting"],
     },
     {
         "key": "work-life-tools",
@@ -238,6 +314,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "accent": "#0f766e",
         "snapshot_mode": "live",
         "portfolio_visible": True,
+        "capability_keys": ["product_delivery", "career_tools"],
     },
 )
 
@@ -245,7 +322,28 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
 @lru_cache(maxsize=1)
 def workspace_registry_entries() -> tuple[dict[str, Any], ...]:
     ordered = sorted(_WORKSPACE_REGISTRY, key=lambda item: (int(item.get("priority_order") or 0), str(item.get("key") or "")))
-    return tuple({**entry} for entry in ordered)
+    enriched: list[dict[str, Any]] = []
+    for entry in ordered:
+        capability_keys = list(
+            dict.fromkeys(
+                [
+                    *BASE_WORKSPACE_CAPABILITY_KEYS,
+                    *(str(key).strip() for key in entry.get("capability_keys") or [] if str(key).strip()),
+                ]
+            )
+        )
+        enriched.append(
+            {
+                **entry,
+                "capability_keys": capability_keys,
+                "capabilities": [
+                    {"key": key, **WORKSPACE_CAPABILITY_CATALOG[key]}
+                    for key in capability_keys
+                    if key in WORKSPACE_CAPABILITY_CATALOG
+                ],
+            }
+        )
+    return tuple(enriched)
 
 
 @lru_cache(maxsize=1)
@@ -323,6 +421,11 @@ def workspace_registry_entry(workspace_key: str | None, *, default: str = "share
         "accent": "#94a3b8",
         "snapshot_mode": "scaffold",
         "portfolio_visible": True,
+        "capability_keys": list(BASE_WORKSPACE_CAPABILITY_KEYS),
+        "capabilities": [
+            {"key": key, **WORKSPACE_CAPABILITY_CATALOG[key]}
+            for key in BASE_WORKSPACE_CAPABILITY_KEYS
+        ],
     }
 
 
@@ -394,5 +497,10 @@ def workspace_registry_payload(*, include_executive: bool = True) -> dict[str, A
     ]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "schema_version": "workspace_registry/v2",
+        "capability_catalog": [
+            {"key": key, **definition}
+            for key, definition in WORKSPACE_CAPABILITY_CATALOG.items()
+        ],
         "workspaces": [dict(entry) for entry in workspaces],
     }

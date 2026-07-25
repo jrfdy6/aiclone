@@ -482,6 +482,8 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
         "execution_mode": entry.get("execution_mode"),
         "default_standup_kind": entry.get("default_standup_kind"),
         "workspace_sync_participants": entry.get("workspace_sync_participants") or [],
+        "capability_keys": entry.get("capability_keys") or [],
+        "capabilities": entry.get("capabilities") or [],
         "pack_status": _pack_status(root, repo_root),
         "local_contracts": _local_contracts(root, repo_root),
         "latest_briefing": _path_payload(latest_briefing, repo_root, include_tail=True) if latest_briefing else None,

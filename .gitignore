@@ -16,6 +16,7 @@ logs/
 media/
 myenv312/
 .venv-main-safe/
+backend/.venv*/
 memory/runtime/
 memory/*.lock
 knowledge/ingestions/

@@ -25,10 +25,19 @@ export type WorkspaceRegistryEntry = {
   accent: string;
   snapshot_mode: 'live' | 'scaffold';
   portfolio_visible: boolean;
+  capability_keys?: string[];
+  capabilities?: Array<{
+    key: string;
+    label: string;
+    description: string;
+    remote_data_policy: string;
+  }>;
 };
 
 export type WorkspaceRegistryResponse = {
   generated_at?: string;
+  schema_version?: string;
+  capability_catalog?: WorkspaceRegistryEntry['capabilities'];
   workspaces: WorkspaceRegistryEntry[];
 };
 

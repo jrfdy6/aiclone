@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -91,15 +92,39 @@ SEED_WINS = [
 ]
 
 
+def _persona_bundle_is_usable(root: Path) -> bool:
+    bundle_root = root / "knowledge" / "persona" / "feeze"
+    return all(
+        (bundle_root / relative_path).is_file()
+        for relative_path in (
+            TARGET_VOICE,
+            TARGET_STORIES,
+            "identity/audience_communication.md",
+        )
+    )
+
+
 def resolve_workspace_root() -> Path:
     current = Path(__file__).resolve()
-    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/")]
+    explicit_candidates = [
+        Path(value).expanduser()
+        for value in (
+            os.getenv("AI_CLONE_DATA_ROOT"),
+            os.getenv("AI_CLONE_ROOT"),
+        )
+        if value
+    ]
+    candidates = [*explicit_candidates, *current.parents, Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/")]
     seen: set[Path] = set()
     for parent in candidates:
         for root in (parent, parent / "app", parent / "backend"):
             if root in seen:
                 continue
             seen.add(root)
+            if _persona_bundle_is_usable(root):
+                return root
+    for parent in candidates:
+        for root in (parent, parent / "app", parent / "backend"):
             if (root / "knowledge" / "persona" / "feeze" / "manifest.json").exists():
                 return root
     return current.parents[2] if len(current.parents) > 2 else current.parent
