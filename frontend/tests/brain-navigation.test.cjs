@@ -102,8 +102,8 @@ test('does not generate private Brain snapshots during frontend builds', () => {
 });
 
 test('pins the self-hosted frontend to the patched Next.js release', () => {
-  assert.equal(packageJson.dependencies.next, '15.5.20');
-  assert.equal(packageJson.devDependencies['eslint-config-next'], '15.5.20');
+  assert.equal(packageJson.dependencies.next, '15.5.21');
+  assert.equal(packageJson.devDependencies['eslint-config-next'], '15.5.21');
 });
 
 test('does not compile operator-specific Mac or retired runtime paths into Brain', () => {
