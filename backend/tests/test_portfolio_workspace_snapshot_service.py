@@ -442,18 +442,17 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
 
         workspace = snapshot["workspaces"][0]
         self.assertEqual(workspace["counts"]["active_pm_cards"], 1)
-        self.assertEqual(workspace["counts"]["system_issue_pm_cards"], 1)
+        self.assertEqual(workspace["counts"]["system_issue_pm_cards"], 0)
         self.assertEqual(workspace["counts"]["historical_recovery_pm_cards"], 1)
         self.assertEqual(workspace["active_pm_cards"][0]["truth"]["freshness"], "stale")
         self.assertEqual(workspace["attention"]["failed_pm_cards"], 0)
         self.assertEqual(workspace["attention"]["historical_failed_pm_cards"], 1)
         self.assertEqual(workspace["readiness"]["failed_executions"], 0)
         self.assertEqual(workspace["readiness"]["historical_failed_executions"], 1)
-        self.assertEqual(workspace["readiness"]["state"], "watch")
-        self.assertIn("historical failed execution", workspace["readiness"]["reasons"][0])
+        self.assertEqual(workspace["readiness"]["state"], "healthy")
         self.assertFalse(workspace["has_system_issue"])
 
-    def test_stale_execution_state_mismatch_remains_a_current_integrity_issue(self) -> None:
+    def test_stale_execution_state_mismatch_stays_in_historical_recovery(self) -> None:
         card = {
             "truth": {
                 "execution_class": "failed",
@@ -475,9 +474,37 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
 
         self.assertEqual(attention["failed_pm_cards"], 0)
         self.assertEqual(attention["historical_failed_pm_cards"], 1)
+        self.assertEqual(attention["state_mismatch_pm_cards"], 0)
+        self.assertFalse(attention["has_system_issue"])
+        self.assertEqual(readiness["failed_executions"], 0)
+        self.assertEqual(readiness["historical_failed_executions"], 1)
+        self.assertEqual(readiness["state_mismatches"], 0)
+        self.assertNotEqual(readiness["state"], "degraded")
+
+    def test_current_execution_state_mismatch_remains_a_system_issue(self) -> None:
+        card = {
+            "truth": {
+                "execution_class": "failed",
+                "freshness": "current",
+                "state_mismatch": True,
+            }
+        }
+
+        attention = service._attention_summary(
+            operator_cards=[],
+            system_issue_cards=[card],
+            active_blockers=[],
+        )
+        readiness = service._readiness_summary(
+            latest_standups=[],
+            system_issue_cards=[card],
+            active_blockers=[],
+        )
+
+        self.assertEqual(attention["failed_pm_cards"], 1)
         self.assertEqual(attention["state_mismatch_pm_cards"], 1)
         self.assertTrue(attention["has_system_issue"])
-        self.assertEqual(readiness["failed_executions"], 0)
+        self.assertEqual(readiness["failed_executions"], 1)
         self.assertEqual(readiness["state_mismatches"], 1)
         self.assertEqual(readiness["state"], "degraded")
 

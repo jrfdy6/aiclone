@@ -393,7 +393,12 @@ def _attention_summary(
         and not _is_historical_failed_recovery(card)
     ]
     historical_failed_cards = [card for card in system_issue_cards if _is_historical_failed_recovery(card)]
-    mismatch_cards = [card for card in system_issue_cards if bool((card.get("truth") or {}).get("state_mismatch"))]
+    mismatch_cards = [
+        card
+        for card in system_issue_cards
+        if bool((card.get("truth") or {}).get("state_mismatch"))
+        and not _is_historical_failed_recovery(card)
+    ]
 
     if owner_cards:
         status = "needs_owner"
@@ -448,7 +453,12 @@ def _readiness_summary(
         and not _is_historical_failed_recovery(card)
     )
     historical_failed_count = sum(1 for card in system_issue_cards if _is_historical_failed_recovery(card))
-    mismatch_count = sum(1 for card in system_issue_cards if bool((card.get("truth") or {}).get("state_mismatch")))
+    mismatch_count = sum(
+        1
+        for card in system_issue_cards
+        if bool((card.get("truth") or {}).get("state_mismatch"))
+        and not _is_historical_failed_recovery(card)
+    )
     legacy_instruction_count = sum(
         1 for card in system_issue_cards if bool((card.get("truth") or {}).get("legacy_instruction"))
     )
@@ -465,8 +475,6 @@ def _readiness_summary(
         reasons.append(f"{expired_count} expired PM instruction(s) remain active.")
     if legacy_instruction_count:
         reasons.append(f"{legacy_instruction_count} active card(s) still reference a retired local path.")
-    if historical_failed_count:
-        reasons.append(f"{historical_failed_count} historical failed execution record(s) remain visible in recovery.")
     if active_blockers:
         reasons.extend(active_blockers[:2])
     if not latest_standups:
@@ -572,6 +580,9 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
         or str((card.get("truth") or {}).get("freshness") or "") == "expired"
     ]
     historical_recovery_cards = [card for card in system_issue_cards if _is_historical_failed_recovery(card)]
+    current_system_issue_cards = [
+        card for card in system_issue_cards if not _is_historical_failed_recovery(card)
+    ]
     attention_summary = _attention_summary(
         operator_cards=operator_cards,
         system_issue_cards=system_issue_cards,
@@ -654,7 +665,7 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
             "attention_pm_cards": len(operator_cards),
             "needs_owner_pm_cards": int(attention_summary.get("needs_owner_pm_cards") or 0),
             "needs_host_pm_cards": int(attention_summary.get("needs_host_pm_cards") or 0),
-            "system_issue_pm_cards": len(system_issue_cards),
+            "system_issue_pm_cards": len(current_system_issue_cards),
             "historical_recovery_pm_cards": len(historical_recovery_cards),
             "latest_standups": len(latest_standups),
             "standup_blockers": blocker_count,
