@@ -38,7 +38,6 @@ keys/
 !next.config.js
 !docs/repo_surface_truth_baseline_2026-04-25.json
 !docs/runtime_snapshots/core_memory/**/*.json
-!knowledge/source-intelligence/index.json
 !knowledge/persona/feeze/public/**/*.json
 *.service-account*.json
 *service-account*.json
@@ -84,6 +83,7 @@ workspaces/linkedin-content-os/plans/reaction_queue.md
 workspaces/linkedin-content-os/plans/social_feed.md
 workspaces/linkedin-content-os/plans/idea_qualification.md
 workspaces/linkedin-content-os/plans/latent_ideas.md
+workspaces/linkedin-content-os/backlog.md
 workspaces/linkedin-content-os/research/market_signals/*.md
 !workspaces/linkedin-content-os/research/market_signals/README.md
 workspaces/linkedin-content-os/research/market_signal_archive/*.jsonl
