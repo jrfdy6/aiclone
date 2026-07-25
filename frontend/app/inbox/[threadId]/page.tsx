@@ -233,7 +233,7 @@ export default function InboxThreadPage() {
   }
 
   return (
-    <RuntimePage module="ops" tabs={tabs} maxWidth="1280px">
+    <RuntimePage module="inbox" tabs={tabs} maxWidth="1280px">
       <section style={{ display: 'grid', gap: '18px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           <div>

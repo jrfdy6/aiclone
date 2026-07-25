@@ -185,7 +185,7 @@ function InboxPageContent() {
       : 'This is the Phase 1 inbox surface. It routes one portfolio mailbox into workspace buckets first, then into AGC lanes when the thread belongs in AGC.';
 
   return (
-    <RuntimePage module="ops" tabs={tabs} maxWidth="1480px">
+    <RuntimePage module="inbox" tabs={tabs} maxWidth="1480px">
       <section style={{ display: 'grid', gap: '18px' }}>
         <header style={{ display: 'grid', gap: '10px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>

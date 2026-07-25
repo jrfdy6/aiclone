@@ -25,6 +25,20 @@ const {
   safeExecutiveContextHref,
 } = loadedModule.exports;
 
+test('redacts every executive decision field before display', () => {
+  for (const field of [
+    'decision.title',
+    'decision.what_changed',
+    'decision.why_it_matters',
+    'decision.recommendation',
+  ]) {
+    assert.match(queueSource, new RegExp(`normalizeDisplayText\\(${field.replace('.', '\\.')}\\)`));
+  }
+  assert.match(queueSource, /normalizeDisplayText\(item\)/);
+  assert.match(queueSource, /normalizeDisplayText\(feedback\)/);
+  assert.match(queueSource, /normalizeDisplayText\(error\)/);
+});
+
 function decision(overrides = {}) {
   return {
     id: 'pm:card-123',

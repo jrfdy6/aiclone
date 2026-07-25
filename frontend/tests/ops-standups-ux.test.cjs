@@ -20,6 +20,16 @@ test('Ops separates Today decisions from the detailed execution surface', () => 
   assert.match(opsSource, /<PortfolioPulseSection snapshot=\{portfolioPulse\}/);
 });
 
+test('project cards and direct links keep the selected workspace in one shared state', () => {
+  assert.match(opsSource, /const \[selectedWorkspaceId, setSelectedWorkspaceId\] = useState/);
+  assert.match(opsSource, /searchParams\.get\('workspace'\)/);
+  assert.match(opsSource, /searchParams\.set\('workspace', normalizedKey\)/);
+  assert.match(opsSource, /selectWorkspace\(workspace\.workspace_key\)/);
+  assert.match(opsSource, /selectedWorkspaceId=\{selectedWorkspaceId\}/);
+  assert.match(opsSource, /onWorkspaceChange=\{selectWorkspace\}/);
+  assert.doesNotMatch(opsSource, /useState<WorkspaceHubKey>\('feezie-os'\)/);
+});
+
 test('Ops routes browser requests through the authenticated same-origin control plane', () => {
   assert.doesNotMatch(opsSource, /from ['"]@\/lib\/api-client['"]/);
   assert.doesNotMatch(opsSource, /\bapi(?:Get|Post)\b/);
@@ -64,7 +74,7 @@ test('standup diagnostics describe automation inventory truthfully and hide lega
   assert.match(opsSource, /function sanitizeLegacyLocalPathsForDisplay/);
   assert.match(opsSource, /Legacy workspace record/);
   assert.match(opsSource, /sanitizedPaths/);
-  assert.ok(opsSource.includes("sanitizedPaths\n    .replace(/\\[([^\\]]+)\\]\\("));
+  assert.match(opsSource, /normalizeDisplayText\(\s*sanitizedPaths/);
 });
 
 test('strategy-only meetings stay neutral and out of the Today action count', () => {

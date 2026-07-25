@@ -6,6 +6,7 @@ const ts = require('typescript');
 
 const sourcePath = path.join(__dirname, '..', 'app', 'brain', 'brainNavigation.ts');
 const source = fs.readFileSync(sourcePath, 'utf8');
+const displayPrivacySource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'display-privacy.ts'), 'utf8');
 const privacySource = fs.readFileSync(path.join(__dirname, '..', 'app', 'brain', 'brainPrivacy.ts'), 'utf8');
 const clientSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'brain', 'BrainClient.tsx'), 'utf8');
 const pageSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'brain', 'page.tsx'), 'utf8');
@@ -20,6 +21,18 @@ const compiled = ts.transpileModule(source, {
 }).outputText;
 const loadedModule = { exports: {} };
 new Function('module', 'exports', 'require', compiled)(loadedModule, loadedModule.exports, require);
+const compiledDisplayPrivacy = ts.transpileModule(displayPrivacySource, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+  },
+}).outputText;
+const loadedDisplayPrivacyModule = { exports: {} };
+new Function('module', 'exports', 'require', compiledDisplayPrivacy)(
+  loadedDisplayPrivacyModule,
+  loadedDisplayPrivacyModule.exports,
+  require,
+);
 const compiledPrivacy = ts.transpileModule(privacySource, {
   compilerOptions: {
     module: ts.ModuleKind.CommonJS,
@@ -27,7 +40,11 @@ const compiledPrivacy = ts.transpileModule(privacySource, {
   },
 }).outputText;
 const loadedPrivacyModule = { exports: {} };
-new Function('module', 'exports', 'require', compiledPrivacy)(loadedPrivacyModule, loadedPrivacyModule.exports, require);
+new Function('module', 'exports', 'require', compiledPrivacy)(
+  loadedPrivacyModule,
+  loadedPrivacyModule.exports,
+  (request) => request === '@/lib/display-privacy' ? loadedDisplayPrivacyModule.exports : require(request),
+);
 const {
   buildBrainSectionHref,
   lifecycleViewForDeltaStage,
@@ -131,6 +148,31 @@ test('redacts private host paths and credential names from every Brain display s
     normalizeBrainDisplayText('Use frontend/app/ops/ and frontend/app/brain/ as the product surfaces.'),
     'Use frontend/app/ops/ and frontend/app/brain/ as the product surfaces.',
   );
+});
+
+test('redacts every saved Daily Brief field before it reaches the visible surface', () => {
+  const panelStart = clientSource.indexOf('function DailyBriefsPanel(');
+  const panelEnd = clientSource.indexOf('function BriefLaneLegendPanel(', panelStart);
+  assert.ok(panelStart >= 0 && panelEnd > panelStart, 'expected the Daily Briefs panel source');
+  const panelSource = clientSource.slice(panelStart, panelEnd);
+
+  for (const field of [
+    'entry.title',
+    'selected.title',
+    'selected.summary',
+    'selected.content_markdown',
+  ]) {
+    assert.match(
+      panelSource,
+      new RegExp(`normalize(?:Brain)?DisplayText\\(\\s*${field.replace('.', '\\.')}\\s*\\)`),
+      `${field} must pass through the display privacy boundary`,
+    );
+    assert.doesNotMatch(
+      panelSource,
+      new RegExp(`\\{\\s*${field.replace('.', '\\.')}\\s*\\}`),
+      `${field} must not be rendered raw`,
+    );
+  }
 });
 
 test('keeps document selection and load errors scoped to the visible document', () => {

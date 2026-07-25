@@ -7,6 +7,7 @@ import { ExecutiveDecisionQueue } from '@/app/ops/ExecutiveDecisionQueue';
 import RequestWorkForm, { type RequestWorkInput, type RequestWorkResult } from '@/app/ops/RequestWorkForm';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { normalizeDisplayText } from '@/lib/display-privacy';
 import { formatUiDate, formatUiDateWithWeekday, formatUiNumber, formatUiTime, formatUiTimestamp } from '@/lib/ui-dates';
 import {
   fallbackWorkspaceRegistry,
@@ -2325,6 +2326,9 @@ export default function OpsClient({
   const effectiveReactionQueue = liveReactionQueue;
   const effectiveSocialFeed = liveSocialFeed;
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState(() => pickWorkspacePath(workspaceFiles, initialWorkspaceKey) ?? workspaceFiles[0]?.path ?? '');
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<WorkspaceHubKey>(() =>
+    normalizeWorkspaceBoardKey(initialWorkspaceKey ?? 'feezie-os'),
+  );
   const [selectedDocPath, setSelectedDocPath] = useState(initialDocEntries[0]?.path ?? '');
   const [requestedPmCardId, setRequestedPmCardId] = useState<string | null>(null);
   const [requestedStandupId, setRequestedStandupId] = useState<string | null>(null);
@@ -2353,6 +2357,7 @@ export default function OpsClient({
       const hash = window.location.hash;
       const searchParams = new URLSearchParams(window.location.search);
       const focus = searchParams.get('focus');
+      const workspaceKey = searchParams.get('workspace')?.trim();
       const focusedPanel: Panel | null =
         focus === 'pm'
           ? 'execution'
@@ -2371,10 +2376,13 @@ export default function OpsClient({
           : Object.entries(PANEL_HASH).find(([, value]) => value === hash)?.[0] ?? initialPanel
       ) as Panel;
       setActivePanel(nextPanel);
+      if (workspaceKey) {
+        setSelectedWorkspaceId(normalizeWorkspaceBoardKey(workspaceKey));
+      }
       const cardId = searchParams.get('card_id')?.trim();
       const standupId = searchParams.get('standup_id')?.trim();
-      if (cardId) setRequestedPmCardId(cardId);
-      if (standupId) setRequestedStandupId(standupId);
+      setRequestedPmCardId(cardId || null);
+      setRequestedStandupId(standupId || null);
     };
 
     syncPanelFromLocation();
@@ -2391,7 +2399,12 @@ export default function OpsClient({
     if (typeof window === 'undefined') {
       return;
     }
-    const nextUrl = `${window.location.pathname}${window.location.search}${PANEL_HASH[panel]}`;
+    const searchParams = new URLSearchParams(window.location.search);
+    searchParams.delete('focus');
+    searchParams.delete('card_id');
+    searchParams.delete('standup_id');
+    const query = searchParams.toString();
+    const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${PANEL_HASH[panel]}`;
     window.history.replaceState(null, '', nextUrl);
   }, []);
 
@@ -2471,10 +2484,11 @@ export default function OpsClient({
   }, []);
 
   useEffect(() => {
-    if (!effectiveWorkspaceFiles.some((file) => file.path === selectedWorkspacePath)) {
-      setSelectedWorkspacePath(pickWorkspacePath(effectiveWorkspaceFiles, initialWorkspaceKey) ?? effectiveWorkspaceFiles[0]?.path ?? '');
+    const selectedFile = effectiveWorkspaceFiles.find((file) => file.path === selectedWorkspacePath);
+    if (!selectedFile || !workspaceFileBelongsToHub(selectedFile, selectedWorkspaceId)) {
+      setSelectedWorkspacePath(pickWorkspacePath(effectiveWorkspaceFiles, selectedWorkspaceId) ?? effectiveWorkspaceFiles[0]?.path ?? '');
     }
-  }, [effectiveWorkspaceFiles, initialWorkspaceKey, selectedWorkspacePath]);
+  }, [effectiveWorkspaceFiles, selectedWorkspaceId, selectedWorkspacePath]);
 
   useEffect(() => {
     if (!effectiveDocEntries.some((entry) => entry.path === selectedDocPath)) {
@@ -2980,19 +2994,41 @@ export default function OpsClient({
     },
     [selectPanel],
   );
+  const selectWorkspace = useCallback(
+    (workspaceKey: WorkspaceHubKey) => {
+      const normalizedKey = normalizeWorkspaceBoardKey(workspaceKey);
+      setSelectedWorkspaceId(normalizedKey);
+      const workspacePath = pickWorkspacePath(effectiveWorkspaceFiles, normalizedKey);
+      if (workspacePath) {
+        setSelectedWorkspacePath(workspacePath);
+      }
+      setActivePanel('workspace');
+      if (typeof window === 'undefined') {
+        return;
+      }
+      const searchParams = new URLSearchParams(window.location.search);
+      searchParams.delete('focus');
+      searchParams.delete('card_id');
+      searchParams.delete('standup_id');
+      searchParams.set('workspace', normalizedKey);
+      const query = searchParams.toString();
+      window.history.replaceState(
+        null,
+        '',
+        `${window.location.pathname}${query ? `?${query}` : ''}${PANEL_HASH.workspace}`,
+      );
+    },
+    [effectiveWorkspaceFiles],
+  );
   const openWorkspaceFromPulse = useCallback(
     (workspace: PortfolioPulseWorkspace) => {
       if (workspace.kind === 'executive') {
         selectPanel('mission');
         return;
       }
-      const workspacePath = pickWorkspacePath(effectiveWorkspaceFiles, workspace.workspace_key);
-      if (workspacePath) {
-        setSelectedWorkspacePath(workspacePath);
-      }
-      selectPanel('workspace');
+      selectWorkspace(workspace.workspace_key);
     },
-    [effectiveWorkspaceFiles, selectPanel],
+    [selectPanel, selectWorkspace],
   );
 
   const tabs = [
@@ -3156,6 +3192,8 @@ export default function OpsClient({
       {activePanel === 'workspace' && (
         <WorkspaceHubPanel
           workspaceRegistry={workspaceRegistry}
+          selectedWorkspaceId={selectedWorkspaceId}
+          onWorkspaceChange={selectWorkspace}
           files={effectiveWorkspaceFiles}
           selected={selectedWorkspace}
           onSelect={setSelectedWorkspacePath}
@@ -4099,7 +4137,7 @@ function PMBoardPanel({
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-            <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{item.title}</p>
+            <p style={{ color: 'white', fontWeight: 600, margin: 0, fontSize: '13px', lineHeight: 1.35 }}>{sanitizeLegacyLocalPathsForDisplay(item.title)}</p>
             {statusBadge(item.executionState ? displayExecutionStateLabel(item.executionState) : displayPmStatusLabel(item.pmStatus, item.lane, item.executionState))}
           </div>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', fontSize: '11px', color: '#cbd5e1', marginBottom: '6px' }}>
@@ -4122,10 +4160,10 @@ function PMBoardPanel({
             ) : null}
             {!item.executionState && item.owner ? <span>{item.owner}</span> : null}
           </div>
-          {item.reason && <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.45, margin: '0 0 8px' }}>{item.reason}</p>}
+          {item.reason && <p style={{ color: '#e2e8f0', fontSize: '12px', lineHeight: 1.45, margin: '0 0 8px' }}>{sanitizeLegacyLocalPathsForDisplay(item.reason)}</p>}
           {gateActionRequired && item.queueEntry?.execution_gate_reason ? (
             <p style={{ color: '#fde68a', fontSize: '12px', lineHeight: 1.45, margin: '0 0 8px' }}>
-              {item.queueEntry.execution_gate_reason}
+              {sanitizeLegacyLocalPathsForDisplay(item.queueEntry.execution_gate_reason)}
             </p>
           ) : null}
           <div style={{ color: '#94a3b8', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -4600,7 +4638,7 @@ function PMCardDetailModal({
     Boolean(navigator.clipboard) &&
     typeof navigator.clipboard.read === 'function';
   const isHostActionCard = Boolean(hostActionPayload);
-  const displayCardTitle = ownerReviewDisplayTitle(card, ownerReviewPayload);
+  const displayCardTitle = sanitizeLegacyLocalPathsForDisplay(ownerReviewDisplayTitle(card, ownerReviewPayload));
   const isOwnerReviewCard = card.link_type === 'owner_review' || Boolean(ownerReviewPayload?.queue_id);
   const isPendingOwnerReview =
     isOwnerReviewCard &&
@@ -5731,7 +5769,7 @@ function PMCardDetailModal({
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '14px' }}>
           <div>
             <p style={{ color: '#94a3b8', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '6px' }}>PM Card Detail</p>
-            <h3 style={{ color: 'white', fontSize: '28px', lineHeight: 1.2, margin: 0 }}>{boardItem.title}</h3>
+            <h3 style={{ color: 'white', fontSize: '28px', lineHeight: 1.2, margin: 0 }}>{displayCardTitle}</h3>
             <p style={{ color: '#94a3b8', fontSize: '13px', margin: '6px 0 0' }}>
               {meetingLabelForWorkspace(boardItem.workspaceKey)} · {boardItem.updatedAt ? formatTimestamp(new Date(boardItem.updatedAt)) : '-'}
             </p>
@@ -6668,7 +6706,7 @@ function PMCardDetailModal({
             {boardItem.reason ? (
               <section style={{ borderRadius: '16px', border: '1px solid #1f2937', backgroundColor: '#08101f', padding: '16px' }}>
                 <p style={{ color: '#94a3b8', letterSpacing: '0.14em', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Why This Card Exists</p>
-                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{boardItem.reason}</p>
+                <p style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.65, margin: 0 }}>{sanitizeLegacyLocalPathsForDisplay(boardItem.reason)}</p>
               </section>
             ) : null}
 
@@ -10008,6 +10046,8 @@ function MeetingMonthlyView({ entries }: { entries: StandupEntry[] }) {
 
 function WorkspaceHubPanel({
   workspaceRegistry,
+  selectedWorkspaceId,
+  onWorkspaceChange,
   files,
   selected,
   onSelect,
@@ -10031,6 +10071,8 @@ function WorkspaceHubPanel({
   onReloadLiveSnapshot,
 }: {
   workspaceRegistry: WorkspaceRegistryEntry[];
+  selectedWorkspaceId: WorkspaceHubKey;
+  onWorkspaceChange: (workspaceKey: WorkspaceHubKey) => void;
   files: WorkspaceFile[];
   selected: WorkspaceFile | null;
   onSelect: (path: string) => void;
@@ -10060,7 +10102,6 @@ function WorkspaceHubPanel({
     const registered = portfolioWorkspaceRegistry(workspaceRegistry).map(workspaceHubFromRegistry);
     return registered.length > 0 ? registered : WORKSPACE_HUBS;
   }, [workspaceRegistry]);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<WorkspaceHubKey>('feezie-os');
   const [selectorOpen, setSelectorOpen] = useState(true);
   const activeWorkspace = workspaceHubs.find((item) => item.id === selectedWorkspaceId) ?? workspaceHubs[0];
   const workspaceFiles = useMemo(
@@ -10473,7 +10514,7 @@ function WorkspaceHubPanel({
               return (
                 <button
                   key={workspace.id}
-                  onClick={() => setSelectedWorkspaceId(workspace.id)}
+                  onClick={() => onWorkspaceChange(workspace.id)}
                   style={{
                     textAlign: 'left',
                     borderRadius: '16px',
@@ -14504,10 +14545,12 @@ function sanitizeLegacyLocalPathsForDisplay(text: string) {
       return `${summarizePathForDisplay(path)}${punctuation}`;
     },
   );
-  return sanitizedPaths
-    .replace(/\[([^\]]+)\]\((?:Legacy workspace record|Project root|Project\/)[^)]*(?:\)|$)/g, '$1')
-    .replace(/`((?:Legacy workspace record|Project root|Project\/)[^`]*)`/g, '$1')
-    .replace(/`(?=(?:Legacy workspace record|Project root|Project\/))/g, '');
+  return normalizeDisplayText(
+    sanitizedPaths
+      .replace(/\[([^\]]+)\]\((?:Legacy workspace record|Project root|Project\/)[^)]*(?:\)|$)/g, '$1')
+      .replace(/`((?:Legacy workspace record|Project root|Project\/)[^`]*)`/g, '$1')
+      .replace(/`(?=(?:Legacy workspace record|Project root|Project\/))/g, ''),
+  );
 }
 
 function normalizePathSegments(path: string) {

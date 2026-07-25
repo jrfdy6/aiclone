@@ -1248,7 +1248,6 @@ export function LinkedinWorkspaceSurface({
     [feedItemsWithLifecycle, ownerReviewMatchedFeedIds],
   );
   const unifiedFeedTotal = ownerReviewItems.length + decisionFeedItems.length + workflowFeedItems.length;
-
   const workspaceFiles = useMemo(() => {
     const files = [...(snapshot?.workspace_files ?? []), ...(snapshot?.doc_entries ?? [])];
     const seen = new Set<string>();
@@ -3518,7 +3517,7 @@ export function LinkedinWorkspaceSurface({
   }
 
   return (
-    <RuntimePage module="ops" tabs={tabs} maxWidth="1520px">
+    <RuntimePage module="workspace" tabs={tabs} maxWidth="1520px">
       {content}
     </RuntimePage>
   );
@@ -3526,7 +3525,7 @@ export function LinkedinWorkspaceSurface({
 
 function WorkspaceHomeFallback() {
   return (
-    <RuntimePage module="ops" tabs={workspaceTabs()} maxWidth="1520px">
+    <RuntimePage module="workspace" tabs={workspaceTabs()} maxWidth="1520px">
       <section style={panelStyle}>Loading workspace…</section>
     </RuntimePage>
   );

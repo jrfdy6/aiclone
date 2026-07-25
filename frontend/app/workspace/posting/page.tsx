@@ -576,7 +576,7 @@ function PostingWorkspaceClient() {
   const usedCodexTerminal = (providerTrace ?? '').includes('codex_terminal');
 
   return (
-    <RuntimePage module="ops" tabs={tabs} maxWidth="1420px">
+    <RuntimePage module="workspace" tabs={tabs} maxWidth="1420px">
       <section style={{ display: 'grid', gap: '18px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
@@ -977,7 +977,7 @@ function PostingWorkspaceClient() {
 
 function PostingWorkspaceFallback() {
   return (
-    <RuntimePage module="ops" tabs={postingWorkspaceTabs()} maxWidth="1420px">
+    <RuntimePage module="workspace" tabs={postingWorkspaceTabs()} maxWidth="1420px">
       <section
         style={{
           borderRadius: '16px',

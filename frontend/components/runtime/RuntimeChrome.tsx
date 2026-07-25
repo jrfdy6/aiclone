@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { useClientLocation } from '@/lib/use-client-location';
 
-export type RuntimeModule = 'ops' | 'brain' | 'lab';
+export type RuntimeModule = 'ops' | 'brain' | 'lab' | 'workspace' | 'inbox';
 
 export type RuntimeTab = {
   key: string;
@@ -17,6 +17,8 @@ const accents: Record<RuntimeModule, string> = {
   ops: '#fbbf24',
   brain: '#38bdf8',
   lab: '#4ade80',
+  workspace: '#fb923c',
+  inbox: '#60a5fa',
 };
 
 type IconComponent = ({ size }: { size?: number }) => ReactNode;
@@ -270,14 +272,14 @@ function ModuleDock({ active }: { active: RuntimeModule }) {
         })}
         <Link
           href={workspaceLink.href}
-          style={dockButtonStyle((currentPath === '/ops' && hash === '#workspace') || currentPath.startsWith('/workspace') || currentPath === '/linkedin', workspaceLink.tone)}
+          style={dockButtonStyle(active === 'workspace' || (currentPath === '/ops' && hash === '#workspace') || currentPath.startsWith('/workspace') || currentPath === '/linkedin', workspaceLink.tone)}
         >
           <WorkspaceIcon size={18} />
           <span style={{ fontSize: '11px', fontWeight: 700 }}>{workspaceLink.label}</span>
         </Link>
         <Link
           href={inboxLink.href}
-          style={dockButtonStyle(currentPath === '/inbox' || currentPath.startsWith('/inbox/'), inboxLink.tone)}
+          style={dockButtonStyle(active === 'inbox' || currentPath === '/inbox' || currentPath.startsWith('/inbox/'), inboxLink.tone)}
         >
           <InboxIcon size={18} />
           <span style={{ fontSize: '11px', fontWeight: 700 }}>{inboxLink.label}</span>

@@ -9,6 +9,12 @@ const composerPath = path.join(frontendRoot, 'app', 'workspace', 'workspace-comp
 const composerSource = fs.readFileSync(composerPath, 'utf8');
 const postingSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'posting', 'page.tsx'), 'utf8');
 const workspaceSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'WorkspaceClient.tsx'), 'utf8');
+const runtimeChromeSource = fs.readFileSync(path.join(frontendRoot, 'components', 'runtime', 'RuntimeChrome.tsx'), 'utf8');
+const inboxSources = [
+  fs.readFileSync(path.join(frontendRoot, 'app', 'inbox', 'page.tsx'), 'utf8'),
+  fs.readFileSync(path.join(frontendRoot, 'app', 'inbox', 'neo', 'page.tsx'), 'utf8'),
+  fs.readFileSync(path.join(frontendRoot, 'app', 'inbox', '[threadId]', 'page.tsx'), 'utf8'),
+];
 const promotableSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'PromotableInlineText.tsx'), 'utf8');
 const fragmentUtilsSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'generatedFragmentUtils.ts'), 'utf8');
 const localVoiceReviewSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'localVoiceReview.ts'), 'utf8');
@@ -21,6 +27,26 @@ test('FEEZIE opens with a bounded Today’s Distribution decision surface', () =
   assert.match(workspaceSource, /Use it/);
   assert.match(workspaceSource, /Edit it/);
   assert.match(workspaceSource, /Not for me/);
+});
+
+test('workspace and inbox own their runtime identity instead of appearing as Ops', () => {
+  const moduleDeclaration = runtimeChromeSource.match(/export type RuntimeModule\s*=\s*([^;]+);/);
+  assert.ok(moduleDeclaration, 'expected the RuntimeModule declaration');
+  assert.match(moduleDeclaration[1], /'workspace'/);
+  assert.match(moduleDeclaration[1], /'inbox'/);
+  assert.match(runtimeChromeSource, /workspace:\s*['"][^'"]+['"]/);
+  assert.match(runtimeChromeSource, /inbox:\s*['"][^'"]+['"]/);
+  assert.match(runtimeChromeSource, /active === (?:workspaceLink\.id|'workspace')/);
+  assert.match(runtimeChromeSource, /active === (?:inboxLink\.id|'inbox')/);
+
+  for (const source of [workspaceSource, postingSource]) {
+    assert.match(source, /<RuntimePage module="workspace"/);
+    assert.doesNotMatch(source, /<RuntimePage module="ops"/);
+  }
+  for (const source of inboxSources) {
+    assert.match(source, /<RuntimePage module="inbox"/);
+    assert.doesNotMatch(source, /<RuntimePage module="ops"/);
+  }
 });
 
 const compiledComposer = ts.transpileModule(composerSource, {

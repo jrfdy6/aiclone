@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { controlApiGet, controlApiPost } from '@/lib/control-api';
+import { normalizeDisplayText } from '@/lib/display-privacy';
 import {
   EXECUTIVE_DECISIONS_ENDPOINT,
   executiveDecisionActionEndpoint,
@@ -106,7 +107,7 @@ export function ExecutiveDecisionQueue({
   const handleAction = useCallback(async (decision: ExecutiveDecision, action: ExecutiveDecisionAction) => {
     if (
       action.requires_confirmation &&
-      !window.confirm(`${action.label} “${decision.title}”? This updates the decision on its original page.`)
+      !window.confirm(`${action.label} “${normalizeDisplayText(decision.title)}”? This updates the decision on its original page.`)
     ) {
       return;
     }
@@ -216,8 +217,8 @@ export function ExecutiveDecisionQueue({
           {coverageWarning(snapshot, coverage)}
         </div>
       ) : null}
-      {error ? <div className={styles.error} role="alert">{error}</div> : null}
-      {feedback ? <div className={styles.feedback} role="status" aria-live="polite">{feedback}</div> : null}
+      {error ? <div className={styles.error} role="alert">{normalizeDisplayText(error)}</div> : null}
+      {feedback ? <div className={styles.feedback} role="status" aria-live="polite">{normalizeDisplayText(feedback)}</div> : null}
 
       <div id={`${headingId}-panel`} role="region" aria-labelledby={`${headingId}-${view}-tab`}>
         {loadState === 'loading' && !snapshot ? (
@@ -289,7 +290,7 @@ function DecisionCard({
       <div className={styles.cardHeader}>
         <div className={styles.rankAndTitle}>
           <span className={styles.rank} aria-label={`Rank ${rank}`}>#{rank}</span>
-          <h3 className={styles.cardTitle} id={titleId}>{decision.title}</h3>
+          <h3 className={styles.cardTitle} id={titleId}>{normalizeDisplayText(decision.title)}</h3>
         </div>
         <div className={styles.badges}>
           <span className={`${styles.badge} ${styles.priorityBadge}`}>{humanize(decision.priority)} priority</span>
@@ -308,24 +309,24 @@ function DecisionCard({
       <div className={styles.explanationGrid}>
         <div className={styles.explanation}>
           <p className={styles.fieldLabel}>What changed</p>
-          <p className={styles.fieldText}>{decision.what_changed}</p>
+          <p className={styles.fieldText}>{normalizeDisplayText(decision.what_changed)}</p>
         </div>
         <div className={styles.explanation}>
           <p className={styles.fieldLabel}>Why it matters</p>
-          <p className={styles.fieldText}>{decision.why_it_matters}</p>
+          <p className={styles.fieldText}>{normalizeDisplayText(decision.why_it_matters)}</p>
         </div>
       </div>
 
       <div className={styles.recommendation}>
         <p className={styles.fieldLabel}>Neo recommends</p>
-        <p className={styles.fieldText}>{decision.recommendation}</p>
+        <p className={styles.fieldText}>{normalizeDisplayText(decision.recommendation)}</p>
       </div>
 
       <div className={styles.evidence}>
         <p className={styles.fieldLabel}>Evidence</p>
         {evidence.length > 0 ? (
           <ul className={styles.evidenceList}>
-            {evidence.map((item, index) => <li className={styles.evidenceItem} key={`${decision.id}-evidence-${index}`}>{item}</li>)}
+            {evidence.map((item, index) => <li className={styles.evidenceItem} key={`${decision.id}-evidence-${index}`}>{normalizeDisplayText(item)}</li>)}
           </ul>
         ) : (
           <p className={styles.evidenceItem}>No supporting evidence was attached. Open the source context before acting.</p>
@@ -334,7 +335,7 @@ function DecisionCard({
           <details className={styles.moreEvidence}>
             <summary>{additionalEvidence.length} more evidence item{additionalEvidence.length === 1 ? '' : 's'}</summary>
             <ul className={styles.evidenceList}>
-              {additionalEvidence.map((item, index) => <li className={styles.evidenceItem} key={`${decision.id}-more-evidence-${index}`}>{item}</li>)}
+              {additionalEvidence.map((item, index) => <li className={styles.evidenceItem} key={`${decision.id}-more-evidence-${index}`}>{normalizeDisplayText(item)}</li>)}
             </ul>
           </details>
         ) : null}

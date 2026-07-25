@@ -3189,7 +3189,7 @@ function DailyBriefsPanel({
             }}
           >
             <p style={{ fontSize: '12px', color: '#94a3b8' }}>{entry.brief_date}</p>
-            <p style={{ fontSize: '14px', fontWeight: 600 }}>{entry.title}</p>
+            <p style={{ fontSize: '14px', fontWeight: 600 }}>{normalizeBrainDisplayText(entry.title)}</p>
           </button>
         ))}
       </div>
@@ -3198,8 +3198,8 @@ function DailyBriefsPanel({
           <div style={{ display: 'grid', gap: '14px' }}>
             <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '4px' }}>{selected.brief_date}</p>
             <div>
-              <h2 style={{ color: 'white', fontSize: '26px', marginBottom: '8px' }}>{selected.title}</h2>
-              {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{selected.summary}</p>}
+              <h2 style={{ color: 'white', fontSize: '26px', marginBottom: '8px' }}>{normalizeBrainDisplayText(selected.title)}</h2>
+              {selected.summary && <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '12px' }}>{normalizeBrainDisplayText(selected.summary)}</p>}
             </div>
             {streamItems.length > 0 && <BriefStreamPanel brief={selected} items={streamItems} onRefresh={onRefresh} />}
             <details style={{ borderRadius: '14px', border: '1px solid #1f2937', backgroundColor: '#020617', padding: '14px' }}>
@@ -3231,7 +3231,7 @@ function DailyBriefsPanel({
               }}
             >
               <p style={{ color: '#818cf8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 10px' }}>Saved Brief</p>
-              {selected.content_markdown}
+              {normalizeBrainDisplayText(selected.content_markdown)}
             </div>
           </div>
         ) : (
