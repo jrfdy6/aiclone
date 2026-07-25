@@ -6,9 +6,7 @@ import { LinkedinWorkspaceSurface } from '@/app/workspace/WorkspaceClient';
 import { ExecutiveDecisionQueue } from '@/app/ops/ExecutiveDecisionQueue';
 import RequestWorkForm, { type RequestWorkInput, type RequestWorkResult } from '@/app/ops/RequestWorkForm';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
-import { apiGet, apiPost, getApiUrl } from '@/lib/api-client';
 import { controlApiGet, controlApiPost } from '@/lib/control-api';
-import type { ExecutiveDecision } from '@/lib/executive-decisions';
 import { formatUiDate, formatUiDateWithWeekday, formatUiNumber, formatUiTime, formatUiTimestamp } from '@/lib/ui-dates';
 import {
   fallbackWorkspaceRegistry,
@@ -17,7 +15,7 @@ import {
   type WorkspaceRegistryResponse,
 } from '@/lib/workspace-registry';
 
-const API_URL = getApiUrl();
+const API_URL = '/api/control';
 const API_NO_STORE: RequestCache = 'no-store';
 const TELEMETRY_TIMEOUT_MS = 40_000;
 const SNAPSHOT_TIMEOUT_MS = 40_000;
@@ -793,12 +791,13 @@ type OwnerReviewActionResult = {
   source_card_id?: string;
 };
 
-type Panel = 'mission' | 'team' | 'pm' | 'standups' | 'workspace' | 'docs';
+type Panel = 'mission' | 'team' | 'pm' | 'execution' | 'standups' | 'workspace' | 'docs';
 
 const PANEL_HASH: Record<Panel, string> = {
   mission: '#mission',
   team: '#team',
   pm: '',
+  execution: '#execution',
   standups: '#standups',
   workspace: '#workspace',
   docs: '#docs',
@@ -2096,10 +2095,70 @@ type WorkspaceHub = {
   route?: string;
 };
 
+type PortfolioPulseWorkspace = {
+  workspace_key: string;
+  display_name: string;
+  kind: 'executive' | 'workspace';
+  active_pm_cards?: Array<{
+    id: string;
+    title: string;
+    status: string;
+    attention_kind?: string;
+    truth?: {
+      execution_class?: string;
+      freshness?: string;
+      state_mismatch?: boolean;
+    };
+  }>;
+  latest_standups?: Array<{
+    id: string;
+    created_at?: string | null;
+    truth?: {
+      freshness?: string;
+      quality?: string;
+      decision_yield?: number;
+    };
+  }>;
+  counts?: {
+    active_pm_cards?: number;
+    needs_owner_pm_cards?: number;
+    needs_host_pm_cards?: number;
+    system_issue_pm_cards?: number;
+  };
+  attention?: {
+    status?: string;
+    label?: string;
+    reasons?: string[];
+    needs_operator?: boolean;
+  };
+  readiness?: {
+    state?: 'healthy' | 'watch' | 'degraded';
+    label?: string;
+    reasons?: string[];
+    failed_executions?: number;
+    state_mismatches?: number;
+    latest_standup_freshness?: string | null;
+    latest_standup_quality?: string | null;
+  };
+  needs_operator_attention?: boolean;
+  has_system_issue?: boolean;
+};
+
+type PortfolioPulseSnapshot = {
+  generated_at?: string;
+  workspaces?: PortfolioPulseWorkspace[];
+  counts?: {
+    workspaces?: number;
+    needs_operator_attention?: number;
+    system_issues?: number;
+    active_pm_cards?: number;
+  };
+};
+
 function workspaceHubFromRegistry(entry: WorkspaceRegistryEntry): WorkspaceHub {
   return {
     id: entry.key,
-    label: entry.display_name,
+    label: entry.portfolio_label ?? entry.display_name,
     shortLabel: entry.short_label,
     status: entry.status,
     accent: entry.accent,
@@ -2225,6 +2284,8 @@ export default function OpsClient({
   const [workspaceRegistry, setWorkspaceRegistry] = useState<WorkspaceRegistryEntry[]>([]);
   const [workspaceRegistryState, setWorkspaceRegistryState] = useState<'loading' | 'live' | 'error'>('loading');
   const [workspaceRegistryError, setWorkspaceRegistryError] = useState<string | null>(null);
+  const [portfolioPulse, setPortfolioPulse] = useState<PortfolioPulseSnapshot | null>(null);
+  const [portfolioPulseError, setPortfolioPulseError] = useState<string | null>(null);
   const [reviewProgressSummary, setReviewProgressSummary] = useState<PMAutoProgressResult | null>(null);
   const [reviewProgressAudit, setReviewProgressAudit] = useState<PMAutoProgressAuditReport | null>(null);
   const [executionQueue, setExecutionQueue] = useState<ExecutionQueueEntry[]>([]);
@@ -2294,7 +2355,7 @@ export default function OpsClient({
       const focus = searchParams.get('focus');
       const focusedPanel: Panel | null =
         focus === 'pm'
-          ? 'pm'
+          ? 'execution'
           : focus === 'standups'
             ? 'standups'
             : focus === 'workspace'
@@ -2355,7 +2416,7 @@ export default function OpsClient({
 
   const loadWorkspaceSnapshot = useCallback(async () => {
     try {
-      const snapshot = await apiGet<WorkspaceSnapshot>('/api/workspace/linkedin-os-snapshot', {
+      const snapshot = await controlApiGet<WorkspaceSnapshot>('/api/workspace/linkedin-os-snapshot', {
         cache: API_NO_STORE,
         timeoutMs: SNAPSHOT_TIMEOUT_MS,
       });
@@ -2398,7 +2459,7 @@ export default function OpsClient({
 
   const loadFeezieOwnerReview = useCallback(async () => {
     try {
-      const payload = await apiGet<WorkspaceOwnerReviewPayload>('/api/workspace/linkedin-os-owner-review', {
+      const payload = await controlApiGet<WorkspaceOwnerReviewPayload>('/api/workspace/linkedin-os-owner-review', {
         cache: API_NO_STORE,
         timeoutMs: SNAPSHOT_TIMEOUT_MS,
       });
@@ -2452,13 +2513,13 @@ export default function OpsClient({
     pmMaintenanceInFlightRef.current = true;
     try {
       const [autoResolveResp, ownerReviewSyncResp, autoProgressResp] = await Promise.allSettled([
-        apiPost<PMReviewHygieneResult>('/api/pm/review-hygiene/auto-resolve', undefined, {
+        controlApiPost<PMReviewHygieneResult>('/api/pm/review-hygiene/auto-resolve', undefined, {
           timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
         }),
-        apiPost<Record<string, unknown>>('/api/pm/owner-review/sync', undefined, {
+        controlApiPost<Record<string, unknown>>('/api/pm/owner-review/sync', undefined, {
           timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
         }),
-        apiPost<PMAutoProgressResult>('/api/pm/review-hygiene/auto-progress', undefined, {
+        controlApiPost<PMAutoProgressResult>('/api/pm/review-hygiene/auto-progress', undefined, {
           timeoutMs: PM_MAINTENANCE_TIMEOUT_MS,
         }),
       ]);
@@ -2502,7 +2563,7 @@ export default function OpsClient({
 
     const requests = await Promise.all([
       trackRequest(
-        apiGet<ComplianceMetrics>('/api/analytics/compliance', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<ComplianceMetrics>('/api/analytics/compliance', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setMetrics(value ?? null);
           updateSectionError('metrics', null);
@@ -2510,7 +2571,7 @@ export default function OpsClient({
         (error) => updateSectionError('metrics', toErrorMessage(error)),
       ),
       trackRequest(
-        apiGet<LogsResponse>('/api/system/logs/?limit=40', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<LogsResponse>('/api/system/logs/?limit=40', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setLogs(normalizeLogs(value));
           updateSectionError('logs', null);
@@ -2518,7 +2579,7 @@ export default function OpsClient({
         (error) => updateSectionError('logs', toErrorMessage(error)),
       ),
       trackRequest(
-        apiGet<HealthPayload>('/health', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<HealthPayload>('/health', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setHealth(value ?? null);
           updateSectionError('health', null);
@@ -2526,7 +2587,7 @@ export default function OpsClient({
         (error) => updateSectionError('health', toErrorMessage(error)),
       ),
       trackRequest(
-        apiGet<AutomationsResponse>('/api/automations/', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<AutomationsResponse>('/api/automations/', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setAutomations(normalizeAutomations(value));
           setAutomationRuns(normalizeAutomationRuns(value));
@@ -2535,7 +2596,7 @@ export default function OpsClient({
         (error) => updateSectionError('automations', toErrorMessage(error)),
       ),
       trackRequest(
-        apiGet<OpenBrainTelemetry>('/api/analytics/open-brain', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<OpenBrainTelemetry>('/api/analytics/open-brain', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setBrainMetrics(value ?? null);
           updateSectionError('brain', null);
@@ -2543,7 +2604,7 @@ export default function OpsClient({
         (error) => updateSectionError('brain', toErrorMessage(error)),
       ),
       trackRequest(
-        apiGet<OpenBrainHealth>('/api/open-brain/health', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<OpenBrainHealth>('/api/open-brain/health', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setBrainHealth(value ?? null);
           updateSectionError('brainHealth', null);
@@ -2551,7 +2612,7 @@ export default function OpsClient({
         (error) => updateSectionError('brainHealth', toErrorMessage(error)),
       ),
       trackRequest(
-        apiGet<PMCard[]>('/api/pm/cards?limit=200', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<PMCard[]>('/api/pm/cards?limit=200', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setPmCards(Array.isArray(value) ? value : []);
           updateSectionError('pmCards', null);
@@ -2561,7 +2622,7 @@ export default function OpsClient({
         },
       ),
       trackRequest(
-        apiGet<ExecutionQueueEntry[]>('/api/pm/execution-queue?limit=200', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<ExecutionQueueEntry[]>('/api/pm/execution-queue?limit=200', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setExecutionQueue(Array.isArray(value) ? value : []);
           updateSectionError('executionQueue', null);
@@ -2571,7 +2632,7 @@ export default function OpsClient({
         },
       ),
       trackRequest(
-        apiGet<StandupEntry[]>('/api/standups/?limit=200', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
+        controlApiGet<StandupEntry[]>('/api/standups/?limit=200', { cache: API_NO_STORE, timeoutMs: TELEMETRY_TIMEOUT_MS }),
         (value) => {
           setStandups(Array.isArray(value) ? value : []);
           updateSectionError('standups', null);
@@ -2579,12 +2640,23 @@ export default function OpsClient({
         (error) => updateSectionError('standups', toErrorMessage(error)),
       ),
       trackRequest(
-        apiGet<PMAutoProgressAuditReport>('/api/pm/review-hygiene/audit?limit=8&hours=24', {
+        controlApiGet<PMAutoProgressAuditReport>('/api/pm/review-hygiene/audit?limit=8&hours=24', {
           cache: API_NO_STORE,
           timeoutMs: TELEMETRY_TIMEOUT_MS,
         }),
         (value) => setReviewProgressAudit(value ?? null),
         () => setReviewProgressAudit(null),
+      ),
+      trackRequest(
+        controlApiGet<PortfolioPulseSnapshot>('/api/brain/portfolio-snapshot', {
+          cache: API_NO_STORE,
+          timeoutMs: TELEMETRY_TIMEOUT_MS,
+        }),
+        (value) => {
+          setPortfolioPulse(value ?? null);
+          setPortfolioPulseError(null);
+        },
+        (error) => setPortfolioPulseError(toErrorMessage(error)),
       ),
     ]);
 
@@ -2904,24 +2976,42 @@ export default function OpsClient({
   const openPmCard = useCallback(
     (cardId: string) => {
       setRequestedPmCardId(cardId);
-      selectPanel('pm');
+      selectPanel('execution');
     },
     [selectPanel],
   );
+  const openWorkspaceFromPulse = useCallback(
+    (workspace: PortfolioPulseWorkspace) => {
+      if (workspace.kind === 'executive') {
+        selectPanel('mission');
+        return;
+      }
+      const workspacePath = pickWorkspacePath(effectiveWorkspaceFiles, workspace.workspace_key);
+      if (workspacePath) {
+        setSelectedWorkspacePath(workspacePath);
+      }
+      selectPanel('workspace');
+    },
+    [effectiveWorkspaceFiles, selectPanel],
+  );
 
   const tabs = [
-    { key: 'pm', label: 'Home', active: activePanel === 'pm', onSelect: () => selectPanel('pm') },
+    { key: 'pm', label: 'Today', active: activePanel === 'pm', onSelect: () => selectPanel('pm') },
     { key: 'workspace', label: 'Projects', active: activePanel === 'workspace', onSelect: () => selectPanel('workspace') },
     { key: 'standups', label: 'Standups', active: activePanel === 'standups', onSelect: () => selectPanel('standups') },
+    { key: 'execution', label: 'Execution', active: activePanel === 'execution', onSelect: () => selectPanel('execution') },
     { key: 'mission', label: 'System', active: activePanel === 'mission', onSelect: () => selectPanel('mission') },
-    { key: 'team', label: 'Team', active: activePanel === 'team', onSelect: () => selectPanel('team') },
-    { key: 'docs', label: 'Docs', active: activePanel === 'docs', onSelect: () => selectPanel('docs') },
   ];
   const panelHeader: Record<Panel, { eyebrow: string; title: string; description: string }> = {
     pm: {
-      eyebrow: 'Remote Ops',
-      title: 'What needs you',
-      description: 'Send an outcome to the signed local Codex queue, then review only the decisions and results that come back to you.',
+      eyebrow: 'Today',
+      title: 'Your operating brief',
+      description: 'Confirm the system is healthy, then handle only the few decisions and host actions that genuinely need you.',
+    },
+    execution: {
+      eyebrow: 'Execution',
+      title: 'Work in motion',
+      description: 'Request work, inspect PM truth, and recover failed lanes without mixing system maintenance into your daily decisions.',
     },
     workspace: {
       eyebrow: 'Projects',
@@ -3013,6 +3103,15 @@ export default function OpsClient({
       )}
       {activePanel === 'team' && <OrgChartSection layers={orgLayers} />}
       {activePanel === 'pm' && (
+        <TodayOpsPanel
+          portfolioPulse={portfolioPulse}
+          portfolioPulseError={portfolioPulseError}
+          onExecutiveDecisionMutation={refreshAfterExecutiveDecision}
+          onOpenExecution={() => selectPanel('execution')}
+          onOpenWorkspace={openWorkspaceFromPulse}
+        />
+      )}
+      {activePanel === 'execution' && (
         <PMBoardPanel
           cards={pmCards}
           workspaceRegistry={workspaceRegistry}
@@ -3036,7 +3135,6 @@ export default function OpsClient({
           workspaceFiles={effectiveWorkspaceFiles}
           requestedCardId={requestedPmCardId}
           onRequestedCardIdHandled={() => setRequestedPmCardId(null)}
-          onExecutiveDecisionMutation={refreshAfterExecutiveDecision}
         />
       )}
       {activePanel === 'standups' && (
@@ -3550,6 +3648,173 @@ const STANDUP_ROOMS: StandupRoom[] = [
   },
 ];
 
+function TodayOpsPanel({
+  portfolioPulse,
+  portfolioPulseError,
+  onExecutiveDecisionMutation,
+  onOpenExecution,
+  onOpenWorkspace,
+}: {
+  portfolioPulse: PortfolioPulseSnapshot | null;
+  portfolioPulseError: string | null;
+  onExecutiveDecisionMutation: () => Promise<void>;
+  onOpenExecution: () => void;
+  onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
+}) {
+  const counts = portfolioPulse?.counts;
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <PortfolioPulseSection snapshot={portfolioPulse} error={portfolioPulseError} onOpenWorkspace={onOpenWorkspace} />
+      <ExecutiveDecisionQueue onActionComplete={onExecutiveDecisionMutation} />
+      <section style={{ borderRadius: '16px', border: '1px solid #1e293b', backgroundColor: '#020617', padding: '15px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <p style={{ color: '#38bdf8', letterSpacing: '0.16em', fontSize: '11px', textTransform: 'uppercase', margin: 0 }}>Work in motion</p>
+            <p style={{ color: '#f8fafc', fontSize: '17px', fontWeight: 700, margin: '5px 0' }}>
+              {counts?.active_pm_cards ?? 0} active PM cards across {counts?.workspaces ?? 0} visible lanes
+            </p>
+            <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+              Detailed execution, recovery, and request controls stay in one dedicated surface.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenExecution}
+            style={{
+              borderRadius: '999px',
+              border: '1px solid rgba(56,189,248,0.4)',
+              backgroundColor: 'rgba(14,116,144,0.18)',
+              color: '#bae6fd',
+              padding: '9px 13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Open Execution
+          </button>
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function PortfolioPulseSection({
+  snapshot,
+  error,
+  onOpenWorkspace,
+}: {
+  snapshot: PortfolioPulseSnapshot | null;
+  error: string | null;
+  onOpenWorkspace: (workspace: PortfolioPulseWorkspace) => void;
+}) {
+  const workspaces = snapshot?.workspaces ?? [];
+  const shared = workspaces.find((workspace) => workspace.kind === 'executive');
+  const projects = workspaces.filter((workspace) => workspace.kind === 'workspace');
+  const degradedCount = workspaces.filter((workspace) => workspace.readiness?.state === 'degraded').length;
+  const watchCount = workspaces.filter((workspace) => workspace.readiness?.state === 'watch').length;
+  const unverifiedCount = workspaces.filter((workspace) => !workspace.readiness?.state).length;
+  const overallState =
+    degradedCount > 0 ? 'degraded' : watchCount > 0 ? 'watch' : unverifiedCount > 0 || workspaces.length === 0 ? 'loading' : 'healthy';
+  const overallTone =
+    overallState === 'degraded' ? '#fb7185' : overallState === 'watch' ? '#fbbf24' : overallState === 'healthy' ? '#4ade80' : '#94a3b8';
+  const overallLabel =
+    overallState === 'degraded'
+      ? `${degradedCount} system lane${degradedCount === 1 ? '' : 's'} need attention`
+      : overallState === 'watch'
+        ? `${watchCount} lane${watchCount === 1 ? '' : 's'} to check soon`
+        : overallState === 'healthy'
+          ? 'All visible lanes are ready'
+          : unverifiedCount > 0
+            ? `${unverifiedCount} lane${unverifiedCount === 1 ? '' : 's'} awaiting readiness verification`
+            : 'Checking portfolio state';
+
+  const renderPulseCard = (workspace: PortfolioPulseWorkspace) => {
+    const readiness = workspace.readiness?.state ?? 'watch';
+    const tone = readiness === 'degraded' ? '#fb7185' : readiness === 'healthy' ? '#4ade80' : '#fbbf24';
+    const operatorCount =
+      Number(workspace.counts?.needs_owner_pm_cards ?? 0) + Number(workspace.counts?.needs_host_pm_cards ?? 0);
+    const latestStandup = workspace.latest_standups?.[0];
+    return (
+      <button
+        type="button"
+        key={workspace.workspace_key}
+        onClick={() => onOpenWorkspace(workspace)}
+        style={{
+          borderRadius: '14px',
+          border: `1px solid ${tone}33`,
+          backgroundColor: '#020617',
+          padding: '13px',
+          minWidth: 0,
+          color: 'inherit',
+          textAlign: 'left',
+          cursor: 'pointer',
+          font: 'inherit',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ color: '#f8fafc', fontWeight: 700, fontSize: '13px', lineHeight: 1.35, margin: 0 }}>{workspace.display_name}</p>
+            <p style={{ color: tone, fontSize: '11px', margin: '5px 0 0' }}>{workspace.readiness?.label ?? 'Checking'}</p>
+          </div>
+          <span style={{ width: '9px', height: '9px', borderRadius: '999px', backgroundColor: tone, flexShrink: 0, marginTop: '4px' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', marginTop: '12px' }}>
+          <div>
+            <p style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', margin: 0 }}>Needs you</p>
+            <p style={{ color: operatorCount > 0 ? '#fde68a' : '#cbd5e1', fontWeight: 700, margin: '3px 0 0' }}>{operatorCount}</p>
+          </div>
+          <div>
+            <p style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', margin: 0 }}>Active PM</p>
+            <p style={{ color: '#cbd5e1', fontWeight: 700, margin: '3px 0 0' }}>{workspace.counts?.active_pm_cards ?? 0}</p>
+          </div>
+          <div>
+            <p style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', margin: 0 }}>Standup</p>
+            <p style={{ color: '#cbd5e1', fontWeight: 700, margin: '3px 0 0', textTransform: 'capitalize' }}>
+              {latestStandup?.truth?.quality?.replaceAll('_', ' ') ?? 'None'}
+            </p>
+          </div>
+        </div>
+        {(workspace.readiness?.reasons ?? []).slice(0, 1).map((reason) => (
+          <p key={reason} style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.45, margin: '10px 0 0' }}>{reason}</p>
+        ))}
+        <p style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 700, margin: '10px 0 0' }}>
+          {workspace.kind === 'executive' ? 'Open system health →' : 'Open project →'}
+        </p>
+      </button>
+    );
+  };
+
+  return (
+    <section style={{ borderRadius: '18px', border: `1px solid ${overallTone}33`, backgroundColor: `${overallTone}08`, padding: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ color: overallTone, letterSpacing: '0.18em', fontSize: '11px', textTransform: 'uppercase', margin: 0 }}>Portfolio pulse</p>
+          <h2 style={{ color: '#f8fafc', fontSize: '22px', margin: '5px 0' }}>Is the system healthy?</h2>
+          <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>Health first, then the decisions and host actions that genuinely need you.</p>
+        </div>
+        <span style={{ borderRadius: '999px', border: `1px solid ${overallTone}55`, color: overallTone, padding: '7px 11px', fontSize: '12px', fontWeight: 700 }}>
+          {overallLabel}
+        </span>
+      </div>
+      {error ? <div style={{ marginTop: '12px' }}><SectionAlert message={`Portfolio pulse: ${error}`} /></div> : null}
+      {shared ? (
+        <div style={{ marginTop: '14px' }}>
+          <p style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: '0 0 7px' }}>Shared operating system</p>
+          {renderPulseCard(shared)}
+        </div>
+      ) : null}
+      {projects.length > 0 ? (
+        <div style={{ marginTop: '14px' }}>
+          <p style={{ color: '#64748b', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: '0 0 7px' }}>Projects</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' }}>
+            {projects.map(renderPulseCard)}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function PMBoardPanel({
   cards,
   workspaceRegistry,
@@ -3573,7 +3838,6 @@ function PMBoardPanel({
   workspaceFiles,
   requestedCardId,
   onRequestedCardIdHandled,
-  onExecutiveDecisionMutation,
 }: {
   cards: PMCard[];
   workspaceRegistry: WorkspaceRegistryEntry[];
@@ -3597,7 +3861,6 @@ function PMBoardPanel({
   workspaceFiles: WorkspaceFile[];
   requestedCardId?: string | null;
   onRequestedCardIdHandled?: () => void;
-  onExecutiveDecisionMutation: () => Promise<void>;
 }) {
   const buckets = useMemo(() => groupPmCards(cards), [cards]);
   const executionBuckets = useMemo(() => groupExecutionQueue(executionQueue), [executionQueue]);
@@ -3737,21 +4000,6 @@ function PMBoardPanel({
   const selectedBoardCard = selectedBoardSnapshotMatches ? selectedBoardSnapshot.card : liveSelectedBoardCard;
   const selectedBoardLinkedStandups = selectedBoardSnapshotMatches ? selectedBoardSnapshot.linkedStandups : liveSelectedBoardLinkedStandups;
   const recentClosedItems = useMemo(() => unifiedBoard.done.slice(0, 12), [unifiedBoard.done]);
-
-  const openExecutiveDecisionContext = useCallback((decision: ExecutiveDecision, href: string) => {
-    try {
-      const target = new URL(href, window.location.origin);
-      const cardId = target.pathname === '/ops' && target.searchParams.get('focus') === 'pm'
-        ? target.searchParams.get('card_id')?.trim()
-        : null;
-      if (!cardId || !cards.some((card) => card.id === cardId)) return false;
-      window.history.replaceState(null, '', `${target.pathname}${target.search}${target.hash}`);
-      setSelectedBoardCardId(cardId);
-      return true;
-    } catch {
-      return false;
-    }
-  }, [cards]);
 
   const handleDispatch = useCallback(
     async (entry: ExecutionQueueEntry) => {
@@ -3928,10 +4176,6 @@ function PMBoardPanel({
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <ExecutiveDecisionQueue
-        onActionComplete={onExecutiveDecisionMutation}
-        onOpenContext={openExecutiveDecisionContext}
-      />
       <RequestWorkForm
         workspaceRegistry={workspaceRegistry}
         registryLoading={workspaceRegistryState === 'loading'}
@@ -10903,7 +11147,7 @@ function WorkspacePanel({
   }, []);
   const waitForFeedRefresh = useCallback(async () => {
     for (let attempt = 0; attempt < 12; attempt += 1) {
-      const status = await apiGet<FeedRefreshStatus>('/api/workspace/refresh-social-feed', { cache: API_NO_STORE });
+      const status = await controlApiGet<FeedRefreshStatus>('/api/workspace/refresh-social-feed', { cache: API_NO_STORE });
       if (!status.running) {
         if (status.error) {
           throw new Error(status.error);

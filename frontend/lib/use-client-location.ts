@@ -51,7 +51,14 @@ function ensureHistoryEventsPatched() {
 }
 
 export function useClientLocation(): ClientLocation {
-  const [location, setLocation] = useState<ClientLocation>(() => readLocation());
+  // Keep the server render and the browser's first render identical. The
+  // effect below applies the real URL immediately after hydration.
+  const [location, setLocation] = useState<ClientLocation>({
+    hash: '',
+    href: '',
+    pathname: '',
+    search: '',
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') {

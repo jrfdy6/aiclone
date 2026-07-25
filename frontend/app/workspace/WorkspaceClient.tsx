@@ -2209,16 +2209,21 @@ export function LinkedinWorkspaceSurface({
       : topicSourceMode === 'suggested_angle'
         ? topRecommendations[0]?.source_url || ''
         : '';
+  const todaysCreateItems = ownerReviewItems.slice(0, 2);
+  const todaysEngageItems = decisionFeedItems
+    .map(({ item }) => item)
+    .filter((item) => Boolean(item.comment_draft?.trim()))
+    .slice(0, 3);
 
   const content = (
     <section style={{ display: 'grid', gap: '20px' }}>
         <section style={workspaceHeaderStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '18px' }}>
             <div>
-              <p style={workspaceHeaderLabelStyle}>Workspace</p>
-              <h1 style={{ fontSize: '34px', color: 'white', margin: '4px 0' }}>Posting pipeline + shared source feed</h1>
+              <p style={workspaceHeaderLabelStyle}>FEEZIE OS</p>
+              <h1 style={{ fontSize: '34px', color: 'white', margin: '4px 0' }}>Visibility &amp; Distribution</h1>
               <p style={{ color: '#94a3b8', maxWidth: '860px', fontSize: '14px', lineHeight: 1.6 }}>
-                This is the execution surface. Build posts through the 9-1-1 pipeline, react to the same feed going into Brain, and keep the agent workspace visible while you work.
+                Turn grounded source signals into useful public ideas, credible conversations, stronger relationships, and durable audience growth.
               </p>
             </div>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -2238,6 +2243,119 @@ export function LinkedinWorkspaceSurface({
             <MiniStat label="Comments" value={String(snapshot?.reaction_queue?.counts?.comment_opportunities ?? 0)} detail="reaction-ready items" />
             <MiniStat label="Post Seeds" value={String(snapshot?.reaction_queue?.counts?.post_seeds ?? 0)} detail="save-for-post angles" />
             <MiniStat label="Feedback" value={String(snapshot?.feedback_summary?.total_events ?? 0)} detail="human training events" />
+          </div>
+        </section>
+
+        <section style={{ ...panelStyle, border: '1px solid rgba(56,189,248,0.3)', background: 'linear-gradient(145deg, rgba(8,47,73,0.34), rgba(2,6,23,0.96))' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '16px' }}>
+            <div>
+              <p style={sectionLabelStyle('#38bdf8')}>Today&apos;s Distribution</p>
+              <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 7px' }}>The few moves worth making today</h2>
+              <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0, maxWidth: '820px' }}>
+                Create and engage recommendations are ranked from current source signals, Persona grounding, and your prior feedback.
+              </p>
+            </div>
+            <InlinePill label={`${todaysCreateItems.length} create · ${todaysEngageItems.length} engage`} tone="#38bdf8" />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '14px' }}>
+            <div style={{ display: 'grid', alignContent: 'start', gap: '10px' }}>
+              <div>
+                <p style={sectionLabelStyle('#f59e0b')}>Create · max 2</p>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: '3px 0 0' }}>Drafts that are ready for your judgment.</p>
+              </div>
+              {todaysCreateItems.map((item) => {
+                const preparedCopy = item.first_pass_draft?.trim() || item.draft_body?.trim() || '';
+                return (
+                  <article data-today-create="true" key={`today-create-${item.queue_id}`} style={{ ...workspaceFileCardStyle, backgroundColor: '#020617', display: 'grid', gap: '9px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start' }}>
+                      <div>
+                        <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{item.title}</p>
+                        <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0' }}>
+                          Source: {item.source_kind || item.lane || 'FEEZIE signal'} · Destination: LinkedIn
+                        </p>
+                      </div>
+                      <InlinePill label={item.queue_id} tone="#f59e0b" />
+                    </div>
+                    <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                      {item.why_now || item.system_assessment?.summary || item.core_angle || 'Selected because it is the strongest current fit for your visibility goals.'}
+                    </p>
+                    <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: '130px' }}>{preparedCopy || 'The prepared draft is still loading from owner review.'}</pre>
+                    <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+                      <button type="button" onClick={() => void submitOwnerReviewDecision(item, 'approve')} disabled={ownerReviewActioning === item.queue_id} style={primaryActionStyle('#22c55e')}>
+                        Use it
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById(ownerReviewElementId(item.queue_id))?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                        style={secondaryActionStyle('#38bdf8')}
+                      >
+                        Edit it
+                      </button>
+                      <button type="button" onClick={() => void submitOwnerReviewDecision(item, 'park')} disabled={ownerReviewActioning === item.queue_id} style={secondaryActionStyle('#94a3b8')}>
+                        Not for me
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+              {todaysCreateItems.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>No draft currently needs your decision.</p>
+              ) : null}
+            </div>
+
+            <div style={{ display: 'grid', alignContent: 'start', gap: '10px' }}>
+              <div>
+                <p style={sectionLabelStyle('#22c55e')}>Engage · max 3</p>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: '3px 0 0' }}>Prepared conversation entries grounded in live sources.</p>
+              </div>
+              {todaysEngageItems.map((item) => {
+                const lens = resolveFeedLens(item);
+                const preparedComment = item.comment_draft?.trim() || '';
+                return (
+                  <article data-today-engage="true" key={`today-engage-${item.id}`} style={{ ...workspaceFileCardStyle, backgroundColor: '#020617', display: 'grid', gap: '9px' }}>
+                    <div>
+                      <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{item.title}</p>
+                      <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0' }}>
+                        Source: {item.author || item.platform} · Destination: {item.platform}
+                      </p>
+                    </div>
+                    <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                      {item.why_it_matters || 'Selected because it creates a credible opening to join a relevant conversation.'}
+                    </p>
+                    <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: '105px' }}>{preparedComment}</pre>
+                    <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (item.source_url) window.open(item.source_url, '_blank', 'noopener,noreferrer');
+                          void handleCopy(preparedComment, `Comment for ${item.author}`, { item, lens, notes: 'Used from Today’s Distribution.' });
+                        }}
+                        style={primaryActionStyle('#22c55e')}
+                      >
+                        Use it
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedFeedId(item.id);
+                          document.getElementById('owner-review-lane')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                        style={secondaryActionStyle('#38bdf8')}
+                      >
+                        Edit it
+                      </button>
+                      <button type="button" onClick={() => void recordFeedback(item, 'reject', lens, 'Not for me from Today’s Distribution.')} style={secondaryActionStyle('#94a3b8')}>
+                        Not for me
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+              {todaysEngageItems.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>No prepared engagement currently clears the relevance bar.</p>
+              ) : null}
+            </div>
           </div>
         </section>
 

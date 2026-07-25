@@ -4,6 +4,30 @@ const path = require('node:path');
 const test = require('node:test');
 
 const opsSource = fs.readFileSync(path.join(__dirname, '..', 'app', 'ops', 'OpsClient.tsx'), 'utf8');
+const clientLocationSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'use-client-location.ts'), 'utf8');
+
+test('runtime location state hydrates from a stable empty snapshot', () => {
+  assert.match(clientLocationSource, /hash: ''/);
+  assert.match(clientLocationSource, /const syncLocation = \(\) => setLocation\(readLocation\(\)\)/);
+  assert.doesNotMatch(clientLocationSource, /useState<ClientLocation>\(\(\) => readLocation\(\)\)/);
+});
+
+test('Ops separates Today decisions from the detailed execution surface', () => {
+  assert.match(opsSource, /\{ key: 'pm', label: 'Today'/);
+  assert.match(opsSource, /\{ key: 'execution', label: 'Execution'/);
+  assert.match(opsSource, /<TodayOpsPanel/);
+  assert.match(opsSource, /activePanel === 'execution'/);
+  assert.match(opsSource, /<PortfolioPulseSection snapshot=\{portfolioPulse\}/);
+});
+
+test('Ops routes browser requests through the authenticated same-origin control plane', () => {
+  assert.doesNotMatch(opsSource, /from ['"]@\/lib\/api-client['"]/);
+  assert.doesNotMatch(opsSource, /\bapi(?:Get|Post)\b/);
+  assert.match(opsSource, /const API_URL = '\/api\/control'/);
+  assert.match(opsSource, /controlApiGet/);
+  assert.match(opsSource, /controlApiPost/);
+  assert.doesNotMatch(opsSource, /NEXT_PUBLIC_API_URL/);
+});
 
 test('standup rooms distinguish current work from quiet and on-demand history', () => {
   assert.match(opsSource, /operatingMode: 'core' \| 'on_demand'/);

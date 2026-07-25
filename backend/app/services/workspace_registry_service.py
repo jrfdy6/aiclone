@@ -54,6 +54,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "key": "feezie-os",
         "kind": "workspace",
         "display_name": "FEEZIE OS",
+        "portfolio_label": "FEEZIE OS — Visibility & Distribution",
         "short_label": "FEEZIE",
         "brief_heading": "FEEZIE OS",
         "workspace_root": "linkedin-content-os",
@@ -66,7 +67,7 @@ _WORKSPACE_REGISTRY: tuple[dict[str, Any], ...] = (
         "execution_mode": "direct",
         "default_standup_kind": "workspace_sync",
         "workspace_sync_participants": ["Jean-Claude", "Neo", "Yoda"],
-        "description": "Executive-facing public-signal execution workspace for source intake, reaction loops, content generation, and persona-grounded FEEZIE visibility.",
+        "description": "Turns Feeze's knowledge, experience, and aspirations into public value, credibility, relationships, audience, and durable distribution.",
         "operating_principles": [
             "Persona truth first, posting second",
             "Use live source signals before generic ideation",
@@ -302,6 +303,7 @@ def workspace_registry_entry(workspace_key: str | None, *, default: str = "share
         "key": fallback_key,
         "kind": "workspace",
         "display_name": fallback_key,
+        "portfolio_label": fallback_key,
         "short_label": fallback_key,
         "brief_heading": fallback_key,
         "workspace_root": fallback_key,
@@ -340,6 +342,38 @@ def canonicalize_workspace_key(workspace_key: str | None, *, default: str = "sha
         if canonical:
             return canonical
     return raw
+
+
+def workspace_storage_aliases(workspace_key: str | None, *, default: str = "shared_ops") -> tuple[str, ...]:
+    """Return every persisted spelling that belongs to one canonical workspace.
+
+    Historical PM cards and standups intentionally retain their original
+    workspace keys for auditability. Read surfaces use this alias set so a
+    canonical workspace view can include that history without rewriting it.
+    """
+
+    canonical = canonicalize_workspace_key(workspace_key, default=default)
+    entry = workspace_registry_entry(canonical, default=default)
+    candidates = {
+        canonical,
+        str(entry.get("key") or ""),
+        str(entry.get("workspace_root") or ""),
+        *(str(alias) for alias in entry.get("aliases") or []),
+    }
+    normalized: set[str] = set()
+    for candidate in candidates:
+        lowered = candidate.strip().lower()
+        if not lowered:
+            continue
+        normalized.update(
+            {
+                lowered,
+                lowered.replace("_", "-"),
+                lowered.replace("-", " "),
+                lowered.replace("_", " "),
+            }
+        )
+    return tuple(sorted(normalized))
 
 
 def workspace_root_slug(workspace_key: str | None) -> str:

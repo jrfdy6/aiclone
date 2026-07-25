@@ -13,6 +13,15 @@ const promotableSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspa
 const fragmentUtilsSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'generatedFragmentUtils.ts'), 'utf8');
 const controlApiSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'control-api.ts'), 'utf8');
 
+test('FEEZIE opens with a bounded Today’s Distribution decision surface', () => {
+  assert.match(workspaceSource, /Today&apos;s Distribution/);
+  assert.match(workspaceSource, /ownerReviewItems\.slice\(0, 2\)/);
+  assert.match(workspaceSource, /\.slice\(0, 3\)/);
+  assert.match(workspaceSource, /Use it/);
+  assert.match(workspaceSource, /Edit it/);
+  assert.match(workspaceSource, /Not for me/);
+});
+
 const compiledComposer = ts.transpileModule(composerSource, {
   compilerOptions: {
     module: ts.ModuleKind.CommonJS,
