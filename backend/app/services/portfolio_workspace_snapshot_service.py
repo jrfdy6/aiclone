@@ -4,6 +4,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from app.services import pm_card_service, standup_service
@@ -213,6 +214,10 @@ def _is_non_actionable_status_surface(value: Any) -> bool:
         return True
     if text.startswith("fallback watchdog found") and "last execution result" in text:
         return True
+    if "automation drift remains" in text:
+        action_required = re.search(r"action_required_count\s*=\s*(\d+)", text)
+        if action_required and int(action_required.group(1)) == 0:
+            return True
     if text.startswith("active blockers ") and ("automation drift remains" in text or "fallback watchdog" in text):
         return True
     return False
@@ -260,11 +265,10 @@ def _pm_attention_kind(card: Any) -> str | None:
 def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
     cards: list[Any] = []
     seen: set[str] = set()
-    for key in _workspace_snapshot_keys(workspace_key, workspace_root_slug(workspace_key)):
-        try:
-            cards.extend(pm_card_service.list_cards(workspace_key=key, limit=limit))
-        except Exception:
-            continue
+    try:
+        cards = list(pm_card_service.list_cards(workspace_key=workspace_key, limit=limit))
+    except Exception:
+        cards = []
     compacted: list[dict[str, Any]] = []
     for card in cards:
         card_id = str(getattr(card, "id", "") or "")
@@ -305,11 +309,10 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
 def _safe_standups(workspace_key: str, *, limit: int, root_exists: bool = False) -> list[dict[str, Any]]:
     rows: list[Any] = []
     seen: set[str] = set()
-    for key in _workspace_snapshot_keys(workspace_key, workspace_root_slug(workspace_key)):
-        try:
-            rows.extend(standup_service.list_standups(workspace_key=key, limit=limit))
-        except Exception:
-            continue
+    try:
+        rows = list(standup_service.list_standups(workspace_key=workspace_key, limit=limit))
+    except Exception:
+        rows = []
     compacted: list[dict[str, Any]] = []
     for standup in rows:
         standup_id = str(getattr(standup, "id", "") or "")
@@ -321,6 +324,16 @@ def _safe_standups(workspace_key: str, *, limit: int, root_exists: bool = False)
             list(getattr(standup, "blockers", []) or []),
             root_exists=root_exists,
         )
+        truth = classify_standup(
+            SimpleNamespace(
+                workspace_key=getattr(standup, "workspace_key", workspace_key),
+                created_at=getattr(standup, "created_at", None) or datetime.now(timezone.utc),
+                payload=payload,
+                commitments=list(getattr(standup, "commitments", []) or []),
+                blockers=blockers,
+                needs=list(getattr(standup, "needs", []) or []),
+            )
+        )
         compacted.append(
             {
                 "id": standup_id,
@@ -331,7 +344,7 @@ def _safe_standups(workspace_key: str, *, limit: int, root_exists: bool = False)
                 "blockers": blockers,
                 "needs": list(getattr(standup, "needs", []) or [])[:4],
                 "created_at": getattr(standup, "created_at", None).isoformat() if getattr(standup, "created_at", None) else None,
-                "truth": classify_standup(standup),
+                "truth": truth,
             }
         )
     return compacted[:limit]
@@ -352,7 +365,17 @@ def _safe_snapshot_types(workspace_key: str, root_slug: str) -> dict[str, list[s
 def _active_standup_blockers(latest_standups: list[dict[str, Any]]) -> list[str]:
     if not latest_standups:
         return []
+    if str((latest_standups[0].get("truth") or {}).get("freshness") or "") != "current":
+        return []
     return [_clean_text(blocker) for blocker in (latest_standups[0].get("blockers") or []) if _clean_text(blocker)]
+
+
+def _is_historical_failed_recovery(card: dict[str, Any]) -> bool:
+    truth = card.get("truth") or {}
+    return (
+        str(truth.get("execution_class") or "") == "failed"
+        and str(truth.get("freshness") or "") in {"stale", "historical"}
+    )
 
 
 def _attention_summary(
@@ -363,7 +386,13 @@ def _attention_summary(
 ) -> dict[str, Any]:
     owner_cards = [card for card in operator_cards if card.get("attention_kind") == "needs_owner"]
     host_cards = [card for card in operator_cards if card.get("attention_kind") == "needs_host"]
-    failed_cards = [card for card in system_issue_cards if (card.get("truth") or {}).get("execution_class") == "failed"]
+    failed_cards = [
+        card
+        for card in system_issue_cards
+        if (card.get("truth") or {}).get("execution_class") == "failed"
+        and not _is_historical_failed_recovery(card)
+    ]
+    historical_failed_cards = [card for card in system_issue_cards if _is_historical_failed_recovery(card)]
     mismatch_cards = [card for card in system_issue_cards if bool((card.get("truth") or {}).get("state_mismatch"))]
 
     if owner_cards:
@@ -372,7 +401,7 @@ def _attention_summary(
     elif host_cards:
         status = "needs_host"
         label = "Needs your action"
-    elif failed_cards or active_blockers:
+    elif failed_cards or mismatch_cards or active_blockers:
         status = "system_issue"
         label = "System attention"
     else:
@@ -398,9 +427,10 @@ def _attention_summary(
         "needs_owner_pm_cards": len(owner_cards),
         "needs_host_pm_cards": len(host_cards),
         "failed_pm_cards": len(failed_cards),
+        "historical_failed_pm_cards": len(historical_failed_cards),
         "state_mismatch_pm_cards": len(mismatch_cards),
         "needs_operator": bool(owner_cards or host_cards),
-        "has_system_issue": bool(failed_cards or active_blockers),
+        "has_system_issue": bool(failed_cards or mismatch_cards or active_blockers),
     }
 
 
@@ -412,8 +442,12 @@ def _readiness_summary(
 ) -> dict[str, Any]:
     latest_truth = (latest_standups[0].get("truth") or {}) if latest_standups else {}
     failed_count = sum(
-        1 for card in system_issue_cards if str((card.get("truth") or {}).get("execution_class") or "") == "failed"
+        1
+        for card in system_issue_cards
+        if str((card.get("truth") or {}).get("execution_class") or "") == "failed"
+        and not _is_historical_failed_recovery(card)
     )
+    historical_failed_count = sum(1 for card in system_issue_cards if _is_historical_failed_recovery(card))
     mismatch_count = sum(1 for card in system_issue_cards if bool((card.get("truth") or {}).get("state_mismatch")))
     legacy_instruction_count = sum(
         1 for card in system_issue_cards if bool((card.get("truth") or {}).get("legacy_instruction"))
@@ -431,6 +465,8 @@ def _readiness_summary(
         reasons.append(f"{expired_count} expired PM instruction(s) remain active.")
     if legacy_instruction_count:
         reasons.append(f"{legacy_instruction_count} active card(s) still reference a retired local path.")
+    if historical_failed_count:
+        reasons.append(f"{historical_failed_count} historical failed execution record(s) remain visible in recovery.")
     if active_blockers:
         reasons.extend(active_blockers[:2])
     if not latest_standups:
@@ -455,6 +491,7 @@ def _readiness_summary(
         "label": label,
         "reasons": reasons[:5],
         "failed_executions": failed_count,
+        "historical_failed_executions": historical_failed_count,
         "state_mismatches": mismatch_count,
         "expired_instructions": expired_count,
         "legacy_instructions": legacy_instruction_count,
@@ -534,6 +571,7 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
         or bool((card.get("truth") or {}).get("legacy_instruction"))
         or str((card.get("truth") or {}).get("freshness") or "") == "expired"
     ]
+    historical_recovery_cards = [card for card in system_issue_cards if _is_historical_failed_recovery(card)]
     attention_summary = _attention_summary(
         operator_cards=operator_cards,
         system_issue_cards=system_issue_cards,
@@ -617,6 +655,7 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
             "needs_owner_pm_cards": int(attention_summary.get("needs_owner_pm_cards") or 0),
             "needs_host_pm_cards": int(attention_summary.get("needs_host_pm_cards") or 0),
             "system_issue_pm_cards": len(system_issue_cards),
+            "historical_recovery_pm_cards": len(historical_recovery_cards),
             "latest_standups": len(latest_standups),
             "standup_blockers": blocker_count,
         },

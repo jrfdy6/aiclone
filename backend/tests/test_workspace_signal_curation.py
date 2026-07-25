@@ -1020,6 +1020,22 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
             "Automation drift remains: mismatch_count=1, action_required_count=1.",
         )
 
+    def test_automation_drift_requires_an_action_before_becoming_a_blocker(self) -> None:
+        self.assertEqual(self.build_standup._automation_drift_blocker(21, 0), "")
+        self.assertEqual(
+            self.build_standup._automation_drift_blocker(1, 1),
+            "Automation drift remains: mismatch_count=1, action_required_count=1.",
+        )
+        self.assertEqual(
+            self.build_standup._build_artifact_deltas(
+                [],
+                {"mismatch_count": 21, "action_required_count": 0},
+                {},
+                {},
+            ),
+            ["Automation: mismatch_count=21, action_required_count=0."],
+        )
+
     def test_sync_chronicle_canonicalizes_cross_workspace_routing_signal(self) -> None:
         text = (
             "I think a great place to start is with jean claude he will be executing in multiple wrkspaces and that is only going to increase in the future."

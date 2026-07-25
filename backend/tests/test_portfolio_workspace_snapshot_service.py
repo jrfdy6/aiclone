@@ -63,7 +63,7 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
                 blockers=["Needs owner proof"],
                 needs=[],
                 payload={"standup_kind": "workspace_sync", "summary": "Check delegated proof."},
-                created_at=datetime(2026, 4, 19, tzinfo=timezone.utc),
+                created_at=datetime.now(timezone.utc),
             )
 
             with patch.object(service, "workspace_registry_entries", return_value=(entry,)), patch.object(
@@ -116,7 +116,7 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
                 ],
                 needs=[],
                 payload={"standup_kind": "workspace_sync", "summary": "Check FEEZIE proof."},
-                created_at=datetime(2026, 4, 19, tzinfo=timezone.utc),
+                created_at=datetime.now(timezone.utc),
             )
 
             with patch.object(service, "workspace_registry_entries", return_value=(entry,)), patch.object(
@@ -204,7 +204,7 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
                 blockers=[],
                 needs=[],
                 payload={"standup_kind": "workspace_sync", "summary": "FEEZIE is current."},
-                created_at=datetime(2026, 4, 20, tzinfo=timezone.utc),
+                created_at=datetime.now(timezone.utc),
             )
             older = SimpleNamespace(
                 id="standup-old",
@@ -313,7 +313,7 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
                 ],
                 needs=[],
                 payload={"standup_kind": "executive_ops", "summary": "Executive is current."},
-                created_at=datetime(2026, 4, 20, tzinfo=timezone.utc),
+                created_at=datetime.now(timezone.utc),
             )
 
             with patch.object(service, "workspace_registry_entries", return_value=(entry,)), patch.object(
@@ -334,6 +334,209 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
         workspace = snapshot["workspaces"][0]
         self.assertEqual(workspace["active_blockers"], ["Automation drift remains: mismatch_count=1, action_required_count=1."])
         self.assertEqual(workspace["counts"]["standup_blockers"], 1)
+
+    def test_build_snapshot_treats_observational_automation_drift_as_healthy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir) / "workspaces" / "shared-ops"
+            workspace_root.mkdir(parents=True)
+            entry = {
+                "key": "shared_ops",
+                "kind": "executive",
+                "display_name": "Executive",
+                "workspace_root": "shared-ops",
+                "status": "live",
+                "priority_order": 0,
+                "portfolio_visible": False,
+            }
+            standup = SimpleNamespace(
+                id="standup-observational-drift",
+                status="queued",
+                workspace_key="shared_ops",
+                blockers=["Automation drift remains: mismatch_count=21, action_required_count=0."],
+                commitments=[],
+                needs=[],
+                payload={"standup_kind": "executive_ops", "summary": "No action is required."},
+                created_at=datetime.now(timezone.utc),
+            )
+
+            with patch.object(service, "workspace_registry_entries", return_value=(entry,)), patch.object(
+                service,
+                "workspace_root_path",
+                return_value=workspace_root,
+            ), patch.object(service, "workspace_root_slug", return_value="shared-ops"), patch.object(
+                service.pm_card_service,
+                "list_cards",
+                return_value=[],
+            ), patch.object(service.standup_service, "list_standups", return_value=[standup]), patch.object(
+                service,
+                "list_snapshot_payloads",
+                return_value={},
+            ):
+                snapshot = service.build_portfolio_workspace_snapshot()
+
+        workspace = snapshot["workspaces"][0]
+        self.assertEqual(workspace["active_blockers"], [])
+        self.assertEqual(workspace["counts"]["standup_blockers"], 0)
+        self.assertEqual(workspace["readiness"]["state"], "healthy")
+        self.assertFalse(workspace["has_system_issue"])
+
+    def test_build_snapshot_keeps_stale_failed_recovery_visible_without_degrading_current_health(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir) / "workspaces" / "easy-outfit-app"
+            workspace_root.mkdir(parents=True)
+            entry = {
+                "key": "easy-outfit-app",
+                "kind": "workspace",
+                "display_name": "Easy Outfit App",
+                "workspace_root": "easy-outfit-app",
+                "status": "live",
+                "priority_order": 3,
+                "portfolio_visible": True,
+            }
+            card = SimpleNamespace(
+                id="historical-recovery-card",
+                title="Capture the first Easy Outfit App traffic baseline proof",
+                status="failed",
+                owner="Easy Outfit App Operator",
+                source="test",
+                link_type="execution",
+                payload={
+                    "workspace_key": "easy-outfit-app",
+                    "execution": {
+                        "state": "failed",
+                        "last_transition_at": "2025-04-29T17:19:00Z",
+                    },
+                },
+                created_at=datetime(2025, 4, 29, tzinfo=timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            standup = SimpleNamespace(
+                id="current-easy-outfit-standup",
+                status="queued",
+                workspace_key="easy-outfit-app",
+                blockers=[],
+                commitments=[],
+                needs=[],
+                payload={"standup_kind": "workspace_sync", "summary": "Current Easy Outfit state."},
+                created_at=datetime.now(timezone.utc),
+            )
+
+            with patch.object(service, "workspace_registry_entries", return_value=(entry,)), patch.object(
+                service,
+                "workspace_root_path",
+                return_value=workspace_root,
+            ), patch.object(service, "workspace_root_slug", return_value="easy-outfit-app"), patch.object(
+                service.pm_card_service,
+                "list_cards",
+                return_value=[card],
+            ), patch.object(
+                service.pm_card_service,
+                "decorate_card_for_client",
+                return_value=card,
+            ), patch.object(service.standup_service, "list_standups", return_value=[standup]), patch.object(
+                service,
+                "list_snapshot_payloads",
+                return_value={},
+            ):
+                snapshot = service.build_portfolio_workspace_snapshot()
+
+        workspace = snapshot["workspaces"][0]
+        self.assertEqual(workspace["counts"]["active_pm_cards"], 1)
+        self.assertEqual(workspace["counts"]["system_issue_pm_cards"], 1)
+        self.assertEqual(workspace["counts"]["historical_recovery_pm_cards"], 1)
+        self.assertEqual(workspace["active_pm_cards"][0]["truth"]["freshness"], "stale")
+        self.assertEqual(workspace["attention"]["failed_pm_cards"], 0)
+        self.assertEqual(workspace["attention"]["historical_failed_pm_cards"], 1)
+        self.assertEqual(workspace["readiness"]["failed_executions"], 0)
+        self.assertEqual(workspace["readiness"]["historical_failed_executions"], 1)
+        self.assertEqual(workspace["readiness"]["state"], "watch")
+        self.assertIn("historical failed execution", workspace["readiness"]["reasons"][0])
+        self.assertFalse(workspace["has_system_issue"])
+
+    def test_stale_execution_state_mismatch_remains_a_current_integrity_issue(self) -> None:
+        card = {
+            "truth": {
+                "execution_class": "failed",
+                "freshness": "stale",
+                "state_mismatch": True,
+            }
+        }
+
+        attention = service._attention_summary(
+            operator_cards=[],
+            system_issue_cards=[card],
+            active_blockers=[],
+        )
+        readiness = service._readiness_summary(
+            latest_standups=[],
+            system_issue_cards=[card],
+            active_blockers=[],
+        )
+
+        self.assertEqual(attention["failed_pm_cards"], 0)
+        self.assertEqual(attention["historical_failed_pm_cards"], 1)
+        self.assertEqual(attention["state_mismatch_pm_cards"], 1)
+        self.assertTrue(attention["has_system_issue"])
+        self.assertEqual(readiness["failed_executions"], 0)
+        self.assertEqual(readiness["state_mismatches"], 1)
+        self.assertEqual(readiness["state"], "degraded")
+
+    def test_build_snapshot_treats_stale_standup_blocker_as_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir) / "workspaces" / "agc"
+            workspace_root.mkdir(parents=True)
+            entry = {
+                "key": "agc",
+                "kind": "workspace",
+                "display_name": "AGC",
+                "workspace_root": "agc",
+                "status": "live",
+                "priority_order": 4,
+                "portfolio_visible": True,
+            }
+            standup = SimpleNamespace(
+                id="historical-standup",
+                status="queued",
+                workspace_key="agc",
+                blockers=["An old blocker remains in the historical record."],
+                commitments=[],
+                needs=[],
+                payload={"standup_kind": "workspace_sync", "summary": "Historical AGC state."},
+                created_at=datetime(2025, 4, 29, tzinfo=timezone.utc),
+            )
+
+            with patch.object(service, "workspace_registry_entries", return_value=(entry,)), patch.object(
+                service,
+                "workspace_root_path",
+                return_value=workspace_root,
+            ), patch.object(service, "workspace_root_slug", return_value="agc"), patch.object(
+                service.pm_card_service,
+                "list_cards",
+                return_value=[],
+            ), patch.object(service.standup_service, "list_standups", return_value=[standup]), patch.object(
+                service,
+                "list_snapshot_payloads",
+                return_value={},
+            ):
+                snapshot = service.build_portfolio_workspace_snapshot()
+
+        workspace = snapshot["workspaces"][0]
+        self.assertEqual(workspace["active_blockers"], [])
+        self.assertEqual(workspace["counts"]["standup_blockers"], 0)
+        self.assertEqual(workspace["readiness"]["state"], "watch")
+        self.assertFalse(workspace["has_system_issue"])
+
+    def test_alias_aware_services_are_queried_once_per_workspace(self) -> None:
+        with patch.object(service.pm_card_service, "list_cards", return_value=[]) as list_cards, patch.object(
+            service.standup_service,
+            "list_standups",
+            return_value=[],
+        ) as list_standups:
+            service._safe_pm_cards("feezie-os", limit=8)
+            service._safe_standups("feezie-os", limit=5)
+
+        list_cards.assert_called_once_with(workspace_key="feezie-os", limit=8)
+        list_standups.assert_called_once_with(workspace_key="feezie-os", limit=5)
 
     def test_build_snapshot_labels_owner_review_attention(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

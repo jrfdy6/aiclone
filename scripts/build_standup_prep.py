@@ -904,6 +904,15 @@ def _build_pm_snapshot(pm_context: dict[str, Any], workspace_key: str, workspace
     }
 
 
+def _automation_drift_blocker(mismatch_count: int, action_required_count: int) -> str:
+    if action_required_count <= 0:
+        return ""
+    return (
+        "Automation drift remains: "
+        f"mismatch_count={mismatch_count}, action_required_count={action_required_count}."
+    )
+
+
 def _build_artifact_deltas(
     chronicle_entries: list[dict[str, Any]],
     automation_context: dict[str, Any],
@@ -2455,10 +2464,9 @@ def main() -> int:
         or (automation_context.get("fallback") or {}).get("action_required_count")
         or 0
     )
-    if mismatch_count or action_required:
-        blockers.append(
-            f"Automation drift remains: mismatch_count={mismatch_count}, action_required_count={action_required}."
-        )
+    automation_drift_blocker = _automation_drift_blocker(mismatch_count, action_required)
+    if automation_drift_blocker:
+        blockers.append(automation_drift_blocker)
     for card in pm_snapshot.get("cards") or []:
         status = str(card.get("status") or "ready")
         title = str(card.get("title") or "Untitled").strip()

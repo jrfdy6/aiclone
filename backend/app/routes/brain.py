@@ -72,6 +72,11 @@ def _bounded_timeout_setting(name: str, default: float, maximum: float) -> float
 
 
 BRAIN_READ_TIMEOUT_SECONDS = _bounded_timeout_setting("BRAIN_READ_TIMEOUT_SECONDS", 5.0, 10.0)
+PORTFOLIO_SNAPSHOT_READ_TIMEOUT_SECONDS = _bounded_timeout_setting(
+    "PORTFOLIO_SNAPSHOT_READ_TIMEOUT_SECONDS",
+    10.0,
+    20.0,
+)
 YOUTUBE_WATCHLIST_READ_TIMEOUT_SECONDS = _bounded_timeout_setting(
     "YOUTUBE_WATCHLIST_READ_TIMEOUT_SECONDS",
     4.0,
@@ -172,7 +177,7 @@ async def get_portfolio_snapshot(response: Response):
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return await _run_bounded_read(
         build_portfolio_workspace_snapshot,
-        timeout_seconds=BRAIN_READ_TIMEOUT_SECONDS,
+        timeout_seconds=PORTFOLIO_SNAPSHOT_READ_TIMEOUT_SECONDS,
         label="Brain portfolio snapshot",
     )
 

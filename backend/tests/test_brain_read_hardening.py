@@ -100,6 +100,31 @@ class BrainReadHardeningTests(unittest.TestCase):
         self.assertEqual(raised.status_code, 504)
         self.assertLess(elapsed, 0.25)
 
+    def test_portfolio_snapshot_read_has_its_own_server_deadline(self) -> None:
+        release = threading.Event()
+
+        def blocked_build() -> dict[str, object]:
+            release.wait(timeout=1)
+            return {}
+
+        async def exercise() -> HTTPException:
+            try:
+                await brain_routes.get_portfolio_snapshot(Response())
+            except HTTPException as exc:
+                release.set()
+                return exc
+            raise AssertionError("expected the bounded read to time out")
+
+        with patch.object(brain_routes, "build_portfolio_workspace_snapshot", side_effect=blocked_build), patch.object(
+            brain_routes,
+            "PORTFOLIO_SNAPSHOT_READ_TIMEOUT_SECONDS",
+            0.02,
+        ):
+            raised = asyncio.run(exercise())
+
+        self.assertEqual(raised.status_code, 504)
+        self.assertEqual(raised.detail, "Brain portfolio snapshot timed out.")
+
     def test_youtube_get_uses_persisted_read_api(self) -> None:
         persisted = {"data_mode": "persisted", "channels": [], "counts": {"channels": 0, "videos": 0}}
         with patch.object(
