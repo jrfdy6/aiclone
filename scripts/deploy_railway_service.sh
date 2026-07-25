@@ -5,6 +5,7 @@ WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$WORKSPACE_ROOT"
 STAGE_ROOT="${RAILWAY_STAGE_ROOT:-${TMPDIR:-/tmp}/aiclone-railway-stage}"
 CANONICAL_DATA_ROOT="${AI_CLONE_ROOT:-/Users/neo/Documents/Codex/AI-Clone}"
+LOCAL_STATE_ROOT="${AI_CLONE_STATE_ROOT:-$HOME/.codex/ai-clone/state}"
 DATA_ROOT="$WORKSPACE_ROOT"
 PYTHON_BIN="${PYTHON_BIN:-}"
 
@@ -49,11 +50,41 @@ rsync_if_exists() {
 
 stage_source_intelligence() {
   local target_root="$1"
-  rsync_if_exists "$DATA_ROOT/knowledge/source-intelligence/" "$target_root/knowledge/source-intelligence/"
-  if [ -f "$DATA_ROOT/knowledge/source-intelligence/index.json" ]; then
-    mkdir -p "$target_root/knowledge/source-intelligence"
-    rsync -a "$DATA_ROOT/knowledge/source-intelligence/index.json" "$target_root/knowledge/source-intelligence/index.json.txt"
+  local generated_index="$LOCAL_STATE_ROOT/memory/source-intelligence/index.json"
+  local index_source="$DATA_ROOT/knowledge/source-intelligence/index.json"
+  local destination_root="$target_root/knowledge/source-intelligence"
+  if [ -f "$generated_index" ]; then
+    index_source="$generated_index"
   fi
+  # The local registry contains private summaries, routing evidence, and local
+  # paths. Never copy that directory or index wholesale. The projector retains
+  # aggregate health counts and only explicitly shareable source packets.
+  if [ -f "$index_source" ]; then
+    mkdir -p "$destination_root"
+    "$PYTHON_BIN" "$WORKSPACE_ROOT/scripts/source_intelligence_cloud_projection.py" \
+      --input "$index_source" \
+      --output "$destination_root/index.json"
+    rsync -a "$destination_root/index.json" "$destination_root/index.json.txt"
+  fi
+}
+
+stage_shared_aiclone_transcripts() {
+  local target_root="$1"
+  local source_root="$DATA_ROOT/knowledge/aiclone/transcripts"
+  if [ ! -d "$source_root" ]; then
+    return
+  fi
+  mkdir -p "$target_root/knowledge/aiclone/transcripts"
+  # Only normalized packets named for explicit sharing may cross the local
+  # deployment boundary. Raw transcripts and future unclassified files remain
+  # on the operator machine.
+  rsync -a \
+    --include='*/' \
+    --include='*.shared_source_packet.json' \
+    --include='README.md' \
+    --exclude='*' \
+    "$source_root/" \
+    "$target_root/knowledge/aiclone/transcripts/"
 }
 
 stage_repo_docs() {
@@ -84,7 +115,11 @@ stage_repo_docs() {
 stage_frontend_brain_sources() {
   local target_root="$1"
 
-  rsync_if_exists "$DATA_ROOT/knowledge/aiclone/" "$target_root/knowledge/aiclone/"
+  if [ -d "$DATA_ROOT/knowledge/aiclone" ]; then
+    mkdir -p "$target_root/knowledge/aiclone"
+    rsync -a --exclude='transcripts/' "$DATA_ROOT/knowledge/aiclone/" "$target_root/knowledge/aiclone/"
+  fi
+  stage_shared_aiclone_transcripts "$target_root"
   stage_source_intelligence "$target_root"
   rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$target_root/knowledge/persona/feeze/"
   stage_repo_docs "$target_root"
@@ -215,16 +250,14 @@ if [ "$SERVICE_NAME" = "aiclone-backend" ]; then
   mkdir -p "$STAGE_DIR/memory" "$STAGE_DIR/$CHILD_DIR/memory"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona" "$STAGE_DIR/$CHILD_DIR/app/knowledge/source-intelligence"
   mkdir -p "$STAGE_DIR/$CHILD_DIR/SOPs" "$STAGE_DIR/$CHILD_DIR/deliverables" "$STAGE_DIR/$CHILD_DIR/docs"
+  rsync_if_exists "$REPO_ROOT/scripts/runtime_paths.py" "$STAGE_DIR/scripts/runtime_paths.py"
+  rsync_if_exists "$REPO_ROOT/scripts/runtime_paths.py" "$STAGE_DIR/$CHILD_DIR/scripts/runtime_paths.py"
   rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/knowledge/persona/feeze/"
   rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/knowledge/persona/feeze/"
   rsync_if_exists "$DATA_ROOT/knowledge/persona/feeze/" "$STAGE_DIR/$CHILD_DIR/app/knowledge/persona/feeze/"
-  rsync_if_exists "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/knowledge/aiclone/transcripts/"
-  rsync_if_exists "$DATA_ROOT/knowledge/aiclone/transcripts/" "$STAGE_DIR/$CHILD_DIR/knowledge/aiclone/transcripts/"
   stage_source_intelligence "$STAGE_DIR"
   stage_source_intelligence "$STAGE_DIR/$CHILD_DIR"
   stage_source_intelligence "$STAGE_DIR/$CHILD_DIR/app"
-  rsync_if_exists "$DATA_ROOT/memory/brain_signals.jsonl" "$STAGE_DIR/memory/brain_signals.jsonl"
-  rsync_if_exists "$DATA_ROOT/memory/brain_signals.jsonl" "$STAGE_DIR/$CHILD_DIR/memory/brain_signals.jsonl"
   if [ -d "$DATA_ROOT/knowledge/ingestions" ]; then
     rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/knowledge/ingestions/"
     rsync -a "${INGEST_RSYNC_EXCLUDES[@]}" "$DATA_ROOT/knowledge/ingestions/" "$STAGE_DIR/$CHILD_DIR/knowledge/ingestions/"

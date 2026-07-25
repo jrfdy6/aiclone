@@ -20,11 +20,29 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+LOCAL_SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+if str(LOCAL_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(LOCAL_SCRIPTS_ROOT))
+
+from runtime_paths import (
+    PROJECT_ROOT,
+    STATE_ROOT,
+    memory_state_path,
+    resolve_memory_read_path,
+    resolve_workspace_read_path,
+    seed_memory_state_file,
+    seed_workspace_state_file,
+    workspace_state_path,
+    workspace_state_root,
+)
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
 RUNNERS_ROOT = SCRIPTS_ROOT / "runners"
-MEMORY_ROOT = WORKSPACE_ROOT / "memory"
+DEFAULT_MEMORY_ROOT = memory_state_path(state_root=STATE_ROOT)
+MEMORY_ROOT = DEFAULT_MEMORY_ROOT
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
 SAFE_CODEX_CLI_MODEL = "gpt-5.4"
 DEFAULT_MODEL = SAFE_CODEX_CLI_MODEL
@@ -37,6 +55,7 @@ HOST_ACTION_AUTOMATION_LINKEDIN_SCHEDULED_WRITEBACK = "linkedin_scheduled_writeb
 HOST_ACTION_AUTOMATION_STANDUP_PREP_WRITEBACK = "standup_prep_writeback"
 HOST_ACTION_AUTOMATION_EXECUTION_RESULT_WRITEBACK_PROOF = "execution_result_writeback_proof"
 LINKEDIN_WORKSPACE_RELATIVE_ROOT = Path("workspaces/linkedin-content-os")
+FEEZIE_WORKSPACE_KEY = "feezie-os"
 FEEZIE_QUEUE_ID_PATTERN = re.compile(r"\bFEEZIE-\d{3}\b", re.IGNORECASE)
 EASTERN_TZ = ZoneInfo("America/New_York")
 STANDUP_DECISION_LOOP_TARGETS = (
@@ -87,17 +106,38 @@ if str(BACKEND_ROOT) not in sys.path:
 from automation_run_mirror import build_run_payload, mirror_runs
 from codex_subprocess_env import codex_worker_security_args, minimal_codex_env
 from app.security.execution_authorization import verify_execution_payload
+from app.services.execution_artifact_reference_service import (
+    contains_private_filesystem_reference,
+    encode_local_execution_artifact_reference,
+    resolve_local_execution_artifact_reference,
+)
 from app.services.execution_gate_service import require_current_execution_gate
 from app.services.brain_local_action_queue_service import validate_brain_local_action
+from app.services.workspace_registry_service import (
+    canonicalize_workspace_key,
+    workspace_root_slug,
+)
 from chronicle_memory_contract import build_workspace_memory_contract
 from runner_lock import execute_with_runner_lock
 from runtime_http import control_plane_headers, open_control_plane_request, validate_control_plane_url
 from runner_security import (
     require_execution_packet,
     require_repo_path,
-    resolve_workspace_root,
+    resolve_execution_workspace_root,
     validate_workspace_key,
 )
+
+
+def _active_state_root() -> Path:
+    if WORKSPACE_ROOT.expanduser().resolve() != PROJECT_ROOT.expanduser().resolve():
+        return WORKSPACE_ROOT / ".ai-clone-state"
+    if MEMORY_ROOT.expanduser().resolve() != DEFAULT_MEMORY_ROOT.expanduser().resolve():
+        return MEMORY_ROOT.parent
+    return STATE_ROOT
+
+
+def _active_memory_root() -> Path:
+    return memory_state_path(state_root=_active_state_root())
 
 
 def _signed_jobs_required() -> bool:
@@ -369,11 +409,14 @@ def _ready_linkedin_host_action_has_confirmation_evidence(card: dict[str, Any]) 
     if scheduled_at is None:
         return False
 
-    analytics_dir = _linkedin_workspace_root() / "analytics" / f"{scheduled_at.astimezone(EASTERN_TZ).date().isoformat()}_{queue_id.lower()}"
+    analytics_relative = Path("analytics") / (
+        f"{scheduled_at.astimezone(EASTERN_TZ).date().isoformat()}_{queue_id.lower()}"
+    )
+    analytics_dir = _linkedin_workspace_root() / analytics_relative
     confirmation_path = _resolve_linkedin_confirmation_path(str(automation.get("confirmation_path") or ""), analytics_dir)
     if confirmation_path.exists():
         return True
-    receipt_path = analytics_dir / "scheduled_receipt.json"
+    receipt_path = _linkedin_read_path(analytics_relative / "scheduled_receipt.json")
     return receipt_path.exists()
 
 
@@ -630,7 +673,31 @@ def _relative_workspace_path(path: Path) -> str:
 
 
 def _linkedin_workspace_root() -> Path:
+    return workspace_state_root(FEEZIE_WORKSPACE_KEY, state_root=_active_state_root())
+
+
+def _linkedin_source_root() -> Path:
     return WORKSPACE_ROOT / LINKEDIN_WORKSPACE_RELATIVE_ROOT
+
+
+def _linkedin_read_path(relative_path: str | Path) -> Path:
+    return resolve_workspace_read_path(
+        FEEZIE_WORKSPACE_KEY,
+        relative_path,
+        source_root=_linkedin_source_root(),
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    )
+
+
+def _linkedin_mutable_path(relative_path: str | Path) -> Path:
+    return seed_workspace_state_file(
+        FEEZIE_WORKSPACE_KEY,
+        relative_path,
+        source_root=_linkedin_source_root(),
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    )
 
 
 def _extract_feezie_queue_id(*values: Any) -> str | None:
@@ -724,15 +791,25 @@ def _format_scheduled_et(dt: datetime) -> str:
 
 
 def _find_linkedin_release_packet(queue_slug: str) -> Path | None:
-    release_dir = _linkedin_workspace_root() / "docs" / "release_packets"
-    if not release_dir.exists():
-        return None
-    matches = sorted(
-        release_dir.glob(f"{queue_slug}_schedule_packet*.md"),
+    state_release_dir = _linkedin_workspace_root() / "docs" / "release_packets"
+    state_matches = sorted(
+        state_release_dir.glob(f"{queue_slug}_schedule_packet*.md"),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
-    return matches[0] if matches else None
+    if state_matches:
+        return state_matches[0]
+
+    source_release_dir = _linkedin_source_root() / "docs" / "release_packets"
+    source_matches = sorted(
+        source_release_dir.glob(f"{queue_slug}_schedule_packet*.md"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if not source_matches:
+        return None
+    relative = source_matches[0].relative_to(_linkedin_source_root())
+    return _linkedin_mutable_path(relative)
 
 
 def _extract_slot_number(*values: Any) -> str | None:
@@ -919,7 +996,11 @@ def _update_linkedin_release_packet(
 
 
 def _resolve_linkedin_confirmation_path(raw_path: str | None, analytics_dir: Path) -> Path:
-    default_path = analytics_dir / "confirmation.png"
+    try:
+        analytics_relative = analytics_dir.relative_to(_linkedin_workspace_root())
+        default_path = _linkedin_read_path(analytics_relative / "confirmation.png")
+    except ValueError:
+        default_path = analytics_dir / "confirmation.png"
     if not raw_path:
         return default_path
     candidate = Path(raw_path).expanduser()
@@ -928,7 +1009,7 @@ def _resolve_linkedin_confirmation_path(raw_path: str | None, analytics_dir: Pat
     cleaned = str(candidate)
     if cleaned.startswith("workspaces/"):
         return WORKSPACE_ROOT / cleaned
-    return _linkedin_workspace_root() / cleaned
+    return _linkedin_read_path(cleaned)
 
 
 def _run_linkedin_scheduled_writeback_automation(
@@ -982,10 +1063,13 @@ def _run_linkedin_scheduled_writeback_automation(
     release_packet_path = _find_linkedin_release_packet(queue_slug)
     release_text = release_packet_path.read_text(encoding="utf-8") if release_packet_path and release_packet_path.exists() else ""
     slot_number = _extract_slot_number(release_text, text_blob)
-    analytics_dir = workspace_root / "analytics" / f"{scheduled_at.astimezone(EASTERN_TZ).date().isoformat()}_{queue_slug}"
-    analytics_log_path = analytics_dir / "log_template.md"
-    schedule_path = workspace_root / "docs" / "publishing_schedule_2026-04-11.md"
-    queue_path = workspace_root / "drafts" / "queue_01.md"
+    analytics_relative = Path("analytics") / (
+        f"{scheduled_at.astimezone(EASTERN_TZ).date().isoformat()}_{queue_slug}"
+    )
+    analytics_dir = workspace_root / analytics_relative
+    analytics_log_path = _linkedin_mutable_path(analytics_relative / "log_template.md")
+    schedule_path = _linkedin_mutable_path("docs/publishing_schedule_2026-04-11.md")
+    queue_path = _linkedin_mutable_path("drafts/queue_01.md")
     confirmation_path = _resolve_linkedin_confirmation_path(str(automation.get("confirmation_path") or ""), analytics_dir)
     receipt_path = analytics_dir / "scheduled_receipt.json"
 
@@ -1146,7 +1230,11 @@ def _run_linkedin_scheduled_writeback_automation(
 
 
 def _load_saved_watchdog_report() -> dict[str, Any]:
-    report_path = MEMORY_ROOT / "reports" / "fallback_watchdog_latest.json"
+    report_path = resolve_memory_read_path(
+        "reports/fallback_watchdog_latest.json",
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    )
     if not report_path.exists():
         raise RuntimeError(f"Fallback watchdog report was not written: {report_path}")
     return json.loads(report_path.read_text(encoding="utf-8"))
@@ -1186,10 +1274,8 @@ def _source_work_order_path(source_card: dict[str, Any]) -> Path:
         candidates.append(packet_path)
     for candidate in candidates:
         if candidate.endswith("_jean_claude_work_order.json") or candidate.endswith("_work_order.json"):
-            path = Path(candidate).expanduser()
-            if not path.is_absolute():
-                path = WORKSPACE_ROOT / path
-            if path.exists():
+            path = _local_path_from_artifact(candidate)
+            if path is not None and path.exists():
                 return path
     raise RuntimeError(f"Could not find a source work order for PM card {source_card.get('id')}")
 
@@ -1227,10 +1313,16 @@ def _builder_json_path_from_stdout(stdout: str, *, standup_kind: str) -> Path:
 
 
 def _latest_standup_prep_path(standup_kind: str) -> Path | None:
-    root = MEMORY_ROOT / "standup-prep" / standup_kind
-    if not root.exists():
-        return None
-    matches = sorted(root.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    roots = (
+        _active_memory_root() / "standup-prep" / standup_kind,
+        WORKSPACE_ROOT / "memory" / "runtime" / "standup-prep" / standup_kind,
+        WORKSPACE_ROOT / "memory" / "standup-prep" / standup_kind,
+    )
+    matches = sorted(
+        {path for root in roots for path in root.glob("*.json")},
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
     return matches[0] if matches else None
 
 
@@ -1280,9 +1372,51 @@ def _local_path_from_artifact(value: str) -> Path | None:
     path = Path(cleaned).expanduser()
     if path.is_absolute():
         return path
+    logical_path = resolve_local_execution_artifact_reference(
+        cleaned,
+        state_root=_active_state_root(),
+        project_root=WORKSPACE_ROOT,
+    )
+    if logical_path is not None:
+        return logical_path
     if cleaned.startswith(("memory/", "workspaces/", "docs/", "backend/", "scripts/")):
         return WORKSPACE_ROOT / path
     return None
+
+
+def _remote_artifact_reference(value: str | Path | None) -> str:
+    """Return a control-plane-safe reference while retaining local resolution."""
+
+    cleaned = str(value or "").strip().strip("`").rstrip(".,;")
+    if not cleaned:
+        return ""
+    return encode_local_execution_artifact_reference(
+        cleaned,
+        state_root=_active_state_root(),
+        project_root=WORKSPACE_ROOT,
+    )
+
+
+def _remote_artifact_references(values: list[str]) -> list[str]:
+    references: list[str] = []
+    for value in values:
+        reference = _remote_artifact_reference(value)
+        if reference and reference not in references:
+            references.append(reference)
+    return references
+
+
+def _append_remote_safe_proof_items(target: list[str], values: list[Any]) -> None:
+    """Append caller-provided proof only when it contains no host-private path."""
+
+    for value in values:
+        cleaned = str(value or "").strip()
+        if (
+            cleaned
+            and not contains_private_filesystem_reference(cleaned)
+            and cleaned not in target
+        ):
+            target.append(cleaned)
 
 
 def _existing_artifacts(artifacts: list[str]) -> list[str]:
@@ -1473,29 +1607,34 @@ def _run_execution_result_writeback_proof_automation(
             "Source execution result does not cite required artifact(s): " + ", ".join(missing_references)
         )
 
+    remote_result_memo = _remote_artifact_reference(result_memo)
+    remote_result_json = _remote_artifact_reference(result_json)
+    remote_artifacts = _remote_artifact_references(artifacts)
+    remote_required_paths = _remote_artifact_references(required_paths)
     proof_items = [
         (
             "Execution-result proof: "
-            f"{result_memo or 'latest runner memo'}"
-            + (f" and {result_json}" if result_json else "")
+            f"{remote_result_memo or 'latest runner memo'}"
+            + (f" and {remote_result_json}" if remote_result_json else "")
             + f" record the writer result for PM card {source_card_id}."
         ),
         (
             f"PM state proof: PM card {source_card_id} is {source_status} with latest_execution_result "
-            f"status={result_status} and artifacts including {', '.join(artifacts[:4])}."
+            f"status={result_status} and artifacts including {', '.join(remote_artifacts[:4])}."
         ),
     ]
-    if required_paths:
-        proof_items.append("Required artifact proof: " + ", ".join(required_paths) + " is cited by the source result.")
+    if remote_required_paths:
+        proof_items.append(
+            "Required artifact proof: "
+            + ", ".join(remote_required_paths)
+            + " is cited by the source result."
+        )
     for item in latest_result.get("learnings") or []:
         cleaned = str(item).strip()
-        if cleaned:
+        if cleaned and not contains_private_filesystem_reference(cleaned):
             proof_items.append(f"Learning proof: {cleaned}")
             break
-    for item in automation.get("proof_items") or []:
-        cleaned = str(item).strip()
-        if cleaned and cleaned not in proof_items:
-            proof_items.append(cleaned)
+    _append_remote_safe_proof_items(proof_items, list(automation.get("proof_items") or []))
 
     close_result = _fetch_json(
         f"{api_url}/api/pm/cards/{card['id']}/actions",
@@ -1524,14 +1663,18 @@ def _run_execution_result_writeback_proof_automation(
     return {
         "status": "ok",
         "summary": f"Host action automation verified execution-result writer proof for PM card {source_card_id} and closed the host card.",
-        "artifacts": [item for item in [result_memo, result_json, *required_paths] if item],
+        "artifacts": [
+            item
+            for item in [remote_result_memo, remote_result_json, *remote_required_paths]
+            if item
+        ],
         "proof_items": proof_items,
         "metadata": {
             "source_card_id": source_card_id,
             "host_card_id": card["id"],
-            "result_memo": result_memo,
-            "result_json": result_json,
-            "required_paths": required_paths,
+            "result_memo": remote_result_memo,
+            "result_json": remote_result_json,
+            "required_paths": remote_required_paths,
             "close_status": dict(close_result.get("card") or {}).get("status") if isinstance(close_result, dict) else None,
         },
     }
@@ -1629,31 +1772,33 @@ def _run_standup_prep_writeback_automation(
         if str(item).strip()
     ]
 
+    prep_reference = _remote_artifact_reference(prep_path)
+    refreshed_memo_reference = _remote_artifact_reference(refreshed_memo)
+    refreshed_result_reference = _remote_artifact_reference(refreshed_result_json)
+    source_artifact_references = _remote_artifact_references(source_artifacts)
     proof_items = [
         (
             "Execution-result proof: "
-            f"{refreshed_memo or 'latest runner memo'}"
-            + (f" and {refreshed_result_json}" if refreshed_result_json else "")
+            f"{refreshed_memo_reference or 'latest runner memo'}"
+            + (f" and {refreshed_result_reference}" if refreshed_result_reference else "")
             + f" record the result for PM card {source_card_id}."
         ),
         (
             f"PM state proof: PM card {source_card_id} is {source_status}"
             + (
-                f" with latest_execution_result artifacts including {', '.join(source_artifacts[:4])}."
-                if source_artifacts
+                " with latest_execution_result artifacts including "
+                + f"{', '.join(source_artifact_references[:4])}."
+                if source_artifact_references
                 else "."
             )
         ),
         (
-            f"Fresh standup prep proof: {prep_path} generated_at={generated_at} contains "
+            f"Fresh standup prep proof: {prep_reference} generated_at={generated_at} contains "
             f"decision_loop.active=true and routing_targets {', '.join(routing_targets)}; "
             "the same decision_loop is present under standup_payload.payload.decision_loop."
         ),
     ]
-    for item in automation.get("proof_items") or []:
-        cleaned = str(item).strip()
-        if cleaned and cleaned not in proof_items:
-            proof_items.append(cleaned)
+    _append_remote_safe_proof_items(proof_items, list(automation.get("proof_items") or []))
 
     close_result = _fetch_json(
         f"{api_url}/api/pm/cards/{card['id']}/actions",
@@ -1662,7 +1807,7 @@ def _run_standup_prep_writeback_automation(
             "action": "approve",
             "requested_by": "Host Action Automation",
             "reason": (
-                f"Host automation complete: generated fresh {standup_kind} standup prep {prep_path} "
+                f"Host automation complete: generated fresh {standup_kind} standup prep {prep_reference} "
                 f"with decision_loop.active=true and verified source PM card {source_card_id} writer evidence."
             ),
             "resolution_mode": "close_only",
@@ -1679,11 +1824,11 @@ def _run_standup_prep_writeback_automation(
         proof_items=proof_items,
         status="done",
     )
-    artifacts = [str(prep_path)]
-    if refreshed_memo:
-        artifacts.append(refreshed_memo)
-    if refreshed_result_json:
-        artifacts.append(refreshed_result_json)
+    artifacts = [prep_reference]
+    if refreshed_memo_reference:
+        artifacts.append(refreshed_memo_reference)
+    if refreshed_result_reference:
+        artifacts.append(refreshed_result_reference)
     return {
         "status": "ok",
         "summary": (
@@ -1697,8 +1842,7 @@ def _run_standup_prep_writeback_automation(
             "host_card_id": card["id"],
             "standup_workspace_key": standup_workspace_key,
             "standup_kind": standup_kind,
-            "prep_json_path": str(prep_path),
-            "builder_stdout": builder.stdout[-2000:],
+            "prep_json_path": prep_reference,
             "close_status": dict(close_result.get("card") or {}).get("status") if isinstance(close_result, dict) else None,
         },
     }
@@ -1737,13 +1881,23 @@ def _run_fallback_watchdog_writeback_automation(
         status="in_progress",
     )
 
-    watchdog = _run_command([sys.executable, str(SCRIPTS_ROOT / "fallback_watchdog.py"), "--api-url", api_url], timeout_seconds=240)
+    watchdog_command = [
+        sys.executable,
+        str(SCRIPTS_ROOT / "fallback_watchdog.py"),
+        "--api-url",
+        api_url,
+        "--output-json",
+        str(_active_memory_root() / "reports" / "fallback_watchdog_latest.json"),
+        "--output-md",
+        str(_active_memory_root() / "reports" / "fallback_watchdog_latest.md"),
+    ]
+    watchdog = _run_command(watchdog_command, timeout_seconds=240)
     if watchdog.returncode != 0:
         raise RuntimeError((watchdog.stderr or watchdog.stdout or "fallback_watchdog.py failed").strip())
     report = _load_saved_watchdog_report()
     source_card = _load_card(imports, api_url, source_card_id)
     work_order = _source_work_order_path(source_card)
-    report_path = str(MEMORY_ROOT / "reports" / "fallback_watchdog_latest.json")
+    report_path = str(_active_memory_root() / "reports" / "fallback_watchdog_latest.json")
     blocked_writer_stdout = ""
     retry_watchdog_stdout = ""
     if not _watchdog_report_ok(report):
@@ -1797,10 +1951,7 @@ def _run_fallback_watchdog_writeback_automation(
         if blocked_writer.returncode != 0:
             raise RuntimeError((blocked_writer.stderr or blocked_writer.stdout or "blocked write_execution_result.py failed").strip())
 
-        retry_watchdog = _run_command(
-            [sys.executable, str(SCRIPTS_ROOT / "fallback_watchdog.py"), "--api-url", api_url],
-            timeout_seconds=240,
-        )
+        retry_watchdog = _run_command(watchdog_command, timeout_seconds=240)
         retry_watchdog_stdout = retry_watchdog.stdout[-2000:]
         if retry_watchdog.returncode != 0:
             raise RuntimeError((retry_watchdog.stderr or retry_watchdog.stdout or "fallback_watchdog.py retry failed").strip())
@@ -2021,19 +2172,38 @@ def _mark_failed(
 
 
 def _parse_work_order(path: Path) -> dict[str, Any]:
-    path = require_execution_packet(path, WORKSPACE_ROOT)
+    path = require_execution_packet(path, WORKSPACE_ROOT, state_root=_active_state_root())
     payload = json.loads(path.read_text(encoding="utf-8"))
     schema = str(payload.get("schema_version") or "")
     if schema not in {"codex_execution_work_order/v1", "workspace_agent_work_order/v1"}:
         raise SystemExit(f"Unsupported execution packet schema: {schema or 'missing'}")
 
     write_back_contract = dict(payload.get("write_back_contract") or {})
-    workspace_key = validate_workspace_key(str(payload.get("workspace_key") or "shared_ops"))
-    workspace_root = resolve_workspace_root(
+    workspace_key = validate_workspace_key(
+        canonicalize_workspace_key(
+            str(payload.get("workspace_key") or "shared_ops"),
+            default="shared_ops",
+        )
+    )
+    workspace_root = resolve_execution_workspace_root(
         WORKSPACE_ROOT,
+        _active_state_root(),
         workspace_key,
         str(payload.get("workspace_root") or path.parent.parent),
     )
+    if workspace_root.resolve() != path.parent.parent.resolve():
+        raise ValueError(
+            "Execution packet workspace root must match the workspace containing its dispatch packet."
+        )
+    legacy_workspace_parent = (WORKSPACE_ROOT / "workspaces").resolve()
+    if workspace_root == legacy_workspace_parent or legacy_workspace_parent in workspace_root.parents:
+        expected_legacy_root = (
+            WORKSPACE_ROOT / "workspaces" / workspace_root_slug(workspace_key)
+        ).resolve()
+        if workspace_root != expected_legacy_root:
+            raise ValueError(
+                f"Legacy execution packet for {workspace_key} must live under {expected_legacy_root}."
+            )
     repo_path = require_repo_path(Path(str(payload.get("repo_path") or WORKSPACE_ROOT)), WORKSPACE_ROOT)
     owner_agent = str(payload.get("owner_agent") or payload.get("workspace_agent") or payload.get("target_agent") or "Jean-Claude")
     preferred_runner_id = str(write_back_contract.get("preferred_runner_id") or _slug(owner_agent))
@@ -2101,7 +2271,12 @@ def _packet_matches_entry(packet: dict[str, Any], entry: dict[str, Any]) -> bool
 
 
 def _rebuild_direct_packet_from_entry(entry: dict[str, Any], card: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
-    workspace_key = validate_workspace_key(str(entry.get("workspace_key") or "shared_ops"))
+    workspace_key = validate_workspace_key(
+        canonicalize_workspace_key(
+            str(entry.get("workspace_key") or "shared_ops"),
+            default="shared_ops",
+        )
+    )
     payload = dict(card.get("payload") or {})
     execution = dict(payload.get("execution") or {})
     sop_path = Path(str(execution.get("sop_path") or entry.get("sop_path") or "")).expanduser()
@@ -2122,21 +2297,22 @@ def _rebuild_direct_packet_from_entry(entry: dict[str, Any], card: dict[str, Any
             "memory/{today}.md",
         ),
     )
-    registry_payload = json.loads((MEMORY_ROOT / "workspace_registry.json").read_text(encoding="utf-8"))
-    registry = {
-        str(item.get("workspace_key")): item
-        for item in registry_payload.get("workspaces") or []
-        if isinstance(item, dict) and item.get("workspace_key")
-    }
-    configured = (registry.get(workspace_key) or {}).get("filesystem_path")
-    workspace_root = resolve_workspace_root(
-        WORKSPACE_ROOT,
+    from app.services.workspace_registry_service import workspace_root_slug
+
+    source_root = WORKSPACE_ROOT / "workspaces" / workspace_root_slug(workspace_key)
+    workspace_root = workspace_state_root(
         workspace_key,
-        configured if isinstance(configured, str) else None,
+        state_root=_active_state_root(),
     )
     workspace_root.mkdir(parents=True, exist_ok=True)
     (workspace_root / "dispatch").mkdir(parents=True, exist_ok=True)
-    execution_log_path = workspace_root / "memory" / "execution_log.md"
+    execution_log_path = resolve_workspace_read_path(
+        workspace_key,
+        "memory/execution_log.md",
+        source_root=source_root,
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    )
     execution_log_value = str(execution_log_path) if execution_log_path.exists() else ""
     stamp = _stamp(_now())
     packet_path = workspace_root / "dispatch" / f"{stamp}_jean_claude_work_order.json"
@@ -2219,8 +2395,13 @@ def _build_brain_local_action_packet(
     card: dict[str, Any],
     action: dict[str, Any],
 ) -> tuple[Path, dict[str, Any]]:
-    workspace_key = validate_workspace_key(str(entry.get("workspace_key") or "shared_ops"))
-    workspace_root = resolve_workspace_root(WORKSPACE_ROOT, workspace_key, str(WORKSPACE_ROOT / "workspaces" / "shared-ops"))
+    workspace_key = validate_workspace_key(
+        canonicalize_workspace_key(
+            str(entry.get("workspace_key") or "shared_ops"),
+            default="shared_ops",
+        )
+    )
+    workspace_root = workspace_state_root(workspace_key, state_root=_active_state_root())
     dispatch_root = workspace_root / "dispatch"
     dispatch_root.mkdir(parents=True, exist_ok=True)
     packet_path = dispatch_root / f"{_stamp(_now())}_brain_local_action.json"
@@ -2543,8 +2724,6 @@ def _execute_canonical_memory_route(
     route: dict[str, Any],
     card_id: str,
 ) -> dict[str, Any]:
-    from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
-
     allowed_paths = {
         "persistent_state": "memory/persistent_state.md",
         "learnings": "memory/LEARNINGS.md",
@@ -2555,10 +2734,19 @@ def _execute_canonical_memory_route(
         raise RuntimeError("Canonical-memory route contains an invalid target.")
     marker = f"brain-local-action:{card_id}"
     summary = _brain_route_summary(signal, route)
-    workspace_key = validate_workspace_key(str(route.get("workspace_key") or signal.get("source_workspace_key") or "shared_ops"))
+    workspace_key = validate_workspace_key(
+        canonicalize_workspace_key(
+            str(route.get("workspace_key") or signal.get("source_workspace_key") or "shared_ops"),
+            default="shared_ops",
+        )
+    )
     effects: list[dict[str, Any]] = []
     for target in targets:
-        path = resolve_live_memory_write_path(WORKSPACE_ROOT, allowed_paths[target])
+        path = seed_memory_state_file(
+            allowed_paths[target],
+            project_root=WORKSPACE_ROOT,
+            state_root=_active_state_root(),
+        )
         existing = path.read_text(encoding="utf-8", errors="ignore") if path.exists() else ""
         reused = marker in existing
         if not reused and target == "chronicle":
@@ -2627,9 +2815,14 @@ def _execute_workspace_local_route(
     )
     if workspace_key not in workspace_registry_map():
         raise RuntimeError(f"Workspace-local Brain route rejected unknown workspace: {workspace_key}")
-    configured_root = WORKSPACE_ROOT / "workspaces" / workspace_root_slug(workspace_key)
-    workspace_root = resolve_workspace_root(WORKSPACE_ROOT, workspace_key, str(configured_root))
-    artifact_path = workspace_root / "memory" / "brain-signals" / f"{card_id}.json"
+    source_root = WORKSPACE_ROOT / "workspaces" / workspace_root_slug(workspace_key)
+    artifact_path = seed_workspace_state_file(
+        workspace_key,
+        f"memory/brain-signals/{card_id}.json",
+        source_root=source_root,
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    )
     payload = {
         "schema_version": "brain_signal_workspace_route/v1",
         "brain_local_action_card_id": card_id,
@@ -2811,7 +3004,7 @@ def _run_brain_local_action(
             "mirror_disposition": mirror.get("disposition"),
             "snapshot_id": mirror.get("snapshot_id"),
         }
-        artifacts.append(str(WORKSPACE_ROOT / "memory" / "brain_signals.jsonl"))
+        artifacts.append(str(_active_memory_root() / "brain_signals.jsonl"))
 
     if refreshed_snapshots is not None:
         workspace_mirror = _mirror_brain_workspace_snapshots(api_url, refreshed_snapshots)
@@ -3305,7 +3498,7 @@ def parse_args() -> argparse.Namespace:
         help="Server-enforced age before a same-worker execution claim is recovered or surfaced.",
     )
     parser.add_argument("--worker-id", default=f"{socket.gethostname()}-codex-workspace-executor")
-    parser.add_argument("--output-root", default=str(MEMORY_ROOT))
+    parser.add_argument("--output-root", default=str(_active_memory_root()))
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -3612,7 +3805,11 @@ def main() -> int:
                     raise RuntimeError(f"PM card {selected_entry['card_id']} does not currently expose an execution packet.")
                 packet_path, packet = _rebuild_direct_packet_from_entry(selected_entry, card)
             else:
-                packet_path = require_execution_packet(Path(packet_path_raw), WORKSPACE_ROOT)
+                packet_path = require_execution_packet(
+                    Path(packet_path_raw),
+                    WORKSPACE_ROOT,
+                    state_root=_active_state_root(),
+                )
                 packet = _parse_work_order(packet_path)
                 if not _packet_matches_entry(packet, selected_entry):
                     if not direct_rebuild_allowed:

@@ -407,12 +407,23 @@ def build_result_payload(
     proof_packets = [str(item) for item in (context_packet.get("proof_packets") or []) if str(item).strip()]
     story_beats = [str(item) for item in (context_packet.get("story_beats") or []) if str(item).strip()]
     grounding_mode = _clean_text(context_packet.get("grounding_mode")) or "principle_only"
+    preserve_writer_voice = (
+        provider == "codex_terminal"
+        and str(os.getenv("LOCAL_CODEX_PRESERVE_WRITER_VOICE", "true")).strip().lower() not in {"0", "false", "no", "off"}
+    )
     if briefs:
-        options = content_generation_module.finalize_planned_options(
-            options=options[:3],
-            briefs=briefs,
-            grounding_mode=grounding_mode,
-        )
+        # Codex already received a structured plan, public-release rules, and
+        # complete owner-written references. Re-running the deterministic
+        # template finalizer here used to flatten those drafts into one house
+        # voice. Keep its substantive output and apply only the safety scrub.
+        if preserve_writer_voice:
+            options = options[:3]
+        else:
+            options = content_generation_module.finalize_planned_options(
+                options=options[:3],
+                briefs=briefs,
+                grounding_mode=grounding_mode,
+            )
         sanitized_options: list[str] = []
         for index, option in enumerate(options[:3]):
             brief = briefs[index] if index < len(briefs) else briefs[-1]
@@ -451,6 +462,7 @@ def build_result_payload(
         "diagnostics": {
             "grounding_mode": context_packet.get("grounding_mode"),
             "generation_strategy": provider,
+            "writer_voice_preservation": preserve_writer_voice,
             "primary_claims": primary_claims,
             "proof_packets": proof_packets,
             "approved_references": list(context_packet.get("approved_references") or []),

@@ -318,13 +318,7 @@ class BrainLocalActionRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
 
-            def resolve_memory(_root, relative):
-                return temp_root / Path(relative)
-
-            with mock.patch(
-                "app.services.core_memory_snapshot_service.resolve_live_memory_write_path",
-                side_effect=resolve_memory,
-            ):
+            with mock.patch.object(self.runner, "MEMORY_ROOT", temp_root / "state" / "memory"):
                 first = self.runner._execute_canonical_memory_route(
                     signal=signal,
                     route={

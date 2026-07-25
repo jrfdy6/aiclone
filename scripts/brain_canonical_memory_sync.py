@@ -18,9 +18,16 @@ from typing import Any
 
 
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from runtime_paths import PROJECT_ROOT, STATE_ROOT, memory_state_path, seed_memory_state_file
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-MEMORY_ROOT = WORKSPACE_ROOT / "memory"
+MEMORY_ROOT = memory_state_path(state_root=STATE_ROOT)
 REPORT_ROOT = MEMORY_ROOT / "reports"
 SCRIPT_DIR = WORKSPACE_ROOT / "scripts"
 
@@ -29,7 +36,6 @@ if str(SCRIPT_DIR) not in sys.path:
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 from brain_automation_context import (
     brain_signal_lines,
     build_brain_automation_context,
@@ -86,7 +92,7 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 @contextmanager
 def _sync_lock():
-    lock_path = MEMORY_ROOT / "runtime" / ".brain_canonical_memory_sync.lock"
+    lock_path = MEMORY_ROOT / "locks" / "brain_canonical_memory_sync.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
@@ -110,7 +116,11 @@ def _append_markdown(path: Path, heading: str, body: str) -> None:
 
 
 def _runtime_memory_path(relative_path: str) -> Path:
-    return resolve_live_memory_write_path(WORKSPACE_ROOT, relative_path)
+    return seed_memory_state_file(
+        relative_path,
+        project_root=WORKSPACE_ROOT,
+        state_root=MEMORY_ROOT.parent,
+    )
 
 
 def _append_chronicle(item: dict[str, Any], marker: str) -> None:
@@ -120,6 +130,8 @@ def _append_chronicle(item: dict[str, Any], marker: str) -> None:
     cmd = [
         sys.executable,
         str(SCRIPT_DIR / "append_codex_handoff.py"),
+        "--path",
+        str(_runtime_memory_path("memory/codex_session_handoff.jsonl")),
         "--summary",
         f"Brain triage promoted `{item['trait']}` into canonical memory for `{workspace_key}`.",
         "--workspace-key",
@@ -306,7 +318,11 @@ def build_report(api_url: str, limit: int, sync_live: bool) -> dict[str, Any]:
     if sync_live and queued_items:
         with _sync_lock():
             local_now = now.astimezone()
-            daily_log_path = MEMORY_ROOT / f"{local_now:%Y-%m-%d}.md"
+            daily_log_path = seed_memory_state_file(
+                f"{local_now:%Y-%m-%d}.md",
+                project_root=WORKSPACE_ROOT,
+                state_root=MEMORY_ROOT.parent,
+            )
             target_paths = {
                 "persistent_state": _runtime_memory_path("memory/persistent_state.md"),
                 "learnings": _runtime_memory_path("memory/LEARNINGS.md"),

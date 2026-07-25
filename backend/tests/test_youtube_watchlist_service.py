@@ -208,6 +208,42 @@ youtube_channels:
         self.assertEqual(kwargs.get("source_type"), "youtube_transcript")
         self.assertIn("Selected from YouTube watchlist", kwargs.get("notes") or "")
         self.assertEqual(kwargs.get("title"), "Operator video")
+        self.assertEqual(kwargs.get("ingestions_root"), youtube_watchlist_service._ingestions_root())
+        self.assertEqual(kwargs.get("reference_root"), youtube_watchlist_service._state_root())
+
+    def test_watchlist_ingest_writes_generated_asset_only_to_private_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "project"
+            state_root = Path(temp_dir) / "private-state"
+            repo_root.mkdir()
+            with patch.object(
+                youtube_watchlist_service,
+                "_repo_root",
+                return_value=repo_root,
+            ), patch.object(
+                youtube_watchlist_service,
+                "_state_root",
+                return_value=state_root,
+            ), patch.object(
+                youtube_watchlist_service,
+                "_can_attempt_youtube_transcript",
+                return_value=False,
+            ), patch.object(
+                youtube_watchlist_service.shutil,
+                "which",
+                return_value=None,
+            ):
+                result = youtube_watchlist_service._ingest_watchlist_video(
+                    url="https://www.youtube.com/watch?v=private-state-proof",
+                    title="Private state proof",
+                    channel_name="Test channel",
+                    run_refresh=False,
+                )
+
+            source_path = str(result.get("source_path") or "")
+            self.assertTrue(source_path.startswith("memory/source-intelligence/ingestions/"))
+            self.assertTrue((state_root / source_path).is_file())
+            self.assertFalse((repo_root / "knowledge" / "ingestions").exists())
 
     def test_sync_watchlist_auto_ingest_only_pulls_enabled_new_videos(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -366,11 +402,11 @@ youtube_auto_ingest:
     def test_backfill_pending_youtube_transcripts_rewrites_pending_asset(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
+            state_root = repo_root / "private-state"
             ingestions_root = repo_root / "knowledge" / "ingestions" / "2026" / "03" / "pending_watchlist_video"
             ingestions_root.mkdir(parents=True, exist_ok=True)
             normalized_path = ingestions_root / "normalized.md"
-            normalized_path.write_text(
-                """---
+            original = """---
 id: pending_watchlist_video
 title: Pending Watchlist Video
 source_type: youtube_transcript
@@ -394,17 +430,20 @@ summary: 'Selected from YouTube watchlist: Selected AI YouTube Channel.'
 Selected from YouTube watchlist: Selected AI YouTube Channel.
 Priority lane: ai.
 Registered from link. Transcript capture still pending.
-""",
-                encoding="utf-8",
-            )
+"""
+            normalized_path.write_text(original, encoding="utf-8")
 
             with patch.object(youtube_watchlist_service, "_repo_root", return_value=repo_root), patch.object(
                 youtube_watchlist_service,
-                "_ingestions_root",
+                "_state_root",
+                return_value=state_root,
+            ), patch.object(
+                youtube_watchlist_service,
+                "_legacy_ingestions_root",
                 return_value=repo_root / "knowledge" / "ingestions",
             ), patch.object(
                 youtube_watchlist_service,
-                "_transcripts_root",
+                "_legacy_transcripts_root",
                 return_value=repo_root / "knowledge" / "aiclone" / "transcripts",
             ), patch.object(
                 youtube_watchlist_service,
@@ -426,17 +465,34 @@ Registered from link. Transcript capture still pending.
 
             self.assertEqual(result.get("counts", {}).get("backfilled"), 1)
             self.assertEqual((result.get("backfilled") or [{}])[0].get("asset_id"), "pending_watchlist_video")
-            updated = normalized_path.read_text(encoding="utf-8")
+            private_asset_dir = (
+                state_root
+                / "memory"
+                / "source-intelligence"
+                / "ingestions"
+                / "2026"
+                / "03"
+                / "pending_watchlist_video"
+            )
+            updated = (private_asset_dir / "normalized.md").read_text(encoding="utf-8")
             self.assertIn("# Clean Transcript / Document", updated)
             self.assertIn("Build the handoff before the prompt.", updated)
             self.assertNotIn("Transcript capture still pending", updated)
-            self.assertTrue((ingestions_root / "raw" / "transcript.txt").exists())
-            routing_status = json.loads((ingestions_root / "routing_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(normalized_path.read_text(encoding="utf-8"), original)
+            self.assertTrue((private_asset_dir / "raw" / "transcript.txt").exists())
+            routing_status = json.loads(
+                (private_asset_dir / "routing_status.json").read_text(encoding="utf-8")
+            )
             self.assertTrue(routing_status.get("has_transcript"))
+            self.assertEqual(
+                (result.get("backfilled") or [{}])[0].get("source_path"),
+                "memory/source-intelligence/ingestions/2026/03/pending_watchlist_video/normalized.md",
+            )
 
     def test_backfill_pending_youtube_transcripts_uses_subtitles_without_whisper(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
+            state_root = repo_root / "private-state"
             ingestions_root = repo_root / "knowledge" / "ingestions" / "2026" / "03" / "pending_watchlist_video"
             ingestions_root.mkdir(parents=True, exist_ok=True)
             normalized_path = ingestions_root / "normalized.md"
@@ -471,11 +527,15 @@ Registered from link. Transcript capture still pending.
 
             with patch.object(youtube_watchlist_service, "_repo_root", return_value=repo_root), patch.object(
                 youtube_watchlist_service,
-                "_ingestions_root",
+                "_state_root",
+                return_value=state_root,
+            ), patch.object(
+                youtube_watchlist_service,
+                "_legacy_ingestions_root",
                 return_value=repo_root / "knowledge" / "ingestions",
             ), patch.object(
                 youtube_watchlist_service,
-                "_transcripts_root",
+                "_legacy_transcripts_root",
                 return_value=repo_root / "knowledge" / "aiclone" / "transcripts",
             ), patch.object(
                 youtube_watchlist_service,
@@ -497,8 +557,18 @@ Registered from link. Transcript capture still pending.
 
             self.assertEqual(result.get("counts", {}).get("backfilled"), 1)
             self.assertEqual((result.get("backfilled") or [{}])[0].get("asset_id"), "pending_watchlist_video")
-            updated = normalized_path.read_text(encoding="utf-8")
+            updated = (
+                state_root
+                / "memory"
+                / "source-intelligence"
+                / "ingestions"
+                / "2026"
+                / "03"
+                / "pending_watchlist_video"
+                / "normalized.md"
+            ).read_text(encoding="utf-8")
             self.assertIn("quote-bearing review source", updated)
+            self.assertIn("Transcript capture still pending", normalized_path.read_text(encoding="utf-8"))
 
     def test_sync_watchlist_auto_ingest_runs_pending_backfill(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

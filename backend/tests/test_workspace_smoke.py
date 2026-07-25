@@ -4935,7 +4935,7 @@ Teams create fragility when they stack tools before they define ownership and ha
             bundle_root = Path(temp_dir) / "knowledge" / "persona" / "feeze"
             with (
                 patch.object(persona_bundle_writer_module, "resolve_workspace_root", return_value=Path(temp_dir)),
-                patch.object(persona_bundle_writer_module, "resolve_persona_bundle_root", return_value=bundle_root),
+                patch.object(persona_bundle_writer_module, "resolve_persona_bundle_write_root", return_value=bundle_root),
             ):
                 result = persona_bundle_writer_module.write_promotion_items_to_bundle(
                     [
@@ -4961,7 +4961,7 @@ Teams create fragility when they stack tools before they define ownership and ha
             bundle_root = Path(temp_dir) / "knowledge" / "persona" / "feeze"
             with (
                 patch.object(persona_bundle_writer_module, "resolve_workspace_root", return_value=Path(temp_dir)),
-                patch.object(persona_bundle_writer_module, "resolve_persona_bundle_root", return_value=bundle_root),
+                patch.object(persona_bundle_writer_module, "resolve_persona_bundle_write_root", return_value=bundle_root),
             ):
                 result = persona_bundle_writer_module.write_promotion_items_to_bundle(
                     [
@@ -6273,11 +6273,11 @@ generated_at: "2026-03-28T00:00:00+00:00"
             or "handoff explicit" in finalized[0].lower()
         )
 
-    def test_default_content_provider_order_prefers_ollama_locally_and_gemini_in_production(self) -> None:
+    def test_default_content_provider_order_uses_reliable_cloud_providers_without_implicit_ollama(self) -> None:
         with patch.dict(content_generation_module.os.environ, {}, clear=True):
             self.assertEqual(
                 content_generation_module._default_content_provider_order(),
-                ["ollama", "openai"],
+                ["openai", "gemini"],
             )
         with patch.dict(content_generation_module.os.environ, {"RAILWAY_PROJECT_ID": "railway-project"}, clear=True):
             self.assertEqual(

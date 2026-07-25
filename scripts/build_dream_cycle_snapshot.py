@@ -11,20 +11,22 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from runtime_bootstrap import maybe_reexec_with_workspace_venv
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_bootstrap import maybe_reexec_with_workspace_venv  # noqa: E402
+from runtime_paths import PROJECT_ROOT  # noqa: E402
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
 TZ = ZoneInfo("America/New_York")
 DREAM_CYCLE_LOG_PATH = WORKSPACE_ROOT / "memory" / "dream_cycle_log.md"
 LOG_HEADING_RE = re.compile(r"(?m)^# Dream Cycle Log - ([A-Za-z]+ \d{1,2}, \d{4})$")
 
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
-if str(SCRIPTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 from brain_automation_context import (

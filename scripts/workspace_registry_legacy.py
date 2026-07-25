@@ -16,11 +16,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from runtime_paths import PROJECT_ROOT, STATE_ROOT
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-MEMORY_ROOT = WORKSPACE_ROOT / "memory"
-LEGACY_REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
+LEGACY_REGISTRY_PATH = STATE_ROOT / "config" / "workspace_registry.json"
 _SOURCE_PATH = "backend/app/services/workspace_registry_service.py"
 DEFAULT_INCLUDE_EXECUTIVE = True
 

@@ -3,18 +3,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.local_state_lock import exclusive_local_state_lock, sibling_lock_path  # noqa: E402
+from scripts.runtime_paths import memory_state_path, workspace_state_path  # noqa: E402
+
+
 SOURCE_INTELLIGENCE_ROOT = REPO_ROOT / "knowledge" / "source-intelligence"
-INDEX_PATH = SOURCE_INTELLIGENCE_ROOT / "index.json"
 TRANSCRIPTS_ROOT = REPO_ROOT / "knowledge" / "aiclone" / "transcripts"
 INGESTIONS_ROOT = REPO_ROOT / "knowledge" / "ingestions"
 SCAFFOLD_DIRS = ("raw", "normalized", "digests", "promotions")
+FEEZIE_WORKSPACE_KEY = "feezie-os"
+MARKET_ARCHIVE_RELATIVE = Path("research/market_signal_archive")
 
 
 def main() -> int:
@@ -25,8 +36,8 @@ def main() -> int:
     if args.check:
         print(json.dumps({"sources": len(payload["sources"]), "counts": payload["counts"]}, sort_keys=True))
         return 0
-    write_source_intelligence_index(payload)
-    print(f"Registered {len(payload['sources'])} source-intelligence assets at {INDEX_PATH.relative_to(REPO_ROOT)}")
+    index_path = write_source_intelligence_index(payload)
+    print(f"Registered {len(payload['sources'])} source-intelligence assets at {index_path}")
     return 0
 
 
@@ -55,12 +66,95 @@ def build_source_intelligence_index(repo_root: Path = REPO_ROOT) -> dict[str, An
     }
 
 
-def write_source_intelligence_index(payload: dict[str, Any], repo_root: Path = REPO_ROOT) -> None:
+def source_intelligence_index_write_path(repo_root: Path = REPO_ROOT) -> Path:
+    if str(os.getenv("AI_CLONE_STATE_ROOT") or "").strip() or repo_root.resolve() == REPO_ROOT.resolve():
+        return memory_state_path(
+            "source-intelligence/index.json",
+            state_root=_configured_state_root(),
+        )
+    return repo_root / "knowledge" / "source-intelligence" / "index.json"
+
+
+def write_source_intelligence_index(payload: dict[str, Any], repo_root: Path = REPO_ROOT) -> Path:
     source_root = repo_root / "knowledge" / "source-intelligence"
-    for dirname in SCAFFOLD_DIRS:
-        (source_root / dirname).mkdir(parents=True, exist_ok=True)
-    index_path = source_root / "index.json"
-    index_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    index_path = source_intelligence_index_write_path(repo_root)
+    if index_path == source_root / "index.json":
+        for dirname in SCAFFOLD_DIRS:
+            (source_root / dirname).mkdir(parents=True, exist_ok=True)
+    index_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_path = sibling_lock_path(index_path, operation="source-index-write")
+    with exclusive_local_state_lock(lock_path):
+        if index_path.is_symlink():
+            raise RuntimeError(f"Source-intelligence index must not be a symlink: {index_path}")
+        merged_payload = _merge_source_intelligence_payloads(
+            [
+                _read_json(source_root / "index.json"),
+                _read_json(index_path),
+                payload,
+            ]
+        )
+        _atomic_write_json(index_path, merged_payload)
+    return index_path
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _merge_source_intelligence_payloads(payloads: list[dict[str, Any]]) -> dict[str, Any]:
+    usable = [payload for payload in payloads if isinstance(payload, dict) and payload]
+    latest = dict(usable[-1]) if usable else {}
+    sources_by_identity: dict[str, dict[str, Any]] = {}
+    anonymous_index = 0
+    for payload in usable:
+        sources = payload.get("sources")
+        if not isinstance(sources, list):
+            continue
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            identity = _clean_text(
+                source.get("source_id")
+                or source.get("raw_path")
+                or source.get("source_url")
+                or source.get("title")
+            )
+            if not identity:
+                anonymous_index += 1
+                identity = f"anonymous-source-{anonymous_index}"
+            sources_by_identity[identity] = source
+    sources = sorted(
+        sources_by_identity.values(),
+        key=lambda item: (
+            str(item.get("captured_at") or ""),
+            str(item.get("source_id") or item.get("title") or ""),
+        ),
+    )
+    latest["sources"] = sources
+    latest["counts"] = _counts(sources)
+    latest.setdefault("schema_version", "source_intelligence_index/v1")
+    latest.setdefault("states", ["raw", "digested", "reviewed", "routed", "promoted", "ignored"])
+    return latest
 
 
 def _transcript_entries(repo_root: Path, transcript_root: Path, source_root: Path) -> list[dict[str, Any]]:
@@ -105,29 +199,34 @@ def _transcript_entries(repo_root: Path, transcript_root: Path, source_root: Pat
             ),
             "published_at": identity.get("published_at"),
             "captured_at": identity.get("captured_at"),
+            "sharing": _shared_packet_declaration(packet_path) if packet_path.exists() else None,
         }
         entries.append(_strip_none(entry))
     return entries
 
 
 def _market_signal_archive_entries(repo_root: Path, workspace_root: Path, source_root: Path) -> list[dict[str, Any]]:
-    archive_root = workspace_root / "research" / "market_signal_archive"
-    if not archive_root.exists():
-        return []
-
-    entries: list[dict[str, Any]] = []
-    for manifest_path in sorted(archive_root.glob("*.jsonl")):
+    entries_by_source_id: dict[str, dict[str, Any]] = {}
+    for manifest_path in _market_signal_archive_manifests(repo_root, workspace_root):
+        logical_manifest_path = (
+            Path("workspaces")
+            / "linkedin-content-os"
+            / MARKET_ARCHIVE_RELATIVE
+            / manifest_path.name
+        )
         for record in _read_jsonl_records(manifest_path):
             signal_id = _clean_id(record.get("id") or record.get("source_url") or record.get("title"))
             if not signal_id:
                 continue
             source_path = _workspace_child_path(workspace_root, record.get("source_path"))
-            archive_markdown_path = _workspace_child_path(workspace_root, record.get("archive_markdown_path"))
+            archive_markdown_path = manifest_path.with_suffix(".md")
+            logical_markdown_path = logical_manifest_path.with_suffix(".md")
             route_affordances = _market_signal_route_affordances(record)
             promotions = _promotion_paths(source_root, signal_id, repo_root)
             watchlist_matches = record.get("watchlist_matches") if isinstance(record.get("watchlist_matches"), list) else []
+            source_id = _clean_id(f"market-signal-{signal_id}")
             entry = {
-                "source_id": _clean_id(f"market-signal-{signal_id}"),
+                "source_id": source_id,
                 "source_kind": "feezie_market_signal",
                 "source_class": _clean_text(
                     record.get("source_class") or _dict(record.get("source_metadata")).get("source_class") or "external_signal"
@@ -139,11 +238,15 @@ def _market_signal_archive_entries(repo_root: Path, workspace_root: Path, source
                 "summary": _clean_text(record.get("summary") or record.get("why_it_matters") or record.get("core_claim")),
                 "raw_path": _rel(source_path, repo_root) if source_path and source_path.exists() else None,
                 "raw_paths": [_rel(path, repo_root) for path in [source_path] if path and path.exists()],
-                "metadata_path": _rel(manifest_path, repo_root),
+                "metadata_path": logical_manifest_path.as_posix(),
                 "normalized_path": _rel(source_path, repo_root) if source_path and source_path.exists() else None,
-                "digest_path": _rel(archive_markdown_path, repo_root) if archive_markdown_path and archive_markdown_path.exists() else _rel(manifest_path, repo_root),
+                "digest_path": (
+                    logical_markdown_path.as_posix()
+                    if archive_markdown_path.exists()
+                    else logical_manifest_path.as_posix()
+                ),
                 "route_decision": {
-                    "path": _rel(manifest_path, repo_root),
+                    "path": logical_manifest_path.as_posix(),
                     "workspace_key": "feezie-os",
                     "priority_lane": _clean_text(record.get("priority_lane")),
                     "role_alignment": _clean_text(record.get("role_alignment")),
@@ -160,9 +263,41 @@ def _market_signal_archive_entries(repo_root: Path, workspace_root: Path, source
                 ),
                 "published_at": _clean_text(record.get("published_at")) or None,
                 "captured_at": _clean_text(record.get("created_at") or record.get("archived_at")) or None,
+                "sharing": _sharing_declaration(record),
             }
-            entries.append(_strip_none(entry))
-    return entries
+            entries_by_source_id.setdefault(source_id, _strip_none(entry))
+    return [entries_by_source_id[key] for key in sorted(entries_by_source_id)]
+
+
+def _configured_state_root() -> Path:
+    configured = str(os.getenv("AI_CLONE_STATE_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.home() / ".codex" / "ai-clone" / "state").resolve()
+
+
+def _market_signal_archive_manifests(repo_root: Path, workspace_root: Path) -> list[Path]:
+    roots: list[Path] = []
+    if str(os.getenv("AI_CLONE_STATE_ROOT") or "").strip() or repo_root.resolve() == REPO_ROOT.resolve():
+        roots.append(
+            workspace_state_path(
+                FEEZIE_WORKSPACE_KEY,
+                MARKET_ARCHIVE_RELATIVE,
+                state_root=_configured_state_root(),
+            )
+        )
+    roots.append(workspace_root / MARKET_ARCHIVE_RELATIVE)
+    manifests: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        if not root.exists() or not root.is_dir():
+            continue
+        for path in sorted(root.glob("*.jsonl")):
+            resolved = path.resolve()
+            if path.is_file() and resolved not in seen:
+                seen.add(resolved)
+                manifests.append(path)
+    return manifests
 
 
 def _ingestion_entries(repo_root: Path, ingestion_root: Path, source_root: Path) -> list[dict[str, Any]]:
@@ -221,6 +356,7 @@ def _ingestion_entries(repo_root: Path, ingestion_root: Path, source_root: Path)
             ),
             "published_at": packet_identity.get("published_at"),
             "captured_at": _captured_at_from_path(source_dir, ingestion_root),
+            "sharing": _shared_packet_declaration(packet_path),
         }
         entries.append(_strip_none(entry))
     return entries
@@ -286,6 +422,33 @@ def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
 
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _shared_packet_declaration(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    filename = path.name.lower()
+    if filename != "shared_source_packet.json" and not filename.endswith(".shared_source_packet.json"):
+        return None
+    return {
+        "classification": "shared",
+        "content_shareable": True,
+        "basis": "shared_source_packet",
+    }
+
+
+def _sharing_declaration(payload: dict[str, Any]) -> dict[str, Any] | None:
+    sharing = _dict(payload.get("sharing"))
+    classification = _clean_text(sharing.get("classification") or sharing.get("scope")).lower()
+    if classification not in {"cloud", "cloud_safe", "public", "shared"}:
+        return None
+    if "content_shareable" in sharing and sharing.get("content_shareable") is not True:
+        return None
+    return {
+        "classification": classification,
+        "content_shareable": True,
+        "basis": "source_classification",
+    }
 
 
 def _clean_text(value: Any) -> str:

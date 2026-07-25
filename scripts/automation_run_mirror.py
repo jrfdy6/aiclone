@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from runtime_paths import AUTOMATION_RUNS_ROOT, ensure_runtime_dirs
+from runtime_paths import AUTOMATION_RUNS_ROOT
 from runtime_http import control_plane_headers
 
 
@@ -69,9 +69,8 @@ def build_run_payload(
 def append_local_runs(runs: list[dict[str, Any]], path: Path | None = None) -> Path:
     """Persist run truth locally before attempting any network mirror."""
 
-    ensure_runtime_dirs()
     target = path or (AUTOMATION_RUNS_ROOT / "all.jsonl")
-    target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     recorded_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     with target.open("a", encoding="utf-8") as handle:
         for run in runs:
@@ -80,6 +79,10 @@ def append_local_runs(runs: list[dict[str, Any]], path: Path | None = None) -> P
             metadata.setdefault("locally_recorded_at", recorded_at)
             payload["metadata"] = metadata
             handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    try:
+        target.chmod(0o600)
+    except OSError:
+        pass
     return target
 
 

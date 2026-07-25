@@ -11,10 +11,16 @@ from pathlib import Path
 from typing import Any, Callable
 
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
-SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_paths import PROJECT_ROOT, memory_state_path
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-REPORT_ROOT = WORKSPACE_ROOT / "memory" / "reports"
+REPORT_ROOT = memory_state_path("reports")
 FOLLOWUP_TITLE = "Executive review stale PM lanes from accountability sweep"
 FOLLOWUP_SOURCE = "accountability_sweep:executive_followup"
 FOLLOWUP_REASON = "Accountability sweep found stale review/running cards that need closure decisions."
@@ -35,8 +41,6 @@ WORKSPACE_LABELS = {
     "agc": "AGC",
 }
 
-if str(SCRIPTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_ROOT))
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 

@@ -19,9 +19,15 @@ Never copy these archives into the project or push them to GitHub.
 
 ## `persona_bundle_sync.py`
 
-Pulls committed `persona_deltas` from the backend, writes the selected promotion items into the
-local canonical bundle under `knowledge/persona/feeze/`, and patches the delta metadata back to
-`local_bundle_sync.state = synced`.
+Pulls owner-committed `persona_deltas` from the backend and writes the selected
+promotion items into the private canonical overlay under
+`AI_CLONE_STATE_ROOT/persona/canonical/` (default:
+`~/.codex/ai-clone/state/persona/canonical/`). The tracked
+`knowledge/persona/feeze/` bundle is an immutable public/deployment seed.
+
+The sync patches only a content-free receipt back to Railway: logical storage
+kind, allowlisted relative filenames, and add/skip counts. Persona text and
+absolute local paths stay on the machine.
 
 ### Usage
 
@@ -39,7 +45,9 @@ Helpful options:
 Recommended operating model:
 
 - Brain `Commit to canon` updates runtime canon immediately.
-- `persona_bundle_sync.py` is the local durability step that makes the same promotion survive deploys and feed bundle-first content generation.
+- `persona_bundle_sync.py` is the local durability step that makes the same
+  promotion survive local restarts and feed state-first content generation
+  without dirtying Git or publishing private canon.
 
 Install the local LaunchAgent:
 

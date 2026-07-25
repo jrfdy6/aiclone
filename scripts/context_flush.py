@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_paths import PROJECT_ROOT  # noqa: E402
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 MEMORY_DIR = WORKSPACE_ROOT / "memory"
 
 

@@ -16,7 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from runtime_http import control_plane_headers, control_plane_token
-from runtime_paths import PROJECT_ROOT, STATE_ROOT
+from runtime_paths import PROJECT_ROOT, STATE_ROOT, resolve_memory_read_path
 from scheduled_automation_runtime import (
     ScheduledTaskError,
     TaskOutcome,
@@ -27,6 +27,7 @@ from scheduled_automation_runtime import (
 
 
 LOCAL_TZ = ZoneInfo("America/New_York")
+DAILY_BRIEFS_LOGICAL_REF = "memory/daily-briefs.md"
 DEFAULT_FRONTEND_URL = os.getenv(
     "AICLONE_FRONTEND_URL",
     "https://aiclone-frontend-production.up.railway.app",
@@ -96,12 +97,23 @@ def build_morning_daily_brief(*, timeout_seconds: int = 180) -> TaskOutcome:
         raise ScheduledTaskError(
             f"Morning daily brief builder returned {brief_date}; expected current local date {expected_date}."
         )
-    artifact = PROJECT_ROOT / "memory" / "daily-briefs.md"
+    artifact = resolve_memory_read_path(
+        "daily-briefs.md",
+        project_root=PROJECT_ROOT,
+        state_root=STATE_ROOT,
+    )
     if not artifact.is_file():
         raise ScheduledTaskError("Morning daily brief artifact was not written.")
     sync_command = run_project_python(
         "sync_daily_briefs.py",
-        ("--expected-latest-date", brief_date),
+        (
+            "--brief-file",
+            str(artifact),
+            "--source-ref",
+            DAILY_BRIEFS_LOGICAL_REF,
+            "--expected-latest-date",
+            brief_date,
+        ),
         timeout_seconds=min(timeout_seconds, 60),
     )
     sync_payload = parse_json_output(sync_command.stdout)
@@ -117,7 +129,7 @@ def build_morning_daily_brief(*, timeout_seconds: int = 180) -> TaskOutcome:
         summary=_first_line(markdown, "Morning daily brief updated."),
         metadata={
             "brief_date": brief_date,
-            "artifact": _relative_project_path(artifact),
+            "artifact": DAILY_BRIEFS_LOGICAL_REF,
             "content_sha256": _sha256_text(markdown),
             "content_chars": len(markdown),
             "railway_sync": "ok",

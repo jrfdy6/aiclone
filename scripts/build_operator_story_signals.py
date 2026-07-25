@@ -19,11 +19,14 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.services.operator_story_signal_service import (  # noqa: E402
     DEFAULT_WORKSPACE_KEY,
     MEMORY_ROOT,
+    PRIVATE_STATE_ROOT,
     REPORT_ROOT,
+    SOURCE_LOGICAL_REFS,
     build_operator_story_signals_payload,
     render_operator_story_signals_markdown,
 )
 from runtime_http import control_plane_headers  # noqa: E402
+from runtime_paths import seed_memory_state_file  # noqa: E402
 
 
 DEFAULT_API_URL = os.getenv("AICLONE_API_URL", "https://aiclone-production-32dc.up.railway.app")
@@ -51,15 +54,38 @@ def _write_markdown(path: Path, body: str) -> None:
     path.write_text(body, encoding="utf-8")
 
 
+def _report_write_path(reports_dir: Path, filename: str) -> Path:
+    if reports_dir.expanduser().resolve() != REPORT_ROOT.expanduser().resolve():
+        return reports_dir / filename
+    return seed_memory_state_file(
+        Path("reports") / filename,
+        project_root=ROOT,
+        state_root=PRIVATE_STATE_ROOT,
+    )
+
+
+def _logical_remote_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _logical_remote_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_logical_remote_value(item) for item in value]
+    if not isinstance(value, str):
+        return value
+    state_prefix = str(PRIVATE_STATE_ROOT.expanduser().resolve())
+    if value == state_prefix:
+        return "private-state"
+    return value.replace(f"{state_prefix}/", "")
+
+
 def _sync_payload(api_url: str, payload: dict[str, Any], source: str) -> dict[str, Any]:
     request_payload = {
         "generated_at": payload.get("generated_at"),
         "source": source,
         "workspace_key": payload.get("workspace"),
         "signal_count": (payload.get("counts") or {}).get("total", 0),
-        "source_paths": payload.get("source_paths") or {},
+        "source_paths": dict(SOURCE_LOGICAL_REFS),
         "counts": payload.get("counts") or {},
-        "signals": payload.get("signals") or [],
+        "signals": _logical_remote_value(payload.get("signals") or []),
     }
     request = urllib.request.Request(
         f"{api_url.rstrip('/')}/api/brain/operator-story-signals/sync",
@@ -84,8 +110,8 @@ def main() -> int:
         print(json.dumps({"success": True, "dry_run": True, "payload": payload, "markdown": markdown}, indent=2))
         return 0
 
-    json_path = reports_dir / "operator_story_signals_latest.json"
-    markdown_path = reports_dir / "operator_story_signals_latest.md"
+    json_path = _report_write_path(reports_dir, "operator_story_signals_latest.json")
+    markdown_path = _report_write_path(reports_dir, "operator_story_signals_latest.md")
     _write_json(json_path, payload)
     _write_markdown(markdown_path, markdown)
 

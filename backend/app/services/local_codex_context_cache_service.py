@@ -11,7 +11,7 @@ from typing import Any
 from app.services.workspace_snapshot_store import get_snapshot_payload
 
 
-_CACHE_VERSION = "local-codex-context-v3"
+_CACHE_VERSION = "local-codex-context-v4"
 _SNAPSHOT_TYPES = (
     "source_assets",
     "content_reservoir",
@@ -87,7 +87,24 @@ def load_cached_context_packet(*, cache_key: str) -> dict[str, Any] | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
-    return payload if isinstance(payload, dict) else None
+    if not isinstance(payload, dict) or payload.get("cache_version") != _CACHE_VERSION:
+        return None
+    try:
+        ttl_seconds = max(0, int(os.getenv("LOCAL_CODEX_CONTEXT_CACHE_TTL_SECONDS", "14400")))
+    except ValueError:
+        ttl_seconds = 14400
+    created_at = str(payload.get("created_at") or "").strip()
+    if ttl_seconds and created_at:
+        try:
+            created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            age_seconds = (datetime.now(timezone.utc) - created.astimezone(timezone.utc)).total_seconds()
+            if age_seconds > ttl_seconds:
+                return None
+        except ValueError:
+            return None
+    return payload
 
 
 def write_cached_context_packet(

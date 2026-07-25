@@ -8,13 +8,18 @@ from typing import Any
 
 from app.services.operator_story_signal_service import (
     DEFAULT_WORKSPACE_KEY,
+    PRIVATE_STATE_ROOT,
     REPORT_ROOT,
+    ROOT,
     _normalize_text,
     _truncate,
     build_operator_story_signals_payload,
 )
+from runtime_paths import resolve_memory_read_path
 
 
+OPERATOR_STORY_REPORT_LOGICAL_REF = "memory/reports/operator_story_signals_latest.json"
+CONTENT_SAFE_OPERATOR_LESSONS_LOGICAL_REF = "memory/reports/content_safe_operator_lessons_latest.json"
 OPERATOR_STORY_REPORT_PATH = REPORT_ROOT / "operator_story_signals_latest.json"
 CONTENT_SAFE_OPERATOR_LESSONS_PATH = REPORT_ROOT / "content_safe_operator_lessons_latest.json"
 MAX_LESSONS = 10
@@ -278,6 +283,14 @@ def _dedupe_lessons(lessons: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return deduped
 
 
+def resolve_operator_story_report_path() -> Path:
+    return resolve_memory_read_path(
+        "reports/operator_story_signals_latest.json",
+        project_root=ROOT,
+        state_root=PRIVATE_STATE_ROOT,
+    )
+
+
 def build_content_safe_operator_lessons_payload(
     *,
     workspace_key: str = DEFAULT_WORKSPACE_KEY,
@@ -285,7 +298,12 @@ def build_content_safe_operator_lessons_payload(
     operator_story_report_path: Path | None = None,
 ) -> dict[str, Any]:
     source_payload = operator_story_payload
-    report_path = (operator_story_report_path or OPERATOR_STORY_REPORT_PATH).expanduser()
+    using_default_report = operator_story_report_path is None
+    report_path = (
+        resolve_operator_story_report_path()
+        if using_default_report
+        else Path(operator_story_report_path).expanduser()
+    )
     if not isinstance(source_payload, dict):
         source_payload = _load_json(report_path)
     if not isinstance(source_payload, dict):
@@ -317,7 +335,7 @@ def build_content_safe_operator_lessons_payload(
         "workspace": workspace_key,
         "source_snapshot_type": "operator_story_signals",
         "source_generated_at": source_payload.get("generated_at"),
-        "source_report_path": str(report_path),
+        "source_report_path": OPERATOR_STORY_REPORT_LOGICAL_REF if using_default_report else str(report_path),
         "lessons": lessons,
         "counts": {
             "total": len(lessons),

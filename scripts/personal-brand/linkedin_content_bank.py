@@ -2,9 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+HELPER_DIR = Path(__file__).resolve().parent
+if str(HELPER_DIR) not in sys.path:
+    sys.path.insert(0, str(HELPER_DIR))
+
+from linkedin_strategy_utils import (  # noqa: E402
+    generated_workspace_read_path,
+    generated_workspace_write_path,
+    seed_generated_workspace_file,
+)
 
 
 WORKSPACE_RELATIVE = "workspaces/linkedin-content-os"
@@ -28,11 +39,11 @@ def clean_text(value: Any) -> str:
 
 
 def content_bank_root(workspace_dir: Path) -> Path:
-    return workspace_dir / "content_bank"
+    return generated_workspace_write_path(workspace_dir, "content_bank")
 
 
 def reports_root(workspace_dir: Path) -> Path:
-    return workspace_dir / "reports"
+    return generated_workspace_write_path(workspace_dir, "reports")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -105,8 +116,9 @@ def _resolve_workspace_path(repo_root: Path, workspace_dir: Path, value: Any) ->
     if path.is_absolute():
         return path
     if text.startswith(WORKSPACE_RELATIVE):
-        return repo_root / text
-    return workspace_dir / text
+        relative = Path(text).relative_to(WORKSPACE_RELATIVE)
+        return generated_workspace_read_path(workspace_dir, relative)
+    return generated_workspace_read_path(workspace_dir, text)
 
 
 def _source_refs(item: dict[str, Any]) -> list[str]:
@@ -158,7 +170,7 @@ def _existing_fingerprints(records: list[dict[str, Any]]) -> set[str]:
 
 
 def _load_latent_items(workspace_dir: Path) -> list[dict[str, Any]]:
-    payload = _read_json(workspace_dir / "plans" / "latent_ideas.json")
+    payload = _read_json(generated_workspace_read_path(workspace_dir, "plans/latent_ideas.json"))
     items = payload.get("items")
     return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
 
@@ -355,10 +367,9 @@ def run_autonomous_content_bank(
 ) -> dict[str, Any]:
     created = isoformat_z(now or utc_now())
     run_id = f"feezie-content-bank-{created.replace(':', '').replace('-', '')}"
-    bank_root = content_bank_root(workspace_dir)
-    posts_path = bank_root / "posts.jsonl"
-    events_path = bank_root / "events.jsonl"
-    rejections_path = bank_root / "rejections.jsonl"
+    posts_path = seed_generated_workspace_file(workspace_dir, "content_bank/posts.jsonl")
+    events_path = seed_generated_workspace_file(workspace_dir, "content_bank/events.jsonl")
+    rejections_path = seed_generated_workspace_file(workspace_dir, "content_bank/rejections.jsonl")
 
     existing_posts = _read_jsonl(posts_path)
     existing_rejections = _read_jsonl(rejections_path)
@@ -412,7 +423,8 @@ def run_autonomous_content_bank(
         _append_jsonl(rejections_path, new_rejections)
         _append_jsonl(events_path, [event])
         if project_backlog:
-            appended_backlog_ids = _append_backlog_projection(workspace_dir / "backlog.md", new_posts, run_id=run_id)
+            backlog_path = seed_generated_workspace_file(workspace_dir, "backlog.md")
+            appended_backlog_ids = _append_backlog_projection(backlog_path, new_posts, run_id=run_id)
 
     report = {
         "schema_version": "linkedin_autonomous_content_loop_status/v1",

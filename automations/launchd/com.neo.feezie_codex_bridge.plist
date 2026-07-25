@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.neo.feezie_codex_bridge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/neo/.codex/ai-clone/venv/bin/python</string>
+      <string>/Users/neo/Documents/Codex/AI-Clone/scripts/local_codex_bridge.py</string>
+      <string>--api-base</string>
+      <string>https://aiclone-production-32dc.up.railway.app/api/content-generation</string>
+      <string>--workspace-root</string>
+      <string>/Users/neo/Documents/Codex/AI-Clone</string>
+      <string>--workspace-slug</string>
+      <string>linkedin-content-os</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>HOME</key>
+      <string>/Users/neo</string>
+      <key>LOCAL_CODEX_WORKSPACE_SLUG</key>
+      <string>linkedin-content-os</string>
+      <key>LOCAL_CODEX_WORKER_SUFFIX</key>
+      <string>feezie-codex-bridge</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.codex/ai-clone/logs/feezie_codex_bridge.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.codex/ai-clone/logs/feezie_codex_bridge.log</string>
+  </dict>
+</plist>

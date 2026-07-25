@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
+import stat
 import sys
+import tempfile
 import uuid
 from collections import Counter, deque
 from datetime import datetime, timezone
@@ -13,14 +17,28 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from runtime_paths import (
+    PROJECT_ROOT,
+    STATE_ROOT,
+    memory_state_path,
+    resolve_memory_read_path,
+    resolve_state_or_project_path,
+    seed_memory_state_file,
+)
+from local_state_lock import exclusive_local_state_lock, sibling_lock_path
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
-MEMORY_ROOT = WORKSPACE_ROOT / "memory"
-DEFAULT_HISTORY_PATH = Path("/Users/neo/.codex/history.jsonl")
-DEFAULT_SESSION_ROOT = Path("/Users/neo/.codex/sessions")
-from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
+MEMORY_ROOT = memory_state_path(state_root=STATE_ROOT)
+DEFAULT_HISTORY_PATH = Path.home() / ".codex" / "history.jsonl"
+DEFAULT_SESSION_ROOT = Path.home() / ".codex" / "sessions"
 from chronicle_signal_quality import (
     entry_has_material_signal,
     is_low_signal_ack,
@@ -31,11 +49,21 @@ from chronicle_signal_quality import (
 )
 
 
-DEFAULT_CHRONICLE_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
-DEFAULT_LEARNINGS_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/LEARNINGS.md")
-DEFAULT_PERSISTENT_STATE_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/persistent_state.md")
+DEFAULT_CHRONICLE_PATH = memory_state_path("codex_session_handoff.jsonl", state_root=STATE_ROOT)
+DEFAULT_LEARNINGS_PATH = memory_state_path("LEARNINGS.md", state_root=STATE_ROOT)
+DEFAULT_PERSISTENT_STATE_PATH = memory_state_path("persistent_state.md", state_root=STATE_ROOT)
 DEFAULT_STATE_PATH = MEMORY_ROOT / "codex_chronicle_state.json"
-REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
+DEFAULT_STATE_READ_PATH = resolve_memory_read_path(
+    "codex_chronicle_state.json",
+    project_root=WORKSPACE_ROOT,
+    state_root=STATE_ROOT,
+)
+REGISTRY_PATH = resolve_state_or_project_path(
+    "config/workspace_registry.json",
+    "memory/workspace_registry.json",
+    project_root=WORKSPACE_ROOT,
+    state_root=STATE_ROOT,
+)
 
 DECISION_PATTERNS = (
     "should ",
@@ -170,14 +198,75 @@ def _read_json(path: Path) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary_raw = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    temporary = Path(temporary_raw)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
-def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
+def _find_jsonl_entry(path: Path, *, entry_id: str) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for line in handle:
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and str(payload.get("entry_id") or "") == entry_id:
+                return payload
+    return None
+
+
+def _append_jsonl_once(path: Path, payload: dict[str, Any]) -> bool:
+    """Append one stable Chronicle entry, tolerating a replay after a crash."""
+
+    entry_id = str(payload.get("entry_id") or "").strip()
+    if not entry_id:
+        raise ValueError("Chronicle entry requires a stable entry_id.")
+    if _find_jsonl_entry(path, entry_id=entry_id) is not None:
+        return False
+
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise RuntimeError(f"Chronicle path must be a regular file: {path}")
+        prefix = b""
+        if file_stat.st_size:
+            if os.pread(descriptor, 1, file_stat.st_size - 1) != b"\n":
+                prefix = b"\n"
+        encoded = prefix + json.dumps(payload, ensure_ascii=True).encode("utf-8") + b"\n"
+        view = memoryview(encoded)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("Chronicle append made no forward progress.")
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    return True
 
 
 def _append_markdown_items(path: Path, heading: str, items: list[str]) -> int:
@@ -197,7 +286,46 @@ def _append_markdown_items(path: Path, heading: str, items: list[str]) -> int:
             prefix = ""
     with path.open("a", encoding="utf-8") as handle:
         handle.write(prefix + block)
+        handle.flush()
+        os.fsync(handle.fileno())
     return len(new_items)
+
+
+def _sync_identity(
+    records: list[dict[str, Any]],
+    *,
+    source: str,
+    workspace_key: str,
+    scope: str,
+    trigger: str,
+) -> tuple[str, str]:
+    record_identities = [
+        {
+            "session_id": str(item.get("session_id") or ""),
+            "ts": int(item.get("ts") or 0),
+            "created_at": str(item.get("created_at") or ""),
+            "source": str(item.get("source") or "codex-history"),
+            "source_path": str(item.get("source_path") or ""),
+            "text_sha256": hashlib.sha256(
+                str(item.get("text") or "").encode("utf-8")
+            ).hexdigest(),
+        }
+        for item in records
+    ]
+    canonical = json.dumps(
+        {
+            "source": source,
+            "workspace_key": workspace_key,
+            "scope": scope,
+            "trigger": trigger,
+            "records": record_identities,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    entry_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ai-clone:chronicle-sync:{digest}"))
+    return entry_id, f"codex-chronicle-sync:{digest}"
 
 
 def _append_memory_closeout(payload: dict[str, Any], *, learnings_path: Path, persistent_state_path: Path) -> dict[str, int]:
@@ -559,7 +687,7 @@ def _load_new_session_records(
     return records, latest_synced_at
 
 
-def main() -> int:
+def _main_unlocked() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--history-path", default=str(DEFAULT_HISTORY_PATH))
     parser.add_argument("--session-root", default=str(DEFAULT_SESSION_ROOT))
@@ -600,7 +728,24 @@ def main() -> int:
     if not history_path.exists():
         raise SystemExit(f"Codex history file not found: {history_path}")
 
-    history_records, state = _load_new_records(history_path, state_path, args.initial_tail)
+    if chronicle_path == DEFAULT_CHRONICLE_PATH:
+        chronicle_path = seed_memory_state_file(
+            "codex_session_handoff.jsonl",
+            project_root=WORKSPACE_ROOT,
+            state_root=MEMORY_ROOT.parent,
+        )
+    if state_path == DEFAULT_STATE_PATH:
+        state_path = seed_memory_state_file(
+            "codex_chronicle_state.json",
+            project_root=WORKSPACE_ROOT,
+            state_root=MEMORY_ROOT.parent,
+        )
+    state_read_path = (
+        DEFAULT_STATE_READ_PATH
+        if state_path == DEFAULT_STATE_PATH and not state_path.exists()
+        else state_path
+    )
+    history_records, state = _load_new_records(history_path, state_read_path, args.initial_tail)
     session_records: list[dict[str, Any]] = []
     latest_session_synced_at: str | None = None
     include_session_transcripts = args.include_session_transcripts and not args.skip_session_transcripts
@@ -660,10 +805,18 @@ def main() -> int:
     material_signal = _latest_material_signal(records)
     summary = _build_summary(records, tags, material_signal=material_signal)
     importance = "high" if blockers or identity_signals or memory_promotions else ("medium" if material_signal else "low")
+    entry_id, idempotency_key = _sync_identity(
+        records,
+        source=args.source,
+        workspace_key=workspace_key,
+        scope=args.scope,
+        trigger=args.trigger,
+    )
 
     payload = {
         "schema_version": "codex_chronicle/v1",
-        "entry_id": str(uuid.uuid4()),
+        "entry_id": entry_id,
+        "idempotency_key": idempotency_key,
         "created_at": _iso(_now()),
         "source": args.source,
         "author_agent": args.author_agent,
@@ -739,6 +892,41 @@ def main() -> int:
         print(f"State: {state_path}")
         return 0
 
+    existing_entry = _find_jsonl_entry(chronicle_path, entry_id=entry_id)
+    if existing_entry is not None:
+        existing_closeout = existing_entry.get("memory_closeout")
+        if not isinstance(existing_closeout, dict):
+            existing_closeout = {
+                "enabled": False,
+                "learning_count": 0,
+                "persistent_count": 0,
+                "blocked_reason": "reconciled_existing_entry",
+            }
+        _write_json(
+            state_path,
+            {
+                "last_synced_ts": max_ts,
+                "last_synced_at": _iso(_now()),
+                "last_session_synced_at": last_session_synced_at,
+                "history_path": str(history_path),
+                "session_root": str(session_root),
+                "chronicle_path": str(chronicle_path),
+                "records_synced": len(records),
+                "history_records_synced": len(history_records),
+                "session_records_synced": len(session_records),
+                "last_entry_id": entry_id,
+                "last_idempotency_key": idempotency_key,
+                "workspace_key": workspace_key,
+                "skipped_low_signal_batch": False,
+                "memory_closeout": existing_closeout,
+                "reconciled_existing_entry": True,
+            },
+        )
+        print("Reconciled an existing Chronicle entry with its missing checkpoint.")
+        print(f"Chronicle: {chronicle_path}")
+        print(f"State: {state_path}")
+        return 0
+
     closeout_blocked_reason: str | None = None
     closeout_enabled = not args.skip_memory_closeout
     if args.skip_memory_closeout:
@@ -756,6 +944,20 @@ def main() -> int:
         "blocked_reason": closeout_blocked_reason,
     }
     if closeout_enabled:
+        if learnings_path == DEFAULT_LEARNINGS_PATH:
+            learnings_path = seed_memory_state_file(
+                "LEARNINGS.md",
+                project_root=WORKSPACE_ROOT,
+                state_root=MEMORY_ROOT.parent,
+            )
+        if persistent_state_path == DEFAULT_PERSISTENT_STATE_PATH:
+            persistent_state_path = seed_memory_state_file(
+                "persistent_state.md",
+                project_root=WORKSPACE_ROOT,
+                state_root=MEMORY_ROOT.parent,
+            )
+        closeout["learnings_path"] = str(learnings_path)
+        closeout["persistent_state_path"] = str(persistent_state_path)
         closeout.update(
             _append_memory_closeout(
                 payload,
@@ -764,7 +966,7 @@ def main() -> int:
             )
         )
     payload["memory_closeout"] = closeout
-    _append_jsonl(chronicle_path, payload)
+    _append_jsonl_once(chronicle_path, payload)
     _write_json(
         state_path,
         {
@@ -778,6 +980,7 @@ def main() -> int:
             "history_records_synced": len(history_records),
             "session_records_synced": len(session_records),
             "last_entry_id": payload["entry_id"],
+            "last_idempotency_key": idempotency_key,
             "workspace_key": workspace_key,
             "skipped_low_signal_batch": False,
             "memory_closeout": closeout,
@@ -792,6 +995,24 @@ def main() -> int:
         )
     print(f"State: {state_path}")
     return 0
+
+
+def _argv_path(option: str, default: Path) -> Path:
+    for index, value in enumerate(sys.argv[1:]):
+        if value == option and index + 2 <= len(sys.argv) - 1:
+            return Path(sys.argv[index + 2]).expanduser()
+        if value.startswith(f"{option}="):
+            return Path(value.split("=", 1)[1]).expanduser()
+    return default
+
+
+def main() -> int:
+    if "--dry-run" in sys.argv[1:]:
+        return _main_unlocked()
+    chronicle_path = _argv_path("--chronicle-path", DEFAULT_CHRONICLE_PATH)
+    lock_path = sibling_lock_path(chronicle_path, operation="sync")
+    with exclusive_local_state_lock(lock_path):
+        return _main_unlocked()
 
 
 if __name__ == "__main__":

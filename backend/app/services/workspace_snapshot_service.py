@@ -83,27 +83,42 @@ def _external_workspace_roots() -> list[Path]:
 
 
 def resolve_workspace_root() -> Path:
-    current = Path(__file__).resolve()
-    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, *_external_workspace_roots(), Path("/app"), Path("/app/backend"), Path("/")]
-    seen: set[Path] = set()
-    best_root: Path | None = None
-    best_score = (-1, 0)
-    for parent in candidates:
-        if parent in seen:
-            continue
-        seen.add(parent)
-        score = _workspace_root_score(parent)
-        if score > best_score:
-            best_root = parent
-            best_score = score
-    if best_root is not None and best_score[0] > 0:
-        return best_root
-    return current.parents[3]
+    configured = str(os.getenv("AI_CLONE_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    # Code dependencies must always come from this checkout. Data discovery
+    # may consider explicit external roots later, but it must never redirect
+    # imports toward a different checkout merely because that tree is richer.
+    return Path(__file__).resolve().parents[3]
 
 
 ROOT = resolve_workspace_root()
-OPERATOR_STORY_SIGNALS_PATH = ROOT / "memory" / "reports" / "operator_story_signals_latest.json"
-CONTENT_SAFE_OPERATOR_LESSONS_PATH = ROOT / "memory" / "reports" / "content_safe_operator_lessons_latest.json"
+PRIVATE_STATE_ROOT = Path(
+    os.getenv("AI_CLONE_STATE_ROOT") or (Path.home() / ".codex" / "ai-clone" / "state")
+).expanduser()
+_SCRIPTS_ROOT = ROOT / "scripts"
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from runtime_paths import resolve_memory_read_path  # noqa: E402
+
+
+OPERATOR_STORY_SIGNALS_LOGICAL_REF = "memory/reports/operator_story_signals_latest.json"
+CONTENT_SAFE_OPERATOR_LESSONS_LOGICAL_REF = "memory/reports/content_safe_operator_lessons_latest.json"
+OPERATOR_STORY_SIGNALS_PATH = ROOT / OPERATOR_STORY_SIGNALS_LOGICAL_REF
+CONTENT_SAFE_OPERATOR_LESSONS_PATH = ROOT / CONTENT_SAFE_OPERATOR_LESSONS_LOGICAL_REF
+
+
+def _memory_report_read_path(logical_ref: str, configured_path: Path) -> Path:
+    project_default = ROOT / logical_ref
+    if configured_path != project_default:
+        # Preserve explicit test and packaged-runtime overrides.
+        return configured_path
+    return resolve_memory_read_path(
+        Path(logical_ref).relative_to("memory"),
+        project_root=ROOT,
+        state_root=PRIVATE_STATE_ROOT,
+    )
 
 
 def _candidate_roots() -> list[Path]:
@@ -248,7 +263,7 @@ def _ordered_existing_paths(paths: list[Path]) -> list[Path]:
     return ordered
 
 
-def _workspace_file_roots() -> list[tuple[Path, str]]:
+def _workspace_file_roots() -> list[tuple[Path, str, str | None]]:
     persona_candidates = _ordered_existing_paths(
         [
             ROOT / "knowledge" / "persona" / "feeze",
@@ -263,9 +278,19 @@ def _workspace_file_roots() -> list[tuple[Path, str]]:
             _discover_linkedin_root(),
         ]
     )
-    roots: list[tuple[Path, str]] = []
-    roots.extend((path, "persona-bundle") for path in persona_candidates)
-    roots.extend((path, "linkedin-content-os") for path in linkedin_candidates)
+    roots: list[tuple[Path, str, str | None]] = []
+    roots.extend((path, "persona-bundle", None) for path in persona_candidates)
+    roots.append(
+        (
+            PRIVATE_STATE_ROOT / "workspaces" / "feezie-os",
+            "linkedin-content-os",
+            "workspaces/linkedin-content-os",
+        )
+    )
+    roots.extend(
+        (path, "linkedin-content-os", "workspaces/linkedin-content-os")
+        for path in linkedin_candidates
+    )
     return roots
 
 
@@ -705,9 +730,18 @@ def _display_path_from_workspace_root(file_path: Path) -> str:
             return file_path.as_posix()
 
 
-def _serialize_file(file_path: Path, root: Path, label: str) -> dict[str, str]:
-    relative_path = _display_path_from_workspace_root(file_path)
+def _serialize_file(
+    file_path: Path,
+    root: Path,
+    label: str,
+    display_root: str | None = None,
+) -> dict[str, str]:
     relative_to_root = file_path.relative_to(root).as_posix()
+    relative_path = (
+        (Path(display_root) / relative_to_root).as_posix()
+        if display_root
+        else _display_path_from_workspace_root(file_path)
+    )
     segments = relative_to_root.split("/")
     group = f"{label}/{segments[0]}" if len(segments) > 1 else label
     raw = file_path.read_text(encoding="utf-8")
@@ -723,15 +757,19 @@ def _serialize_file(file_path: Path, root: Path, label: str) -> dict[str, str]:
 
 
 def _load_workspace_files() -> list[dict[str, str]]:
-    files: list[dict[str, str]] = []
-    for root, label in _workspace_file_roots():
+    files_by_key: dict[tuple[str, str], dict[str, str]] = {}
+    for root, label, display_root in _workspace_file_roots():
         if not root.exists():
             continue
         for file_path in _walk(root):
             if file_path.suffix not in {".md", ".json"}:
                 continue
-            files.append(_serialize_file(file_path, root, label))
-    return files
+            relative_to_root = file_path.relative_to(root).as_posix()
+            files_by_key.setdefault(
+                (label, relative_to_root),
+                _serialize_file(file_path, root, label, display_root),
+            )
+    return list(files_by_key.values())
 
 
 def _doc_path_is_excluded(display_path: str) -> bool:
@@ -834,12 +872,22 @@ def _read_text(path: Path) -> str | None:
 
 
 def _load_operator_story_signals_payload() -> dict[str, Any] | None:
-    payload = _load_json(OPERATOR_STORY_SIGNALS_PATH)
+    payload = _load_json(
+        _memory_report_read_path(
+            OPERATOR_STORY_SIGNALS_LOGICAL_REF,
+            OPERATOR_STORY_SIGNALS_PATH,
+        )
+    )
     return payload if _snapshot_is_usable(SNAPSHOT_OPERATOR_STORY_SIGNALS, payload or {}) else None
 
 
 def _load_content_safe_operator_lessons_payload() -> dict[str, Any] | None:
-    payload = _load_json(CONTENT_SAFE_OPERATOR_LESSONS_PATH)
+    payload = _load_json(
+        _memory_report_read_path(
+            CONTENT_SAFE_OPERATOR_LESSONS_LOGICAL_REF,
+            CONTENT_SAFE_OPERATOR_LESSONS_PATH,
+        )
+    )
     return payload if _snapshot_is_usable(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS, payload or {}) else None
 
 

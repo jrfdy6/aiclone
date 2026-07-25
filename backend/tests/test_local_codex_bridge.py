@@ -173,6 +173,111 @@ class LocalCodexBridgeTests(unittest.TestCase):
         self.assertEqual(payload["options"], codex_options)
         self.assertEqual(payload["diagnostics"]["execution_policy"], "codex_terminal_required")
 
+    def test_content_job_injects_public_owner_voice_but_never_local_only_text(self) -> None:
+        job = {
+            "job_id": "job-content-voice",
+            "request_payload": {
+                "content_type": "post",
+                "topic": "turning market signal into a useful next decision",
+            },
+            "context_packet": {
+                "requested_model": "gpt-5.4-mini",
+                "expected_option_count": 3,
+                "prompt": "Return three grounded post options.",
+            },
+        }
+        codex_options = ["Codex option one", "Codex option two", "Codex option three"]
+        public_text = (
+            "I learned this by doing the work. The useful part was seeing exactly "
+            "where the handoff made the next decision harder."
+        )
+        local_only_text = (
+            "This private owner story must stay on this computer and must never "
+            "appear in the prompt sent to remote Codex inference."
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            corpus = Path(temp_dir) / "voice.jsonl"
+            corpus.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "id": "public-owner",
+                                "text": public_text,
+                                "kind": "positive",
+                                "provenance": "human_published",
+                                "approval_status": "verified",
+                                "privacy": "public",
+                                "post_type": "commentary",
+                                "topic_tags": ["systems", "signal"],
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "id": "private-owner",
+                                "text": local_only_text,
+                                "kind": "positive",
+                                "provenance": "human_edited",
+                                "approval_status": "approved",
+                                "privacy": "local_only",
+                                "post_type": "story",
+                                "topic_tags": ["systems"],
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "AI_CLONE_VOICE_CORPUS_PATH": str(corpus),
+                        "AI_CLONE_VOICE_INFLUENCE_PATH": str(Path(temp_dir) / "missing-influences.jsonl"),
+                        "AI_CLONE_VOICE_SEMANTIC_RETRIEVAL": "false",
+                    },
+                    clear=False,
+                ),
+                mock.patch.object(self.bridge, "_claim_next_job", return_value=job),
+                mock.patch.object(
+                    self.bridge,
+                    "_run_codex_job",
+                    return_value=(codex_options, json.dumps({"options": codex_options}), "stdout", ""),
+                ) as run_codex,
+                mock.patch.object(self.bridge, "_complete_job"),
+                mock.patch(
+                    "app.services.local_content_generation_execution_service.compose_local_template_options",
+                    return_value=["local one", "local two", "local three"],
+                ),
+                mock.patch(
+                    "app.services.local_content_generation_execution_service.evaluate_local_quality",
+                    return_value={"passed": True, "issues": []},
+                ),
+                mock.patch(
+                    "app.services.local_content_generation_execution_service.build_local_template_artifacts",
+                    return_value=[],
+                ),
+                mock.patch(
+                    "app.services.local_content_generation_execution_service.build_result_payload",
+                    return_value={"options": codex_options, "diagnostics": {}},
+                ),
+            ):
+                self.bridge.run_once(
+                    api_base="http://example.test/api/content-generation",
+                    token="token",
+                    worker_id="worker-1",
+                    workspace_slug="linkedin-content-os",
+                    workspace_root=ROOT,
+                    model="gpt-5.4-mini",
+                    reasoning_effort="medium",
+                    timeout_seconds=30,
+                )
+
+        sent_prompt = run_codex.call_args.kwargs["prompt"]
+        self.assertIn(public_text, sent_prompt)
+        self.assertNotIn(local_only_text, sent_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

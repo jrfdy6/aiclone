@@ -3,14 +3,32 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+
+from runtime_paths import PROJECT_ROOT, resolve_state_or_project_path
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-SOURCE_INDEX_PATH = WORKSPACE_ROOT / "knowledge" / "source-intelligence" / "index.json"
+STATE_ROOT = Path(
+    os.getenv("AI_CLONE_STATE_ROOT") or (Path.home() / ".codex" / "ai-clone" / "state")
+).expanduser()
+SOURCE_INDEX_PATH = resolve_state_or_project_path(
+    "memory/source-intelligence/index.json",
+    "knowledge/source-intelligence/index.json",
+    project_root=WORKSPACE_ROOT,
+    state_root=STATE_ROOT,
+)
+SOURCE_INDEX_REF = "knowledge/source-intelligence/index.json"
+BRAIN_SIGNALS_REF = "memory/brain_signals.jsonl"
 
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -93,13 +111,13 @@ def _compact_workspace(workspace: dict[str, Any]) -> dict[str, Any]:
 
 def _read_source_index() -> dict[str, Any]:
     if not SOURCE_INDEX_PATH.exists():
-        return {"available": False, "source_ref": str(SOURCE_INDEX_PATH), "counts": {}, "recent_sources": []}
+        return {"available": False, "source_ref": SOURCE_INDEX_REF, "counts": {}, "recent_sources": []}
     try:
         payload = json.loads(SOURCE_INDEX_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return {
             "available": False,
-            "source_ref": str(SOURCE_INDEX_PATH),
+            "source_ref": SOURCE_INDEX_REF,
             "error": str(exc),
             "counts": {},
             "recent_sources": [],
@@ -107,7 +125,7 @@ def _read_source_index() -> dict[str, Any]:
     sources = [item for item in payload.get("sources") or [] if isinstance(item, dict)]
     return {
         "available": True,
-        "source_ref": str(SOURCE_INDEX_PATH),
+        "source_ref": SOURCE_INDEX_REF,
         "generated_at": payload.get("generated_at"),
         "schema_version": payload.get("schema_version"),
         "counts": dict(payload.get("counts") or {}),
@@ -135,11 +153,11 @@ def build_brain_automation_context(
     errors: list[str] = []
 
     try:
-        from app.services.brain_signal_service import SIGNALS_PATH, list_signals
+        from app.services.brain_signal_service import list_signals
 
         raw_signals = list_signals(limit=signal_limit)
         brain_signals = [_compact_signal(signal) for signal in raw_signals]
-        source_paths.append(str(SIGNALS_PATH))
+        source_paths.append(BRAIN_SIGNALS_REF)
     except Exception as exc:
         brain_signals = []
         errors.append(f"brain_signals: {exc}")
@@ -163,7 +181,7 @@ def build_brain_automation_context(
         errors.append(f"portfolio_snapshot: {exc}")
 
     source_intelligence = _read_source_index()
-    source_paths.append(str(SOURCE_INDEX_PATH))
+    source_paths.append(SOURCE_INDEX_REF)
 
     return {
         "available": not errors,

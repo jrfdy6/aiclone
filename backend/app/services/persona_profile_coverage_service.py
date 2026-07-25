@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from app.services.persona_bundle_writer import resolve_persona_bundle_root
+from app.services.persona_bundle_writer import resolve_persona_bundle_read_path
 
 
 VOICE_PATH = "identity/VOICE_PATTERNS.md"
@@ -13,10 +13,16 @@ TASTE_EXAMPLES_PATH = "prompts/taste_examples.md"
 STORY_PATH = "history/story_bank.md"
 
 
-def _read(bundle_root: Path, relative_path: str) -> str:
-    path = bundle_root / relative_path
+def _read(bundle_root: Path | None, relative_path: str) -> str:
+    path = (
+        bundle_root / relative_path
+        if bundle_root is not None
+        else resolve_persona_bundle_read_path(relative_path)
+    )
     if not path.exists() or not path.is_file():
         return ""
+    if path.is_symlink():
+        raise ValueError("Persona profile files must be regular non-symlink files.")
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
@@ -47,12 +53,11 @@ def _level_two_heading_count(text: str) -> int:
 def build_persona_profile_coverage(*, bundle_root: Path | None = None) -> dict[str, Any]:
     """Return content-free coverage facts for the private persona bundle."""
 
-    root = bundle_root or resolve_persona_bundle_root()
-    voice = _read(root, VOICE_PATH)
-    communication = _read(root, COMMUNICATION_PATH)
-    examples = _read(root, CONTENT_EXAMPLES_PATH)
-    taste = _read(root, TASTE_EXAMPLES_PATH)
-    stories = _read(root, STORY_PATH)
+    voice = _read(bundle_root, VOICE_PATH)
+    communication = _read(bundle_root, COMMUNICATION_PATH)
+    examples = _read(bundle_root, CONTENT_EXAMPLES_PATH)
+    taste = _read(bundle_root, TASTE_EXAMPLES_PATH)
+    stories = _read(bundle_root, STORY_PATH)
 
     coverage = {
         "voice_sections": _level_two_heading_count(voice),

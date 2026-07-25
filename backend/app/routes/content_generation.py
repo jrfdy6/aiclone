@@ -2520,7 +2520,10 @@ def _default_content_provider_order() -> List[str]:
         return configured
     if _runtime_is_production():
         return ["gemini", "openai"]
-    return ["ollama", "openai"]
+    # Local generation must not silently depend on a daemon that may be absent,
+    # asleep, or serving a different model than expected. Ollama remains
+    # available only through an explicit provider order plus its opt-in flag.
+    return ["openai", "gemini"]
 
 
 def _default_email_content_provider_order() -> List[str]:
@@ -2557,7 +2560,7 @@ def _provider_is_configured(name: str) -> bool:
     if name == "gemini":
         return bool((os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip())
     if name == "ollama":
-        return True
+        return _env_flag_enabled("CONTENT_GENERATION_ENABLE_OLLAMA")
     return False
 
 
@@ -2764,7 +2767,10 @@ def get_openai_client(req: "ContentGenerationRequest | None" = None):
             )
     if not providers:
         raise ValueError(
-            "No content-generation providers configured. Set Ollama locally, or GEMINI_API_KEY / OPENAI_API_KEY / CONTENT_GENERATION_CODEX_API_KEY."
+            "No reliable content-generation provider is configured. Set GEMINI_API_KEY, "
+            "OPENAI_API_KEY, or CONTENT_GENERATION_CODEX_API_KEY. To opt into the "
+            "local Ollama fallback, also set CONTENT_GENERATION_ENABLE_OLLAMA=true "
+            "and include ollama in CONTENT_GENERATION_PROVIDER_ORDER."
         )
     return ContentLLMRouterClient(providers)
 

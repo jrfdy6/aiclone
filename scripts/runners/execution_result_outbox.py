@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -28,6 +29,11 @@ for import_root in (SCRIPTS_ROOT, BACKEND_ROOT):
         sys.path.insert(0, str(import_root))
 
 from app.models import PMExecutionResultCommitRequest, PMExecutionResultCommitResult
+from app.services.execution_artifact_reference_service import (
+    contains_private_filesystem_reference,
+    encode_local_execution_artifact_reference,
+    validate_remote_execution_artifact_reference,
+)
 from runtime_http import (
     ControlPlaneURLSecurityError,
     control_plane_headers,
@@ -35,7 +41,7 @@ from runtime_http import (
     runtime_secret_value,
     validate_control_plane_url,
 )
-from runtime_paths import STATE_ROOT
+from runtime_paths import PROJECT_ROOT, STATE_ROOT
 
 
 OUTBOX_SCHEMA = "pm_execution_result_outbox/v1"
@@ -45,6 +51,32 @@ OUTBOX_AUTH_FIELD = "authorization"
 OUTBOX_PENDING_EXIT = 75
 MAX_OUTBOX_BYTES = 1024 * 1024
 MAX_PENDING_ENTRIES = 500
+_REMOTE_TEXT_FIELDS = (
+    "title",
+    "summary",
+)
+_REMOTE_TEXT_LIST_FIELDS = (
+    "decisions",
+    "blockers",
+    "learnings",
+    "outcomes",
+    "follow_ups",
+    "host_actions",
+    "host_action_proof",
+    "project_updates",
+    "memory_promotions",
+    "persistent_state_updates",
+)
+_PRIVATE_PATH_TOKEN_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:"
+    r"~(?:[A-Za-z0-9._-]+)?[\\/][^\s`'\"<>]+"
+    r"|(?:"
+    r"/Users/|/home/|/private/|/tmp/|/var/|/Volumes/|/opt/|/etc/|/usr/|"
+    r"/Library/|/Applications/|/workspace/|/root/|/mnt/"
+    r")[^\s`'\"<>]+"
+    r"|[A-Za-z]:[\\/][^\s`'\"<>]+"
+    r")"
+)
 
 
 class ExecutionResultOutboxError(RuntimeError):
@@ -340,12 +372,93 @@ def _validated_api_base(api_url: str) -> str:
     return normalized.rstrip("/")
 
 
+def _scrub_remote_text(value: str, replacements: dict[str, str]) -> str:
+    scrubbed = str(value)
+    for local_path, logical_reference in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
+        if local_path:
+            scrubbed = scrubbed.replace(local_path, logical_reference)
+    scrubbed = _PRIVATE_PATH_TOKEN_RE.sub(
+        lambda match: encode_local_execution_artifact_reference(
+            match.group(0),
+            state_root=STATE_ROOT,
+            project_root=PROJECT_ROOT,
+        ),
+        scrubbed,
+    )
+    if contains_private_filesystem_reference(scrubbed):
+        raise ExecutionResultOutboxSecurityError(
+            "Execution-result text contains a private filesystem path that cannot be sent to the control plane."
+        )
+    return scrubbed
+
+
+def _remote_operation(operation: PMExecutionResultCommitRequest) -> PMExecutionResultCommitRequest:
+    """Build the logical-only operation sent to the remote control plane.
+
+    The signed local outbox intentionally retains physical paths so a crashed
+    worker can replay materialization. This derived request is the only form
+    allowed to cross the network boundary.
+    """
+
+    local_references = [
+        *operation.artifacts,
+        operation.result_path,
+        operation.memo_path,
+        operation.work_order_path,
+        *([operation.workspace_result_path] if operation.workspace_result_path else []),
+    ]
+    replacements = {
+        raw: encode_local_execution_artifact_reference(
+            raw,
+            state_root=STATE_ROOT,
+            project_root=PROJECT_ROOT,
+        )
+        for raw in dict.fromkeys(local_references)
+    }
+    update: dict[str, Any] = {
+        "artifacts": [replacements[item] for item in operation.artifacts],
+        "result_path": replacements[operation.result_path],
+        "memo_path": replacements[operation.memo_path],
+        "work_order_path": replacements[operation.work_order_path],
+        "workspace_result_path": (
+            replacements[operation.workspace_result_path] if operation.workspace_result_path else None
+        ),
+    }
+    for field_name in _REMOTE_TEXT_FIELDS:
+        update[field_name] = _scrub_remote_text(str(getattr(operation, field_name)), replacements)
+    for field_name in _REMOTE_TEXT_LIST_FIELDS:
+        update[field_name] = [
+            _scrub_remote_text(str(item), replacements)
+            for item in getattr(operation, field_name)
+        ]
+
+    remote = PMExecutionResultCommitRequest.model_validate(
+        {
+            **operation.model_dump(mode="python"),
+            **update,
+        }
+    )
+    for field_name in ("result_path", "memo_path", "work_order_path"):
+        validate_remote_execution_artifact_reference(str(getattr(remote, field_name)))
+    if remote.workspace_result_path:
+        validate_remote_execution_artifact_reference(remote.workspace_result_path)
+    for artifact in remote.artifacts:
+        validate_remote_execution_artifact_reference(artifact, allow_web_url=True)
+    serialized = remote.model_dump_json()
+    if contains_private_filesystem_reference(serialized):
+        raise ExecutionResultOutboxSecurityError(
+            "Execution-result request still contains a private filesystem path after logical-reference projection."
+        )
+    return remote
+
+
 def _commit_request(operation: PMExecutionResultCommitRequest, *, api_url: str) -> PMExecutionResultCommitResult:
     api_base = _validated_api_base(api_url)
+    remote_operation = _remote_operation(operation)
     url = f"{api_base}/api/pm/cards/{operation.card_id}/execution-result"
     request = urllib.request.Request(
         url,
-        data=operation.model_dump_json().encode("utf-8"),
+        data=remote_operation.model_dump_json().encode("utf-8"),
         headers=control_plane_headers({"Accept": "application/json", "Content-Type": "application/json"}),
         method="POST",
     )

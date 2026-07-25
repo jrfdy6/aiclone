@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from runtime_http import control_plane_headers
-
-
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
-REPORT_ROOT = WORKSPACE_ROOT / "memory" / "reports"
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_http import control_plane_headers  # noqa: E402
+from runtime_paths import PROJECT_ROOT, memory_state_path  # noqa: E402
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
+REPORT_ROOT = memory_state_path("reports")
 
 
 @dataclass(frozen=True)

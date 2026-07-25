@@ -8,7 +8,11 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from app.services.embedders import embed_text, embed_texts
-from app.services.persona_bundle_writer import resolve_persona_bundle_root
+from app.services.persona_bundle_writer import (
+    resolve_persona_bundle_read_path,
+    resolve_persona_bundle_root,
+    resolve_persona_bundle_state_root,
+)
 from app.services.persona_promotion_service import build_committed_persona_overlay
 from app.services.retrieval import get_combined_weights
 
@@ -194,6 +198,8 @@ def _include_overlay_item(rel_path: str, item: dict[str, Any]) -> bool:
 def _read_text(path: Path) -> str:
     if not path.exists():
         return ""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Persona bundle context files must be regular non-symlink files.")
     return _strip_frontmatter(path.read_text(encoding="utf-8"))
 
 
@@ -541,10 +547,11 @@ def _iter_section_chunks(
 
 
 def load_bundle_persona_chunks() -> list[dict[str, Any]]:
-    bundle_root = resolve_persona_bundle_root()
-    if not bundle_root.exists():
+    state_root = resolve_persona_bundle_state_root()
+    seed_root = resolve_persona_bundle_root()
+    if not state_root.exists() and not seed_root.exists():
         print(
-            f"[bundle_context] root_missing path={bundle_root}",
+            f"[bundle_context] roots_missing state={state_root} seed={seed_root}",
             flush=True,
         )
         return []
@@ -571,7 +578,12 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
     ]
     chunks: list[dict[str, Any]] = []
     for rel_path in rel_paths:
-        text = _read_text(bundle_root / rel_path)
+        read_path = resolve_persona_bundle_read_path(
+            rel_path,
+            state_root=state_root,
+            seed_root=seed_root,
+        )
+        text = _read_text(read_path)
         if not text:
             continue
         if rel_path == TARGET_CLAIMS:
@@ -593,10 +605,17 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
         else:
             chunks.extend(_iter_section_chunks(text, rel_path))
     if not chunks:
-        manifest_exists = (bundle_root / "manifest.json").exists()
-        file_count = sum(1 for _ in bundle_root.rglob("*") if _.is_file())
+        manifest_exists = (seed_root / "manifest.json").exists()
+        file_count = sum(
+            1
+            for root in (state_root, seed_root)
+            if root.exists()
+            for path in root.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        )
         print(
-            f"[bundle_context] root={bundle_root} manifest={manifest_exists} file_count={file_count} parsed_chunks=0",
+            f"[bundle_context] state={state_root} seed={seed_root} manifest={manifest_exists} "
+            f"file_count={file_count} parsed_chunks=0",
             flush=True,
         )
     return chunks

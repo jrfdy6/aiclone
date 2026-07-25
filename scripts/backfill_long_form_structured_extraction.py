@@ -4,10 +4,17 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
 import yaml
+
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_paths import PROJECT_ROOT  # noqa: E402
 
 INLINE_TIMESTAMP_PATTERN = re.compile(r"<\d{2}:\d{2}:\d{2}\.\d{3}>")
 INLINE_CAPTION_TAG_PATTERN = re.compile(r"</?c(?:\.[^>]*)?>")
@@ -525,7 +532,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Backfill older long-form ingestions with structured extraction fields.")
     parser.add_argument(
         "--root",
-        default="/Users/neo/Documents/Codex/AI-Clone/knowledge/ingestions",
+        default=str(PROJECT_ROOT / "knowledge" / "ingestions"),
         help="Root directory containing historical normalized.md long-form ingestions.",
     )
     parser.add_argument("--limit", type=int, default=None, help="Optional cap on assets to process.")

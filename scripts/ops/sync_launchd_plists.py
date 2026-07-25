@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_DIR = WORKSPACE_ROOT / "automations/launchd"
 SOURCE_DIRS = [
     WORKSPACE_ROOT / "automations/launchd",

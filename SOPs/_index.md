@@ -35,7 +35,7 @@ Start with `SOURCE_OF_TRUTH.md`. Use this index to identify whether a procedure 
 | Persona-grounded content generation | Evolving | [Persona-Grounded Content Generation](./persona_grounded_content_generation_sop.md) | Typed retrieval and grounding improvements |
 | Staged content planning/writing/critique | Planned | [Staged Content Generation Map](./content_generation_staged_pipeline_map.md) | Target decomposition of the current generation path |
 | Social/article persona synthesis | Planned roadmap | [Social Persona Synthesis Roadmap](./social_persona_synthesis_roadmap_sop.md) | Multi-phase source-to-Johnnie-reaction roadmap |
-| Invite-only Neo professional conversations | Evolving | [Neo Guest Conversation](./neo_guest_conversation_sop.md) | Separate guest auth, versioned approved public knowledge pack, warm local Ollama daemon, owner-approved meeting requests |
+| Invite-only Neo professional conversations | Evolving | [Neo Guest Conversation](./neo_guest_conversation_sop.md) | Separate guest auth, versioned approved public knowledge pack, deterministic local worker, owner-approved meeting requests |
 
 The phase plans linked from the social-persona roadmap are subordinate implementation plans. Their presence does not mean a phase is deployed.
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from app.services.persona_promotion_service import (
@@ -11,27 +10,10 @@ from app.services.persona_promotion_service import (
     TARGET_STORIES,
     build_committed_persona_overlay,
 )
-from app.services.persona_bundle_writer import preferred_promotion_title
-
-
-def resolve_workspace_root() -> Path:
-    current = Path(__file__).resolve()
-    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/")]
-    seen: set[Path] = set()
-    for parent in candidates:
-        if parent in seen:
-            continue
-        seen.add(parent)
-        if (parent / "knowledge" / "persona" / "feeze").exists():
-            return parent
-    return current.parents[3]
-
-
-WORKSPACE_ROOT = resolve_workspace_root()
-PERSONA_ROOT = WORKSPACE_ROOT / "knowledge" / "persona" / "feeze"
-CLAIMS_PATH = PERSONA_ROOT / "identity" / "claims.md"
-STORY_BANK_PATH = PERSONA_ROOT / "history" / "story_bank.md"
-INITIATIVES_PATH = PERSONA_ROOT / "history" / "initiatives.md"
+from app.services.persona_bundle_writer import (
+    preferred_promotion_title,
+    resolve_persona_bundle_read_path,
+)
 
 STANCE_IDS = [
     "reinforce",
@@ -397,7 +379,10 @@ def humanize_promotion_kind(kind: str) -> str:
 
 @lru_cache(maxsize=1)
 def load_persona_truth() -> dict[str, list[dict[str, str]]]:
-    if not (CLAIMS_PATH.exists() and STORY_BANK_PATH.exists() and INITIATIVES_PATH.exists()):
+    claims_path = resolve_persona_bundle_read_path("identity/claims.md")
+    story_bank_path = resolve_persona_bundle_read_path("history/story_bank.md")
+    initiatives_path = resolve_persona_bundle_read_path("history/initiatives.md")
+    if not (claims_path.exists() and story_bank_path.exists() and initiatives_path.exists()):
         truth = {
             "claims": list(FALLBACK_PERSONA_TRUTH["claims"]),
             "stories": list(FALLBACK_PERSONA_TRUTH["stories"]),
@@ -405,9 +390,9 @@ def load_persona_truth() -> dict[str, list[dict[str, str]]]:
         }
     else:
         truth = {
-            "claims": _parse_claims_table(CLAIMS_PATH.read_text(encoding="utf-8")),
-            "stories": _parse_story_bank(STORY_BANK_PATH.read_text(encoding="utf-8")),
-            "initiatives": _parse_initiatives(INITIATIVES_PATH.read_text(encoding="utf-8")),
+            "claims": _parse_claims_table(claims_path.read_text(encoding="utf-8")),
+            "stories": _parse_story_bank(story_bank_path.read_text(encoding="utf-8")),
+            "initiatives": _parse_initiatives(initiatives_path.read_text(encoding="utf-8")),
         }
 
     overlay = build_committed_persona_overlay()

@@ -19,11 +19,25 @@ from pathlib import Path
 from typing import Any
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+LOCAL_SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+if str(LOCAL_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(LOCAL_SCRIPTS_ROOT))
+
+from runtime_paths import (
+    PROJECT_ROOT,
+    STATE_ROOT,
+    memory_state_path,
+    seed_memory_state_file,
+    workspace_state_root,
+)
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
-MEMORY_ROOT = WORKSPACE_ROOT / "memory"
-REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
+DEFAULT_MEMORY_ROOT = memory_state_path(state_root=STATE_ROOT)
+MEMORY_ROOT = DEFAULT_MEMORY_ROOT
+REGISTRY_PATH = WORKSPACE_ROOT / "memory" / "workspace_registry.json"
 RUNNER_ID = "jean-claude-execution"
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
 PACK_FILES = ("AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md", "CHARTER.md")
@@ -40,14 +54,15 @@ if str(BACKEND_ROOT) not in sys.path:
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 from app.services.execution_gate_service import require_current_execution_gate
+from app.services.workspace_registry_service import canonicalize_workspace_key
 from app.security.execution_authorization import verify_execution_payload
 from automation_run_mirror import build_run_payload, mirror_runs
 from chronicle_memory_contract import build_workspace_memory_contract
 from runner_lock import execute_with_runner_lock
 from runtime_http import control_plane_headers
 from runner_security import resolve_workspace_root, validate_workspace_key
+from workspace_registry_legacy import build_legacy_workspace_registry_payload
 
 
 def _signed_jobs_required() -> bool:
@@ -85,7 +100,27 @@ def _entry_has_runnable_execution_gate(entry: dict[str, Any]) -> bool:
         decision == "REQUIRE_APPROVAL" and approval_state == "approved"
     )
 
-CODEX_HANDOFF_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+CODEX_HANDOFF_PATH = memory_state_path("codex_session_handoff.jsonl", state_root=STATE_ROOT)
+
+
+def _active_state_root() -> Path:
+    if WORKSPACE_ROOT.expanduser().resolve() != PROJECT_ROOT.expanduser().resolve():
+        return WORKSPACE_ROOT / ".ai-clone-state"
+    if MEMORY_ROOT.expanduser().resolve() != DEFAULT_MEMORY_ROOT.expanduser().resolve():
+        return MEMORY_ROOT.parent
+    return STATE_ROOT
+
+
+def _active_memory_root() -> Path:
+    return memory_state_path(state_root=_active_state_root())
+
+
+def _chronicle_write_path() -> Path:
+    return seed_memory_state_file(
+        "codex_session_handoff.jsonl",
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    )
 
 
 def _now() -> datetime:
@@ -149,9 +184,7 @@ def _fetch_json(url: str, *, method: str = "GET", payload: dict[str, Any] | None
 
 
 def _read_registry() -> dict[str, dict[str, Any]]:
-    if not REGISTRY_PATH.exists():
-        return {}
-    payload = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    payload = build_legacy_workspace_registry_payload(include_executive=True)
     items = payload.get("workspaces") or []
     registry: dict[str, dict[str, Any]] = {}
     for item in items:
@@ -272,24 +305,39 @@ def _workspace_label(workspace_key: str, display_name: str | None) -> str:
     return f"{normalized_display} (`{normalized_key}`)"
 
 
-def _workspace_root(workspace_key: str, registry: dict[str, dict[str, Any]]) -> Path:
-    workspace_key = validate_workspace_key(workspace_key)
+def _workspace_source_root(workspace_key: str, registry: dict[str, dict[str, Any]]) -> Path:
+    workspace_key = validate_workspace_key(
+        canonicalize_workspace_key(workspace_key, default="shared_ops")
+    )
     item = registry.get(workspace_key) or {}
     configured = item.get("filesystem_path")
-    base = resolve_workspace_root(
+    return resolve_workspace_root(
         WORKSPACE_ROOT,
         workspace_key,
         configured if isinstance(configured, str) else None,
     )
+
+
+def _workspace_root(workspace_key: str, registry: dict[str, dict[str, Any]]) -> Path:
+    workspace_key = validate_workspace_key(
+        canonicalize_workspace_key(workspace_key, default="shared_ops")
+    )
+    base = workspace_state_root(workspace_key, state_root=_active_state_root())
     for subdir in ("dispatch", "briefings", "docs"):
         (base / subdir).mkdir(parents=True, exist_ok=True)
     return base
 
 
 def _build_bundle(args: argparse.Namespace, run_id: str, selected_entry: dict[str, Any], card: dict[str, Any], registry: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    workspace_key = str(selected_entry.get("workspace_key") or "shared_ops")
+    workspace_key = validate_workspace_key(
+        canonicalize_workspace_key(
+            str(selected_entry.get("workspace_key") or "shared_ops"),
+            default="shared_ops",
+        )
+    )
     workspace_root = _workspace_root(workspace_key, registry)
-    workspace_pack = _load_pack(workspace_root)
+    workspace_source_root = _workspace_source_root(workspace_key, registry)
+    workspace_pack = _load_pack(workspace_source_root)
     registry_item = _registry_item(workspace_key, registry)
     workspace_memory_contract = build_workspace_memory_contract(
         workspace_key,
@@ -355,6 +403,7 @@ def _build_bundle(args: argparse.Namespace, run_id: str, selected_entry: dict[st
         "model": args.model,
         "dry_run": args.dry_run,
         "workspace_root": str(workspace_root),
+        "workspace_source_root": str(workspace_source_root),
         "queue_entry": selected_entry,
         "pm_card": card,
         "registry_item": registry_item,
@@ -534,7 +583,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["api", "service"], default="api")
     parser.add_argument("--limit", type=int, default=25)
     parser.add_argument("--card-id")
-    parser.add_argument("--output-root", default=str(MEMORY_ROOT))
+    parser.add_argument("--output-root", default=str(_active_memory_root()))
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -785,7 +834,7 @@ def main() -> int:
     }
 
     if not args.dry_run:
-        _append_jsonl(CODEX_HANDOFF_PATH, chronicle_entry)
+        _append_jsonl(_chronicle_write_path(), chronicle_entry)
     updated_card = _update_card(
         imports,
         args.api_url.rstrip("/"),
@@ -831,7 +880,7 @@ def main() -> int:
             ),
             {
                 "kind": "file",
-                "path": str(CODEX_HANDOFF_PATH),
+                "path": str(_chronicle_write_path() if not args.dry_run else CODEX_HANDOFF_PATH),
                 "workspace_key": bundle["primary_workspace_key"],
                 "label": "chronicle append" if not args.dry_run else "chronicle append (skipped in dry run)",
             },

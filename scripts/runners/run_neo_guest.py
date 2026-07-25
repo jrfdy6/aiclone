@@ -2,8 +2,9 @@
 """Run the Mac-local Neo guest response worker.
 
 The worker keeps one process alive, claims one job at a time, and streams the
-bounded Ollama response back to Railway. Guest content is never written to
-stdout, stderr, or the local automation ledger.
+bounded approved-public response back to Railway. Ollama is an explicit
+fallback experiment, not a runtime dependency. Guest content is never written
+to stdout, stderr, or the local automation ledger.
 """
 from __future__ import annotations
 
@@ -92,6 +93,10 @@ def _safe_error_code(error: BaseException, fallback: str = "worker_error") -> st
         status = getattr(getattr(error, "response", None), "status_code", None)
         return f"http_{status}" if isinstance(status, int) else "http_error"
     return fallback
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
 
 def _headers() -> dict[str, str]:
@@ -377,6 +382,7 @@ def _ollama_answer(
     progress_interval_seconds: float = DEFAULT_PROGRESS_INTERVAL_SECONDS,
     on_progress: Callable[[str], None] | None = None,
     model: str | None = None,
+    allow_ollama: bool = False,
 ) -> str:
     if max_response_chars < 1 or max_response_chars > MAX_RESPONSE_CHAR_LIMIT:
         raise SafeWorkerError("ollama_output_limit_invalid")
@@ -386,6 +392,8 @@ def _ollama_answer(
         if len(approved_public_response) > max_response_chars:
             raise SafeWorkerError("approved_public_response_too_large")
         return approved_public_response
+    if not allow_ollama:
+        raise SafeWorkerError("approved_public_response_missing")
 
     if not MIN_PREDICT_TOKENS <= max_predict_tokens <= MAX_PREDICT_TOKENS:
         raise SafeWorkerError("ollama_predict_limit_invalid")
@@ -538,6 +546,7 @@ def run_once(
     completion_retry_seconds: float = DEFAULT_COMPLETION_RETRY_SECONDS,
     model: str | None = None,
     protocol_verified: bool = False,
+    enable_ollama: bool = False,
 ) -> str | None:
     if not protocol_verified:
         _verify_worker_capabilities(api, session=control_session)
@@ -593,6 +602,7 @@ def run_once(
                 session=control_session,
             ),
             model=model,
+            allow_ollama=enable_ollama,
         )
         try:
             _complete_job_idempotently(
@@ -628,7 +638,15 @@ def run_once(
     return job_id
 
 
-def _record_job_run(*, api: str, job_id: str, started_at: datetime, status: str, error_code: str | None = None) -> bool:
+def _record_job_run(
+    *,
+    api: str,
+    job_id: str,
+    started_at: datetime,
+    status: str,
+    error_code: str | None = None,
+    model_runtime: str = "approved_public_knowledge_packet",
+) -> bool:
     finished_at = datetime.now(timezone.utc)
     payload = build_run_payload(
         run_id=f"{AUTOMATION_ID}::{uuid4()}",
@@ -650,8 +668,8 @@ def _record_job_run(*, api: str, job_id: str, started_at: datetime, status: str,
         action_required=status != "success",
         metadata={
             "job_id": job_id,
-            "model_runtime": "local_ollama",
-            "streaming": True,
+            "model_runtime": model_runtime,
+            "streaming": model_runtime == "local_ollama",
             "contains_guest_content": False,
         },
     )
@@ -659,7 +677,15 @@ def _record_job_run(*, api: str, job_id: str, started_at: datetime, status: str,
     return mirror_runs(validate_control_plane_url(api), [payload])
 
 
-def _record_safely(*, api: str, job_id: str, started_at: datetime, status: str, error_code: str | None = None) -> bool | None:
+def _record_safely(
+    *,
+    api: str,
+    job_id: str,
+    started_at: datetime,
+    status: str,
+    error_code: str | None = None,
+    model_runtime: str = "approved_public_knowledge_packet",
+) -> bool | None:
     try:
         return _record_job_run(
             api=api,
@@ -667,6 +693,7 @@ def _record_safely(*, api: str, job_id: str, started_at: datetime, status: str, 
             started_at=started_at,
             status=status,
             error_code=error_code,
+            model_runtime=model_runtime,
         )
     except Exception:
         return None
@@ -691,6 +718,7 @@ def run_worker(
     max_idle_poll_seconds: float = DEFAULT_MAX_IDLE_POLL_SECONDS,
     error_backoff_seconds: float = DEFAULT_ERROR_BACKOFF_SECONDS,
     max_error_backoff_seconds: float = DEFAULT_MAX_ERROR_BACKOFF_SECONDS,
+    enable_ollama: bool = False,
 ) -> int:
     idle_delay = max(0.05, idle_poll_seconds)
     idle_ceiling = max(idle_delay, max_idle_poll_seconds)
@@ -703,7 +731,7 @@ def run_worker(
     try:
         try:
             capabilities = _verify_worker_capabilities(api, session=control_session)
-            local_model = _ollama_model()
+            local_model = _ollama_model() if enable_ollama else None
         except Exception as exc:
             error_code = _safe_error_code(exc, "worker_protocol_unavailable")
             print(
@@ -716,18 +744,32 @@ def run_worker(
             max(0.05, heartbeat_interval_seconds),
             max(1.0, float(capabilities["lease_seconds"]) / 3.0),
         )
-        preloaded = _preload_ollama(
-            ollama_url,
-            timeout,
-            session=ollama_session,
-            keep_alive=keep_alive,
-            model=local_model,
+        preloaded = False
+        if enable_ollama:
+            preloaded = _preload_ollama(
+                ollama_url,
+                timeout,
+                session=ollama_session,
+                keep_alive=keep_alive,
+                model=local_model,
+            )
+        next_preload_at = (
+            time.monotonic() + preload_delay
+            if enable_ollama and not preloaded
+            else None
         )
-        next_preload_at = time.monotonic() + preload_delay if not preloaded else None
-        print(
-            "neo_guest_worker status=started preload=" + ("ready" if preloaded else "unavailable"),
-            flush=True,
-        )
+        if enable_ollama:
+            print(
+                "neo_guest_worker status=started mode=approved_packet_with_ollama_fallback preload="
+                + ("ready" if preloaded else "unavailable"),
+                flush=True,
+            )
+        else:
+            print(
+                "neo_guest_worker status=started mode=approved_public_knowledge_packet",
+                flush=True,
+            )
+        model_runtime = "local_ollama" if enable_ollama else "approved_public_knowledge_packet"
         while not stop_event.is_set():
             started_at = datetime.now(timezone.utc)
             try:
@@ -745,6 +787,7 @@ def run_worker(
                     heartbeat_interval_seconds=effective_heartbeat_seconds,
                     model=local_model,
                     protocol_verified=True,
+                    enable_ollama=enable_ollama,
                 )
             except NeoGuestCompletionAmbiguous as exc:
                 # The backend may already contain the final answer. Recording
@@ -770,6 +813,7 @@ def run_worker(
                     started_at=started_at,
                     status="error",
                     error_code=exc.code,
+                    model_runtime=model_runtime,
                 )
                 print(
                     f"neo_guest_worker status=failed error_code={exc.code} ledger="
@@ -800,15 +844,17 @@ def run_worker(
 
             error_delay = max(0.1, error_backoff_seconds)
             if job_id:
-                # A successful generation proves the configured model is now
-                # resident even when the earlier empty preload failed.
-                preloaded = True
-                next_preload_at = None
+                if enable_ollama:
+                    # A successful fallback generation proves the configured
+                    # model is resident even when the earlier preload failed.
+                    preloaded = True
+                    next_preload_at = None
                 mirrored = _record_safely(
                     api=api,
                     job_id=job_id,
                     started_at=started_at,
                     status="success",
+                    model_runtime=model_runtime,
                 )
                 print(
                     "neo_guest_worker status=completed ledger="
@@ -825,7 +871,7 @@ def run_worker(
                 print("neo_guest_worker status=idle", flush=True)
                 return 0
 
-            if not preloaded and next_preload_at is not None:
+            if enable_ollama and not preloaded and next_preload_at is not None:
                 now = time.monotonic()
                 if now >= next_preload_at:
                     preloaded = _preload_ollama(
@@ -916,6 +962,12 @@ def main() -> int:
     parser.add_argument("--timeout", type=_positive_int, default=180)
     parser.add_argument("--once", action="store_true", help="Claim at most one job, then exit.")
     parser.add_argument(
+        "--enable-ollama",
+        action=argparse.BooleanOptionalAction,
+        default=_env_flag_enabled("NEO_ENABLE_OLLAMA"),
+        help="Explicitly enable the loopback Ollama fallback for legacy packets without an approved response.",
+    )
+    parser.add_argument(
         "--ollama-keep-alive",
         type=_ollama_keep_alive,
         default=os.getenv("NEO_OLLAMA_KEEP_ALIVE", str(DEFAULT_OLLAMA_KEEP_ALIVE)),
@@ -968,6 +1020,7 @@ def main() -> int:
         max_idle_poll_seconds=args.max_idle_poll,
         error_backoff_seconds=args.error_backoff,
         max_error_backoff_seconds=args.max_error_backoff,
+        enable_ollama=args.enable_ollama,
     )
 
 

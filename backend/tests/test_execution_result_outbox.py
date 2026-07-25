@@ -89,6 +89,92 @@ def test_prepare_uses_private_signed_file_without_transport_credentials(tmp_path
     assert serialized["authorization"]["algorithm"] == "hmac-sha256"
 
 
+def test_remote_projection_keeps_physical_paths_private_and_uses_logical_references(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state_root = tmp_path / "private-state"
+    project_root = tmp_path / "project"
+    external_path = tmp_path / "external" / "proof.txt"
+    result_path = state_root / "memory" / "runner-results" / "result.json"
+    memo_path = state_root / "memory" / "runner-memos" / "result.md"
+    work_order_path = project_root / "dispatch" / "work-order.json"
+    workspace_result_path = state_root / "workspaces" / "shared_ops" / "memory" / "execution_log.md"
+    operation = _operation(tmp_path).model_copy(
+        update={
+            "summary": f"Wrote the result to {result_path}.",
+            "outcomes": [
+                f"Processed the work order at {work_order_path}.",
+                "Reviewed /Users/neo/Documents/private-notes/context.md before finishing.",
+                "Compared /Volumes/External/private-state/reference.json before finishing.",
+            ],
+            "artifacts": [
+                str(result_path),
+                str(memo_path),
+                str(work_order_path),
+                str(external_path),
+            ],
+            "result_path": str(result_path),
+            "memo_path": str(memo_path),
+            "work_order_path": str(work_order_path),
+            "workspace_result_path": str(workspace_result_path),
+        }
+    )
+    monkeypatch.setattr(outbox, "STATE_ROOT", state_root)
+    monkeypatch.setattr(outbox, "PROJECT_ROOT", project_root)
+
+    remote = outbox._remote_operation(operation)
+    serialized = remote.model_dump_json()
+
+    assert remote.result_path == "state://memory/runner-results/result.json"
+    assert remote.memo_path == "state://memory/runner-memos/result.md"
+    assert remote.work_order_path == "repo://dispatch/work-order.json"
+    assert remote.workspace_result_path == "state://workspaces/shared_ops/memory/execution_log.md"
+    assert remote.artifacts[-1].startswith("local-artifact://sha256/")
+    assert "state://memory/runner-results/result.json" in remote.summary
+    assert "repo://dispatch/work-order.json" in remote.outcomes[0]
+    assert "local-artifact://sha256/" in remote.outcomes[1]
+    assert "/Users/" not in remote.outcomes[1]
+    assert "local-artifact://sha256/" in remote.outcomes[2]
+    assert "/Volumes/" not in remote.outcomes[2]
+    assert str(tmp_path) not in serialized
+    assert operation.result_path == str(result_path)
+    assert operation.work_order_path == str(work_order_path)
+
+
+def test_commit_transport_serializes_only_the_logical_projection(monkeypatch, tmp_path: Path) -> None:
+    operation = _operation(tmp_path)
+    captured_requests = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return _response(operation).model_dump_json().encode("utf-8")
+
+    def open_request(request, *, timeout):
+        assert timeout == 30
+        captured_requests.append(request)
+        return Response()
+
+    monkeypatch.setattr(outbox, "control_plane_headers", lambda value: value)
+    monkeypatch.setattr(outbox, "open_control_plane_request", open_request)
+
+    response = outbox._commit_request(operation, api_url=PRODUCTION_API_URL)
+
+    assert response.disposition == "committed"
+    assert len(captured_requests) == 1
+    payload = json.loads(captured_requests[0].data.decode("utf-8"))
+    assert payload["result_path"].startswith("local-artifact://sha256/")
+    assert payload["memo_path"].startswith("local-artifact://sha256/")
+    assert payload["work_order_path"].startswith("local-artifact://sha256/")
+    assert str(tmp_path) not in json.dumps(payload)
+
+
 def test_tampered_outbox_entry_fails_closed(tmp_path: Path) -> None:
     operation = _operation(tmp_path)
     root = tmp_path / "private-outbox"

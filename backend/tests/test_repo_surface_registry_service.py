@@ -31,9 +31,7 @@ class RepoSurfaceRegistryServiceTests(unittest.TestCase):
         self.assertEqual(inbox["status_class"], "live_and_production_relevant")
         self.assertTrue(inbox["backend_contract_mounted"])
 
-        archive = entries["downloads_aiclone"]
-        self.assertEqual(archive["status_class"], "reference_only")
-        self.assertTrue(archive["subtree_exists"])
+        self.assertNotIn("downloads_aiclone", entries)
 
     def test_build_repo_surface_registry_reports_known_legacy_mismatches(self) -> None:
         payload = build_repo_surface_registry()

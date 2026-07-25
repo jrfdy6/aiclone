@@ -489,6 +489,27 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
         self.assertEqual([entry["workspace_key"] for entry in local_only], ["fusion-os"])
         self.assertEqual([entry["workspace_key"] for entry in with_shared], ["fusion-os", "shared_ops"])
 
+    def test_chronicle_contract_honors_runtime_default_path_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            chronicle_path = Path(temp_dir) / "chronicle.jsonl"
+            chronicle_path.write_text(
+                json.dumps(
+                    {
+                        "entry_id": "override-entry",
+                        "workspace_key": "fusion-os",
+                        "summary": "Read the patched Chronicle path.",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(self.chronicle, "CODEX_HANDOFF_PATH", chronicle_path):
+                filtered = self.chronicle.filter_recent_chronicle_entries("fusion-os")
+
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["summary"], "Read the patched Chronicle path.")
+
     def test_chronicle_contract_canonicalizes_raw_workspace_routing_text(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             chronicle_path = Path(temp_dir) / "chronicle.jsonl"
@@ -825,7 +846,8 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
             markdown_path.write_text("# Snapshot\n", encoding="utf-8")
             registry = {"fusion-os": {"filesystem_path": str(workspace_root), "display_name": "Fusion OS"}}
 
-            context = self.build_standup._workspace_context("fusion-os", registry)
+            with mock.patch.object(self.build_standup, "STATE_ROOT", Path(temp_dir) / ".ai-clone-state"):
+                context = self.build_standup._workspace_context("fusion-os", registry)
 
         self.assertTrue(context["audience_feedback_available"])
         self.assertEqual(context["audience_feedback_path"], str(summary_path))
@@ -844,7 +866,7 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
 
         self.assertTrue(context["available"])
         self.assertEqual(context["workspace_root"], str(workspace_root))
-        self.assertEqual(context["execution_log_path"], str(workspace_root / "memory" / "execution_log.md"))
+        self.assertEqual(context["execution_log_path"], str((workspace_root / "memory" / "execution_log.md").resolve()))
 
     def test_build_audience_response_uses_public_feedback_snapshot(self) -> None:
         workspace_context = {
@@ -1460,7 +1482,7 @@ class WorkspaceSignalCurationTests(unittest.TestCase):
             ), mock.patch.object(
                 self.build_standup, "_load_fallback_watchdog_report", return_value=fallback_report
             ), mock.patch.object(
-                self.build_standup, "resolve_snapshot_fallback_path", side_effect=fake_resolve
+                self.build_standup, "_memory_read_path", side_effect=lambda relative: fake_resolve(Path(), str(relative))
             ), mock.patch.object(
                 self.build_standup, "maybe_reexec_with_workspace_venv", return_value=None
             ), mock.patch.object(

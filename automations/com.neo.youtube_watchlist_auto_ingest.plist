@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.neo.youtube_watchlist_auto_ingest</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/neo/.codex/ai-clone/venv/bin/python</string>
+        <string>/Users/neo/Documents/Codex/AI-Clone/automations/youtube_watchlist_auto_ingest.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/neo/Documents/Codex/AI-Clone</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>7200</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.codex/ai-clone/logs/youtube_watchlist_auto_ingest.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.codex/ai-clone/logs/youtube_watchlist_auto_ingest.log</string>
+</dict>
+</plist>

@@ -112,9 +112,10 @@ class PersonaPromotionServiceTests(unittest.TestCase):
         self.assertNotIn("bundle_file_results", updated.metadata or {})
         self.assertEqual(((updated.metadata or {}).get("local_bundle_sync") or {}).get("state"), "pending")
 
-    def test_update_local_sync_state_publishes_bundle_metadata_after_sync(self) -> None:
+    def test_update_local_sync_state_publishes_only_content_free_sync_metadata(self) -> None:
         bundle_write = {
             "bundle_root": "/tmp/persona",
+            "bundle_storage": "private_local_state",
             "written_files": ["identity/claims.md"],
             "file_results": {"identity/claims.md": {"added": 1, "skipped": 0}},
         }
@@ -129,11 +130,15 @@ class PersonaPromotionServiceTests(unittest.TestCase):
 
         payload = request_mock.call_args.kwargs["payload"]
         metadata = payload["metadata"]
-        self.assertEqual(metadata["bundle_root"], "/tmp/persona")
+        self.assertNotIn("bundle_root", metadata)
+        self.assertEqual(metadata["bundle_storage"], "private_local_state")
         self.assertEqual(metadata["bundle_written_files"], ["identity/claims.md"])
         self.assertEqual(metadata["bundle_file_results"]["identity/claims.md"]["added"], 1)
         self.assertEqual(metadata["local_bundle_sync"]["state"], "synced")
+        self.assertEqual(metadata["local_bundle_sync"]["runtime"], "local_machine")
+        self.assertNotIn("host", metadata["local_bundle_sync"])
         self.assertEqual(metadata["local_bundle_sync"]["written_files"], ["identity/claims.md"])
+        self.assertNotIn("Operator clarity", json.dumps(payload))
 
     def test_persona_sync_uses_authenticated_control_plane_headers(self) -> None:
         response = MagicMock()

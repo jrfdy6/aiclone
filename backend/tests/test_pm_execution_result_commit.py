@@ -116,10 +116,14 @@ def _request(*, card_id: str, claim_id: str, worker_id: str, result_id: str | No
         status="done",
         summary=summary,
         outcomes=["The local action completed."],
-        artifacts=["/private/result.json", "/private/result.md", "/private/work-order.json"],
-        result_path="/private/result.json",
-        memo_path="/private/result.md",
-        work_order_path="/private/work-order.json",
+        artifacts=[
+            "state://memory/runner-results/result.json",
+            "state://memory/runner-memos/result.md",
+            "repo://dispatch/work-order.json",
+        ],
+        result_path="state://memory/runner-results/result.json",
+        memo_path="state://memory/runner-memos/result.md",
+        work_order_path="repo://dispatch/work-order.json",
     )
 
 
@@ -179,6 +183,54 @@ def test_replayed_result_id_rejects_changed_content(monkeypatch) -> None:
         pm_card_service.commit_execution_result(card_id, changed)
 
 
+@pytest.mark.parametrize(
+    ("field_name", "unsafe_value"),
+    [
+        ("result_path", "/Users/neo/.codex/ai-clone/state/memory/result.json"),
+        ("result_path", "/Volumes/External/private-state/result.json"),
+        ("memo_path", "~/private/result.md"),
+        ("work_order_path", "C:\\Users\\neo\\work-order.json"),
+        ("workspace_result_path", "workspaces/.codex/private/execution_log.md"),
+        ("artifacts", ["/private/tmp/result.json"]),
+    ],
+)
+def test_atomic_result_commit_rejects_private_filesystem_references_before_database_access(
+    monkeypatch,
+    field_name: str,
+    unsafe_value,
+) -> None:
+    card_id, claim_id, worker_id = str(uuid4()), str(uuid4()), "mac-runner"
+    request = _request(card_id=card_id, claim_id=claim_id, worker_id=worker_id).model_copy(
+        update={field_name: unsafe_value}
+    )
+    monkeypatch.setattr(
+        pm_card_service,
+        "get_pool",
+        lambda: (_ for _ in ()).throw(AssertionError("unsafe reference reached database access")),
+    )
+
+    with pytest.raises(pm_card_service.PMExecutionResultCommitConflict, match="safe logical references"):
+        pm_card_service.commit_execution_result(card_id, request)
+
+
+def test_atomic_result_commit_rejects_private_path_embedded_in_result_text(monkeypatch) -> None:
+    card_id, claim_id, worker_id = str(uuid4()), str(uuid4()), "mac-runner"
+    request = _request(
+        card_id=card_id,
+        claim_id=claim_id,
+        worker_id=worker_id,
+        summary="Wrote the result under /Users/neo/.codex/ai-clone/state.",
+    )
+    monkeypatch.setattr(
+        pm_card_service,
+        "get_pool",
+        lambda: (_ for _ in ()).throw(AssertionError("private text reached database access")),
+    )
+
+    with pytest.raises(pm_card_service.PMExecutionResultCommitConflict, match="must not expose"):
+        pm_card_service.commit_execution_result(card_id, request)
+
+
 def test_execution_result_route_maps_claim_conflict_to_409(monkeypatch) -> None:
     app = FastAPI()
     app.include_router(pm_board_routes.router)
@@ -197,6 +249,26 @@ def test_execution_result_route_maps_claim_conflict_to_409(monkeypatch) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "claim mismatch"
+
+
+def test_execution_result_route_rejects_absolute_path_without_database_access(monkeypatch) -> None:
+    app = FastAPI()
+    app.include_router(pm_board_routes.router)
+    client = TestClient(app)
+    card_id, claim_id, worker_id = str(uuid4()), str(uuid4()), "mac-runner"
+    request = _request(card_id=card_id, claim_id=claim_id, worker_id=worker_id)
+    payload = request.model_dump(mode="json")
+    payload["result_path"] = "/Users/neo/.codex/ai-clone/state/memory/result.json"
+    monkeypatch.setattr(
+        pm_board_routes.pm_card_service,
+        "get_pool",
+        lambda: (_ for _ in ()).throw(AssertionError("unsafe request reached database access")),
+    )
+
+    response = client.post(f"/api/pm/cards/{card_id}/execution-result", json=payload)
+
+    assert response.status_code == 409
+    assert "safe logical references" in response.json()["detail"]
 
 
 def test_execution_result_route_returns_committed_card(monkeypatch) -> None:
@@ -225,4 +297,3 @@ def test_execution_result_route_returns_committed_card(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["disposition"] == "committed"
     assert response.json()["card"]["id"] == card_id
-

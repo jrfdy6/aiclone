@@ -11,20 +11,35 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+
+from runtime_paths import (
+    PROJECT_ROOT,
+    STATE_ROOT,
+    memory_read_candidates,
+    resolve_memory_read_path,
+)
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 SCRIPT_ROOT = WORKSPACE_ROOT / "scripts"
-MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
-from app.services.core_memory_snapshot_service import expected_memory_read_mode, resolve_memory_read_target, resolve_snapshot_fallback_path
+from app.services.core_memory_snapshot_service import expected_memory_read_mode, resolve_memory_read_target
 from durable_memory_context import build_durable_memory_context
 
-CODEX_HANDOFF_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+CODEX_HANDOFF_PATH = resolve_memory_read_path(
+    "codex_session_handoff.jsonl",
+    project_root=WORKSPACE_ROOT,
+    state_root=STATE_ROOT,
+)
 
 DEFAULT_MEMORY_PATHS: tuple[str, ...] = (
     "memory/persistent_state.md",
@@ -132,10 +147,38 @@ def filter_recent_chronicle_entries(
     workspace_key: str,
     *,
     max_items: int = 8,
-    path: Path = CODEX_HANDOFF_PATH,
+    path: Path | None = None,
     include_shared_ops: bool = False,
 ) -> list[dict[str, Any]]:
-    entries = read_jsonl_tail(path, max_items=max(max_items * 3, max_items))
+    use_default_paths = path is None
+    if path is None:
+        path = CODEX_HANDOFF_PATH
+    if use_default_paths:
+        default_candidates = memory_read_candidates(
+            "codex_session_handoff.jsonl",
+            project_root=WORKSPACE_ROOT,
+            state_root=STATE_ROOT,
+        )
+        candidates = (
+            default_candidates
+            if CODEX_HANDOFF_PATH in default_candidates
+            else (CODEX_HANDOFF_PATH,)
+        )
+        paths = [candidate for candidate in candidates if candidate.exists()]
+    else:
+        paths = [path]
+    entries: list[dict[str, Any]] = []
+    seen_entries: set[str] = set()
+    for candidate in paths:
+        for entry in read_jsonl_tail(candidate, max_items=max(max_items * 3, max_items)):
+            identity = str(entry.get("entry_id") or entry.get("result_id") or "")
+            if not identity:
+                identity = json.dumps(entry, ensure_ascii=True, sort_keys=True)
+            if identity in seen_entries:
+                continue
+            seen_entries.add(identity)
+            entries.append(entry)
+    entries.sort(key=lambda item: str(item.get("created_at") or ""))
     filtered: list[dict[str, Any]] = []
     for item in entries:
         entry_workspace = str(item.get("workspace_key") or "shared_ops")
@@ -299,8 +342,38 @@ def build_memory_tail_context(
     diagnostics: dict[str, Any] = {}
     for relative_path in resolved_paths:
         resolved_relative = _resolve_relative_path(relative_path)
-        resolution = resolve_memory_read_target(WORKSPACE_ROOT, resolved_relative)
-        path = Path(resolution["resolved_path"])
+        path = resolve_memory_read_path(
+            resolved_relative,
+            project_root=WORKSPACE_ROOT,
+            state_root=STATE_ROOT,
+        )
+        legacy_resolution = resolve_memory_read_target(WORKSPACE_ROOT, resolved_relative)
+        if not path.exists() and Path(legacy_resolution["resolved_path"]).exists():
+            path = Path(legacy_resolution["resolved_path"])
+        state_path = memory_read_candidates(
+            resolved_relative,
+            project_root=WORKSPACE_ROOT,
+            state_root=STATE_ROOT,
+        )[0]
+        if path == state_path:
+            resolution = {
+                **legacy_resolution,
+                "expected_mode": "state",
+                "expected_path": state_path,
+                "resolved_mode": "state" if state_path.exists() else "missing",
+                "resolved_path": path,
+                "fallback_active": not state_path.exists(),
+                "missing": not path.exists(),
+            }
+        else:
+            resolution = {
+                **legacy_resolution,
+                "expected_mode": "state",
+                "expected_path": state_path,
+                "resolved_path": path,
+                "fallback_active": True,
+                "missing": not path.exists(),
+            }
         memory_context[_memory_context_key(relative_path)] = _tail_text(path, max_chars=max_chars)
         source_paths.append(str(path))
         diagnostics[resolved_relative] = inspect_memory_path(

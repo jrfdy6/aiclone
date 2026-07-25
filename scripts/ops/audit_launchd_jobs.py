@@ -13,7 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+WORKSPACE_ROOT = Path(
+    os.getenv("AI_CLONE_ROOT") or Path(__file__).resolve().parents[2]
+).expanduser().resolve()
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
 if str(BACKEND_ROOT) not in sys.path:
@@ -22,13 +24,26 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from automation_run_mirror import build_run_payload, mirror_runs  # noqa: E402
-from app.services.automation_service import list_automations  # noqa: E402
-from runtime_paths import RUNTIME_ROOT  # noqa: E402
+from app.services.automation_service import (  # noqa: E402
+    CONFIGURED_LAUNCHD_AUTOMATION_IDS,
+    LAUNCHD_HEALTH_STATE_SCHEMA,
+    automation_registry_ids,
+)
+from runtime_paths import (  # noqa: E402
+    RUNTIME_ROOT,
+    STATE_ROOT,
+    memory_state_path,
+    seed_memory_state_file,
+)
 
 AUTOMATION_ID = "launchd_health_audit"
 AUTOMATION_NAME = "Launchd Health Audit"
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
-DEFAULT_REPORT_PATH = WORKSPACE_ROOT / "memory/reports/launchd_health_audit_latest.json"
+REPORT_LOGICAL_REF = "memory/reports/launchd_health_audit_latest.json"
+DEFAULT_REPORT_PATH = memory_state_path(
+    "reports/launchd_health_audit_latest.json",
+    state_root=STATE_ROOT,
+)
 VENv_PYTHON = str(RUNTIME_ROOT / "venv/bin/python")
 LOCAL_LAUNCH_AGENTS = Path.home() / "Library/LaunchAgents"
 REPO_LAUNCHD_DIRS = [
@@ -39,27 +54,21 @@ LABEL_TO_AUTOMATION_ID = {
     "com.neo.jean_claude_execution": "jean_claude_execution_dispatch",
     "com.neo.neo_execution": "neo_execution",
 }
+AUTOMATION_ID_TO_LABEL = {
+    automation_id: label for label, automation_id in LABEL_TO_AUTOMATION_ID.items()
+}
 ALLOW_GENERIC_PYTHON = {
     "com.neo.persona_bundle_sync",
 }
+# These 17 jobs are required activation targets. The three core maintenance
+# jobs below are still configured and fully observed, but are not allowed to
+# make target selection circular by defining the audit contract from runtime
+# registry status.
 REPO_MANAGED_TARGET_LABELS = frozenset(
-    {
-        "com.neo.brain_canonical_memory_sync",
-        "com.neo.codex_workspace_execution",
-        "com.neo.content_safe_operator_lessons",
-        "com.neo.feezie_codex_bridge",
-        "com.neo.feezie_content_pipeline",
-        "com.neo.jean_claude_execution",
-        "com.neo.meeting_watchdog",
-        "com.neo.morning_daily_brief",
-        "com.neo.neo_guest",
-        "com.neo.operator_story_signals",
-        "com.neo.pm_review_resolution",
-        "com.neo.portfolio_standup_prep",
-        "com.neo.post_sync_dispatch",
-        "com.neo.workspace_agent_dispatch",
-        "com.neo.youtube_watchlist_auto_ingest",
-    }
+    AUTOMATION_ID_TO_LABEL.get(automation_id, f"com.neo.{automation_id}")
+    for automation_id in CONFIGURED_LAUNCHD_AUTOMATION_IDS.difference(
+        {"codex_chronicle_sync", "codex_memory_sync", "launchd_health_audit"}
+    )
 )
 
 
@@ -278,19 +287,168 @@ def _issue(
     return payload
 
 
-def audit_launchd_jobs(*, include_launchctl: bool = True) -> dict[str, Any]:
-    registered_automations = list_automations()
-    registered_ids = {item.id for item in registered_automations}
-    active_registered_ids = {
-        item.id
-        for item in registered_automations
-        if str(getattr(item, "status", "active") or "active").strip().lower() == "active"
+def _automation_id_to_label(automation_id: str) -> str:
+    return AUTOMATION_ID_TO_LABEL.get(automation_id, f"com.neo.{automation_id}")
+
+
+def _path_free_automation_states(
+    *,
+    observed_at: str,
+    registered_ids: set[str],
+    repo_target_labels: set[str],
+    repo_labels: set[str],
+    installed_labels: set[str],
+    loaded: dict[str, dict[str, Any]],
+    disabled: dict[str, bool],
+    launchctl: dict[str, Any],
+    issues: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Build the only host-state payload allowed to leave the operator Mac."""
+
+    observed_labels = (
+        set(repo_target_labels)
+        .union(repo_labels)
+        .union(installed_labels)
+        .union(loaded)
+        .union(_automation_id_to_label(item) for item in registered_ids)
+    )
+    states: dict[str, dict[str, Any]] = {}
+    for label in sorted(observed_labels):
+        automation_id = _label_to_automation_id(label)
+        label_issues = [
+            issue
+            for issue in issues
+            if str(issue.get("automation_id") or "") == automation_id
+        ]
+        error_count = sum(
+            1 for issue in label_issues if issue.get("severity") == "error"
+        )
+        warning_count = sum(
+            1 for issue in label_issues if issue.get("severity") == "warn"
+        )
+        loaded_value: bool | None
+        if label in loaded:
+            loaded_value = True
+        elif launchctl.get("domain_available"):
+            loaded_value = False
+        else:
+            loaded_value = None
+
+        enabled_value: bool | None
+        if launchctl.get("domain_available"):
+            enabled_value = disabled.get(label) is not True
+        else:
+            enabled_value = None
+
+        installed = label in installed_labels
+        source_present = label in repo_labels
+        required = label in repo_target_labels
+        configured = automation_id in registered_ids and source_present
+        healthy = bool(
+            configured
+            and installed
+            and loaded_value is True
+            and enabled_value is True
+            and error_count == 0
+        )
+        last_exit_status = None
+        if isinstance(loaded.get(label), dict):
+            candidate = loaded[label].get("last_exit_status")
+            if candidate is not None and re.fullmatch(r"-?\d+", str(candidate)):
+                last_exit_status = str(candidate)
+        states[automation_id] = {
+            "observed_at": observed_at,
+            "configured": configured,
+            "required": required,
+            "source_present": source_present,
+            "installed": installed,
+            "loaded": loaded_value,
+            "enabled": enabled_value,
+            "healthy": healthy,
+            "last_exit_status": last_exit_status,
+            "issue_count": len(label_issues),
+            "error_count": error_count,
+            "warning_count": warning_count,
+        }
+    return states
+
+
+def _path_free_issue(issue: dict[str, Any]) -> dict[str, Any]:
+    """Project a local audit issue without paths, host details, or commands."""
+
+    safe = {
+        "kind": str(issue.get("kind") or "local_launchd_audit_issue"),
+        "severity": str(issue.get("severity") or "warn"),
+        "automation_id": str(issue.get("automation_id") or "") or None,
+        "message": str(issue.get("message") or "Local launchd audit found an issue."),
     }
-    repo_target_labels = {
-        label
-        for label in REPO_MANAGED_TARGET_LABELS
-        if _label_to_automation_id(label) in active_registered_ids
+    for key in (
+        "drift_fields",
+        "repo_managed_target",
+        "source_present",
+        "installed",
+        "loaded",
+        "enablement",
+        "last_exit_status",
+    ):
+        value = issue.get(key)
+        if isinstance(value, (bool, int, float, str, list)) or value is None:
+            safe[key] = value
+    return safe
+
+
+def _path_free_state_map(raw_states: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw_states, dict):
+        return {}
+    safe_states: dict[str, dict[str, Any]] = {}
+    boolean_fields = {
+        "configured",
+        "required",
+        "source_present",
+        "installed",
+        "loaded",
+        "enabled",
+        "healthy",
     }
+    count_fields = {"issue_count", "error_count", "warning_count"}
+    for raw_id, raw_state in raw_states.items():
+        automation_id = str(raw_id)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", automation_id):
+            continue
+        if not isinstance(raw_state, dict):
+            continue
+        state: dict[str, Any] = {}
+        for field in boolean_fields:
+            value = raw_state.get(field)
+            state[field] = value if isinstance(value, bool) else None
+        for field in count_fields:
+            value = raw_state.get(field)
+            state[field] = max(0, int(value)) if isinstance(value, int) else 0
+        exit_status = raw_state.get("last_exit_status")
+        state["last_exit_status"] = (
+            str(exit_status)
+            if exit_status is not None and re.fullmatch(r"-?\d+", str(exit_status))
+            else None
+        )
+        safe_states[automation_id] = state
+    return safe_states
+
+
+def audit_launchd_jobs(
+    *,
+    include_launchctl: bool = True,
+    target_labels: set[str] | frozenset[str] | None = None,
+    registered_ids: set[str] | frozenset[str] | None = None,
+) -> dict[str, Any]:
+    # Target selection is deliberately independent of list_automations().
+    # Registry status is derived from this audit, so filtering audit targets by
+    # registry status would create a circular "active because active" claim.
+    repo_target_labels = set(
+        REPO_MANAGED_TARGET_LABELS if target_labels is None else target_labels
+    )
+    known_registry_ids = set(
+        automation_registry_ids() if registered_ids is None else registered_ids
+    )
     plists: dict[str, list[dict[str, Any]]] = {}
     issues: list[dict[str, Any]] = []
 
@@ -321,7 +479,7 @@ def audit_launchd_jobs(*, include_launchctl: bool = True) -> dict[str, Any]:
         )
 
         automation_id = _label_to_automation_id(label)
-        if installed and automation_id not in registered_ids:
+        if installed and automation_id not in known_registry_ids:
             issues.append(
                 _issue(
                     kind="local_launchd_loaded_unregistered",
@@ -517,9 +675,21 @@ def audit_launchd_jobs(*, include_launchctl: bool = True) -> dict[str, Any]:
                 )
             )
 
+    observed_at = _utc_now().isoformat().replace("+00:00", "Z")
+    automation_states = _path_free_automation_states(
+        observed_at=observed_at,
+        registered_ids=known_registry_ids,
+        repo_target_labels=repo_target_labels,
+        repo_labels=repo_labels,
+        installed_labels=installed_labels,
+        loaded=loaded,
+        disabled=disabled,
+        launchctl=launchctl,
+        issues=issues,
+    )
     return {
-        "schema_version": "launchd_health_audit/v1",
-        "generated_at": _utc_now().isoformat().replace("+00:00", "Z"),
+        "schema_version": "launchd_health_audit/v2",
+        "generated_at": observed_at,
         "workspace_root": str(WORKSPACE_ROOT),
         "counts": {
             "plist_labels": len(plists),
@@ -549,6 +719,8 @@ def audit_launchd_jobs(*, include_launchctl: bool = True) -> dict[str, Any]:
             "errors": launchctl["errors"],
             "skipped": bool(launchctl.get("skipped")),
         },
+        "automation_state_schema": LAUNCHD_HEALTH_STATE_SCHEMA,
+        "automation_states": automation_states,
         "issues": issues,
     }
 
@@ -558,9 +730,30 @@ def _write_report(report: dict[str, Any], path: Path) -> None:
     path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _report_write_path(path: Path) -> Path:
+    if path.expanduser().resolve() != DEFAULT_REPORT_PATH.expanduser().resolve():
+        return path
+    return seed_memory_state_file(
+        "reports/launchd_health_audit_latest.json",
+        project_root=WORKSPACE_ROOT,
+        state_root=STATE_ROOT,
+    )
+
+
 def _mirror(report: dict[str, Any], *, api_url: str, started_at: datetime, finished_at: datetime) -> bool:
     issue_count = int((report.get("counts") or {}).get("issues") or 0)
     status = "error" if issue_count else "ok"
+    observed_at = str(report.get("generated_at") or "").strip()
+    try:
+        datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    except ValueError:
+        observed_at = ""
+    safe_states = _path_free_state_map(report.get("automation_states"))
+    safe_issues = [
+        _path_free_issue(issue)
+        for issue in (report.get("issues") or [])
+        if isinstance(issue, dict)
+    ]
     run = build_run_payload(
         run_id=f"{AUTOMATION_ID}::{finished_at.isoformat()}",
         automation_id=AUTOMATION_ID,
@@ -577,8 +770,11 @@ def _mirror(report: dict[str, Any], *, api_url: str, started_at: datetime, finis
         metadata={
             "has_observed_run": True,
             "summary": f"Launchd audit found {issue_count} issue(s).",
-            "launchd_issues": report.get("issues") or [],
+            "launchd_issues": safe_issues,
             "launchd_counts": report.get("counts") or {},
+            "launchd_state_schema": LAUNCHD_HEALTH_STATE_SCHEMA,
+            "launchd_observed_at": observed_at,
+            "launchd_automation_states": safe_states,
         },
     )
     return mirror_runs(api_url, [run])
@@ -594,7 +790,7 @@ def main() -> int:
 
     started_at = _utc_now()
     report = audit_launchd_jobs(include_launchctl=not args.skip_launchctl)
-    report_path = Path(args.report_path)
+    report_path = _report_write_path(Path(args.report_path))
     _write_report(report, report_path)
     finished_at = _utc_now()
     mirrored = False if args.no_mirror else _mirror(report, api_url=args.api_url, started_at=started_at, finished_at=finished_at)

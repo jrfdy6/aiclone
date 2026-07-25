@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,49 +15,67 @@ from app.services.workspace_registry_service import REPO_ROOT, canonicalize_work
 
 
 ROOT = REPO_ROOT
+_SCRIPTS_ROOT = ROOT / "scripts"
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from runtime_paths import resolve_memory_read_path  # noqa: E402
+
+
+PRIVATE_STATE_ROOT = Path(
+    os.getenv("AI_CLONE_STATE_ROOT") or (Path.home() / ".codex" / "ai-clone" / "state")
+).expanduser()
 SOURCE_INDEX_FILENAMES = ("index.json", "index.json.txt")
+SOURCE_INDEX_LOGICAL_REF = "knowledge/source-intelligence/index.json"
 SOURCE_SIGNAL_STATUSES = {"digested", "reviewed", "routed", "promoted"}
 AUTOMATION_REPORT_SPECS: tuple[dict[str, Any], ...] = (
     {
         "automation_id": "brain_canonical_memory_sync",
         "label": "Brain canonical memory sync",
         "workspace_key": "shared_ops",
+        "logical_ref": "memory/reports/brain_canonical_memory_sync_latest.json",
         "path": ROOT / "memory" / "reports" / "brain_canonical_memory_sync_latest.json",
     },
     {
         "automation_id": "accountability_sweep",
         "label": "Accountability sweep",
         "workspace_key": "shared_ops",
+        "logical_ref": "memory/reports/accountability_sweep_latest.json",
         "path": ROOT / "memory" / "reports" / "accountability_sweep_latest.json",
     },
     {
         "automation_id": "fallback_watchdog",
         "label": "Fallback watchdog",
         "workspace_key": "shared_ops",
+        "logical_ref": "memory/reports/fallback_watchdog_latest.json",
         "path": ROOT / "memory" / "reports" / "fallback_watchdog_latest.json",
     },
     {
         "automation_id": "pulse_standup_autoroute",
         "label": "Pulse standup autoroute",
         "workspace_key": "feezie-os",
+        "logical_ref": "memory/reports/pulse_standup_autoroute_latest.json",
         "path": ROOT / "memory" / "reports" / "pulse_standup_autoroute_latest.json",
     },
     {
         "automation_id": "operator_story_signals",
         "label": "Operator story signals",
         "workspace_key": "feezie-os",
+        "logical_ref": "memory/reports/operator_story_signals_latest.json",
         "path": ROOT / "memory" / "reports" / "operator_story_signals_latest.json",
     },
     {
         "automation_id": "content_safe_operator_lessons",
         "label": "Content-safe operator lessons",
         "workspace_key": "feezie-os",
+        "logical_ref": "memory/reports/content_safe_operator_lessons_latest.json",
         "path": ROOT / "memory" / "reports" / "content_safe_operator_lessons_latest.json",
     },
     {
         "automation_id": "post_sync_dispatch",
         "label": "Post-sync dispatch",
         "workspace_key": "shared_ops",
+        "logical_ref": "memory/reports/post_sync_dispatch_latest.json",
         "path": ROOT / "memory" / "reports" / "post_sync_dispatch_latest.json",
     },
 )
@@ -102,7 +122,26 @@ def _relative_path(path: Path) -> str:
         return path.as_posix()
 
 
+def _automation_report_path(spec: dict[str, Any]) -> Path:
+    logical_ref = _clean_text(spec.get("logical_ref"))
+    if logical_ref.startswith("memory/"):
+        return resolve_memory_read_path(
+            Path(logical_ref).relative_to("memory"),
+            project_root=ROOT,
+            state_root=PRIVATE_STATE_ROOT,
+        )
+    return Path(spec["path"])
+
+
+def _automation_report_ref(spec: dict[str, Any], path: Path) -> str:
+    logical_ref = _clean_text(spec.get("logical_ref"))
+    return logical_ref or _relative_path(path)
+
+
 def _source_index_candidates() -> list[Path]:
+    state_root = Path(
+        os.getenv("AI_CLONE_STATE_ROOT") or (Path.home() / ".codex" / "ai-clone" / "state")
+    ).expanduser()
     roots = [
         ROOT,
         ROOT / "app",
@@ -118,9 +157,13 @@ def _source_index_candidates() -> list[Path]:
     ]
     for parent in Path(__file__).resolve().parents:
         roots.extend([parent, parent / "app", parent / "backend", parent / "backend" / "app"])
-    return list(
-        dict.fromkeys(root / "knowledge" / "source-intelligence" / filename for root in roots for filename in SOURCE_INDEX_FILENAMES)
+    candidates = [state_root / "memory" / "source-intelligence" / "index.json"]
+    candidates.extend(
+        root / "knowledge" / "source-intelligence" / filename
+        for root in roots
+        for filename in SOURCE_INDEX_FILENAMES
     )
+    return list(dict.fromkeys(candidates))
 
 
 def load_source_intelligence_index() -> dict[str, Any]:
@@ -132,7 +175,7 @@ def load_source_intelligence_index() -> dict[str, Any]:
     return {
         **payload,
         "available": bool(payload),
-        "source_ref": str(index_path),
+        "source_ref": SOURCE_INDEX_LOGICAL_REF,
         "sources": sources,
         "counts": payload.get("counts") if isinstance(payload.get("counts"), dict) else {},
     }
@@ -473,12 +516,14 @@ def _ingest_automation_outputs(
     include_quiet: bool,
 ) -> None:
     for spec in AUTOMATION_REPORT_SPECS:
-        path = Path(spec["path"])
+        path = _automation_report_path(spec)
         if not path.exists():
             continue
-        result["source_refs"].append(_relative_path(path))
+        logical_ref = _automation_report_ref(spec, path)
+        result["source_refs"].append(logical_ref)
         report = _read_json(path)
-        request = _automation_signal_request(spec, report, include_quiet=include_quiet)
+        resolved_spec = {**spec, "_resolved_path": path, "_logical_ref": logical_ref}
+        request = _automation_signal_request(resolved_spec, report, include_quiet=include_quiet)
         if request is None:
             continue
         _record_signal(request=request, bucket="automation_outputs", result=result, existing_ids=existing_ids)
@@ -490,7 +535,8 @@ def _automation_signal_request(spec: dict[str, Any], report: dict[str, Any], *, 
         return None
     automation_id = _clean_text(spec.get("automation_id"))
     label = _clean_text(spec.get("label")) or automation_id
-    path = Path(spec["path"])
+    path = Path(spec.get("_resolved_path") or spec["path"])
+    logical_ref = _clean_text(spec.get("_logical_ref")) or _automation_report_ref(spec, path)
     workspace_key = canonicalize_workspace_key(spec.get("workspace_key"), default="shared_ops")
     generated_at = _clean_text(report.get("generated_at"))
     summary = f"{label} produced Brain-reviewable output"
@@ -505,7 +551,7 @@ def _automation_signal_request(spec: dict[str, Any], report: dict[str, Any], *, 
         signal_types.append("pm_attention")
     return BrainSignalCreateRequest(
         source_kind="automation_output",
-        source_ref=_relative_path(path),
+        source_ref=logical_ref,
         source_workspace_key=workspace_key,
         raw_summary=_trim(summary, limit=900),
         digest=_trim(summary, limit=500),
@@ -524,7 +570,7 @@ def _automation_signal_request(spec: dict[str, Any], report: dict[str, Any], *, 
             "intake": {
                 "source": "brain_signal_intake_service",
                 "automation_id": automation_id,
-                "report_path": _relative_path(path),
+                "report_path": logical_ref,
                 "report_generated_at": generated_at,
                 "markers": markers,
                 "recommended_initial_route": "standup" if markers else "source_only",

@@ -22,6 +22,10 @@ import {
 } from '@/app/workspace/generatedFragmentUtils';
 import PromotableInlineText from '@/app/workspace/PromotableInlineText';
 import {
+  buildLocalVoiceReviewPacket,
+  downloadLocalVoiceReviewPacket,
+} from '@/app/workspace/localVoiceReview';
+import {
   readWorkspaceComposerQuery,
   toWorkspaceQuerySeed,
   toWorkspaceSourceCard,
@@ -293,6 +297,8 @@ type OwnerReviewItem = {
   latent_reason?: string | null;
   transform_type?: string | null;
   system_assessment?: OwnerReviewSystemAssessment | null;
+  generation_job_id?: string | null;
+  generation_option_index?: number | null;
 };
 
 type OwnerReviewPayload = {
@@ -1031,6 +1037,10 @@ function ownerReviewKindLabel(item?: Pick<OwnerReviewItem, 'entry_kind' | 'sourc
   return 'Queue item';
 }
 
+function isGeneratedCodexOwnerReview(item: OwnerReviewItem) {
+  return item.entry_kind === 'generated' && item.source_kind === 'codex_generation';
+}
+
 function coerceOwnerReviewItems(items?: unknown[] | null): OwnerReviewItem[] {
   if (!Array.isArray(items)) return [];
   return items.filter((item): item is OwnerReviewItem => {
@@ -1143,6 +1153,7 @@ export function LinkedinWorkspaceSurface({
   const [ownerReviewState, setOwnerReviewState] = useState<'loading' | 'live' | 'error'>(initialOwnerReviewItems ? 'live' : 'loading');
   const [ownerReviewError, setOwnerReviewError] = useState<string | null>(null);
   const [ownerReviewNotes, setOwnerReviewNotes] = useState<Record<string, string>>({});
+  const [ownerReviewVoiceEdits, setOwnerReviewVoiceEdits] = useState<Record<string, string>>({});
   const [ownerReviewActioning, setOwnerReviewActioning] = useState<string | null>(null);
   const [ownerReviewStatus, setOwnerReviewStatus] = useState<string | null>(null);
   const [manualFeedItems, setManualFeedItems] = useState<SocialFeedItem[]>([]);
@@ -1392,6 +1403,15 @@ export function LinkedinWorkspaceSurface({
       });
       return next;
     });
+    setOwnerReviewVoiceEdits((current) => {
+      const next = { ...current };
+      nextItems.pending.forEach((item) => {
+        if (isGeneratedCodexOwnerReview(item) && next[item.queue_id] === undefined) {
+          next[item.queue_id] = item.first_pass_draft ?? '';
+        }
+      });
+      return next;
+    });
     setOwnerReviewError(null);
     setOwnerReviewState('live');
   }, [initialOwnerReviewItems]);
@@ -1442,6 +1462,15 @@ export function LinkedinWorkspaceSurface({
         items.pending.forEach((item) => {
           if (next[item.queue_id] === undefined) {
             next[item.queue_id] = item.current_notes ?? '';
+          }
+        });
+        return next;
+      });
+      setOwnerReviewVoiceEdits((current) => {
+        const next = { ...current };
+        items.pending.forEach((item) => {
+          if (isGeneratedCodexOwnerReview(item) && next[item.queue_id] === undefined) {
+            next[item.queue_id] = item.first_pass_draft ?? '';
           }
         });
         return next;
@@ -2132,6 +2161,28 @@ export function LinkedinWorkspaceSurface({
           decision,
           notes: ownerReviewNotes[item.queue_id] ?? '',
         });
+        let localVoiceMessage = '';
+        if (isGeneratedCodexOwnerReview(item) && item.first_pass_draft?.trim()) {
+          try {
+            const packet = buildLocalVoiceReviewPacket({
+              queueId: item.queue_id,
+              generatedText: item.first_pass_draft,
+              editedText: ownerReviewVoiceEdits[item.queue_id] ?? item.first_pass_draft,
+              decision,
+              generationJobId: item.generation_job_id,
+              generationOptionIndex: item.generation_option_index,
+              topic: item.core_angle || item.title,
+              lane: item.lane,
+              ownerNotes: ownerReviewNotes[item.queue_id] ?? '',
+            });
+            downloadLocalVoiceReviewPacket(packet);
+            localVoiceMessage = ' Local-only voice feedback downloaded; import that JSON on your Mac when ready.';
+          } catch (localError) {
+            localVoiceMessage = ` The review was saved, but its local voice packet could not download: ${
+              localError instanceof Error ? localError.message : 'unknown browser error'
+            }`;
+          }
+        }
         const items = splitOwnerReviewItems(payload.items ?? []);
         setOwnerReviewItems(items.pending);
         setBankedPostItems(items.banked);
@@ -2144,7 +2195,9 @@ export function LinkedinWorkspaceSurface({
         });
         setOwnerReviewError(null);
         setOwnerReviewState('live');
-        setOwnerReviewStatus(payload.workflow?.message ?? `${item.queue_id} marked ${humanizeSnakeCase(decision)}.`);
+        setOwnerReviewStatus(
+          `${payload.workflow?.message ?? `${item.queue_id} marked ${humanizeSnakeCase(decision)}.`}${localVoiceMessage}`,
+        );
         await loadOwnerReview();
         await loadSnapshot();
       } catch (error) {
@@ -2153,7 +2206,7 @@ export function LinkedinWorkspaceSurface({
         setOwnerReviewActioning(null);
       }
     },
-    [loadOwnerReview, loadSnapshot, ownerReviewNotes],
+    [loadOwnerReview, loadSnapshot, ownerReviewNotes, ownerReviewVoiceEdits],
   );
 
   async function handleCopy(text: string, label: string, feedbackContext?: { item: SocialFeedItem; lens: FeedLensId; notes?: string }) {
@@ -2905,6 +2958,31 @@ export function LinkedinWorkspaceSurface({
                         <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: 'none' }}>{item.first_pass_draft || summarizeContent(item.draft_body) || 'No draft body available.'}</pre>
                       </div>
                     </details>
+
+                    {isGeneratedCodexOwnerReview(item) && item.first_pass_draft?.trim() ? (
+                      <section style={{ ...agentSectionStyle, gap: '9px', borderColor: 'rgba(52,211,153,0.28)' }}>
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Private voice-learning edit</span>
+                          <textarea
+                            value={ownerReviewVoiceEdits[item.queue_id] ?? item.first_pass_draft}
+                            onChange={(event) =>
+                              setOwnerReviewVoiceEdits((current) => ({
+                                ...current,
+                                [item.queue_id]: event.target.value,
+                              }))
+                            }
+                            rows={8}
+                            style={{ ...textareaStyle, minHeight: '180px' }}
+                          />
+                        </label>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                          This field is browser-local feedback; it is never included in the Railway review request. Approve, Revise, or Park downloads an explicit local-only JSON packet. It does not replace the operational draft above and it never auto-promotes generated text into your voice corpus.
+                        </p>
+                        <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.55, margin: 0 }}>
+                          Import the downloaded file on your Mac with <code>python3 scripts/voice_fidelity.py import-review --packet-file ~/Downloads/ai-clone-voice-review-….json</code>
+                        </p>
+                      </section>
+                    ) : null}
 
                     {item.draft_owner_notes && item.draft_owner_notes.length > 0 && (
                       <div style={{ display: 'grid', gap: '6px' }}>

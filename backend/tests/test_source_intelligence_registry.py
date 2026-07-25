@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -95,12 +96,71 @@ class SourceIntelligenceRegistryTests(unittest.TestCase):
             self.assertEqual(market_entry["source_kind"], "feezie_market_signal")
             self.assertEqual(market_entry["route_decision"]["workspace_key"], "feezie-os")
             self.assertTrue(market_entry["route_decision"]["route_affordances"]["brain_review"])
+            transcript_entry = next(entry for entry in payload["sources"] if entry["source_id"] == "agent-operating-note")
+            self.assertEqual(
+                transcript_entry["sharing"],
+                {
+                    "classification": "shared",
+                    "content_shareable": True,
+                    "basis": "shared_source_packet",
+                },
+            )
             index_path = source_root / "index.json"
             self.assertTrue(index_path.exists())
             self.assertTrue((source_root / "raw").exists())
             self.assertTrue((source_root / "normalized").exists())
             self.assertTrue((source_root / "digests").exists())
             self.assertTrue((source_root / "promotions").exists())
+
+    def test_index_write_is_lock_protected_and_atomically_replaced(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            index_path = repo_root / "knowledge" / "source-intelligence" / "index.json"
+            index_path.parent.mkdir(parents=True)
+            index_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_intelligence_index/v1",
+                        "sources": [{"source_id": "existing", "status": "raw"}],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old_bytes = index_path.read_bytes()
+            real_replace = registry.os.replace
+            observed: dict[str, object] = {}
+
+            def inspect_then_replace(source: str | Path, destination: str | Path) -> None:
+                observed["destination_before_replace"] = Path(destination).read_bytes()
+                observed["temp_payload"] = json.loads(Path(source).read_text(encoding="utf-8"))
+                real_replace(source, destination)
+
+            with mock.patch.object(registry.os, "replace", side_effect=inspect_then_replace):
+                written = registry.write_source_intelligence_index(
+                    {
+                        "schema_version": "source_intelligence_index/v1",
+                        "sources": [{"source_id": "new", "status": "reviewed"}],
+                    },
+                    repo_root,
+                )
+
+            self.assertEqual(written, index_path)
+            self.assertEqual(observed["destination_before_replace"], old_bytes)
+            self.assertEqual(
+                {
+                    item["source_id"]
+                    for item in (observed["temp_payload"] or {}).get("sources", [])
+                },
+                {"existing", "new"},
+            )
+            self.assertTrue(
+                registry.sibling_lock_path(
+                    index_path,
+                    operation="source-index-write",
+                ).exists()
+            )
+            self.assertFalse(list(index_path.parent.glob(".index.json.*.tmp")))
 
 
 if __name__ == "__main__":

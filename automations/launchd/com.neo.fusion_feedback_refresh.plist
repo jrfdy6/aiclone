@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.neo.fusion_feedback_refresh</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/neo/.codex/ai-clone/venv/bin/python</string>
+      <string>/Users/neo/Documents/Codex/AI-Clone/scripts/run_fusion_feedback_refresh.py</string>
+      <string>--workspace-key</string>
+      <string>fusion-os</string>
+      <string>--owner-agent</string>
+      <string>jean-claude</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/neo/Documents/Codex/AI-Clone</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/Users/neo/.codex/ai-clone/venv/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>AI_CLONE_ROOT</key>
+      <string>/Users/neo/Documents/Codex/AI-Clone</string>
+      <key>AI_CLONE_RUNTIME_ROOT</key>
+      <string>/Users/neo/.codex/ai-clone</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>12</integer>
+      <key>Minute</key>
+      <integer>15</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.codex/ai-clone/logs/fusion_feedback_refresh.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.codex/ai-clone/logs/fusion_feedback_refresh.log</string>
+  </dict>
+</plist>

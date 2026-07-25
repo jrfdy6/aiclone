@@ -248,6 +248,7 @@ def test_topic_specific_public_knowledge_reaches_context_packet() -> None:
     assert result["status"] == "pending"
     assert packet["professional_profile"] == expected_selection["context"]
     assert packet["approved_public_response"] == expected_selection["response"]
+    assert "model" not in packet
     assert "Spearheaded a $1M Salesforce migration" in packet["professional_profile"]
     metadata = packet["public_knowledge_metadata"]
     assert set(metadata) == {"pack_version", "entry_ids", "selected_count"}
@@ -391,6 +392,7 @@ def test_local_runner_sends_system_prompt_before_guest_text() -> None:
             },
             "http://127.0.0.1:11434",
             10,
+            allow_ollama=True,
         )
     sent = post.call_args.kwargs["json"]["messages"]
     assert answer == "Grounded answer"
@@ -438,6 +440,48 @@ def test_local_runner_prefers_approved_public_response_without_calling_ollama() 
     post.assert_not_called()
 
 
+def test_local_runner_fails_closed_when_approved_response_is_missing_and_ollama_is_disabled() -> None:
+    module = _load_runner("run_neo_guest_no_implicit_ollama_test")
+    with patch.object(module.requests, "post") as post:
+        with pytest.raises(module.SafeWorkerError, match="approved_public_response_missing"):
+            module._ollama_answer(
+                {
+                    "professional_profile": "Approved facts",
+                    "messages": [{"role": "user", "content": "Untrusted guest text"}],
+                },
+                "http://127.0.0.1:11434",
+                10,
+                allow_ollama=False,
+            )
+
+    post.assert_not_called()
+
+
+def test_local_worker_default_runtime_can_skip_ollama_preload_entirely(capsys) -> None:
+    module = _load_runner("run_neo_guest_disabled_ollama_worker_test")
+    capabilities = {"protocol_version": 2, "lease_seconds": 45, "claim_token_required": True}
+    with (
+        patch.object(module.requests, "Session", side_effect=[Mock(), Mock()]),
+        patch.object(module, "_verify_worker_capabilities", return_value=capabilities),
+        patch.object(module, "_preload_ollama") as preload,
+        patch.object(module, "run_once", return_value=None) as run_once,
+    ):
+        result = module.run_worker(
+            api="http://127.0.0.1:8000",
+            ollama_url="http://127.0.0.1:11434",
+            worker_id="worker-1",
+            timeout=10,
+            stop_event=module.threading.Event(),
+            once=True,
+            enable_ollama=False,
+        )
+
+    assert result == 0
+    preload.assert_not_called()
+    assert run_once.call_args.kwargs["enable_ollama"] is False
+    assert "mode=approved_public_knowledge_packet" in capsys.readouterr().out
+
+
 def test_local_runner_uses_a_unique_non_identifying_worker_id_per_start() -> None:
     module = _load_runner("run_neo_guest_worker_id_test")
 
@@ -477,6 +521,7 @@ def test_local_runner_keeps_only_newest_bounded_history_with_system_first() -> N
             {"system_prompt": "SYSTEM FIRST", "professional_profile": "PROFILE", "messages": history},
             "http://127.0.0.1:11434",
             10,
+            allow_ollama=True,
         )
     sent = post.call_args.kwargs["json"]["messages"]
     assert sent[0]["role"] == "system"
@@ -610,6 +655,7 @@ def test_local_runner_rejects_non_loopback_ollama_before_sending_guest_context()
                 {"system_prompt": "Private", "professional_profile": "Approved", "messages": []},
                 "https://attacker.example",
                 10,
+                allow_ollama=True,
             )
     post.assert_not_called()
 
@@ -637,6 +683,7 @@ def test_local_runner_bounds_streamed_output_and_throttles_progress() -> None:
             max_predict_tokens=64,
             progress_interval_seconds=1.0,
             on_progress=progress.append,
+            allow_ollama=True,
         )
 
     assert len(answer) == 9
@@ -664,6 +711,7 @@ def test_local_runner_generation_limits_fail_closed() -> None:
                 "http://127.0.0.1:11434",
                 10,
                 max_predict_tokens=257,
+                allow_ollama=True,
             )
         with pytest.raises(module.SafeWorkerError, match="output_limit"):
             module._ollama_answer(
@@ -1105,6 +1153,7 @@ def test_local_runner_retries_failed_preload_only_after_bounded_idle_interval() 
             max_preload_retry_seconds=2.0,
             idle_poll_seconds=0.5,
             max_idle_poll_seconds=0.5,
+            enable_ollama=True,
         )
 
     assert result == 0
@@ -1155,6 +1204,7 @@ def test_local_runner_idle_polling_is_bounded_and_shutdown_is_graceful() -> None
             stop_event=stop_event,
             idle_poll_seconds=0.5,
             max_idle_poll_seconds=2.0,
+            enable_ollama=True,
         )
 
     assert result == 0

@@ -13,12 +13,17 @@ from app.services.workspace_registry_service import workspace_registry_entries, 
 
 PACK_FILES = ("AGENTS.md", "IDENTITY.md", "SOUL.md", "USER.md", "CHARTER.md")
 LANE_DIRS = ("dispatch", "briefings", "docs", "memory", "agent-ledgers")
+WORKSPACE_ASSETS_AVAILABLE = (REPO_ROOT / "workspaces").is_dir()
 
 
 class WorkspaceLaneContractTests(unittest.TestCase):
     def _workspace_entries(self) -> list[dict[str, object]]:
         return [entry for entry in workspace_registry_entries() if entry.get("kind") == "workspace"]
 
+    @unittest.skipUnless(
+        WORKSPACE_ASSETS_AVAILABLE,
+        "Private runtime workspace packs are intentionally absent from the sanitized release checkout.",
+    )
     def test_shared_ops_has_full_identity_pack(self) -> None:
         root = workspace_root_path("shared_ops", repo_root=REPO_ROOT)
         self.assertTrue(root.exists(), "shared_ops root missing")
@@ -29,6 +34,10 @@ class WorkspaceLaneContractTests(unittest.TestCase):
         self.assertTrue((root / "docs" / "execution_lane.md").is_file(), "shared_ops missing docs/execution_lane.md")
         self.assertTrue((root / "memory" / "execution_log.md").is_file(), "shared_ops missing execution log")
 
+    @unittest.skipUnless(
+        WORKSPACE_ASSETS_AVAILABLE,
+        "Private runtime workspace packs are intentionally absent from the sanitized release checkout.",
+    )
     def test_non_executive_workspaces_have_minimum_lane_shape(self) -> None:
         for entry in self._workspace_entries():
             key = str(entry["key"])
@@ -46,6 +55,10 @@ class WorkspaceLaneContractTests(unittest.TestCase):
             self.assertTrue((root / "memory" / "README.md").is_file(), f"{key} missing memory/README.md")
             self.assertTrue((root / "memory" / "execution_log.md").is_file(), f"{key} missing memory/execution_log.md")
 
+    @unittest.skipUnless(
+        WORKSPACE_ASSETS_AVAILABLE,
+        "Private runtime workspace packs are intentionally absent from the sanitized release checkout.",
+    )
     def test_workspace_agents_reference_local_lane_anchors(self) -> None:
         for entry in self._workspace_entries():
             key = str(entry["key"])

@@ -40,6 +40,10 @@ from app.services.execution_gate_service import (
     grant_execution_approval,
     require_current_execution_gate,
 )
+from app.services.execution_artifact_reference_service import (
+    contains_private_filesystem_reference,
+    validate_remote_execution_artifact_reference,
+)
 from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.pm_review_hygiene_audit_service import list_review_hygiene_audit, record_review_hygiene_audit
 from app.services.trigger_identity_service import build_pm_trigger_key
@@ -515,6 +519,27 @@ def _execution_result_commit_digest(payload: PMExecutionResultCommitRequest) -> 
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _require_safe_execution_result_references(request: PMExecutionResultCommitRequest) -> None:
+    """Reject host-private paths before they can enter remote PM state."""
+
+    try:
+        validate_remote_execution_artifact_reference(request.result_path)
+        validate_remote_execution_artifact_reference(request.memo_path)
+        validate_remote_execution_artifact_reference(request.work_order_path)
+        if request.workspace_result_path:
+            validate_remote_execution_artifact_reference(request.workspace_result_path)
+        for artifact in request.artifacts:
+            validate_remote_execution_artifact_reference(artifact, allow_web_url=True)
+    except ValueError as exc:
+        raise PMExecutionResultCommitConflict(
+            "Execution result artifacts must use safe logical references; local filesystem paths are not accepted."
+        ) from exc
+    if contains_private_filesystem_reference(request.model_dump_json()):
+        raise PMExecutionResultCommitConflict(
+            "Execution result content must not expose a private local filesystem path."
+        )
+
+
 def claim_execution(
     card_id: str,
     request: PMExecutionClaimRequest,
@@ -671,9 +696,10 @@ def commit_execution_result(
     stale, mismatched, or tampered claims fail closed.
     """
 
-    pool = get_pool()
     if str(request.card_id) != str(card_id):
         raise PMExecutionResultCommitConflict("Execution result card_id does not match the route.")
+    _require_safe_execution_result_references(request)
+    pool = get_pool()
     result_id = str(request.result_id)
     claim_id = str(request.claim_id)
     commit_digest = _execution_result_commit_digest(request)

@@ -19,6 +19,7 @@ myenv312/
 backend/.venv*/
 memory/runtime/
 memory/*.lock
+memory/brain_signals.jsonl
 knowledge/ingestions/
 knowledge/transcripts/
 memory/media_jobs/
@@ -35,6 +36,7 @@ keys/
 !package-lock.json
 !tsconfig.json
 !next.config.js
+!docs/repo_surface_truth_baseline_2026-04-25.json
 !docs/runtime_snapshots/core_memory/**/*.json
 !knowledge/source-intelligence/index.json
 !knowledge/persona/feeze/public/**/*.json
@@ -80,8 +82,12 @@ workspaces/linkedin-content-os/content_bank/
 workspaces/linkedin-content-os/plans/weekly_plan.md
 workspaces/linkedin-content-os/plans/reaction_queue.md
 workspaces/linkedin-content-os/plans/social_feed.md
+workspaces/linkedin-content-os/plans/idea_qualification.md
+workspaces/linkedin-content-os/plans/latent_ideas.md
 workspaces/linkedin-content-os/research/market_signals/*.md
 !workspaces/linkedin-content-os/research/market_signals/README.md
+workspaces/linkedin-content-os/research/market_signal_archive/*.jsonl
+workspaces/linkedin-content-os/research/market_signal_archive/*.md
 workspaces/linkedin-content-os/docs/backlog_seed_status_20??-??-??.md
 workspaces/linkedin-content-os/docs/draft_batch_status_20??-??-??.md
 workspaces/linkedin-content-os/docs/next_lane_status_*.md
@@ -90,6 +96,8 @@ workspaces/linkedin-content-os/docs/publishing_schedule_20??-??-??.md
 workspaces/linkedin-content-os/docs/release_packets/
 workspaces/linkedin-content-os/docs/scheduling_lane_status_*.md
 workspaces/linkedin-content-os/drafts/feezie_owner_review_packet_20??????.md
+workspaces/linkedin-content-os/drafts/*-latent-transform*.md
+workspaces/linkedin-content-os/drafts/archive/stale_reaction_manifest.md
 workspaces/shared-ops/docs/chronicle_standup_pm_flow_wire_20??-??-??.md
 workspaces/shared-ops/docs/codex_chronicle_durable_memory_promotion_20??-??-??.md
 workspaces/shared-ops/docs/fallback_watchdog_verification_20??-??-??.md

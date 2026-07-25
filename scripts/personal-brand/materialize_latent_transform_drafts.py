@@ -18,7 +18,8 @@ from linkedin_idea_qualification import (  # noqa: E402
 )
 from linkedin_strategy_utils import (  # noqa: E402
     clean_text,
-    drafts_root,
+    generated_workspace_read_candidates,
+    generated_workspace_write_path,
     load_social_feed_items,
     now_iso,
     priority_lane_label,
@@ -53,15 +54,23 @@ def _social_feed_lookup(workspace_dir: Path) -> dict[str, dict[str, Any]]:
 
 def _draft_path_for_title(workspace_dir: Path, title: str) -> Path:
     date_prefix = now_iso()[:10]
-    base = drafts_root(workspace_dir) / f"{date_prefix}_{slugify(title)}-latent-transform.md"
-    if not base.exists():
+    filename = f"{date_prefix}_{slugify(title)}-latent-transform.md"
+    base = generated_workspace_write_path(workspace_dir, Path("drafts") / filename)
+    if not any(path.exists() for path in generated_workspace_read_candidates(workspace_dir, Path("drafts") / filename)):
         return base
     stem = base.stem
     suffix = base.suffix or ".md"
     index = 2
     while True:
-        candidate = drafts_root(workspace_dir) / f"{stem}_{index}{suffix}"
-        if not candidate.exists():
+        candidate_filename = f"{stem}_{index}{suffix}"
+        candidate = generated_workspace_write_path(workspace_dir, Path("drafts") / candidate_filename)
+        if not any(
+            path.exists()
+            for path in generated_workspace_read_candidates(
+                workspace_dir,
+                Path("drafts") / candidate_filename,
+            )
+        ):
             return candidate
         index += 1
 
@@ -203,7 +212,12 @@ def materialize_latent_transform_drafts(workspace_dir: Path) -> dict[str, Any]:
         if active_draft and clean_text(active_draft.get("source_kind")) != "latent_transform":
             continue
         if active_draft and clean_text(active_draft.get("source_kind")) == "latent_transform":
-            draft_path = Path(str(active_draft.get("draft_fs_path")))
+            relative_path = clean_text(active_draft.get("draft_relative_path"))
+            draft_path = (
+                generated_workspace_write_path(workspace_dir, relative_path)
+                if relative_path
+                else _draft_path_for_title(workspace_dir, clean_text(item.get("title")))
+            )
         else:
             draft_path = _draft_path_for_title(workspace_dir, clean_text(item.get("title")))
         source_item = social_lookup.get(source_path) if source_path else None

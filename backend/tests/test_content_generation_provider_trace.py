@@ -83,6 +83,16 @@ class ProviderTraceFallbackTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             self.assertFalse(_provider_is_configured("codex"))
 
+    def test_ollama_provider_requires_explicit_opt_in(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(_provider_is_configured("ollama"))
+        with patch.dict(
+            "os.environ",
+            {"CONTENT_GENERATION_ENABLE_OLLAMA": "true"},
+            clear=True,
+        ):
+            self.assertTrue(_provider_is_configured("ollama"))
+
     def test_gpt5_kwargs_are_normalized_to_max_completion_tokens(self) -> None:
         kwargs = _normalize_chat_completion_kwargs("gpt-5-nano", {"max_tokens": 256, "temperature": 0.2})
 
@@ -90,8 +100,15 @@ class ProviderTraceFallbackTests(unittest.TestCase):
         self.assertEqual(kwargs["max_completion_tokens"], 256)
         self.assertNotIn("temperature", kwargs)
 
-    def test_email_thread_grounded_requests_move_ollama_to_the_end_of_provider_order(self) -> None:
-        with patch.dict("os.environ", {}, clear=True):
+    def test_email_thread_grounded_requests_move_explicit_ollama_to_the_end_of_provider_order(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "CONTENT_GENERATION_PROVIDER_ORDER": "ollama,openai",
+                "CONTENT_GENERATION_ENABLE_OLLAMA": "true",
+            },
+            clear=True,
+        ):
             req = ContentGenerationRequest(
                 user_id="johnnie_fields",
                 topic="reply",

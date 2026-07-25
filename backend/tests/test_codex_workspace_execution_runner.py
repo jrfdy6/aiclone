@@ -669,6 +669,17 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
 
         self.assertEqual(resolved, work_order)
 
+    def test_local_artifact_reader_resolves_private_state_logical_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_root = Path(temp_dir) / "state"
+            expected = state_root / "memory" / "runner-results" / "result.json"
+            with mock.patch.object(self.runner, "STATE_ROOT", state_root):
+                resolved = self.runner._local_path_from_artifact(
+                    "state://memory/runner-results/result.json"
+                )
+
+        self.assertEqual(resolved, expected)
+
     def test_latest_result_artifact_prefers_explicit_result_paths(self) -> None:
         source_card = {
             "id": "source-card",
@@ -792,7 +803,7 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
     def test_standup_prep_writeback_generates_fresh_prep_and_closes_card(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            memory_root = temp_root / "memory"
+            memory_root = temp_root / ".ai-clone-state" / "memory"
             prep_path = memory_root / "standup-prep" / "executive_ops" / "20260421T112533Z.json"
             prep_path.parent.mkdir(parents=True)
             source_card = {
@@ -893,12 +904,19 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
                                         )
 
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["metadata"]["prep_json_path"], str(prep_path))
+        self.assertEqual(
+            result["metadata"]["prep_json_path"],
+            "state://memory/standup-prep/executive_ops/20260421T112533Z.json",
+        )
         self.assertEqual(close_payloads[0]["action"], "approve")
         self.assertEqual(close_payloads[0]["resolution_mode"], "close_only")
         proof = "\n".join(close_payloads[0]["proof_items"])
         self.assertIn("decision_loop.active=true", proof)
         self.assertIn("canonical_memory, standup_interpretation, pm_execution, workspace_handoff, no_action", proof)
+        remote_payload = json.dumps({"close": close_payloads[0], "result": result}, sort_keys=True)
+        self.assertNotIn(str(temp_root), remote_payload)
+        self.assertNotIn("/tmp/runner-", remote_payload)
+        self.assertNotIn("builder_stdout", result["metadata"])
 
     def test_execution_result_writeback_proof_closes_card_when_writer_evidence_exists(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -980,6 +998,9 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         self.assertIn("Execution-result proof:", proof)
         self.assertIn("Required artifact proof:", proof)
         self.assertIn("Learning proof:", proof)
+        remote_payload = json.dumps({"close": close_payloads[0], "result": result}, sort_keys=True)
+        self.assertNotIn(str(temp_root), remote_payload)
+        self.assertTrue(all(not item.startswith(("/", "~")) for item in result["artifacts"]))
 
     def test_linkedin_scheduled_writeback_records_receipt_docs_and_closes_card(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1099,16 +1120,22 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
                             dry_run=False,
                         )
 
-            receipt_path = temp_root / "workspaces" / "linkedin-content-os" / "analytics" / "2026-04-27_feezie-008" / "scheduled_receipt.json"
+            private_root = temp_root / ".ai-clone-state" / "workspaces" / "feezie-os"
+            receipt_path = private_root / "analytics" / "2026-04-27_feezie-008" / "scheduled_receipt.json"
+            private_schedule = private_root / "docs" / "publishing_schedule_2026-04-11.md"
+            private_queue = private_root / "drafts" / "queue_01.md"
+            private_analytics = private_root / "analytics" / "2026-04-27_feezie-008" / "log_template.md"
+            private_release = private_root / "docs" / "release_packets" / release_packet.name
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             self.assertEqual(result["status"], "ok")
             self.assertEqual(receipt["queue_id"], "FEEZIE-008")
             self.assertEqual(receipt["scheduled_at_et"], "2026-04-27 09:35 ET")
             self.assertFalse(receipt["screenshot_present"])
-            self.assertIn("2026-04-27 09:35 ET", schedule_path.read_text(encoding="utf-8"))
-            self.assertIn("Scheduled in LinkedIn for 2026-04-27 09:35 ET", queue_path.read_text(encoding="utf-8"))
-            self.assertIn("- [x] Update `docs/publishing_schedule_2026-04-11.md`", analytics_log.read_text(encoding="utf-8"))
-            self.assertIn("| Scheduled timestamp | 2026-04-27 09:35 ET |", release_packet.read_text(encoding="utf-8"))
+            self.assertIn("2026-04-27 09:35 ET", private_schedule.read_text(encoding="utf-8"))
+            self.assertIn("Scheduled in LinkedIn for 2026-04-27 09:35 ET", private_queue.read_text(encoding="utf-8"))
+            self.assertIn("- [x] Update `docs/publishing_schedule_2026-04-11.md`", private_analytics.read_text(encoding="utf-8"))
+            self.assertIn("| Scheduled timestamp | 2026-04-27 09:35 ET |", private_release.read_text(encoding="utf-8"))
+            self.assertIn("__________________", schedule_path.read_text(encoding="utf-8"))
             self.assertTrue(fetch_mock.called)
 
     def test_linkedin_scheduled_writeback_records_artifact_detected_confirmation_method(self) -> None:
@@ -1216,16 +1243,58 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
                             dry_run=False,
                         )
 
-            receipt_path = analytics_dir / "scheduled_receipt.json"
+            receipt_path = (
+                temp_root
+                / ".ai-clone-state"
+                / "workspaces"
+                / "feezie-os"
+                / "analytics"
+                / "2026-04-27_feezie-008"
+                / "scheduled_receipt.json"
+            )
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             self.assertEqual(receipt["confirmation_method"], "host_artifact_detected")
             self.assertTrue(receipt["screenshot_present"])
             self.assertIn("confirmation artifact", receipt["note"].lower())
 
+    def test_linkedin_release_packet_keeps_state_authoritative_after_seed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            filename = "feezie-008_schedule_packet_20260419.md"
+            source = (
+                project_root
+                / "workspaces"
+                / "linkedin-content-os"
+                / "docs"
+                / "release_packets"
+                / filename
+            )
+            state = (
+                project_root
+                / ".ai-clone-state"
+                / "workspaces"
+                / "feezie-os"
+                / "docs"
+                / "release_packets"
+                / filename
+            )
+            source.parent.mkdir(parents=True)
+            state.parent.mkdir(parents=True)
+            state.write_text("private state\n", encoding="utf-8")
+            source.write_text("newer project template\n", encoding="utf-8")
+            source_stat = source.stat()
+            os.utime(source, (source_stat.st_atime + 100, source_stat.st_mtime + 100))
+
+            with mock.patch.object(self.runner, "WORKSPACE_ROOT", project_root):
+                chosen = self.runner._find_linkedin_release_packet("feezie-008")
+
+            self.assertEqual(chosen, state.resolve())
+            self.assertEqual(chosen.read_text(encoding="utf-8"), "private state\n")
+
     def test_parse_work_order_supports_direct_and_workspace_packets(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ai-clone-runner-test-") as project_dir:
             project_root = Path(project_dir)
-            temp_root = project_root / "workspaces" / "shared-ops-test"
+            temp_root = project_root / "workspaces" / "shared-ops"
             packet_path = temp_root / "dispatch" / "packet.json"
             packet_path.parent.mkdir(parents=True, exist_ok=True)
             packet_path.write_text(
@@ -1289,6 +1358,75 @@ class CodexWorkspaceExecutionRunnerTests(unittest.TestCase):
         self.assertEqual(parsed["completion_contract"], {"source": "standup_promotion", "autostart": True})
         self.assertEqual(parsed["local_artifact_context"]["execution_log_path"], str(temp_root / "memory" / "execution_log.md"))
         self.assertEqual(parsed["context_policy"]["relevance_rule"], "Explain why broader context matters here now.")
+
+    def test_parse_work_order_rejects_cross_workspace_state_root(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ai-clone-runner-test-") as project_dir:
+            project_root = Path(project_dir)
+            state_root = project_root / ".ai-clone-state"
+            packet_root = state_root / "workspaces" / "fusion-os"
+            declared_root = state_root / "workspaces" / "agc"
+            packet_path = packet_root / "dispatch" / "packet.json"
+            packet_path.parent.mkdir(parents=True)
+            packet_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "codex_execution_work_order/v1",
+                        "workspace_key": "agc",
+                        "workspace_root": str(declared_root),
+                        "repo_path": str(project_root),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(self.runner, "WORKSPACE_ROOT", project_root):
+                with self.assertRaisesRegex(ValueError, "must match the workspace"):
+                    self.runner._parse_work_order(packet_path)
+
+    def test_parse_work_order_rejects_cross_workspace_legacy_root(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ai-clone-runner-test-") as project_dir:
+            project_root = Path(project_dir)
+            packet_root = project_root / "workspaces" / "fusion-os"
+            packet_path = packet_root / "dispatch" / "packet.json"
+            packet_path.parent.mkdir(parents=True)
+            packet_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "codex_execution_work_order/v1",
+                        "workspace_key": "agc",
+                        "workspace_root": str(packet_root),
+                        "repo_path": str(project_root),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(self.runner, "WORKSPACE_ROOT", project_root):
+                with self.assertRaisesRegex(ValueError, "Legacy execution packet for agc"):
+                    self.runner._parse_work_order(packet_path)
+
+    def test_parse_work_order_canonicalizes_legacy_feezie_alias(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ai-clone-runner-test-") as project_dir:
+            project_root = Path(project_dir)
+            packet_root = project_root / "workspaces" / "linkedin-content-os"
+            packet_path = packet_root / "dispatch" / "packet.json"
+            packet_path.parent.mkdir(parents=True)
+            packet_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "codex_execution_work_order/v1",
+                        "workspace_key": "linkedin-os",
+                        "workspace_root": str(packet_root),
+                        "repo_path": str(project_root),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(self.runner, "WORKSPACE_ROOT", project_root):
+                parsed = self.runner._parse_work_order(packet_path)
+
+        self.assertEqual(parsed["workspace_key"], "feezie-os")
 
     def test_build_prompt_surfaces_local_artifact_context_and_result_contract(self) -> None:
         packet = {

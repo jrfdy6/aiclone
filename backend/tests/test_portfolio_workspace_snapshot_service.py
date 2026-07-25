@@ -385,6 +385,80 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
         self.assertEqual(workspace["attention"]["label"], "Needs your decision")
         self.assertEqual(workspace["counts"]["needs_owner_pm_cards"], 1)
 
+    def test_build_snapshot_reads_private_activity_first_and_keeps_legacy_fallback_for_future_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir) / "project"
+            state_root = Path(temp_dir) / "private-state"
+            workspace_root = repo_root / "workspaces" / "future-project-root"
+            private_root = state_root / "workspaces" / "future-capability"
+            (workspace_root / "analytics").mkdir(parents=True)
+            (workspace_root / "memory").mkdir(parents=True)
+            (private_root / "briefings").mkdir(parents=True)
+            (private_root / "dispatch").mkdir(parents=True)
+            (workspace_root / "CHARTER.md").write_text(
+                "# Charter\n\nCanonical project contract.\n",
+                encoding="utf-8",
+            )
+            (private_root / "CHARTER.md").write_text(
+                "# Charter\n\nGenerated state must not replace the project contract.\n",
+                encoding="utf-8",
+            )
+            (private_root / "briefings" / "20260725T120000Z_status.md").write_text(
+                "# Status\n\nNewest private-state briefing.\n",
+                encoding="utf-8",
+            )
+            (private_root / "dispatch" / "20260725T120000Z_run.json").write_text(
+                '{"source": "private"}\n',
+                encoding="utf-8",
+            )
+            (workspace_root / "analytics" / "20260724_report.md").write_text(
+                "# Analytics\n\nLegacy analytics fallback.\n",
+                encoding="utf-8",
+            )
+            (workspace_root / "memory" / "execution_log.md").write_text(
+                "# Execution\n\nLegacy execution fallback.\n",
+                encoding="utf-8",
+            )
+
+            entry = {
+                "key": "future-capability",
+                "kind": "workspace",
+                "display_name": "Future Capability",
+                "workspace_root": "future-project-root",
+                "status": "standing_up",
+                "priority_order": 10,
+                "portfolio_visible": True,
+            }
+
+            with patch.object(service, "PRIVATE_STATE_ROOT", state_root), patch.object(
+                service,
+                "workspace_registry_entries",
+                return_value=(entry,),
+            ), patch.object(
+                service,
+                "workspace_root_path",
+                return_value=workspace_root,
+            ), patch.object(service, "workspace_root_slug", return_value="future-project-root"), patch.object(
+                service.pm_card_service,
+                "list_cards",
+                return_value=[],
+            ), patch.object(service.standup_service, "list_standups", return_value=[]), patch.object(
+                service,
+                "list_snapshot_payloads",
+                return_value={},
+            ):
+                snapshot = service.build_portfolio_workspace_snapshot()
+
+        workspace = snapshot["workspaces"][0]
+        self.assertEqual(workspace["workspace_key"], "future-capability")
+        self.assertEqual(workspace["latest_briefing"]["source"], "private_state")
+        self.assertIn("Newest private-state briefing", workspace["latest_briefing"]["tail"])
+        self.assertEqual(workspace["latest_dispatch"]["source"], "private_state")
+        self.assertEqual(workspace["latest_analytics"]["source"], "legacy_project")
+        self.assertIn("Legacy analytics fallback", workspace["latest_analytics"]["tail"])
+        self.assertEqual(workspace["execution_log"]["source"], "legacy_project")
+        self.assertEqual(workspace["pack_status"][0]["snippet"], "Canonical project contract.")
+
 
 if __name__ == "__main__":
     unittest.main()

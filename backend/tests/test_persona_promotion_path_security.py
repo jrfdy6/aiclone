@@ -106,7 +106,7 @@ class PersonaPromotionPathSecurityTests(unittest.TestCase):
 
             with (
                 patch.object(persona_bundle_writer, "resolve_workspace_root", return_value=temp_root),
-                patch.object(persona_bundle_writer, "resolve_persona_bundle_root", return_value=bundle_root),
+                patch.object(persona_bundle_writer, "resolve_persona_bundle_write_root", return_value=bundle_root),
             ):
                 for target_file in invalid_targets:
                     with self.subTest(target_file=target_file):
@@ -130,7 +130,7 @@ class PersonaPromotionPathSecurityTests(unittest.TestCase):
 
             with (
                 patch.object(persona_bundle_writer, "resolve_workspace_root", return_value=temp_root),
-                patch.object(persona_bundle_writer, "resolve_persona_bundle_root", return_value=bundle_root),
+                patch.object(persona_bundle_writer, "resolve_persona_bundle_write_root", return_value=bundle_root),
             ):
                 with self.assertRaisesRegex(ValueError, "cannot contain symlinks"):
                     persona_bundle_writer.write_promotion_items_to_bundle(
@@ -151,7 +151,7 @@ class PersonaPromotionPathSecurityTests(unittest.TestCase):
 
             with (
                 patch.object(persona_bundle_writer, "resolve_workspace_root", return_value=workspace_root),
-                patch.object(persona_bundle_writer, "resolve_persona_bundle_root", return_value=bundle_root),
+                patch.object(persona_bundle_writer, "resolve_persona_bundle_write_root", return_value=bundle_root),
             ):
                 with self.assertRaisesRegex(ValueError, "cannot contain symlinks"):
                     persona_bundle_writer.write_promotion_items_to_bundle(
@@ -166,7 +166,7 @@ class PersonaPromotionPathSecurityTests(unittest.TestCase):
             bundle_root = workspace_root / "knowledge" / "persona" / "feeze"
             with (
                 patch.object(persona_bundle_writer, "resolve_workspace_root", return_value=workspace_root),
-                patch.object(persona_bundle_writer, "resolve_persona_bundle_root", return_value=bundle_root),
+                patch.object(persona_bundle_writer, "resolve_persona_bundle_write_root", return_value=bundle_root),
             ):
                 result = persona_bundle_writer.write_promotion_items_to_bundle(
                     [

@@ -19,6 +19,75 @@ from app.services import brain_signal_service  # noqa: E402
 
 
 class BrainSignalServiceTests(unittest.TestCase):
+    def test_default_write_seeds_legacy_history_without_mutating_project_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            state_root = root / "private-state"
+            legacy_path = project_root / "memory" / "brain_signals.jsonl"
+            legacy_path.parent.mkdir(parents=True)
+            legacy = BrainSignal(
+                id="legacy-signal",
+                source_kind="manual",
+                source_ref="legacy-source",
+                source_workspace_key="future-workspace",
+                raw_summary="Preserve this complete legacy signal history.",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            legacy_text = legacy.model_dump_json() + "\n"
+            legacy_path.write_text(legacy_text, encoding="utf-8")
+
+            with (
+                patch.object(brain_signal_service, "ROOT", project_root),
+                patch.object(brain_signal_service, "STATE_ROOT", state_root),
+                patch.object(brain_signal_service, "SIGNALS_PATH", None),
+            ):
+                created = brain_signal_service.create_signal(
+                    BrainSignalCreateRequest(
+                        source_kind="manual",
+                        source_ref="new-source",
+                        source_workspace_key="future-workspace",
+                        raw_summary="Write this only to private generated state.",
+                    )
+                )
+                snapshot = brain_signal_service.build_local_brain_signal_snapshot()
+
+            private_path = state_root / "memory" / "brain_signals.jsonl"
+            self.assertTrue(private_path.exists())
+            self.assertEqual(snapshot["count"], 2)
+            self.assertIn(created.id, {item["id"] for item in snapshot["signals"]})
+            self.assertEqual(legacy_path.read_text(encoding="utf-8"), legacy_text)
+            self.assertFalse((project_root / "memory" / "brain_signals.jsonl.lock").exists())
+
+    def test_default_read_uses_legacy_history_without_implicitly_copying_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            state_root = root / "private-state"
+            legacy_path = project_root / "memory" / "runtime" / "brain_signals.jsonl"
+            legacy_path.parent.mkdir(parents=True)
+            legacy = BrainSignal(
+                id="runtime-legacy-signal",
+                source_kind="manual",
+                source_ref="runtime-legacy-source",
+                raw_summary="Legacy runtime history remains readable before migration.",
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            legacy_path.write_text(legacy.model_dump_json() + "\n", encoding="utf-8")
+
+            with (
+                patch.object(brain_signal_service, "ROOT", project_root),
+                patch.object(brain_signal_service, "STATE_ROOT", state_root),
+                patch.object(brain_signal_service, "SIGNALS_PATH", None),
+                patch.object(brain_signal_service, "_load_persisted_signals", return_value=None),
+            ):
+                signals = brain_signal_service.list_signals()
+
+            self.assertEqual([item.id for item in signals], ["runtime-legacy-signal"])
+            self.assertFalse((state_root / "memory" / "brain_signals.jsonl").exists())
+
     def test_signal_create_retries_by_action_card_even_without_source_ref(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             signals_path = Path(temp_dir) / "brain_signals.jsonl"

@@ -57,6 +57,29 @@ EXPECTED_AUTOMATION_IDS = {
     "youtube_watchlist_auto_ingest",
 }
 
+EXPECTED_CONFIGURED_IDS = {
+    "brain_canonical_memory_sync",
+    "codex_chronicle_sync",
+    "codex_memory_sync",
+    "codex_workspace_execution",
+    "content_safe_operator_lessons",
+    "feezie_codex_bridge",
+    "feezie_content_pipeline",
+    "jean_claude_execution_dispatch",
+    "launchd_health_audit",
+    "meeting_watchdog",
+    "morning_daily_brief",
+    "neo_guest",
+    "operator_story_signals",
+    "persona_bundle_sync",
+    "pm_review_resolution",
+    "portfolio_standup_prep",
+    "post_sync_dispatch",
+    "project_snapshot",
+    "workspace_agent_dispatch",
+    "youtube_watchlist_auto_ingest",
+}
+
 
 def _automation(automation_id: str, name: str | None = None) -> Automation:
     return Automation(
@@ -67,6 +90,27 @@ def _automation(automation_id: str, name: str | None = None) -> Automation:
         cron="every:300",
         source=automation_service.CODEX_REGISTRY_SOURCE,
         runtime="launchd",
+    )
+
+
+def _health_audit_run(
+    *,
+    observed_at: datetime,
+    states: dict[str, dict],
+) -> AutomationRun:
+    return AutomationRun(
+        id=f"audit::{observed_at.isoformat()}",
+        automation_id="launchd_health_audit",
+        automation_name="Launchd Health Audit",
+        source="local_launchd_registry",
+        runtime="launchd",
+        status="success",
+        run_at=observed_at,
+        metadata={
+            "launchd_state_schema": automation_service.LAUNCHD_HEALTH_STATE_SCHEMA,
+            "launchd_observed_at": observed_at.isoformat(),
+            "launchd_automation_states": states,
+        },
     )
 
 
@@ -98,8 +142,11 @@ class AutomationRegistryTests(unittest.TestCase):
         self.assertEqual(neo_guest.metrics.get("launch_agent"), "automations/launchd/com.neo.neo_guest.plist")
         self.assertEqual(neo_guest.metrics.get("execution_mode"), "persistent_serial_queue_worker")
         self.assertEqual(neo_guest.metrics.get("idle_poll_seconds"), "0.5-2.0")
-        self.assertEqual(neo_guest.metrics.get("model_residency"), "preloaded_keep_alive")
-        self.assertEqual(neo_guest.metrics.get("streaming_progress"), "throttled")
+        self.assertEqual(neo_guest.metrics.get("model_runtime"), "approved_public_knowledge_packet")
+        self.assertEqual(
+            neo_guest.metrics.get("ollama_fallback"),
+            "disabled_by_default_explicit_opt_in",
+        )
         self.assertEqual(neo_guest.metrics.get("default_max_predict_tokens"), "160")
         self.assertEqual(neo_guest.metrics.get("knowledge_pack_contract"), "neo_public_knowledge_pack/v1")
         self.assertEqual(neo_guest.metrics.get("local_ledger_content"), "metadata_only")
@@ -111,6 +158,26 @@ class AutomationRegistryTests(unittest.TestCase):
             self.assertEqual(item.status, "paused")
             self.assertEqual(item.cron, "disabled")
             self.assertEqual(item.metrics.get("installation_state"), "intentionally_uninstalled")
+
+        active_ids = {item.id for item in automations if item.status == "active"}
+        self.assertEqual(active_ids, set())
+        self.assertEqual(
+            automation_service.CONFIGURED_LAUNCHD_AUTOMATION_IDS,
+            EXPECTED_CONFIGURED_IDS,
+        )
+        for item in automations:
+            if item.id in EXPECTED_CONFIGURED_IDS:
+                self.assertEqual(item.status, "unknown")
+                self.assertEqual(item.metrics.get("configuration_state"), "configured_target")
+                self.assertEqual(item.metrics.get("installation_state"), "unverified")
+                self.assertEqual(item.metrics.get("health_evidence_state"), "missing")
+            else:
+                self.assertEqual(item.status, "paused")
+                self.assertIsNone(item.next_run_at)
+                self.assertIn(
+                    item.metrics.get("installation_state"),
+                    {"intentionally_uninstalled", "not_expected"},
+                )
 
         self.assertNotIn("workspace_backup", EXPECTED_AUTOMATION_IDS)
         self.assertNotIn("self_improvement", EXPECTED_AUTOMATION_IDS)
@@ -208,6 +275,81 @@ class AutomationRegistryTests(unittest.TestCase):
         self.assertEqual(item.last_run_at, now)
         self.assertEqual(item.last_status, "success")
         self.assertIsNone(item.last_error)
+
+    def test_fresh_audit_is_the_only_evidence_that_promotes_configured_job_active(self) -> None:
+        now = datetime.now(timezone.utc)
+        audit = _health_audit_run(
+            observed_at=now,
+            states={
+                "codex_memory_sync": {
+                    "installed": True,
+                    "loaded": True,
+                    "enabled": True,
+                    "healthy": True,
+                    "issue_count": 0,
+                    "error_count": 0,
+                    "warning_count": 0,
+                }
+            },
+        )
+
+        item = next(
+            entry
+            for entry in list_automations(runs=[audit])
+            if entry.id == "codex_memory_sync"
+        )
+
+        self.assertEqual(item.status, "active")
+        self.assertEqual(item.metrics.get("installation_state"), "installed")
+        self.assertEqual(item.metrics.get("launchd_loaded"), "true")
+        self.assertEqual(item.metrics.get("launchd_enabled"), "true")
+        self.assertEqual(item.metrics.get("health_state"), "healthy")
+        self.assertEqual(item.metrics.get("health_evidence_state"), "fresh")
+
+    def test_stale_audit_fails_closed_instead_of_claiming_active(self) -> None:
+        observed_at = datetime.now(timezone.utc) - timedelta(
+            seconds=automation_service.LAUNCHD_HEALTH_EVIDENCE_MAX_AGE_SECONDS + 1
+        )
+        audit = _health_audit_run(
+            observed_at=observed_at,
+            states={
+                "codex_memory_sync": {
+                    "installed": True,
+                    "loaded": True,
+                    "enabled": True,
+                    "healthy": True,
+                }
+            },
+        )
+
+        item = next(
+            entry
+            for entry in list_automations(runs=[audit])
+            if entry.id == "codex_memory_sync"
+        )
+
+        self.assertEqual(item.status, "unknown")
+        self.assertEqual(item.metrics.get("installation_state"), "unverified")
+        self.assertEqual(item.metrics.get("health_evidence_state"), "stale")
+
+    def test_paused_definition_retains_observed_last_run_without_becoming_active(self) -> None:
+        now = datetime.now(timezone.utc)
+        observed = AutomationRun(
+            id="hygiene::latest",
+            automation_id="weekly_memory_hygiene",
+            automation_name="Weekly Memory Hygiene",
+            runtime="launchd",
+            status="success",
+            run_at=now,
+        )
+
+        item = next(
+            entry for entry in list_automations(runs=[observed]) if entry.id == "weekly_memory_hygiene"
+        )
+        self.assertEqual(item.status, "paused")
+        self.assertEqual(item.metrics.get("installation_state"), "not_expected")
+        self.assertEqual(item.last_run_at, now)
+        self.assertEqual(item.last_status, "success")
 
     def test_ledger_sync_uses_database_upsert_contract(self) -> None:
         run = AutomationRun(

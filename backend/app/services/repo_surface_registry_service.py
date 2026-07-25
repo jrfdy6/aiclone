@@ -23,6 +23,12 @@ _HREF_OBJECT_RE = re.compile(r"href:\s*'([^']+)'")
 _HREF_ATTR_RE = re.compile(r'href="([^"]+)"')
 _API_CALL_RE = re.compile(r"/api/[A-Za-z0-9._~!$&()*+,;=:@%/?-]+")
 _IGNORED_NAV_HREFS = frozenset({"/"})
+_IGNORED_API_CALLS = frozenset(
+    {
+        # This is the same-origin Next.js proxy base, not a backend contract.
+        "/api/control",
+    }
+)
 _SCAFFOLD_MARKERS = (
     ("todo_marker", re.compile(r"\bTODO\b", re.IGNORECASE)),
     ("mock_data", re.compile(r"\bmock\b", re.IGNORECASE)),
@@ -324,22 +330,6 @@ _SURFACE_SPECS: tuple[dict[str, Any], ...] = (
         "source_of_truth": "page_file",
         "notes": "Residual page outside the primary runtime shell.",
     },
-    {
-        "surface_id": "downloads_aiclone",
-        "label": "downloads/aiclone",
-        "surface_kind": "subtree",
-        "status_class": STATUS_REFERENCE,
-        "owner": "archive_reference",
-        "route": None,
-        "shell_hrefs": [],
-        "legacy_nav_hrefs": [],
-        "frontend_files": [],
-        "backend_contract_prefixes": [],
-        "subtree_paths": ["downloads/aiclone"],
-        "fallback_policy": "reference_only",
-        "source_of_truth": "archive_reference",
-        "notes": "Old donor/archive repo for comparison and selective salvage, not active runtime truth.",
-    },
 )
 
 
@@ -517,7 +507,7 @@ def _extract_api_calls(paths: list[Path]) -> list[str]:
             continue
         for raw in _API_CALL_RE.findall(text):
             call = raw.rstrip("'\"),};")
-            if call and call not in seen:
+            if call and call not in _IGNORED_API_CALLS and call not in seen:
                 seen.add(call)
                 calls.append(call)
     return calls

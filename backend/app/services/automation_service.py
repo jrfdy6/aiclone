@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from app.models.automations import Automation, AutomationInstruction, AutomationRun
 
@@ -15,6 +15,41 @@ CODEX_RUN_LEDGER_SOURCE = "codex_run_ledger"
 LOCAL_LAUNCHD_SOURCE = CODEX_REGISTRY_SOURCE
 SUPPORTED_RUN_RUNTIMES = {"launchd", "codex_exec"}
 SUPPORTED_RUN_SOURCES = {CODEX_REGISTRY_SOURCE, "local_launchd_registry"}
+
+# These are desired launchd targets, not evidence that anything is installed or
+# running. Only a fresh launchd health-audit observation may promote one of
+# these configured definitions to `active` in the registry response.
+CONFIGURED_LAUNCHD_AUTOMATION_IDS = frozenset(
+    {
+        "brain_canonical_memory_sync",
+        "codex_chronicle_sync",
+        "codex_memory_sync",
+        "codex_workspace_execution",
+        "content_safe_operator_lessons",
+        "feezie_codex_bridge",
+        "feezie_content_pipeline",
+        "jean_claude_execution_dispatch",
+        "launchd_health_audit",
+        "meeting_watchdog",
+        "morning_daily_brief",
+        "neo_guest",
+        "operator_story_signals",
+        "persona_bundle_sync",
+        "pm_review_resolution",
+        "portfolio_standup_prep",
+        "post_sync_dispatch",
+        "project_snapshot",
+        "workspace_agent_dispatch",
+        "youtube_watchlist_auto_ingest",
+    }
+)
+LAUNCHD_HEALTH_AUDIT_AUTOMATION_ID = "launchd_health_audit"
+LAUNCHD_HEALTH_STATE_SCHEMA = "launchd_automation_state/v1"
+LAUNCHD_HEALTH_EVIDENCE_MAX_AGE_SECONDS = max(
+    60,
+    int(os.getenv("AI_CLONE_LAUNCHD_HEALTH_MAX_AGE_SECONDS", "2700")),
+)
+LAUNCHD_HEALTH_CLOCK_SKEW_SECONDS = 300
 
 
 def _dt(hours_ago: int = 0, hours_ahead: int = 0) -> datetime:
@@ -37,7 +72,7 @@ def _project_launchd_automations() -> List[Automation]:
         Automation(
             id="persona_bundle_sync",
             name="Persona Bundle Sync",
-            description="Polls committed Brain promotions and writes them into the local canonical persona bundle so canon survives deploys.",
+            description="Polls owner-committed Brain promotions and writes them into the private local persona overlay without mutating the Git-tracked seed.",
             type="scheduled",
             status="active",
             schedule="Every 5 minutes",
@@ -49,15 +84,15 @@ def _project_launchd_automations() -> List[Automation]:
             runtime="launchd",
             metrics={
                 "source": "Brain committed persona deltas",
-                "target": "knowledge/persona/feeze/**",
-                "delivery": "local workspace bundle sync",
+                "target": "AI_CLONE_STATE_ROOT/persona/canonical/**",
+                "delivery": "private local state overlay",
             },
             instructions=_instructions(
                 "Read committed persona deltas from the Brain API",
-                "Write new promotion items into the local persona bundle files",
+                "Copy the tracked seed once when needed, then write only the private persona overlay",
                 "Mark synced deltas so the same canon is not written twice",
             ),
-            notes="Runs on the local machine because Railway filesystem writes are not the durable source of truth for canon.",
+            notes="Runs locally. Private canon bytes and absolute state paths are never sent to Railway or GitHub.",
         ),
         Automation(
             id="youtube_watchlist_auto_ingest",
@@ -112,7 +147,7 @@ def _project_launchd_automations() -> List[Automation]:
                 "Materialize owner-review drafts so the workspace holds real draft files instead of only planning JSON",
                 "Register the refreshed source lane into Brain source intelligence and BrainSignal intake",
             ),
-            notes="Runs on the local machine so draft files and workspace plans remain durable in the workspace filesystem.",
+            notes="Runs on the local machine so generated drafts and plans remain durable in private workspace state.",
         ),
     ]
 
@@ -590,7 +625,7 @@ def _local_launchd_automations() -> List[Automation]:
         Automation(
             id="neo_guest",
             name="Neo Guest Conversation Worker",
-            description="Always-on local launchd daemon that serially claims invite-only Neo conversation jobs, answers from a versioned approved public knowledge pack with the warm Mac-local Ollama model, and streams bounded progress back to Railway.",
+            description="Always-on local launchd daemon that serially claims invite-only Neo conversation jobs and answers deterministically from a versioned approved public knowledge pack. A Mac-local Ollama fallback is available only through explicit opt-in.",
             type="daemon",
             status="active",
             schedule="Always on",
@@ -611,21 +646,20 @@ def _local_launchd_automations() -> List[Automation]:
                 "launch_agent": "automations/launchd/com.neo.neo_guest.plist",
                 "execution_mode": "persistent_serial_queue_worker",
                 "idle_poll_seconds": "0.5-2.0",
-                "model_runtime": "local_ollama",
-                "model_residency": "preloaded_keep_alive",
-                "streaming_progress": "throttled",
+                "model_runtime": "approved_public_knowledge_packet",
+                "ollama_fallback": "disabled_by_default_explicit_opt_in",
                 "default_max_predict_tokens": "160",
                 "knowledge_pack_contract": "neo_public_knowledge_pack/v1",
                 "local_ledger_content": "metadata_only",
                 "capability": "write_capable_guest_response",
             },
             instructions=_instructions(
-                "Remain resident under launchd, preload the loopback Ollama model, and claim one scoped Neo guest job at a time with bounded idle polling",
+                "Remain resident under launchd and claim one scoped Neo guest job at a time with bounded idle polling",
                 "Send only a query-selected subset of the versioned approved public professional knowledge pack and that guest's bounded conversation; never read raw Brain or private project memory",
-                "Stream throttled bounded progress and write the bounded response or failure back to the same claimed job with no provider fallback",
+                "Write the bounded approved-pack response or failure back to the same claimed job; use loopback Ollama only when NEO_ENABLE_OLLAMA is explicitly enabled for a legacy packet",
                 "Record metadata-only completed or failed execution evidence in the local-first automation ledger before attempting its Railway mirror",
             ),
-            notes="Invite-only persistent guest worker with no next scheduled run. It cannot access operator routes, cannot use raw Brain/private project memory or a provider API fallback, and may send only a grounded response from an explicitly approved public knowledge-pack version to the guest session that created the claimed job.",
+            notes="Invite-only persistent guest worker with no next scheduled run. It cannot access operator routes or raw Brain/private project memory. Normal operation is independent of Ollama and model-provider APIs.",
         ),
         Automation(
             id="email_codex_bridge",
@@ -813,7 +847,7 @@ def _codex_parity_automations() -> List[Automation]:
             "0 6 * * *",
             "scripts/run_secure_project_snapshot.py",
             "ops/backup",
-            "Creates a private retained project archive outside Git with credentials and dependencies excluded.",
+            "Creates verified private project and local-state archives outside Git with credentials and dependencies excluded.",
         ),
         (
             "secure_config_backup",
@@ -877,6 +911,79 @@ def _run_timestamp(run: AutomationRun) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _latest_launchd_health_evidence(
+    runs: List[AutomationRun],
+    *,
+    now: datetime | None = None,
+) -> tuple[str, datetime | None, dict[str, dict[str, Any]]]:
+    """Return fresh/stale/missing path-free host evidence from the audit run.
+
+    An ordinary worker success cannot prove launchd installation or health.
+    The evidence is accepted only from the newest launchd health-audit run,
+    with the expected schema, a parseable host observation timestamp, and a
+    per-automation state map.
+    """
+
+    audit_runs = [
+        run for run in runs if run.automation_id == LAUNCHD_HEALTH_AUDIT_AUTOMATION_ID
+    ]
+    if not audit_runs:
+        return "missing", None, {}
+    latest = max(audit_runs, key=_run_timestamp)
+    metadata = latest.metadata if isinstance(latest.metadata, dict) else {}
+    if metadata.get("launchd_state_schema") != LAUNCHD_HEALTH_STATE_SCHEMA:
+        return "missing", None, {}
+    observed_at = _parse_utc_datetime(metadata.get("launchd_observed_at"))
+    raw_states = metadata.get("launchd_automation_states")
+    if observed_at is None or not isinstance(raw_states, dict):
+        return "missing", observed_at, {}
+
+    checked_at = _parse_utc_datetime(now) or datetime.now(timezone.utc)
+    age_seconds = (checked_at - observed_at).total_seconds()
+    if (
+        age_seconds < -LAUNCHD_HEALTH_CLOCK_SKEW_SECONDS
+        or age_seconds > LAUNCHD_HEALTH_EVIDENCE_MAX_AGE_SECONDS
+    ):
+        return "stale", observed_at, {}
+
+    states = {
+        str(automation_id): dict(state)
+        for automation_id, state in raw_states.items()
+        if isinstance(automation_id, str) and isinstance(state, dict)
+    }
+    return "fresh", observed_at, states
+
+
+def _metric_bool(value: Any) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return "unknown"
+
+
+def _metric_count(value: Any) -> str:
+    try:
+        return str(max(0, int(value or 0)))
+    except (TypeError, ValueError):
+        return "0"
+
+
 def list_automation_runs(limit: Optional[int] = None) -> List[AutomationRun]:
     """Read, validate, and de-duplicate the append-only local Codex run ledger."""
 
@@ -907,19 +1014,46 @@ def _registry_automations() -> List[Automation]:
     automations.extend(item for item in _local_launchd_automations() if item.id not in existing_ids)
     existing_ids = {item.id for item in automations}
     automations.extend(item for item in _codex_parity_automations() if item.id not in existing_ids)
-    normalized = [
-        item.model_copy(
-            update={
-                "source": CODEX_REGISTRY_SOURCE,
-                "runtime": item.runtime or "launchd",
-                "last_run_at": None,
-                "last_status": "unknown",
-                "last_delivered": None,
-                "last_error": None,
+    normalized: List[Automation] = []
+    for item in automations:
+        metrics = dict(item.metrics)
+        intentionally_uninstalled = metrics.get("installation_state") == "intentionally_uninstalled"
+        configured = item.id in CONFIGURED_LAUNCHD_AUTOMATION_IDS
+        metrics.update(
+            {
+                "configuration_state": (
+                    "configured_target"
+                    if configured
+                    else "intentionally_uninstalled"
+                    if intentionally_uninstalled
+                    else "planned_definition"
+                ),
+                "installation_state": (
+                    "intentionally_uninstalled"
+                    if intentionally_uninstalled
+                    else "unverified"
+                    if configured
+                    else "not_expected"
+                ),
+                "health_state": "unverified" if configured else "not_running",
+                "health_evidence_state": "missing" if configured else "not_applicable",
             }
         )
-        for item in automations
-    ]
+        normalized.append(
+            item.model_copy(
+                update={
+                    "source": CODEX_REGISTRY_SOURCE,
+                    "runtime": item.runtime or "launchd",
+                    "status": "unknown" if configured else "paused",
+                    "next_run_at": item.next_run_at if configured else None,
+                    "last_run_at": None,
+                    "last_status": "unknown",
+                    "last_delivered": None,
+                    "last_error": None,
+                    "metrics": metrics,
+                }
+            )
+        )
     normalized.sort(key=lambda item: item.name.lower())
     return normalized
 
@@ -929,10 +1063,13 @@ def automation_registry_ids() -> set[str]:
 
 
 def list_automations(runs: Optional[List[AutomationRun]] = None) -> List[Automation]:
-    """Return the Codex/launchd registry overlaid with observed local-ledger state."""
+    """Return configured definitions overlaid with fresh observed host truth."""
 
     automations = _registry_automations()
     observed_runs = list_automation_runs() if runs is None else [run for run in runs if is_codex_run(run)]
+    evidence_state, observed_at, launchd_states = _latest_launchd_health_evidence(
+        observed_runs
+    )
     latest_by_automation: dict[str, AutomationRun] = {}
     for run in observed_runs:
         current = latest_by_automation.get(run.automation_id)
@@ -941,13 +1078,112 @@ def list_automations(runs: Optional[List[AutomationRun]] = None) -> List[Automat
 
     enriched: List[Automation] = []
     for item in automations:
+        metrics = dict(item.metrics)
+        configured = metrics.get("configuration_state") == "configured_target"
+        intentionally_uninstalled = (
+            metrics.get("configuration_state") == "intentionally_uninstalled"
+        )
+        state = launchd_states.get(item.id) if evidence_state == "fresh" else None
+        status = item.status
+        next_run_at = item.next_run_at
+
+        if configured:
+            metrics["health_evidence_state"] = evidence_state
+            metrics["health_evidence_max_age_seconds"] = str(
+                LAUNCHD_HEALTH_EVIDENCE_MAX_AGE_SECONDS
+            )
+            if observed_at is not None:
+                metrics["health_observed_at"] = observed_at.isoformat().replace(
+                    "+00:00", "Z"
+                )
+            if state is None:
+                metrics["installation_state"] = "unverified"
+                metrics["health_state"] = (
+                    "evidence_incomplete" if evidence_state == "fresh" else "unverified"
+                )
+                status = "error" if evidence_state == "fresh" else "unknown"
+                next_run_at = None
+            else:
+                installed = state.get("installed")
+                loaded = state.get("loaded")
+                enabled = state.get("enabled")
+                healthy = state.get("healthy")
+                metrics.update(
+                    {
+                        "installation_state": (
+                            "installed"
+                            if installed is True
+                            else "not_installed"
+                            if installed is False
+                            else "unverified"
+                        ),
+                        "launchd_loaded": _metric_bool(loaded),
+                        "launchd_enabled": _metric_bool(enabled),
+                        "health_state": (
+                            "healthy"
+                            if healthy is True
+                            else "unhealthy"
+                            if healthy is False
+                            else "unverified"
+                        ),
+                        "health_issue_count": _metric_count(state.get("issue_count")),
+                        "health_error_count": _metric_count(state.get("error_count")),
+                        "health_warning_count": _metric_count(state.get("warning_count")),
+                    }
+                )
+                if (
+                    installed is True
+                    and loaded is True
+                    and enabled is True
+                    and healthy is True
+                ):
+                    status = "active"
+                else:
+                    status = "error"
+                    next_run_at = None
+        elif evidence_state == "fresh" and isinstance(state, dict):
+            installed = state.get("installed")
+            loaded = state.get("loaded")
+            enabled = state.get("enabled")
+            metrics.update(
+                {
+                    "health_evidence_state": "fresh",
+                    "installation_state": (
+                        "installed"
+                        if installed is True
+                        else "intentionally_uninstalled"
+                        if intentionally_uninstalled
+                        else "not_expected"
+                    ),
+                    "launchd_loaded": _metric_bool(loaded),
+                    "launchd_enabled": _metric_bool(enabled),
+                }
+            )
+            if observed_at is not None:
+                metrics["health_observed_at"] = observed_at.isoformat().replace(
+                    "+00:00", "Z"
+                )
+            if installed is True or loaded is True:
+                metrics["health_state"] = "unexpected_running"
+                status = "error"
+
         latest = latest_by_automation.get(item.id)
         if latest is None:
-            enriched.append(item)
+            enriched.append(
+                item.model_copy(
+                    update={
+                        "status": status,
+                        "next_run_at": next_run_at,
+                        "metrics": metrics,
+                    }
+                )
+            )
             continue
         enriched.append(
             item.model_copy(
                 update={
+                    "status": status,
+                    "next_run_at": next_run_at,
                     "last_run_at": latest.run_at or latest.finished_at,
                     "last_status": latest.status,
                     "last_delivered": latest.delivered,
@@ -957,6 +1193,7 @@ def list_automations(runs: Optional[List[AutomationRun]] = None) -> List[Automat
                     "owner_agent": latest.owner_agent or item.owner_agent,
                     "session_target": latest.session_target or item.session_target,
                     "workspace_key": latest.workspace_key or item.workspace_key,
+                    "metrics": metrics,
                 }
             )
         )

@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
+import sqlite3
 import stat
 import subprocess
 import tarfile
@@ -14,12 +16,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from runtime_paths import PROJECT_ROOT, RUNTIME_ROOT, SECRETS_ROOT, ensure_runtime_dirs
+from runtime_paths import PROJECT_ROOT, RUNTIME_ROOT, SECRETS_ROOT, STATE_ROOT
 
 
 BACKUP_ROOT = RUNTIME_ROOT / "backups"
 PROJECT_BACKUP_ROOT = BACKUP_ROOT / "project"
 CONFIG_BACKUP_ROOT = BACKUP_ROOT / "config"
+STATE_BACKUP_ROOT = BACKUP_ROOT / "state"
+STATE_ARCHIVE_PREFIX = "AI-Clone-State"
+STATE_MANIFEST_NAME = ".ai-clone-state-backup-manifest.json"
 
 EXCLUDED_DIR_NAMES = {
     ".git",
@@ -51,6 +56,7 @@ SECRET_NAME_MARKERS = (
     "private_key",
 )
 SECRET_SUFFIXES = {".pem", ".p12", ".pfx", ".key"}
+SQLITE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
 
 
 def _utcnow() -> datetime:
@@ -162,6 +168,257 @@ def create_project_snapshot(
     }
 
 
+def _state_files(state_root: Path) -> tuple[list[Path], dict[str, int]]:
+    files: list[Path] = []
+    skipped = {
+        "symlinks": 0,
+        "secret_names": 0,
+        "lock_files": 0,
+        "sqlite_sidecars": 0,
+        "non_files": 0,
+    }
+    if not state_root.exists():
+        return files, skipped
+    for path in sorted(state_root.rglob("*")):
+        if path.is_symlink():
+            skipped["symlinks"] += 1
+            continue
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            skipped["non_files"] += 1
+            continue
+        relative = path.relative_to(state_root)
+        if any(part.lower() in {"secrets", "keys", "credentials"} for part in relative.parts[:-1]):
+            skipped["secret_names"] += 1
+            continue
+        if path.name.endswith(".lock"):
+            skipped["lock_files"] += 1
+            continue
+        if path.name.endswith(("-wal", "-shm", "-journal")):
+            skipped["sqlite_sidecars"] += 1
+            continue
+        if _is_secret_name(relative):
+            skipped["secret_names"] += 1
+            continue
+        files.append(path)
+    return files, skipped
+
+
+def _is_sqlite_database(path: Path) -> bool:
+    return path.suffix.lower() in SQLITE_SUFFIXES
+
+
+def _sqlite_integrity_check(path: Path) -> None:
+    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
+    try:
+        row = connection.execute("PRAGMA integrity_check").fetchone()
+    finally:
+        connection.close()
+    if not row or str(row[0]).lower() != "ok":
+        raise ValueError(f"SQLite integrity check failed for snapshot member: {path.name}")
+
+
+def _sqlite_online_backup(source: Path, destination: Path) -> None:
+    """Create one transactionally consistent SQLite copy without source WAL files."""
+
+    source_connection = sqlite3.connect(
+        f"{source.resolve().as_uri()}?mode=ro",
+        uri=True,
+        timeout=10,
+    )
+    destination_connection = sqlite3.connect(destination)
+    try:
+        source_connection.backup(destination_connection)
+    finally:
+        destination_connection.close()
+        source_connection.close()
+    destination.chmod(0o600)
+    _sqlite_integrity_check(destination)
+
+
+def create_state_snapshot(
+    *,
+    state_root: Path = STATE_ROOT,
+    output_root: Path = STATE_BACKUP_ROOT,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Create a local, owner-only, self-verifying snapshot of private state.
+
+    State snapshots are intentionally separate from the project archive and do
+    not include the secrets root. No retention deletion is automatic.
+    """
+
+    state_root = state_root.expanduser().resolve()
+    if not state_root.is_dir():
+        raise FileNotFoundError(f"State root does not exist: {state_root}")
+    current = now or _utcnow()
+    _private_directory(output_root)
+    final_path = output_root / f"ai-clone-state-{_stamp(current)}.tar.gz"
+    partial_path = output_root / f".{final_path.name}.partial"
+    source_files, skipped = _state_files(state_root)
+    manifest_files: list[dict[str, Any]] = []
+    source_bytes = 0
+    try:
+        with tempfile.TemporaryDirectory(prefix="ai-clone-state-sqlite-") as sqlite_temp_dir:
+            sqlite_snapshots: dict[Path, Path] = {}
+            for index, path in enumerate(source_files):
+                if not _is_sqlite_database(path):
+                    continue
+                snapshot_path = Path(sqlite_temp_dir) / f"database-{index}.sqlite3"
+                _sqlite_online_backup(path, snapshot_path)
+                sqlite_snapshots[path] = snapshot_path
+
+            with tarfile.open(partial_path, "w:gz", dereference=False) as archive:
+                for path in source_files:
+                    if path.is_symlink() or not path.is_file():
+                        raise RuntimeError(f"State file changed during snapshot: {path}")
+                    relative = path.relative_to(state_root).as_posix()
+                    captured_path = sqlite_snapshots.get(path, path)
+                    metadata = captured_path.stat()
+                    digest = hashlib.sha256()
+                    size = 0
+                    with captured_path.open("rb") as source, tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024) as captured:
+                        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                            captured.write(chunk)
+                            size += len(chunk)
+                        captured.seek(0)
+                        member = tarfile.TarInfo((Path(STATE_ARCHIVE_PREFIX) / relative).as_posix())
+                        member.size = size
+                        member.mode = 0o600
+                        member.mtime = int(metadata.st_mtime)
+                        archive.addfile(member, captured)
+                    source_bytes += size
+                    manifest_record = {
+                        "path": relative,
+                        "size_bytes": size,
+                        "sha256": digest.hexdigest(),
+                    }
+                    if path in sqlite_snapshots:
+                        manifest_record["kind"] = "sqlite_online_backup"
+                    manifest_files.append(manifest_record)
+                manifest = {
+                    "schema_version": "ai_clone_state_backup/v1",
+                    "created_at": current.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "file_count": len(manifest_files),
+                    "source_bytes": source_bytes,
+                    "files": manifest_files,
+                    "skipped": skipped,
+                }
+                manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+                manifest_info = tarfile.TarInfo(STATE_MANIFEST_NAME)
+                manifest_info.size = len(manifest_bytes)
+                manifest_info.mode = 0o600
+                manifest_info.mtime = int(current.timestamp())
+                archive.addfile(manifest_info, io.BytesIO(manifest_bytes))
+        partial_path.chmod(0o600)
+        partial_path.replace(final_path)
+    finally:
+        if partial_path.exists():
+            partial_path.unlink()
+    final_path.chmod(0o600)
+    try:
+        verification = verify_state_snapshot(final_path)
+    except Exception:
+        final_path.unlink(missing_ok=True)
+        raise
+    return {
+        "path": str(final_path),
+        "name": final_path.name,
+        "file_count": len(manifest_files),
+        "source_bytes": source_bytes,
+        "archive_bytes": final_path.stat().st_size,
+        "sha256": _sha256(final_path),
+        "skipped": skipped,
+        "verified": verification["verified"],
+    }
+
+
+def verify_state_snapshot(archive_path: Path) -> dict[str, Any]:
+    """Verify archive containment plus every manifest size and SHA-256."""
+
+    archive_path = archive_path.expanduser().resolve()
+    with tarfile.open(archive_path, "r:gz") as archive:
+        members = archive.getmembers()
+        manifest_member = next((member for member in members if member.name == STATE_MANIFEST_NAME), None)
+        if manifest_member is None or not manifest_member.isfile():
+            raise ValueError("State snapshot manifest is missing.")
+        manifest_handle = archive.extractfile(manifest_member)
+        if manifest_handle is None:
+            raise ValueError("State snapshot manifest cannot be read.")
+        manifest = json.loads(manifest_handle.read().decode("utf-8"))
+        if manifest.get("schema_version") != "ai_clone_state_backup/v1":
+            raise ValueError("State snapshot manifest version is unsupported.")
+        expected = {
+            str(item.get("path") or ""): item
+            for item in (manifest.get("files") or [])
+            if isinstance(item, dict) and str(item.get("path") or "")
+        }
+        actual_members: dict[str, tarfile.TarInfo] = {}
+        prefix = f"{STATE_ARCHIVE_PREFIX}/"
+        for member in members:
+            if member.name == STATE_MANIFEST_NAME:
+                continue
+            if not member.isfile() or not member.name.startswith(prefix):
+                raise ValueError(f"Unsafe or unexpected state snapshot member: {member.name}")
+            relative = member.name[len(prefix) :]
+            path = Path(relative)
+            if path.is_absolute() or ".." in path.parts or not relative:
+                raise ValueError(f"Unsafe state snapshot path: {member.name}")
+            actual_members[relative] = member
+        if set(actual_members) != set(expected):
+            raise ValueError("State snapshot file list does not match its manifest.")
+        verified_bytes = 0
+        for relative, member in actual_members.items():
+            source = archive.extractfile(member)
+            if source is None:
+                raise ValueError(f"State snapshot member cannot be read: {relative}")
+            digest = hashlib.sha256()
+            size = 0
+            record = expected[relative]
+            sqlite_temp_path: Path | None = None
+            sqlite_temp_handle = None
+            if record.get("kind") == "sqlite_online_backup":
+                sqlite_temp_handle = tempfile.NamedTemporaryFile(
+                    prefix="ai-clone-state-verify-",
+                    suffix=".sqlite3",
+                    delete=False,
+                )
+                sqlite_temp_path = Path(sqlite_temp_handle.name)
+            try:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                    size += len(chunk)
+                    if sqlite_temp_handle is not None:
+                        sqlite_temp_handle.write(chunk)
+                if sqlite_temp_handle is not None:
+                    sqlite_temp_handle.flush()
+                    os.fsync(sqlite_temp_handle.fileno())
+                    sqlite_temp_handle.close()
+                    sqlite_temp_handle = None
+                    _sqlite_integrity_check(sqlite_temp_path)
+            finally:
+                if sqlite_temp_handle is not None:
+                    sqlite_temp_handle.close()
+                if sqlite_temp_path is not None:
+                    sqlite_temp_path.unlink(missing_ok=True)
+            expected_size = record.get("size_bytes")
+            if (
+                not isinstance(expected_size, int)
+                or size != expected_size
+                or digest.hexdigest() != record.get("sha256")
+            ):
+                raise ValueError(f"State snapshot verification failed: {relative}")
+            verified_bytes += size
+    return {
+        "verified": True,
+        "path": str(archive_path),
+        "file_count": len(actual_members),
+        "source_bytes": verified_bytes,
+    }
+
+
 def _secret_manifest(secrets_root: Path, now: datetime) -> dict[str, Any]:
     files: list[dict[str, Any]] = []
     if secrets_root.exists():
@@ -231,7 +488,6 @@ def create_config_backup(
     keep: int = 8,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    ensure_runtime_dirs()
     current = now or _utcnow()
     _private_directory(output_root)
     stamp = _stamp(current)

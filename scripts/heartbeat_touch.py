@@ -11,14 +11,14 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
-SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
+SCRIPTS_ROOT = Path(__file__).resolve().parent
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from runtime_paths import STATE_ROOT, ensure_runtime_dirs
+from runtime_paths import PROJECT_ROOT, STATE_ROOT, ensure_runtime_dirs  # noqa: E402
 
 
+WORKSPACE_ROOT = PROJECT_ROOT
 STATE_PATH = STATE_ROOT / "heartbeat" / "heartbeat-state.json"
 MEMORY_DIR = WORKSPACE_ROOT / "memory"
 DEFAULT_CHECKS = [

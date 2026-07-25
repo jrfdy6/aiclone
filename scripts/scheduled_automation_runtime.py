@@ -353,7 +353,8 @@ def run_scheduled_task(
 ) -> tuple[dict[str, Any], bool]:
     """Execute a deterministic task, persist locally, then mirror retryably."""
 
-    ensure_runtime_dirs()
+    if ledger_path == DEFAULT_LEDGER_PATH and pending_path == DEFAULT_PENDING_PATH:
+        ensure_runtime_dirs()
     started = utc_now()
     started_clock = time.monotonic()
     try:

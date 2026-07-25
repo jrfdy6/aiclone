@@ -14,6 +14,25 @@ from app.services import workspace_snapshot_service as workspace_snapshot_module
 
 
 class WorkspaceSnapshotRootSelectionTests(unittest.TestCase):
+    def test_code_root_stays_with_own_checkout_without_explicit_override(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            resolved = workspace_snapshot_module.resolve_workspace_root()
+
+        self.assertEqual(
+            resolved,
+            Path(workspace_snapshot_module.__file__).resolve().parents[3],
+        )
+
+    def test_code_root_honors_explicit_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(
+            "os.environ",
+            {"AI_CLONE_ROOT": temp_dir},
+            clear=True,
+        ):
+            resolved = workspace_snapshot_module.resolve_workspace_root()
+
+        self.assertEqual(resolved, Path(temp_dir).resolve())
+
     def test_ingestions_and_transcripts_roots_prefer_richer_corpus(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

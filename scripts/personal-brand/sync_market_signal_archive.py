@@ -23,7 +23,7 @@ from app.services.social_signal_archive_service import sync_market_signal_archiv
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Backfill the tracked market signal archive from live runtime files.")
+    parser = argparse.ArgumentParser(description="Backfill the private generated market signal archive from local source files.")
     parser.add_argument(
         "--workspace",
         default=str(WORKSPACE_ROOT / "workspaces" / "linkedin-content-os"),

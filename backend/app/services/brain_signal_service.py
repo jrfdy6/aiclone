@@ -4,6 +4,7 @@ import errno
 import fcntl
 import json
 import os
+import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -29,7 +30,23 @@ from app.services.workspace_registry_service import REPO_ROOT, canonicalize_work
 
 
 ROOT = REPO_ROOT
-SIGNALS_PATH = ROOT / "memory" / "brain_signals.jsonl"
+_SCRIPTS_ROOT = ROOT / "scripts"
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from runtime_paths import (  # noqa: E402
+    STATE_ROOT as RUNTIME_STATE_ROOT,
+    memory_state_path,
+    resolve_memory_read_path,
+    seed_memory_state_file,
+)
+
+
+STATE_ROOT = RUNTIME_STATE_ROOT
+# Tests and one-off maintenance tools may still provide an explicit path. The
+# production default is resolved lazily so AI_CLONE_STATE_ROOT owns generated
+# signal state and the project copy remains a read-only legacy fallback.
+SIGNALS_PATH: Path | None = None
 BRAIN_SIGNAL_SNAPSHOT_WORKSPACE_KEY = "shared_ops"
 BRAIN_SIGNAL_SNAPSHOT_TYPE = "brain_signals"
 BRAIN_SIGNAL_CHUNK_PREFIX = "brain_signals_chunk_"
@@ -159,8 +176,31 @@ def _normalize_signal(signal: BrainSignal) -> BrainSignal:
     )
 
 
+def _signals_read_path() -> Path:
+    if SIGNALS_PATH is not None:
+        return Path(SIGNALS_PATH).expanduser().resolve()
+    return resolve_memory_read_path(
+        "brain_signals.jsonl",
+        project_root=ROOT,
+        state_root=STATE_ROOT,
+    )
+
+
+def _signals_write_path(*, seed_legacy: bool = False) -> Path:
+    if SIGNALS_PATH is not None:
+        return Path(SIGNALS_PATH).expanduser().resolve()
+    if seed_legacy:
+        return seed_memory_state_file(
+            "brain_signals.jsonl",
+            project_root=ROOT,
+            state_root=STATE_ROOT,
+        )
+    return memory_state_path("brain_signals.jsonl", state_root=STATE_ROOT)
+
+
 def _signals_lock_path() -> Path:
-    return SIGNALS_PATH.with_name(f"{SIGNALS_PATH.name}.lock")
+    signals_path = _signals_write_path()
+    return signals_path.with_name(f"{signals_path.name}.lock")
 
 
 def _is_lock_permission_error(exc: OSError) -> bool:
@@ -169,6 +209,10 @@ def _is_lock_permission_error(exc: OSError) -> bool:
 
 @contextmanager
 def _signals_lock(*, exclusive: bool):
+    if exclusive:
+        # Preserve the complete legacy history before the first private-state
+        # mutation. The seed helper is copy-only and publishes atomically.
+        _signals_write_path(seed_legacy=True)
     lock_path = _signals_lock_path()
     lock_file = None
     try:
@@ -210,9 +254,10 @@ def _deserialize_signals(lines: list[str]) -> list[BrainSignal]:
 
 
 def _load_local_signals_unlocked() -> list[BrainSignal]:
-    if not SIGNALS_PATH.exists():
+    signals_path = _signals_read_path()
+    if not signals_path.exists():
         return []
-    return _deserialize_signals(SIGNALS_PATH.read_text(encoding="utf-8", errors="ignore").splitlines())
+    return _deserialize_signals(signals_path.read_text(encoding="utf-8", errors="ignore").splitlines())
 
 
 def _load_persisted_signals() -> list[BrainSignal] | None:
@@ -290,18 +335,23 @@ def _load_signals() -> list[BrainSignal]:
 
 
 def _write_local_signals_unlocked(signals: list[BrainSignal]) -> None:
-    SIGNALS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    signals_path = _signals_write_path(seed_legacy=True)
+    signals_path.parent.mkdir(parents=True, exist_ok=True)
     text = "\n".join(json.dumps(_normalize_signal(signal).model_dump(mode="json"), sort_keys=True) for signal in signals)
-    fd, temp_path_raw = tempfile.mkstemp(prefix=f".{SIGNALS_PATH.name}.", suffix=".tmp", dir=str(SIGNALS_PATH.parent))
+    fd, temp_path_raw = tempfile.mkstemp(
+        prefix=f".{signals_path.name}.",
+        suffix=".tmp",
+        dir=str(signals_path.parent),
+    )
     temp_path = Path(temp_path_raw)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write((text + "\n") if text else "")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp_path, SIGNALS_PATH)
+        os.replace(temp_path, signals_path)
         try:
-            directory_fd = os.open(SIGNALS_PATH.parent, os.O_RDONLY)
+            directory_fd = os.open(signals_path.parent, os.O_RDONLY)
         except OSError:
             directory_fd = None
         if directory_fd is not None:

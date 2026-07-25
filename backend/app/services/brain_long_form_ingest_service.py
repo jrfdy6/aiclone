@@ -422,6 +422,8 @@ class BrainLongFormIngestService:
         source_type: str | None = None,
         author: str | None = None,
         run_refresh: bool = True,
+        ingestions_root: Path | None = None,
+        reference_root: Path | None = None,
     ) -> dict[str, Any]:
         normalized_url = _normalize_url(url or "")
         normalized_type = _infer_source_type(normalized_url, source_type)
@@ -444,10 +446,23 @@ class BrainLongFormIngestService:
         topics, tags = _topic_tags(channel)
         asset_id = _asset_id(clean_title, normalized_url)
 
-        ingestions_root = workspace_snapshot_module._ingestions_root()
-        repo_root = workspace_snapshot_module.ROOT
+        resolved_ingestions_root = (
+            Path(ingestions_root).expanduser().resolve()
+            if ingestions_root is not None
+            else workspace_snapshot_module._ingestions_root()
+        )
+        resolved_reference_root = (
+            Path(reference_root).expanduser().resolve()
+            if reference_root is not None
+            else workspace_snapshot_module.ROOT
+        )
         now = datetime.now(timezone.utc)
-        asset_dir = ingestions_root / now.strftime("%Y") / now.strftime("%m") / asset_id
+        asset_dir = (
+            resolved_ingestions_root
+            / now.strftime("%Y")
+            / now.strftime("%m")
+            / asset_id
+        )
         raw_dir = asset_dir / "raw"
         raw_dir.mkdir(parents=True, exist_ok=True)
 
@@ -542,8 +557,11 @@ class BrainLongFormIngestService:
             "source_url": normalized_url,
             "source_type": normalized_type,
             "source_channel": channel,
-            "source_path": _relative_path(normalized_path, repo_root),
-            "routing_status_path": _relative_path(routing_status_path, repo_root),
+            "source_path": _relative_path(normalized_path, resolved_reference_root),
+            "routing_status_path": _relative_path(
+                routing_status_path,
+                resolved_reference_root,
+            ),
             "has_transcript": bool(clean_transcript),
             "refreshed_snapshots": sorted(refreshed.keys()),
         }

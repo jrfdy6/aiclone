@@ -9,12 +9,20 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from codex_memory_index import search_index
-from runtime_paths import PROJECT_ROOT
+from runtime_paths import PROJECT_ROOT, STATE_ROOT
 
 WORKSPACE_ROOT = PROJECT_ROOT
 MEMORY_ROOT = WORKSPACE_ROOT / "memory"
 KNOWLEDGE_ROOT = WORKSPACE_ROOT / "knowledge"
 WORKSPACES_ROOT = WORKSPACE_ROOT / "workspaces"
+PRIVATE_MEMORY_ROOT = STATE_ROOT / "memory"
+PRIVATE_WORKSPACES_ROOT = STATE_ROOT / "workspaces"
+PRIVATE_STORAGE_SCOPES = frozenset(
+    {
+        "private_state_memory",
+        "private_state_workspace",
+    }
+)
 
 STOPWORDS = {
     "a",
@@ -105,12 +113,25 @@ def _unique_queries(workspace_key: str, raw_queries: Iterable[str]) -> list[str]
     return normalized[:8]
 
 
-def _is_durable_result(path_str: str) -> bool:
+def _is_private_state_result(item: dict[str, Any]) -> bool:
+    return str(item.get("storage_scope") or "") in PRIVATE_STORAGE_SCOPES
+
+
+def _is_durable_result(path_str: str, *, storage_scope: str = "project") -> bool:
     rel = path_str.replace("\\", "/").lstrip("/")
     if rel.startswith("knowledge/"):
         return True
-    if rel.startswith("workspaces/") and "/research/" in rel:
-        return True
+    if rel.startswith("workspaces/"):
+        if storage_scope == "private_state_workspace":
+            return any(
+                marker in rel
+                for marker in (
+                    "/memory/",
+                    "/research/",
+                    "/briefings/",
+                )
+            )
+        return "/research/" in rel
     if not rel.startswith("memory/"):
         return False
     if rel.startswith(EXCLUDED_MEMORY_PREFIXES):
@@ -130,7 +151,8 @@ def _run_codex_index_search(query: str, limit: int) -> tuple[list[dict[str, Any]
     results: list[dict[str, Any]] = []
     for item in raw_results:
         path = str(item.get("path") or "")
-        if not _is_durable_result(path):
+        storage_scope = str(item.get("storage_scope") or "project")
+        if not _is_durable_result(path, storage_scope=storage_scope):
             continue
         path_parts = Path(path).parts
         collection = path_parts[0] if path_parts else "project"
@@ -145,6 +167,7 @@ def _run_codex_index_search(query: str, limit: int) -> tuple[list[dict[str, Any]
                 "hash": None,
                 "excerpt": _normalize_whitespace(str(item.get("excerpt") or "")),
                 "source": "codex_memory_index",
+                "storage_scope": storage_scope,
             }
         )
     return results, None
@@ -158,14 +181,25 @@ def _extract_title_from_markdown(text: str, path: Path) -> str:
     return path.stem.replace("_", " ")
 
 
-def _scan_markdown_tree(root: Path, rel_prefix: str, query: str, limit: int) -> list[dict[str, Any]]:
+def _scan_markdown_tree(
+    root: Path,
+    rel_prefix: str,
+    query: str,
+    limit: int,
+    *,
+    storage_scope: str = "project",
+    excluded_relative_roots: frozenset[str] = frozenset(),
+) -> list[dict[str, Any]]:
     if not root.exists():
         return []
     lowered_query = query.lower()
     hits: list[dict[str, Any]] = []
     for path in sorted(root.rglob("*.md")):
-        rel_path = f"{rel_prefix}/{path.relative_to(root).as_posix()}"
-        if not _is_durable_result(rel_path):
+        relative = path.relative_to(root)
+        if relative.parts and relative.parts[0] in excluded_relative_roots:
+            continue
+        rel_path = f"{rel_prefix}/{relative.as_posix()}"
+        if not _is_durable_result(rel_path, storage_scope=storage_scope):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         lowered = text.lower()
@@ -184,6 +218,7 @@ def _scan_markdown_tree(root: Path, rel_prefix: str, query: str, limit: int) -> 
                 "hash": None,
                 "excerpt": excerpt,
                 "source": "filesystem",
+                "storage_scope": storage_scope,
             }
         )
         if len(hits) >= limit:
@@ -193,18 +228,39 @@ def _scan_markdown_tree(root: Path, rel_prefix: str, query: str, limit: int) -> 
 
 def _dedupe_results(results: Iterable[dict[str, Any]], max_results: int) -> list[dict[str, Any]]:
     deduped: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     for item in results:
         path = str(item.get("path") or "")
-        excerpt = str(item.get("excerpt") or "")
-        key = (path, excerpt[:160])
-        if not path or key in seen or not _is_durable_result(path):
+        storage_scope = str(item.get("storage_scope") or "project")
+        if (
+            not path
+            or path in seen
+            or not _is_durable_result(path, storage_scope=storage_scope)
+        ):
             continue
-        seen.add(key)
+        seen.add(path)
         deduped.append(item)
         if len(deduped) >= max_results:
             break
     return deduped
+
+
+def _remote_safe_result(item: dict[str, Any]) -> dict[str, Any]:
+    """Withhold private local content from packets consumed by remote models."""
+
+    if not _is_private_state_result(item):
+        return dict(item)
+    path = str(item.get("path") or "")
+    safe = dict(item)
+    safe.update(
+        {
+            "title": Path(path).stem.replace("_", " ").replace("-", " "),
+            "excerpt": "",
+            "private_content_withheld": True,
+            "remote_content_policy": "metadata_only",
+        }
+    )
+    return safe
 
 
 def build_durable_memory_context(
@@ -222,21 +278,45 @@ def build_durable_memory_context(
         if error and error not in warnings:
             warnings.append(error)
         if not per_query:
-            for root, prefix in (
-                (MEMORY_ROOT, "memory"),
-                (KNOWLEDGE_ROOT, "knowledge"),
-                (WORKSPACES_ROOT, "workspaces"),
+            for root, prefix, storage_scope, excluded_relative_roots in (
+                (
+                    PRIVATE_MEMORY_ROOT,
+                    "memory",
+                    "private_state_memory",
+                    frozenset(),
+                ),
+                (
+                    PRIVATE_WORKSPACES_ROOT,
+                    "workspaces",
+                    "private_state_workspace",
+                    frozenset(),
+                ),
+                (MEMORY_ROOT / "runtime", "memory", "project", frozenset()),
+                (MEMORY_ROOT, "memory", "project", frozenset({"runtime"})),
+                (KNOWLEDGE_ROOT, "knowledge", "project", frozenset()),
+                (WORKSPACES_ROOT, "workspaces", "project", frozenset()),
             ):
-                per_query.extend(_scan_markdown_tree(root, prefix, query, limit=2))
+                per_query.extend(
+                    _scan_markdown_tree(
+                        root,
+                        prefix,
+                        query,
+                        limit=2,
+                        storage_scope=storage_scope,
+                        excluded_relative_roots=excluded_relative_roots,
+                    )
+                )
         for item in per_query:
             item["query"] = query
         collected.extend(per_query)
         if len(_dedupe_results(collected, max_results)) >= max_results:
             break
 
-    results = _dedupe_results(collected, max_results)
+    local_results = _dedupe_results(collected, max_results)
+    results = [_remote_safe_result(item) for item in local_results]
     index_result_count = sum(1 for item in results if item.get("source") == "codex_memory_index")
     filesystem_result_count = sum(1 for item in results if item.get("source") == "filesystem")
+    private_state_result_count = sum(1 for item in results if _is_private_state_result(item))
     fallback_reasons: list[str] = []
     if warnings:
         fallback_reasons.append("codex_memory_index_warning")
@@ -262,11 +342,17 @@ def build_durable_memory_context(
         "queries": queries,
         "result_count": len(results),
         "results": results,
-        "source_paths": [str(WORKSPACE_ROOT / item["path"]) for item in results],
+        "source_paths": [
+            str(WORKSPACE_ROOT / item["path"])
+            for item in results
+            if not _is_private_state_result(item)
+        ],
         "warnings": warnings,
         "index_result_count": index_result_count,
         "memory_index_result_count": index_result_count,
         "filesystem_result_count": filesystem_result_count,
+        "private_state_result_count": private_state_result_count,
+        "private_content_withheld": bool(private_state_result_count),
         "retrieval_mode": retrieval_mode,
         "fallback_active": bool(fallback_reasons),
         "fallback_reasons": fallback_reasons,

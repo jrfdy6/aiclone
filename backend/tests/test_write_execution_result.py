@@ -84,7 +84,7 @@ class WriteExecutionResultTests(unittest.TestCase):
             state_root = workspace_root / ".runtime-state"
             chronicle_path = memory_root / "codex_session_handoff.jsonl"
             work_order_path = workspace_root / "dispatch" / "work-order.json"
-            workspace_result_path = workspace_root / "projects" / "sample" / "memory" / "execution_log.md"
+            workspace_result_path = workspace_root / "workspaces" / "shared-ops" / "memory" / "execution_log.md"
             work_order_path.parent.mkdir(parents=True)
             work_order_path.write_text("{}\n", encoding="utf-8")
 
@@ -140,7 +140,9 @@ class WriteExecutionResultTests(unittest.TestCase):
             marker = f"<!-- execution-result:{result_id} -->"
             daily_path = memory_root / f"{operation.created_at.astimezone().date().isoformat()}.md"
             self.assertEqual(daily_path.read_text(encoding="utf-8").count(marker), 1)
-            self.assertEqual(workspace_result_path.read_text(encoding="utf-8").count(marker), 1)
+            private_workspace_result = state_root / "workspaces" / "shared_ops" / "memory" / "execution_log.md"
+            self.assertEqual(private_workspace_result.read_text(encoding="utf-8").count(marker), 1)
+            self.assertFalse(workspace_result_path.exists())
             self.assertEqual((workspace_root / "memory/LEARNINGS.md").read_text(encoding="utf-8").count(marker), 1)
             self.assertEqual(
                 (workspace_root / "memory/persistent_state.md").read_text(encoding="utf-8").count(marker),

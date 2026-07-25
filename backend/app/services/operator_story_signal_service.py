@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,21 +12,25 @@ from app.services.core_memory_snapshot_service import resolve_memory_read_target
 
 
 def resolve_workspace_root() -> Path:
-    current = Path(__file__).resolve()
-    candidates = list(current.parents) + [Path.cwd(), *Path.cwd().parents, Path("/app"), Path("/")]
-    seen: set[Path] = set()
-    for parent in candidates:
-        if parent in seen:
-            continue
-        seen.add(parent)
-        if (parent / "memory").exists() and (parent / "workspaces").exists():
-            return parent
-    return current.parents[3]
+    configured = str(os.getenv("AI_CLONE_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(__file__).resolve().parents[3]
 
 
 ROOT = resolve_workspace_root()
 MEMORY_ROOT = ROOT / "memory"
-REPORT_ROOT = MEMORY_ROOT / "reports"
+_SCRIPTS_ROOT = ROOT / "scripts"
+if str(_SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_ROOT))
+
+from runtime_paths import memory_state_path, resolve_memory_read_path  # noqa: E402
+
+
+PRIVATE_STATE_ROOT = Path(
+    os.getenv("AI_CLONE_STATE_ROOT") or (Path.home() / ".codex" / "ai-clone" / "state")
+).expanduser()
+REPORT_ROOT = memory_state_path("reports", state_root=PRIVATE_STATE_ROOT)
 DEFAULT_WORKSPACE_KEY = "linkedin-content-os"
 DEFAULT_SOURCE_FILE_NAMES = (
     "codex_session_handoff.jsonl",
@@ -33,6 +39,20 @@ DEFAULT_SOURCE_FILE_NAMES = (
     "dream_cycle_log.md",
     "cron-prune.md",
 )
+SOURCE_LOGICAL_REFS = {
+    "codex_session_handoff.jsonl": "memory/codex_session_handoff.jsonl",
+    "persistent_state.md": "memory/persistent_state.md",
+    "daily-briefs.md": "memory/daily-briefs.md",
+    "dream_cycle_log.md": "memory/dream_cycle_log.md",
+    "cron-prune.md": "memory/cron-prune.md",
+}
+SOURCE_KIND_LOGICAL_REFS = {
+    "chronicle": SOURCE_LOGICAL_REFS["codex_session_handoff.jsonl"],
+    "persistent_state": SOURCE_LOGICAL_REFS["persistent_state.md"],
+    "daily_brief": SOURCE_LOGICAL_REFS["daily-briefs.md"],
+    "dream_cycle": SOURCE_LOGICAL_REFS["dream_cycle_log.md"],
+    "cron_prune": SOURCE_LOGICAL_REFS["cron-prune.md"],
+}
 MAX_SIGNALS = 12
 SOURCE_LIMITS = {
     "chronicle": 6,
@@ -590,26 +610,38 @@ def build_operator_story_signals_payload(
     memory_root: Path | None = None,
 ) -> dict[str, Any]:
     resolved_memory_root = (memory_root or MEMORY_ROOT).resolve()
-    source_paths: dict[str, str] = {}
+    resolved_source_paths: dict[str, str] = {}
     use_canonical_resolution = resolved_memory_root == MEMORY_ROOT.resolve()
     for name in DEFAULT_SOURCE_FILE_NAMES:
         relative_path = Path("memory") / name
         if use_canonical_resolution:
+            state_first = resolve_memory_read_path(
+                name,
+                project_root=ROOT,
+                state_root=PRIVATE_STATE_ROOT,
+            )
+            if state_first.exists():
+                resolved_source_paths[name] = str(state_first.resolve())
+                continue
             resolution = resolve_memory_read_target(ROOT, relative_path)
-            source_paths[name] = str(Path(resolution["resolved_path"]).resolve())
+            resolved_source_paths[name] = str(Path(resolution["resolved_path"]).resolve())
             continue
         live_path = (resolved_memory_root / name).resolve()
         if live_path.exists():
-            source_paths[name] = str(live_path)
+            resolved_source_paths[name] = str(live_path)
             continue
-        source_paths[name] = str(resolve_snapshot_fallback_path(ROOT, relative_path).resolve())
+        resolved_source_paths[name] = str(resolve_snapshot_fallback_path(ROOT, relative_path).resolve())
     collected: list[dict[str, Any]] = []
-    collected.extend(_chronicle_signals(Path(source_paths["codex_session_handoff.jsonl"])))
-    collected.extend(_persistent_state_signal(Path(source_paths["persistent_state.md"])))
-    collected.extend(_daily_brief_signal(Path(source_paths["daily-briefs.md"])))
-    collected.extend(_dream_cycle_signal(Path(source_paths["dream_cycle_log.md"])))
-    collected.extend(_cron_prune_signal(Path(source_paths["cron-prune.md"])))
+    collected.extend(_chronicle_signals(Path(resolved_source_paths["codex_session_handoff.jsonl"])))
+    collected.extend(_persistent_state_signal(Path(resolved_source_paths["persistent_state.md"])))
+    collected.extend(_daily_brief_signal(Path(resolved_source_paths["daily-briefs.md"])))
+    collected.extend(_dream_cycle_signal(Path(resolved_source_paths["dream_cycle_log.md"])))
+    collected.extend(_cron_prune_signal(Path(resolved_source_paths["cron-prune.md"])))
     signals = _dedupe_and_rank(collected)
+    for signal in signals:
+        logical_ref = SOURCE_KIND_LOGICAL_REFS.get(str(signal.get("source_kind") or ""))
+        if logical_ref:
+            signal["source_ref"] = logical_ref
 
     route_counts: dict[str, int] = {}
     source_counts: dict[str, int] = {}
@@ -627,7 +659,7 @@ def build_operator_story_signals_payload(
     return {
         "generated_at": _utcnow_iso(),
         "workspace": workspace_key,
-        "source_paths": source_paths,
+        "source_paths": dict(SOURCE_LOGICAL_REFS),
         "signals": signals,
         "counts": {
             "total": len(signals),

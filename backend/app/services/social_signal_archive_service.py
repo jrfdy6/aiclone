@@ -1,18 +1,74 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from scripts.runtime_paths import (  # noqa: E402
+    seed_workspace_state_file,
+    workspace_state_path,
+)
+
 
 ARCHIVE_DIRNAME = "market_signal_archive"
+WORKSPACE_STATE_KEY = "feezie-os"
+WORKSPACE_ROOT_RELATIVE = Path("workspaces/linkedin-content-os")
+
+
+def _configured_state_root() -> Path:
+    configured = str(os.getenv("AI_CLONE_STATE_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.home() / ".codex" / "ai-clone" / "state").resolve()
+
+
+def _canonical_workspace_root() -> Path:
+    configured = str(os.getenv("AI_CLONE_ROOT") or "").strip()
+    repo_root = Path(configured).expanduser().resolve() if configured else _REPO_ROOT
+    return (repo_root / WORKSPACE_ROOT_RELATIVE).resolve()
+
+
+def _uses_private_generated_state(workspace_root: Path) -> bool:
+    if str(os.getenv("AI_CLONE_STATE_ROOT") or "").strip():
+        return True
+    return workspace_root.expanduser().resolve() == _canonical_workspace_root()
 
 
 def archive_root(workspace_root: Path) -> Path:
-    return workspace_root / "research" / ARCHIVE_DIRNAME
+    if not _uses_private_generated_state(workspace_root):
+        return workspace_root / "research" / ARCHIVE_DIRNAME
+    return workspace_state_path(
+        WORKSPACE_STATE_KEY,
+        Path("research") / ARCHIVE_DIRNAME,
+        state_root=_configured_state_root(),
+    )
+
+
+def archive_read_roots(workspace_root: Path) -> tuple[Path, ...]:
+    roots = [archive_root(workspace_root)]
+    roots.append(workspace_root / "research" / ARCHIVE_DIRNAME)
+    return tuple(dict.fromkeys(path.expanduser().resolve() for path in roots))
+
+
+def _seed_archive_file(workspace_root: Path, relative_path: Path) -> Path:
+    if not _uses_private_generated_state(workspace_root):
+        return workspace_root / relative_path
+    return seed_workspace_state_file(
+        WORKSPACE_STATE_KEY,
+        relative_path,
+        source_root=workspace_root,
+        project_root=_REPO_ROOT,
+        state_root=_configured_state_root(),
+    )
 
 
 def _clean_text(value: Any) -> str:
@@ -90,6 +146,10 @@ def _record_sort_key(record: dict[str, Any]) -> tuple[str, str]:
     return timestamp, _clean_text(record.get("id"))
 
 
+def _record_identity(record: dict[str, Any]) -> str:
+    return _clean_text(record.get("id") or record.get("source_url") or record.get("title"))
+
+
 def _load_month_records(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -118,7 +178,7 @@ def _render_month_markdown(month_key: str, records: list[dict[str, Any]]) -> str
     lines = [
         f"# Market Signal Archive — {month_key}",
         "",
-        "Tracked archive of normalized LinkedIn research signals. Runtime files still live under `research/market_signals/`.",
+        "Local generated archive of normalized LinkedIn research signals. Source files remain under `research/market_signals/`.",
         "",
     ]
     for record in sorted(records, key=_record_sort_key):
@@ -214,22 +274,38 @@ def build_market_signal_archive_record(signal_path: Path, workspace_root: Path) 
         "archived_at": datetime.now(timezone.utc).isoformat(),
     }
     month_key = _month_key(record)
+    archive_relative = Path("research") / ARCHIVE_DIRNAME
     record["archive_month"] = month_key
-    record["archive_manifest_path"] = _relative_path(_month_manifest_path(workspace_root, month_key), workspace_root)
-    record["archive_markdown_path"] = _relative_path(_month_markdown_path(workspace_root, month_key), workspace_root)
+    record["archive_manifest_path"] = (archive_relative / f"{month_key}.jsonl").as_posix()
+    record["archive_markdown_path"] = (archive_relative / f"{month_key}.md").as_posix()
     return record
 
 
 def sync_market_signal_archive_entry(signal_path: Path, workspace_root: Path) -> dict[str, Any]:
     record = build_market_signal_archive_record(signal_path, workspace_root)
     month_key = str(record["archive_month"])
-    manifest_path = _month_manifest_path(workspace_root, month_key)
-    records = {item.get("id"): item for item in _load_month_records(manifest_path) if isinstance(item, dict)}
-    record = _preserve_existing_archive_fields(record, records.get(str(record["id"])))
-    records[str(record["id"])] = record
+    archive_relative = Path("research") / ARCHIVE_DIRNAME
+    manifest_path = _seed_archive_file(
+        workspace_root,
+        archive_relative / f"{month_key}.jsonl",
+    )
+    markdown_path = _seed_archive_file(
+        workspace_root,
+        archive_relative / f"{month_key}.md",
+    )
+    records: dict[str, dict[str, Any]] = {}
+    legacy_manifest = workspace_root / archive_relative / f"{month_key}.jsonl"
+    for path in dict.fromkeys((legacy_manifest, manifest_path)):
+        for item in _load_month_records(path):
+            identity = _record_identity(item)
+            if identity:
+                records[identity] = item
+    identity = _record_identity(record)
+    record = _preserve_existing_archive_fields(record, records.get(identity))
+    records[identity] = record
     ordered = [item for _, item in sorted(records.items(), key=lambda pair: _record_sort_key(pair[1]))]
     _write_month_records(manifest_path, ordered)
-    _write_month_markdown(_month_markdown_path(workspace_root, month_key), month_key, ordered)
+    _write_month_markdown(markdown_path, month_key, ordered)
     return record
 
 
@@ -249,10 +325,17 @@ def sync_market_signal_archive(workspace_root: Path) -> dict[str, Any]:
 
 
 def load_market_signal_archive_records(workspace_root: Path) -> list[dict[str, Any]]:
-    root = archive_root(workspace_root)
-    if not root.exists():
-        return []
-    records: list[dict[str, Any]] = []
-    for path in sorted(root.glob("*.jsonl")):
-        records.extend(_load_month_records(path))
-    return sorted(records, key=_record_sort_key)
+    records_by_identity: dict[str, dict[str, Any]] = {}
+    # Legacy first, then state: a state record may refine the same durable
+    # signal, but a partial state month must never hide legacy-only records.
+    for root in reversed(archive_read_roots(workspace_root)):
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*.jsonl")):
+            if not path.is_file():
+                continue
+            for record in _load_month_records(path):
+                identity = _record_identity(record)
+                if identity:
+                    records_by_identity[identity] = record
+    return sorted(records_by_identity.values(), key=_record_sort_key)

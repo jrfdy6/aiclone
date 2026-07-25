@@ -119,14 +119,18 @@ def _route_from_text(
         if isinstance(item, dict)
     }
     support_types.discard("")
-    framing_mode = _clean_text((option_brief or {}).get("framing_mode")).lower()
-    story_hint = _clean_text((option_brief or {}).get("story_beat"))
-
     word_count = _word_count(normalized)
     metric_like = bool(_METRIC_RE.search(normalized))
     first_person = bool(_FIRST_PERSON_RE.search(normalized))
     quote_like = bool(_QUOTE_STYLE_RE.match(normalized)) or (word_count <= 14 and bool(_CONTRAST_RE.search(normalized)))
-    story_like = bool(_STORY_RE.search(lowered)) or bool(story_hint) or framing_mode in {"drama_tension", "story_first"}
+    intrinsic_story = bool(_STORY_RE.search(lowered))
+    supported_story = (
+        "story_bank" in support_lanes
+        and "anecdote" in support_types
+        and first_person
+        and word_count >= 8
+    )
+    story_like = intrinsic_story or supported_story
     principle_like = bool(_PRINCIPLE_RE.search(normalized)) or "proof_point" in support_lanes or "canon_bridge" in support_lanes
     pillar_like = bool(_PILLAR_RE.search(normalized)) or "post_seed" in support_lanes
 

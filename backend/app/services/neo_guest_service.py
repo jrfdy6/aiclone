@@ -362,7 +362,6 @@ def enqueue_message(session_id: str, content: str, client_request_id: str) -> di
             "approved_public_response": str(public_selection["response"]),
             "public_knowledge_metadata": public_knowledge_metadata,
             "messages": [*history, {"role": "user", "content": content_text}],
-            "model": os.getenv("NEO_OLLAMA_MODEL", "llama3.2:3b"),
         }
         cur.execute(
             """INSERT INTO neo_guest_jobs

@@ -111,7 +111,14 @@ def test_morning_daily_brief_syncs_current_date_before_reporting_success() -> No
                     stderr="",
                 )
             assert script_name == "sync_daily_briefs.py"
-            assert tuple(arguments) == ("--expected-latest-date", brief_date)
+            assert tuple(arguments)[0] == "--brief-file"
+            assert Path(tuple(arguments)[1]).resolve() == artifact.resolve()
+            assert tuple(arguments)[2:] == (
+                "--source-ref",
+                "memory/daily-briefs.md",
+                "--expected-latest-date",
+                brief_date,
+            )
             return runtime.CommandOutput(
                 returncode=0,
                 stdout=json.dumps({"success": True, "count": 1, "latest_brief_date": brief_date}),

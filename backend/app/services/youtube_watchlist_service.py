@@ -158,18 +158,89 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _state_root() -> Path:
+    configured = str(os.getenv("AI_CLONE_STATE_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (Path.home() / ".codex" / "ai-clone" / "state").resolve()
+
+
 def _ingestions_root() -> Path:
+    return _state_root() / "memory" / "source-intelligence" / "ingestions"
+
+
+def _transcripts_root() -> Path:
+    return _state_root() / "memory" / "source-intelligence" / "transcripts"
+
+
+def _legacy_ingestions_root() -> Path:
     direct = _find_dir("backend/knowledge/ingestions", "knowledge/ingestions")
     if direct:
         return direct
     return Path(__file__).resolve().parents[3] / "knowledge" / "ingestions"
 
 
-def _transcripts_root() -> Path:
+def _legacy_transcripts_root() -> Path:
     direct = _find_dir("backend/knowledge/aiclone/transcripts", "knowledge/aiclone/transcripts")
     if direct:
         return direct
     return Path(__file__).resolve().parents[3] / "knowledge" / "aiclone" / "transcripts"
+
+
+def _source_asset_fingerprint(asset: dict[str, Any]) -> tuple[str, str]:
+    source_url = _clean_text(asset.get("source_url")).lower()
+    title = _clean_text(asset.get("title")).lower()
+    source_path = _clean_text(asset.get("source_path")).lower()
+    return (source_url or source_path, title)
+
+
+def _combined_source_asset_inventory() -> dict[str, Any]:
+    """Merge private generated assets with immutable legacy project fallbacks."""
+
+    sources = (
+        (_transcripts_root(), _ingestions_root(), _state_root()),
+        (_legacy_transcripts_root(), _legacy_ingestions_root(), _repo_root()),
+    )
+    deduped: dict[tuple[str, str], dict[str, Any]] = {}
+    for transcripts_root, ingestions_root, reference_root in sources:
+        inventory = build_source_asset_inventory(
+            transcripts_root=transcripts_root,
+            ingestions_root=ingestions_root,
+            repo_root=reference_root,
+        )
+        for item in inventory.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            # Private state is visited first and remains authoritative after a
+            # legacy pending asset has been copied forward for backfill.
+            deduped.setdefault(_source_asset_fingerprint(item), item)
+
+    items = sorted(
+        deduped.values(),
+        key=lambda item: (
+            _clean_text(item.get("captured_at")),
+            _clean_text(item.get("title")).lower(),
+        ),
+        reverse=True,
+    )
+    by_channel: dict[str, int] = {}
+    for item in items:
+        channel = _clean_text(item.get("source_channel")) or "unknown"
+        by_channel[channel] = by_channel.get(channel, 0) + 1
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "workspace": "linkedin-content-os",
+        "items": items,
+        "counts": {
+            "total": len(items),
+            "long_form_media": len(items),
+            "pending_segmentation": sum(
+                1 for item in items if item.get("routing_status") == "pending_segmentation"
+            ),
+            "feed_ready": sum(1 for item in items if item.get("feed_ready")),
+            "by_channel": by_channel,
+        },
+    }
 
 
 def _clean_text(value: Any) -> str:
@@ -258,13 +329,8 @@ def _parse_published(value: str | None) -> str | None:
 
 
 def _extract_existing_source_urls() -> set[str]:
-    repo_root = _repo_root()
     try:
-        payload = build_source_asset_inventory(
-            transcripts_root=_transcripts_root(),
-            ingestions_root=_ingestions_root(),
-            repo_root=repo_root,
-        )
+        payload = _combined_source_asset_inventory()
     except Exception:
         return set()
     urls = {
@@ -548,7 +614,90 @@ def _pending_transcript_summary(summary: str) -> bool:
     return lowered.startswith("selected from youtube watchlist") or lowered.startswith("pending transcript")
 
 
-def _asset_needs_transcript_backfill(asset: dict[str, Any], *, repo_root: Path) -> bool:
+def _contained_source_path(root: Path, relative_path: str) -> Path:
+    relative = Path(relative_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError("Source asset path must be a contained logical path.")
+    resolved_root = root.expanduser().resolve()
+    candidate = (resolved_root / relative).resolve(strict=False)
+    if candidate != resolved_root and resolved_root not in candidate.parents:
+        raise ValueError("Source asset path escapes its storage root.")
+    return candidate
+
+
+def _asset_normalized_path(asset: dict[str, Any]) -> Path | None:
+    source_path = _clean_text(asset.get("source_path"))
+    if not source_path:
+        return None
+    relative = Path(source_path)
+    if relative.parts[:2] == ("memory", "source-intelligence"):
+        return _contained_source_path(_state_root(), source_path)
+    return _contained_source_path(_repo_root(), source_path)
+
+
+def _private_asset_reference(path: Path) -> str:
+    return path.resolve(strict=False).relative_to(
+        _state_root().resolve(strict=False)
+    ).as_posix()
+
+
+def _seed_legacy_asset_to_private_state(asset: dict[str, Any]) -> Path:
+    """Copy one legacy ingestion directory before applying a mutable backfill."""
+
+    source_path = _asset_normalized_path(asset)
+    if source_path is None or not source_path.is_file() or source_path.is_symlink():
+        raise RuntimeError("Pending YouTube asset is missing a safe normalized source file.")
+
+    private_root = _ingestions_root().resolve(strict=False)
+    try:
+        source_path.relative_to(private_root)
+        return source_path
+    except ValueError:
+        pass
+
+    legacy_root = _legacy_ingestions_root().resolve(strict=False)
+    try:
+        relative = source_path.relative_to(legacy_root)
+    except ValueError as exc:
+        raise RuntimeError("Pending YouTube asset is outside the reviewed legacy ingestion root.") from exc
+
+    source_dir = source_path.parent
+    if any(path.is_symlink() for path in source_dir.rglob("*")):
+        raise RuntimeError("Pending YouTube asset contains a symlink and cannot be copied safely.")
+
+    target_path = private_root / relative
+    if target_path.exists():
+        if not target_path.is_file() or target_path.is_symlink():
+            raise RuntimeError("Private YouTube asset target is not a safe regular file.")
+        return target_path
+
+    target_dir = target_path.parent
+    target_dir.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{target_dir.name}.",
+        suffix=".seed",
+        dir=str(target_dir.parent),
+    ) as temporary_root:
+        staged_dir = Path(temporary_root) / target_dir.name
+        shutil.copytree(source_dir, staged_dir)
+        try:
+            staged_dir.rename(target_dir)
+        except OSError:
+            if not target_path.is_file() or target_path.is_symlink():
+                raise
+
+    for directory in [target_dir, *[path for path in target_dir.rglob("*") if path.is_dir()]]:
+        directory.chmod(0o700)
+    for file_path in (path for path in target_dir.rglob("*") if path.is_file()):
+        file_path.chmod(0o600)
+    return target_path
+
+
+def _asset_needs_transcript_backfill(
+    asset: dict[str, Any],
+    *,
+    repo_root: Path | None = None,
+) -> bool:
     if _clean_text(asset.get("source_channel")).lower() != "youtube":
         return False
     if _clean_text(asset.get("source_type")).lower() != "youtube_transcript":
@@ -559,10 +708,9 @@ def _asset_needs_transcript_backfill(asset: dict[str, Any], *, repo_root: Path) 
     if isinstance(word_count, (int, float)) and word_count > 0:
         return False
 
-    source_path = _clean_text(asset.get("source_path"))
-    if not source_path:
+    normalized_path = _asset_normalized_path(asset)
+    if normalized_path is None:
         return False
-    normalized_path = repo_root / source_path
     if not normalized_path.exists():
         return False
     raw = normalized_path.read_text(encoding="utf-8")
@@ -576,27 +724,20 @@ def _asset_needs_transcript_backfill(asset: dict[str, Any], *, repo_root: Path) 
     return _pending_transcript_summary(_clean_text(meta.get("summary")) or _clean_text(asset.get("summary")))
 
 
-def _pending_youtube_transcript_assets(*, repo_root: Path) -> list[dict[str, Any]]:
-    inventory = build_source_asset_inventory(
-        transcripts_root=_transcripts_root(),
-        ingestions_root=_ingestions_root(),
-        repo_root=repo_root,
-    )
+def _pending_youtube_transcript_assets(
+    *,
+    repo_root: Path | None = None,
+) -> list[dict[str, Any]]:
+    inventory = _combined_source_asset_inventory()
     return [
         asset
         for asset in (inventory.get("items") or [])
-        if isinstance(asset, dict) and _asset_needs_transcript_backfill(asset, repo_root=repo_root)
+        if isinstance(asset, dict) and _asset_needs_transcript_backfill(asset)
     ]
 
 
 def _write_backfilled_transcript(asset: dict[str, Any], transcript_text: str, metadata: dict[str, Any]) -> dict[str, Any]:
-    repo_root = _repo_root()
-    source_path = _clean_text(asset.get("source_path"))
-    if not source_path:
-        raise RuntimeError("Pending YouTube asset is missing source_path.")
-    normalized_path = repo_root / source_path
-    if not normalized_path.exists():
-        raise RuntimeError(f"Pending YouTube asset not found: {source_path}")
+    normalized_path = _seed_legacy_asset_to_private_state(asset)
 
     raw = normalized_path.read_text(encoding="utf-8")
     frontmatter, _body = _parse_frontmatter(raw)
@@ -660,7 +801,7 @@ def _write_backfilled_transcript(asset: dict[str, Any], transcript_text: str, me
         "asset_id": _clean_text(frontmatter.get("id")) or _clean_text(asset.get("asset_id")),
         "title": _clean_text(frontmatter.get("title")) or _clean_text(asset.get("title")),
         "source_url": _clean_text(frontmatter.get("source_url")) or _clean_text(asset.get("source_url")),
-        "source_path": source_path,
+        "source_path": _private_asset_reference(normalized_path),
         "word_count": int(frontmatter.get("word_count") or 0),
     }
 
@@ -952,6 +1093,8 @@ def _ingest_watchlist_video(
         source_type="youtube_transcript",
         author=resolved_author or None,
         run_refresh=run_refresh,
+        ingestions_root=_ingestions_root(),
+        reference_root=_state_root(),
     )
     result["ingestion_mode"] = ingestion_mode
     result["transcript_word_count"] = len((transcript_text or "").split()) if transcript_text else 0

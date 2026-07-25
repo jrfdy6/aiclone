@@ -123,6 +123,36 @@ class GeneratedFragmentPromotionServiceTests(unittest.TestCase):
         self.assertEqual(result["target_file"], "history/story_bank.md")
         self.assertIn("owner review", result["message"])
 
+    def test_story_brief_does_not_turn_generic_generated_line_into_personal_history(self) -> None:
+        with patch(
+            "app.services.generated_fragment_promotion_service.persona_delta_service.get_delta_by_review_key",
+            return_value=None,
+        ), patch(
+            "app.services.generated_fragment_promotion_service.persona_delta_service.create_delta",
+            return_value=_delta(),
+        ), patch(
+            "app.services.generated_fragment_promotion_service.persona_delta_service.update_delta",
+            return_value=_delta(status="in_review"),
+        ):
+            result = promote_generated_fragment(
+                user_id="johnnie_fields",
+                fragment_text="Maybe the system can read the purchase order and check the terms.",
+                option_text="Maybe the system can read the purchase order and check the terms.",
+                option_index=1,
+                topic="AI and future work",
+                audience="tech_ai",
+                category="value",
+                content_type="linkedin_post",
+                source_mode="recent_signals",
+                support_items=[],
+                option_brief={
+                    "framing_mode": "story_first",
+                    "story_beat": "Five years before everything changes.",
+                },
+            )
+
+        self.assertNotEqual(result["target_file"], "history/story_bank.md")
+
     def test_claim_proposal_stays_selectable_when_fragment_is_the_whole_option(self) -> None:
         captured_update = None
 

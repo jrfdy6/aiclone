@@ -6,8 +6,8 @@ import plistlib
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -49,6 +49,22 @@ def _snapshot(
 
 
 class LaunchdHealthAuditTests(unittest.TestCase):
+    def test_reviewed_repo_managed_target_set_has_expected_coverage(self) -> None:
+        self.assertEqual(len(MODULE.REPO_MANAGED_TARGET_LABELS), 17)
+        self.assertTrue(
+            {
+                "com.neo.persona_bundle_sync",
+                "com.neo.project_snapshot",
+            }.issubset(MODULE.REPO_MANAGED_TARGET_LABELS)
+        )
+        self.assertTrue(
+            {
+                "com.neo.codex_chronicle_sync",
+                "com.neo.codex_memory_sync",
+                "com.neo.launchd_health_audit",
+            }.isdisjoint(MODULE.REPO_MANAGED_TARGET_LABELS)
+        )
+
     def test_full_pm_execution_chain_is_a_required_health_target(self) -> None:
         self.assertTrue(
             {
@@ -93,15 +109,15 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot()),
                 patch.object(
                     MODULE,
-                    "list_automations",
-                    return_value=[
-                        SimpleNamespace(id="meeting_watchdog", status="active"),
-                        SimpleNamespace(id="portfolio_standup_prep", status="active"),
-                        SimpleNamespace(id="post_sync_dispatch", status="active"),
-                    ],
+                    "automation_registry_ids",
+                    return_value={
+                        "meeting_watchdog",
+                        "portfolio_standup_prep",
+                        "post_sync_dispatch",
+                    },
                 ),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels=set(labels))
 
         self.assertEqual(report["repo_target_labels"], list(labels))
         for label in labels:
@@ -135,11 +151,11 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot()),
                 patch.object(
                     MODULE,
-                    "list_automations",
-                    return_value=[SimpleNamespace(id="brain_canonical_memory_sync", status="active")],
+                    "automation_registry_ids",
+                    return_value={"brain_canonical_memory_sync"},
                 ),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels={label})
 
         target_issues = [issue for issue in report["issues"] if issue["label"] == label]
         self.assertEqual(
@@ -175,11 +191,11 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot()),
                 patch.object(
                     MODULE,
-                    "list_automations",
-                    return_value=[SimpleNamespace(id="youtube_watchlist_auto_ingest", status="paused")],
+                    "automation_registry_ids",
+                    return_value={"youtube_watchlist_auto_ingest"},
                 ),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels=set())
 
         self.assertEqual(report["repo_target_labels"], [])
         self.assertFalse(
@@ -207,11 +223,11 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot()),
                 patch.object(
                     MODULE,
-                    "list_automations",
-                    return_value=[SimpleNamespace(id="youtube_watchlist_auto_ingest", status="active")],
+                    "automation_registry_ids",
+                    return_value={"youtube_watchlist_auto_ingest"},
                 ),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels={label})
 
         target_issues = [issue for issue in report["issues"] if issue["label"] == label]
         self.assertEqual(
@@ -234,11 +250,11 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot()),
                 patch.object(
                     MODULE,
-                    "list_automations",
-                    return_value=[SimpleNamespace(id="brain_canonical_memory_sync", status="active")],
+                    "automation_registry_ids",
+                    return_value={"brain_canonical_memory_sync"},
                 ),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels={label})
 
         target_kinds = {
             issue["kind"] for issue in report["issues"] if issue["label"] == label
@@ -283,11 +299,11 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot(loaded=loaded)),
                 patch.object(
                     MODULE,
-                    "list_automations",
-                    return_value=[SimpleNamespace(id="codex_workspace_execution", status="active")],
+                    "automation_registry_ids",
+                    return_value={"codex_workspace_execution"},
                 ),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels={label})
 
         drift = next(
             issue for issue in report["issues"] if issue["kind"] == "local_launchd_installed_plist_drift"
@@ -362,9 +378,9 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "REPO_LAUNCHD_DIRS", [repo_launchd]),
                 patch.object(MODULE, "WORKSPACE_ROOT", root / "workspace"),
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot()),
-                patch.object(MODULE, "list_automations", return_value=[]),
+                patch.object(MODULE, "automation_registry_ids", return_value=set()),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels=set())
 
         kinds = {issue["kind"] for issue in report["issues"]}
         self.assertIn("local_launchd_loaded_unregistered", kinds)
@@ -395,9 +411,9 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "LOCAL_LAUNCH_AGENTS", local_agents),
                 patch.object(MODULE, "REPO_LAUNCHD_DIRS", [repo_launchd]),
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot()),
-                patch.object(MODULE, "list_automations", return_value=[]),
+                patch.object(MODULE, "automation_registry_ids", return_value=set()),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels=set())
 
         kinds = {issue["kind"] for issue in report["issues"]}
         self.assertIn("local_launchd_installed_plist_drift", kinds)
@@ -427,9 +443,9 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                     "_launchctl_snapshot",
                     return_value=_snapshot(disabled={label: True}),
                 ),
-                patch.object(MODULE, "list_automations", return_value=[SimpleNamespace(id="codex_memory_sync")]),
+                patch.object(MODULE, "automation_registry_ids", return_value={"codex_memory_sync"}),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels=set())
 
         kinds = {issue["kind"] for issue in report["issues"]}
         self.assertIn("local_launchd_job_disabled", kinds)
@@ -472,9 +488,9 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                         (True, domain_output, None),
                     ],
                 ),
-                patch.object(MODULE, "list_automations", return_value=[SimpleNamespace(id="watchtranscripts")]),
+                patch.object(MODULE, "automation_registry_ids", return_value={"watchtranscripts"}),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels=set())
 
         kinds = {issue["kind"] for issue in report["issues"]}
         self.assertIn("local_launchd_loaded_without_installed_plist", kinds)
@@ -488,12 +504,107 @@ class LaunchdHealthAuditTests(unittest.TestCase):
                 patch.object(MODULE, "LOCAL_LAUNCH_AGENTS", root / "LaunchAgents"),
                 patch.object(MODULE, "REPO_LAUNCHD_DIRS", [root / "repo-launchd"]),
                 patch.object(MODULE, "_launchctl_snapshot", return_value=_snapshot(available=False, domain_available=False)),
-                patch.object(MODULE, "list_automations", return_value=[]),
+                patch.object(MODULE, "automation_registry_ids", return_value=set()),
             ):
-                report = MODULE.audit_launchd_jobs()
+                report = MODULE.audit_launchd_jobs(target_labels=set())
 
         self.assertIn("local_launchd_state_unavailable", {issue["kind"] for issue in report["issues"]})
         self.assertEqual(report["counts"]["warnings"], 1)
+
+    def test_audit_emits_healthy_path_free_evidence_for_configured_non_required_job(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            local_agents = root / "LaunchAgents"
+            repo_launchd = root / "repo-launchd"
+            label = "com.neo.codex_memory_sync"
+            args = [MODULE.VENv_PYTHON, "/opt/aiclone/run_codex_memory_sync.py"]
+            for directory in (local_agents, repo_launchd):
+                _write_plist(
+                    directory / f"{label}.plist",
+                    label=label,
+                    program_args=args,
+                    StartInterval=300,
+                )
+            loaded = {
+                label: {
+                    "pid": None,
+                    "last_exit_status": "0",
+                    "label": label,
+                    "observed_via": ["launchctl_print"],
+                }
+            }
+            with (
+                patch.object(MODULE, "LOCAL_LAUNCH_AGENTS", local_agents),
+                patch.object(MODULE, "REPO_LAUNCHD_DIRS", [repo_launchd]),
+                patch.object(
+                    MODULE,
+                    "_launchctl_snapshot",
+                    return_value=_snapshot(loaded=loaded, disabled={label: False}),
+                ),
+            ):
+                report = MODULE.audit_launchd_jobs(
+                    target_labels=set(),
+                    registered_ids={"codex_memory_sync"},
+                )
+
+        state = report["automation_states"]["codex_memory_sync"]
+        self.assertTrue(state["configured"])
+        self.assertFalse(state["required"])
+        self.assertTrue(state["installed"])
+        self.assertTrue(state["loaded"])
+        self.assertTrue(state["enabled"])
+        self.assertTrue(state["healthy"])
+        serialized = json.dumps(report["automation_states"])
+        self.assertNotIn(str(root), serialized)
+        self.assertNotIn("program_arguments", serialized)
+
+    def test_mirror_strips_host_paths_from_issues_and_state(self) -> None:
+        observed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        report = {
+            "generated_at": observed_at,
+            "counts": {"issues": 1, "errors": 1, "warnings": 0},
+            "issues": [
+                {
+                    "kind": "local_launchd_missing_program",
+                    "severity": "error",
+                    "automation_id": "codex_memory_sync",
+                    "message": "Configured program is missing.",
+                    "path": "/Users/private/Library/LaunchAgents/job.plist",
+                    "missing_path": "/Users/private/project/script.py",
+                }
+            ],
+            "automation_states": {
+                "codex_memory_sync": {
+                    "configured": True,
+                    "source_present": True,
+                    "installed": True,
+                    "loaded": False,
+                    "enabled": True,
+                    "healthy": False,
+                    "issue_count": 1,
+                    "error_count": 1,
+                    "warning_count": 0,
+                    "private_path": "/Users/private/project",
+                }
+            },
+        }
+        with patch.object(MODULE, "mirror_runs", return_value=True) as mirror:
+            self.assertTrue(
+                MODULE._mirror(
+                    report,
+                    api_url="https://example.invalid",
+                    started_at=datetime.now(timezone.utc),
+                    finished_at=datetime.now(timezone.utc),
+                )
+            )
+
+        payload = mirror.call_args.args[1][0]
+        serialized = json.dumps(payload["metadata"])
+        self.assertNotIn("/Users/private", serialized)
+        self.assertEqual(
+            payload["metadata"]["launchd_state_schema"],
+            MODULE.LAUNCHD_HEALTH_STATE_SCHEMA,
+        )
 
     def test_no_mirror_reports_that_mirroring_was_skipped(self) -> None:
         report = {

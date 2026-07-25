@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 
 from automation_run_mirror import build_run_payload, mirror_runs
-from secure_backup import create_project_snapshot
+from secure_backup import create_project_snapshot, create_state_snapshot
 
 
 DEFAULT_API_URL = os.getenv("AICLONE_API_URL", "https://aiclone-production-32dc.up.railway.app")
@@ -24,11 +24,28 @@ def run(*, api_url: str = DEFAULT_API_URL, keep: int = 7) -> tuple[dict, bool]:
     result: dict = {}
     try:
         result = create_project_snapshot(keep=keep)
+        state_result = create_state_snapshot()
+        result["state_snapshot"] = {
+            "path": state_result["path"],
+            "name": state_result["name"],
+            "file_count": state_result["file_count"],
+            "source_bytes": state_result["source_bytes"],
+            "archive_bytes": state_result["archive_bytes"],
+            "sha256": state_result["sha256"],
+            "verified": state_result["verified"],
+            "skipped": state_result["skipped"],
+        }
     except Exception as exc:
         status = "error"
         error = str(exc)[:1200]
     finished = datetime.now(timezone.utc)
-    metadata = {key: value for key, value in result.items() if key != "sha256"}
+    metadata = {key: value for key, value in result.items() if key not in {"path", "sha256"}}
+    if isinstance(metadata.get("state_snapshot"), dict):
+        metadata["state_snapshot"] = {
+            key: value
+            for key, value in metadata["state_snapshot"].items()
+            if key != "path"
+        }
     if result.get("sha256"):
         metadata["sha256"] = result["sha256"]
     mirrored = mirror_runs(

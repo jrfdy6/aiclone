@@ -21,9 +21,11 @@ from app.services.content_safe_operator_lesson_service import (  # noqa: E402
     DEFAULT_WORKSPACE_KEY,
     build_content_safe_operator_lessons_payload,
     render_content_safe_operator_lessons_markdown,
+    resolve_operator_story_report_path,
 )
-from app.services.operator_story_signal_service import REPORT_ROOT  # noqa: E402
+from app.services.operator_story_signal_service import PRIVATE_STATE_ROOT, REPORT_ROOT  # noqa: E402
 from runtime_http import control_plane_headers  # noqa: E402
+from runtime_paths import seed_memory_state_file  # noqa: E402
 
 
 DEFAULT_API_URL = os.getenv("AICLONE_API_URL", "https://aiclone-production-32dc.up.railway.app")
@@ -35,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-url", default=DEFAULT_API_URL)
     parser.add_argument("--source", default="content_safe_operator_lesson_distiller")
     parser.add_argument("--reports-dir", default=str(REPORT_ROOT))
-    parser.add_argument("--operator-story-report", default=str(REPORT_ROOT / "operator_story_signals_latest.json"))
+    parser.add_argument("--operator-story-report", default=str(resolve_operator_story_report_path()))
     parser.add_argument("--no-sync", action="store_true", help="Write local reports only.")
     parser.add_argument("--dry-run", action="store_true", help="Print payload without writing files or syncing.")
     return parser.parse_args()
@@ -49,6 +51,16 @@ def _write_json(path: Path, payload: Any) -> None:
 def _write_markdown(path: Path, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
+
+
+def _report_write_path(reports_dir: Path, filename: str) -> Path:
+    if reports_dir.expanduser().resolve() != REPORT_ROOT.expanduser().resolve():
+        return reports_dir / filename
+    return seed_memory_state_file(
+        Path("reports") / filename,
+        project_root=ROOT,
+        state_root=PRIVATE_STATE_ROOT,
+    )
 
 
 def _sync_payload(api_url: str, payload: dict[str, Any], source: str) -> dict[str, Any]:
@@ -88,8 +100,8 @@ def main() -> int:
         return 0
 
     reports_dir = Path(args.reports_dir).expanduser()
-    json_path = reports_dir / CONTENT_SAFE_OPERATOR_LESSONS_PATH.name
-    markdown_path = reports_dir / "content_safe_operator_lessons_latest.md"
+    json_path = _report_write_path(reports_dir, CONTENT_SAFE_OPERATOR_LESSONS_PATH.name)
+    markdown_path = _report_write_path(reports_dir, "content_safe_operator_lessons_latest.md")
     _write_json(json_path, payload)
     _write_markdown(markdown_path, markdown)
 

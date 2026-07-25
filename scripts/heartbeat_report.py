@@ -13,20 +13,31 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_paths import (  # noqa: E402
+    AUTOMATION_RUNS_ROOT,
+    MEMORY_INDEX_PATH,
+    PROJECT_ROOT,
+    STATE_ROOT,
+    resolve_memory_read_path,
+)
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
-for import_root in (BACKEND_ROOT, SCRIPTS_ROOT):
+for import_root in (BACKEND_ROOT,):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 
 from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
-from runtime_paths import AUTOMATION_RUNS_ROOT, MEMORY_INDEX_PATH, STATE_ROOT
 
 
 STATE_PATH = STATE_ROOT / "heartbeat" / "heartbeat-state.json"
 RUN_LOG = AUTOMATION_RUNS_ROOT / "all.jsonl"
-LAUNCHD_AUDIT = WORKSPACE_ROOT / "memory" / "reports" / "launchd_health_audit_latest.json"
+LAUNCHD_AUDIT = resolve_memory_read_path("reports/launchd_health_audit_latest.json")
 DAILY_BRIEFS = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/daily-briefs.md")
 EXECUTION_LOG = WORKSPACE_ROOT / "workspaces" / "shared-ops" / "memory" / "execution_log.md"
 TZ = ZoneInfo("America/New_York")

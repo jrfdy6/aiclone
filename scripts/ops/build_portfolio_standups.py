@@ -13,17 +13,28 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
-SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
+SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from automation_run_mirror import build_run_payload, mirror_runs  # noqa: E402
 from promote_standup_packet import _build_payload as build_promoted_standup_payload  # noqa: E402
 from runtime_http import control_plane_headers  # noqa: E402
+from runtime_paths import (  # noqa: E402
+    PROJECT_ROOT,
+    STATE_ROOT,
+    memory_state_path,
+    seed_memory_state_file,
+    state_path,
+)
 
+WORKSPACE_ROOT = PROJECT_ROOT
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
-REPORT_PATH = WORKSPACE_ROOT / "memory/reports/portfolio_standup_prep_latest.json"
+REPORT_LOGICAL_REF = "memory/reports/portfolio_standup_prep_latest.json"
+REPORT_PATH = memory_state_path(
+    "reports/portfolio_standup_prep_latest.json",
+    state_root=STATE_ROOT,
+)
 AUTOMATION_ID = "portfolio_standup_prep"
 AUTOMATION_NAME = "Portfolio Standup Prep"
 
@@ -147,13 +158,44 @@ def _prep_path_from_standup(entry: dict[str, Any] | None) -> Path | None:
     return None
 
 
+def _local_prep_path(path: Path) -> Path:
+    if path.is_absolute() or not path.parts or path.parts[0] not in {"memory", "workspaces", "automations"}:
+        return path
+    state_candidate = state_path(path, state_root=STATE_ROOT)
+    return state_candidate if state_candidate.exists() else WORKSPACE_ROOT / path
+
+
+def _logical_remote_value(value: Any) -> Any:
+    """Replace local project/state paths with stable logical references."""
+
+    if isinstance(value, dict):
+        return {key: _logical_remote_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_logical_remote_value(item) for item in value]
+    if not isinstance(value, str) or not value.strip():
+        return value
+    if len(value) > 2048 or "\n" in value or "\x00" in value:
+        return value
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        return value
+    for root in (STATE_ROOT, WORKSPACE_ROOT):
+        try:
+            return candidate.resolve(strict=False).relative_to(root.resolve()).as_posix()
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return value
+
+
 def _promotion_payload_from_prep(prep: dict[str, Any]) -> dict[str, Any]:
     chronicle_entries = prep.get("chronicle_entries") or []
     chronicle_entry = chronicle_entries[-1] if chronicle_entries else None
-    return build_promoted_standup_payload(
-        prep,
-        None,
-        chronicle_entry if isinstance(chronicle_entry, dict) else None,
+    return _logical_remote_value(
+        build_promoted_standup_payload(
+            prep,
+            None,
+            chronicle_entry if isinstance(chronicle_entry, dict) else None,
+        )
     )
 
 
@@ -278,7 +320,7 @@ def _run_builder(
                     promotion = _promote_prep_path(api_url, json_path)
                 else:
                     prep = _read_json(json_path)
-                    standup_payload = prep.get("standup_payload")
+                    standup_payload = _logical_remote_value(prep.get("standup_payload"))
                     if not isinstance(standup_payload, dict):
                         raise ValueError("standup_payload missing from generated prep JSON")
                     created_entry = _post_json(f"{api_url.rstrip('/')}/api/standups/", standup_payload)
@@ -326,14 +368,20 @@ def build_portfolio_standups(
     for target in targets:
         latest = _latest_for(rows, target)
         prep_path = _prep_path_from_standup(latest)
+        local_prep_path = _local_prep_path(prep_path) if prep_path is not None else None
         if (
             create_entry
             and promote_entry
             and str((latest or {}).get("status") or "").strip().lower() == "prepared"
-            and prep_path is not None
-            and prep_path.exists()
+            and local_prep_path is not None
+            and local_prep_path.exists()
         ):
-            promoted = _promote_existing_prepared(target, api_url=api_url, entry=latest or {}, prep_path=prep_path)
+            promoted = _promote_existing_prepared(
+                target,
+                api_url=api_url,
+                entry=latest or {},
+                prep_path=local_prep_path,
+            )
             promoted["reason"] = "prepared_needs_promotion"
             results.append(promoted)
             continue
@@ -386,6 +434,16 @@ def _write_report(report: dict[str, Any], path: Path) -> None:
     path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _report_write_path(path: Path) -> Path:
+    if path.expanduser().resolve() != REPORT_PATH.expanduser().resolve():
+        return path
+    return seed_memory_state_file(
+        "reports/portfolio_standup_prep_latest.json",
+        project_root=WORKSPACE_ROOT,
+        state_root=STATE_ROOT,
+    )
+
+
 def _mirror(report: dict[str, Any], *, api_url: str, started_at: datetime, finished_at: datetime) -> bool:
     counts = report.get("counts") if isinstance(report.get("counts"), dict) else {}
     failed = int(counts.get("failed") or 0)
@@ -415,7 +473,7 @@ def _mirror(report: dict[str, Any], *, api_url: str, started_at: datetime, finis
                 f"prepared-only {prepared}; created {pm_cards_created} PM card(s); skipped {skipped}; failed {failed}."
             ),
             "portfolio_standup_counts": counts,
-            "portfolio_standup_results": report.get("results") or [],
+            "portfolio_standup_results": _logical_remote_value(report.get("results") or []),
         },
     )
     return mirror_runs(api_url, [run])
@@ -446,7 +504,7 @@ def main() -> int:
         create_entry=not args.no_create_standup_entry,
         promote_entry=not args.prepared_only,
     )
-    report_path = Path(args.report_path)
+    report_path = _report_write_path(Path(args.report_path))
     _write_report(report, report_path)
     finished_at = _now()
     mirrored = True if args.no_mirror else _mirror(report, api_url=args.api_url, started_at=started_at, finished_at=finished_at)

@@ -13,9 +13,21 @@ from pathlib import Path
 
 
 DEFAULT_API_URL = os.getenv("AICLONE_API_URL", "https://aiclone-production-32dc.up.railway.app")
-WORKSPACE_ROOT = Path(os.getenv("AI_CLONE_ROOT") or "/Users/neo/Documents/Codex/AI-Clone")
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_paths import PROJECT_ROOT, STATE_ROOT, resolve_memory_read_path  # noqa: E402
+
+
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-DEFAULT_BRIEF_FILE = WORKSPACE_ROOT / "memory" / "daily-briefs.md"
+DAILY_BRIEFS_LOGICAL_REF = "memory/daily-briefs.md"
+DEFAULT_BRIEF_FILE = resolve_memory_read_path(
+    "daily-briefs.md",
+    project_root=WORKSPACE_ROOT,
+    state_root=STATE_ROOT,
+)
 
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -92,7 +104,7 @@ def main() -> int:
     payload = {
         "raw_markdown": raw_markdown,
         "source": args.source,
-        "source_ref": args.source_ref or str(brief_path),
+        "source_ref": args.source_ref or DAILY_BRIEFS_LOGICAL_REF,
         "metadata": {
             "sync_origin": args.sync_origin,
             "synced_via": "scripts/sync_daily_briefs.py",

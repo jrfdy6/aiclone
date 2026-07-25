@@ -23,7 +23,16 @@ from brain_automation_context import (
 from durable_memory_context import build_durable_memory_context
 from runtime_bootstrap import maybe_reexec_with_workspace_venv
 from runtime_http import control_plane_headers
-from runtime_paths import AUTOMATION_RUNS_ROOT, PROJECT_ROOT
+from runtime_paths import (
+    AUTOMATION_RUNS_ROOT,
+    PROJECT_ROOT,
+    STATE_ROOT,
+    memory_read_candidates,
+    memory_state_path,
+    resolve_memory_read_path,
+    resolve_workspace_read_path,
+    workspace_state_root,
+)
 from workspace_registry_legacy import build_legacy_workspace_registry_payload
 
 
@@ -32,13 +41,17 @@ BACKEND_ROOT = WORKSPACE_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.core_memory_snapshot_service import resolve_snapshot_fallback_path
 from app.services.instagram_public_feedback_service import load_workspace_feedback_snapshot
 
-MEMORY_ROOT = WORKSPACE_ROOT / "memory"
-CODEX_CHRONICLE_PATH = resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+DEFAULT_MEMORY_ROOT = memory_state_path(state_root=STATE_ROOT)
+MEMORY_ROOT = DEFAULT_MEMORY_ROOT
+CODEX_CHRONICLE_PATH = resolve_memory_read_path(
+    "codex_session_handoff.jsonl",
+    project_root=WORKSPACE_ROOT,
+    state_root=STATE_ROOT,
+)
 CODEX_RUN_LEDGER_PATH = AUTOMATION_RUNS_ROOT / "all.jsonl"
-REGISTRY_PATH = MEMORY_ROOT / "workspace_registry.json"
+REGISTRY_PATH = WORKSPACE_ROOT / "memory" / "workspace_registry.json"
 INFERRED_BRIEF_PATH = WORKSPACE_ROOT / "docs" / "inferred_workspace_operating_brief_2026-03-31.md"
 DEFAULT_API_URL = os.environ.get("AICLONE_API_URL", "https://aiclone-production-32dc.up.railway.app")
 CHRONICLE_DECISION_LOOP_QUESTIONS = [
@@ -111,8 +124,35 @@ def _read_jsonl_tail(path: Path, *, max_items: int = 8) -> list[dict[str, Any]]:
     return items
 
 
+def _memory_read_path(relative_path: str | Path) -> Path:
+    return resolve_memory_read_path(
+        relative_path,
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    )
+
+
+def _active_state_root() -> Path:
+    if WORKSPACE_ROOT.expanduser().resolve() != PROJECT_ROOT.expanduser().resolve():
+        return WORKSPACE_ROOT / ".ai-clone-state"
+    if MEMORY_ROOT.expanduser().resolve() != DEFAULT_MEMORY_ROOT.expanduser().resolve():
+        return MEMORY_ROOT.parent
+    return STATE_ROOT
+
+
+def _active_memory_root() -> Path:
+    return memory_state_path(state_root=_active_state_root())
+
+
 def _latest_report(pattern: str) -> Path | None:
-    matches = sorted((MEMORY_ROOT / "reports").glob(pattern))
+    matches: list[Path] = []
+    for report_root in memory_read_candidates(
+        "reports",
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    ):
+        matches.extend(report_root.glob(pattern))
+    matches = sorted(set(matches), key=lambda path: path.stat().st_mtime)
     return matches[-1] if matches else None
 
 
@@ -121,7 +161,7 @@ def _pm_api_source_ref(api_url: str) -> str:
 
 
 def _load_fallback_watchdog_report() -> dict[str, Any]:
-    path = MEMORY_ROOT / "reports" / "fallback_watchdog_latest.json"
+    path = _memory_read_path("reports/fallback_watchdog_latest.json")
     if not path.exists():
         return {"available": False, "active": False, "report_path": str(path), "source_paths": []}
     try:
@@ -422,8 +462,14 @@ def _filter_resolved_workspace_root_blockers(
 ) -> list[str]:
     if not blockers:
         return []
-    root = _workspace_root(workspace_key, registry)
-    root_exists = bool(workspace_context.get("available")) or bool(root and root.exists())
+    source_root = _workspace_root(workspace_key, registry)
+    canonical_key = _canonical_workspace_key(workspace_key, registry)
+    generated_root = workspace_state_root(canonical_key, state_root=_active_state_root())
+    root_exists = (
+        bool(workspace_context.get("available"))
+        or bool(source_root and source_root.exists())
+        or generated_root.exists()
+    )
     if not root_exists:
         return blockers
     return [item for item in blockers if not _is_workspace_root_missing_blocker(item)]
@@ -440,14 +486,34 @@ def _latest_file(directory: Path, suffix: str) -> Path | None:
 
 
 def _workspace_context(workspace_key: str, registry: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    root = _workspace_root(workspace_key, registry)
-    if root is None or not root.exists():
+    canonical_key = _canonical_workspace_key(workspace_key, registry)
+    source_root = _workspace_root(canonical_key, registry)
+    generated_root = workspace_state_root(canonical_key, state_root=_active_state_root())
+    if (source_root is None or not source_root.exists()) and not generated_root.exists():
         return {"available": False, "workspace_root": None, "source_paths": []}
-    latest_sop = _latest_file(root / "dispatch", ".json")
-    latest_briefing = _latest_file(root / "briefings", ".md")
-    latest_analytics = _latest_file(root / "analytics", ".md")
-    execution_log = root / "memory" / "execution_log.md"
-    audience_feedback = load_workspace_feedback_snapshot(root)
+
+    def latest_workspace_file(relative_directory: str, suffix: str) -> Path | None:
+        candidates = [
+            _latest_file(generated_root / relative_directory, suffix),
+        ]
+        if source_root is not None:
+            candidates.append(_latest_file(source_root / relative_directory, suffix))
+        existing = [path for path in candidates if path is not None and path.exists()]
+        return max(existing, key=lambda path: path.stat().st_mtime) if existing else None
+
+    latest_sop = latest_workspace_file("dispatch", ".json")
+    latest_briefing = latest_workspace_file("briefings", ".md")
+    latest_analytics = latest_workspace_file("analytics", ".md")
+    execution_log = resolve_workspace_read_path(
+        canonical_key,
+        "memory/execution_log.md",
+        source_root=source_root,
+        project_root=WORKSPACE_ROOT,
+        state_root=_active_state_root(),
+    )
+    audience_feedback = load_workspace_feedback_snapshot(generated_root)
+    if not audience_feedback and source_root is not None:
+        audience_feedback = load_workspace_feedback_snapshot(source_root)
     source_paths = [
         str(path)
         for path in (latest_sop, latest_briefing, latest_analytics, execution_log if execution_log.exists() else None)
@@ -459,7 +525,9 @@ def _workspace_context(workspace_key: str, registry: dict[str, dict[str, Any]]) 
             source_paths.append(value.strip())
     return {
         "available": True,
-        "workspace_root": str(root),
+        "workspace_root": str(generated_root if generated_root.exists() else source_root),
+        "workspace_state_root": str(generated_root),
+        "workspace_source_root": str(source_root) if source_root is not None else None,
         "latest_sop_path": str(latest_sop) if latest_sop else None,
         "latest_briefing_path": str(latest_briefing) if latest_briefing else None,
         "latest_analytics_path": str(latest_analytics) if latest_analytics else None,
@@ -2259,7 +2327,7 @@ def main() -> int:
     parser.add_argument("--workspace-key", default="shared_ops")
     parser.add_argument("--owner-agent", default="jean-claude")
     parser.add_argument("--chronicle-limit", type=int, default=8)
-    parser.add_argument("--output-root", default=str(MEMORY_ROOT / "standup-prep"))
+    parser.add_argument("--output-root", default=str(_active_memory_root() / "standup-prep"))
     parser.add_argument("--api-url", default=DEFAULT_API_URL)
     parser.add_argument("--create-standup-entry", action="store_true")
     args = parser.parse_args()
@@ -2307,11 +2375,11 @@ def main() -> int:
             brain_context_lines.append(normalized)
     brain_context_lines = _dedupe_strings(brain_context_lines, limit=6)
     memory_context = {
-        "persistent_state_tail": _tail_text(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md")),
+        "persistent_state_tail": _tail_text(_memory_read_path("persistent_state.md")),
         "automation_ledger_available": CODEX_RUN_LEDGER_PATH.exists(),
-        "daily_briefs_tail": _tail_text(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/daily-briefs.md")),
+        "daily_briefs_tail": _tail_text(_memory_read_path("daily-briefs.md")),
         "today_log_tail": _tail_text(
-            resolve_snapshot_fallback_path(WORKSPACE_ROOT, f"memory/{datetime.now().astimezone():%Y-%m-%d}.md")
+            _memory_read_path(f"{datetime.now().astimezone():%Y-%m-%d}.md")
         ),
     }
     if workspace_context.get("available"):
@@ -2658,9 +2726,9 @@ def main() -> int:
             dict.fromkeys(
                 [
                     str(CODEX_CHRONICLE_PATH),
-                    str(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/persistent_state.md")),
+                    str(_memory_read_path("persistent_state.md")),
                     *([str(CODEX_RUN_LEDGER_PATH)] if CODEX_RUN_LEDGER_PATH.exists() else []),
-                    str(resolve_snapshot_fallback_path(WORKSPACE_ROOT, "memory/daily-briefs.md")),
+                    str(_memory_read_path("daily-briefs.md")),
                     *([str(INFERRED_BRIEF_PATH)] if INFERRED_BRIEF_PATH.exists() else []),
                     *([strategy_context["charter_path"]] if strategy_context.get("charter_path") else []),
                     *([strategy_context["identity_path"]] if strategy_context.get("identity_path") else []),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -249,6 +250,111 @@ class CodexChronicleSyncMemoryCloseoutTests(unittest.TestCase):
                 "chat_derived_signal_requires_explicit_opt_in",
             )
             self.assertFalse(learnings_path.exists())
+
+    def test_replay_after_chronicle_append_before_checkpoint_does_not_duplicate_entry(self) -> None:
+        module = load_script_module()
+        signal = (
+            "The key learning is that Chronicle append and checkpoint writes need a stable replay identity "
+            "so a crash cannot duplicate durable records."
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            history_path = root / "history.jsonl"
+            chronicle_path = root / "codex_session_handoff.jsonl"
+            state_path = root / "codex_chronicle_state.json"
+            history_path.write_text(
+                json.dumps({"session_id": "session-crash", "ts": 300, "text": signal}) + "\n",
+                encoding="utf-8",
+            )
+            argv = [
+                "sync_codex_chronicle.py",
+                "--history-path",
+                str(history_path),
+                "--chronicle-path",
+                str(chronicle_path),
+                "--state-path",
+                str(state_path),
+                "--skip-session-transcripts",
+                "--skip-memory-closeout",
+                "--initial-tail",
+                "5",
+            ]
+            real_write_json = module._write_json
+
+            def fail_checkpoint(path: Path, payload: object) -> None:
+                if path == state_path:
+                    raise RuntimeError("simulated crash before checkpoint")
+                real_write_json(path, payload)
+
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                module,
+                "_write_json",
+                side_effect=fail_checkpoint,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "simulated crash"):
+                    module.main()
+
+            with mock.patch.object(sys, "argv", argv):
+                self.assertEqual(module.main(), 0)
+
+            entries = [
+                json.loads(line)
+                for line in chronicle_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(entries), 1)
+            checkpoint = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(checkpoint["last_entry_id"], entries[0]["entry_id"])
+            self.assertTrue(checkpoint["reconciled_existing_entry"])
+
+    def test_concurrent_sync_processes_append_and_checkpoint_once(self) -> None:
+        signal = (
+            "The key learning is that cross-process Chronicle locking must keep concurrent periodic syncs "
+            "from appending the same history batch twice."
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            history_path = root / "history.jsonl"
+            chronicle_path = root / "codex_session_handoff.jsonl"
+            state_path = root / "codex_chronicle_state.json"
+            history_path.write_text(
+                json.dumps({"session_id": "session-race", "ts": 400, "text": signal}) + "\n",
+                encoding="utf-8",
+            )
+            command = [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "--history-path",
+                str(history_path),
+                "--chronicle-path",
+                str(chronicle_path),
+                "--state-path",
+                str(state_path),
+                "--skip-session-transcripts",
+                "--skip-memory-closeout",
+                "--initial-tail",
+                "5",
+            ]
+            processes = [
+                subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                for _ in range(2)
+            ]
+            results = [process.communicate(timeout=20) for process in processes]
+
+            for process, (stdout, stderr) in zip(processes, results):
+                self.assertEqual(process.returncode, 0, msg=f"stdout={stdout}\nstderr={stderr}")
+            entries = [
+                json.loads(line)
+                for line in chronicle_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(
+                json.loads(state_path.read_text(encoding="utf-8"))["last_entry_id"],
+                entries[0]["entry_id"],
+            )
 
 
 if __name__ == "__main__":

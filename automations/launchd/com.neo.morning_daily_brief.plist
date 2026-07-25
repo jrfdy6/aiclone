@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.neo.morning_daily_brief</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/neo/.codex/ai-clone/venv/bin/python</string>
+      <string>/Users/neo/Documents/Codex/AI-Clone/scripts/run_codex_morning_daily_brief.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/neo/Documents/Codex/AI-Clone</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/Users/neo/.codex/ai-clone/venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>AI_CLONE_ROOT</key>
+      <string>/Users/neo/Documents/Codex/AI-Clone</string>
+      <key>AI_CLONE_RUNTIME_ROOT</key>
+      <string>/Users/neo/.codex/ai-clone</string>
+      <key>AICLONE_API_URL</key>
+      <string>https://aiclone-production-32dc.up.railway.app</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>11</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/neo/.codex/ai-clone/logs/morning_daily_brief.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/neo/.codex/ai-clone/logs/morning_daily_brief.log</string>
+  </dict>
+</plist>

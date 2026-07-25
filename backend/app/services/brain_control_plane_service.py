@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -223,6 +224,9 @@ def _overlay_local_runner_previews(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 
 def _source_intelligence_index_candidates() -> list[Path]:
+    state_root = Path(
+        os.getenv("AI_CLONE_STATE_ROOT") or (Path.home() / ".codex" / "ai-clone" / "state")
+    ).expanduser()
     roots = [
         ROOT,
         ROOT / "app",
@@ -245,7 +249,12 @@ def _source_intelligence_index_candidates() -> list[Path]:
                 parent / "backend" / "app",
             ]
         )
-    paths = [root / "knowledge" / "source-intelligence" / filename for root in roots for filename in SOURCE_INTELLIGENCE_INDEX_FILENAMES]
+    paths = [state_root / "memory" / "source-intelligence" / "index.json"]
+    paths.extend(
+        root / "knowledge" / "source-intelligence" / filename
+        for root in roots
+        for filename in SOURCE_INTELLIGENCE_INDEX_FILENAMES
+    )
     return list(dict.fromkeys(paths))
 
 

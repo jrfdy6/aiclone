@@ -11,20 +11,28 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from runtime_bootstrap import maybe_reexec_with_workspace_venv
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_bootstrap import maybe_reexec_with_workspace_venv  # noqa: E402
+from runtime_paths import (  # noqa: E402
+    PROJECT_ROOT,
+    STATE_ROOT,
+    memory_state_path,
+    seed_memory_state_file,
+)
 
 
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
-DAILY_BRIEFS_PATH = WORKSPACE_ROOT / "memory" / "daily-briefs.md"
+DAILY_BRIEFS_LOGICAL_REF = "memory/daily-briefs.md"
+DAILY_BRIEFS_PATH = memory_state_path("daily-briefs.md", state_root=STATE_ROOT)
 BRIEF_TZ = ZoneInfo("America/New_York")
 HEADING_RE = re.compile(r"(?m)^# Morning Daily Brief\s*[—-]\s*(\d{4}-\d{2}-\d{2})\s*$")
 
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
-if str(SCRIPTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from chronicle_memory_contract import build_memory_tail_context, filter_recent_chronicle_entries
 from chronicle_signal_quality import clean_signal_text, entry_has_material_signal, entry_primary_signal, looks_like_blocker, normalize_text
@@ -362,12 +370,22 @@ def _upsert_brief(path: Path, block: str, brief_date: str) -> None:
     path.write_text("\n\n".join(item for item in rebuilt if item).rstrip() + "\n", encoding="utf-8")
 
 
+def _daily_briefs_write_path() -> Path:
+    """Seed legacy history once, then keep generated briefs in private state."""
+
+    return seed_memory_state_file(
+        "daily-briefs.md",
+        project_root=WORKSPACE_ROOT,
+        state_root=STATE_ROOT,
+    )
+
+
 def main() -> int:
     maybe_reexec_with_workspace_venv()
     args = parse_args()
     payload = build_brief_payload()
     if args.append:
-        _upsert_brief(DAILY_BRIEFS_PATH, payload["markdown"], payload["date"])
+        _upsert_brief(_daily_briefs_write_path(), payload["markdown"], payload["date"])
     if args.json:
         print(json.dumps(payload, indent=2))
     else:

@@ -11,6 +11,7 @@ const postingSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace'
 const workspaceSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'WorkspaceClient.tsx'), 'utf8');
 const promotableSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'PromotableInlineText.tsx'), 'utf8');
 const fragmentUtilsSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'generatedFragmentUtils.ts'), 'utf8');
+const localVoiceReviewSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'localVoiceReview.ts'), 'utf8');
 const controlApiSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'control-api.ts'), 'utf8');
 
 test('FEEZIE opens with a bounded Today’s Distribution decision surface', () => {
@@ -37,6 +38,20 @@ const {
   readWorkspaceComposerQuery,
   toWorkspaceSourceCard,
 } = loadedComposer.exports;
+
+const compiledLocalVoiceReview = ts.transpileModule(localVoiceReviewSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+  },
+}).outputText;
+const loadedLocalVoiceReview = { exports: {} };
+new Function('module', 'exports', 'require', compiledLocalVoiceReview)(
+  loadedLocalVoiceReview,
+  loadedLocalVoiceReview.exports,
+  require,
+);
+const { buildLocalVoiceReviewPacket, localVoiceReviewFilename } = loadedLocalVoiceReview.exports;
 
 test('parses a complete Brain card handoff with exact origin and owner reaction', () => {
   const query = readWorkspaceComposerQuery(new URLSearchParams({
@@ -188,6 +203,55 @@ test('completed options enter durable owner review by server-side option index',
     assert.match(source, /Send to owner review/);
     assert.match(source, /Open owner review/);
   }
+});
+
+test('generated owner review captures exact edits as a local-only download without posting them', () => {
+  const packet = buildLocalVoiceReviewPacket(
+    {
+      queueId: 'FEEZIE-CODEX-123',
+      generatedText: 'The generated draft starts here.',
+      editedText: 'I would say it this way instead.',
+      decision: 'revise',
+      generationJobId: 'job-123',
+      generationOptionIndex: 1,
+      topic: 'Voice fidelity',
+      lane: 'ai',
+      ownerNotes: 'Keep the opening conversational.',
+    },
+    '2026-07-25T12:00:00.000Z',
+  );
+
+  assert.equal(packet.schema_version, 'ai_clone_voice_review/v1');
+  assert.equal(packet.source, 'feezie_owner_review');
+  assert.equal(packet.privacy, 'local_only');
+  assert.equal(packet.promote_edited, false);
+  assert.equal(packet.generated_text, 'The generated draft starts here.');
+  assert.equal(packet.edited_text, 'I would say it this way instead.');
+  assert.deepEqual(packet.rejected_texts, []);
+  assert.equal(localVoiceReviewFilename(packet.queue_id), 'ai-clone-voice-review-FEEZIE-CODEX-123.json');
+  assert.doesNotMatch(localVoiceReviewSource, /\bfetch\s*\(|controlApi(?:Get|Post|Patch)/);
+  assert.match(workspaceSource, /Private voice-learning edit/);
+  assert.match(workspaceSource, /downloadLocalVoiceReviewPacket\(packet\)/);
+  assert.match(workspaceSource, /This field is browser-local feedback/);
+
+  const ownerDecisionRequest = workspaceSource.match(
+    /controlApiPost<OwnerReviewPayload>\(`\/api\/workspace\/linkedin-os-owner-review\/\$\{item\.queue_id\}`,[\s\S]{0,260}?\}\);/,
+  );
+  assert.ok(ownerDecisionRequest, 'expected the existing owner-review request');
+  assert.doesNotMatch(ownerDecisionRequest[0], /editedText|edited_text|generatedText|generated_text|voice/);
+});
+
+test('parking a generated draft makes the exact draft an explicit local rejection', () => {
+  const packet = buildLocalVoiceReviewPacket({
+    queueId: 'FEEZIE-CODEX-456',
+    generatedText: 'This is not how I want to sound.',
+    editedText: 'This value must be ignored for a parked draft.',
+    decision: 'park',
+  });
+
+  assert.equal(packet.edited_text, null);
+  assert.deepEqual(packet.rejected_texts, ['This is not how I want to sound.']);
+  assert.equal(packet.promote_edited, false);
 });
 
 test('the queue tells the owner that Codex Terminal runs on the Mac', () => {

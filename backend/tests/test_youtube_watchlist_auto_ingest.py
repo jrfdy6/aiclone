@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -48,6 +49,15 @@ def _result() -> dict:
 
 
 class YouTubeWatchlistAutomationTests(unittest.TestCase):
+    def test_runtime_defaults_do_not_force_an_ollama_provider(self) -> None:
+        with patch.dict(module.os.environ, {"PATH": "/usr/bin:/bin"}, clear=True):
+            applied = module._apply_easy_task_defaults()
+
+            self.assertEqual(applied, {})
+            self.assertNotIn("CONTENT_GENERATION_PROVIDER_ORDER", module.os.environ)
+            self.assertNotIn("CONTENT_GENERATION_OLLAMA_FAST_MODEL", module.os.environ)
+            self.assertNotIn("CONTENT_GENERATION_OLLAMA_EDITOR_MODEL", module.os.environ)
+
     def test_normal_ingest_fails_when_required_snapshot_mirror_fails(self) -> None:
         with (
             patch.object(module, "parse_args", return_value=_args()),
@@ -73,6 +83,24 @@ class YouTubeWatchlistAutomationTests(unittest.TestCase):
             self.assertEqual(module.main(), 0)
 
         mirror.assert_called_once_with(expected, api_url="https://example.invalid")
+
+    def test_ops_mirror_uses_logical_report_reference(self) -> None:
+        started_at = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
+        with patch.object(module, "mirror_runs", return_value=True) as mirror:
+            self.assertTrue(
+                module._mirror_summary(
+                    {"mode": "ingest", "result": _result()},
+                    api_url="https://example.invalid",
+                    started_at=started_at,
+                    finished_at=started_at + timedelta(seconds=2),
+                )
+            )
+
+        mirrored_run = mirror.call_args.args[1][0]
+        metadata = mirrored_run.get("metadata") or {}
+        self.assertEqual(metadata.get("report_ref"), module.REPORT_REFERENCE)
+        self.assertNotIn("report_path", metadata)
+        self.assertNotIn(str(module.REPORT_PATH), str(mirrored_run))
 
 
 if __name__ == "__main__":

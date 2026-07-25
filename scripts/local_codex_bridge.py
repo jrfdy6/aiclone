@@ -352,8 +352,37 @@ def run_once(
         return True
 
     from app.services import local_content_generation_execution_service as execution_service
+    from app.services import voice_fidelity_service
+
+    base_prompt_available = bool(prompt)
+    voice_query = " ".join(
+        str(request_payload.get(field) or "").strip()
+        for field in ("topic", "context", "audience", "category", "content_type")
+        if str(request_payload.get(field) or "").strip()
+    )
+    try:
+        voice_reference_limit = max(1, min(6, int(os.getenv("AI_CLONE_VOICE_REFERENCE_LIMIT", "4"))))
+    except ValueError:
+        voice_reference_limit = 4
+    # This worker invokes Codex, which is remote inference even though the
+    # bridge and corpus live on the owner's computer. Never send local_only
+    # examples through this path.
+    voice_context = voice_fidelity_service.build_voice_context(
+        query=voice_query,
+        execution_mode="cloud",
+        limit=voice_reference_limit,
+    )
+    voice_prompt_block = str(voice_context.get("prompt_block") or "").strip()
+    if voice_prompt_block:
+        prompt = (
+            f"{prompt}\n\n{voice_prompt_block}\n\n"
+            "The owner voice reference contract supplements the writing rules and does not change the final JSON response contract."
+        ).strip()
+    context_packet = dict(context_packet)
+    context_packet["voice_fidelity_context"] = voice_fidelity_service.public_voice_diagnostics(voice_context)
+
     local_options = execution_service.compose_local_template_options(context_packet)
-    quality_gate = execution_service.evaluate_local_quality(context_packet, local_options)
+    template_quality_gate = execution_service.evaluate_local_quality(context_packet, local_options)
     execution_policy = (
         str(context_packet.get("execution_policy") or DEFAULT_CONTENT_EXECUTION_POLICY).strip().lower()
         or DEFAULT_CONTENT_EXECUTION_POLICY
@@ -361,17 +390,17 @@ def run_once(
     artifact_items = execution_service.build_local_template_artifacts(
         context_packet=context_packet,
         options=local_options,
-        quality_gate=quality_gate,
+        quality_gate=template_quality_gate,
     )
 
-    if quality_gate.get("passed") and execution_policy == "local_template_allowed":
+    if template_quality_gate.get("passed") and execution_policy == "local_template_allowed":
         result_payload = execution_service.build_result_payload(
             request_payload=job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {},
             context_packet=context_packet,
             options=local_options,
             provider=execution_service.LOCAL_TEMPLATE_PROVIDER,
             model=execution_service.LOCAL_TEMPLATE_MODEL,
-            quality_gate=quality_gate,
+            quality_gate=template_quality_gate,
             raw_output=json.dumps({"options": local_options}),
         )
         result_payload.setdefault("diagnostics", {})["execution_policy"] = execution_policy
@@ -390,7 +419,7 @@ def run_once(
         )
         return True
 
-    if not prompt:
+    if not base_prompt_available:
         _fail_job(
             api_base=api_base,
             token=token,
@@ -418,18 +447,36 @@ def run_once(
                 "content": raw_output.rstrip() + "\n",
             }
         )
+        writer_quality_gate = execution_service.evaluate_local_quality(context_packet, options)
         result_payload = execution_service.build_result_payload(
             request_payload=request_payload,
             context_packet=context_packet,
             options=options,
             provider="codex_terminal",
             model=requested_model,
-            quality_gate=quality_gate,
+            quality_gate=writer_quality_gate,
             raw_output=raw_output,
             command_stdout=stdout,
             command_stderr=stderr,
         )
-        result_payload.setdefault("diagnostics", {})["execution_policy"] = execution_policy
+        final_options = [
+            str(option).strip()
+            for option in (result_payload.get("options") or [])
+            if str(option).strip()
+        ]
+        final_quality_gate = execution_service.evaluate_local_quality(context_packet, final_options)
+        diagnostics = result_payload.setdefault("diagnostics", {})
+        diagnostics["execution_policy"] = execution_policy
+        diagnostics["template_quality_gate"] = template_quality_gate
+        diagnostics["writer_quality_gate"] = writer_quality_gate
+        diagnostics["quality_gate"] = final_quality_gate
+        diagnostics["voice_fidelity"] = {
+            **voice_fidelity_service.public_voice_diagnostics(voice_context),
+            "reference_injection_active": bool(voice_prompt_block),
+            "scoring_mode": "shadow",
+            "writer_option_scores": voice_fidelity_service.score_options(options, voice_context),
+            "final_option_scores": voice_fidelity_service.score_options(final_options, voice_context),
+        }
         _complete_job(
             api_base=api_base,
             token=token,

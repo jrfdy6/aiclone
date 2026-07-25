@@ -12,15 +12,19 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from runtime_bootstrap import maybe_reexec_with_workspace_venv
-from runtime_http import control_plane_headers
+SCRIPTS_ROOT = Path(__file__).resolve().parent
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from runtime_bootstrap import maybe_reexec_with_workspace_venv  # noqa: E402
+from runtime_http import control_plane_headers  # noqa: E402
+from runtime_paths import PROJECT_ROOT, memory_state_path  # noqa: E402
 
 
 DEFAULT_API_URL = "https://aiclone-production-32dc.up.railway.app"
-WORKSPACE_ROOT = Path("/Users/neo/Documents/Codex/AI-Clone")
-SCRIPTS_ROOT = WORKSPACE_ROOT / "scripts"
+WORKSPACE_ROOT = PROJECT_ROOT
 BACKEND_ROOT = WORKSPACE_ROOT / "backend"
-REPORT_ROOT = WORKSPACE_ROOT / "memory" / "reports"
+REPORT_ROOT = memory_state_path("reports")
 REGISTRY_PATH = WORKSPACE_ROOT / "memory" / "workspace_registry.json"
 
 FOLLOWUP_TITLE = "Executive resolve fallback usage in memory and retrieval lanes"
@@ -40,8 +44,6 @@ MONITORED_MEMORY_PATHS: tuple[str, ...] = (
 LOCAL_TZ = ZoneInfo("America/New_York")
 DAILY_MEMORY_ALLOWED_LAG_DAYS = 1
 
-if str(SCRIPTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_ROOT))
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 

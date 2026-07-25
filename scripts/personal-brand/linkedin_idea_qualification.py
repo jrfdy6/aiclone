@@ -6,13 +6,16 @@ from typing import Any
 
 from linkedin_strategy_utils import (
     clean_text,
-    drafts_root,
+    generated_workspace_files,
+    generated_workspace_logical_relative_path,
+    generated_workspace_read_path,
+    generated_workspace_write_path,
     load_social_feed_items,
     now_iso,
     parse_frontmatter_markdown,
-    plans_root,
     ranking_total,
     read_json,
+    seed_generated_workspace_file,
     slugify,
     workspace_source_path,
     write_json,
@@ -590,14 +593,14 @@ def _markdown_for_payload(payload: dict[str, Any]) -> str:
 
 
 def write_idea_qualification_artifacts(workspace_dir: Path, payload: dict[str, Any]) -> None:
-    root = plans_root(workspace_dir)
+    root = generated_workspace_write_path(workspace_dir, "plans")
     write_json(root / "idea_qualification.json", payload)
     write_text(root / "idea_qualification.md", _markdown_for_payload(payload))
 
 
 def load_or_build_idea_qualification_payload(workspace_dir: Path) -> dict[str, Any]:
-    artifact_path = plans_root(workspace_dir) / "idea_qualification.json"
-    feed_path = plans_root(workspace_dir) / "social_feed.json"
+    artifact_path = generated_workspace_read_path(workspace_dir, "plans/idea_qualification.json")
+    feed_path = generated_workspace_read_path(workspace_dir, "plans/social_feed.json")
     existing = read_json(artifact_path)
     if existing and artifact_path.exists() and feed_path.exists():
         if artifact_path.stat().st_mtime >= feed_path.stat().st_mtime:
@@ -642,12 +645,14 @@ def qualification_indexes(payload: dict[str, Any]) -> tuple[dict[str, dict[str, 
 def active_draft_indexes(workspace_dir: Path) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     by_idea_id: dict[str, dict[str, Any]] = {}
     by_source_path: dict[str, dict[str, Any]] = {}
-    for path in sorted(drafts_root(workspace_dir).glob("*.md")):
+    for path in generated_workspace_files(workspace_dir, "drafts", "*.md"):
         if path.name == "README.md" or path.name.startswith("queue_") or path.name.startswith("feezie_owner_review_packet_"):
             continue
         frontmatter, _ = parse_frontmatter_markdown(path)
+        relative_path = generated_workspace_logical_relative_path(workspace_dir, path)
         metadata = {
-            "draft_path": workspace_source_path(path.relative_to(workspace_dir).as_posix()),
+            "draft_path": workspace_source_path(relative_path.as_posix()),
+            "draft_relative_path": relative_path.as_posix(),
             "draft_fs_path": str(path),
             "source_kind": clean_text(frontmatter.get("source_kind")),
             "publish_posture": clean_text(frontmatter.get("publish_posture")),
@@ -954,14 +959,14 @@ def _markdown_for_latent_payload(payload: dict[str, Any]) -> str:
 
 
 def write_latent_idea_artifacts(workspace_dir: Path, payload: dict[str, Any]) -> None:
-    root = plans_root(workspace_dir)
+    root = generated_workspace_write_path(workspace_dir, "plans")
     write_json(root / "latent_ideas.json", payload)
     write_text(root / "latent_ideas.md", _markdown_for_latent_payload(payload))
 
 
 def load_or_build_latent_idea_payload(workspace_dir: Path) -> dict[str, Any]:
-    artifact_path = plans_root(workspace_dir) / "latent_ideas.json"
-    qualification_path = plans_root(workspace_dir) / "idea_qualification.json"
+    artifact_path = generated_workspace_read_path(workspace_dir, "plans/latent_ideas.json")
+    qualification_path = generated_workspace_read_path(workspace_dir, "plans/idea_qualification.json")
     existing = read_json(artifact_path)
     if existing and artifact_path.exists() and qualification_path.exists():
         if artifact_path.stat().st_mtime >= qualification_path.stat().st_mtime:
@@ -993,12 +998,19 @@ def latent_idea_indexes(payload: dict[str, Any]) -> tuple[dict[str, dict[str, An
 
 
 def _stale_reaction_archive_dir(workspace_dir: Path) -> Path:
-    return drafts_root(workspace_dir) / "archive" / "stale_reaction_drafts"
+    return generated_workspace_write_path(workspace_dir, "drafts/archive/stale_reaction_drafts")
 
 
 def _stale_reaction_manifest_paths(workspace_dir: Path) -> tuple[Path, Path]:
-    root = drafts_root(workspace_dir) / "archive"
-    return root / "stale_reaction_manifest.json", root / "stale_reaction_manifest.md"
+    json_path = seed_generated_workspace_file(
+        workspace_dir,
+        "drafts/archive/stale_reaction_manifest.json",
+    )
+    markdown_path = seed_generated_workspace_file(
+        workspace_dir,
+        "drafts/archive/stale_reaction_manifest.md",
+    )
+    return json_path, markdown_path
 
 
 def _archive_path_for_file(archive_dir: Path, path: Path) -> Path:
@@ -1104,7 +1116,8 @@ def quarantine_stale_reaction_drafts(workspace_dir: Path) -> dict[str, Any]:
     }
     moved_this_run: list[dict[str, Any]] = []
 
-    for path in sorted(drafts_root(workspace_dir).glob("*.md")):
+    generated_drafts_root = generated_workspace_write_path(workspace_dir, "drafts")
+    for path in sorted(generated_drafts_root.glob("*.md")):
         if path.name == "README.md" or path.name.startswith("queue_") or path.name.startswith("feezie_owner_review_packet_"):
             continue
         frontmatter, _ = parse_frontmatter_markdown(path)
@@ -1122,10 +1135,12 @@ def quarantine_stale_reaction_drafts(workspace_dir: Path) -> dict[str, Any]:
         if not report:
             failure_dimensions = ["missing_current_signal"]
             suggested_fix = "Archived because this reaction-seed draft no longer has a live qualifying source signal."
+        archive_relative = generated_workspace_logical_relative_path(workspace_dir, archive_path)
+        source_relative = generated_workspace_logical_relative_path(workspace_dir, path)
         record = {
             "title": clean_text(frontmatter.get("title")) or path.stem,
-            "archive_path": workspace_source_path(archive_path.relative_to(workspace_dir).as_posix()),
-            "archived_from": workspace_source_path(path.relative_to(workspace_dir).as_posix()),
+            "archive_path": workspace_source_path(archive_relative.as_posix()),
+            "archived_from": workspace_source_path(source_relative.as_posix()),
             "source_path": source_path,
             "source_url": clean_text(frontmatter.get("source_url")),
             "route": route,

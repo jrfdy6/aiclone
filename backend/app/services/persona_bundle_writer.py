@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -131,24 +133,64 @@ def resolve_workspace_root() -> Path:
 
 
 def resolve_persona_bundle_root() -> Path:
+    """Return the immutable, Git-tracked persona seed bundle."""
+
     return resolve_workspace_root() / "knowledge" / "persona" / "feeze"
 
 
-def _validate_bundle_root_anchor(bundle_root: Path, *, require_bundle: bool) -> tuple[Path, Path]:
-    workspace_root = resolve_workspace_root()
-    if workspace_root.is_symlink() or not workspace_root.is_dir():
-        raise ValueError("Persona workspace root must be a non-symlink directory.")
-    workspace_path = workspace_root.absolute()
-    workspace_resolved = workspace_root.resolve(strict=True)
-    bundle_path = bundle_root.absolute()
-    try:
-        relative_bundle = bundle_path.relative_to(workspace_path)
-    except ValueError as exc:
-        raise ValueError("Persona bundle root must be inside the configured workspace root.") from exc
-    if relative_bundle == Path("."):
-        raise ValueError("Persona bundle root must be below the configured workspace root.")
+def resolve_persona_bundle_state_root() -> Path:
+    """Return the private canonical overlay used by the local runtime."""
 
-    current = workspace_path
+    configured = str(os.getenv("AI_CLONE_STATE_ROOT") or "").strip()
+    state_root = (
+        Path(configured).expanduser()
+        if configured
+        else Path.home() / ".codex" / "ai-clone" / "state"
+    )
+    return state_root / "persona" / "canonical"
+
+
+def resolve_persona_bundle_write_root() -> Path:
+    """Return the only root routine persona automation may mutate."""
+
+    return resolve_persona_bundle_state_root()
+
+
+def _absolute_path(path: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(path.expanduser())))
+
+
+def _persona_bundle_anchor(bundle_root: Path) -> tuple[Path, Path]:
+    bundle_path = _absolute_path(bundle_root)
+    workspace_path = _absolute_path(resolve_workspace_root())
+    seed_bundle_path = workspace_path / "knowledge" / "persona" / "feeze"
+    state_bundle_path = _absolute_path(resolve_persona_bundle_state_root())
+    state_path = state_bundle_path.parents[1]
+
+    if bundle_path == state_bundle_path:
+        return state_path, bundle_path
+    if bundle_path == seed_bundle_path:
+        return workspace_path, bundle_path
+    raise ValueError(
+        "Persona bundle root must be the private canonical overlay or the configured tracked seed."
+    )
+
+
+def _validate_bundle_root_anchor(bundle_root: Path, *, require_bundle: bool) -> tuple[Path, Path]:
+    anchor_path, bundle_path = _persona_bundle_anchor(bundle_root)
+    if anchor_path.is_symlink():
+        raise ValueError("Persona bundle path cannot contain symlinks.")
+    if anchor_path.exists() and not anchor_path.is_dir():
+        raise ValueError("Persona bundle anchor must be a directory.")
+    anchor_resolved = anchor_path.resolve(strict=anchor_path.exists())
+    try:
+        relative_bundle = bundle_path.relative_to(anchor_path)
+    except ValueError as exc:
+        raise ValueError("Persona bundle root must be inside its configured anchor.") from exc
+    if relative_bundle == Path("."):
+        raise ValueError("Persona bundle root must be below its configured anchor.")
+
+    current = anchor_path
     if current.is_symlink():
         raise ValueError("Persona bundle path cannot contain symlinks.")
     for part in relative_bundle.parts:
@@ -160,14 +202,14 @@ def _validate_bundle_root_anchor(bundle_root: Path, *, require_bundle: bool) -> 
         if not bundle_path.is_dir():
             raise ValueError("Persona bundle root must be a directory.")
         try:
-            bundle_path.resolve(strict=True).relative_to(workspace_resolved)
+            bundle_path.resolve(strict=True).relative_to(anchor_resolved)
         except ValueError as exc:
-            raise ValueError("Persona bundle root escaped the configured workspace root.") from exc
-    return workspace_resolved, bundle_path
+            raise ValueError("Persona bundle root escaped its configured anchor.") from exc
+    return anchor_resolved, bundle_path
 
 
 def _ensure_safe_bundle_root(bundle_root: Path) -> Path:
-    workspace_resolved, bundle_path = _validate_bundle_root_anchor(
+    anchor_resolved, bundle_path = _validate_bundle_root_anchor(
         bundle_root,
         require_bundle=False,
     )
@@ -193,13 +235,13 @@ def _ensure_safe_bundle_root(bundle_root: Path) -> Path:
     for directory in reversed(missing):
         if directory.is_symlink():
             raise ValueError("Persona bundle path cannot contain symlinks.")
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(exist_ok=True, mode=0o700)
         if directory.is_symlink() or not directory.is_dir():
             raise ValueError("Persona bundle path cannot contain symlinks.")
         try:
-            directory.resolve(strict=True).relative_to(workspace_resolved)
+            directory.resolve(strict=True).relative_to(anchor_resolved)
         except ValueError as exc:
-            raise ValueError("Persona bundle root escaped the configured workspace root.") from exc
+            raise ValueError("Persona bundle root escaped its configured anchor.") from exc
 
     _validate_bundle_root_anchor(bundle_path, require_bundle=True)
     return bundle_path.resolve(strict=True)
@@ -269,6 +311,113 @@ def _ensure_safe_bundle_parent(
     )
 
 
+def resolve_persona_bundle_read_path(
+    rel_path: str,
+    *,
+    state_root: Path | None = None,
+    seed_root: Path | None = None,
+) -> Path:
+    """Prefer a private canonical file and fall back to its tracked seed.
+
+    Both roots are fixed canonical locations and every file must remain in the
+    existing static bundle allowlist. A malformed or symlinked private overlay
+    fails closed instead of silently reading through it.
+    """
+
+    validated_path = validate_persona_bundle_file(rel_path)
+    private_root = state_root or resolve_persona_bundle_state_root()
+    tracked_root = seed_root or resolve_persona_bundle_root()
+
+    if private_root.exists():
+        private_target = _resolve_safe_read_target(
+            private_root,
+            validated_path,
+            canonical_root=resolve_persona_bundle_state_root(),
+        )
+        if private_target.is_symlink() or private_target.exists():
+            if private_target.is_symlink() or not private_target.is_file():
+                raise ValueError("Persona bundle read target must be a regular non-symlink file.")
+            return private_target
+    elif private_root.is_symlink():
+        raise ValueError("Persona bundle read root must not be a symlink.")
+
+    if tracked_root.exists():
+        tracked_target = _resolve_safe_read_target(
+            tracked_root,
+            validated_path,
+            canonical_root=resolve_persona_bundle_root(),
+        )
+        if tracked_target.is_symlink() or tracked_target.exists():
+            if tracked_target.is_symlink() or not tracked_target.is_file():
+                raise ValueError("Persona bundle read target must be a regular non-symlink file.")
+            return tracked_target
+    elif tracked_root.is_symlink():
+        raise ValueError("Persona bundle read root must not be a symlink.")
+
+    return private_root / validated_path
+
+
+def _resolve_safe_read_target(
+    bundle_root: Path,
+    rel_path: str,
+    *,
+    canonical_root: Path,
+) -> Path:
+    """Resolve one allowlisted read without following bundle-internal links."""
+
+    if _absolute_path(bundle_root) == _absolute_path(canonical_root):
+        return _resolve_safe_bundle_target(
+            bundle_root,
+            rel_path,
+            promotion_target=False,
+        )
+
+    # Explicit roots are used by content-free diagnostics and isolated tests.
+    # They still receive containment and component-level symlink validation.
+    root = _absolute_path(bundle_root)
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("Persona bundle read root must be a non-symlink directory.")
+    root_resolved = root.resolve(strict=True)
+    candidate = root
+    parts = Path(rel_path).parts
+    for index, part in enumerate(parts):
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValueError("Persona bundle read path cannot contain symlinks.")
+        if index < len(parts) - 1 and candidate.exists() and not candidate.is_dir():
+            raise ValueError("Persona bundle read parent must be a directory.")
+    try:
+        candidate.resolve(strict=False).relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValueError("Persona bundle read target escaped its configured root.") from exc
+    return candidate
+
+
+def _seed_bundle_file_once(source_path: Path, target_path: Path) -> bool:
+    """Copy one tracked seed file without overwriting an existing overlay."""
+
+    if source_path.is_symlink() or not source_path.is_file():
+        return False
+    target_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary_raw = tempfile.mkstemp(
+        prefix=f".{target_path.name}.",
+        suffix=".seed",
+        dir=str(target_path.parent),
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_raw)
+    try:
+        shutil.copyfile(source_path, temporary)
+        temporary.chmod(0o600)
+        try:
+            os.link(temporary, target_path)
+        except FileExistsError:
+            return False
+        return True
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _write_bundle_text(
     bundle_root: Path,
     rel_path: str,
@@ -283,7 +432,21 @@ def _write_bundle_text(
     )
     if target_path.exists() and not target_path.is_file():
         raise ValueError("Persona bundle target must be a regular file.")
-    target_path.write_text(content, encoding="utf-8")
+    descriptor, temporary_raw = tempfile.mkstemp(
+        prefix=f".{target_path.name}.",
+        suffix=".write",
+        dir=str(target_path.parent),
+    )
+    temporary = Path(temporary_raw)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.chmod(0o600)
+        os.replace(temporary, target_path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _frontmatter(title: str, rel_path: str) -> str:
@@ -513,9 +676,10 @@ def _default_file_content(rel_path: str) -> str:
 
 
 def ensure_persona_bundle_scaffold() -> list[str]:
-    bundle_root = resolve_persona_bundle_root()
+    bundle_root = resolve_persona_bundle_write_root()
+    seed_root = resolve_persona_bundle_root()
     _ensure_safe_bundle_root(bundle_root)
-    manifest = _read_manifest(bundle_root)
+    manifest = _read_manifest(seed_root)
     requested_paths = list(
         dict.fromkeys(
             [
@@ -538,11 +702,25 @@ def ensure_persona_bundle_scaffold() -> list[str]:
         )
         if full_path.exists():
             continue
-        _ensure_safe_bundle_parent(
+        full_path = _ensure_safe_bundle_parent(
             bundle_root,
             rel_path,
             promotion_target=False,
         )
+        seed_path: Path | None = None
+        if seed_root != bundle_root and seed_root.exists():
+            candidate = _resolve_safe_bundle_target(
+                seed_root,
+                rel_path,
+                promotion_target=False,
+            )
+            if candidate.exists():
+                seed_path = candidate
+        if seed_path is not None and _seed_bundle_file_once(seed_path, full_path):
+            created.append(rel_path)
+            continue
+        if full_path.exists():
+            continue
         _write_bundle_text(
             bundle_root,
             rel_path,
@@ -985,7 +1163,7 @@ def _group_promotion_items(items: list[dict[str, Any]]) -> dict[str, list[dict[s
 def write_promotion_items_to_bundle(items: list[dict[str, Any]]) -> dict[str, Any]:
     grouped = _group_promotion_items(items)
     ensure_persona_bundle_scaffold()
-    bundle_root = resolve_persona_bundle_root()
+    bundle_root = resolve_persona_bundle_write_root()
     _ensure_safe_bundle_root(bundle_root)
 
     written_files: list[str] = []
@@ -1029,6 +1207,7 @@ def write_promotion_items_to_bundle(items: list[dict[str, Any]]) -> dict[str, An
 
     return {
         "bundle_root": str(bundle_root),
+        "bundle_storage": "private_local_state",
         "written_files": written_files,
         "file_results": file_results,
     }
@@ -1037,7 +1216,7 @@ def write_promotion_items_to_bundle(items: list[dict[str, Any]]) -> dict[str, An
 def remove_promotion_items_from_bundle(items: list[dict[str, Any]]) -> dict[str, Any]:
     grouped = _group_promotion_items(items)
     ensure_persona_bundle_scaffold()
-    bundle_root = resolve_persona_bundle_root()
+    bundle_root = resolve_persona_bundle_write_root()
     _ensure_safe_bundle_root(bundle_root)
 
     written_files: list[str] = []
@@ -1067,6 +1246,7 @@ def remove_promotion_items_from_bundle(items: list[dict[str, Any]]) -> dict[str,
 
     return {
         "bundle_root": str(bundle_root),
+        "bundle_storage": "private_local_state",
         "written_files": written_files,
         "file_results": file_results,
     }

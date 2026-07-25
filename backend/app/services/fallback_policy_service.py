@@ -23,7 +23,7 @@ _FALLBACK_POLICIES: tuple[dict[str, Any], ...] = (
         "source_refs": [
             "backend/app/routes/content_generation.py",
         ],
-        "notes": "Current local order is non-production and can prefer Ollama before OpenAI.",
+        "notes": "Local and production defaults use configured cloud providers. Ollama participates only through an explicit provider-order opt-in.",
     },
     {
         "fallback_id": "content_signal_safe_lessons_to_reservoir",

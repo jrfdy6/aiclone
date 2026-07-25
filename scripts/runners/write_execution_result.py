@@ -29,10 +29,14 @@ if str(RUNNERS_DIR) not in sys.path:
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.core_memory_snapshot_service import resolve_live_memory_write_path
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 from app.models import PMExecutionResultCommitRequest
+from app.services.workspace_registry_service import (
+    canonicalize_workspace_key,
+    workspace_registry_map,
+    workspace_root_slug,
+)
 from execution_result_outbox import (
     OUTBOX_PENDING_EXIT,
     ExecutionResultOutboxConflict,
@@ -44,10 +48,18 @@ from execution_result_outbox import (
     reconcile_outbox_entry,
 )
 from runtime_http import control_plane_headers, open_control_plane_request, validate_control_plane_url
-from runtime_paths import STATE_ROOT
+from runtime_paths import (
+    PROJECT_ROOT,
+    STATE_ROOT,
+    memory_state_path,
+    seed_memory_state_file,
+    seed_workspace_state_file,
+    workspace_state_path,
+)
 
 
-CODEX_HANDOFF_PATH = resolve_live_memory_write_path(WORKSPACE_ROOT, "memory/codex_session_handoff.jsonl")
+MEMORY_ROOT = memory_state_path(state_root=STATE_ROOT)
+CODEX_HANDOFF_PATH = memory_state_path("codex_session_handoff.jsonl", state_root=STATE_ROOT)
 
 
 def _now() -> datetime:
@@ -171,7 +183,11 @@ def _append_markdown_once(path: Path, heading: str, body: str, *, result_id: str
 
 
 def _runtime_memory_path(relative_path: str) -> Path:
-    return resolve_live_memory_write_path(WORKSPACE_ROOT, relative_path)
+    return seed_memory_state_file(
+        relative_path,
+        project_root=WORKSPACE_ROOT,
+        state_root=MEMORY_ROOT.parent,
+    )
 
 
 def _require_contained_path(raw_path: str, root: Path, *, label: str) -> Path:
@@ -182,15 +198,37 @@ def _require_contained_path(raw_path: str, root: Path, *, label: str) -> Path:
     return path
 
 
+def _require_contained_in_any(raw_path: str, roots: tuple[Path, ...], *, label: str) -> Path:
+    path = Path(raw_path).expanduser().resolve()
+    for root in roots:
+        resolved_root = root.expanduser().resolve()
+        if path == resolved_root or resolved_root in path.parents:
+            return path
+    allowed = " or ".join(str(root.expanduser().resolve()) for root in roots)
+    raise RuntimeError(f"{label} is outside the allowed local roots ({allowed}): {path}")
+
+
 def _expected_result_paths(operation: PMExecutionResultCommitRequest) -> tuple[Path, Path]:
     result_id = str(operation.result_id)
-    result_path = (MEMORY_ROOT / "runner-results" / operation.runner_id / f"{result_id}.json").resolve()
-    memo_path = (MEMORY_ROOT / "runner-memos" / operation.runner_id / f"{result_id}_execution_result.md").resolve()
-    _require_contained_path(str(result_path), WORKSPACE_ROOT, label="Execution-result JSON")
-    _require_contained_path(str(memo_path), WORKSPACE_ROOT, label="Execution-result memo")
-    if Path(operation.result_path).expanduser().resolve() != result_path:
+    result_relative = Path("runner-results") / operation.runner_id / f"{result_id}.json"
+    memo_relative = Path("runner-memos") / operation.runner_id / f"{result_id}_execution_result.md"
+    result_path = seed_memory_state_file(
+        result_relative,
+        project_root=WORKSPACE_ROOT,
+        state_root=MEMORY_ROOT.parent,
+    ).resolve()
+    memo_path = seed_memory_state_file(
+        memo_relative,
+        project_root=WORKSPACE_ROOT,
+        state_root=MEMORY_ROOT.parent,
+    ).resolve()
+    supplied_result = Path(operation.result_path).expanduser().resolve()
+    supplied_memo = Path(operation.memo_path).expanduser().resolve()
+    legacy_result = (WORKSPACE_ROOT / "memory" / result_relative).resolve()
+    legacy_memo = (WORKSPACE_ROOT / "memory" / memo_relative).resolve()
+    if supplied_result not in {result_path, legacy_result}:
         raise RuntimeError("Execution-result JSON path does not match its stable result id.")
-    if Path(operation.memo_path).expanduser().resolve() != memo_path:
+    if supplied_memo not in {memo_path, legacy_memo}:
         raise RuntimeError("Execution-result memo path does not match its stable result id.")
     return result_path, memo_path
 
@@ -232,20 +270,72 @@ def _materialization_lock():
     return _Lock()
 
 
+def _chronicle_write_path() -> Path:
+    expected = memory_state_path(
+        "codex_session_handoff.jsonl",
+        state_root=MEMORY_ROOT.parent,
+    )
+    if CODEX_HANDOFF_PATH.expanduser().resolve() != expected.resolve():
+        return CODEX_HANDOFF_PATH
+    return seed_memory_state_file(
+        "codex_session_handoff.jsonl",
+        project_root=WORKSPACE_ROOT,
+        state_root=MEMORY_ROOT.parent,
+    )
+
+
 def _materialize_execution_result(operation: PMExecutionResultCommitRequest) -> None:
     """Write all local result artifacts exactly once for one stable result id."""
 
     result_id = str(operation.result_id)
     result_path, memo_path = _expected_result_paths(operation)
-    work_order_path = _require_contained_path(operation.work_order_path, WORKSPACE_ROOT, label="Work order")
-    workspace_memory_path = (
-        _require_contained_path(operation.workspace_result_path, WORKSPACE_ROOT, label="Workspace result path")
-        if operation.workspace_result_path
-        else None
+    work_order_path = _require_contained_in_any(
+        operation.work_order_path,
+        (WORKSPACE_ROOT, STATE_ROOT / "workspaces"),
+        label="Work order",
     )
+    workspace_memory_path: Path | None = None
+    if operation.workspace_result_path:
+        canonical_workspace_key = canonicalize_workspace_key(
+            operation.workspace_key,
+            default="shared_ops",
+        )
+        if canonical_workspace_key not in workspace_registry_map():
+            raise RuntimeError(
+                f"Execution-result workspace is not registered: {canonical_workspace_key}"
+            )
+        supplied_workspace_memory = _require_contained_in_any(
+            operation.workspace_result_path,
+            (WORKSPACE_ROOT, STATE_ROOT / "workspaces"),
+            label="Workspace result path",
+        )
+        source_root = WORKSPACE_ROOT / "workspaces" / workspace_root_slug(
+            canonical_workspace_key
+        )
+        expected_legacy_path = (source_root / "memory" / "execution_log.md").resolve()
+        expected_state_path = workspace_state_path(
+            canonical_workspace_key,
+            "memory/execution_log.md",
+            state_root=STATE_ROOT,
+        ).resolve()
+        if supplied_workspace_memory not in {expected_legacy_path, expected_state_path}:
+            raise RuntimeError(
+                "Workspace result path does not match the declared canonical workspace."
+            )
+        workspace_memory_path = seed_workspace_state_file(
+            canonical_workspace_key,
+            "memory/execution_log.md",
+            source_root=source_root,
+            project_root=WORKSPACE_ROOT,
+            state_root=STATE_ROOT,
+        )
     created_at = operation.created_at.astimezone(timezone.utc)
     local_created_at = operation.created_at.astimezone()
-    daily_path = MEMORY_ROOT / f"{local_created_at.date().isoformat()}.md"
+    daily_path = seed_memory_state_file(
+        f"{local_created_at.date().isoformat()}.md",
+        project_root=WORKSPACE_ROOT,
+        state_root=MEMORY_ROOT.parent,
+    )
     result_payload = {
         "schema_version": "execution_result/v1",
         "result_id": result_id,
@@ -356,7 +446,7 @@ def _materialize_execution_result(operation: PMExecutionResultCommitRequest) -> 
     with _materialization_lock():
         _write_json_once(result_path, result_payload)
         _write_text_once(memo_path, memo_text)
-        _append_jsonl_once(CODEX_HANDOFF_PATH, chronicle_entry, result_id=result_id)
+        _append_jsonl_once(_chronicle_write_path(), chronicle_entry, result_id=result_id)
         _append_markdown_once(
             daily_path,
             f"## {operation.runner_id.capitalize()} Execution Result — {local_created_at:%Y-%m-%d %H:%M %Z}",

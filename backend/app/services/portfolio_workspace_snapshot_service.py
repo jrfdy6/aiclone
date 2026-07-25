@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,10 @@ LOCAL_CONTRACT_FILES = (
 )
 ACTIVE_PM_STATUSES = {"todo", "queued", "running", "in_progress", "review", "blocked", "failed"}
 ATTENTION_PM_STATUSES = {"review", "blocked", "failed"}
+PRIVATE_STATE_ROOT = Path(
+    os.getenv("AI_CLONE_STATE_ROOT") or (Path.home() / ".codex" / "ai-clone" / "state")
+).expanduser()
+_WORKSPACE_STATE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 def _now_iso() -> str:
@@ -61,6 +67,70 @@ def _latest_file(directory: Path, pattern: str) -> Path | None:
         return None
     non_readme = [path for path in matches if path.stem.lower() != "readme"]
     return non_readme[-1] if non_readme else matches[-1]
+
+
+def _private_workspace_state_root(workspace_key: str) -> Path | None:
+    """Resolve generated workspace state without trusting a key as a path."""
+
+    key = str(workspace_key or "").strip().lower()
+    if not _WORKSPACE_STATE_KEY_PATTERN.fullmatch(key):
+        return None
+    return PRIVATE_STATE_ROOT / "workspaces" / key
+
+
+def _workspace_activity_roots(workspace_key: str, legacy_root: Path) -> tuple[tuple[Path, str], ...]:
+    """Return state-first activity roots while retaining the project fallback."""
+
+    state_root = _private_workspace_state_root(workspace_key)
+    candidates: list[tuple[Path, str]] = []
+    if state_root is not None:
+        candidates.append((state_root, "private_state"))
+    candidates.append((legacy_root, "legacy_project"))
+    return tuple(candidates)
+
+
+def _latest_workspace_activity(
+    workspace_key: str,
+    legacy_root: Path,
+    relative_directory: str,
+    pattern: str,
+) -> tuple[Path | None, Path, str]:
+    for activity_root, source in _workspace_activity_roots(workspace_key, legacy_root):
+        path = _latest_file(activity_root / relative_directory, pattern)
+        if path is not None:
+            return path, activity_root, source
+    return None, legacy_root, "legacy_project"
+
+
+def _workspace_activity_file(
+    workspace_key: str,
+    legacy_root: Path,
+    relative_path: str,
+) -> tuple[Path, Path, str]:
+    for activity_root, source in _workspace_activity_roots(workspace_key, legacy_root):
+        path = activity_root / relative_path
+        if path.exists() and path.is_file():
+            return path, activity_root, source
+    return legacy_root / relative_path, legacy_root, "legacy_project"
+
+
+def _activity_payload(
+    path: Path | None,
+    display_root: Path,
+    source: str,
+    *,
+    include_tail: bool = False,
+) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    payload = _path_payload(path, display_root, include_tail=include_tail)
+    if payload is not None:
+        payload["source"] = source
+    return payload
+
+
+def _activity_display_root(source: str, repo_root: Path) -> Path:
+    return PRIVATE_STATE_ROOT if source == "private_state" else repo_root
 
 
 def _path_payload(path: Path, root: Path, *, include_tail: bool = False) -> dict[str, Any] | None:
@@ -424,10 +494,29 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
     root_slug = str(entry.get("workspace_root") or workspace_root_slug(workspace_key))
     root = _resolve_workspace_root(workspace_key, root_slug)
     repo_root = _repo_root_for_workspace_root(root)
-    latest_briefing = _latest_file(root / "briefings", "*.md")
-    latest_dispatch = _latest_file(root / "dispatch", "*.json")
-    latest_analytics = _latest_file(root / "analytics", "*.md")
-    latest_execution_log = root / "memory" / "execution_log.md"
+    latest_briefing, briefing_root, briefing_source = _latest_workspace_activity(
+        workspace_key,
+        root,
+        "briefings",
+        "*.md",
+    )
+    latest_dispatch, dispatch_root, dispatch_source = _latest_workspace_activity(
+        workspace_key,
+        root,
+        "dispatch",
+        "*.json",
+    )
+    latest_analytics, analytics_root, analytics_source = _latest_workspace_activity(
+        workspace_key,
+        root,
+        "analytics",
+        "*.md",
+    )
+    latest_execution_log, execution_log_root, execution_log_source = _workspace_activity_file(
+        workspace_key,
+        root,
+        "memory/execution_log.md",
+    )
     active_cards = [
         card for card in _safe_pm_cards(workspace_key, limit=pm_limit) if str(card.get("status") or "").lower() in ACTIVE_PM_STATUSES
     ]
@@ -458,10 +547,18 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
     source_paths = [
         value
         for value in [
-            _relative_path(latest_briefing, repo_root) if latest_briefing else None,
-            _relative_path(latest_dispatch, repo_root) if latest_dispatch else None,
-            _relative_path(latest_analytics, repo_root) if latest_analytics else None,
-            _relative_path(latest_execution_log, repo_root) if latest_execution_log.exists() else None,
+            _relative_path(latest_briefing, _activity_display_root(briefing_source, repo_root))
+            if latest_briefing
+            else None,
+            _relative_path(latest_dispatch, _activity_display_root(dispatch_source, repo_root))
+            if latest_dispatch
+            else None,
+            _relative_path(latest_analytics, _activity_display_root(analytics_source, repo_root))
+            if latest_analytics
+            else None,
+            _relative_path(latest_execution_log, _activity_display_root(execution_log_source, repo_root))
+            if latest_execution_log.exists()
+            else None,
         ]
         if value
     ]
@@ -486,10 +583,29 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
         "capabilities": entry.get("capabilities") or [],
         "pack_status": _pack_status(root, repo_root),
         "local_contracts": _local_contracts(root, repo_root),
-        "latest_briefing": _path_payload(latest_briefing, repo_root, include_tail=True) if latest_briefing else None,
-        "latest_dispatch": _path_payload(latest_dispatch, repo_root) if latest_dispatch else None,
-        "latest_analytics": _path_payload(latest_analytics, repo_root, include_tail=True) if latest_analytics else None,
-        "execution_log": _path_payload(latest_execution_log, repo_root, include_tail=True) if latest_execution_log.exists() else None,
+        "latest_briefing": _activity_payload(
+            latest_briefing,
+            _activity_display_root(briefing_source, repo_root),
+            briefing_source,
+            include_tail=True,
+        ),
+        "latest_dispatch": _activity_payload(
+            latest_dispatch,
+            _activity_display_root(dispatch_source, repo_root),
+            dispatch_source,
+        ),
+        "latest_analytics": _activity_payload(
+            latest_analytics,
+            _activity_display_root(analytics_source, repo_root),
+            analytics_source,
+            include_tail=True,
+        ),
+        "execution_log": _activity_payload(
+            latest_execution_log if latest_execution_log.exists() else None,
+            _activity_display_root(execution_log_source, repo_root),
+            execution_log_source,
+            include_tail=True,
+        ),
         "active_pm_cards": active_cards[:pm_limit],
         "latest_standups": latest_standups[:standup_limit],
         "persisted_snapshot_types": _safe_snapshot_types(workspace_key, root_slug),

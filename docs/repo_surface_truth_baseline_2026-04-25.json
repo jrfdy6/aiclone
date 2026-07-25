@@ -1,0 +1,28 @@
+{
+  "schema_version": "repo_surface_truth_baseline/v1",
+  "frozen_on": "2026-04-25",
+  "allowed_surface_mismatches": [
+    {
+      "surface_id": "prospect_discovery",
+      "mismatch_flags": [
+        "legacy_surface_visible_in_nav",
+        "legacy_surface_calls_unmounted_api"
+      ]
+    },
+    {
+      "surface_id": "dashboard",
+      "mismatch_flags": [
+        "legacy_surface_visible_in_nav",
+        "legacy_surface_calls_unmounted_api"
+      ]
+    },
+    {
+      "surface_id": "outreach",
+      "mismatch_flags": [
+        "legacy_surface_visible_in_nav"
+      ]
+    }
+  ],
+  "allowed_unclassified_runtime_shell_hrefs": [],
+  "allowed_unclassified_legacy_nav_hrefs": []
+}
