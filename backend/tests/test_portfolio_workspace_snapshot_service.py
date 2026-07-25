@@ -283,7 +283,7 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
         workspace = snapshot["workspaces"][0]
         self.assertEqual(workspace["active_blockers"], [])
         self.assertEqual(workspace["counts"]["standup_blockers"], 0)
-        self.assertEqual(workspace["attention"]["label"], "No blocker")
+        self.assertEqual(workspace["attention"]["label"], "Healthy")
 
     def test_build_snapshot_filters_brain_debug_ui_text_from_blockers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -381,9 +381,9 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
 
         workspace = snapshot["workspaces"][0]
         self.assertTrue(workspace["needs_brain_attention"])
-        self.assertEqual(workspace["attention"]["status"], "owner_review")
-        self.assertEqual(workspace["attention"]["label"], "Owner Review")
-        self.assertEqual(workspace["counts"]["owner_review_pm_cards"], 1)
+        self.assertEqual(workspace["attention"]["status"], "needs_owner")
+        self.assertEqual(workspace["attention"]["label"], "Needs your decision")
+        self.assertEqual(workspace["counts"]["needs_owner_pm_cards"], 1)
 
 
 if __name__ == "__main__":

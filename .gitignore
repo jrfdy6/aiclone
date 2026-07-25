@@ -100,5 +100,12 @@ frontend/app/brain/workspaceSnapshot.ts
 frontend/legacy/content-pipeline/workspaceSnapshot.ts
 scripts/build_progress_pulse_digest.py.bak
 
+# Private job-search preparation and local practice sessions
+interview-prep/
+memory/wwt-interview-prep/
+scripts/*wwt*
+scripts/voice_nodes/
+downloads/aiclone/
+
 .next/
 frontend/.next/

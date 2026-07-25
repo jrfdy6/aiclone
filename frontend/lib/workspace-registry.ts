@@ -5,6 +5,7 @@ export type WorkspaceRegistryEntry = {
   key: string;
   kind: WorkspaceKind;
   display_name: string;
+  portfolio_label?: string;
   short_label: string;
   brief_heading: string;
   workspace_root: string;
@@ -64,6 +65,7 @@ export const fallbackWorkspaceRegistry = [
     key: 'feezie-os',
     kind: 'workspace',
     display_name: 'FEEZIE OS',
+    portfolio_label: 'FEEZIE OS — Visibility & Distribution',
     short_label: 'FEEZIE',
     brief_heading: 'FEEZIE OS',
     workspace_root: 'linkedin-content-os',
@@ -77,7 +79,7 @@ export const fallbackWorkspaceRegistry = [
     default_standup_kind: 'workspace_sync',
     workspace_sync_participants: ['Jean-Claude', 'Neo', 'Yoda'],
     description:
-      'Public-signal execution system for source intake, reaction loops, content generation, and persona-grounded visibility, currently operating through the LinkedIn lane.',
+      "Turns Feeze's knowledge, experience, and aspirations into public value, credibility, relationships, audience, and durable distribution.",
     operating_principles: [
       'Persona truth first, posting second',
       'Use live source signals before generic ideation',

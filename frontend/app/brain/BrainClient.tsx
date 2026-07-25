@@ -1582,7 +1582,6 @@ function DashboardPanel({
         error={controlPlaneError}
         lastVerifiedAt={controlPlaneLastVerifiedAt}
         telemetry={telemetry}
-        portfolioSnapshot={portfolioSnapshot}
         workspaceSnapshot={workspaceSnapshot}
         workspaceSnapshotError={workspaceSnapshotError}
         youtubeWatchlist={youtubeWatchlist}
@@ -1590,15 +1589,10 @@ function DashboardPanel({
         onRefresh={refreshBrainData}
         onNavigate={onNavigate}
       />
-      <BrainPortfolioPanel
-        portfolioSnapshot={portfolioSnapshot}
-        error={portfolioSnapshotError}
-        loadState={portfolioSnapshotLoadState}
+      <BrainRoutingStatusPanel
         brainSignals={controlPlane?.brain_signals ?? []}
         signalsVerified={Boolean(controlPlane)}
-        refreshBrainData={refreshBrainData}
       />
-      <WorkspaceMirrorsPanel workspaceSnapshot={workspaceSnapshot} />
       <BrainLongFormIngestPanel
         value={longFormIngest}
         onChange={setLongFormIngest}
@@ -1626,7 +1620,6 @@ function BrainControlPlanePanel({
   error,
   lastVerifiedAt,
   telemetry,
-  portfolioSnapshot,
   workspaceSnapshot,
   workspaceSnapshotError,
   youtubeWatchlist,
@@ -1642,7 +1635,6 @@ function BrainControlPlanePanel({
   error: string | null;
   lastVerifiedAt: string | null;
   telemetry: CaptureTelemetry | null;
-  portfolioSnapshot: PortfolioWorkspaceSnapshot | null;
   workspaceSnapshot: BrainWorkspaceSnapshot | null;
   workspaceSnapshotError: string | null;
   youtubeWatchlist: YouTubeWatchlistPayload | null;
@@ -1667,7 +1659,6 @@ function BrainControlPlanePanel({
   const sourceIndex = controlPlane?.source_intelligence_index ?? null;
   const memorySyncItems = (brainMemorySync?.processed_items ?? []).slice(0, 4);
   const pendingReviewCount = personaCounts?.brain_pending_review ?? controlPlane?.summary?.pending_review_count;
-  const portfolioAttentionCount = portfolioSnapshot?.counts?.needs_brain_attention ?? controlPlane?.summary?.portfolio_attention_count;
   const staleSyncCount = brainMemorySync?.sync_live && !brainMemorySyncFresh ? 1 : 0;
   const recentSourceCount = sourceIndex?.recent_sources?.length ?? 0;
   const activeYouTubeJobs = youtubeIngestJobs.filter((job) =>
@@ -1676,9 +1667,9 @@ function BrainControlPlanePanel({
   const executiveFrontDoor = [
     {
       label: 'Needs me',
-      value: verified ? (pendingReviewCount ?? 0) + (portfolioAttentionCount ?? 0) + staleSyncCount : '—',
+      value: verified ? (pendingReviewCount ?? 0) + staleSyncCount : '—',
       detail: verified
-        ? `${pendingReviewCount ?? 0} persona review · ${portfolioAttentionCount ?? 0} portfolio attention${staleSyncCount ? ' · stale sync' : ''}`
+        ? `${pendingReviewCount ?? 0} persona review${staleSyncCount ? ' · stale memory sync' : ''}`
         : 'Awaiting a verified control-plane snapshot.',
       tone: '#f97316',
     },
@@ -1817,18 +1808,6 @@ function BrainControlPlanePanel({
         <TelemetryStat label="Captures" value={telemetry ? telemetry.captures.total : '—'} tone="#818cf8" detail="Open Brain all time" />
         <TelemetryStat label="Pending Review" value={verified ? pendingReviewCount ?? 0 : '—'} tone="#f97316" detail="Brain queue" />
         <TelemetryStat label="Workspace Saved" value={verified ? personaCounts?.workspace_saved ?? 0 : '—'} tone="#22c55e" detail="Already approved" />
-        <TelemetryStat
-          label="Workspaces"
-          value={portfolioSnapshot?.counts?.workspaces ?? controlPlane?.summary?.portfolio_workspace_count ?? '—'}
-          tone="#a78bfa"
-          detail="Visible in portfolio snapshot"
-        />
-        <TelemetryStat
-          label="Need Attention"
-          value={portfolioAttentionCount ?? '—'}
-          tone={(controlPlane?.summary?.portfolio_attention_count ?? 0) > 0 ? '#f97316' : '#22c55e'}
-          detail="PM review, blockers, or failed work"
-        />
         <TelemetryStat label="Brain Signals" value={controlPlane?.summary?.brain_signal_count ?? '—'} tone="#38bdf8" detail="Recent review objects" />
         <TelemetryStat
           label="Source Index"
@@ -1941,6 +1920,92 @@ function BrainControlPlanePanel({
           emptyLabel="No relation data yet."
         />
       </div>
+    </section>
+  );
+}
+
+function BrainRoutingStatusPanel({
+  brainSignals,
+  signalsVerified,
+}: {
+  brainSignals: BrainSignalEntry[];
+  signalsVerified: boolean;
+}) {
+  const destinationFor = (signal: BrainSignalEntry) => {
+    const route = signal.route_decision ?? {};
+    const candidate =
+      route.destination ??
+      route.target ??
+      route.route ??
+      route.route_target ??
+      route.action ??
+      (signal.review_status === 'routed' ? 'downstream' : null);
+    return String(candidate ?? 'Awaiting route').replaceAll('_', ' ');
+  };
+  const recentSignals = brainSignals.slice(0, 8);
+  const routedCount = brainSignals.filter((signal) => {
+    const destination = destinationFor(signal).toLowerCase();
+    return destination !== 'awaiting route' || signal.review_status === 'routed';
+  }).length;
+
+  return (
+    <section
+      style={{
+        borderRadius: '20px',
+        padding: '22px',
+        backgroundColor: '#030712',
+        border: '1px solid rgba(56,189,248,0.2)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ color: '#38bdf8', letterSpacing: '0.2em', fontSize: '11px', textTransform: 'uppercase', margin: 0 }}>Downstream routing</p>
+          <h2 style={{ color: 'white', fontSize: '24px', margin: '5px 0 8px' }}>Where Brain signals went</h2>
+          <p style={{ color: '#94a3b8', maxWidth: '760px', lineHeight: 1.55, margin: 0 }}>
+            Brain interprets and routes. Standups make decisions, PM owns execution, and project work stays in its workspace.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <InlineBadge
+            label={signalsVerified ? `${routedCount} of ${brainSignals.length} routed` : 'Routing not verified'}
+            tone={signalsVerified ? '#22c55e' : '#f59e0b'}
+          />
+          <Link href="/ops" style={brainLinkButtonStyle}>Open Ops</Link>
+        </div>
+      </div>
+      {recentSignals.length > 0 ? (
+        <div style={{ display: 'grid', gap: '9px', marginTop: '16px' }}>
+          {recentSignals.map((signal) => (
+            <article
+              key={signal.id}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto',
+                gap: '12px',
+                alignItems: 'center',
+                borderRadius: '12px',
+                border: '1px solid rgba(30,41,59,0.8)',
+                backgroundColor: '#020617',
+                padding: '11px 12px',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.45, margin: 0 }}>
+                  {truncateText(signal.digest || signal.raw_summary || signal.source_ref || 'Brain signal', 180)}
+                </p>
+                <p style={{ color: '#64748b', fontSize: '11px', margin: '5px 0 0' }}>
+                  {signal.source_kind} · {signal.review_status ?? 'unreviewed'}
+                </p>
+              </div>
+              <InlineBadge label={destinationFor(signal)} tone="#38bdf8" />
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p style={{ color: '#64748b', margin: '16px 0 0' }}>
+          {signalsVerified ? 'No recent Brain routes were returned.' : 'Routing status is unavailable until the control plane verifies.'}
+        </p>
+      )}
     </section>
   );
 }

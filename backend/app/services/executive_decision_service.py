@@ -154,9 +154,9 @@ def _freshness_adjustment(freshness: str) -> int:
     return {
         "today": 8,
         "recent": 5,
-        "aging": 2,
-        "stale": -2,
-        "unknown": 0,
+        "aging": -5,
+        "stale": -25,
+        "unknown": -15,
     }.get(freshness, 0)
 
 
@@ -1156,6 +1156,19 @@ def _select_today(candidates: list[ExecutiveDecision], *, limit: int = TODAY_LIM
     return sorted(selected, key=_decision_sort_key)
 
 
+def _is_today_candidate(decision: ExecutiveDecision) -> bool:
+    """Keep Today current; the full unresolved backlog remains in all_pending."""
+
+    if decision.freshness in {"stale", "unknown"}:
+        return False
+    if decision.freshness == "aging":
+        return (
+            decision.source_type in {"pm", "workspace_review", "system_exception"}
+            and decision.priority_score >= 75
+        )
+    return decision.priority == "critical" or decision.priority_score >= 55
+
+
 def _safe_collect(
     source_type: str,
     collector: Callable[[datetime], _CollectionResult],
@@ -1380,9 +1393,7 @@ def build_executive_decision_queue(
     today_candidates = [
         decision
         for decision in all_pending
-        if decision.priority == "critical"
-        or (decision.freshness in {"today", "recent"} and decision.priority_score >= 55)
-        or (decision.freshness == "aging" and decision.priority_score >= 75)
+        if _is_today_candidate(decision)
     ]
     today = _select_today(today_candidates)
     priority_counts: dict[str, int] = {}

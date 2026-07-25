@@ -12,6 +12,7 @@ from app.services import pm_card_service
 from app.services.brain_response_privacy_service import sanitize_brain_payload
 from app.services.open_brain_db import get_pool
 from app.services.pm_execution_contract_service import build_execution_contract
+from app.services.workspace_registry_service import workspace_storage_aliases
 
 
 def list_standups(limit: int = 50, owner: Optional[str] = None, workspace_key: Optional[str] = None) -> List[StandupEntry]:
@@ -22,8 +23,8 @@ def list_standups(limit: int = 50, owner: Optional[str] = None, workspace_key: O
         clauses.append("owner = %s")
         params.append(owner)
     if workspace_key:
-        clauses.append("workspace_key = %s")
-        params.append(workspace_key)
+        clauses.append("LOWER(workspace_key) = ANY(%s)")
+        params.append(list(workspace_storage_aliases(workspace_key)))
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.append(limit)
 

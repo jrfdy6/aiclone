@@ -43,7 +43,12 @@ from app.services.execution_gate_service import (
 from app.services.pm_execution_contract_service import build_execution_contract
 from app.services.pm_review_hygiene_audit_service import list_review_hygiene_audit, record_review_hygiene_audit
 from app.services.trigger_identity_service import build_pm_trigger_key
-from app.services.workspace_registry_service import canonicalize_workspace_key, workspace_registry_entries, workspace_root_slug
+from app.services.workspace_registry_service import (
+    canonicalize_workspace_key,
+    workspace_registry_entries,
+    workspace_root_slug,
+    workspace_storage_aliases,
+)
 from app.services.workspace_runtime_contract_service import (
     execution_defaults_for_workspace as runtime_execution_defaults_for_workspace,
     pm_review_policy_for_workspace as runtime_pm_review_policy_for_workspace,
@@ -158,9 +163,10 @@ def list_cards(
         params.append(owner)
     if workspace_key:
         clauses.append(
-            "COALESCE(payload->>'workspace_key', payload->>'workspace', payload->>'belongs_to_workspace', 'shared_ops') = %s"
+            "LOWER(COALESCE(payload->>'workspace_key', payload->>'workspace', "
+            "payload->>'belongs_to_workspace', 'shared_ops')) = ANY(%s)"
         )
-        params.append(workspace_key)
+        params.append(list(workspace_storage_aliases(workspace_key)))
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.append(limit)
 

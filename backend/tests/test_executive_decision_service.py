@@ -236,6 +236,57 @@ def test_today_queue_is_small_diverse_and_does_not_promote_stale_noncritical_deb
     assert payload.summary.today_candidate_count == 5
 
 
+def test_today_excludes_stale_critical_email_and_persona_without_hiding_backlog() -> None:
+    stale_email = _decision("email", "old-email", score=99, freshness="stale")
+    stale_persona = _decision("persona", "old-persona", score=96, freshness="stale")
+    current_pm = _decision("pm", "current-pm", score=82, freshness="recent")
+    with _patch_collectors(
+        {
+            "_collect_email_decisions": service._CollectionResult(items=[stale_email]),
+            "_collect_persona_decisions": service._CollectionResult(items=[stale_persona]),
+            "_collect_pm_decisions": service._CollectionResult(items=[current_pm]),
+        }
+    ):
+        payload = service.build_executive_decision_queue(now=NOW)
+
+    assert [item.id for item in payload.today] == ["pm:current-pm"]
+    assert {item.id for item in payload.all_pending} == {
+        "email:old-email",
+        "persona:old-persona",
+        "pm:current-pm",
+    }
+    assert payload.summary.today_candidate_count == 1
+
+
+def test_aging_observation_sources_do_not_displace_current_executive_work() -> None:
+    aging_brain = _decision("brain_signal", "old-signal", score=97, freshness="aging")
+    aging_persona = _decision("persona", "old-voice-note", score=95, freshness="aging")
+    aging_pm = _decision("pm", "live-project-gate", score=80, freshness="aging")
+    with _patch_collectors(
+        {
+            "_collect_brain_signal_decisions": service._CollectionResult(items=[aging_brain]),
+            "_collect_persona_decisions": service._CollectionResult(items=[aging_persona]),
+            "_collect_pm_decisions": service._CollectionResult(items=[aging_pm]),
+        }
+    ):
+        payload = service.build_executive_decision_queue(now=NOW)
+
+    assert [item.id for item in payload.today] == ["pm:live-project-gate"]
+    assert payload.summary.today_candidate_count == 1
+
+
+def test_staleness_materially_demotes_source_priority() -> None:
+    fresh_score, fresh_priority, fresh_freshness = service._score(92, NOW, now=NOW)
+    stale_score, stale_priority, stale_freshness = service._score(
+        92,
+        NOW - timedelta(days=30),
+        now=NOW,
+    )
+
+    assert (fresh_score, fresh_priority, fresh_freshness) == (100, "critical", "today")
+    assert (stale_score, stale_priority, stale_freshness) == (67, "medium", "stale")
+
+
 def test_today_caps_a_single_noisy_source_instead_of_backfilling_to_five() -> None:
     noisy_source = [
         _decision("system_exception", f"exception-{index}", score=96 - index)

@@ -6,6 +6,8 @@ from typing import Any
 
 from app.services import pm_card_service, standup_service
 from app.services.brain_response_privacy_service import sanitize_brain_payload, sanitize_brain_text
+from app.services.pm_truth_service import classify_pm_card
+from app.services.standup_truth_service import classify_standup
 from app.services.workspace_registry_service import (
     canonicalize_workspace_key,
     workspace_registry_entries,
@@ -199,24 +201,32 @@ def _safe_pm_cards(workspace_key: str, *, limit: int) -> list[dict[str, Any]]:
         if not card_id or card_id in seen:
             continue
         seen.add(card_id)
-        status = _clean_text(getattr(card, "status", "")).lower() or "todo"
-        payload = getattr(card, "payload", {}) or {}
+        try:
+            presentation_card = pm_card_service.decorate_card_for_client(card) or card
+        except Exception:
+            presentation_card = card
+        status = _clean_text(getattr(presentation_card, "status", "")).lower() or "todo"
+        payload = getattr(presentation_card, "payload", {}) or {}
         payload_workspace_key = canonicalize_workspace_key(
             payload.get("workspace_key") or payload.get("workspace") or workspace_key,
             default=workspace_key,
         )
-        attention_kind = _pm_attention_kind(card)
+        truth = classify_pm_card(presentation_card)
+        attention_kind = str(truth.get("attention_class") or "informational")
         compacted.append(
             {
                 "id": card_id,
-                "title": getattr(card, "title", ""),
+                "title": getattr(presentation_card, "title", ""),
                 "status": status,
-                "owner": getattr(card, "owner", None),
-                "source": getattr(card, "source", None),
-                "link_type": getattr(card, "link_type", None),
+                "owner": getattr(presentation_card, "owner", None),
+                "source": getattr(presentation_card, "source", None),
+                "link_type": getattr(presentation_card, "link_type", None),
                 "attention_kind": attention_kind,
                 "workspace_key": payload_workspace_key,
-                "updated_at": getattr(card, "updated_at", None).isoformat() if getattr(card, "updated_at", None) else None,
+                "updated_at": getattr(presentation_card, "updated_at", None).isoformat()
+                if getattr(presentation_card, "updated_at", None)
+                else None,
+                "truth": truth,
             }
         )
     return compacted[:limit]
@@ -251,6 +261,7 @@ def _safe_standups(workspace_key: str, *, limit: int, root_exists: bool = False)
                 "blockers": blockers,
                 "needs": list(getattr(standup, "needs", []) or [])[:4],
                 "created_at": getattr(standup, "created_at", None).isoformat() if getattr(standup, "created_at", None) else None,
+                "truth": classify_standup(standup),
             }
         )
     return compacted[:limit]
@@ -274,51 +285,111 @@ def _active_standup_blockers(latest_standups: list[dict[str, Any]]) -> list[str]
     return [_clean_text(blocker) for blocker in (latest_standups[0].get("blockers") or []) if _clean_text(blocker)]
 
 
-def _attention_summary(*, attention_cards: list[dict[str, Any]], active_blockers: list[str]) -> dict[str, Any]:
-    owner_review_cards = [card for card in attention_cards if card.get("attention_kind") == "owner_review"]
-    blocked_cards = [card for card in attention_cards if card.get("attention_kind") == "blocked"]
-    failed_cards = [card for card in attention_cards if card.get("attention_kind") == "failed"]
-    review_cards = [card for card in attention_cards if card.get("attention_kind") == "review"]
+def _attention_summary(
+    *,
+    operator_cards: list[dict[str, Any]],
+    system_issue_cards: list[dict[str, Any]],
+    active_blockers: list[str],
+) -> dict[str, Any]:
+    owner_cards = [card for card in operator_cards if card.get("attention_kind") == "needs_owner"]
+    host_cards = [card for card in operator_cards if card.get("attention_kind") == "needs_host"]
+    failed_cards = [card for card in system_issue_cards if (card.get("truth") or {}).get("execution_class") == "failed"]
+    mismatch_cards = [card for card in system_issue_cards if bool((card.get("truth") or {}).get("state_mismatch"))]
 
-    if active_blockers:
-        status = "blocked"
-        label = "Needs Brain"
-    elif failed_cards:
-        status = "failed_work"
-        label = "Failed Work"
-    elif blocked_cards:
-        status = "blocked"
-        label = "Blocked"
-    elif review_cards:
-        status = "pm_review"
-        label = "PM Review"
-    elif owner_review_cards:
-        status = "owner_review"
-        label = "Owner Review"
+    if owner_cards:
+        status = "needs_owner"
+        label = "Needs your decision"
+    elif host_cards:
+        status = "needs_host"
+        label = "Needs your action"
+    elif failed_cards or active_blockers:
+        status = "system_issue"
+        label = "System attention"
     else:
         status = "clear"
-        label = "No blocker"
+        label = "Healthy"
 
     reasons: list[str] = []
+    if owner_cards:
+        reasons.append(f"{len(owner_cards)} card(s) require your judgment.")
+    if host_cards:
+        reasons.append(f"{len(host_cards)} card(s) require an action only you can complete.")
+    if failed_cards:
+        reasons.append(f"{len(failed_cards)} autonomous execution(s) failed and should return to the system lane.")
+    if mismatch_cards:
+        reasons.append(f"{len(mismatch_cards)} card(s) disagree with their execution state.")
     if active_blockers:
         reasons.extend(active_blockers[:3])
-    if owner_review_cards:
-        reasons.append(f"{len(owner_review_cards)} owner-review PM card(s) need a decision.")
-    if review_cards:
-        reasons.append(f"{len(review_cards)} PM review card(s) need routing.")
-    if blocked_cards:
-        reasons.append(f"{len(blocked_cards)} PM card(s) are blocked.")
-    if failed_cards:
-        reasons.append(f"{len(failed_cards)} PM card(s) failed.")
 
     return {
         "status": status,
         "label": label,
         "reasons": reasons[:5],
-        "owner_review_pm_cards": len(owner_review_cards),
-        "review_pm_cards": len(review_cards),
-        "blocked_pm_cards": len(blocked_cards),
+        "needs_owner_pm_cards": len(owner_cards),
+        "needs_host_pm_cards": len(host_cards),
         "failed_pm_cards": len(failed_cards),
+        "state_mismatch_pm_cards": len(mismatch_cards),
+        "needs_operator": bool(owner_cards or host_cards),
+        "has_system_issue": bool(failed_cards or active_blockers),
+    }
+
+
+def _readiness_summary(
+    *,
+    latest_standups: list[dict[str, Any]],
+    system_issue_cards: list[dict[str, Any]],
+    active_blockers: list[str],
+) -> dict[str, Any]:
+    latest_truth = (latest_standups[0].get("truth") or {}) if latest_standups else {}
+    failed_count = sum(
+        1 for card in system_issue_cards if str((card.get("truth") or {}).get("execution_class") or "") == "failed"
+    )
+    mismatch_count = sum(1 for card in system_issue_cards if bool((card.get("truth") or {}).get("state_mismatch")))
+    legacy_instruction_count = sum(
+        1 for card in system_issue_cards if bool((card.get("truth") or {}).get("legacy_instruction"))
+    )
+    expired_count = sum(
+        1 for card in system_issue_cards if str((card.get("truth") or {}).get("freshness") or "") == "expired"
+    )
+    reasons: list[str] = []
+
+    if failed_count:
+        reasons.append(f"{failed_count} failed autonomous execution(s).")
+    if mismatch_count:
+        reasons.append(f"{mismatch_count} PM/execution state mismatch(es).")
+    if expired_count:
+        reasons.append(f"{expired_count} expired PM instruction(s) remain active.")
+    if legacy_instruction_count:
+        reasons.append(f"{legacy_instruction_count} active card(s) still reference a retired local path.")
+    if active_blockers:
+        reasons.extend(active_blockers[:2])
+    if not latest_standups:
+        reasons.append("No standup has been recorded for this workspace.")
+    elif latest_truth.get("freshness") == "stale":
+        reasons.append("The latest standup is outside its freshness window.")
+    if latest_truth.get("quality") in {"ceremonial", "empty", "unrouted_blocker"}:
+        reasons.append(str(latest_truth.get("quality_reason") or "The latest standup did not produce a decision handoff."))
+
+    if failed_count or mismatch_count or active_blockers:
+        state = "degraded"
+        label = "Needs system attention"
+    elif reasons:
+        state = "watch"
+        label = "Check soon"
+    else:
+        state = "healthy"
+        label = "Healthy"
+
+    return {
+        "state": state,
+        "label": label,
+        "reasons": reasons[:5],
+        "failed_executions": failed_count,
+        "state_mismatches": mismatch_count,
+        "expired_instructions": expired_count,
+        "legacy_instructions": legacy_instruction_count,
+        "latest_standup_freshness": latest_truth.get("freshness"),
+        "latest_standup_quality": latest_truth.get("quality"),
     }
 
 
@@ -363,8 +434,27 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
     latest_standups = _safe_standups(workspace_key, limit=standup_limit, root_exists=root.exists())
     active_blockers = _active_standup_blockers(latest_standups)
     blocker_count = len(active_blockers)
-    attention_cards = [card for card in active_cards if str(card.get("status") or "").lower() in ATTENTION_PM_STATUSES]
-    attention_summary = _attention_summary(attention_cards=attention_cards, active_blockers=active_blockers)
+    operator_cards = [
+        card for card in active_cards if str(card.get("attention_kind") or "") in {"needs_owner", "needs_host"}
+    ]
+    system_issue_cards = [
+        card
+        for card in active_cards
+        if str((card.get("truth") or {}).get("execution_class") or "") in {"failed", "blocked"}
+        or bool((card.get("truth") or {}).get("state_mismatch"))
+        or bool((card.get("truth") or {}).get("legacy_instruction"))
+        or str((card.get("truth") or {}).get("freshness") or "") == "expired"
+    ]
+    attention_summary = _attention_summary(
+        operator_cards=operator_cards,
+        system_issue_cards=system_issue_cards,
+        active_blockers=active_blockers,
+    )
+    readiness_summary = _readiness_summary(
+        latest_standups=latest_standups,
+        system_issue_cards=system_issue_cards,
+        active_blockers=active_blockers,
+    )
     source_paths = [
         value
         for value in [
@@ -378,7 +468,7 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
 
     return {
         "workspace_key": workspace_key,
-        "display_name": entry.get("display_name") or workspace_key,
+        "display_name": entry.get("portfolio_label") or entry.get("display_name") or workspace_key,
         "short_label": entry.get("short_label") or entry.get("display_name") or workspace_key,
         "kind": entry.get("kind") or "workspace",
         "status": entry.get("status") or "planned",
@@ -405,14 +495,19 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
             "pack_files_present": sum(1 for item in _pack_status(root, repo_root) if item.get("exists")),
             "local_contracts": len(_local_contracts(root, repo_root)),
             "active_pm_cards": len(active_cards),
-            "attention_pm_cards": len(attention_cards),
-            "owner_review_pm_cards": int(attention_summary.get("owner_review_pm_cards") or 0),
+            "attention_pm_cards": len(operator_cards),
+            "needs_owner_pm_cards": int(attention_summary.get("needs_owner_pm_cards") or 0),
+            "needs_host_pm_cards": int(attention_summary.get("needs_host_pm_cards") or 0),
+            "system_issue_pm_cards": len(system_issue_cards),
             "latest_standups": len(latest_standups),
             "standup_blockers": blocker_count,
         },
         "active_blockers": active_blockers,
         "attention": attention_summary,
-        "needs_brain_attention": bool(attention_cards or blocker_count),
+        "readiness": readiness_summary,
+        "needs_operator_attention": bool(attention_summary.get("needs_operator")),
+        "has_system_issue": bool(attention_summary.get("has_system_issue")),
+        "needs_brain_attention": bool(attention_summary.get("needs_operator") or attention_summary.get("has_system_issue")),
         "source_paths": source_paths,
     }
 
@@ -431,6 +526,8 @@ def build_portfolio_workspace_snapshot(*, pm_limit: int = 8, standup_limit: int 
         "counts": {
             "workspaces": len(visible_workspaces),
             "needs_brain_attention": sum(1 for workspace in visible_workspaces if workspace.get("needs_brain_attention")),
+            "needs_operator_attention": sum(1 for workspace in visible_workspaces if workspace.get("needs_operator_attention")),
+            "system_issues": sum(1 for workspace in visible_workspaces if workspace.get("has_system_issue")),
             "active_pm_cards": sum(int((workspace.get("counts") or {}).get("active_pm_cards") or 0) for workspace in visible_workspaces),
             "standup_blockers": sum(int((workspace.get("counts") or {}).get("standup_blockers") or 0) for workspace in visible_workspaces),
         },
