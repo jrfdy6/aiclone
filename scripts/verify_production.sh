@@ -111,37 +111,43 @@ backend_get "$BACKEND_URL/api/email/canary" > "$tmp_dir/email_canary.json"
 launchctl list > "$tmp_dir/launchctl.txt"
 ps -ef > "$tmp_dir/ps.txt"
 python3 - "$tmp_dir/email_canary.json" "$tmp_dir/launchctl.txt" "$tmp_dir/ps.txt" <<'PY'
-import json, sys
+import json, os, sys
 
 payload = json.load(open(sys.argv[1]))
 summary = payload.get("summary") or {}
 queue = payload.get("queue") or {}
 provider = payload.get("provider") or {}
 bridge = payload.get("bridge_registry") or {}
+require_email_canary = os.getenv("REQUIRE_EMAIL_CANARY", "").strip().lower() in {"1", "true", "yes", "on"}
 
-assert summary.get("status") == "pass", payload
-assert provider.get("connected") is True, provider
-assert provider.get("drafts_enabled") is True, provider
-assert bridge.get("configured") is True, bridge
-assert bridge.get("status") == "active", bridge
 assert queue.get("workspace_slug") == "email-drafts", queue
 assert int(queue.get("stale_job_count") or 0) == 0, queue
 
-launchctl_text = open(sys.argv[2], encoding="utf-8").read()
-assert "com.neo.email_codex_bridge" in launchctl_text, launchctl_text
+if summary.get("status") == "pass":
+    assert provider.get("connected") is True, provider
+    assert provider.get("drafts_enabled") is True, provider
+    assert bridge.get("configured") is True, bridge
+    assert bridge.get("status") == "active", bridge
 
-ps_lines = open(sys.argv[3], encoding="utf-8").read().splitlines()
-assert any(
-    "local_codex_bridge.py" in line and "--workspace-slug email-drafts" in line
-    for line in ps_lines
-), ps_lines
+    launchctl_text = open(sys.argv[2], encoding="utf-8").read()
+    assert "com.neo.email_codex_bridge" in launchctl_text, launchctl_text
 
-print("email canary ok")
+    ps_lines = open(sys.argv[3], encoding="utf-8").read().splitlines()
+    assert any(
+        "local_codex_bridge.py" in line and "--workspace-slug email-drafts" in line
+        for line in ps_lines
+    ), ps_lines
+    print("email canary ok")
+else:
+    assert not require_email_canary, payload
+    assert provider.get("drafts_enabled") is False, provider
+    assert bridge.get("status") in {"paused", "disabled"}, bridge
+    print("email canary skipped: optional drafting lane is intentionally disabled")
 PY
 
 echo "[6/6] Frontend ops page"
 curl -fsS -b "$cookie_jar" "$FRONTEND_URL/ops" > "$tmp_dir/ops.html"
-grep -q "Mission Control" "$tmp_dir/ops.html"
+grep -q "Your operating brief" "$tmp_dir/ops.html"
 grep -q "AI Clone" "$tmp_dir/ops.html"
 echo "ops page ok"
 

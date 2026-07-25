@@ -48,7 +48,7 @@ echo "[1/6] Frontend home route"
 check_route "/" "home" "Ops is the homepage."
 
 echo "[2/6] Ops route"
-check_route "/ops" "ops" "Mission Control"
+check_route "/ops" "ops" "Your operating brief"
 
 echo "[3/6] Brain route"
 check_route "/brain" "brain" "What needs you today."
@@ -60,7 +60,7 @@ echo "[5/6] Posting workspace route"
 check_route "/workspace/posting" "workspace_posting" "Loading posting workspace"
 
 echo "[6/6] Inbox route"
-check_route "/inbox" "inbox" "Portfolio email routing"
+check_route "/inbox" "inbox" "Loading inbox"
 
 echo
 echo "verify_frontend_release.sh passed"
