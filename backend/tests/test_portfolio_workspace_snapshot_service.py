@@ -508,6 +508,42 @@ class PortfolioWorkspaceSnapshotServiceTests(unittest.TestCase):
         self.assertEqual(readiness["state_mismatches"], 1)
         self.assertEqual(readiness["state"], "degraded")
 
+    def test_legacy_path_only_affects_readiness_while_its_card_is_current(self) -> None:
+        current_standup = [{"truth": {"freshness": "current", "quality": "actionable"}}]
+        stale_card = {
+            "truth": {
+                "execution_class": "unverified",
+                "freshness": "stale",
+                "state_mismatch": False,
+                "legacy_instruction": True,
+            }
+        }
+        current_card = {
+            "truth": {
+                "execution_class": "unverified",
+                "freshness": "current",
+                "state_mismatch": False,
+                "legacy_instruction": True,
+            }
+        }
+
+        stale_readiness = service._readiness_summary(
+            latest_standups=current_standup,
+            system_issue_cards=[stale_card],
+            active_blockers=[],
+        )
+        current_readiness = service._readiness_summary(
+            latest_standups=current_standup,
+            system_issue_cards=[current_card],
+            active_blockers=[],
+        )
+
+        self.assertEqual(stale_readiness["state"], "healthy")
+        self.assertEqual(stale_readiness["legacy_instructions"], 0)
+        self.assertEqual(stale_readiness["historical_system_issues"], 1)
+        self.assertEqual(current_readiness["state"], "watch")
+        self.assertEqual(current_readiness["legacy_instructions"], 1)
+
     def test_build_snapshot_treats_stale_standup_blocker_as_history(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace_root = Path(temp_dir) / "workspaces" / "agc"

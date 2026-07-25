@@ -378,6 +378,10 @@ def _is_historical_failed_recovery(card: dict[str, Any]) -> bool:
     )
 
 
+def _is_current_system_issue(card: dict[str, Any]) -> bool:
+    return str((card.get("truth") or {}).get("freshness") or "") not in {"stale", "historical"}
+
+
 def _attention_summary(
     *,
     operator_cards: list[dict[str, Any]],
@@ -386,18 +390,17 @@ def _attention_summary(
 ) -> dict[str, Any]:
     owner_cards = [card for card in operator_cards if card.get("attention_kind") == "needs_owner"]
     host_cards = [card for card in operator_cards if card.get("attention_kind") == "needs_host"]
+    current_issue_cards = [card for card in system_issue_cards if _is_current_system_issue(card)]
     failed_cards = [
         card
-        for card in system_issue_cards
+        for card in current_issue_cards
         if (card.get("truth") or {}).get("execution_class") == "failed"
-        and not _is_historical_failed_recovery(card)
     ]
     historical_failed_cards = [card for card in system_issue_cards if _is_historical_failed_recovery(card)]
     mismatch_cards = [
         card
-        for card in system_issue_cards
+        for card in current_issue_cards
         if bool((card.get("truth") or {}).get("state_mismatch"))
-        and not _is_historical_failed_recovery(card)
     ]
 
     if owner_cards:
@@ -446,21 +449,20 @@ def _readiness_summary(
     active_blockers: list[str],
 ) -> dict[str, Any]:
     latest_truth = (latest_standups[0].get("truth") or {}) if latest_standups else {}
+    current_issue_cards = [card for card in system_issue_cards if _is_current_system_issue(card)]
     failed_count = sum(
         1
-        for card in system_issue_cards
+        for card in current_issue_cards
         if str((card.get("truth") or {}).get("execution_class") or "") == "failed"
-        and not _is_historical_failed_recovery(card)
     )
     historical_failed_count = sum(1 for card in system_issue_cards if _is_historical_failed_recovery(card))
     mismatch_count = sum(
         1
-        for card in system_issue_cards
+        for card in current_issue_cards
         if bool((card.get("truth") or {}).get("state_mismatch"))
-        and not _is_historical_failed_recovery(card)
     )
     legacy_instruction_count = sum(
-        1 for card in system_issue_cards if bool((card.get("truth") or {}).get("legacy_instruction"))
+        1 for card in current_issue_cards if bool((card.get("truth") or {}).get("legacy_instruction"))
     )
     expired_count = sum(
         1 for card in system_issue_cards if str((card.get("truth") or {}).get("freshness") or "") == "expired"
@@ -500,6 +502,9 @@ def _readiness_summary(
         "reasons": reasons[:5],
         "failed_executions": failed_count,
         "historical_failed_executions": historical_failed_count,
+        "historical_system_issues": sum(
+            1 for card in system_issue_cards if not _is_current_system_issue(card)
+        ),
         "state_mismatches": mismatch_count,
         "expired_instructions": expired_count,
         "legacy_instructions": legacy_instruction_count,
@@ -579,10 +584,10 @@ def _build_workspace_summary(entry: dict[str, Any], *, pm_limit: int, standup_li
         or bool((card.get("truth") or {}).get("legacy_instruction"))
         or str((card.get("truth") or {}).get("freshness") or "") == "expired"
     ]
-    historical_recovery_cards = [card for card in system_issue_cards if _is_historical_failed_recovery(card)]
-    current_system_issue_cards = [
-        card for card in system_issue_cards if not _is_historical_failed_recovery(card)
+    historical_recovery_cards = [
+        card for card in system_issue_cards if not _is_current_system_issue(card)
     ]
+    current_system_issue_cards = [card for card in system_issue_cards if _is_current_system_issue(card)]
     attention_summary = _attention_summary(
         operator_cards=operator_cards,
         system_issue_cards=system_issue_cards,
