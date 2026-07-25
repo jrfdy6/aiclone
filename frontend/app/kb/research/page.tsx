@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firestore";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -56,7 +57,7 @@ export default async function ResearchIndexPage() {
       .limit(20)
       .get();
 
-    topics = topicDocs.docs.map((doc) => {
+    topics = topicDocs.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -80,7 +81,7 @@ export default async function ResearchIndexPage() {
       .limit(20)
       .get();
 
-    discoveries = discoveryDocs.docs.map((doc) => {
+    discoveries = discoveryDocs.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
       const data = doc.data();
       return {
         id: doc.id,

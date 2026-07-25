@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firestore";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -36,7 +37,7 @@ async function fetchRecentResearch() {
       .limit(5)
       .get();
 
-    const topics = topicDocs.docs.map((doc) => {
+    const topics = topicDocs.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
       const data = doc.data();
       return {
         slug: generateSlug(data.theme_display || data.theme, data.created_at),
@@ -59,7 +60,7 @@ async function fetchRecentResearch() {
       .limit(5)
       .get();
 
-    const discoveries = discoveryDocs.docs.map((doc) => {
+    const discoveries = discoveryDocs.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => {
       const data = doc.data();
       return {
         slug: generateSlug(
