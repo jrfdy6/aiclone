@@ -5,7 +5,6 @@
     ".githooks/pre-push",
     ".github/workflows/public-release.yml",
     ".public-lineage-root",
-    "README.md",
     "backend/.env.example",
     "backend/Procfile",
     "backend/app",
@@ -32,6 +31,7 @@
     "frontend/tsconfig.json",
     "release/public.gitignore",
     "release/public.package.json",
+    "release/public.README.md",
     "release/public_source_manifest.json",
     "scripts/build_public_release.py",
     "scripts/install_git_hooks.sh",
@@ -40,7 +40,8 @@
   ],
   "file_mappings": {
     "release/public.gitignore": ".gitignore",
-    "release/public.package.json": "package.json"
+    "release/public.package.json": "package.json",
+    "release/public.README.md": "README.md"
   },
   "inventory_sha256": "b6086472f83e8fd325bdc742f3192288a99a89072ca8720c26eb4cd6f520b38b",
   "excludes": [

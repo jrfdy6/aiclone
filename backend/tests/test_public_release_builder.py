@@ -478,6 +478,7 @@ def test_repository_manifest_is_a_strict_public_app_allowlist() -> None:
     assert manifest["file_mappings"] == {
         "release/public.gitignore": ".gitignore",
         "release/public.package.json": "package.json",
+        "release/public.README.md": "README.md",
     }
 
 

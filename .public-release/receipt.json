@@ -1704,8 +1704,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_public_release_builder.py",
-        "sha256": "9b1c74ccca449ee4ffe7b2536eb6dbf2138415dffbb0eac8aa58cc095741432c",
-        "size": 25600
+        "sha256": "ce7bcc88efb787e1d8ad33f9208381b346d56772a7847eedcb922febe0226e25",
+        "size": 25649
       },
       {
         "mode": 420,
@@ -2466,8 +2466,8 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "55b35d7e1237cd0893dc9d5c462392ebeff199fbe14f80d3684b58d5f9f28c5b",
-        "size": 2702
+        "sha256": "2487a45e2768fc0c08335bf26c6672ac9ef1b8d39c2bd7e9e0ae95e5b4f37e25",
+        "size": 2762
       },
       {
         "mode": 493,
@@ -2494,11 +2494,11 @@
         "size": 8042
       }
     ],
-    "tree_sha256": "978dfed4ca7ee50f8489f15a50c5025e18aba891f618c4bb202047dc01fb3b0c"
+    "tree_sha256": "eb606afde71372c543295f3c5c10a6bfac45df6ccd23a75f580bc5710ef82479"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "55b35d7e1237cd0893dc9d5c462392ebeff199fbe14f80d3684b58d5f9f28c5b"
+    "sha256": "2487a45e2768fc0c08335bf26c6672ac9ef1b8d39c2bd7e9e0ae95e5b4f37e25"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
