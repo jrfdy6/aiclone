@@ -1,5 +1,5 @@
 {
-  "builder_version": "2.0.0",
+  "builder_version": "2.0.1",
   "candidate": {
     "file_count": 415,
     "files": [
@@ -196,7 +196,7 @@
         "size": 1363
       },
       {
-        "mode": 384,
+        "mode": 420,
         "path": "backend/app/models/persona.py",
         "sha256": "f03ba40643fd2149c2e94a45d9ffb246e8cb86e6d2406ef533b9b18338fc3e87",
         "size": 932
@@ -280,7 +280,7 @@
         "size": 3
       },
       {
-        "mode": 384,
+        "mode": 420,
         "path": "backend/app/models/timeline.py",
         "sha256": "29527b64115809ede4b98840a37af8e8e028a7a10de04c92bec80334900b7751",
         "size": 270
@@ -622,7 +622,7 @@
         "size": 314
       },
       {
-        "mode": 384,
+        "mode": 420,
         "path": "backend/app/routes/timeline.py",
         "sha256": "d74d020b84dbd3047d8253d5f51e2bc995d6599dbdb89f8898e3b7eda9bd41b3",
         "size": 384
@@ -844,7 +844,7 @@
         "size": 17287
       },
       {
-        "mode": 384,
+        "mode": 420,
         "path": "backend/app/services/core_memory_snapshot_service.py",
         "sha256": "5359fdc897ab6a165d24700dffc383ef9d2cbf36e85cb4be82f25d2d45c2e796",
         "size": 14887
@@ -1156,7 +1156,7 @@
         "size": 46699
       },
       {
-        "mode": 384,
+        "mode": 420,
         "path": "backend/app/services/persona_delta_service.py",
         "sha256": "369cf26f9200cf301cb7e97726c5203bf137116e5ce63f9d662f7956245db18b",
         "size": 8269
@@ -1402,7 +1402,7 @@
         "size": 6738
       },
       {
-        "mode": 384,
+        "mode": 420,
         "path": "backend/app/services/session_metrics_service.py",
         "sha256": "a7d885cbf982cacb6747d24a71ce4fa88ba39ba2def81ba17f85322620a93b0d",
         "size": 3660
@@ -1570,7 +1570,7 @@
         "size": 3
       },
       {
-        "mode": 384,
+        "mode": 420,
         "path": "backend/app/services/timeline_service.py",
         "sha256": "3a762318314c1b85ffec9afcd2ba1c338cf03d1de3638305ea94ea7a4a09edc7",
         "size": 2849
@@ -1704,14 +1704,14 @@
       {
         "mode": 420,
         "path": "backend/tests/test_public_release_builder.py",
-        "sha256": "77d296b53d24f94b219bbdbf63ccf29c2bf428c6f98b046d4d8e1b608b00a454",
-        "size": 24271
+        "sha256": "9b1c74ccca449ee4ffe7b2536eb6dbf2138415dffbb0eac8aa58cc095741432c",
+        "size": 25600
       },
       {
         "mode": 420,
         "path": "docs/public_github_release_sop.md",
-        "sha256": "12540e4bd321f3b4d7bdc9da696f747609b356d684cf9e990b2d2cbb8098a608",
-        "size": 5931
+        "sha256": "fc14090aaf7fad2e8cc0c2126a953e509fed44062fbf47987dac6fd06e489ed4",
+        "size": 6044
       },
       {
         "mode": 420,
@@ -2472,8 +2472,8 @@
       {
         "mode": 493,
         "path": "scripts/build_public_release.py",
-        "sha256": "1d24c275ed86f0e2d02619bfa47a70957d012d283b0361ac86a9705f9fb2e83f",
-        "size": 54673
+        "sha256": "729c55d8c6513cb52957fa190dc9014dc06ba63fd7518487c5abca69aa55e4f2",
+        "size": 54898
       },
       {
         "mode": 493,
@@ -2494,7 +2494,7 @@
         "size": 6812
       }
     ],
-    "tree_sha256": "f59ab1b7d563970feac8322858fc5e0088875e1a204d16974b27451565ed3d59"
+    "tree_sha256": "16d8326f13565835cf6a85a72c7dfac3c540f5f1153088808b9fb67b0ae0312d"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

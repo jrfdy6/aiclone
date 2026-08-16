@@ -34,11 +34,12 @@ The gate must:
 1. compute and bind the exact manifest digest;
 2. create a new isolated candidate;
 3. scan only allowlisted source and fail closed on privacy or secret policy violations;
-4. verify the immutable receipt before tests mutate the candidate;
-5. import the backend and exercise `/health`;
-6. run the public-boundary tests;
-7. run frontend tests and a production build;
-8. perform no model call, publication, learning update, or external message.
+4. normalize file permissions to Git-portable `0644`/`0755` modes and bind those modes in the immutable receipt;
+5. verify the immutable receipt before tests mutate the candidate;
+6. import the backend and exercise `/health`;
+7. run the public-boundary tests;
+8. run frontend tests and a production build;
+9. perform no model call, publication, learning update, or external message.
 
 When `AI_CLONE_PUBLIC_OUTPUT_ROOT` names a new directory outside the private
 workspace, the gate rebuilds a clean candidate after testing, requires its

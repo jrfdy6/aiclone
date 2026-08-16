@@ -191,6 +191,37 @@ def test_identical_inputs_produce_identical_receipts(tmp_path: Path) -> None:
     ).read_bytes()
 
 
+def test_receipt_uses_git_portable_modes_and_normalizes_candidate(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    app_root = source_root / "app"
+    app_root.mkdir(parents=True)
+    plain_path = app_root / "plain.txt"
+    executable_path = app_root / "run.sh"
+    plain_path.write_text("safe\n", encoding="utf-8")
+    executable_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    plain_path.chmod(0o640)
+    executable_path.chmod(0o700)
+    manifest_path, digest = _write_manifest(source_root, includes=["app"])
+    candidate_root = tmp_path / "candidate"
+
+    report = _build(source_root, candidate_root, manifest_path, digest)
+
+    assert (candidate_root / "app" / "plain.txt").stat().st_mode & 0o777 == 0o644
+    assert (candidate_root / "app" / "run.sh").stat().st_mode & 0o777 == 0o755
+    receipt = json.loads(
+        (candidate_root / public_release.METADATA_DIR / public_release.RECEIPT_NAME).read_text(
+            encoding="utf-8"
+        )
+    )
+    modes = {record["path"]: record["mode"] for record in receipt["candidate"]["files"]}
+    assert modes == {"app/plain.txt": 0o644, "app/run.sh": 0o755}
+    verified = public_release.verify_candidate(
+        candidate_root=candidate_root,
+        expected_receipt_sha256=report["receipt_sha256"],
+    )
+    assert verified["ok"] is True
+
+
 @pytest.mark.parametrize(
     "kind,expected_code",
     [

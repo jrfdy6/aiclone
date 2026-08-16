@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "release" / "public_source_manifest.json"
 MANIFEST_SCHEMA = "aiclone_public_source_manifest/v2"
 RECEIPT_SCHEMA = "aiclone_public_release/v2"
-BUILDER_VERSION = "2.0.0"
+BUILDER_VERSION = "2.0.1"
 METADATA_DIR = ".public-release"
 RECEIPT_NAME = "receipt.json"
 MANIFEST_COPY_NAME = "manifest.json"
@@ -374,6 +374,12 @@ def _forbidden_path_reason(relative_path: str) -> str | None:
     return None
 
 
+def _git_portable_mode(mode: int) -> int:
+    """Return the only file-mode distinction represented by a Git tree."""
+
+    return 0o755 if mode & 0o111 else 0o644
+
+
 def _record(path: Path, relative_path: str) -> dict[str, Any]:
     info = path.stat(follow_symlinks=False)
     if not stat.S_ISREG(info.st_mode):
@@ -384,7 +390,7 @@ def _record(path: Path, relative_path: str) -> dict[str, Any]:
         "path": relative_path,
         "sha256": _sha256_file(path),
         "size": info.st_size,
-        "mode": stat.S_IMODE(info.st_mode),
+        "mode": _git_portable_mode(info.st_mode),
     }
 
 
@@ -803,6 +809,7 @@ def build_candidate(
             destination = temporary / relative_path
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, destination, follow_symlinks=False)
+            destination.chmod(expected_record["mode"])
             if _record(destination, relative_path) != expected_record:
                 raise PublicReleaseError("source changed while the public candidate was copied")
         metadata_root = temporary / METADATA_DIR
