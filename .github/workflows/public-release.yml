@@ -58,7 +58,7 @@ jobs:
           umask 077
           DENYLIST_FILE="$(mktemp "$RUNNER_TEMP/aiclone-pr-denylist.XXXXXXXX")"
           trap 'rm -f -- "$DENYLIST_FILE"' EXIT
-          printf '%s\n' 'public-pr-sentinel-never-publish' > "$DENYLIST_FILE"
+          python -I -c 'import secrets; print(secrets.token_hex(32))' > "$DENYLIST_FILE"
           AI_CLONE_PRIVATE_DENYLIST_FILE="$DENYLIST_FILE" \
           AI_CLONE_PUBLIC_GIT_TREE_MODE=1 \
           AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT="$EXPECTED_LINEAGE_ROOT" \
@@ -135,7 +135,7 @@ jobs:
           umask 077
           SENTINEL_FILE="$(mktemp "$RUNNER_TEMP/aiclone-public-sentinel.XXXXXXXX")"
           trap 'rm -f -- "$SENTINEL_FILE"' EXIT
-          printf '%s\n' 'public-application-sentinel-never-publish' > "$SENTINEL_FILE"
+          python -I -c 'import secrets; print(secrets.token_hex(32))' > "$SENTINEL_FILE"
           AI_CLONE_PRIVATE_DENYLIST_FILE="$SENTINEL_FILE" \
           AI_CLONE_PUBLIC_GIT_TREE_MODE=1 \
           AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT="$EXPECTED_LINEAGE_ROOT" \
