@@ -6,14 +6,14 @@
       {
         "mode": 493,
         "path": ".githooks/pre-push",
-        "sha256": "c00bcc844b6d289e9179119c81af64c29e5a17966aa87eb26147533f84db40ed",
-        "size": 2363
+        "sha256": "9e04c69388d185bdfda61d698c3daace8617d7309fb73482f4796e6f8776dfed",
+        "size": 2163
       },
       {
         "mode": 420,
         "path": ".github/workflows/public-release.yml",
-        "sha256": "e68edec783279780bb1bfe64960ba9a215bc5e2f5c1790a67cb703c17ebfab21",
-        "size": 7411
+        "sha256": "5d14444d4ded60541aab14708e86c924761d6036b13bb55e16fde7e2ebb554f4",
+        "size": 8520
       },
       {
         "mode": 420,
@@ -1710,8 +1710,8 @@
       {
         "mode": 420,
         "path": "docs/public_github_release_sop.md",
-        "sha256": "fc14090aaf7fad2e8cc0c2126a953e509fed44062fbf47987dac6fd06e489ed4",
-        "size": 6044
+        "sha256": "68a319ca15093c985cc3d82ed91020ec510d4dcf40f7fc174e2f3e3e2397b6bd",
+        "size": 6622
       },
       {
         "mode": 420,
@@ -2490,11 +2490,11 @@
       {
         "mode": 493,
         "path": "scripts/verify_public_release.sh",
-        "sha256": "b22ec6c8b491fd327d3187d887c38483b33f4c713ac8b9c650c9bde6fe3f2b45",
-        "size": 6812
+        "sha256": "4ee95689f8fab29832808dbf366e6f29fc981d49c19dd8600228483cb731b98d",
+        "size": 8042
       }
     ],
-    "tree_sha256": "16d8326f13565835cf6a85a72c7dfac3c540f5f1153088808b9fb67b0ae0312d"
+    "tree_sha256": "00dfcff9701e6f2e536eee0dce892f111761a08c798f9c4eaf8552d668d5577a"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

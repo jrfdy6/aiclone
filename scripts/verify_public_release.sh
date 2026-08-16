@@ -6,6 +6,15 @@ PRIVATE_DENYLIST="${AI_CLONE_PRIVATE_DENYLIST_FILE:-}"
 PUBLIC_OUTPUT_ROOT="${AI_CLONE_PUBLIC_OUTPUT_ROOT:-}"
 PUBLIC_PYTHON="${AI_CLONE_PUBLIC_PYTHON:-python3}"
 PUBLIC_NPM_CACHE="${NPM_CONFIG_CACHE:-$HOME/.npm}"
+PUBLIC_GIT_TREE_MODE="${AI_CLONE_PUBLIC_GIT_TREE_MODE:-0}"
+
+case "$PUBLIC_GIT_TREE_MODE" in
+  0|1) ;;
+  *)
+    echo "error: AI_CLONE_PUBLIC_GIT_TREE_MODE must be 0 or 1" >&2
+    exit 1
+    ;;
+esac
 
 if [[ -z "$PRIVATE_DENYLIST" || ! -f "$PRIVATE_DENYLIST" ]]; then
   echo "error: AI_CLONE_PRIVATE_DENYLIST_FILE must name a private file outside the repository" >&2
@@ -85,6 +94,10 @@ run_public_npm() (
 )
 
 if [[ -n "$PUBLIC_OUTPUT_ROOT" ]]; then
+  if [[ "$PUBLIC_GIT_TREE_MODE" == "1" ]]; then
+    echo "error: AI_CLONE_PUBLIC_OUTPUT_ROOT cannot be used while verifying a public Git tree" >&2
+    exit 1
+  fi
   if [[ "$PUBLIC_OUTPUT_ROOT" != /* ]]; then
     echo "error: AI_CLONE_PUBLIC_OUTPUT_ROOT must be an absolute path" >&2
     exit 1
@@ -114,19 +127,36 @@ if [[ -n "${AI_CLONE_PUBLIC_MANIFEST_SHA256:-}" && "$MANIFEST_SHA" != "$AI_CLONE
   exit 1
 fi
 
-BUILD_REPORT="$(
-  "$PUBLIC_PYTHON" "$PUBLIC_RELEASE_ROOT/scripts/build_public_release.py" build \
-    --candidate-root "$PUBLIC_CANDIDATE" \
-    --expected-manifest-sha256 "$MANIFEST_SHA" \
+if [[ "$PUBLIC_GIT_TREE_MODE" == "1" ]]; then
+  if [[ -z "${AI_CLONE_PUBLIC_MANIFEST_SHA256:-}" || -z "${AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT:-}" ]]; then
+    echo "error: public Git-tree verification requires the reviewed manifest and lineage root" >&2
+    exit 1
+  fi
+  VERIFY_TREE_ARGS=(
+    verify-source-tree
+    --source-root "$PUBLIC_RELEASE_ROOT"
     --private-denylist "$PRIVATE_DENYLIST"
-)"
-RECEIPT_SHA="$(printf '%s' "$BUILD_REPORT" | "$PUBLIC_PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["receipt_sha256"])')"
-printf '%s\n' "$BUILD_REPORT"
+    --expected-lineage-root "$AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT"
+    --expected-git-name "AI Clone Release"
+    --require-noreply-email
+  )
+  "$PUBLIC_PYTHON" "$PUBLIC_RELEASE_ROOT/scripts/build_public_release.py" "${VERIFY_TREE_ARGS[@]}"
+  PUBLIC_CANDIDATE="$PUBLIC_RELEASE_ROOT"
+else
+  BUILD_REPORT="$(
+    "$PUBLIC_PYTHON" "$PUBLIC_RELEASE_ROOT/scripts/build_public_release.py" build \
+      --candidate-root "$PUBLIC_CANDIDATE" \
+      --expected-manifest-sha256 "$MANIFEST_SHA" \
+      --private-denylist "$PRIVATE_DENYLIST"
+  )"
+  RECEIPT_SHA="$(printf '%s' "$BUILD_REPORT" | "$PUBLIC_PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["receipt_sha256"])')"
+  printf '%s\n' "$BUILD_REPORT"
 
-"$PUBLIC_PYTHON" "$PUBLIC_RELEASE_ROOT/scripts/build_public_release.py" verify \
-  --candidate-root "$PUBLIC_CANDIDATE" \
-  --expected-receipt-sha256 "$RECEIPT_SHA" \
-  --private-denylist "$PRIVATE_DENYLIST"
+  "$PUBLIC_PYTHON" "$PUBLIC_RELEASE_ROOT/scripts/build_public_release.py" verify \
+    --candidate-root "$PUBLIC_CANDIDATE" \
+    --expected-receipt-sha256 "$RECEIPT_SHA" \
+    --private-denylist "$PRIVATE_DENYLIST"
+fi
 
 "${PUBLIC_SAFE_ENV[@]}" "$PUBLIC_PYTHON" -m compileall -q \
   "$PUBLIC_CANDIDATE/backend/app" \
@@ -143,7 +173,9 @@ run_public_npm --prefix "$PUBLIC_CANDIDATE/frontend" ci
 run_public_npm --prefix "$PUBLIC_CANDIDATE/frontend" test
 run_public_npm --prefix "$PUBLIC_CANDIDATE/frontend" run build
 
-if [[ -n "$PUBLIC_OUTPUT_ROOT" ]]; then
+if [[ "$PUBLIC_GIT_TREE_MODE" == "1" ]]; then
+  "$PUBLIC_PYTHON" "$PUBLIC_RELEASE_ROOT/scripts/build_public_release.py" "${VERIFY_TREE_ARGS[@]}" >/dev/null
+elif [[ -n "$PUBLIC_OUTPUT_ROOT" ]]; then
   FINAL_BUILD_REPORT="$(
     "$PUBLIC_PYTHON" "$PUBLIC_RELEASE_ROOT/scripts/build_public_release.py" build \
       --candidate-root "$PUBLIC_PRESERVED_STAGING" \

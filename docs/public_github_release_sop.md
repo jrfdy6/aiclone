@@ -21,6 +21,9 @@ application/privacy verification and a clean, approved, single-root Git lineage
 are required outcomes before push or release; they are not assumed inputs.
 
 The denylist contains private names, organizations, account identifiers, and other owner-specific literals. CI receives it only through a protected GitHub Actions secret. Neither its contents nor matching source text may be printed.
+The protected workflow materializes it only for the standard-library privacy and
+history verifier, deletes it immediately, and runs dependency installation,
+application tests, and builds afterward with a non-secret sentinel.
 
 ## Build and verify
 
@@ -46,6 +49,12 @@ workspace, the gate rebuilds a clean candidate after testing, requires its
 receipt to match the tested candidate exactly, verifies it again, and preserves
 that clean copy for the orphan Git checkout. Without this variable, the gate
 uses and removes an ephemeral candidate.
+
+Inside that committed public checkout, the hook and GitHub workflow set
+`AI_CLONE_PUBLIC_GIT_TREE_MODE=1`. In this explicit mode the same gate verifies
+the receipt, approved lineage, complete reachable history, and application from
+the exact Git tree; it does not try to rebuild private-source file mappings that
+do not exist in the public projection.
 
 ## Branch procedure
 

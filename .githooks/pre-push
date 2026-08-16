@@ -8,6 +8,10 @@ if [[ -z "${AI_CLONE_PRIVATE_DENYLIST_FILE:-}" || ! -f "$AI_CLONE_PRIVATE_DENYLI
   echo "error: AI_CLONE_PRIVATE_DENYLIST_FILE is required for a public push" >&2
   exit 1
 fi
+if [[ -z "${AI_CLONE_PUBLIC_MANIFEST_SHA256:-}" || -z "${AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT:-}" ]]; then
+  echo "error: reviewed public manifest and lineage root are required for a public push" >&2
+  exit 1
+fi
 
 PUSHED_REF_COUNT=0
 PUSHED_TAG=""
@@ -49,18 +53,8 @@ if [[ "$PUSHED_REF_COUNT" -eq 0 ]]; then
   exit 1
 fi
 
-VERIFY_TREE_ARGS=(
-  verify-source-tree
-  --private-denylist "$AI_CLONE_PRIVATE_DENYLIST_FILE"
-  --expected-git-name "AI Clone Release"
-  --require-noreply-email
-)
-if [[ -n "${AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT:-}" ]]; then
-  VERIFY_TREE_ARGS+=(--expected-lineage-root "$AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT")
-fi
-
-echo "Verifying exact public Git tree and complete reachable history..."
-python3 scripts/build_public_release.py "${VERIFY_TREE_ARGS[@]}" >/dev/null
+echo "Verifying exact public Git tree, complete history, and application..."
+AI_CLONE_PUBLIC_GIT_TREE_MODE=1 npm run verify:public
 if [[ -n "$PUSHED_TAG" ]]; then
   python3 scripts/build_public_release.py verify-release-tag \
     --tag "$PUSHED_TAG" \
@@ -68,6 +62,3 @@ if [[ -n "$PUSHED_TAG" ]]; then
     --expected-git-name "AI Clone Release" \
     --require-noreply-email >/dev/null
 fi
-
-echo "Running public source safety gate before push..."
-npm run verify:public

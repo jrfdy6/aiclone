@@ -46,13 +46,24 @@ jobs:
 
       - name: Run secretless structural and application gate
         shell: bash
+        env:
+          EXPECTED_MANIFEST_SHA256: ${{ vars.AI_CLONE_PUBLIC_MANIFEST_SHA256 }}
+          EXPECTED_LINEAGE_ROOT: ${{ vars.AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT }}
         run: |
           set -euo pipefail
+          if [[ -z "$EXPECTED_MANIFEST_SHA256" || -z "$EXPECTED_LINEAGE_ROOT" ]]; then
+            echo "Reviewed public-source controls are unavailable." >&2
+            exit 1
+          fi
           umask 077
           DENYLIST_FILE="$(mktemp "$RUNNER_TEMP/aiclone-pr-denylist.XXXXXXXX")"
           trap 'rm -f -- "$DENYLIST_FILE"' EXIT
           printf '%s\n' 'public-pr-sentinel-never-publish' > "$DENYLIST_FILE"
-          AI_CLONE_PRIVATE_DENYLIST_FILE="$DENYLIST_FILE" npm run verify:public
+          AI_CLONE_PRIVATE_DENYLIST_FILE="$DENYLIST_FILE" \
+          AI_CLONE_PUBLIC_GIT_TREE_MODE=1 \
+          AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT="$EXPECTED_LINEAGE_ROOT" \
+          AI_CLONE_PUBLIC_MANIFEST_SHA256="$EXPECTED_MANIFEST_SHA256" \
+            npm run verify:public
 
   protected-public-source-gate:
     if: github.event_name != 'pull_request'
@@ -84,7 +95,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check -r backend/requirements.txt -r backend/requirements-dev.txt
 
-      - name: Verify protected manifest, exact tree, history, privacy, and application
+      - name: Verify protected manifest, exact tree, history, and privacy
         shell: bash
         env:
           PRIVATE_LITERAL_DENYLIST: ${{ secrets.AI_CLONE_PRIVATE_LITERAL_DENYLIST }}
@@ -106,10 +117,6 @@ jobs:
             --expected-git-name "AI Clone Release" \
             --require-noreply-email
 
-          AI_CLONE_PRIVATE_DENYLIST_FILE="$DENYLIST_FILE" \
-          AI_CLONE_PUBLIC_MANIFEST_SHA256="$EXPECTED_MANIFEST_SHA256" \
-            npm run verify:public
-
           if [[ "$GITHUB_REF" == refs/tags/public-v* ]]; then
             python scripts/build_public_release.py verify-release-tag \
               --tag "$GITHUB_REF_NAME" \
@@ -117,6 +124,23 @@ jobs:
               --expected-git-name "AI Clone Release" \
               --require-noreply-email
           fi
+
+          rm -f -- "$DENYLIST_FILE"
+          trap - EXIT
+
+      - name: Run credential-free application gate on the verified Git tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          SENTINEL_FILE="$(mktemp "$RUNNER_TEMP/aiclone-public-sentinel.XXXXXXXX")"
+          trap 'rm -f -- "$SENTINEL_FILE"' EXIT
+          printf '%s\n' 'public-application-sentinel-never-publish' > "$SENTINEL_FILE"
+          AI_CLONE_PRIVATE_DENYLIST_FILE="$SENTINEL_FILE" \
+          AI_CLONE_PUBLIC_GIT_TREE_MODE=1 \
+          AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT="$EXPECTED_LINEAGE_ROOT" \
+          AI_CLONE_PUBLIC_MANIFEST_SHA256="$EXPECTED_MANIFEST_SHA256" \
+            npm run verify:public
 
   publish-github-release:
     if: startsWith(github.ref, 'refs/tags/public-v')
