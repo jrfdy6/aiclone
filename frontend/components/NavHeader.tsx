@@ -1,0 +1,68 @@
+'use client';
+
+import Link from 'next/link';
+import { useClientLocation } from '@/lib/use-client-location';
+
+export default function NavHeader() {
+  const { hash, pathname } = useClientLocation();
+  const currentPath = pathname ?? '';
+
+  const navLinks = [
+    { href: '/ops', label: 'Ops', active: currentPath === '/ops' && hash !== '#workspace' },
+    { href: '/ops#workspace', label: 'Workspaces', active: (currentPath === '/ops' && hash === '#workspace') || currentPath.startsWith('/workspace') || currentPath === '/linkedin' },
+    { href: '/brain', label: 'Brain', active: currentPath === '/brain' },
+    { href: '/lab', label: 'Lab', active: currentPath === '/lab' },
+  ];
+
+  return (
+    <nav style={{
+      position: 'sticky',
+      top: 0,
+      zIndex: 50,
+      backgroundColor: '#0f172a',
+      borderBottom: '2px solid #475569',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)',
+    }}>
+      <div style={{
+        maxWidth: '1200px',
+        margin: '0 auto',
+        padding: '0 24px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}>
+        <Link 
+          href="/" 
+          style={{
+            fontSize: '24px',
+            fontWeight: 'bold',
+            color: 'white',
+            padding: '16px 0',
+            textDecoration: 'none',
+          }}
+        >
+          AI Clone
+        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              style={{
+                padding: '16px',
+                fontSize: '14px',
+                fontWeight: 500,
+                color: link.active ? 'white' : '#e2e8f0',
+                textDecoration: 'none',
+                borderBottom: link.active ? '2px solid #3b82f6' : '2px solid transparent',
+                backgroundColor: link.active ? '#1e293b' : 'transparent',
+              }}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+    </nav>
+  );
+}

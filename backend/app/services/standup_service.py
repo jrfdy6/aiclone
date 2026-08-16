@@ -1,0 +1,460 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import List, Optional
+from uuid import uuid4
+
+from psycopg.rows import dict_row
+from psycopg.types.json import Json
+
+from app.models import PMCard, PMCardCreate, PMCardUpdate, StandupCreate, StandupEntry, StandupPromotionRequest, StandupPromotionResult, StandupUpdate
+from app.services import pm_card_service
+from app.services.brain_response_privacy_service import sanitize_brain_payload
+from app.services.open_brain_db import get_pool
+from app.services.pm_execution_contract_service import build_execution_contract
+from app.services.workspace_registry_service import workspace_storage_aliases
+
+
+def list_standups(limit: int = 50, owner: Optional[str] = None, workspace_key: Optional[str] = None) -> List[StandupEntry]:
+    pool = get_pool()
+    clauses = []
+    params = []
+    if owner:
+        clauses.append("owner = %s")
+        params.append(owner)
+    if workspace_key:
+        clauses.append("LOWER(workspace_key) = ANY(%s)")
+        params.append(list(workspace_storage_aliases(workspace_key)))
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+
+    query = f"""
+        SELECT id, owner, workspace_key, status, blockers, commitments, needs, source, conversation_path, payload, created_at
+        FROM standups
+        {where}
+        ORDER BY created_at DESC
+        LIMIT %s
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall() or []
+    return [_row_to_entry(row) for row in rows]
+
+
+def public_standup_entry(entry: StandupEntry) -> StandupEntry:
+    """Return a presentation-safe copy without rewriting stored history.
+
+    Historical standups legitimately contain machine-local artifact paths from
+    earlier runtimes. Those paths remain useful audit evidence in Postgres, but
+    the web control plane should receive stable repository references rather
+    than usernames, private runtime roots, or credentials.
+    """
+
+    return StandupEntry.model_validate(sanitize_brain_payload(entry))
+
+
+def public_standup_entries(entries: List[StandupEntry]) -> List[StandupEntry]:
+    return [public_standup_entry(entry) for entry in entries]
+
+
+def public_standup_promotion(result: StandupPromotionResult) -> StandupPromotionResult:
+    return StandupPromotionResult.model_validate(sanitize_brain_payload(result))
+
+
+def create_standup(payload: StandupCreate) -> StandupEntry:
+    pool = get_pool()
+    entry_id = str(uuid4())
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                INSERT INTO standups (id, owner, workspace_key, status, blockers, commitments, needs, source, conversation_path, payload)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, owner, workspace_key, status, blockers, commitments, needs, source, conversation_path, payload, created_at
+                """,
+                (
+                    entry_id,
+                    payload.owner,
+                    payload.workspace_key,
+                    payload.status,
+                    payload.blockers,
+                    payload.commitments,
+                    payload.needs,
+                    payload.source,
+                    payload.conversation_path,
+                    Json(payload.payload or {}),
+                ),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return _row_to_entry(row)
+
+
+def update_standup(entry_id: str, payload: StandupUpdate) -> Optional[StandupEntry]:
+    pool = get_pool()
+    fields = []
+    values = []
+    if payload.workspace_key is not None:
+        fields.append("workspace_key = %s")
+        values.append(payload.workspace_key)
+    if payload.status is not None:
+        fields.append("status = %s")
+        values.append(payload.status)
+    if payload.blockers is not None:
+        fields.append("blockers = %s")
+        values.append(payload.blockers)
+    if payload.commitments is not None:
+        fields.append("commitments = %s")
+        values.append(payload.commitments)
+    if payload.needs is not None:
+        fields.append("needs = %s")
+        values.append(payload.needs)
+    if payload.source is not None:
+        fields.append("source = %s")
+        values.append(payload.source)
+    if payload.conversation_path is not None:
+        fields.append("conversation_path = %s")
+        values.append(payload.conversation_path)
+    if payload.payload is not None:
+        fields.append("payload = %s")
+        values.append(Json(payload.payload))
+
+    if not fields:
+        return get_standup(entry_id)
+
+    values.append(entry_id)
+    query = f"""
+        UPDATE standups
+        SET {', '.join(fields)}
+        WHERE id = %s
+        RETURNING id, owner, workspace_key, status, blockers, commitments, needs, source, conversation_path, payload, created_at
+    """
+
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(query, values)
+            row = cur.fetchone()
+        conn.commit()
+    return _row_to_entry(row) if row else None
+
+
+def get_standup(entry_id: str) -> Optional[StandupEntry]:
+    pool = get_pool()
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, owner, workspace_key, status, blockers, commitments, needs, source, conversation_path, payload, created_at
+                FROM standups
+                WHERE id = %s
+                """,
+                (entry_id,),
+            )
+            row = cur.fetchone()
+    return _row_to_entry(row) if row else None
+
+
+def promote_standup(payload: StandupPromotionRequest) -> StandupPromotionResult:
+    relevance = dict(payload.standup_relevance or {})
+    if relevance:
+        disposition = str(relevance.get("disposition") or "").strip()
+        if disposition != "run":
+            raise ValueError(f"A `{disposition or 'missing'}` relevance result cannot be promoted as a standup.")
+        participant_plan = [
+            item for item in (relevance.get("participant_plan") or []) if isinstance(item, dict)
+        ]
+        expected_participants = [
+            str(item.get("display_name") or "").strip()
+            for item in participant_plan
+            if str(item.get("display_name") or "").strip()
+        ]
+        if payload.participants != expected_participants:
+            raise ValueError("Standup participants do not match the relevance-gated participant plan.")
+        if len(expected_participants) < 2:
+            raise ValueError("A relevance-gated standup requires at least two selected roles.")
+        allowed_speakers = set(expected_participants)
+        unexpected_speakers = sorted(
+            {
+                str(item.get("speaker") or "").strip()
+                for item in payload.discussion_rounds
+                if isinstance(item, dict)
+                and str(item.get("speaker") or "").strip()
+                and str(item.get("speaker") or "").strip() not in allowed_speakers
+            }
+        )
+        if unexpected_speakers:
+            raise ValueError("Discussion includes a speaker outside the relevance-gated participant plan.")
+        excluded_notes = [
+            name
+            for name, note in (
+                ("Jean-Claude", payload.jean_claude_note),
+                ("Neo", payload.neo_note),
+                ("Yoda", payload.yoda_note),
+            )
+            if name not in allowed_speakers and str(note or "").strip()
+        ]
+        if excluded_notes:
+            raise ValueError("Excluded standup participants cannot receive synthesized notes.")
+    discussion = list(payload.discussion_rounds or [])
+    if not discussion:
+        if payload.jean_claude_note:
+            discussion.append({"round": 1, "speaker": "Jean-Claude", "role": "workspace-president", "note": payload.jean_claude_note})
+        if payload.neo_note:
+            discussion.append({"round": 2, "speaker": "Neo", "role": "system-operator", "note": payload.neo_note})
+        if payload.yoda_note:
+            discussion.append({"round": 3, "speaker": "Yoda", "role": "strategic-overlay", "note": payload.yoda_note})
+
+    standup = create_standup(
+        StandupCreate(
+            owner=payload.owner,
+            workspace_key=payload.workspace_key,
+            status="completed",
+            blockers=payload.blockers,
+            commitments=payload.commitments,
+            needs=payload.needs,
+            source=payload.source,
+            conversation_path=payload.conversation_path,
+            payload={
+                "standup_kind": payload.standup_kind,
+                "summary": payload.summary,
+                "agenda": payload.agenda,
+                "decisions": payload.decisions,
+                "owners": payload.owners,
+                "artifact_deltas": payload.artifact_deltas,
+                "audience_response": payload.audience_response,
+                "standup_sections": payload.standup_sections,
+                "pm_snapshot": payload.pm_snapshot,
+                "participants": payload.participants,
+                "standup_relevance": relevance,
+                "source_paths": payload.source_paths,
+                "memory_promotions": payload.memory_promotions,
+                "discussion": discussion,
+                "prep_id": payload.prep_id,
+                "recommendation_path": payload.recommendation_path,
+                "pm_recommendation_count": len(payload.pm_updates),
+            },
+        )
+    )
+
+    created_cards: List[PMCard] = []
+    existing_cards: List[PMCard] = []
+    source_signature = f"standup-prep:{payload.prep_id}" if payload.prep_id else f"standup:{standup.id}"
+
+    for update in payload.pm_updates:
+        execution_defaults = pm_card_service.execution_defaults_for_workspace(update.workspace_key or payload.workspace_key)
+        card_payload = dict(update.payload or {})
+        contract = build_execution_contract(
+            title=update.title,
+            workspace_key=update.workspace_key or payload.workspace_key,
+            source="standup_promotion",
+            reason=update.reason,
+            instructions=card_payload.get("instructions") if isinstance(card_payload.get("instructions"), list) else None,
+            acceptance_criteria=(
+                card_payload.get("acceptance_criteria") if isinstance(card_payload.get("acceptance_criteria"), list) else None
+            ),
+            artifacts_expected=(
+                card_payload.get("artifacts_expected") if isinstance(card_payload.get("artifacts_expected"), list) else None
+            ),
+        )
+        transition_at = datetime.now(timezone.utc).isoformat()
+        card_payload.update(
+            {
+                "workspace_key": update.workspace_key or payload.workspace_key,
+                "scope": update.scope,
+                "source_agent": update.owner_agent,
+                "created_from_standup_id": standup.id,
+                "created_from_standup_kind": payload.standup_kind,
+                "created_from_standup_workspace": payload.workspace_key,
+                "participants": payload.participants,
+                "reason": update.reason,
+                "execution": {
+                    "lane": "codex",
+                    "state": "queued",
+                    "manager_agent": execution_defaults["manager_agent"],
+                    "target_agent": execution_defaults["target_agent"],
+                    "workspace_agent": execution_defaults.get("workspace_agent"),
+                    "execution_mode": execution_defaults["execution_mode"],
+                    "requested_by": payload.owner,
+                    "assigned_runner": "codex",
+                    "reason": update.reason,
+                    "queued_at": transition_at,
+                    "last_transition_at": transition_at,
+                    "source": "standup_promotion",
+                },
+                **contract,
+            }
+        )
+        existing = _resolve_existing_card_for_update(update, source_signature=source_signature, default_workspace_key=payload.workspace_key)
+        if existing:
+            existing_payload = dict(existing.payload or {})
+            should_carry_forward = bool(
+                card_payload.get("pm_card_id")
+                or card_payload.get("carry_forward_required")
+                or existing.link_type == "standup"
+                or existing_payload.get("created_from_standup_id")
+            )
+            if should_carry_forward:
+                existing = _apply_standup_carry_forward(
+                    existing,
+                    standup=standup,
+                    update=update,
+                    card_payload=card_payload,
+                )
+            existing_cards.append(existing)
+            continue
+        created_cards.append(
+            pm_card_service.create_card(
+                PMCardCreate(
+                    title=update.title,
+                    owner=_display_agent_name(update.owner_agent),
+                    status=update.status or "todo",
+                    source=source_signature,
+                    link_type="standup",
+                    link_id=standup.id,
+                    payload=card_payload,
+                )
+            )
+        )
+
+    return StandupPromotionResult(standup=standup, created_cards=created_cards, existing_cards=existing_cards)
+
+
+def _resolve_existing_card_for_update(
+    update,
+    *,
+    source_signature: str,
+    default_workspace_key: str,
+) -> PMCard | None:
+    update_payload = dict(update.payload or {})
+    explicit_card_id = (
+        str(update_payload.get("pm_card_id") or update_payload.get("carry_forward_card_id") or "").strip()
+    )
+    if explicit_card_id:
+        existing = pm_card_service.get_card(explicit_card_id)
+        if existing is not None and not _is_closed_pm_status(existing.status):
+            return existing
+    existing = pm_card_service.find_card_by_signature(update.title, source_signature)
+    if existing is None:
+        existing = pm_card_service.find_active_card_by_title(update.title, update.workspace_key or default_workspace_key)
+    return existing
+
+
+def _apply_standup_carry_forward(
+    existing: PMCard,
+    *,
+    standup: StandupEntry,
+    update,
+    card_payload: dict[str, object],
+) -> PMCard:
+    update_payload = dict(update.payload or {})
+    action = str(update_payload.get("carry_forward_action") or "").strip().lower()
+    existing_payload = dict(existing.payload or {})
+    carry_forward_ids = _dedupe_strings(
+        [
+            *(
+                item
+                for item in existing_payload.get("carry_forward_standup_ids") or []
+                if isinstance(item, str) and item.strip()
+            ),
+            standup.id,
+        ]
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    history = list(existing_payload.get("carry_forward_history") or [])
+    history.append(
+        {
+            "standup_id": standup.id,
+            "standup_kind": existing_payload.get("created_from_standup_kind") or standup.payload.get("standup_kind"),
+            "workspace_key": standup.workspace_key,
+            "at": now,
+            "action": action or "reuse_existing_lane",
+            "title": update.title,
+            "previous_title": existing.title,
+        }
+    )
+
+    updated_payload = dict(existing_payload)
+    if action == "refresh_existing_lane":
+        refreshed_payload = dict(card_payload)
+        for key in ("created_from_standup_id", "created_from_standup_kind", "created_from_standup_workspace"):
+            if existing_payload.get(key):
+                refreshed_payload[key] = existing_payload.get(key)
+        updated_payload = {
+            **existing_payload,
+            **refreshed_payload,
+        }
+        updated_payload["latest_carry_forward_replacement_title"] = update.title
+    if update_payload.get("recommendation_path"):
+        updated_payload["recommendation_path"] = update_payload.get("recommendation_path")
+    if update_payload.get("created_from_prep_id"):
+        updated_payload["latest_carry_forward_prep_id"] = update_payload.get("created_from_prep_id")
+    if update_payload.get("carry_forward_required") is not None:
+        updated_payload["carry_forward_required"] = bool(update_payload.get("carry_forward_required"))
+    if update_payload.get("carry_forward_resolution_rule"):
+        updated_payload["carry_forward_resolution_rule"] = update_payload.get("carry_forward_resolution_rule")
+    if update_payload.get("carry_forward_summary"):
+        updated_payload["carry_forward_summary"] = update_payload.get("carry_forward_summary")
+    updated_payload["carry_forward_standup_ids"] = carry_forward_ids
+    updated_payload["latest_carry_forward_standup_id"] = standup.id
+    updated_payload["carry_forward_history"] = history[-8:]
+
+    updated = pm_card_service.update_card(
+        existing.id,
+        PMCardUpdate(
+            title=update.title if action == "refresh_existing_lane" else None,
+            status="todo" if action == "refresh_existing_lane" else None,
+            payload=updated_payload,
+        ),
+    )
+    return updated or existing
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        normalized = str(item or "").strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(normalized)
+    return ordered
+
+
+def _is_closed_pm_status(status: str | None) -> bool:
+    normalized = str(status or "").strip().lower()
+    return normalized in {"done", "closed", "cancelled", "canceled"}
+
+
+def _row_to_entry(row: dict) -> StandupEntry:
+    if not row:
+        raise ValueError("Standup row is empty")
+    return StandupEntry(
+        id=str(row["id"]),
+        owner=row.get("owner") or "unknown",
+        workspace_key=row.get("workspace_key") or "shared_ops",
+        status=row.get("status"),
+        blockers=row.get("blockers") or [],
+        commitments=row.get("commitments") or [],
+        needs=row.get("needs") or [],
+        source=row.get("source"),
+        conversation_path=row.get("conversation_path"),
+        payload=row.get("payload") or {},
+        created_at=row.get("created_at"),
+    )
+
+
+def _display_agent_name(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized == "jean-claude":
+        return "Jean-Claude"
+    if normalized == "neo":
+        return "Neo"
+    if normalized == "yoda":
+        return "Yoda"
+    return value

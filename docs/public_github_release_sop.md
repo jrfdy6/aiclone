@@ -1,0 +1,102 @@
+# Public GitHub Release SOP
+
+## Purpose
+
+Publish deployable AI Clone source without publishing personal identity, credentials, private operating data, or contaminated Git ancestry.
+
+## Non-negotiable boundary
+
+The canonical private workspace and the public Git repository are different surfaces.
+
+- The private workspace may contain reviewed persona records, memory, transcripts, operating documents, and generated state.
+- The public repository contains only the receipt-bound projection produced by `scripts/build_public_release.py`.
+- Copying a private file into the public branch to repair a deployment is prohibited.
+- A clean current tree does not make inherited history safe.
+
+## Required controls and outcomes
+
+Before building, provide an external private-literal denylist stored outside the
+repository and a reviewed `release/public_source_manifest.json` digest. Passing
+application/privacy verification and a clean, approved, single-root Git lineage
+are required outcomes before push or release; they are not assumed inputs.
+
+The denylist contains private names, organizations, account identifiers, and other owner-specific literals. CI receives it only through a protected GitHub Actions secret. Neither its contents nor matching source text may be printed.
+
+## Build and verify
+
+```bash
+export AI_CLONE_PRIVATE_DENYLIST_FILE=/path/outside/repository/private-literals.txt
+AI_CLONE_PUBLIC_OUTPUT_ROOT=/absolute/new/public-candidate npm run verify:public
+```
+
+The gate must:
+
+1. compute and bind the exact manifest digest;
+2. create a new isolated candidate;
+3. scan only allowlisted source and fail closed on privacy or secret policy violations;
+4. verify the immutable receipt before tests mutate the candidate;
+5. import the backend and exercise `/health`;
+6. run the public-boundary tests;
+7. run frontend tests and a production build;
+8. perform no model call, publication, learning update, or external message.
+
+When `AI_CLONE_PUBLIC_OUTPUT_ROOT` names a new directory outside the private
+workspace, the gate rebuilds a clean candidate after testing, requires its
+receipt to match the tested candidate exactly, verifies it again, and preserves
+that clean copy for the orphan Git checkout. Without this variable, the gate
+uses and removes an ephemeral candidate.
+
+## Branch procedure
+
+1. Create the first public branch as an orphan; never branch it from legacy `main`, `fellowship-release`, a snapshot branch, or an old tag.
+2. Populate the orphan worktree only from the verified candidate.
+3. Use the exact non-personal Git identity `AI Clone Release` with a GitHub no-reply address.
+4. Push a new `codex/public-source-*` topic branch without rewriting existing refs.
+5. Review the exact committed tree and GitHub Actions result.
+6. Promote a clean public default branch only with exact owner approval because changing the default branch and retiring legacy refs changes the repository control plane.
+7. Never merge the orphan public lineage into a contaminated branch or merge a contaminated branch into it.
+
+An unrelated-history pull request is not a safe promotion mechanism. Review happens against the receipt and commit tree until a clean public base branch exists.
+
+## Historical remediation
+
+Before calling the repository clean:
+
+1. revoke or rotate every credential reported by GitHub secret scanning;
+2. confirm the clean public branch is complete and deployable;
+3. obtain exact owner approval for the named branches and tags to delete or rewrite;
+4. change the default branch to the clean public branch;
+5. delete contaminated legacy branches and tags;
+6. close or resolve GitHub secret-scanning alerts only after rotation and ref remediation are verified;
+7. rescan all remaining GitHub heads, tags, release tags, and pull refs.
+
+History deletion is destructive and does not remove copies held by forks, caches, or prior clones. Credential rotation remains mandatory.
+
+## GitHub Releases
+
+- Only annotated tags matching `public-vMAJOR.MINOR.PATCH` are eligible.
+- The tag must point into the single-root public lineage.
+- The root commit must contain `.public-lineage-root`.
+- Every visible tag must also belong to that lineage before the automated release job can proceed.
+- Every visible tag must match the `public-vMAJOR.MINOR.PATCH` convention. A
+  nonconforming legacy tag must be deleted after exact approval, not repointed.
+- Every remaining remote head and pull ref must descend from the approved root.
+- The public verification workflow must pass on the tagged commit.
+- Release notes and source archives must be generated from that exact tag.
+- Never create a GitHub Release from a legacy or snapshot tag.
+- Release notes are derived from the verified receipt, not generated from pull-request text.
+
+## Railway and Vercel
+
+- Railway backend root: `backend/`
+- Railway frontend root: `frontend/`
+- Vercel root: `frontend/`
+- Platform credentials and private runtime inputs stay in platform-managed secrets or authenticated storage.
+- A verified private runtime-data channel for owner-specific behavior is a prerequisite to connecting either deployment platform to GitHub, not a prerequisite to building or reviewing the public source branch.
+- A GitHub-triggered deploy must prove owner-specific runtime context readiness after deploy. Generic fallback behavior is not an acceptable substitute for FEEZIE quality.
+- Until that readiness contract passes, use the existing receipt-bound staged Railway deployment procedure and do not claim that GitHub is the active deployment source.
+- A GitHub Release certifies public source safety; it does not certify owner-specific production context or FEEZIE output quality.
+
+## Rollback
+
+Roll back code only to another verified commit in the clean public lineage. Do not restore a contaminated tag or reintroduce private files to recover functionality. Restore private runtime inputs through their authenticated channel and rerun production verification.

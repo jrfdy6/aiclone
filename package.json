@@ -1,0 +1,9 @@
+{
+  "name": "aiclone-public-release-gates",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "verify:public": "./scripts/verify_public_release.sh",
+    "hooks:install": "./scripts/install_git_hooks.sh"
+  }
+}

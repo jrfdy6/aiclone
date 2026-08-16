@@ -1,0 +1,4827 @@
+'use client';
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { RuntimePage } from '@/components/runtime/RuntimeChrome';
+import { controlApiGet, controlApiPatch, controlApiPost } from '@/lib/control-api';
+import {
+  codexJobStatusHint,
+  codexJobStatusLabel,
+  codexJobStatusTone,
+  ContentReservoirSupportItem,
+  CriticOptionReview,
+  EditorialReadiness,
+  EvidenceAnswers,
+  EvidenceClarification,
+  GeneratedContentResponse,
+  GeneratedContentDiagnostics,
+  GenerationClassificationReceipt,
+  GenerationStrategyReceipt,
+  GeneratedFragmentPromotionResult,
+  GeneratedFragmentPromotionResponse,
+  GeneratedOptionBrief,
+  LocalCodexJobCreateResponse,
+  LocalCodexJobStatusResponse,
+  OwnerReviewHandoffResponse,
+  UndoGeneratedFragmentPromotionResponse,
+  humanizeBrainTargetLabel,
+} from '@/app/workspace/generatedFragmentUtils';
+import {
+  GenerationReceiptSummary,
+  isOptionEditoriallyReady,
+  OptionCriticReceipt,
+} from '@/app/workspace/GenerationReceiptPanel';
+import LinkedinPerformanceRecorder, {
+  type LinkedinPerformanceInitialClassification,
+  type LinkedinPerformanceVerifiedLifecycle,
+} from '@/app/workspace/LinkedinPerformanceRecorder';
+import PromotableInlineText from '@/app/workspace/PromotableInlineText';
+import {
+  buildLocalVoiceReviewPacket,
+  downloadLocalVoiceReviewPacket,
+  isExactOperationalVoiceReviewCopy,
+} from '@/app/workspace/localVoiceReview';
+import {
+  mapAudienceFromLane,
+  normalizeContentCategory,
+  readWorkspaceComposerQuery,
+  toWorkspaceQuerySeed,
+  toWorkspaceSourceCard,
+  type ContentCategory,
+  type PostingAudience,
+  type WorkspaceQuerySeed,
+  type WorkspaceSourceCard,
+} from '@/app/workspace/workspace-composer';
+import { formatUiTime, formatUiTimestamp } from '@/lib/ui-dates';
+import {
+  publicOwnerDisplayName,
+  publicOwnerNorthStar,
+  publicOwnerRoleLabel,
+} from '@/lib/public-profile';
+
+type FeedLensId =
+  | 'admissions'
+  | 'entrepreneurship'
+  | 'current-role'
+  | 'program-leadership'
+  | 'enrollment-management'
+  | 'ai'
+  | 'ops-pm'
+  | 'therapy'
+  | 'referral'
+  | 'personal-story';
+
+type ContentType = 'cold_email' | 'linkedin_post' | 'linkedin_dm' | 'instagram_post';
+type ContentSourceMode = 'persona_only' | 'reservoir_ranked' | 'selected_source' | 'recent_signals';
+type GroundingMode = 'canon_only' | 'canon_reservoir' | 'canon_recent_reservoir';
+type TopicSourceMode = 'manual' | 'selected_source' | 'suggested_angle';
+
+type VariantEvaluation = {
+  lane_distinctiveness?: number;
+  belief_clarity?: number;
+  voice_match?: number;
+  expression_quality?: number;
+  source_expression_quality?: number;
+  expression_delta?: number;
+  overall?: number;
+  warnings?: string[];
+};
+
+type FeedVariant = {
+  label?: string;
+  comment?: string;
+  short_comment?: string;
+  repost?: string;
+  why_this_angle?: string;
+  stance?: string;
+  belief_summary?: string;
+  experience_summary?: string;
+  role_safety?: string;
+  techniques?: string[];
+  evaluation?: VariantEvaluation;
+  expression_assessment?: {
+    strategy?: string;
+    output_structure?: string;
+  };
+};
+
+type FeedRecommendationMode = 'comment' | 'repost' | 'post_seed';
+
+type FeedEditorialSummary = {
+  mode: FeedRecommendationMode;
+  recommendation: string;
+  why: string[];
+  bestAngle: string;
+  draft: string;
+  draftTone: string;
+  draftLabel: string;
+  optionalLabel?: string;
+  optionalDraft?: string;
+  laneFit: 'high' | 'medium' | 'low';
+  voiceFit: 'high' | 'medium' | 'low';
+  specificityRisk: 'high' | 'medium' | 'low';
+  bestUse: string;
+  avoid: string;
+};
+
+type PlanningSourceItem = {
+  title?: string;
+  source_path?: string;
+  source_url?: string;
+};
+
+type FeedPlanningStage = 'owner_review' | 'weekly_plan' | 'post_seed' | 'latent_seed' | 'banked' | 'scheduled' | 'published' | 'parked' | 'rejected';
+
+type FeedPlanningStatus = {
+  stage: FeedPlanningStage;
+  label: string;
+  recommendation: string;
+  why: string[];
+  detail: string;
+  actionLabel: string;
+  tone: string;
+};
+
+type SourceLifecycleItem = {
+  source_key: string;
+  match_keys?: string[];
+  title?: string;
+  source_url?: string;
+  source_path?: string;
+  published_at?: string;
+  captured_at?: string;
+  observed_at?: string;
+  freshness_state?: string;
+  source_temporality?: string;
+  queue_id?: string;
+  draft_path?: string;
+  stage?: FeedPlanningStage | string;
+  stage_label?: string;
+  visibility?: string;
+  primary_surface?: string;
+  primary_action?: string;
+  next_action_label?: string;
+  reason?: string;
+  artifact_paths?: string[];
+};
+
+type SourceLifecyclePayload = {
+  generated_at?: string;
+  counts?: {
+    total?: number;
+    needs_decision?: number;
+    in_workflow?: number;
+    by_stage?: Record<string, number>;
+    by_visibility?: Record<string, number>;
+  };
+  items?: SourceLifecycleItem[];
+};
+
+type FeedItemWithLifecycle = {
+  item: SocialFeedItem;
+  lifecycle: SourceLifecycleItem | null;
+};
+
+type FeedPlanningIndex = {
+  ownerReviewTitles: Set<string>;
+  ownerReviewUrls: Set<string>;
+  ownerReviewPaths: Set<string>;
+  weeklyTitles: Set<string>;
+  weeklyPaths: Set<string>;
+  postSeedTitles: Set<string>;
+  postSeedPaths: Set<string>;
+  latentSeedTitles: Set<string>;
+  latentSeedPaths: Set<string>;
+};
+
+type SocialFeedItem = {
+  id: string;
+  platform: string;
+  source_type?: string;
+  source_class?: string;
+  unit_kind?: string;
+  response_modes?: string[];
+  capture_method?: string;
+  title: string;
+  author: string;
+  source_url?: string;
+  source_path?: string;
+  published_at?: string;
+  captured_at?: string;
+  observed_at?: string;
+  freshness_state?: string;
+  source_temporality?: string;
+  why_it_matters?: string;
+  comment_draft?: string;
+  repost_draft?: string;
+  lens_variants?: Partial<Record<string, FeedVariant>>;
+  standout_lines?: string[];
+  lenses?: string[];
+  summary?: string;
+  belief_assessment?: {
+    stance?: string;
+    belief_summary?: string;
+    experience_summary?: string;
+    role_safety?: string;
+  };
+  technique_assessment?: {
+    techniques?: string[];
+  };
+  expression_assessment?: {
+    strategy?: string;
+    output_structure?: string;
+  };
+  evaluation?: VariantEvaluation;
+  ranking: { total: number };
+};
+
+type WeeklyPlanStrategyContract = {
+  schema_version?: string;
+  contract_hash?: string;
+  sources?: Record<string, unknown>;
+};
+
+type WeeklyPlanContractFreshness = {
+  state?: string;
+  planned_hash?: string;
+  current_hash?: string;
+  approved_at?: string;
+  checked_at?: string;
+};
+
+type WeeklyPlanPillarCoverage = {
+  counts?: Record<string, number>;
+  unmapped_count?: number;
+  missing_pillars?: string[];
+  warnings?: string[];
+};
+
+type WeeklyPlanRecommendation = {
+  title: string;
+  hook?: string;
+  summary?: string;
+  source_url?: string;
+  source_path?: string;
+  source_kind?: string;
+  publish_posture?: string;
+  priority_lane?: string;
+  canonical_pillar?: string;
+  career_signal?: string;
+  employer_proximity?: string;
+  employer_safety?: string;
+  proof_posture?: string;
+  concrete_action?: string;
+  exact_problem?: string;
+  observable_lesson?: string;
+  qualification_route?: string;
+  owner_question?: string;
+  proof_prompt?: string;
+  audience?: string;
+  audience_consequence?: string;
+  distinct_thesis?: string;
+  why_now?: string;
+  development_status?: string;
+};
+
+type WeeklyPlanPublishingBoardCard = {
+  schema_version?: string;
+  board_role?: 'primary' | 'backup' | 'developing' | string;
+  candidate_id?: string;
+  title?: string;
+  canonical_pillar?: string;
+  intent?: string;
+  treatment?: string;
+  employer_safety?: string;
+  proof_posture?: string;
+  exact_copy_bound?: boolean;
+  critic_status?: string;
+  owner_decision_state?: string;
+  approval_completed?: boolean;
+  publication_confirmed?: boolean;
+  lifecycle_state?: string;
+  next_action?: string;
+};
+
+type WeeklyPlanPublishingBoard = {
+  schema_version?: string;
+  window_days?: number;
+  primary?: WeeklyPlanPublishingBoardCard[];
+  backup?: WeeklyPlanPublishingBoardCard[];
+  developing?: WeeklyPlanPublishingBoardCard[];
+  publication_authority?: string;
+  may_publish_fewer?: boolean;
+  exact_copy_rule?: string;
+};
+
+type WeeklyPlanPortfolioLearning = {
+  schema_version?: string;
+  source_state?: string;
+  learning_mode?: string;
+  confidence?: string;
+  counts?: {
+    owner_decisions?: number;
+    confirmed_publications?: number;
+    complete_feedback_posts?: number;
+    owner_assessments?: number;
+  };
+  thresholds?: {
+    minimum_owner_decisions?: number;
+    minimum_confirmed_publications?: number;
+    minimum_complete_feedback_posts?: number;
+  };
+  decision_policy?: {
+    outcome_reordering_allowed?: boolean;
+    strategy_contract_mutation_allowed?: boolean;
+    owner_approval_required_for_contract_change?: boolean;
+    filler_forbidden?: boolean;
+  };
+};
+
+type WorkspaceSnapshot = {
+  snapshot_status?: {
+    schema_version?: string;
+    checked_at?: string;
+    http_available?: boolean;
+    editorial_state?: 'current' | 'stale' | 'incomplete' | 'degraded' | 'corrupt' | string;
+    severity?: 'green' | 'yellow' | 'red' | string;
+    reason_codes?: string[];
+    sections?: Record<string, {
+      state?: string;
+      available?: boolean;
+      generated_at?: string | null;
+      age_hours?: number | null;
+      stale_after_hours?: number | null;
+      evidence_state?: string | null;
+    }>;
+  };
+  publication_performance_status?: {
+    schema_version?: string;
+    state?: 'fresh' | 'stale' | 'missing' | 'degraded' | 'corrupt' | string;
+    availability?: string;
+    projection_generated_at?: string | null;
+    projection_age_hours?: number | null;
+    stale_after_hours?: number | null;
+    evidence?: { state?: string; confirmed_publications?: number };
+  };
+  publication_performance_summary?: {
+    schema_version?: string;
+    generated_at?: string;
+    counts?: {
+      events?: number;
+      owner_decisions?: number;
+      confirmed_publications?: number;
+      approved_unpublished?: number;
+      owner_assessments?: number;
+      complete_feedback_posts?: number;
+    };
+    rolling_topic_mix?: {
+      window?: number;
+      counts?: Record<string, number>;
+      targets?: Record<string, number>;
+      deficits?: Record<string, number>;
+    };
+    rolling_intent_mix?: {
+      window?: number;
+      counts?: Record<string, number>;
+      targets?: Record<string, number>;
+      deficits?: Record<string, number>;
+    };
+    initial_pilot?: {
+      id?: string;
+      target_count?: number;
+      confirmed_count?: number;
+      status?: string;
+      targets?: Record<string, number>;
+      counts?: Record<string, number>;
+      deficits?: Record<string, number>;
+    };
+    primary_kpi?: {
+      id?: string;
+      assessed_posts?: number;
+      meaningful_target_audience_conversations?: number;
+      value_per_10_assessed_posts?: number | null;
+      status?: string;
+    };
+    learning_gate?: {
+      state?: string;
+      advisory_learning_enabled?: boolean;
+      contract_change_evidence_ready?: boolean;
+    };
+    actionable_gaps?: { code?: string; severity?: string; next_action?: string }[];
+  } | null;
+  workspace_file_summary?: {
+    counts?: { total?: number; browser_visible_items?: number };
+    data_policy?: Record<string, unknown>;
+  } | null;
+  doc_entry_summary?: {
+    counts?: { total?: number; browser_visible_items?: number };
+    data_policy?: Record<string, unknown>;
+  } | null;
+  weekly_plan?: {
+    generated_at?: string;
+    strategy_contract?: WeeklyPlanStrategyContract;
+    strategy_contract_freshness?: WeeklyPlanContractFreshness;
+    pillar_coverage?: WeeklyPlanPillarCoverage;
+    development_card_count?: number;
+    recommendations?: WeeklyPlanRecommendation[];
+    publishing_board?: WeeklyPlanPublishingBoard;
+    portfolio_learning?: WeeklyPlanPortfolioLearning;
+    source_counts?: {
+      drafts?: number;
+      media?: number;
+      research?: number;
+      belief_evidence?: number;
+    };
+  } | null;
+  reaction_queue?: {
+    generated_at?: string;
+    comment_opportunities?: PlanningSourceItem[];
+    post_seeds?: PlanningSourceItem[];
+    latent_post_seeds?: PlanningSourceItem[];
+    counts?: {
+      comment_opportunities?: number;
+      post_seeds?: number;
+    };
+  } | null;
+  social_feed?: {
+    generated_at?: string;
+    strategy_mode?: string;
+    items?: SocialFeedItem[];
+  } | null;
+  source_lifecycle?: SourceLifecyclePayload | null;
+  feedback_summary?: {
+    total_events?: number;
+    average_evaluation_overall?: number | null;
+    average_output_expression_quality?: number | null;
+  } | null;
+};
+
+type OwnerReviewDecision = 'approve' | 'revise' | 'park';
+
+type OwnerReviewSystemAssessment = {
+  suggested_decision?: OwnerReviewDecision | string;
+  confidence?: 'high' | 'medium' | 'low' | string;
+  summary?: string;
+  reasons?: string[];
+  missing_items?: string[];
+  fallback_action?: string;
+};
+
+type OwnerReviewItem = {
+  queue_id: string;
+  title: string;
+  lane: string;
+  format: string;
+  core_angle?: string;
+  why_now?: string;
+  status: string;
+  approval_status: string;
+  draft_path: string;
+  owner_packet_path?: string | null;
+  proof_anchors?: string[];
+  draft_body?: string;
+  first_pass_draft?: string;
+  draft_owner_notes?: string[];
+  packet_recommendation?: string | null;
+  current_decision?: OwnerReviewDecision | null;
+  current_notes?: string | null;
+  publish_posture?: string;
+  reviewed_at?: string | null;
+  entry_kind?: string;
+  source_kind?: string;
+  source_url?: string | null;
+  source_path?: string | null;
+  idea_id?: string | null;
+  summary?: string | null;
+  revision_goals?: string[];
+  latent_reason?: string | null;
+  transform_type?: string | null;
+  system_assessment?: OwnerReviewSystemAssessment | null;
+  generation_job_id?: string | null;
+  generation_option_index?: number | null;
+  intent?: string | null;
+  canonical_pillar?: string | null;
+  career_signal?: string | null;
+  employer_proximity?: string | null;
+  employer_safety?: string | null;
+  proof_posture?: string | null;
+  audience?: string | null;
+  audience_consequence?: string | null;
+  distinct_thesis?: string | null;
+  generation_receipt?: {
+    intent?: string;
+    strategy_contract?: GenerationStrategyReceipt;
+    candidate_classification?: GenerationClassificationReceipt;
+    technical_completion?: GeneratedContentDiagnostics['technical_completion'];
+    quality_gate?: GeneratedContentDiagnostics['quality_gate'];
+    editorial_readiness?: EditorialReadiness;
+    option_review?: CriticOptionReview;
+  };
+};
+
+function ownerReviewGenerationDiagnostics(item: OwnerReviewItem): GeneratedContentDiagnostics | undefined {
+  const receipt = item.generation_receipt;
+  if (!receipt) return undefined;
+  const optionReview = receipt.option_review;
+  return {
+    intent: receipt.intent,
+    strategy_contract: receipt.strategy_contract,
+    candidate_classification: receipt.candidate_classification,
+    technical_completion: receipt.technical_completion,
+    quality_gate: receipt.quality_gate,
+    editorial_readiness: receipt.editorial_readiness
+      ? {
+          ...receipt.editorial_readiness,
+          option_reviews: optionReview ? [optionReview] : receipt.editorial_readiness.option_reviews,
+        }
+      : undefined,
+  };
+}
+
+function oneOf<T extends string>(value: string | null | undefined, allowed: readonly T[]): T | undefined {
+  const normalized = normalizeStrategyValue(value);
+  return allowed.find((candidate) => candidate === normalized);
+}
+
+function ownerReviewPerformanceClassification(item: OwnerReviewItem): LinkedinPerformanceInitialClassification {
+  const receipt = item.generation_receipt?.candidate_classification;
+  const audience = receipt?.audience || item.audience || '';
+  return {
+    pillarId: oneOf(receipt?.canonical_pillar || item.canonical_pillar, ['ai_native', 'leadership_operator', 'trust_systems'] as const),
+    intent: oneOf(item.generation_receipt?.intent || item.intent, ['value', 'invitation', 'personal'] as const),
+    treatment: receipt?.treatment,
+    careerSignal: oneOf(receipt?.career_signal || item.career_signal, ['education_anchor', 'bridge', 'tech_proof'] as const),
+    employerSafety: oneOf(receipt?.employer_safety || item.employer_safety, ['pass', 'owner_review_required'] as const),
+    proofPosture: oneOf(
+      receipt?.proof_posture || item.proof_posture,
+      ['verified_public', 'verified_private_anonymize', 'owner_confirmation_required', 'principle_only'] as const,
+    ),
+    format: item.format,
+    audience,
+    experimentId: 'initial_six_post_pilot',
+  };
+}
+
+type OwnerReviewPayload = {
+  generated_at?: string;
+  queue_path?: string;
+  owner_packet_path?: string | null;
+  items?: OwnerReviewItem[];
+  workflow?: {
+    status?: string;
+    message?: string;
+    card_id?: string | null;
+    target_agent?: string | null;
+    execution_state?: string | null;
+  } | null;
+};
+
+type LinkedinWorkspaceSurfaceProps = {
+  embedded?: boolean;
+  initialSnapshot?: WorkspaceSnapshot | null;
+  initialOwnerReviewItems?: unknown[] | null;
+};
+
+type FeedRefreshStatus = {
+  running: boolean;
+  last_run?: string | null;
+  started_at?: string | null;
+  error?: string | null;
+};
+
+type LinkedinPerformanceLifecycleResponse = {
+  schema_version?: string;
+  verification_state?: 'verified' | 'verified_local' | 'not_recorded' | 'unavailable' | string;
+  content_id?: string;
+  content_version_sha256?: string;
+  approval_completed?: boolean;
+  publication_confirmed?: boolean;
+  published_at?: string | null;
+};
+
+type ContentItem = {
+  id: string;
+  category: ContentCategory;
+  type: ContentType;
+  title: string;
+  content: string;
+  status: 'draft' | 'ready';
+  created_at: string;
+  tags?: string[];
+};
+
+function normalizeStoredContentItems(value: unknown): ContentItem[] {
+  if (!Array.isArray(value)) return [];
+  const validTypes: ContentType[] = ['cold_email', 'linkedin_post', 'linkedin_dm', 'instagram_post'];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const candidate = item as Record<string, unknown>;
+    const category = normalizeContentCategory(candidate.category);
+    const type = typeof candidate.type === 'string' && validTypes.includes(candidate.type as ContentType)
+      ? candidate.type as ContentType
+      : null;
+    if (
+      !category ||
+      !type ||
+      typeof candidate.id !== 'string' ||
+      typeof candidate.title !== 'string' ||
+      typeof candidate.content !== 'string' ||
+      typeof candidate.created_at !== 'string'
+    ) {
+      return [];
+    }
+    return [{
+      id: candidate.id,
+      category,
+      type,
+      title: candidate.title,
+      content: candidate.content,
+      status: candidate.status === 'ready' ? 'ready' : 'draft',
+      created_at: candidate.created_at,
+      tags: Array.isArray(candidate.tags) ? candidate.tags.filter((tag): tag is string => typeof tag === 'string') : undefined,
+    }];
+  });
+}
+
+const CHRIS_DO_911 = {
+  value: {
+    ratio: 9,
+    description: 'Pure value. Teaching, insights, observations. No selling mixed in.',
+    icon: '📚',
+    tone: '#38bdf8',
+  },
+  invitation: {
+    ratio: 1,
+    description: 'Invite the right people into the work with a clear, proportionate next step.',
+    icon: '💰',
+    tone: '#22c55e',
+  },
+  personal: {
+    ratio: 1,
+    description: 'Personal/behind-the-scenes. The real me, struggles included.',
+    icon: '🙋',
+    tone: '#a855f7',
+  },
+} satisfies Record<ContentCategory, { ratio: number; description: string; icon: string; tone: string }>;
+
+const PERSONA = {
+  name: publicOwnerDisplayName,
+  title: publicOwnerRoleLabel,
+  northStar: publicOwnerNorthStar,
+  tone: 'Direct, curious, evidence-led. Student-scientist energy.',
+};
+
+const CONTENT_TYPES: { value: ContentType; label: string; icon: string }[] = [
+  { value: 'cold_email', label: 'Cold Email', icon: '📧' },
+  { value: 'linkedin_post', label: 'FEEZIE Post', icon: '📝' },
+  { value: 'linkedin_dm', label: 'FEEZIE DM', icon: '💬' },
+  { value: 'instagram_post', label: 'Instagram Post', icon: '📸' },
+];
+
+const GROUNDING_MODE_OPTIONS: { value: GroundingMode; label: string; hint: string }[] = [
+  { value: 'canon_reservoir', label: 'Canon + reservoir', hint: 'Default writing mode. Keep canon active and pull in the ranked reservoir of stories, proof, and reusable context.' },
+  { value: 'canon_recent_reservoir', label: 'Canon + recent reservoir', hint: 'Keep canon active but bias toward the newest reservoir support when you want a fresher angle.' },
+  { value: 'canon_only', label: 'Canon only', hint: 'Use the owner canon only, with no reservoir support layered in.' },
+];
+
+const TOPIC_SOURCE_OPTIONS: { value: TopicSourceMode; label: string; hint: string }[] = [
+  { value: 'manual', label: 'Manual topic', hint: 'Use the topic and context you typed here.' },
+  { value: 'selected_source', label: 'Selected source', hint: 'Use the selected feed source to shape the draft topic and context.' },
+  { value: 'suggested_angle', label: 'Suggested angle', hint: 'Use the top weekly recommendation when you want the system to surface a relevant direction for you.' },
+];
+
+const POST_MODE_OPTIONS: { id: FeedLensId; label: string }[] = [
+  { id: 'entrepreneurship', label: 'Entrepreneurship' },
+  { id: 'current-role', label: 'Current Role' },
+  { id: 'program-leadership', label: 'Program Leadership' },
+  { id: 'enrollment-management', label: 'Enrollment' },
+  { id: 'ai', label: 'AI' },
+  { id: 'ops-pm', label: 'Ops / PM' },
+  { id: 'therapy', label: 'Therapy' },
+  { id: 'referral', label: 'Referral' },
+  { id: 'personal-story', label: 'Personal Story' },
+  { id: 'admissions', label: 'Admissions' },
+];
+
+const FEED_LENS_ALIASES: Record<string, FeedLensId> = {
+  admissions: 'admissions',
+  entrepreneurship: 'entrepreneurship',
+  'current-role': 'current-role',
+  'current role': 'current-role',
+  'current job': 'current-role',
+  leadership: 'program-leadership',
+  'program-leadership': 'program-leadership',
+  'program leadership': 'program-leadership',
+  enrollment: 'enrollment-management',
+  'enrollment-management': 'enrollment-management',
+  ai: 'ai',
+  'ai-entrepreneurship': 'ai',
+  'ops-pm': 'ops-pm',
+  'ops / pm': 'ops-pm',
+  therapy: 'therapy',
+  referral: 'referral',
+  'personal-story': 'personal-story',
+  'personal story': 'personal-story',
+};
+
+const FEED_LENS_VARIANT_KEYS: Record<FeedLensId, string[]> = {
+  admissions: ['admissions'],
+  entrepreneurship: ['entrepreneurship'],
+  'current-role': ['current-role', 'program-leadership'],
+  'program-leadership': ['program-leadership', 'current-role'],
+  'enrollment-management': ['enrollment-management'],
+  ai: ['ai', 'ai-entrepreneurship'],
+  'ops-pm': ['ops-pm', 'ai-entrepreneurship'],
+  therapy: ['therapy', 'therapist-referral'],
+  referral: ['referral', 'therapist-referral'],
+  'personal-story': ['personal-story'],
+};
+
+const AUDIENCE_OPTIONS = [
+  { value: 'general', label: 'General' },
+  { value: 'education_admissions', label: 'Education / Admissions' },
+  { value: 'tech_ai', label: 'Tech / AI' },
+  { value: 'leadership', label: 'Leadership / Management' },
+  { value: 'entrepreneurs', label: 'Entrepreneurs / Founders' },
+];
+
+const STORAGE_KEY = 'content_pipeline_911';
+const LINKEDIN_COMPOSER_URL = 'https://www.linkedin.com/feed/?shareActive=true';
+
+function workspaceTabs() {
+  return [{ key: 'workspace', label: 'Workspace', active: true, onSelect: () => undefined }];
+}
+
+function buildFallbackText(parts: Array<string | undefined>) {
+  return parts.map((part) => (part ?? '').trim()).filter(Boolean).join('\n\n');
+}
+
+function mapGroundingModeToSourceMode(mode: GroundingMode): ContentSourceMode {
+  if (mode === 'canon_only') return 'persona_only';
+  if (mode === 'canon_recent_reservoir') return 'recent_signals';
+  return 'reservoir_ranked';
+}
+
+function normalizeFeedLens(value?: string | null): FeedLensId | null {
+  if (!value) return null;
+  return FEED_LENS_ALIASES[value.trim().toLowerCase()] ?? null;
+}
+
+function deriveSourceClass(item: SocialFeedItem) {
+  const explicit = item.source_class?.trim();
+  if (explicit) return explicit;
+  const sourceType = item.source_type?.toLowerCase() ?? '';
+  const captureMethod = item.capture_method?.toLowerCase() ?? '';
+  if (item.platform === 'manual' || captureMethod === 'manual') return 'manual';
+  if (['video', 'episode', 'transcript', 'audio', 'podcast'].includes(sourceType) || ['youtube', 'podcast'].includes(item.platform)) {
+    return 'long_form_media';
+  }
+  if (['article', 'essay', 'newsletter'].includes(sourceType) || ['rss', 'substack', 'web'].includes(item.platform)) {
+    return 'article';
+  }
+  return 'short_form';
+}
+
+function deriveUnitKind(item: SocialFeedItem, sourceClass: string) {
+  const explicit = item.unit_kind?.trim();
+  if (explicit) return explicit;
+  if (sourceClass === 'article') return 'paragraph';
+  if (sourceClass === 'long_form_media') return 'section';
+  if (sourceClass === 'manual' && (item.summary?.split(/[.!?]+/).filter(Boolean).length ?? 0) <= 2) return 'claim_block';
+  return 'full_post';
+}
+
+function deriveResponseModes(item: SocialFeedItem, sourceClass: string, unitKind: string) {
+  const explicit = (item.response_modes ?? []).map((mode) => mode.trim()).filter(Boolean);
+  if (explicit.length > 0) return explicit;
+  if (sourceClass === 'long_form_media' && !['segment', 'quote_cluster', 'claim_block'].includes(unitKind)) {
+    return ['post_seed', 'belief_evidence'];
+  }
+  return ['comment', 'repost', 'post_seed', 'belief_evidence'];
+}
+
+function getFeedVariant(item: SocialFeedItem, lens: FeedLensId) {
+  for (const key of FEED_LENS_VARIANT_KEYS[lens]) {
+    const variant = item.lens_variants?.[key];
+    if (variant) return variant;
+  }
+  return null;
+}
+
+function createCommentDraft(item: SocialFeedItem, lens: FeedLensId) {
+  const variant = getFeedVariant(item, lens);
+  if (variant?.comment?.trim()) return variant.comment.trim();
+  return item.comment_draft?.trim() || item.summary?.trim() || '';
+}
+
+function createShortCommentDraft(item: SocialFeedItem, lens: FeedLensId) {
+  const variant = getFeedVariant(item, lens);
+  if (variant?.short_comment?.trim()) return variant.short_comment.trim();
+  return createCommentDraft(item, lens);
+}
+
+function createRepostDraft(item: SocialFeedItem, lens: FeedLensId) {
+  const variant = getFeedVariant(item, lens);
+  if (variant?.repost?.trim()) return variant.repost.trim();
+  return item.repost_draft?.trim() || item.summary?.trim() || '';
+}
+
+function splitIntoSentences(text: string) {
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function shortenToSentenceCount(text: string, sentenceCount: number) {
+  const sentences = splitIntoSentences(text);
+  if (sentences.length === 0) return '';
+  return sentences.slice(0, sentenceCount).join(' ').trim();
+}
+
+function sanitizeFeedDraft(text: string, title?: string) {
+  const normalizedTitle = title?.trim().toLowerCase() ?? '';
+  const sentences = splitIntoSentences(text).filter((sentence) => {
+    const normalized = sentence.replace(/[.!?]+$/, '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalizedTitle && normalized === normalizedTitle) return false;
+    if (/^(belief|anchor|source contract|expression):/i.test(sentence)) return false;
+    if (/^(employer market development|ai clone \/ brain system|product metadata and validation layer)\b/i.test(sentence)) return false;
+    return true;
+  });
+  return sentences.join(' ').trim();
+}
+
+function scoreBand(value?: number | null, mediumFloor = 6.5, highFloor = 8) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'medium';
+  if (value >= highFloor) return 'high';
+  if (value >= mediumFloor) return 'medium';
+  return 'low';
+}
+
+function looksBroadConversation(item: SocialFeedItem, sourceClass: string, unitKind: string) {
+  const title = item.title.toLowerCase();
+  const commaCount = (item.title.match(/,/g) ?? []).length;
+  return sourceClass === 'long_form_media' || unitKind === 'section' || commaCount >= 2 || title.includes('podcast') || title.includes('show:') || title.includes(' + ');
+}
+
+function buildFeedEditorialSummary(item: SocialFeedItem, lens: FeedLensId): FeedEditorialSummary {
+  const variant = getFeedVariant(item, lens);
+  const evaluation = variant?.evaluation ?? item.evaluation;
+  const sourceClass = deriveSourceClass(item);
+  const unitKind = deriveUnitKind(item, sourceClass);
+  const responseModes = deriveResponseModes(item, sourceClass, unitKind);
+  const quickReply = sanitizeFeedDraft(createShortCommentDraft(item, lens), item.title);
+  const commentDraft = sanitizeFeedDraft(createCommentDraft(item, lens), item.title);
+  const repostDraft = sanitizeFeedDraft(createRepostDraft(item, lens), item.title);
+  const broadConversation = looksBroadConversation(item, sourceClass, unitKind);
+  const sourceSpecificity = evaluation?.source_expression_quality ?? null;
+  const specificityRisk =
+    broadConversation || (typeof sourceSpecificity === 'number' && sourceSpecificity < 6.8)
+      ? 'high'
+      : typeof sourceSpecificity === 'number' && sourceSpecificity < 7.5
+        ? 'medium'
+        : 'low';
+  const commentAllowed = responseModes.includes('comment') && Boolean(commentDraft);
+  const repostAllowed = responseModes.includes('repost') && Boolean(repostDraft);
+  const postSeedAllowed = responseModes.includes('post_seed');
+
+  let mode: FeedRecommendationMode = 'comment';
+  if (postSeedAllowed && (broadConversation || specificityRisk === 'high' || !commentAllowed)) {
+    mode = 'post_seed';
+  } else if (commentAllowed && typeof sourceSpecificity === 'number' && sourceSpecificity >= 7.2) {
+    mode = 'comment';
+  } else if (repostAllowed) {
+    mode = 'repost';
+  } else if (commentAllowed) {
+    mode = 'comment';
+  } else if (postSeedAllowed) {
+    mode = 'post_seed';
+  }
+
+  const laneFit = scoreBand(evaluation?.lane_distinctiveness, 6.7, 8.2);
+  const voiceFit = scoreBand(evaluation?.voice_match, 6.7, 8.2);
+  const bestAngle = shortenToSentenceCount(
+    quickReply || item.standout_lines?.[0] || variant?.why_this_angle || item.summary || item.why_it_matters || 'No clear angle yet.',
+    1,
+  );
+
+  if (mode === 'post_seed') {
+    const draft = shortenToSentenceCount(repostDraft || commentDraft || quickReply || item.summary || item.why_it_matters || '', 4);
+    const optionalDraft = shortenToSentenceCount(quickReply || commentDraft, 1);
+    return {
+      mode,
+      recommendation: 'Save as post seed, not a direct comment.',
+      why: [
+        broadConversation
+          ? 'Broad conversation with multiple threads, so a direct reaction is likely to read generic.'
+          : 'The source is useful, but not specific enough to earn a source-native comment.',
+        'You have a better shot extracting a builder lesson than pretending to respond to every topic in the source.',
+      ],
+      bestAngle,
+      draft: draft || bestAngle,
+      draftTone: '#fb923c',
+      draftLabel: 'Draft',
+      optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional quick take' : undefined,
+      optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+      laneFit,
+      voiceFit,
+      specificityRisk,
+      bestUse: 'original post seed',
+      avoid: 'generic contrarian comment',
+    };
+  }
+
+  if (mode === 'repost') {
+    const draft = shortenToSentenceCount(repostDraft || commentDraft || quickReply || item.summary || '', 4);
+    const optionalDraft = shortenToSentenceCount(commentDraft || quickReply, 2);
+    return {
+      mode,
+      recommendation: 'Use as repost angle, not a direct reply.',
+      why: [
+        'There is enough signal here to echo and reframe, but not enough source specificity for a strong direct comment.',
+        'Your value is the operator framing you add on top of the source, not acting like the source itself is your lane.',
+      ],
+      bestAngle,
+      draft: draft || bestAngle,
+      draftTone: '#f472b6',
+      draftLabel: 'Draft',
+      optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional direct reply' : undefined,
+      optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+      laneFit,
+      voiceFit,
+      specificityRisk,
+      bestUse: 'repost with commentary',
+      avoid: 'over-claiming source-level specificity',
+    };
+  }
+
+  const draft = shortenToSentenceCount(commentDraft || quickReply || repostDraft || item.summary || '', 4);
+  const optionalDraft = shortenToSentenceCount(repostDraft || quickReply, 2);
+  return {
+    mode: 'comment',
+    recommendation: 'Comment directly.',
+    why: [
+      'This is specific enough to answer without sounding detached from the source.',
+      'The current angle has enough lane and voice fit to say something useful in public.',
+    ],
+    bestAngle,
+    draft: draft || bestAngle,
+    draftTone: '#38bdf8',
+    draftLabel: 'Draft',
+    optionalLabel: optionalDraft && optionalDraft !== draft ? 'Optional repost angle' : undefined,
+    optionalDraft: optionalDraft && optionalDraft !== draft ? optionalDraft : undefined,
+    laneFit,
+    voiceFit,
+    specificityRisk,
+    bestUse: 'direct public comment',
+    avoid: 'turning this into a broad manifesto',
+  };
+}
+
+function humanizeSnakeCase(value: string) {
+  return value
+    .split(/[_-]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function humanizeFeezieWorkspaceLabel(value: string) {
+  return humanizeSnakeCase(value).replace(/\blinkedin\b/gi, 'FEEZIE');
+}
+
+function formatTimestamp(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return formatUiTimestamp(date);
+}
+
+function normalizePlanningKey(value?: string | null) {
+  const normalized = String(value ?? '').replace(/\\/g, '/').replace(/^\.\//, '');
+  const anchors = ['workspaces/', 'knowledge/', 'docs/', 'memory/', 'SOPs/'];
+  const firstAnchor = anchors
+    .map((anchor) => normalized.indexOf(anchor))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right)[0];
+  return (firstAnchor === undefined ? normalized : normalized.slice(firstAnchor)).trim().toLowerCase();
+}
+
+function normalizeStrategyValue(value?: string | null) {
+  return String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function strategyBadgeTone(value?: string | null) {
+  const normalized = normalizeStrategyValue(value);
+  if (!normalized) return '#64748b';
+  if (['blocked', 'stale', 'mismatch', 'invalid', 'error'].some((token) => normalized.includes(token))) return '#f87171';
+  if (['review', 'required', 'warning', 'caution', 'unknown'].some((token) => normalized.includes(token))) return '#fbbf24';
+  if (['current', 'pass', 'verified', 'develop_now', 'active'].some((token) => normalized.includes(token))) return '#22c55e';
+  return '#94a3b8';
+}
+
+function addPlanningValue(bucket: Set<string>, value?: string | null) {
+  const normalized = normalizePlanningKey(value);
+  if (normalized) bucket.add(normalized);
+}
+
+function addPlanningItems(titles: Set<string>, paths: Set<string>, items?: PlanningSourceItem[] | null) {
+  (items ?? []).forEach((item) => {
+    addPlanningValue(titles, item.title);
+    addPlanningValue(paths, item.source_path);
+  });
+}
+
+function uniqueStrings(items: string[]) {
+  return Array.from(new Set(items.filter((item) => item.trim().length > 0)));
+}
+
+function sourceLifecycleTone(stage?: string | null) {
+  switch (String(stage ?? '').trim().toLowerCase()) {
+    case 'owner_review':
+      return '#fbbf24';
+    case 'banked':
+      return '#22c55e';
+    case 'scheduled':
+    case 'published':
+      return '#a78bfa';
+    case 'latent_seed':
+      return '#fb923c';
+    case 'post_seed':
+      return '#22c55e';
+    case 'weekly_plan':
+      return '#38bdf8';
+    case 'rejected':
+      return '#f97316';
+    case 'parked':
+      return '#f87171';
+    default:
+      return '#94a3b8';
+  }
+}
+
+function sourceLifecycleStatus(lifecycle: SourceLifecycleItem | null): FeedPlanningStatus | null {
+  if (!lifecycle) return null;
+  const stage = String(lifecycle.stage ?? '').trim().toLowerCase() as FeedPlanningStage;
+  const visibility = String(lifecycle.visibility ?? '').trim().toLowerCase();
+  if (!stage || visibility === 'needs_decision') return null;
+
+  const label = lifecycle.stage_label || humanizeFeezieWorkspaceLabel(stage);
+  const reason = lifecycle.reason || 'This source has already moved into the FEEZIE workflow.';
+  const actionLabel = lifecycle.next_action_label || label;
+  if (stage === 'owner_review') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already drafted for owner review.',
+      why: [
+        'This source has already moved past the seed decision.',
+        'The next gate is to approve, revise, or park the draft.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'banked') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already banked as a potential post.',
+      why: [
+        'This source already has owner-approved copy or a banked release packet.',
+        'Continue from the banked post lane instead of saving the same source again.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'scheduled' || stage === 'published') {
+    return {
+      stage,
+      label,
+      recommendation: stage === 'published' ? 'Already published.' : 'Already scheduled in LinkedIn.',
+      why: [
+        'This source has already moved beyond drafting.',
+        'Use the schedule or analytics evidence instead of re-routing it from the feed.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'parked') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already parked.',
+      why: [
+        'This source was intentionally removed from active drafting.',
+        'Reopen it only if new context changes the decision.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'rejected') {
+    return {
+      stage,
+      label,
+      recommendation: 'Marked Not for FEEZIE.',
+      why: [
+        'This source was rejected from the content loop.',
+        'It should not become a seed, draft, or owner-review item unless the decision is intentionally revisited.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'post_seed') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already saved as a potential post.',
+      why: [
+        'This source already cleared the seed decision.',
+        'Move it forward from the potential-post lane rather than saving it again.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'latent_seed') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already preserved for revision.',
+      why: [
+        'This source was kept because the idea may still be useful.',
+        'It needs proof, taste, or an anecdote before it should become a finished post.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  if (stage === 'weekly_plan') {
+    return {
+      stage,
+      label,
+      recommendation: 'Already selected for the weekly plan.',
+      why: [
+        'This source has already been admitted into the active plan.',
+        'Continue from the planned seed instead of saving the same source again.',
+      ],
+      detail: reason,
+      actionLabel,
+      tone: sourceLifecycleTone(stage),
+    };
+  }
+  return null;
+}
+
+function normalizeSourceLifecyclePath(value?: string | null) {
+  const normalized = normalizePlanningKey(value);
+  if (!normalized) return '';
+  if (normalized.startsWith('workspaces/linkedin-content-os/')) {
+    return normalized;
+  }
+  if (
+    normalized.startsWith('research/') ||
+    normalized.startsWith('plans/') ||
+    normalized.startsWith('drafts/') ||
+    normalized.startsWith('docs/') ||
+    normalized.startsWith('analytics/')
+  ) {
+    return `workspaces/linkedin-content-os/${normalized}`;
+  }
+  return normalized;
+}
+
+function sourceLifecycleLookupKeys(item: SocialFeedItem): string[] {
+  const keys: string[] = [];
+  const sourceUrl = normalizePlanningKey(item.source_url);
+  const sourcePath = normalizeSourceLifecyclePath(item.source_path);
+  const sourcePathLocal = sourcePath.replace(/^workspaces\/linkedin-content-os\//, '');
+  const title = normalizePlanningKey(item.title).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (sourceUrl) keys.push(`url:${sourceUrl}`);
+  if (sourcePath) keys.push(`path:${sourcePath}`);
+  if (sourcePathLocal && sourcePathLocal !== sourcePath) keys.push(`path:${sourcePathLocal}`);
+  if (title) keys.push(`title:${title}`);
+  return uniqueStrings(keys);
+}
+
+function buildSourceLifecycleIndex(payload?: SourceLifecyclePayload | null) {
+  const index = new Map<string, SourceLifecycleItem>();
+  (payload?.items ?? []).forEach((item) => {
+    const keys = [
+      item.source_key,
+      ...(item.match_keys ?? []),
+      ...sourceLifecycleLookupKeys({
+        id: item.source_key || item.title || 'lifecycle',
+        platform: '',
+        title: item.title || '',
+        author: '',
+        source_url: item.source_url,
+        source_path: item.source_path,
+        ranking: { total: 0 },
+      }),
+      ...sourceLifecycleLookupKeys({
+        id: `${item.source_key || item.title || 'lifecycle'}:draft`,
+        platform: '',
+        title: item.title || '',
+        author: '',
+        source_path: item.draft_path,
+        ranking: { total: 0 },
+      }),
+    ].filter((key): key is string => typeof key === 'string' && key.trim().length > 0);
+    keys.forEach((key) => index.set(key, item));
+  });
+  return index;
+}
+
+function resolveSourceLifecycleForFeedItem(item: SocialFeedItem, index: Map<string, SourceLifecycleItem>) {
+  for (const key of sourceLifecycleLookupKeys(item)) {
+    const lifecycle = index.get(key);
+    if (lifecycle) return lifecycle;
+  }
+  return null;
+}
+
+function findOwnerReviewMatch(item: SocialFeedItem, ownerReviewItems: OwnerReviewItem[]) {
+  const title = normalizePlanningKey(item.title);
+  const sourceUrl = normalizePlanningKey(item.source_url);
+  const sourcePath = normalizePlanningKey(item.source_path);
+  return ownerReviewItems.find((entry) => {
+    const entryTitle = normalizePlanningKey(entry.title);
+    const entrySourceUrl = normalizePlanningKey(entry.source_url);
+    const entrySourcePath = normalizePlanningKey(entry.source_path);
+    return (title && title === entryTitle) || (sourceUrl && sourceUrl === entrySourceUrl) || (sourcePath && sourcePath === entrySourcePath);
+  }) ?? null;
+}
+
+function resolveFeedPlanningStatus(item: SocialFeedItem, index: FeedPlanningIndex, lifecycle?: SourceLifecycleItem | null): FeedPlanningStatus | null {
+  const lifecycleStatus = sourceLifecycleStatus(lifecycle ?? null);
+  if (lifecycleStatus) return lifecycleStatus;
+
+  const title = normalizePlanningKey(item.title);
+  const sourcePath = normalizePlanningKey(item.source_path);
+  const sourceUrl = normalizePlanningKey(item.source_url);
+
+  if ((title && index.ownerReviewTitles.has(title)) || (sourceUrl && index.ownerReviewUrls.has(sourceUrl)) || (sourcePath && index.ownerReviewPaths.has(sourcePath))) {
+    return {
+      stage: 'owner_review',
+      label: 'Owner review',
+      recommendation: 'Already drafted for owner review.',
+      why: [
+        'This source has already moved past the seed decision.',
+        'The next gate is to approve, revise, or park the draft.',
+      ],
+      detail: 'Already drafted. The next decision is approve, revise, or park.',
+      actionLabel: 'Open owner review',
+      tone: '#fbbf24',
+    };
+  }
+
+  if ((title && index.weeklyTitles.has(title)) || (sourcePath && index.weeklyPaths.has(sourcePath))) {
+    return {
+      stage: 'weekly_plan',
+      label: 'Weekly plan',
+      recommendation: 'Already selected for the weekly plan.',
+      why: [
+        'This source has already been admitted into the active plan.',
+        'Continue from the planned seed instead of saving the same source again.',
+      ],
+      detail: 'Already selected for the active weekly plan.',
+      actionLabel: 'Use planned seed',
+      tone: '#38bdf8',
+    };
+  }
+
+  if ((title && index.postSeedTitles.has(title)) || (sourcePath && index.postSeedPaths.has(sourcePath))) {
+    return {
+      stage: 'post_seed',
+      label: 'Banked seed',
+      recommendation: 'Already banked as a post seed.',
+      why: [
+        'This source is already stored in the standalone post-seed lane.',
+        'Use the banked seed or move it into drafting when you want to work it further.',
+      ],
+      detail: 'Already stored in the standalone post-seed lane.',
+      actionLabel: 'Use banked seed',
+      tone: '#22c55e',
+    };
+  }
+
+  if ((title && index.latentSeedTitles.has(title)) || (sourcePath && index.latentSeedPaths.has(sourcePath))) {
+    return {
+      stage: 'latent_seed',
+      label: 'Needs anecdote',
+      recommendation: 'Already preserved for revision.',
+      why: [
+        'This source was kept because the idea may still be useful.',
+        'It needs proof, taste, or an anecdote before it should become a finished post.',
+      ],
+      detail: 'Already preserved as a latent seed that needs proof, taste, or an anecdote.',
+      actionLabel: 'Work latent seed',
+      tone: '#fb923c',
+    };
+  }
+
+  return null;
+}
+
+function ownerReviewKindLabel(item?: Pick<OwnerReviewItem, 'entry_kind' | 'source_kind'> | null) {
+  if (!item) return 'Owner review';
+  if (item.entry_kind === 'supplemental' && item.source_kind === 'latent_transform') return 'Latent transform';
+  if (item.entry_kind === 'supplemental') return 'Supplemental review';
+  return 'Queue item';
+}
+
+function isGeneratedCodexOwnerReview(item: OwnerReviewItem) {
+  return item.entry_kind === 'generated' && item.source_kind === 'codex_generation';
+}
+
+function coerceOwnerReviewItems(items?: unknown[] | null): OwnerReviewItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.filter((item): item is OwnerReviewItem => {
+    if (!item || typeof item !== 'object') return false;
+    const queueId = (item as { queue_id?: unknown }).queue_id;
+    return typeof queueId === 'string' && queueId.trim().length > 0;
+  });
+}
+
+function isBankedOwnerReviewItem(item: OwnerReviewItem) {
+  return (
+    item.current_decision === 'approve' ||
+    item.approval_status === 'owner_approved' ||
+    item.publish_posture === 'approved'
+  );
+}
+
+function splitOwnerReviewItems(items: OwnerReviewItem[]) {
+  return {
+    pending: items.filter((item) => !item.current_decision && !isBankedOwnerReviewItem(item)),
+    banked: items.filter(isBankedOwnerReviewItem),
+  };
+}
+
+function copyText(text: string) {
+  if (!text.trim() || typeof navigator === 'undefined' || !navigator.clipboard) {
+    return Promise.reject(new Error('Clipboard is not available.'));
+  }
+  return navigator.clipboard.writeText(text);
+}
+
+function buildPipelineContext(item: SocialFeedItem, lens: FeedLensId) {
+  const variant = getFeedVariant(item, lens);
+  return buildFallbackText([
+    item.summary,
+    item.why_it_matters,
+    variant?.why_this_angle,
+    variant?.belief_summary ? `Belief: ${variant.belief_summary}` : item.belief_assessment?.belief_summary ? `Belief: ${item.belief_assessment.belief_summary}` : '',
+    variant?.experience_summary
+      ? `Anchor: ${variant.experience_summary}`
+      : item.belief_assessment?.experience_summary
+        ? `Anchor: ${item.belief_assessment.experience_summary}`
+        : '',
+    item.standout_lines?.[0],
+  ]);
+}
+
+function buildPostingWorkspaceHref(item: SocialFeedItem, lens: FeedLensId) {
+  return buildComposerHref(item, lens, 'post');
+}
+
+function buildCommentWorkspaceHref(item: SocialFeedItem, lens: FeedLensId) {
+  return buildComposerHref(item, lens, 'comment');
+}
+
+function buildComposerHref(item: SocialFeedItem, lens: FeedLensId, mode: 'post' | 'comment') {
+  const params = new URLSearchParams();
+  params.set('mode', mode);
+  params.set('autoplay', '1');
+  params.set('title', item.title);
+  if (item.summary) params.set('summary', item.summary);
+  if (item.why_it_matters) params.set('routeReason', item.why_it_matters);
+  if (item.source_url) params.set('sourceUrl', item.source_url);
+  if (item.source_path) params.set('sourcePath', item.source_path);
+  params.set('priorityLane', lens);
+  return `/workspace/posting?${params.toString()}`;
+}
+
+function ownerReviewElementId(queueId: string) {
+  return `owner-review-${encodeURIComponent(queueId)}`;
+}
+
+function ownerReviewExactCopyGuardId(queueId: string) {
+  return `owner-review-exact-copy-${encodeURIComponent(queueId)}`;
+}
+
+export function LinkedinWorkspaceSurface({
+  embedded = false,
+  initialSnapshot = null,
+  initialOwnerReviewItems = null,
+}: LinkedinWorkspaceSurfaceProps) {
+  const searchParams = useSearchParams();
+  const safeSearchParams = searchParams ?? new URLSearchParams();
+  const requestedOwnerReviewId = safeSearchParams.get('owner_review')?.trim() ?? '';
+  const tabs = useMemo(() => workspaceTabs(), []);
+  const composerQuery = useMemo(() => readWorkspaceComposerQuery(searchParams), [searchParams]);
+  const querySeed = useMemo<WorkspaceQuerySeed>(() => toWorkspaceQuerySeed(composerQuery), [composerQuery]);
+  const querySourceCard = useMemo(() => toWorkspaceSourceCard(composerQuery), [composerQuery]);
+
+  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(initialSnapshot);
+  const [snapshotState, setSnapshotState] = useState<'loading' | 'live' | 'error'>(initialSnapshot ? 'live' : 'loading');
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [ownerReviewItems, setOwnerReviewItems] = useState<OwnerReviewItem[]>(() => splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems)).pending);
+  const [bankedPostItems, setBankedPostItems] = useState<OwnerReviewItem[]>(() => splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems)).banked);
+  const [ownerReviewState, setOwnerReviewState] = useState<'loading' | 'live' | 'error'>(initialOwnerReviewItems ? 'live' : 'loading');
+  const [ownerReviewError, setOwnerReviewError] = useState<string | null>(null);
+  const [ownerReviewNotes, setOwnerReviewNotes] = useState<Record<string, string>>({});
+  const [ownerReviewVoiceEdits, setOwnerReviewVoiceEdits] = useState<Record<string, string>>({});
+  const [ownerReviewActioning, setOwnerReviewActioning] = useState<string | null>(null);
+  const [ownerReviewStatus, setOwnerReviewStatus] = useState<string | null>(null);
+  const [manualFeedItems, setManualFeedItems] = useState<SocialFeedItem[]>([]);
+  const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
+  const [feedLensSelections, setFeedLensSelections] = useState<Record<string, FeedLensId>>({});
+  const [refreshingFeed, setRefreshingFeed] = useState(false);
+  const [refreshStatus, setRefreshStatus] = useState<string | null>(null);
+  const [ingestUrl, setIngestUrl] = useState('');
+  const [ingestText, setIngestText] = useState('');
+  const [ingestTitle, setIngestTitle] = useState('');
+  const [ingestPriority, setIngestPriority] = useState<FeedLensId>('current-role');
+  const [ingestLoading, setIngestLoading] = useState(false);
+  const [ingestStatus, setIngestStatus] = useState<string | null>(null);
+  const [feedbackState, setFeedbackState] = useState<Record<string, string>>({});
+  const [feedbackLoading, setFeedbackLoading] = useState<Record<string, boolean>>({});
+  const [locallyRejectedFeedIds, setLocallyRejectedFeedIds] = useState<Record<string, true>>({});
+  const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
+  const [isApprovingQuote, setIsApprovingQuote] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [performanceRecorderSeed, setPerformanceRecorderSeed] = useState<{
+    contentId: string;
+    digest: string;
+    item: OwnerReviewItem;
+    verifiedLifecycle: LinkedinPerformanceVerifiedLifecycle;
+  } | null>(null);
+  const [performanceRecorderStatus, setPerformanceRecorderStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!requestedOwnerReviewId || !ownerReviewItems.some((item) => item.queue_id === requestedOwnerReviewId)) {
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(ownerReviewElementId(requestedOwnerReviewId));
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [ownerReviewItems, requestedOwnerReviewId]);
+
+  const [contentItems, setContentItems] = useState<ContentItem[]>([]);
+  const [activeCategory, setActiveCategory] = useState<ContentCategory>('value');
+  const [showGenerator, setShowGenerator] = useState(false);
+  const [generatorType, setGeneratorType] = useState<ContentType>('linkedin_post');
+  const [topic, setTopic] = useState(querySeed.title || '');
+  const [context, setContext] = useState(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason, querySeed.ownerReaction]));
+  const [audience, setAudience] = useState<PostingAudience>(mapAudienceFromLane(querySeed.audience || querySeed.priorityLane));
+  const [groundingMode, setGroundingMode] = useState<GroundingMode>('canon_reservoir');
+  const [topicSourceMode, setTopicSourceMode] = useState<TopicSourceMode>(querySeed.title || querySeed.summary || querySeed.hook ? 'selected_source' : 'manual');
+  const [generating, setGenerating] = useState(false);
+  const [codexJobId, setCodexJobId] = useState<string | null>(null);
+  const [codexJobStatus, setCodexJobStatus] = useState<string | null>(null);
+  const [codexJobError, setCodexJobError] = useState<string | null>(null);
+  const [codexActionLoading, setCodexActionLoading] = useState<'cancel' | null>(null);
+  const [reviewActionLoading, setReviewActionLoading] = useState<number | null>(null);
+  const [reviewHandoffs, setReviewHandoffs] = useState<Record<number, OwnerReviewHandoffResponse>>({});
+  const [reviewHandoffError, setReviewHandoffError] = useState<string | null>(null);
+  const [generatedContent, setGeneratedContent] = useState<string[]>([]);
+  const [generatedOptionBriefs, setGeneratedOptionBriefs] = useState<GeneratedOptionBrief[]>([]);
+  const [generatedSupportItems, setGeneratedSupportItems] = useState<ContentReservoirSupportItem[]>([]);
+  const [generatedDiagnostics, setGeneratedDiagnostics] = useState<GeneratedContentDiagnostics | undefined>();
+  const [generatorError, setGeneratorError] = useState<string | null>(null);
+  const [providerTrace, setProviderTrace] = useState<string | null>(null);
+  const [evidenceAnswers, setEvidenceAnswers] = useState<EvidenceAnswers>({});
+  const [evidenceClarification, setEvidenceClarification] = useState<EvidenceClarification | null>(null);
+  const [evidenceAnswerDraft, setEvidenceAnswerDraft] = useState('');
+  const [brainPromotionStatus, setBrainPromotionStatus] = useState<string | null>(null);
+  const [, setPromotingFragmentKey] = useState<string | null>(null);
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
+
+  const clearEvidenceIntake = useCallback(() => {
+    setEvidenceAnswers({});
+    setEvidenceClarification(null);
+    setEvidenceAnswerDraft('');
+  }, []);
+
+  const feedItems = useMemo(() => [...manualFeedItems, ...(snapshot?.social_feed?.items ?? [])], [manualFeedItems, snapshot?.social_feed?.items]);
+  const selectedSignal = useMemo(() => feedItems.find((item) => item.id === selectedFeedId) ?? null, [feedItems, selectedFeedId]);
+  const sourceLifecycleIndex = useMemo(() => buildSourceLifecycleIndex(snapshot?.source_lifecycle), [snapshot?.source_lifecycle]);
+  const feedItemsWithLifecycle = useMemo<FeedItemWithLifecycle[]>(
+    () => feedItems.map((item) => ({ item, lifecycle: resolveSourceLifecycleForFeedItem(item, sourceLifecycleIndex) })),
+    [feedItems, sourceLifecycleIndex],
+  );
+  const ownerReviewMatchedFeedIds = useMemo(() => {
+    const matched = new Set<string>();
+    feedItemsWithLifecycle.forEach(({ item }) => {
+      if (findOwnerReviewMatch(item, ownerReviewItems)) {
+        matched.add(item.id);
+      }
+    });
+    return matched;
+  }, [feedItemsWithLifecycle, ownerReviewItems]);
+  const decisionFeedItems = useMemo(
+    () =>
+      feedItemsWithLifecycle.filter(({ item, lifecycle }) => {
+        if (locallyRejectedFeedIds[item.id]) return false;
+        if (ownerReviewMatchedFeedIds.has(item.id)) return false;
+        const visibility = String(lifecycle?.visibility ?? 'needs_decision').trim().toLowerCase();
+        return visibility === 'needs_decision';
+      }),
+    [feedItemsWithLifecycle, locallyRejectedFeedIds, ownerReviewMatchedFeedIds],
+  );
+  const workflowFeedItems = useMemo(
+    () =>
+      feedItemsWithLifecycle.filter(({ item, lifecycle }) => {
+        if (ownerReviewMatchedFeedIds.has(item.id)) return false;
+        const visibility = String(lifecycle?.visibility ?? '').trim().toLowerCase();
+        return Boolean(lifecycle) && visibility !== 'needs_decision';
+      }),
+    [feedItemsWithLifecycle, ownerReviewMatchedFeedIds],
+  );
+  const unifiedFeedTotal = ownerReviewItems.length + decisionFeedItems.length + workflowFeedItems.length;
+
+  const stats = useMemo(() => {
+    const value = contentItems.filter((item) => item.category === 'value').length;
+    const invitation = contentItems.filter((item) => item.category === 'invitation').length;
+    const personal = contentItems.filter((item) => item.category === 'personal').length;
+    return { value, invitation, personal, total: value + invitation + personal };
+  }, [contentItems]);
+
+  const categoryItems = useMemo(() => contentItems.filter((item) => item.category === activeCategory), [activeCategory, contentItems]);
+  const weeklyPlanRecommendations = snapshot?.weekly_plan?.recommendations ?? [];
+  const topRecommendations = useMemo(() => {
+    const developNowRecommendations = weeklyPlanRecommendations.filter(
+      (item) => normalizeStrategyValue(item.development_status) === 'develop_now',
+    );
+    if (developNowRecommendations.length === 0) return weeklyPlanRecommendations.slice(0, 3);
+    const deferredRecommendations = weeklyPlanRecommendations.filter(
+      (item) => normalizeStrategyValue(item.development_status) !== 'develop_now',
+    );
+    return [...developNowRecommendations, ...deferredRecommendations].slice(0, 3);
+  }, [weeklyPlanRecommendations]);
+  const weeklyPlanContract = snapshot?.weekly_plan?.strategy_contract;
+  const weeklyPlanContractFreshness = snapshot?.weekly_plan?.strategy_contract_freshness;
+  const weeklyPlanCoverage = snapshot?.weekly_plan?.pillar_coverage;
+  const weeklyPublishingBoard = snapshot?.weekly_plan?.publishing_board;
+  const weeklyPortfolioLearning = snapshot?.weekly_plan?.portfolio_learning;
+  const weeklyPublishingBoardLanes = [
+    { id: 'primary', label: 'Primary', cards: weeklyPublishingBoard?.primary ?? [] },
+    { id: 'backup', label: 'Backup', cards: weeklyPublishingBoard?.backup ?? [] },
+    { id: 'developing', label: 'Developing', cards: weeklyPublishingBoard?.developing ?? [] },
+  ];
+  const weeklyPlanCoverageWarnings = useMemo(() => {
+    const explicitWarnings = (weeklyPlanCoverage?.warnings ?? []).filter((warning) => Boolean(warning?.trim()));
+    const missingPillarWarnings = (weeklyPlanCoverage?.missing_pillars ?? []).map(
+      (pillar) => `No qualified recommendation currently covers ${pillar}.`,
+    );
+    const warnings = explicitWarnings.length > 0 ? explicitWarnings : missingPillarWarnings;
+    if ((weeklyPlanCoverage?.unmapped_count ?? 0) > 0) {
+      warnings.push(`${weeklyPlanCoverage?.unmapped_count} recommendation${weeklyPlanCoverage?.unmapped_count === 1 ? '' : 's'} not mapped to a canonical pillar.`);
+    }
+    return warnings;
+  }, [weeklyPlanCoverage]);
+  const weeklyPlanContractState = normalizeStrategyValue(weeklyPlanContractFreshness?.state);
+  const weeklyPlanContractStatus = weeklyPlanContractState
+    ? `Contract ${humanizeFeezieWorkspaceLabel(weeklyPlanContractState)}`
+    : weeklyPlanContract?.contract_hash
+      ? 'Contract metadata present · freshness unavailable'
+      : 'Legacy plan · contract metadata unavailable';
+  const weeklyPlanContractHash = weeklyPlanContractFreshness?.planned_hash || weeklyPlanContract?.contract_hash || '';
+  const activeSourceCard = useMemo<WorkspaceSourceCard | null>(() => {
+    if (topicSourceMode === 'selected_source' && selectedSignal) {
+      return {
+        item_key: selectedSignal.id,
+        origin_type: 'feezie_feed_item',
+        origin_id: selectedSignal.id,
+        title: selectedSignal.title,
+        summary: selectedSignal.summary,
+        hook: selectedSignal.why_it_matters,
+        source_url: selectedSignal.source_url,
+        source_path: selectedSignal.source_path,
+        priority_lane: selectedSignal.lenses?.[0] || querySeed.priorityLane,
+        source_kind: selectedSignal.source_type || selectedSignal.platform,
+        route_reason: selectedSignal.why_it_matters,
+        source_published_at: selectedSignal.published_at,
+        source_observed_at: selectedSignal.observed_at || selectedSignal.captured_at,
+        freshness_state: selectedSignal.freshness_state,
+        source_temporality: selectedSignal.source_temporality,
+        provenance: {
+          author: selectedSignal.author,
+          platform: selectedSignal.platform,
+          capture_method: selectedSignal.capture_method,
+        },
+      };
+    }
+    if (topicSourceMode === 'suggested_angle') {
+      const suggested = topRecommendations[0];
+      if (!suggested) return null;
+      return {
+        item_key: suggested.source_path || suggested.source_url || suggested.title,
+        origin_type: 'feezie_weekly_recommendation',
+        origin_id: suggested.source_path || suggested.source_url || suggested.title,
+        title: suggested.title,
+        summary: suggested.summary,
+        hook: suggested.hook,
+        source_url: suggested.source_url,
+        source_path: suggested.source_path,
+        priority_lane: suggested.priority_lane,
+        source_kind: suggested.source_kind || 'weekly_recommendation',
+        publish_posture: suggested.publish_posture,
+        canonical_pillar: suggested.canonical_pillar,
+        career_signal: suggested.career_signal,
+        employer_proximity: suggested.employer_proximity,
+        employer_safety: suggested.employer_safety,
+        proof_posture: suggested.proof_posture,
+        concrete_action: suggested.concrete_action,
+        exact_problem: suggested.exact_problem,
+        observable_lesson: suggested.observable_lesson,
+        qualification_route: suggested.qualification_route,
+        owner_question: suggested.owner_question,
+        proof_prompt: suggested.proof_prompt,
+        audience: suggested.audience,
+        audience_consequence: suggested.audience_consequence,
+        distinct_thesis: suggested.distinct_thesis,
+        why_now: suggested.why_now,
+        development_status: suggested.development_status,
+      };
+    }
+    return topicSourceMode === 'selected_source' ? querySourceCard : null;
+  }, [querySeed.priorityLane, querySourceCard, selectedSignal, topRecommendations, topicSourceMode]);
+  const effectiveSourceMode = useMemo(() => {
+    if (topicSourceMode !== 'manual' && activeSourceCard) return 'selected_source';
+    return mapGroundingModeToSourceMode(groundingMode);
+  }, [activeSourceCard, groundingMode, topicSourceMode]);
+  const feedPlanningIndex = useMemo<FeedPlanningIndex>(() => {
+    const ownerReviewTitles = new Set<string>();
+    const ownerReviewUrls = new Set<string>();
+    const ownerReviewPaths = new Set<string>();
+    const weeklyTitles = new Set<string>();
+    const weeklyPaths = new Set<string>();
+    const postSeedTitles = new Set<string>();
+    const postSeedPaths = new Set<string>();
+    const latentSeedTitles = new Set<string>();
+    const latentSeedPaths = new Set<string>();
+
+    ownerReviewItems.forEach((item) => {
+      addPlanningValue(ownerReviewTitles, item.title);
+      addPlanningValue(ownerReviewUrls, item.source_url);
+      addPlanningValue(ownerReviewPaths, item.source_path);
+    });
+    (snapshot?.weekly_plan?.recommendations ?? []).forEach((item) => {
+      addPlanningValue(weeklyTitles, item.title);
+      addPlanningValue(weeklyPaths, item.source_path);
+      const sourceKind = normalizePlanningKey(item.source_kind);
+      const publishPosture = normalizePlanningKey(item.publish_posture);
+      const sourcePath = normalizePlanningKey(item.source_path);
+      if (
+        sourceKind === 'draft' ||
+        publishPosture === 'owner_review_required' ||
+        sourcePath.includes('/drafts/') ||
+        sourcePath.startsWith('workspaces/linkedin-content-os/drafts/')
+      ) {
+        addPlanningValue(ownerReviewTitles, item.title);
+      }
+    });
+    addPlanningItems(postSeedTitles, postSeedPaths, snapshot?.reaction_queue?.post_seeds);
+    addPlanningItems(latentSeedTitles, latentSeedPaths, snapshot?.reaction_queue?.latent_post_seeds);
+
+    return {
+      ownerReviewTitles,
+      ownerReviewUrls,
+      ownerReviewPaths,
+      weeklyTitles,
+      weeklyPaths,
+      postSeedTitles,
+      postSeedPaths,
+      latentSeedTitles,
+      latentSeedPaths,
+    };
+  }, [
+    ownerReviewItems,
+    snapshot?.reaction_queue?.latent_post_seeds,
+    snapshot?.reaction_queue?.post_seeds,
+    snapshot?.weekly_plan?.recommendations,
+  ]);
+
+  useEffect(() => {
+    if (!initialSnapshot) return;
+    setSnapshot(initialSnapshot);
+    setSnapshotError(null);
+    setSnapshotState('live');
+  }, [initialSnapshot]);
+
+  useEffect(() => {
+    if (!initialOwnerReviewItems) return;
+    const nextItems = splitOwnerReviewItems(coerceOwnerReviewItems(initialOwnerReviewItems));
+    setOwnerReviewItems(nextItems.pending);
+    setBankedPostItems(nextItems.banked);
+    setOwnerReviewNotes((current) => {
+      const next = { ...current };
+      nextItems.pending.forEach((item) => {
+        if (next[item.queue_id] === undefined) {
+          next[item.queue_id] = item.current_notes ?? '';
+        }
+      });
+      return next;
+    });
+    setOwnerReviewVoiceEdits((current) => {
+      const next = { ...current };
+      nextItems.pending.forEach((item) => {
+        if (isGeneratedCodexOwnerReview(item) && next[item.queue_id] === undefined) {
+          next[item.queue_id] = item.first_pass_draft ?? '';
+        }
+      });
+      return next;
+    });
+    setOwnerReviewError(null);
+    setOwnerReviewState('live');
+  }, [initialOwnerReviewItems]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved);
+      const normalizedItems = normalizeStoredContentItems(parsed);
+      setContentItems(normalizedItems);
+      const normalizedPayload = JSON.stringify(normalizedItems);
+      if (normalizedPayload !== saved) {
+        window.localStorage.setItem(STORAGE_KEY, normalizedPayload);
+      }
+    } catch {
+      return;
+    }
+  }, []);
+
+  const persistContent = useCallback((items: ContentItem[]) => {
+    setContentItems(items);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    }
+  }, []);
+
+  const loadSnapshot = useCallback(async () => {
+    setSnapshotState((current) => (current === 'live' ? 'live' : 'loading'));
+    try {
+      const payload = await controlApiGet<WorkspaceSnapshot>('/api/workspace/linkedin-os-snapshot');
+      setSnapshot(payload);
+      setSnapshotError(null);
+      setSnapshotState('live');
+    } catch (error) {
+      setSnapshotError(error instanceof Error ? error.message : 'Unable to load workspace snapshot right now.');
+      setSnapshotState((current) => (current === 'live' ? 'live' : 'error'));
+    }
+  }, []);
+
+  const loadOwnerReview = useCallback(async () => {
+    setOwnerReviewState((current) => (current === 'live' ? 'live' : 'loading'));
+    try {
+      const payload = await controlApiGet<OwnerReviewPayload>('/api/workspace/linkedin-os-owner-review?include_resolved=true');
+      const items = splitOwnerReviewItems(payload.items ?? []);
+      setOwnerReviewItems(items.pending);
+      setBankedPostItems(items.banked);
+      setOwnerReviewNotes((current) => {
+        const next = { ...current };
+        items.pending.forEach((item) => {
+          if (next[item.queue_id] === undefined) {
+            next[item.queue_id] = item.current_notes ?? '';
+          }
+        });
+        return next;
+      });
+      setOwnerReviewVoiceEdits((current) => {
+        const next = { ...current };
+        items.pending.forEach((item) => {
+          if (isGeneratedCodexOwnerReview(item) && next[item.queue_id] === undefined) {
+            next[item.queue_id] = item.first_pass_draft ?? '';
+          }
+        });
+        return next;
+      });
+      setOwnerReviewError(null);
+      setOwnerReviewState('live');
+    } catch (error) {
+      setOwnerReviewError(error instanceof Error ? error.message : 'Unable to load owner review items right now.');
+      setOwnerReviewState((current) => (current === 'live' ? 'live' : 'error'));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSnapshot();
+  }, [loadSnapshot]);
+
+  useEffect(() => {
+    void loadOwnerReview();
+  }, [loadOwnerReview]);
+
+  const resolveFeedLens = useCallback(
+    (item: SocialFeedItem): FeedLensId => {
+      const selected = feedLensSelections[item.id];
+      if (selected) return selected;
+      for (const lens of item.lenses ?? []) {
+        const normalized = normalizeFeedLens(lens);
+        if (normalized) return normalized;
+      }
+      return 'current-role';
+    },
+    [feedLensSelections],
+  );
+
+  const selectSignalForPipeline = useCallback(
+    (item: SocialFeedItem, lens?: FeedLensId) => {
+      const nextLens = lens ?? resolveFeedLens(item);
+      setSelectedFeedId(item.id);
+      setTopicSourceMode('selected_source');
+      setTopic(item.title || '');
+      setContext(buildPipelineContext(item, nextLens));
+      setAudience(mapAudienceFromLane(nextLens));
+      setShowGenerator(true);
+      setGeneratedContent([]);
+      setGeneratedOptionBriefs([]);
+      setGeneratedSupportItems([]);
+      setGeneratedDiagnostics(undefined);
+      setGeneratorError(null);
+      setCodexJobId(null);
+      setCodexJobStatus(null);
+      setCodexJobError(null);
+      setReviewActionLoading(null);
+      setReviewHandoffs({});
+      setReviewHandoffError(null);
+      setProviderTrace(null);
+      setBrainPromotionStatus(null);
+      setPromotingFragmentKey(null);
+      setCopyStatus(null);
+    },
+    [resolveFeedLens],
+  );
+
+  const handleFeedPrimaryAction = useCallback(
+    (item: SocialFeedItem, lens: FeedLensId, planningStatus: FeedPlanningStatus | null) => {
+      if (planningStatus?.stage === 'owner_review') {
+        setOwnerReviewStatus(`${item.title} is already in owner review. Approve, revise, or park it from the owner-review lane.`);
+        if (typeof document !== 'undefined') {
+          document.getElementById('owner-review-lane')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        return;
+      }
+      if (
+        planningStatus?.stage === 'banked' ||
+        planningStatus?.stage === 'scheduled' ||
+        planningStatus?.stage === 'published' ||
+        planningStatus?.stage === 'parked' ||
+        planningStatus?.stage === 'rejected'
+      ) {
+        setFeedbackState((current) => ({ ...current, [item.id]: planningStatus.detail }));
+        return;
+      }
+      selectSignalForPipeline(item, lens);
+    },
+    [selectSignalForPipeline],
+  );
+
+  useEffect(() => {
+    if (selectedSignal) return;
+    if (querySeed.title || querySeed.summary || querySeed.hook) {
+      setTopicSourceMode('selected_source');
+      setTopic(querySeed.title || '');
+      setContext(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason, querySeed.ownerReaction]));
+      setAudience(mapAudienceFromLane(querySeed.audience || querySeed.priorityLane));
+    }
+  }, [feedItems, querySeed, selectedSignal]);
+
+  useEffect(() => {
+    if (topicSourceMode !== 'selected_source') return;
+    if (topic.trim() || context.trim()) return;
+    if (selectedSignal) {
+      const nextLens = resolveFeedLens(selectedSignal);
+      setTopic(selectedSignal.title || '');
+      setContext(buildPipelineContext(selectedSignal, nextLens));
+      if (audience === 'general') {
+        setAudience(mapAudienceFromLane(nextLens));
+      }
+      return;
+    }
+    if (querySeed.title || querySeed.summary || querySeed.hook) {
+      setTopic(querySeed.title || '');
+      setContext(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason, querySeed.ownerReaction]));
+      if (audience === 'general') {
+        setAudience(mapAudienceFromLane(querySeed.audience || querySeed.priorityLane));
+      }
+    }
+  }, [
+    audience,
+    context,
+    querySeed.hook,
+    querySeed.ownerReaction,
+    querySeed.audience,
+    querySeed.priorityLane,
+    querySeed.routeReason,
+    querySeed.summary,
+    querySeed.title,
+    resolveFeedLens,
+    selectedSignal,
+    topic,
+    topicSourceMode,
+  ]);
+
+  const handleTopicSourceModeChange = useCallback(
+    (nextMode: TopicSourceMode) => {
+      clearEvidenceIntake();
+      setTopicSourceMode(nextMode);
+      if (nextMode === 'selected_source') {
+        if (selectedSignal) {
+          const nextLens = resolveFeedLens(selectedSignal);
+          setTopic(selectedSignal.title || '');
+          setContext(buildPipelineContext(selectedSignal, nextLens));
+          setAudience(mapAudienceFromLane(nextLens));
+          return;
+        }
+        if (querySeed.title || querySeed.summary || querySeed.hook) {
+          setTopic(querySeed.title || '');
+          setContext(buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason, querySeed.ownerReaction]));
+          setAudience(mapAudienceFromLane(querySeed.audience || querySeed.priorityLane));
+        }
+        return;
+      }
+      if (nextMode === 'suggested_angle') {
+        const suggested = topRecommendations[0];
+        if (suggested) {
+          setTopic(suggested.title || '');
+          setContext(buildFallbackText([suggested.summary, suggested.hook]));
+          if (suggested.audience || suggested.priority_lane) {
+            setAudience(mapAudienceFromLane(suggested.audience || suggested.priority_lane || ''));
+          }
+        }
+      }
+    },
+    [
+      clearEvidenceIntake,
+      querySeed.hook,
+      querySeed.ownerReaction,
+      querySeed.audience,
+      querySeed.priorityLane,
+      querySeed.routeReason,
+      querySeed.summary,
+      querySeed.title,
+      resolveFeedLens,
+      selectedSignal,
+      topRecommendations,
+    ],
+  );
+
+  const resolveGenerationSeed = useCallback(() => {
+    if (topicSourceMode === 'selected_source') {
+      const selectedLens = selectedSignal ? resolveFeedLens(selectedSignal) : null;
+      const selectedTopic = selectedSignal?.title || querySeed.title;
+      const selectedContext =
+        (selectedSignal && selectedLens ? buildPipelineContext(selectedSignal, selectedLens) : '') ||
+        buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason, querySeed.ownerReaction]);
+      return {
+        topicToSend: topic || selectedTopic || '',
+        contextToSend: context || selectedContext || '',
+      };
+    }
+    if (topicSourceMode === 'suggested_angle') {
+      const suggested = topRecommendations[0];
+      return {
+        topicToSend: topic || suggested?.title || selectedSignal?.title || querySeed.title || '',
+        contextToSend:
+          context ||
+          buildFallbackText([suggested?.summary, suggested?.hook]) ||
+          buildFallbackText([querySeed.summary, querySeed.hook, querySeed.routeReason, querySeed.ownerReaction]),
+      };
+    }
+    return {
+      topicToSend: topic || '',
+      contextToSend: context || '',
+    };
+  }, [
+    context,
+    querySeed.hook,
+    querySeed.ownerReaction,
+    querySeed.routeReason,
+    querySeed.summary,
+    querySeed.title,
+    resolveFeedLens,
+    selectedSignal,
+    topRecommendations,
+    topic,
+    topicSourceMode,
+  ]);
+
+  const waitForFeedRefresh = useCallback(async () => {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const status = await controlApiGet<FeedRefreshStatus>('/api/workspace/refresh-social-feed');
+      if (!status.running) {
+        if (status.error) throw new Error(status.error);
+        return status;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    throw new Error('Feed refresh timed out before the snapshot updated.');
+  }, []);
+
+  const refreshSocialFeed = useCallback(async () => {
+    setRefreshingFeed(true);
+    setRefreshStatus('Refreshing feed...');
+    try {
+      const data = await controlApiPost<{ started_at?: string }>('/api/workspace/refresh-social-feed', {
+        skip_fetch: false,
+        sources: 'safe',
+      });
+      setRefreshStatus(`Refresh queued${data.started_at ? ` at ${formatUiTime(data.started_at)}` : ''}`);
+      const finalStatus = await waitForFeedRefresh();
+      await loadSnapshot();
+      setRefreshStatus(`Feed updated${finalStatus.last_run ? ` at ${formatUiTime(finalStatus.last_run)}` : ''}`);
+    } catch (error) {
+      setRefreshStatus(error instanceof Error ? error.message : 'Refresh failed.');
+    } finally {
+      setRefreshingFeed(false);
+    }
+  }, [loadSnapshot, waitForFeedRefresh]);
+
+  const ingestSignal = useCallback(async () => {
+    if (!ingestUrl && !ingestText) {
+      setIngestStatus('Provide a link or some text.');
+      return;
+    }
+    setIngestLoading(true);
+    setIngestStatus('Generating preview...');
+    try {
+      const response = await controlApiPost<{ preview_item?: SocialFeedItem }>('/api/workspace/ingest-signal', {
+        priority_lane: ingestPriority,
+        url: ingestUrl || undefined,
+        text: ingestText || undefined,
+        title: ingestTitle || undefined,
+        run_refresh: true,
+      });
+      const previewItem = response.preview_item ?? null;
+      if (!previewItem) {
+        setIngestStatus('No preview item came back.');
+        return;
+      }
+      setManualFeedItems((current) => [previewItem, ...current.filter((item) => item.id !== previewItem.id)].slice(0, 5));
+      setFeedLensSelections((current) => ({ ...current, [previewItem.id]: ingestPriority }));
+      setIngestStatus('Preview added to the top of the feed.');
+      setIngestUrl('');
+      setIngestText('');
+      setIngestTitle('');
+      selectSignalForPipeline(previewItem, ingestPriority);
+    } catch (error) {
+      setIngestStatus(error instanceof Error ? error.message : 'Unable to generate a preview right now.');
+    } finally {
+      setIngestLoading(false);
+    }
+  }, [ingestPriority, ingestText, ingestTitle, ingestUrl, selectSignalForPipeline]);
+
+  const applyGeneratedResponse = useCallback((response: GeneratedContentResponse) => {
+    const options = Array.isArray(response.options) ? response.options.filter((option) => typeof option === 'string' && option.trim()) : [];
+    setGeneratedContent(options);
+    setGeneratedOptionBriefs(Array.isArray(response.diagnostics?.planned_option_briefs) ? response.diagnostics.planned_option_briefs : []);
+    setGeneratedSupportItems(Array.isArray(response.diagnostics?.content_reservoir_support) ? response.diagnostics.content_reservoir_support : []);
+    setGeneratedDiagnostics(response.diagnostics);
+    const trace = (response.diagnostics?.llm_provider_trace ?? [])
+      .map((item) => [item.provider, item.actual_model, item.reasoning_effort, item.status].filter(Boolean).join(' · '))
+      .join(' → ');
+    setProviderTrace(trace || null);
+    setBrainPromotionStatus(null);
+    if (options.length === 0) {
+      setGeneratorError('No options were returned.');
+      return;
+    }
+    setGeneratorError(null);
+  }, []);
+
+  const queueLocalCodexGeneration = useCallback(async (answers: EvidenceAnswers) => {
+    const { topicToSend, contextToSend } = resolveGenerationSeed();
+    if (!topicToSend.trim()) {
+      throw new Error('Choose a source or enter a specific topic before starting the evidence check.');
+    }
+    const response = await controlApiPost<LocalCodexJobCreateResponse>('/api/content-generation/codex-jobs', {
+      user_id: 'owner',
+      topic: topicToSend,
+      context: contextToSend,
+      content_type: generatorType,
+      category: normalizeContentCategory(activeCategory) ?? 'value',
+      tone: 'conversational',
+      audience,
+      source_mode: effectiveSourceMode,
+      workspace_slug: 'linkedin-content-os',
+      ...(Object.keys(answers).length > 0 ? { evidence_answers: answers } : {}),
+      ...(activeSourceCard ? { source_card: activeSourceCard } : {}),
+    });
+    if (response?.status === 'clarification_required' && response.clarification_key && response.clarification_question) {
+      setCodexJobId(null);
+      setCodexJobStatus(null);
+      setEvidenceClarification({ key: response.clarification_key, question: response.clarification_question });
+      setEvidenceAnswerDraft('');
+      setProviderTrace('evidence check · one detail needed');
+      return;
+    }
+    if (response?.status === 'blocked') {
+      throw new Error(response?.message || 'This idea is not admitted to drafting yet.');
+    }
+    if (!response?.job_id) {
+      throw new Error(response?.message || 'Local job did not return an id.');
+    }
+    setEvidenceClarification(null);
+    setEvidenceAnswerDraft('');
+    setCodexJobId(response.job_id);
+    setCodexJobStatus(response.status || 'pending');
+    setProviderTrace('local_worker · queued');
+    setCodexJobError(null);
+    setBrainPromotionStatus(null);
+  }, [activeCategory, activeSourceCard, audience, effectiveSourceMode, generatorType, resolveGenerationSeed]);
+
+  const resetGeneratedRunState = useCallback(() => {
+    setGeneratorError(null);
+    setCodexJobError(null);
+    setCodexActionLoading(null);
+    setCodexJobId(null);
+    setCodexJobStatus(null);
+    setGeneratedContent([]);
+    setGeneratedOptionBriefs([]);
+    setGeneratedSupportItems([]);
+    setGeneratedDiagnostics(undefined);
+    setReviewActionLoading(null);
+    setReviewHandoffs({});
+    setReviewHandoffError(null);
+  }, []);
+
+  const generateContent = useCallback(async () => {
+    const freshAnswers: EvidenceAnswers = {};
+    setGenerating(true);
+    resetGeneratedRunState();
+    setEvidenceAnswers(freshAnswers);
+    setEvidenceClarification(null);
+    setEvidenceAnswerDraft('');
+    setProviderTrace('evidence check · searching AI Clone / FEEZIE records');
+    try {
+      await queueLocalCodexGeneration(freshAnswers);
+    } catch (error) {
+      setCodexJobId(null);
+      setCodexJobStatus(null);
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to start the evidence check right now.');
+      setProviderTrace(null);
+    } finally {
+      setGenerating(false);
+    }
+  }, [queueLocalCodexGeneration, resetGeneratedRunState]);
+
+  const generateContentWithCodex = useCallback(async () => {
+    setGenerating(true);
+    resetGeneratedRunState();
+    setProviderTrace('evidence check · revalidating');
+    try {
+      await queueLocalCodexGeneration(evidenceAnswers);
+    } catch (error) {
+      setCodexJobId(null);
+      setCodexJobStatus(null);
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to queue local generation right now.');
+      setProviderTrace(null);
+    } finally {
+      setGenerating(false);
+    }
+  }, [evidenceAnswers, queueLocalCodexGeneration, resetGeneratedRunState]);
+
+  const submitEvidenceClarification = useCallback(async () => {
+    if (!evidenceClarification || !evidenceAnswerDraft.trim()) return;
+    const mergedAnswers: EvidenceAnswers = {
+      ...evidenceAnswers,
+      [evidenceClarification.key]: evidenceAnswerDraft.trim(),
+    };
+    setEvidenceAnswers(mergedAnswers);
+    setGenerating(true);
+    setCodexJobError(null);
+    setProviderTrace('evidence check · validating your detail');
+    try {
+      await queueLocalCodexGeneration(mergedAnswers);
+    } catch (error) {
+      setCodexJobId(null);
+      setCodexJobStatus(null);
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to continue the evidence check right now.');
+      setProviderTrace(null);
+    } finally {
+      setGenerating(false);
+    }
+  }, [evidenceAnswerDraft, evidenceAnswers, evidenceClarification, queueLocalCodexGeneration]);
+
+  const cancelCodexJob = useCallback(async () => {
+    if (!codexJobId) return;
+    setCodexActionLoading('cancel');
+    setCodexJobError(null);
+    try {
+      const response = await controlApiPost<LocalCodexJobStatusResponse>(`/api/content-generation/codex-jobs/${codexJobId}/cancel`, {});
+      const nextStatus = response?.status || 'canceled';
+      setCodexJobStatus(nextStatus);
+      setCodexJobError(null);
+      setGeneratorError(null);
+      setProviderTrace(`local_worker · ${nextStatus}`);
+    } catch (error) {
+      setCodexJobError(error instanceof Error ? error.message : 'Unable to cancel the local run right now.');
+    } finally {
+      setCodexActionLoading(null);
+    }
+  }, [codexJobId]);
+
+  useEffect(() => {
+    if (!codexJobId || ['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '')) {
+      return;
+    }
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const response = await controlApiGet<LocalCodexJobStatusResponse>(`/api/content-generation/codex-jobs/${codexJobId}`);
+        if (cancelled) return;
+        const nextStatus = response?.status || 'pending';
+        setCodexJobStatus(nextStatus);
+        if (nextStatus === 'completed' && response.result) {
+          applyGeneratedResponse(response.result);
+          setCodexJobError(null);
+          return;
+        }
+        if (nextStatus === 'failed' || nextStatus === 'canceled') {
+          setCodexJobError(response?.error_message || 'Local generation failed.');
+          setProviderTrace(`local_worker · ${nextStatus}`);
+          return;
+        }
+        setProviderTrace(nextStatus === 'running' ? 'local_worker · running' : 'local_worker · queued');
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : 'Unable to poll local job status right now.';
+        setCodexJobError(message);
+      }
+    };
+
+    void poll();
+    const intervalId = window.setInterval(() => {
+      void poll();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [applyGeneratedResponse, codexJobId, codexJobStatus]);
+
+  const sendGeneratedOptionToOwnerReview = useCallback(
+    async (optionIndex: number) => {
+      if (!codexJobId || codexJobStatus !== 'completed') {
+        setReviewHandoffError('Finish the local Codex run before sending a draft to owner review.');
+        return;
+      }
+      setReviewActionLoading(optionIndex);
+      setReviewHandoffError(null);
+      try {
+        const response = await controlApiPost<OwnerReviewHandoffResponse>(
+          `/api/content-generation/codex-jobs/${encodeURIComponent(codexJobId)}/send-to-review`,
+          { option_index: optionIndex },
+        );
+        if (!response?.queue_id) {
+          throw new Error(response?.message || 'Owner review did not return a queue item.');
+        }
+        setReviewHandoffs((current) => ({ ...current, [optionIndex]: response }));
+        setOwnerReviewStatus(response.message || 'Draft is waiting for owner review.');
+        await loadOwnerReview();
+      } catch (error) {
+        setReviewHandoffError(error instanceof Error ? error.message : 'Unable to send this option to owner review.');
+      } finally {
+        setReviewActionLoading(null);
+      }
+    },
+    [codexJobId, codexJobStatus, loadOwnerReview],
+  );
+
+  const promoteGeneratedFragment = useCallback(
+    async (fragmentText: string, optionText: string, optionIndex: number) => {
+      const { topicToSend } = resolveGenerationSeed();
+      const fragmentKey = `${optionIndex}:${fragmentText}`;
+      setPromotingFragmentKey(fragmentKey);
+      setBrainPromotionStatus(`Submitting "${fragmentText.slice(0, 48)}..." for Brain review...`);
+      try {
+        const response = await controlApiPost<GeneratedFragmentPromotionResponse>('/api/content-generation/promote-fragment', {
+          user_id: 'owner',
+          fragment_text: fragmentText,
+          option_text: optionText,
+          option_index: optionIndex,
+          topic: topicToSend,
+          audience,
+          category: activeCategory,
+          content_type: generatorType,
+          source_mode: effectiveSourceMode,
+          support_items: generatedSupportItems,
+          option_brief: generatedOptionBriefs[optionIndex] ?? null,
+        });
+        setBrainPromotionStatus(
+          response?.message || `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
+        );
+        return {
+          deltaId: response?.delta_id,
+          targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
+        } satisfies GeneratedFragmentPromotionResult;
+      } catch (error) {
+        setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        throw error;
+      } finally {
+        setPromotingFragmentKey(null);
+      }
+    },
+    [activeCategory, audience, effectiveSourceMode, generatedOptionBriefs, generatedSupportItems, generatorType, resolveGenerationSeed],
+  );
+
+  const promoteWorkspaceFragment = useCallback(
+    async ({
+      fragmentText,
+      optionText,
+      fragmentKey,
+      optionIndex = null,
+      topicValue,
+      audienceValue,
+      categoryValue,
+      contentTypeValue,
+      sourceModeValue,
+      supportItems = [],
+      optionBrief = null,
+    }: {
+      fragmentText: string;
+      optionText: string;
+      fragmentKey: string;
+      optionIndex?: number | null;
+      topicValue: string;
+      audienceValue: PostingAudience;
+      categoryValue: ContentCategory;
+      contentTypeValue: ContentType;
+      sourceModeValue: ContentSourceMode;
+      supportItems?: ContentReservoirSupportItem[];
+      optionBrief?: GeneratedOptionBrief | null;
+    }) => {
+      setPromotingFragmentKey(fragmentKey);
+      setBrainPromotionStatus(`Submitting "${fragmentText.slice(0, 48)}..." for Brain review...`);
+      try {
+        const response = await controlApiPost<GeneratedFragmentPromotionResponse>('/api/content-generation/promote-fragment', {
+          user_id: 'owner',
+          fragment_text: fragmentText,
+          option_text: optionText,
+          option_index: optionIndex,
+          topic: topicValue || 'operator insight',
+          audience: audienceValue,
+          category: categoryValue,
+          content_type: contentTypeValue,
+          source_mode: sourceModeValue,
+          support_items: supportItems,
+          option_brief: optionBrief,
+        });
+        setBrainPromotionStatus(
+          response?.message || `Queued for owner review in ${humanizeBrainTargetLabel(response?.target_file, response?.target_label)}.`,
+        );
+        return {
+          deltaId: response?.delta_id,
+          targetLabel: humanizeBrainTargetLabel(response?.target_file, response?.target_label),
+        } satisfies GeneratedFragmentPromotionResult;
+      } catch (error) {
+        setBrainPromotionStatus(error instanceof Error ? error.message : 'Unable to save this fragment to Brain right now.');
+        throw error;
+      } finally {
+        setPromotingFragmentKey(null);
+      }
+    },
+    [],
+  );
+
+  const undoWorkspaceFragment = useCallback(async (deltaId: string) => {
+    setBrainPromotionStatus('Withdrawing the Brain review proposal...');
+    const response = await controlApiPost<UndoGeneratedFragmentPromotionResponse>('/api/content-generation/undo-promoted-fragment', {
+      delta_id: deltaId,
+    });
+    setBrainPromotionStatus(response?.message || 'Brain review proposal withdrawn.');
+  }, []);
+
+  const saveGeneratedContent = useCallback(
+    (content: string, index: number) => {
+      const newItem: ContentItem = {
+        id: `content_${Date.now()}_${index}`,
+        category: activeCategory,
+        type: generatorType,
+        title: (content.split('\n')[0] || topic || 'Generated draft').slice(0, 80),
+        content,
+        status: 'draft',
+        created_at: new Date().toISOString(),
+        tags: [topic].filter(Boolean),
+      };
+      persistContent([newItem, ...contentItems]);
+      setGeneratedContent((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    },
+    [activeCategory, contentItems, generatorType, persistContent, topic],
+  );
+
+  const deleteContentItem = useCallback(
+    (id: string) => {
+      persistContent(contentItems.filter((item) => item.id !== id));
+    },
+    [contentItems, persistContent],
+  );
+
+  const postFeedFeedback = useCallback(
+    async (
+      item: SocialFeedItem,
+      decision: 'like' | 'dislike' | 'reject' | 'copy' | 'approve',
+      lens: FeedLensId,
+      extras?: { notes?: string },
+    ) => {
+      const variant = getFeedVariant(item, lens);
+      await controlApiPost('/api/workspace/feedback', {
+        feed_item_id: item.id,
+        title: item.title,
+        platform: item.platform,
+        decision,
+        lens,
+        notes: extras?.notes,
+        source_url: item.source_url,
+        source_path: item.source_path,
+        stance: variant?.stance,
+        belief_used: variant?.belief_summary ?? item.belief_assessment?.belief_summary,
+        experience_anchor: variant?.experience_summary ?? item.belief_assessment?.experience_summary,
+        techniques: variant?.techniques ?? item.technique_assessment?.techniques ?? [],
+        evaluation_overall: variant?.evaluation?.overall ?? item.evaluation?.overall,
+        source_expression_quality: variant?.evaluation?.source_expression_quality ?? item.evaluation?.source_expression_quality,
+        output_expression_quality: variant?.evaluation?.expression_quality ?? item.evaluation?.expression_quality,
+        expression_delta: variant?.evaluation?.expression_delta ?? item.evaluation?.expression_delta,
+        why_this_angle: variant?.why_this_angle,
+      });
+    },
+    [],
+  );
+
+  const recordFeedback = useCallback(async (item: SocialFeedItem, decision: 'like' | 'dislike' | 'reject', lens: FeedLensId, notes?: string) => {
+    setFeedbackLoading((current) => ({ ...current, [item.id]: true }));
+    try {
+      await postFeedFeedback(item, decision, lens, { notes });
+      if (decision === 'reject') {
+        setLocallyRejectedFeedIds((current) => ({ ...current, [item.id]: true }));
+      }
+      setFeedbackState((current) => ({
+        ...current,
+        [item.id]: decision === 'like' ? 'Liked' : decision === 'reject' ? 'Marked Not for FEEZIE' : 'Disliked',
+      }));
+    } catch (error) {
+      setFeedbackState((current) => ({ ...current, [item.id]: error instanceof Error ? error.message : 'Feedback failed.' }));
+    } finally {
+      setFeedbackLoading((current) => ({ ...current, [item.id]: false }));
+    }
+  }, [postFeedFeedback]);
+
+  const approveFeedLine = useCallback(async (item: SocialFeedItem, line: string, lens: FeedLensId) => {
+    setIsApprovingQuote(true);
+    setQuoteStatus('Approving line...');
+    try {
+      const delta = await controlApiPost<{ id: string }>('/api/persona/deltas', {
+        persona_target: 'feeze.core',
+        trait: `Workspace quote (${item.author})`,
+        notes: line.trim(),
+        metadata: {
+          target_file: 'identity/VOICE_PATTERNS.md',
+          review_source: 'feezie_workspace.feed_quote',
+          approval_state: 'pending_workspace_approval',
+          platform: item.platform,
+          author: item.author,
+          source_url: item.source_url,
+          source_path: item.source_path,
+          selected_line: line.trim(),
+          workspace: 'feezie-os',
+          lens,
+        },
+      });
+      await controlApiPatch(`/api/persona/deltas/${delta.id}`, {
+        status: 'approved',
+        metadata: {
+          approval_state: 'approved_from_workspace',
+          last_reviewed_at: new Date().toISOString(),
+          review_source: 'feezie_workspace.feed_quote',
+        },
+      });
+      void postFeedFeedback(item, 'approve', lens, { notes: `Approved line: ${line.trim()}` });
+      setQuoteStatus(`Approved quote "${line.slice(0, 48)}..."`);
+    } catch (error) {
+      setQuoteStatus(error instanceof Error ? error.message : 'Unable to approve quote right now.');
+    } finally {
+      setIsApprovingQuote(false);
+    }
+  }, [postFeedFeedback]);
+
+  const submitOwnerReviewDecision = useCallback(
+    async (item: OwnerReviewItem, decision: OwnerReviewDecision) => {
+      const browserLocalVoiceEdit = ownerReviewVoiceEdits[item.queue_id] ?? item.first_pass_draft ?? '';
+      if (
+        decision === 'approve' &&
+        isGeneratedCodexOwnerReview(item) &&
+        !isExactOperationalVoiceReviewCopy(item.first_pass_draft, browserLocalVoiceEdit)
+      ) {
+        setOwnerReviewStatus(
+          `Approve is blocked for ${item.queue_id}: the browser-local edit is not the exact operational draft. ` +
+            'It was not sent or saved. Choose Revise to download the local packet, import it on your Mac, then start a new two-option generation and independent critic cycle before the revised copy returns to owner review.',
+        );
+        return;
+      }
+      setOwnerReviewActioning(item.queue_id);
+      setOwnerReviewStatus(`Saving ${humanizeSnakeCase(decision)} for ${item.queue_id}...`);
+      try {
+        const payload = await controlApiPost<OwnerReviewPayload>(`/api/workspace/linkedin-os-owner-review/${item.queue_id}`, {
+          decision,
+          notes: ownerReviewNotes[item.queue_id] ?? '',
+        });
+        let localVoiceMessage = '';
+        if (isGeneratedCodexOwnerReview(item) && item.first_pass_draft?.trim()) {
+          try {
+            const packet = buildLocalVoiceReviewPacket({
+              queueId: item.queue_id,
+              generatedText: item.first_pass_draft,
+              editedText: ownerReviewVoiceEdits[item.queue_id] ?? item.first_pass_draft,
+              decision,
+              generationJobId: item.generation_job_id,
+              generationOptionIndex: item.generation_option_index,
+              topic: item.core_angle || item.title,
+              lane: item.lane,
+              ownerNotes: ownerReviewNotes[item.queue_id] ?? '',
+            });
+            downloadLocalVoiceReviewPacket(packet);
+            const localEditChanged = !isExactOperationalVoiceReviewCopy(item.first_pass_draft, browserLocalVoiceEdit);
+            if (decision === 'revise' && localEditChanged) {
+              localVoiceMessage =
+                ' The review decision and notes were saved, but the browser-local edit was not saved operationally. ' +
+                'Its local-only packet downloaded. Import it on your Mac, then start a new two-option generation and independent critic cycle.';
+            } else if (decision === 'park') {
+              localVoiceMessage =
+                ' The park decision and notes were saved. A local-only rejection packet downloaded; the browser-local edit was not saved operationally.';
+            } else {
+              localVoiceMessage = ' The exact operational draft was reviewed. Local-only voice feedback downloaded for optional import.';
+            }
+          } catch (localError) {
+            localVoiceMessage = ` The review was saved, but its local voice packet could not download: ${
+              localError instanceof Error ? localError.message : 'unknown browser error'
+            }`;
+          }
+        }
+        const items = splitOwnerReviewItems(payload.items ?? []);
+        setOwnerReviewItems(items.pending);
+        setBankedPostItems(items.banked);
+        setOwnerReviewNotes((current) => {
+          const next = { ...current };
+          items.pending.forEach((entry) => {
+            next[entry.queue_id] = entry.current_notes ?? next[entry.queue_id] ?? '';
+          });
+          return next;
+        });
+        setOwnerReviewError(null);
+        setOwnerReviewState('live');
+        setOwnerReviewStatus(
+          `${payload.workflow?.message ?? `${item.queue_id} marked ${humanizeSnakeCase(decision)}.`}${localVoiceMessage}`,
+        );
+        await loadOwnerReview();
+        await loadSnapshot();
+      } catch (error) {
+        setOwnerReviewStatus(error instanceof Error ? error.message : 'Unable to save the owner decision right now.');
+      } finally {
+        setOwnerReviewActioning(null);
+      }
+    },
+    [loadOwnerReview, loadSnapshot, ownerReviewNotes, ownerReviewVoiceEdits],
+  );
+
+  async function handleCopy(text: string, label: string, feedbackContext?: { item: SocialFeedItem; lens: FeedLensId; notes?: string }) {
+    try {
+      await copyText(text);
+      setCopyStatus(`${label} copied.`);
+      if (feedbackContext) {
+        void postFeedFeedback(feedbackContext.item, 'copy', feedbackContext.lens, { notes: feedbackContext.notes ?? label });
+      }
+    } catch (error) {
+      setCopyStatus(error instanceof Error ? error.message : 'Unable to copy right now.');
+    }
+  }
+
+  async function handleOpenBankedPost(item: OwnerReviewItem) {
+    const copy = item.first_pass_draft?.trim() || '';
+    if (typeof window !== 'undefined') {
+      window.open(LINKEDIN_COMPOSER_URL, '_blank', 'noopener,noreferrer');
+    }
+    try {
+      await copyText(copy);
+      setCopyStatus(`${item.queue_id} copied. LinkedIn is open.`);
+    } catch (error) {
+      setCopyStatus(error instanceof Error ? error.message : 'Unable to copy the banked post right now.');
+    }
+  }
+
+  async function preparePerformanceRecorder(item: OwnerReviewItem) {
+    const exactCopy = item.first_pass_draft?.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim() || '';
+    setPerformanceRecorderSeed(null);
+    if (!exactCopy) {
+      setPerformanceRecorderStatus('This approved item has no exact copy available to fingerprint.');
+      return;
+    }
+    try {
+      setPerformanceRecorderStatus(`Verifying the exact lifecycle for ${item.queue_id}...`);
+      const hash = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(exactCopy));
+      const digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+      const query = new URLSearchParams({
+        content_id: item.queue_id,
+        content_version_sha256: digest,
+      });
+      const lifecycle = await controlApiGet<LinkedinPerformanceLifecycleResponse>(
+        `/api/workspace/linkedin-performance/lifecycle?${query.toString()}`,
+        { timeoutMs: 20_000 },
+      );
+      if (
+        !['verified', 'verified_local', 'not_recorded', 'unavailable'].includes(lifecycle.verification_state ?? '') ||
+        lifecycle.content_id !== item.queue_id ||
+        lifecycle.content_version_sha256?.toLowerCase() !== digest
+      ) {
+        throw new Error('The exact lifecycle response did not match the selected post identity.');
+      }
+      if (lifecycle.verification_state === 'unavailable') {
+        setPerformanceRecorderSeed(null);
+        setPerformanceRecorderStatus('Exact lifecycle verification is unavailable, so FEEZIE did not open an unverified evidence session.');
+        return;
+      }
+      const verifiedLifecycle: LinkedinPerformanceVerifiedLifecycle = {
+        contentId: item.queue_id,
+        contentVersionSha256: digest,
+        approvalCompleted: lifecycle.approval_completed === true,
+        publicationConfirmed: lifecycle.publication_confirmed === true,
+        publishedAt: lifecycle.published_at || undefined,
+      };
+      setPerformanceRecorderSeed({ contentId: item.queue_id, digest, item, verifiedLifecycle });
+      const stage = verifiedLifecycle.publicationConfirmed
+        ? 'publication is already confirmed'
+        : verifiedLifecycle.approvalCompleted
+          ? 'approval is already confirmed'
+          : 'no performance-ledger stage is recorded yet';
+      setPerformanceRecorderStatus(`${item.queue_id} is ready for evidence tracking; ${stage}. The exact copy stayed in this browser; only its ID and SHA-256 were used for lifecycle verification.`);
+      window.requestAnimationFrame(() => {
+        document.getElementById('linkedin-performance-recorder')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    } catch (error) {
+      setPerformanceRecorderSeed(null);
+      setPerformanceRecorderStatus(error instanceof Error ? error.message : 'Unable to fingerprint this approved post in the browser.');
+    }
+  }
+
+  const codexInFlight = Boolean(codexJobId) && !['completed', 'failed', 'canceled'].includes(codexJobStatus ?? '');
+  const localJobCompleted = codexJobStatus === 'completed';
+  const codexJobTone = codexJobStatusTone(codexJobStatus);
+  const usedCodexTerminal = (providerTrace ?? '').includes('codex_terminal');
+  const snapshotEditorialState = normalizeStrategyValue(snapshot?.snapshot_status?.editorial_state) ||
+    (snapshotState === 'loading' ? 'loading' : snapshotState === 'error' ? 'unavailable' : 'unknown');
+  const snapshotEditorialTone = truthStateTone(snapshotEditorialState);
+  const performanceState = normalizeStrategyValue(snapshot?.publication_performance_status?.state) || 'missing';
+  const performanceTone = truthStateTone(performanceState);
+  const performanceSummary = snapshot?.publication_performance_summary ?? null;
+  const performanceCounts = performanceSummary?.counts;
+  const snapshotReasonCodes = snapshot?.snapshot_status?.reason_codes ?? [];
+  const privateWorkspaceRecordCount =
+    (snapshot?.workspace_file_summary?.counts?.total ?? 0) + (snapshot?.doc_entry_summary?.counts?.total ?? 0);
+  const activeSourceTitle =
+    topicSourceMode === 'selected_source'
+      ? selectedSignal?.title || querySeed.title || 'No source selected yet'
+      : topicSourceMode === 'suggested_angle'
+        ? topRecommendations[0]?.title || 'No suggested angle available yet'
+        : 'Manual topic mode';
+  const activeSourceSummary =
+    topicSourceMode === 'selected_source'
+      ? selectedSignal?.why_it_matters || selectedSignal?.summary || querySeed.summary || 'Pick a feed card to anchor this draft to a specific source.'
+      : topicSourceMode === 'suggested_angle'
+        ? topRecommendations[0]?.hook || topRecommendations[0]?.summary || 'Use the weekly plan to surface an angle when you do not want to start from a specific source.'
+        : 'This draft will use the topic and context you type, plus your selected grounding mode. Feed sources are optional until you explicitly attach one.';
+  const activeSourceLabel =
+    topicSourceMode === 'selected_source'
+      ? 'Selected feed source'
+      : topicSourceMode === 'suggested_angle'
+        ? 'Suggested angle'
+        : 'Manual topic';
+  const activeSourceLink =
+    topicSourceMode === 'selected_source'
+      ? selectedSignal?.source_url || querySeed.sourceUrl || ''
+      : topicSourceMode === 'suggested_angle'
+        ? topRecommendations[0]?.source_url || ''
+        : '';
+  const todaysCreateItems = ownerReviewItems.slice(0, 2);
+  const todaysEngageItems = decisionFeedItems
+    .map(({ item }) => item)
+    .filter((item) => Boolean(item.comment_draft?.trim()))
+    .slice(0, 3);
+
+  const content = (
+    <section style={{ display: 'grid', gap: '20px' }}>
+        <section style={workspaceHeaderStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '18px' }}>
+            <div>
+              <p style={workspaceHeaderLabelStyle}>FEEZIE OS</p>
+              <h1 style={{ fontSize: '34px', color: 'white', margin: '4px 0' }}>Visibility &amp; Distribution</h1>
+              <p style={{ color: '#94a3b8', maxWidth: '860px', fontSize: '14px', lineHeight: 1.6 }}>
+                Turn grounded source signals into useful public ideas, credible conversations, stronger relationships, and durable audience growth.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <Link href="/brain" style={headerLinkStyle('#38bdf8')}>
+                Open Brain
+              </Link>
+              <Link href="/workspace/posting" style={headerLinkStyle('#fb923c')}>
+                Dedicated Composer
+              </Link>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+            <MiniStat
+              label="Snapshot"
+              value={humanizeFeezieWorkspaceLabel(snapshotEditorialState)}
+              detail={snapshotState === 'error' ? snapshotError ?? 'Snapshot unavailable' : snapshotState === 'live' ? 'HTTP available · editorial state shown above' : 'checking shared state'}
+            />
+            <MiniStat label="Pipeline" value={String(stats.total)} detail="saved drafts" />
+            <MiniStat label="Feed Items" value={String(unifiedFeedTotal)} detail={`updated ${formatTimestamp(snapshot?.social_feed?.generated_at)}`} />
+            <MiniStat label="Comments" value={String(snapshot?.reaction_queue?.counts?.comment_opportunities ?? 0)} detail="reaction-ready items" />
+            <MiniStat label="Post Seeds" value={String(snapshot?.reaction_queue?.counts?.post_seeds ?? 0)} detail="save-for-post angles" />
+            <MiniStat label="Feedback" value={String(snapshot?.feedback_summary?.total_events ?? 0)} detail="human training events" />
+          </div>
+        </section>
+
+        <section
+          data-snapshot-editorial-state={snapshotEditorialState}
+          style={{ ...panelStyle, border: `1px solid ${snapshotEditorialTone}55`, background: 'linear-gradient(145deg, rgba(15,23,42,0.98), rgba(2,6,23,0.98))' }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <p style={sectionLabelStyle(snapshotEditorialTone)}>System truth</p>
+              <h2 style={{ fontSize: '26px', color: 'white', margin: '4px 0 7px' }}>What FEEZIE can prove right now</h2>
+              <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0, maxWidth: '820px' }}>
+                Transport availability, editorial freshness, and publication evidence are separate. A reachable API is never presented as current evidence by itself.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <InlinePill label={`HTTP: ${snapshotState === 'live' ? 'available' : snapshotState}`} tone={snapshotState === 'live' ? '#38bdf8' : '#f87171'} />
+              <InlinePill label={`Editorial: ${humanizeFeezieWorkspaceLabel(snapshotEditorialState)}`} tone={snapshotEditorialTone} />
+              <InlinePill label={`Performance: ${humanizeFeezieWorkspaceLabel(performanceState)}`} tone={performanceTone} />
+            </div>
+          </div>
+
+          {snapshotReasonCodes.length > 0 ? (
+            <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+              {snapshotReasonCodes.map((reason) => (
+                <InlinePill key={reason} label={humanizeFeezieWorkspaceLabel(reason)} tone={snapshotEditorialTone} />
+              ))}
+            </div>
+          ) : null}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(235px, 1fr))', gap: '12px' }}>
+            <TruthCard
+              label="Canonical evidence"
+              value={performanceSummary ? `${performanceCounts?.confirmed_publications ?? 0} confirmed post${performanceCounts?.confirmed_publications === 1 ? '' : 's'}` : 'Not measured yet'}
+              detail={performanceSummary ? `${performanceCounts?.complete_feedback_posts ?? 0} complete feedback loop${performanceCounts?.complete_feedback_posts === 1 ? '' : 's'} · ${performanceCounts?.approved_unpublished ?? 0} approved, not yet confirmed live` : 'No canonical performance projection is available yet.'}
+              tone={performanceTone}
+            />
+            <TruthCard
+              label="Topic portfolio"
+              value={formatMixCounts(performanceSummary?.rolling_topic_mix?.counts)}
+              detail={performanceSummary ? formatMixDeficits(performanceSummary.rolling_topic_mix?.deficits, 'No topic deficit in the measured window') : 'No canonical performance projection is available yet.'}
+              tone="#38bdf8"
+            />
+            <TruthCard
+              label="Intent portfolio"
+              value={formatMixCounts(performanceSummary?.rolling_intent_mix?.counts)}
+              detail={performanceSummary ? formatMixDeficits(performanceSummary.rolling_intent_mix?.deficits, 'No intent deficit in the measured window') : 'No canonical performance projection is available yet.'}
+              tone="#a78bfa"
+            />
+            <TruthCard
+              label="Initial pilot"
+              value={`${performanceSummary?.initial_pilot?.confirmed_count ?? 0}/${performanceSummary?.initial_pilot?.target_count ?? 6} confirmed`}
+              detail={performanceSummary?.initial_pilot ? `${humanizeFeezieWorkspaceLabel(performanceSummary.initial_pilot.status || 'in_progress')} · ${formatMixDeficits(performanceSummary.initial_pilot.deficits, 'treatment mix complete')}` : 'Not measured yet · no pilot evidence projection is available.'}
+              tone={truthStateTone(performanceSummary?.initial_pilot?.status || 'missing')}
+            />
+            <TruthCard
+              label="Primary KPI"
+              value={!performanceSummary ? 'Not measured yet' : performanceSummary.primary_kpi?.value_per_10_assessed_posts == null ? 'Not enough evidence' : `${performanceSummary.primary_kpi.value_per_10_assessed_posts} conversations / 10 posts`}
+              detail={performanceSummary ? `${performanceSummary.primary_kpi?.meaningful_target_audience_conversations ?? 0} meaningful target-audience conversations across ${performanceSummary.primary_kpi?.assessed_posts ?? 0} assessed posts` : 'No canonical performance projection is available yet.'}
+              tone={truthStateTone(performanceSummary?.primary_kpi?.status || 'missing')}
+            />
+            <TruthCard
+              label="Learning gate"
+              value={performanceSummary ? humanizeFeezieWorkspaceLabel(performanceSummary.learning_gate?.state || 'insufficient_sample') : 'Not measured yet'}
+              detail={!performanceSummary ? 'No canonical performance projection is available yet.' : performanceSummary.learning_gate?.contract_change_evidence_ready ? 'Evidence can support a strategy-contract change.' : performanceSummary.learning_gate?.advisory_learning_enabled ? 'Advisory learning only; contract changes remain blocked.' : 'Collect owner decisions and confirmed publication evidence before learning from results.'}
+              tone={performanceSummary?.learning_gate?.contract_change_evidence_ready ? '#22c55e' : '#f59e0b'}
+            />
+          </div>
+
+          {(performanceSummary?.actionable_gaps ?? []).length > 0 ? (
+            <div style={{ display: 'grid', gap: '8px' }}>
+              <p style={{ ...sectionLabelStyle('#f59e0b'), margin: 0 }}>Next truth-building actions</p>
+              {(performanceSummary?.actionable_gaps ?? []).map((gap) => (
+                <p key={gap.code || gap.next_action} style={{ color: gap.severity === 'red' ? '#fecaca' : '#cbd5e1', fontSize: '13px', lineHeight: 1.5, margin: 0 }}>
+                  {gap.next_action || humanizeFeezieWorkspaceLabel(gap.code || 'unknown gap')}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
+        <section style={{ ...panelStyle, border: '1px solid rgba(56,189,248,0.3)', background: 'linear-gradient(145deg, rgba(8,47,73,0.34), rgba(2,6,23,0.96))' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '16px' }}>
+            <div>
+              <p style={sectionLabelStyle('#38bdf8')}>Today&apos;s Distribution</p>
+              <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 7px' }}>The few moves worth making today</h2>
+              <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.55, margin: 0, maxWidth: '820px' }}>
+                Create and engage recommendations are ranked from current source signals, Persona grounding, and your prior feedback.
+              </p>
+            </div>
+            <InlinePill label={`${todaysCreateItems.length} create · ${todaysEngageItems.length} engage`} tone="#38bdf8" />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '14px' }}>
+            <div style={{ display: 'grid', alignContent: 'start', gap: '10px' }}>
+              <div>
+                <p style={sectionLabelStyle('#f59e0b')}>Create · max 2</p>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: '3px 0 0' }}>Drafts that are ready for your judgment.</p>
+              </div>
+              {todaysCreateItems.map((item) => {
+                const preparedCopy = item.first_pass_draft?.trim() || item.draft_body?.trim() || '';
+                return (
+                  <article data-today-create="true" key={`today-create-${item.queue_id}`} style={{ ...workspaceFileCardStyle, backgroundColor: '#020617', display: 'grid', gap: '9px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start' }}>
+                      <div>
+                        <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{item.title}</p>
+                        <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0' }}>
+                          Source: {item.source_kind || item.lane || 'FEEZIE signal'} · Destination: LinkedIn
+                        </p>
+                      </div>
+                      <InlinePill label={item.queue_id} tone="#f59e0b" />
+                    </div>
+                    <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                      {item.why_now || item.system_assessment?.summary || item.core_angle || 'Selected because it is the strongest current fit for your visibility goals.'}
+                    </p>
+                    <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: '130px' }}>{preparedCopy || 'The prepared draft is still loading from owner review.'}</pre>
+                    <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById(ownerReviewElementId(item.queue_id))?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                        style={primaryActionStyle('#38bdf8')}
+                      >
+                        Review full receipt
+                      </button>
+                      <button type="button" onClick={() => void submitOwnerReviewDecision(item, 'park')} disabled={ownerReviewActioning === item.queue_id} style={secondaryActionStyle('#94a3b8')}>
+                        Not for me
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+              {todaysCreateItems.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>No draft currently needs your decision.</p>
+              ) : null}
+            </div>
+
+            <div style={{ display: 'grid', alignContent: 'start', gap: '10px' }}>
+              <div>
+                <p style={sectionLabelStyle('#22c55e')}>Engage · max 3</p>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: '3px 0 0' }}>Prepared conversation entries grounded in live sources.</p>
+              </div>
+              {todaysEngageItems.map((item) => {
+                const lens = resolveFeedLens(item);
+                const preparedComment = item.comment_draft?.trim() || '';
+                return (
+                  <article data-today-engage="true" key={`today-engage-${item.id}`} style={{ ...workspaceFileCardStyle, backgroundColor: '#020617', display: 'grid', gap: '9px' }}>
+                    <div>
+                      <p style={{ color: 'white', fontWeight: 700, margin: 0 }}>{item.title}</p>
+                      <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0' }}>
+                        Source: {item.author || item.platform} · Destination: {item.platform}
+                      </p>
+                    </div>
+                    <p style={{ color: '#cbd5e1', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+                      {item.why_it_matters || 'Selected because it creates a credible opening to join a relevant conversation.'}
+                    </p>
+                    <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: '105px' }}>{preparedComment}</pre>
+                    <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (item.source_url) window.open(item.source_url, '_blank', 'noopener,noreferrer');
+                          void handleCopy(preparedComment, `Comment for ${item.author}`, { item, lens, notes: 'Used from Today’s Distribution.' });
+                        }}
+                        style={primaryActionStyle('#22c55e')}
+                      >
+                        Use it
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedFeedId(item.id);
+                          document.getElementById('owner-review-lane')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                        style={secondaryActionStyle('#38bdf8')}
+                      >
+                        Edit it
+                      </button>
+                      <button type="button" onClick={() => void recordFeedback(item, 'reject', lens, 'Not for me from Today’s Distribution.')} style={secondaryActionStyle('#94a3b8')}>
+                        Not for me
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+              {todaysEngageItems.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>No prepared engagement currently clears the relevance bar.</p>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
+        {bankedPostItems.length > 0 ? (
+          <section style={panelStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <p style={sectionLabelStyle('#22c55e')}>{bankedPostItems.length} Banked Post{bankedPostItems.length === 1 ? '' : 's'}</p>
+                <h2 style={{ fontSize: '28px', color: 'white', margin: '4px 0 8px' }}>Ready when you are</h2>
+              </div>
+              <InlinePill label="copy/paste lane" tone="#22c55e" />
+            </div>
+
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {bankedPostItems.map((item) => {
+                const copy = item.first_pass_draft?.trim() || '';
+                return (
+                  <article key={`banked-${item.queue_id}`} style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{item.queue_id}</p>
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.lane || 'unknown lane')} tone="#38bdf8" />
+                          <InlinePill label="banked" tone="#22c55e" />
+                        </div>
+                        <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
+                        {item.reviewed_at ? <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Approved {formatTimestamp(item.reviewed_at)}</p> : null}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button type="button" onClick={() => void handleOpenBankedPost(item)} disabled={!copy} style={primaryActionStyle('#22c55e')}>
+                          Copy + open LinkedIn
+                        </button>
+                        <button type="button" onClick={() => void handleCopy(copy, item.queue_id)} disabled={!copy} style={secondaryActionStyle('#38bdf8')}>
+                          Copy only
+                        </button>
+                        <button type="button" onClick={() => void preparePerformanceRecorder(item)} disabled={!copy} style={secondaryActionStyle('#a78bfa')}>
+                          Track evidence
+                        </button>
+                        <a href={LINKEDIN_COMPOSER_URL} target="_blank" rel="noreferrer" style={secondaryLinkStyle('#94a3b8')}>
+                          Open LinkedIn
+                        </a>
+                      </div>
+                    </div>
+                    <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: '180px' }}>{copy || 'No banked copy is attached yet.'}</pre>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        <section id="linkedin-performance-recorder" style={{ display: 'grid', gap: '10px', scrollMarginTop: '24px' }}>
+          {performanceRecorderStatus ? (
+            <p role="status" style={{ color: performanceRecorderSeed ? '#86efac' : '#fbbf24', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+              {performanceRecorderStatus}
+            </p>
+          ) : null}
+          <LinkedinPerformanceRecorder
+            key={performanceRecorderSeed ? `${performanceRecorderSeed.contentId}:${performanceRecorderSeed.digest}` : 'empty-performance-recorder'}
+            initialContentId={performanceRecorderSeed?.contentId}
+            initialContentVersionSha256={performanceRecorderSeed?.digest}
+            initialClassification={performanceRecorderSeed ? ownerReviewPerformanceClassification(performanceRecorderSeed.item) : undefined}
+            verifiedLifecycle={performanceRecorderSeed?.verifiedLifecycle}
+            onJobCompleted={() => void loadSnapshot()}
+          />
+        </section>
+
+        <section style={panelStyle}>
+          <div style={{ marginBottom: '18px' }}>
+            <p style={sectionLabelStyle('#38bdf8')}>2 Content Pipeline</p>
+            <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>Content Pipeline</h2>
+            <p style={{ color: '#9ca3af', fontSize: '14px' }}>Chris Do 911 Framework: 9 Value • 1 Invitation • 1 Personal</p>
+          </div>
+
+          <div style={personaBannerStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '14px', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '18px', fontWeight: 600, color: 'white' }}>{PERSONA.name}</span>
+                  <span style={personaActiveStyle}>Persona Active</span>
+                </div>
+                <p style={{ fontSize: '14px', color: '#9ca3af', margin: 0 }}>{PERSONA.title}</p>
+                <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px', maxWidth: '700px' }}>{PERSONA.northStar}</p>
+              </div>
+              <div style={{ textAlign: 'right', fontSize: '12px', color: '#94a3b8' }}>
+                <div>Tone: {PERSONA.tone}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px' }}>
+            {(['value', 'invitation', 'personal'] as ContentCategory[]).map((categoryKey) => {
+              const config = CHRIS_DO_911[categoryKey];
+              const count = stats[categoryKey];
+              const active = activeCategory === categoryKey;
+              return (
+                <button
+                  key={categoryKey}
+                  onClick={() => setActiveCategory(categoryKey)}
+                  style={{
+                    ...categoryCardStyle,
+                    border: active ? `2px solid ${config.tone}` : '2px solid #475569',
+                    backgroundColor: active ? `${config.tone}15` : '#1e293b',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '32px' }}>{config.icon}</span>
+                    <div>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'white' }}>{count}</div>
+                      <div style={{ fontSize: '12px', color: '#9ca3af', textTransform: 'uppercase' }}>
+                        {categoryKey} ({config.ratio}x)
+                      </div>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>{config.description}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ borderRadius: '14px', border: '1px solid #334155', backgroundColor: '#020617', padding: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div>
+                <p style={{ color: '#64748b', fontSize: '11px', letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 6px' }}>{activeSourceLabel}</p>
+                <h3 style={{ color: 'white', fontSize: '18px', margin: '0 0 6px' }}>{activeSourceTitle}</h3>
+                {activeSourceSummary && (
+                  <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                    {activeSourceSummary}
+                  </p>
+                )}
+                <p style={{ color: '#64748b', fontSize: '12px', margin: '8px 0 0' }}>
+                  This is the generator anchor. The feed below is where you change the response lens or swap sources.
+                </p>
+              </div>
+              {activeSourceLink && (
+                <a href={activeSourceLink} target="_blank" rel="noreferrer" style={headerLinkStyle('#38bdf8')}>
+                  Open original post
+                </a>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
+              <InlinePill label={`${stats.total} saved drafts`} tone="#38bdf8" />
+              <InlinePill label={`${snapshot?.weekly_plan?.recommendations?.length ?? 0} live recommendations`} tone="#fbbf24" />
+              <InlinePill label={`${snapshot?.reaction_queue?.counts?.comment_opportunities ?? 0} comment opportunities`} tone="#22c55e" />
+            </div>
+          </div>
+
+          <button onClick={() => setShowGenerator((current) => !current)} style={generatorToggleStyle}>
+            {showGenerator ? 'Hide Generator' : `+ Generate ${activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content`}
+          </button>
+
+          {showGenerator && (
+            <div style={generatorPanelStyle}>
+              <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'white', marginBottom: '16px' }}>
+                Generate {activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content
+              </h3>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={fieldLabelStyle}>Content Type</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                  {CONTENT_TYPES.map((type) => (
+                    <button
+                      key={type.value}
+                      onClick={() => setGeneratorType(type.value)}
+                      style={{
+                        borderRadius: '8px',
+                        border: '1px solid #475569',
+                        backgroundColor: generatorType === type.value ? '#3b82f6' : '#374151',
+                        color: 'white',
+                        padding: '8px 14px',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {type.icon} {type.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px', marginBottom: '16px' }}>
+                <label style={fieldWrapStyle}>
+                  <span style={fieldLabelStyle}>Topic</span>
+                  <input value={topic} onChange={(event) => { clearEvidenceIntake(); setTopic(event.target.value); }} placeholder="e.g. agent orchestration" style={fieldStyle} />
+                </label>
+                <label style={fieldWrapStyle}>
+                  <span style={fieldLabelStyle}>Context</span>
+                  <textarea value={context} onChange={(event) => { clearEvidenceIntake(); setContext(event.target.value); }} placeholder="Why this source matters, the belief it touches, and any angle you want to push." rows={4} style={{ ...textareaStyle, minHeight: '96px' }} />
+                </label>
+                <label style={fieldWrapStyle}>
+                  <span style={fieldLabelStyle}>Audience</span>
+                  <select value={audience} onChange={(event) => { clearEvidenceIntake(); setAudience(event.target.value as PostingAudience); }} style={fieldStyle}>
+                    {AUDIENCE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px', marginBottom: '16px' }}>
+                <label style={fieldWrapStyle}>
+                  <span style={fieldLabelStyle}>Topic source</span>
+                  <select value={topicSourceMode} onChange={(event) => handleTopicSourceModeChange(event.target.value as TopicSourceMode)} style={fieldStyle}>
+                    {TOPIC_SOURCE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={fieldWrapStyle}>
+                  <span style={fieldLabelStyle}>Grounding mode</span>
+                  <select value={groundingMode} onChange={(event) => { clearEvidenceIntake(); setGroundingMode(event.target.value as GroundingMode); }} style={fieldStyle}>
+                    {GROUNDING_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'grid', gap: '6px', marginBottom: '16px' }}>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                  {TOPIC_SOURCE_OPTIONS.find((option) => option.value === topicSourceMode)?.hint}
+                </p>
+                <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                  {GROUNDING_MODE_OPTIONS.find((option) => option.value === groundingMode)?.hint}
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button onClick={() => void generateContent()} disabled={generating || codexInFlight || codexActionLoading !== null} style={primaryActionStyle('#f97316')}>
+                  {generating ? 'Queueing…' : codexInFlight ? 'Running via Local Codex…' : 'Queue Local Codex'}
+                </button>
+              </div>
+              <p style={{ color: '#64748b', fontSize: '12px', margin: '10px 0 0' }}>
+                FEEZIE searches the public-safe AI Clone records first. It creates a local Codex job only after it has a concrete action, exact problem, and observable lesson; otherwise it asks one question here.
+              </p>
+              {evidenceClarification && (
+                <div style={{ marginTop: '14px', borderRadius: '14px', border: '1px solid #f59e0b55', backgroundColor: '#1a1306', padding: '14px', display: 'grid', gap: '10px' }}>
+                  <p style={{ color: '#fbbf24', fontSize: '13px', fontWeight: 700, margin: 0 }}>{evidenceClarification.question}</p>
+                  <textarea
+                    value={evidenceAnswerDraft}
+                    onChange={(event) => setEvidenceAnswerDraft(event.target.value)}
+                    placeholder="Give the concrete detail in language that would be safe to publish. Employer-linked names, systems, paths, and metrics are anonymized server-side."
+                    rows={3}
+                    style={{ ...textareaStyle, minHeight: '88px' }}
+                  />
+                  <div>
+                    <button type="button" onClick={() => void submitEvidenceClarification()} disabled={generating || !evidenceAnswerDraft.trim()} style={primaryActionStyle('#f59e0b')}>
+                      {generating ? 'Checking…' : 'Continue evidence check'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {providerTrace && <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: '12px' }}>Model trace: {providerTrace}</p>}
+              {generatorError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{generatorError}</p>}
+              {codexJobStatus && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    borderRadius: '14px',
+                    border: `1px solid ${codexJobTone}33`,
+                    backgroundColor: '#07101f',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: codexJobTone, fontSize: '12px', fontWeight: 700, margin: 0 }}>{codexJobStatusLabel(codexJobStatus)}</p>
+                      <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{codexJobStatusHint(codexJobStatus)}</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {codexInFlight && (
+                        <button onClick={() => void cancelCodexJob()} disabled={codexActionLoading !== null} style={secondaryActionStyle('#f97316')}>
+                          {codexActionLoading === 'cancel' ? 'Canceling…' : 'Cancel'}
+                        </button>
+                      )}
+                      {!codexInFlight && ['failed', 'canceled'].includes(codexJobStatus ?? '') && (
+                        <button onClick={() => void generateContentWithCodex()} disabled={codexActionLoading !== null || generating} style={secondaryActionStyle('#f97316')}>
+                          Retry Local Codex
+                        </button>
+                      )}
+                      {localJobCompleted && (
+                        <span
+                          style={{
+                            borderRadius: '999px',
+                            border: '1px solid #1f3a28',
+                            backgroundColor: '#0a1f16',
+                            color: '#34d399',
+                            padding: '6px 10px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            letterSpacing: '0.04em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {usedCodexTerminal ? 'Executed by Codex CLI' : 'Completed by Local Codex'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {codexJobError && <p style={{ color: '#fca5a5', fontSize: '12px', margin: 0 }}>{codexJobError}</p>}
+                </div>
+              )}
+              {!codexJobStatus && codexJobError && <p style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{codexJobError}</p>}
+              {brainPromotionStatus && (
+                <p style={{ color: brainPromotionLooksErrored(brainPromotionStatus) ? '#f87171' : '#34d399', fontSize: '12px', marginTop: '12px' }}>
+                  {brainPromotionStatus}
+                </p>
+              )}
+              {reviewHandoffError && <p role="alert" style={{ color: '#f87171', fontSize: '12px', marginTop: '12px' }}>{reviewHandoffError}</p>}
+
+              {generatedContent.length > 0 && (
+                <div style={{ marginTop: '24px' }}>
+                  <h4 style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '12px' }}>Two-option draft comparison</h4>
+                  <div style={{ marginBottom: '12px' }}>
+                    <GenerationReceiptSummary diagnostics={generatedDiagnostics} />
+                  </div>
+                  <div style={{ display: 'grid', gap: '16px' }}>
+                    {generatedContent.map((content, index) => {
+                      const optionReady = isOptionEditoriallyReady(generatedDiagnostics, index);
+                      return (
+                      <div key={`generated-${index}`} style={generatedOptionStyle}>
+                        <OptionCriticReceipt diagnostics={generatedDiagnostics} optionIndex={index} />
+                        <PromotableInlineText
+                          text={content}
+                          textStyle={generatedOptionTextStyle}
+                          tone="#38bdf8"
+                          hoverHint="Propose to Brain"
+                          onCanon={(fragment) => promoteGeneratedFragment(fragment, content, index)}
+                          onUndo={undoWorkspaceFragment}
+                        />
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {reviewHandoffs[index]?.queue_id ? (
+                            <Link
+                              href={`/workspace?owner_review=${encodeURIComponent(reviewHandoffs[index].queue_id ?? '')}`}
+                              style={{ ...primaryActionStyle('#22c55e'), textDecoration: 'none' }}
+                            >
+                              Open owner review
+                            </Link>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void sendGeneratedOptionToOwnerReview(index)}
+                              disabled={reviewActionLoading !== null || !localJobCompleted || !optionReady}
+                              style={primaryActionStyle('#22c55e')}
+                            >
+                              {reviewActionLoading === index ? 'Sending…' : optionReady ? 'Send to owner review' : 'Needs revision'}
+                            </button>
+                          )}
+                          <button type="button" onClick={() => saveGeneratedContent(content, index)} style={secondaryActionStyle('#38bdf8')}>
+                            Save as local scratch
+                          </button>
+                        </div>
+                        {reviewHandoffs[index]?.message && (
+                          <p role="status" style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{reviewHandoffs[index].message}</p>
+                        )}
+                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={pipelineListStyle}>
+            <div style={pipelineHeaderStyle}>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'white', margin: 0 }}>
+                  {CHRIS_DO_911[activeCategory].icon} {activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1)} Content
+                </h3>
+                <p style={{ fontSize: '12px', color: '#64748b', margin: '4px 0 0' }}>Saved drafts only. These are not automatically injected into new generations.</p>
+              </div>
+              <span style={{ fontSize: '14px', color: '#6b7280' }}>{categoryItems.length} items</span>
+            </div>
+
+            {categoryItems.length === 0 ? (
+              <div style={emptyPipelineStyle}>No {activeCategory} content yet. Generate some above!</div>
+            ) : (
+              <div>
+                {categoryItems.map((item) => (
+                  <div key={item.id} style={pipelineItemRowStyle}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <span>{CONTENT_TYPES.find((type) => type.value === item.type)?.icon}</span>
+                          <span style={{ fontSize: '14px', fontWeight: 500, color: 'white' }}>{item.title}</span>
+                        </div>
+                        <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0 }}>{item.content.slice(0, 160)}...</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => setExpandedItem((current) => (current === item.id ? null : item.id))} style={secondaryActionStyle('#9ca3af')}>
+                          {expandedItem === item.id ? 'Hide' : 'View'}
+                        </button>
+                        <button onClick={() => void handleCopy(item.content, 'Pipeline item')} style={secondaryActionStyle('#9ca3af')}>
+                          Copy
+                        </button>
+                        <button onClick={() => deleteContentItem(item.id)} style={secondaryActionStyle('#ef4444')}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    {expandedItem === item.id && (
+                      <div style={expandedContentStyle}>
+                        <PromotableInlineText
+                          text={item.content}
+                          textStyle={expandedContentTextStyle}
+                          tone="#94a3b8"
+                          hoverHint="Propose to Brain"
+                          onCanon={(fragment, fullText) =>
+                            promoteWorkspaceFragment({
+                              fragmentText: fragment,
+                              optionText: fullText,
+                              fragmentKey: `pipeline:${item.id}:${fragment}`,
+                              topicValue: item.title || topic || 'operator insight',
+                              audienceValue: audience,
+                              categoryValue: item.category,
+                              contentTypeValue: item.type,
+                              sourceModeValue: 'persona_only',
+                              supportItems: [{ title: item.title, text: fullText }],
+                            })
+                          }
+                          onUndo={undoWorkspaceFragment}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section id="owner-review-lane" style={panelStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div>
+              <p style={sectionLabelStyle('#22c55e')}>1 Unified Feed</p>
+              <h2 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>React, draft, and approve from one feed</h2>
+              <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '860px' }}>
+                Source reactions and owner-review drafts now live in one feed. Source-stage actions stay upstream, while owner-review actions still write back to draft artifacts, queue files when they exist, and the workspace execution log, then queue Jean-Claude only for approved or revised drafts.
+              </p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+              <button onClick={() => void refreshSocialFeed()} disabled={refreshingFeed} style={primaryActionStyle('#22c55e')}>
+                {refreshingFeed ? 'Refreshing…' : 'Refresh feed'}
+              </button>
+              <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                Updated {formatTimestamp(snapshot?.social_feed?.generated_at)} · {ownerReviewItems.length} owner review · {decisionFeedItems.length} needs decision · {workflowFeedItems.length} in workflow
+              </p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <InlinePill label={`${ownerReviewItems.length} owner review`} tone="#fbbf24" />
+                <InlinePill label={`${decisionFeedItems.length} needs decision`} tone="#22c55e" />
+                <InlinePill label={`${workflowFeedItems.length} in workflow`} tone="#38bdf8" />
+              </div>
+              {refreshStatus && <p style={{ color: refreshingFeed ? '#38bdf8' : '#34d399', fontSize: '12px', margin: 0 }}>{refreshStatus}</p>}
+            </div>
+          </div>
+
+          {ownerReviewStatus && (
+            <p style={{ color: ownerReviewStatus.toLowerCase().includes('unable') || ownerReviewStatus.toLowerCase().includes('failed') ? '#f87171' : '#34d399', margin: 0, fontSize: '13px' }}>
+              {ownerReviewStatus}
+            </p>
+          )}
+          {ownerReviewState === 'error' && ownerReviewError ? <p style={{ color: '#f87171', margin: 0, fontSize: '13px' }}>{ownerReviewError}</p> : null}
+
+          <div style={ingestPanelStyle}>
+            <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+              Paste a URL or stand-alone copy of a post/text, pick a lane, and generate a live preview card that appears at the top of this feed.
+            </p>
+            <input placeholder="https://link.to/post" value={ingestUrl} onChange={(event) => setIngestUrl(event.target.value)} style={fieldStyle} />
+            <textarea placeholder="Or paste text you want to comment on..." value={ingestText} onChange={(event) => setIngestText(event.target.value)} rows={4} style={textareaStyle} />
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input placeholder="Signal title (optional)" value={ingestTitle} onChange={(event) => setIngestTitle(event.target.value)} style={{ ...fieldStyle, flex: 1 }} />
+              <select value={ingestPriority} onChange={(event) => setIngestPriority(event.target.value as FeedLensId)} style={{ ...fieldStyle, width: '220px' }}>
+                {POST_MODE_OPTIONS.map((mode) => (
+                  <option key={mode.id} value={mode.id}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
+              <button onClick={() => void ingestSignal()} disabled={ingestLoading} style={primaryActionStyle('#38bdf8')}>
+                {ingestLoading ? 'Generating…' : 'Generate preview'}
+              </button>
+            </div>
+            {ingestStatus && <p style={{ color: '#34d399', fontSize: '12px', margin: 0 }}>{ingestStatus}</p>}
+          </div>
+
+          {quoteStatus && <div style={statusBannerStyle(isApprovingQuote)}>{quoteStatus}</div>}
+          {copyStatus && <p style={{ color: copyStatus.includes('copied') ? '#34d399' : '#f87171', fontSize: '12px', margin: 0 }}>{copyStatus}</p>}
+
+          {snapshot?.weekly_plan && (
+            <section data-weekly-plan-strategy="true" style={{ ...recommendationCardStyle, display: 'grid', gap: '10px', borderColor: '#334155' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <div>
+                  <p style={{ color: '#fbbf24', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>Weekly plan strategy contract</p>
+                  <p data-weekly-plan-contract-status="true" style={{ color: '#cbd5e1', fontSize: '12px', margin: '5px 0 0' }}>
+                    {weeklyPlanContractStatus}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <InlinePill
+                    label={weeklyPlanContractState ? humanizeFeezieWorkspaceLabel(weeklyPlanContractState) : weeklyPlanContract?.contract_hash ? 'Unverified' : 'Legacy'}
+                    tone={strategyBadgeTone(weeklyPlanContractState || (weeklyPlanContract?.contract_hash ? 'unknown' : 'warning'))}
+                  />
+                  {weeklyPlanContract?.schema_version && <InlinePill label={weeklyPlanContract.schema_version} tone="#38bdf8" />}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                  Plan generated {formatTimestamp(snapshot.weekly_plan.generated_at)}
+                </p>
+                {weeklyPlanContractHash && (
+                  <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>
+                    Contract hash:{' '}
+                    <code title={weeklyPlanContractHash} style={{ color: '#cbd5e1' }}>
+                      {weeklyPlanContractHash.slice(0, 12)}{weeklyPlanContractHash.length > 12 ? '…' : ''}
+                    </code>
+                  </p>
+                )}
+              </div>
+
+              {weeklyPlanCoverage?.counts && Object.keys(weeklyPlanCoverage.counts).length > 0 ? (
+                <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+                  {Object.entries(weeklyPlanCoverage.counts).map(([pillar, count]) => (
+                    <InlinePill key={pillar} label={`${pillar}: ${count}`} tone={count > 0 ? '#38bdf8' : '#64748b'} />
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>Coverage metadata is unavailable for this legacy plan.</p>
+              )}
+
+              {weeklyPlanCoverageWarnings.length > 0 && (
+                <div data-weekly-plan-coverage-warnings="true" style={{ display: 'grid', gap: '5px', padding: '9px 10px', borderRadius: '10px', border: '1px solid rgba(251,191,36,0.28)', backgroundColor: 'rgba(251,191,36,0.06)' }}>
+                  <p style={{ color: '#fbbf24', fontSize: '11px', fontWeight: 700, margin: 0 }}>Coverage warnings</p>
+                  {weeklyPlanCoverageWarnings.map((warning) => (
+                    <p key={warning} style={{ color: '#cbd5e1', fontSize: '11px', lineHeight: 1.45, margin: 0 }}>• {warning}</p>
+                  ))}
+                </div>
+              )}
+
+              {weeklyPortfolioLearning && (
+                <div data-weekly-plan-learning-gate="true" style={{ display: 'grid', gap: '8px', padding: '10px', borderRadius: '10px', border: '1px solid rgba(56,189,248,0.24)', backgroundColor: 'rgba(56,189,248,0.05)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <p style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 700, margin: 0 }}>Portfolio learning gate</p>
+                    <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+                      <InlinePill label={`Mode: ${humanizeFeezieWorkspaceLabel(weeklyPortfolioLearning.learning_mode || 'collect_only')}`} tone="#38bdf8" />
+                      <InlinePill label={`Confidence: ${humanizeFeezieWorkspaceLabel(weeklyPortfolioLearning.confidence || 'insufficient_sample')}`} tone={strategyBadgeTone(weeklyPortfolioLearning.confidence || 'warning')} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+                    <InlinePill label={`Owner decisions: ${weeklyPortfolioLearning.counts?.owner_decisions ?? 0}/${weeklyPortfolioLearning.thresholds?.minimum_owner_decisions ?? '?'}`} tone="#94a3b8" />
+                    <InlinePill label={`Confirmed posts: ${weeklyPortfolioLearning.counts?.confirmed_publications ?? 0}/${weeklyPortfolioLearning.thresholds?.minimum_confirmed_publications ?? '?'}`} tone="#94a3b8" />
+                    <InlinePill label={`Complete feedback: ${weeklyPortfolioLearning.counts?.complete_feedback_posts ?? 0}/${weeklyPortfolioLearning.thresholds?.minimum_complete_feedback_posts ?? '?'}`} tone="#94a3b8" />
+                  </div>
+                  <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                    {weeklyPortfolioLearning.decision_policy?.outcome_reordering_allowed
+                      ? 'Aggregate outcomes may reorder already-qualified evidence. Safety, proof, critic, and owner-approval gates remain fixed.'
+                      : 'Collect-only: results cannot influence ranking yet. Contract deficits may sequence qualified evidence without creating filler.'}
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
+
+          {weeklyPublishingBoard && (
+            <section data-seven-day-publishing-board="true" style={{ ...recommendationCardStyle, display: 'grid', gap: '11px', borderColor: '#475569' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <div>
+                  <p style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 800, margin: 0 }}>Seven-day publishing board</p>
+                  <p style={{ color: '#94a3b8', fontSize: '11px', lineHeight: 1.5, margin: '4px 0 0' }}>
+                    Planning order only. Nothing here is approved or publishable until exact copy, independent critic, and owner approval are all complete.
+                  </p>
+                </div>
+                <InlinePill label="Publication authority: owner only" tone="#fbbf24" />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '9px' }}>
+                {weeklyPublishingBoardLanes.map((lane) => (
+                  <div data-publishing-board-lane={lane.id} key={lane.id} style={{ display: 'grid', alignContent: 'start', gap: '7px', padding: '9px', borderRadius: '10px', border: '1px solid rgba(148,163,184,0.18)', backgroundColor: 'rgba(15,23,42,0.42)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+                      <p style={{ color: lane.id === 'primary' ? '#34d399' : lane.id === 'backup' ? '#38bdf8' : '#94a3b8', fontSize: '11px', fontWeight: 800, margin: 0 }}>{lane.label}</p>
+                      <InlinePill label={`${lane.cards.length}`} tone="#64748b" />
+                    </div>
+                    {lane.cards.length === 0 ? (
+                      <p style={{ color: '#64748b', fontSize: '11px', margin: 0 }}>No qualified card.</p>
+                    ) : (
+                      lane.cards.map((card, index) => (
+                        <div data-publishing-board-card="true" key={card.candidate_id || `${lane.id}-${index}`} style={{ display: 'grid', gap: '5px', paddingTop: index === 0 ? 0 : '7px', borderTop: index === 0 ? 'none' : '1px solid rgba(148,163,184,0.14)' }}>
+                          <p style={{ color: '#e2e8f0', fontSize: '11px', fontWeight: 700, lineHeight: 1.4, margin: 0 }}>{card.title || 'Untitled candidate'}</p>
+                          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                            <InlinePill label={`State: ${humanizeFeezieWorkspaceLabel(card.lifecycle_state || 'candidate_only')}`} tone={strategyBadgeTone(card.lifecycle_state || 'warning')} />
+                            <InlinePill label={`Exact copy: ${card.exact_copy_bound ? 'bound' : 'unbound'}`} tone={card.exact_copy_bound ? '#34d399' : '#fbbf24'} />
+                            <InlinePill label={`Critic: ${humanizeFeezieWorkspaceLabel(card.critic_status || 'not_run')}`} tone={strategyBadgeTone(card.critic_status || 'warning')} />
+                            <InlinePill label={`Owner: ${card.approval_completed ? 'approved' : humanizeFeezieWorkspaceLabel(card.owner_decision_state || 'not_recorded')}`} tone={card.approval_completed ? '#34d399' : '#fbbf24'} />
+                          </div>
+                          <p style={{ color: '#64748b', fontSize: '10px', lineHeight: 1.45, margin: 0 }}>
+                            Next: {humanizeFeezieWorkspaceLabel(card.next_action || 'generation_required')}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {topRecommendations.length > 0 && (
+            <div style={{ display: 'grid', gap: '8px' }}>
+              <div>
+                <p style={{ color: '#fbbf24', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>Weekly plan highlights</p>
+                <p style={{ color: '#64748b', fontSize: '11px', margin: '4px 0 0' }}>Develop-now recommendations appear first when the plan supplies development status.</p>
+              </div>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {topRecommendations.map((item, index) => (
+                  <div data-weekly-plan-recommendation="true" key={`${item.title}-${index}`} style={{ ...recommendationCardStyle, display: 'grid', gap: '7px' }}>
+                    <p style={{ color: 'white', fontSize: '13px', fontWeight: 700, margin: '0 0 4px' }}>{item.title}</p>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{item.hook || item.summary || 'No summary yet.'}</p>
+                    {(item.canonical_pillar || item.employer_safety || item.proof_posture || item.development_status) && (
+                      <div data-weekly-plan-recommendation-badges="true" style={{ display: 'flex', gap: '7px', flexWrap: 'wrap' }}>
+                        {item.canonical_pillar && <InlinePill label={`Pillar: ${item.canonical_pillar}`} tone="#38bdf8" />}
+                        {item.employer_safety && <InlinePill label={`Safety: ${humanizeFeezieWorkspaceLabel(item.employer_safety)}`} tone={strategyBadgeTone(item.employer_safety)} />}
+                        {item.proof_posture && <InlinePill label={`Proof: ${humanizeFeezieWorkspaceLabel(item.proof_posture)}`} tone={strategyBadgeTone(item.proof_posture)} />}
+                        {item.development_status && <InlinePill label={`Development: ${humanizeFeezieWorkspaceLabel(item.development_status)}`} tone={strategyBadgeTone(item.development_status)} />}
+                      </div>
+                    )}
+                    {item.audience_consequence && (
+                      <p style={{ color: '#cbd5e1', fontSize: '11px', lineHeight: 1.5, margin: 0 }}>
+                        <span style={{ color: '#64748b' }}>Audience consequence:</span> {item.audience_consequence}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {ownerReviewItems.length > 0 && (
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {ownerReviewItems.map((item) => {
+                const actioning = ownerReviewActioning === item.queue_id;
+                const isSupplemental = item.entry_kind === 'supplemental';
+                const generationDiagnostics = ownerReviewGenerationDiagnostics(item);
+                const browserLocalVoiceEdit = ownerReviewVoiceEdits[item.queue_id] ?? item.first_pass_draft ?? '';
+                const exactCopyApprovalBlocked =
+                  isGeneratedCodexOwnerReview(item) &&
+                  !isExactOperationalVoiceReviewCopy(item.first_pass_draft, browserLocalVoiceEdit);
+                return (
+                  <article
+                    id={ownerReviewElementId(item.queue_id)}
+                    key={item.queue_id}
+                    tabIndex={-1}
+                    style={{ ...workspaceFileCardStyle, display: 'grid', gap: '12px', backgroundColor: '#020617' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{isSupplemental ? ownerReviewKindLabel(item) : item.queue_id}</p>
+                          <InlinePill label="Owner review" tone="#fbbf24" />
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.lane || 'unknown lane')} tone="#38bdf8" />
+                          {item.format && <InlinePill label={humanizeFeezieWorkspaceLabel(item.format)} tone="#94a3b8" />}
+                          {isSupplemental && item.transform_type ? <InlinePill label={humanizeFeezieWorkspaceLabel(item.transform_type)} tone="#fbbf24" /> : null}
+                          <InlinePill label={humanizeFeezieWorkspaceLabel(item.status || 'pending')} tone={item.current_decision === 'approve' ? '#22c55e' : item.current_decision === 'park' ? '#f87171' : '#fbbf24'} />
+                        </div>
+                        <h3 style={{ color: 'white', fontSize: '20px', margin: 0 }}>{item.title}</h3>
+                        {isSupplemental ? (
+                          <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#475569' }}>Reference:</span> {item.queue_id}
+                          </p>
+                        ) : null}
+                        {item.core_angle && <p style={{ color: '#cbd5f5', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.core_angle}</p>}
+                        {isSupplemental && item.summary ? (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Source summary:</span> {item.summary}
+                          </p>
+                        ) : null}
+                        {isSupplemental && item.latent_reason ? (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Why it was preserved:</span> {humanizeFeezieWorkspaceLabel(item.latent_reason)}
+                          </p>
+                        ) : null}
+                        {item.why_now && (
+                          <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>
+                            <span style={{ color: '#64748b' }}>Why now:</span> {item.why_now}
+                          </p>
+                        )}
+                      </div>
+                      <div style={{ display: 'grid', gap: '6px', justifyItems: 'end' }}>
+                        {item.source_url ? (
+                          <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                            Open source
+                          </a>
+                        ) : null}
+                        {item.system_assessment?.suggested_decision ? (
+                          <InlinePill label={`System: ${humanizeFeezieWorkspaceLabel(item.system_assessment.suggested_decision)}`} tone="#38bdf8" />
+                        ) : null}
+                        {item.packet_recommendation && <InlinePill label={item.packet_recommendation.replace(/\*\*/g, '')} tone="#fbbf24" />}
+                        {item.publish_posture && <InlinePill label={humanizeFeezieWorkspaceLabel(item.publish_posture)} tone="#22c55e" />}
+                        {item.reviewed_at && <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>Saved {formatTimestamp(item.reviewed_at)}</p>}
+                      </div>
+                    </div>
+
+                    {generationDiagnostics ? (
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        <GenerationReceiptSummary diagnostics={generationDiagnostics} />
+                        <OptionCriticReceipt
+                          diagnostics={generationDiagnostics}
+                          optionIndex={item.generation_option_index ?? 0}
+                        />
+                      </div>
+                    ) : null}
+
+                    {item.proof_anchors && item.proof_anchors.length > 0 && (
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {item.proof_anchors.slice(0, 4).map((anchor) => (
+                          <InlinePill key={`${item.queue_id}-${anchor}`} label={anchor.replace(/^.*\//, '')} tone="#64748b" />
+                        ))}
+                      </div>
+                    )}
+
+                    <details style={agentSectionStyle}>
+                      <summary style={agentSectionSummaryStyle}>
+                        <div>
+                          <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>First-pass draft</p>
+                          <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>{item.draft_path}</p>
+                        </div>
+                        <span style={{ color: '#38bdf8', fontSize: '12px' }}>Expand</span>
+                      </summary>
+                      <div style={{ padding: '0 16px 16px' }}>
+                        <pre style={{ ...generatedOptionTextStyle, margin: 0, maxHeight: 'none' }}>{item.first_pass_draft || summarizeContent(item.draft_body) || 'No draft body available.'}</pre>
+                      </div>
+                    </details>
+
+                    {isGeneratedCodexOwnerReview(item) && item.first_pass_draft?.trim() ? (
+                      <section
+                        data-owner-review-exact-copy-status={exactCopyApprovalBlocked ? 'blocked' : 'ready'}
+                        style={{ ...agentSectionStyle, gap: '9px', borderColor: 'rgba(52,211,153,0.28)' }}
+                      >
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Private voice-learning edit</span>
+                          <textarea
+                            value={browserLocalVoiceEdit}
+                            onChange={(event) =>
+                              setOwnerReviewVoiceEdits((current) => ({
+                                ...current,
+                                [item.queue_id]: event.target.value,
+                              }))
+                            }
+                            rows={8}
+                            style={{ ...textareaStyle, minHeight: '180px' }}
+                          />
+                        </label>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                          This field is browser-local feedback and stays in this browser; it is never included in the Railway review request. Submitting a decision sends only the decision and your notes; the operational draft above remains unchanged. Revise downloads a local-only edit packet, while Park downloads a local-only rejection packet. Neither saves this edit operationally or promotes it into your voice corpus.
+                        </p>
+                        {exactCopyApprovalBlocked ? (
+                          <p
+                            id={ownerReviewExactCopyGuardId(item.queue_id)}
+                            role="alert"
+                            style={{ color: '#fbbf24', fontSize: '12px', lineHeight: 1.55, margin: 0 }}
+                          >
+                            Exact-copy Approve is disabled because this browser-local edit is not the operational draft. Choose Revise to save only the review decision and download the packet. Import it on your Mac, then start a new two-option generation and independent critic cycle before revised exact copy can return to owner review.
+                          </p>
+                        ) : (
+                          <p
+                            id={ownerReviewExactCopyGuardId(item.queue_id)}
+                            style={{ color: '#34d399', fontSize: '12px', lineHeight: 1.55, margin: 0 }}
+                          >
+                            Exact-copy Approve is available because this field matches the operational draft after line-ending and surrounding-whitespace normalization.
+                          </p>
+                        )}
+                        <p style={{ color: '#64748b', fontSize: '11px', lineHeight: 1.55, margin: 0 }}>
+                          Import the downloaded file on your Mac with <code>python3 scripts/voice_fidelity.py import-review --packet-file ~/Downloads/ai-clone-voice-review-….json</code>
+                        </p>
+                      </section>
+                    ) : null}
+
+                    {isGeneratedCodexOwnerReview(item) && !item.first_pass_draft?.trim() ? (
+                      <p
+                        id={ownerReviewExactCopyGuardId(item.queue_id)}
+                        role="alert"
+                        style={{ color: '#f87171', fontSize: '12px', lineHeight: 1.55, margin: 0 }}
+                      >
+                        Exact-copy Approve is disabled because the operational first-pass draft is unavailable. Reload the owner-review item or return it to generation; do not approve copy that cannot be matched exactly.
+                      </p>
+                    ) : null}
+
+                    {item.draft_owner_notes && item.draft_owner_notes.length > 0 && (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Draft notes</p>
+                        {item.draft_owner_notes.map((note) => (
+                          <p key={`${item.queue_id}-${note}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                            {note}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    {isSupplemental && item.revision_goals && item.revision_goals.length > 0 ? (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Transform goals</p>
+                        {item.revision_goals.map((goal) => (
+                          <p key={`${item.queue_id}-${goal}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                            {goal}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {item.system_assessment ? (
+                      <section style={{ ...agentSectionStyle, gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <p style={{ color: '#38bdf8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>System read</p>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {item.system_assessment.suggested_decision ? (
+                              <InlinePill label={humanizeFeezieWorkspaceLabel(item.system_assessment.suggested_decision)} tone="#38bdf8" />
+                            ) : null}
+                            {item.system_assessment.confidence ? (
+                              <InlinePill label={`${humanizeFeezieWorkspaceLabel(item.system_assessment.confidence)} confidence`} tone="#64748b" />
+                            ) : null}
+                          </div>
+                        </div>
+                        {item.system_assessment.summary ? (
+                          <p style={{ color: '#e2e8f0', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{item.system_assessment.summary}</p>
+                        ) : null}
+                        {item.system_assessment.reasons && item.system_assessment.reasons.length > 0 ? (
+                          <div style={{ display: 'grid', gap: '4px' }}>
+                            {item.system_assessment.reasons.map((reason) => (
+                              <p key={`${item.queue_id}-${reason}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                                {reason}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {item.system_assessment.missing_items && item.system_assessment.missing_items.length > 0 ? (
+                          <div style={{ display: 'grid', gap: '4px' }}>
+                            <p style={{ color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '2px 0 0' }}>Still thin</p>
+                            {item.system_assessment.missing_items.map((entry) => (
+                              <p key={`${item.queue_id}-${entry}`} style={{ color: '#fecaca', fontSize: '13px', margin: 0 }}>
+                                {entry}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {item.system_assessment.fallback_action ? (
+                          <p style={{ color: '#cbd5f5', fontSize: '12px', lineHeight: 1.55, margin: 0 }}>{item.system_assessment.fallback_action}</p>
+                        ) : null}
+                      </section>
+                    ) : null}
+
+                    <label style={fieldWrapStyle}>
+                      <span style={fieldLabelStyle}>Your notes</span>
+                      <textarea
+                        value={ownerReviewNotes[item.queue_id] ?? ''}
+                        onChange={(event) => setOwnerReviewNotes((current) => ({ ...current, [item.queue_id]: event.target.value }))}
+                        placeholder="Add revision notes, scheduling notes, or why this should be parked."
+                        rows={4}
+                        style={{ ...textareaStyle, minHeight: '96px' }}
+                      />
+                    </label>
+
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button
+                        onClick={() => void submitOwnerReviewDecision(item, 'approve')}
+                        disabled={actioning || exactCopyApprovalBlocked}
+                        aria-describedby={isGeneratedCodexOwnerReview(item) ? ownerReviewExactCopyGuardId(item.queue_id) : undefined}
+                        style={primaryActionStyle('#22c55e')}
+                      >
+                        {actioning ? 'Saving…' : 'Approve'}
+                      </button>
+                      <button onClick={() => void submitOwnerReviewDecision(item, 'revise')} disabled={actioning} style={primaryActionStyle('#fbbf24')}>
+                        {actioning ? 'Saving…' : 'Revise'}
+                      </button>
+                      <button onClick={() => void submitOwnerReviewDecision(item, 'park')} disabled={actioning} style={primaryActionStyle('#f87171')}>
+                        {actioning ? 'Saving…' : 'Park'}
+                      </button>
+                      <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
+                        {isSupplemental ? 'Review status' : 'Queue status'}: {humanizeFeezieWorkspaceLabel(item.approval_status || 'owner_review_required')}
+                      </p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          {workflowFeedItems.length > 0 && (
+            <details style={{ ...agentSectionStyle, borderColor: 'rgba(56,189,248,0.24)' }}>
+              <summary style={agentSectionSummaryStyle}>
+                <div>
+                  <p style={{ color: '#e2e8f0', fontSize: '15px', fontWeight: 600, margin: 0 }}>Already handled</p>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: '4px 0 0' }}>
+                    {workflowFeedItems.length} source{workflowFeedItems.length === 1 ? '' : 's'} already routed, banked, scheduled, parked, or rejected.
+                  </p>
+                </div>
+                <span style={{ color: '#38bdf8', fontSize: '12px' }}>Expand</span>
+              </summary>
+              <div style={{ display: 'grid', gap: '8px', padding: '0 16px 16px' }}>
+                {workflowFeedItems.slice(0, 12).map(({ item, lifecycle }) => (
+                  <div key={`${item.id}-workflow`} style={recommendationCardStyle}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div>
+                        <p style={{ color: 'white', fontSize: '13px', fontWeight: 700, margin: '0 0 4px' }}>{item.title}</p>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{lifecycle?.reason || 'Already routed downstream.'}</p>
+                      </div>
+                      <InlinePill label={lifecycle?.stage_label || humanizeFeezieWorkspaceLabel(String(lifecycle?.stage || 'in_workflow'))} tone={sourceLifecycleTone(lifecycle?.stage)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          <div style={{ display: 'grid', gap: '14px' }}>
+            {decisionFeedItems.map(({ item, lifecycle }) => {
+              const selectedLens = resolveFeedLens(item);
+              const activeVariant = getFeedVariant(item, selectedLens);
+              const rawQuickReply = createShortCommentDraft(item, selectedLens);
+              const rawCommentDraft = createCommentDraft(item, selectedLens);
+              const rawRepostDraft = createRepostDraft(item, selectedLens);
+              const editorial = buildFeedEditorialSummary(item, selectedLens);
+              const evaluation = activeVariant?.evaluation ?? item.evaluation;
+              const beliefAssessment = activeVariant ?? item.belief_assessment;
+              const techniqueAssessment = activeVariant ?? item.technique_assessment;
+              const expressionAssessment = activeVariant?.expression_assessment ?? item.expression_assessment;
+              const sourceContractClass = deriveSourceClass(item);
+              const sourceContractUnit = deriveUnitKind(item, sourceContractClass);
+              const sourceContractModes = deriveResponseModes(item, sourceContractClass, sourceContractUnit);
+              const planningStatus = resolveFeedPlanningStatus(item, feedPlanningIndex, lifecycle);
+
+              return (
+                <article key={item.id} style={{ ...feedCardStyle, border: item.id === selectedFeedId ? '1px solid #38bdf8' : '1px solid #1f2937' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={platformBadgeStyle}>{item.platform}</span>
+                      {planningStatus ? <InlinePill label={planningStatus.label} tone={planningStatus.tone} /> : null}
+                    </div>
+                    <span style={scoreBadgeStyle}>score {item.ranking.total.toFixed(1)}</span>
+                  </div>
+                  <h3 style={{ color: 'white', fontSize: '24px', margin: '0 0 4px' }}>{item.title}</h3>
+                  <p style={{ color: '#94a3b8', margin: 0 }}>{item.author}</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: 0 }}>Angle</p>
+                      <select
+                        value={selectedLens}
+                        onChange={(event) => {
+                          const nextLens = event.target.value as FeedLensId;
+                          setFeedLensSelections((current) => ({ ...current, [item.id]: nextLens }));
+                          if (item.id === selectedFeedId) {
+                            setTopic(item.title);
+                            setContext(buildPipelineContext(item, nextLens));
+                            setAudience(mapAudienceFromLane(nextLens));
+                          }
+                        }}
+                        style={editorialSelectStyle}
+                      >
+                        {POST_MODE_OPTIONS.map((mode) => (
+                          <option key={`${item.id}-${mode.id}`} value={mode.id}>
+                            {mode.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {item.source_url && (
+                      <a href={item.source_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', fontSize: '12px', textDecoration: 'none' }}>
+                        Open source
+                      </a>
+                    )}
+                  </div>
+
+                  {item.why_it_matters && (
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Why this is in your feed</p>
+                      <p style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>{item.why_it_matters}</p>
+                    </div>
+                  )}
+
+                  <div style={editorialSummaryStyle}>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Recommendation</p>
+                      <p style={{ color: 'white', fontSize: '18px', fontWeight: 700, margin: 0 }}>{planningStatus?.recommendation ?? editorial.recommendation}</p>
+                    </div>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Why</p>
+                      {(planningStatus?.why ?? editorial.why).map((reason) => (
+                        <p key={`${item.id}-${reason}`} style={{ color: '#cbd5f5', fontSize: '13px', margin: 0 }}>
+                          {reason}
+                        </p>
+                      ))}
+                    </div>
+                    <div style={{ display: 'grid', gap: '4px' }}>
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Best angle</p>
+                      <p style={{ color: '#e2e8f0', fontSize: '13px', margin: 0 }}>{editorial.bestAngle}</p>
+                    </div>
+                  </div>
+
+                  <div style={editorialDraftRowStyle}>
+                    <DraftBlock
+                      title={editorial.draftLabel}
+                      text={editorial.draft || 'No draft available yet.'}
+                      promotableText={editorial.draft}
+                      tone={editorial.draftTone}
+                      onCopy={() => void handleCopy(editorial.draft, editorial.draftLabel, { item, lens: selectedLens, notes: editorial.draftLabel })}
+                      onCanon={(fragment, fullText) =>
+                        promoteWorkspaceFragment({
+                          fragmentText: fragment,
+                          optionText: fullText,
+                          fragmentKey: `${item.id}:${editorial.mode}:${fragment}`,
+                          topicValue: item.title || topic || 'operator insight',
+                          audienceValue: mapAudienceFromLane(selectedLens),
+                          categoryValue: activeCategory,
+                          contentTypeValue: 'linkedin_post',
+                          sourceModeValue: 'selected_source',
+                          supportItems: [
+                            {
+                              title: item.title,
+                              text: fullText,
+                              source_path: item.source_path,
+                              source_url: item.source_url,
+                            },
+                          ],
+                        })
+                      }
+                      onUndo={undoWorkspaceFragment}
+                    />
+                    {editorial.optionalDraft && editorial.optionalLabel && (
+                      <DraftBlock
+                        title={editorial.optionalLabel}
+                        text={editorial.optionalDraft}
+                        promotableText={editorial.optionalDraft}
+                        tone="#22c55e"
+                        onCopy={() =>
+                          void handleCopy(editorial.optionalDraft ?? '', editorial.optionalLabel ?? 'Optional draft', {
+                            item,
+                            lens: selectedLens,
+                            notes: editorial.optionalLabel ?? 'Optional draft',
+                          })
+                        }
+                        onCanon={(fragment, fullText) =>
+                          promoteWorkspaceFragment({
+                            fragmentText: fragment,
+                            optionText: fullText,
+                            fragmentKey: `${item.id}:optional:${fragment}`,
+                            topicValue: item.title || topic || 'operator insight',
+                            audienceValue: mapAudienceFromLane(selectedLens),
+                            categoryValue: activeCategory,
+                            contentTypeValue: 'linkedin_post',
+                            sourceModeValue: 'selected_source',
+                            supportItems: [
+                              {
+                                title: item.title,
+                                text: fullText,
+                                source_path: item.source_path,
+                                source_url: item.source_url,
+                              },
+                            ],
+                          })
+                        }
+                        onUndo={undoWorkspaceFragment}
+                      />
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button onClick={() => handleFeedPrimaryAction(item, selectedLens, planningStatus)} style={primaryActionStyle(planningStatus?.tone ?? '#fb923c')}>
+                      {planningStatus?.actionLabel ?? (editorial.mode === 'post_seed' ? 'Save as seed' : 'Use in pipeline')}
+                    </button>
+                    <Link href={buildPostingWorkspaceHref(item, selectedLens)} style={secondaryLinkStyle('#fb923c')}>
+                      Write post
+                    </Link>
+                    <Link href={buildCommentWorkspaceHref(item, selectedLens)} style={secondaryLinkStyle('#38bdf8')}>
+                      Comment on this
+                    </Link>
+                    {item.source_url && (
+                      <button onClick={() => void handleCopy(item.source_url ?? '', 'Source link', { item, lens: selectedLens, notes: 'Source link' })} style={secondaryActionStyle('#94a3b8')}>
+                        Copy link
+                      </button>
+                    )}
+                    <button onClick={() => void recordFeedback(item, 'like', selectedLens)} disabled={feedbackLoading[item.id]} style={feedbackButtonStyle('#22c55e')}>
+                      👍 Like
+                    </button>
+                    <button onClick={() => void recordFeedback(item, 'dislike', selectedLens)} disabled={feedbackLoading[item.id]} style={feedbackButtonStyle('#f87171')}>
+                      👎 Dislike
+                    </button>
+                    <button
+                      onClick={() =>
+                        void recordFeedback(
+                          item,
+                          'reject',
+                          selectedLens,
+                          'Owner marked this source Not for FEEZIE from the feed decision surface.',
+                        )
+                      }
+                      disabled={feedbackLoading[item.id]}
+                      style={feedbackButtonStyle('#f97316')}
+                    >
+                      Not for FEEZIE
+                    </button>
+                    <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{feedbackState[item.id] ?? planningStatus?.detail ?? 'Tell the feed if this recommendation felt right.'}</p>
+                  </div>
+
+                  <details style={editorialDetailsStyle}>
+                    <summary style={{ color: '#cbd5f5', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>See why</summary>
+                    <div style={{ display: 'grid', gap: '10px', marginTop: '10px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        <MiniReadoutChip label={`lane fit: ${editorial.laneFit}`} tone="#93c5fd" />
+                        <MiniReadoutChip label={`voice fit: ${editorial.voiceFit}`} tone="#c4b5fd" />
+                        <MiniReadoutChip label={`specificity risk: ${editorial.specificityRisk}`} tone={editorial.specificityRisk === 'high' ? '#fca5a5' : '#86efac'} />
+                        {beliefAssessment?.role_safety && <MiniReadoutChip label={`role safety: ${beliefAssessment.role_safety}`} tone="#fde68a" />}
+                        {(techniqueAssessment?.techniques ?? []).map((technique) => (
+                          <MiniReadoutChip key={`${item.id}-${selectedLens}-${technique}`} label={technique} tone="#86efac" />
+                        ))}
+                      </div>
+                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                        <span style={{ color: '#94a3b8' }}>Best use:</span> {editorial.bestUse}
+                      </p>
+                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                        <span style={{ color: '#94a3b8' }}>Avoid:</span> {editorial.avoid}
+                      </p>
+                      {activeVariant?.why_this_angle && <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{activeVariant.why_this_angle}</p>}
+                      {(beliefAssessment as { belief_summary?: string } | undefined)?.belief_summary && (
+                        <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                          <span style={{ color: '#94a3b8' }}>Belief:</span> {(beliefAssessment as { belief_summary?: string }).belief_summary}
+                        </p>
+                      )}
+                      {(beliefAssessment as { experience_summary?: string } | undefined)?.experience_summary && (
+                        <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                          <span style={{ color: '#94a3b8' }}>Anchor:</span> {(beliefAssessment as { experience_summary?: string }).experience_summary}
+                        </p>
+                      )}
+                      <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                        <span style={{ color: '#94a3b8' }}>Source contract:</span> {sourceContractClass} · {sourceContractUnit} · {sourceContractModes.join(', ')}
+                      </p>
+                      {expressionAssessment?.strategy && (
+                        <p style={{ color: '#e2e8f0', fontSize: '12px', margin: 0 }}>
+                          <span style={{ color: '#94a3b8' }}>Expression:</span> {expressionAssessment.strategy} · {expressionAssessment.output_structure ?? 'plain'}
+                        </p>
+                      )}
+                      {evaluation && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: '6px' }}>
+                          <span style={evalCellStyle}>Lane {evaluation.lane_distinctiveness?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Belief {evaluation.belief_clarity?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Voice {evaluation.voice_match?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Expr {evaluation.expression_quality?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Src {evaluation.source_expression_quality?.toFixed(1) ?? 'n/a'}</span>
+                          <span style={evalCellStyle}>Δ {evaluation.expression_delta?.toFixed(1) ?? '0.0'}</span>
+                        </div>
+                      )}
+                      {(rawQuickReply || rawCommentDraft || rawRepostDraft) && (
+                        <details style={{ ...editorialDetailsStyle, padding: '8px 10px' }}>
+                          <summary style={{ color: '#cbd5f5', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>Raw variants</summary>
+                          <div style={{ ...editorialDraftRowStyle, marginTop: '10px' }}>
+                            {rawQuickReply && (
+                              <DraftBlock
+                                title="Quick reply"
+                                text={rawQuickReply}
+                                promotableText={rawQuickReply || rawCommentDraft}
+                                tone="#22c55e"
+                                onCopy={() => void handleCopy(rawQuickReply || rawCommentDraft, 'Quick reply', { item, lens: selectedLens, notes: 'Quick reply' })}
+                                onCanon={(fragment, fullText) =>
+                                  promoteWorkspaceFragment({
+                                    fragmentText: fragment,
+                                    optionText: fullText,
+                                    fragmentKey: `${item.id}:quick-reply:${fragment}`,
+                                    topicValue: item.title || topic || 'operator insight',
+                                    audienceValue: mapAudienceFromLane(selectedLens),
+                                    categoryValue: activeCategory,
+                                    contentTypeValue: 'linkedin_post',
+                                    sourceModeValue: 'selected_source',
+                                    supportItems: [
+                                      {
+                                        title: item.title,
+                                        text: fullText,
+                                        source_path: item.source_path,
+                                        source_url: item.source_url,
+                                      },
+                                    ],
+                                  })
+                                }
+                                onUndo={undoWorkspaceFragment}
+                              />
+                            )}
+                            {rawCommentDraft && (
+                              <DraftBlock
+                                title="Suggested comment"
+                                text={rawCommentDraft}
+                                promotableText={rawCommentDraft}
+                                tone="#38bdf8"
+                                onCopy={() => void handleCopy(rawCommentDraft, 'Suggested comment', { item, lens: selectedLens, notes: 'Suggested comment' })}
+                                onCanon={(fragment, fullText) =>
+                                  promoteWorkspaceFragment({
+                                    fragmentText: fragment,
+                                    optionText: fullText,
+                                    fragmentKey: `${item.id}:comment:${fragment}`,
+                                    topicValue: item.title || topic || 'operator insight',
+                                    audienceValue: mapAudienceFromLane(selectedLens),
+                                    categoryValue: activeCategory,
+                                    contentTypeValue: 'linkedin_post',
+                                    sourceModeValue: 'selected_source',
+                                    supportItems: [
+                                      {
+                                        title: item.title,
+                                        text: fullText,
+                                        source_path: item.source_path,
+                                        source_url: item.source_url,
+                                      },
+                                    ],
+                                  })
+                                }
+                                onUndo={undoWorkspaceFragment}
+                              />
+                            )}
+                            {rawRepostDraft && (
+                              <DraftBlock
+                                title="Suggested repost"
+                                text={rawRepostDraft}
+                                promotableText={rawRepostDraft}
+                                tone="#f472b6"
+                                onCopy={() => void handleCopy(rawRepostDraft, 'Suggested repost', { item, lens: selectedLens, notes: 'Suggested repost' })}
+                                onCanon={(fragment, fullText) =>
+                                  promoteWorkspaceFragment({
+                                    fragmentText: fragment,
+                                    optionText: fullText,
+                                    fragmentKey: `${item.id}:repost:${fragment}`,
+                                    topicValue: item.title || topic || 'operator insight',
+                                    audienceValue: mapAudienceFromLane(selectedLens),
+                                    categoryValue: activeCategory,
+                                    contentTypeValue: 'linkedin_post',
+                                    sourceModeValue: 'selected_source',
+                                    supportItems: [
+                                      {
+                                        title: item.title,
+                                        text: fullText,
+                                        source_path: item.source_path,
+                                        source_url: item.source_url,
+                                      },
+                                    ],
+                                  })
+                                }
+                                onUndo={undoWorkspaceFragment}
+                              />
+                            )}
+                          </div>
+                        </details>
+                      )}
+                      {item.standout_lines?.map((line) => (
+                        <div key={`${item.id}-${line}`} style={approveLineRowStyle}>
+                          <span style={{ color: '#e2e8f0', fontSize: '13px', flex: 1 }}>{line}</span>
+                          <button onClick={() => void approveFeedLine(item, line, selectedLens)} disabled={isApprovingQuote} style={secondaryActionStyle('#fbbf24')}>
+                            {isApprovingQuote ? 'Approving…' : 'Approve line'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </article>
+              );
+            })}
+            {decisionFeedItems.length === 0 && ownerReviewItems.length === 0 && (
+              <EmptyMessage
+                message={
+                  feedItems.length === 0
+                    ? 'No feed items available yet. Refresh the shared feed or generate a preview signal to start testing the workspace.'
+                    : 'No fresh feed decisions are waiting. Existing sources are already routed into the workflow above.'
+                }
+              />
+            )}
+          </div>
+        </section>
+
+        <section style={panelStyle}>
+          <div>
+            <p style={sectionLabelStyle('#fbbf24')}>3 Agent System</p>
+            <h2 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Private grounding inventory</h2>
+            <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '860px' }}>
+              FEEZIE uses local workspace files, plans, research, and persona material for grounding. Railway and the browser receive aggregate inventory and freshness receipts only; raw bodies, filenames, snippets, and local paths stay on your Mac.
+            </p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
+              <InlinePill label={`${privateWorkspaceRecordCount} private records inventoried`} tone="#38bdf8" />
+              <InlinePill label="aggregate-only Railway projection" tone="#22c55e" />
+              <InlinePill label="raw content stays local" tone="#fbbf24" />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            {Object.entries(snapshot?.snapshot_status?.sections ?? {}).map(([key, section]) => (
+              <TruthCard
+                key={key}
+                label={humanizeFeezieWorkspaceLabel(key)}
+                value={humanizeFeezieWorkspaceLabel(section.state || (section.available ? 'available' : 'missing'))}
+                detail={section.generated_at ? `Generated ${formatTimestamp(section.generated_at)}${section.age_hours == null ? '' : ` · ${section.age_hours.toFixed(1)}h old`}` : 'No source timestamp is available.'}
+                tone={truthStateTone(section.state || (section.available ? 'current' : 'missing'))}
+              />
+            ))}
+          </div>
+          {Object.keys(snapshot?.snapshot_status?.sections ?? {}).length === 0 ? (
+            <EmptyMessage message="The aggregate grounding inventory has not been projected yet. This does not expose or delete the local source material." />
+          ) : null}
+        </section>
+      </section>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <RuntimePage module="workspace" tabs={tabs} maxWidth="1520px">
+      {content}
+    </RuntimePage>
+  );
+}
+
+function WorkspaceHomeFallback() {
+  return (
+    <RuntimePage module="workspace" tabs={workspaceTabs()} maxWidth="1520px">
+      <section style={panelStyle}>Loading workspace…</section>
+    </RuntimePage>
+  );
+}
+
+export default function WorkspaceClient() {
+  return (
+    <Suspense fallback={<WorkspaceHomeFallback />}>
+      <LinkedinWorkspaceSurface />
+    </Suspense>
+  );
+}
+
+function DraftBlock({
+  title,
+  text,
+  promotableText,
+  tone,
+  onCopy,
+  onCanon,
+  onUndo,
+}: {
+  title: string;
+  text: string;
+  promotableText?: string;
+  tone: string;
+  onCopy: () => void;
+  onCanon?: (fragment: string, fullText: string) => Promise<GeneratedFragmentPromotionResult | void>;
+  onUndo?: (deltaId: string) => Promise<void>;
+}) {
+  return (
+    <div style={{ display: 'grid', gap: '4px' }}>
+      <p style={{ color: '#cbd5f5', margin: '4px 0', fontSize: '12px' }}>{title}</p>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1 }}>
+          <PromotableInlineText
+            text={text}
+            promotableText={promotableText}
+            textStyle={draftTextStyle}
+            tone={tone}
+            hoverHint="Propose to Brain"
+            onCanon={(fragment, fullText) => (onCanon ? onCanon(fragment, fullText) : Promise.resolve())}
+            onUndo={onUndo}
+          />
+        </div>
+        <button onClick={onCopy} style={secondaryActionStyle(tone)}>
+          Copy
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DraftStatCard({ category, count, active, onClick }: { category: ContentCategory; count: number; active: boolean; onClick: () => void }) {
+  const config = CHRIS_DO_911[category];
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        ...categoryCardStyle,
+        border: active ? `2px solid ${config.tone}` : '2px solid #475569',
+        backgroundColor: active ? `${config.tone}15` : '#1e293b',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+        <span style={{ fontSize: '32px' }}>{config.icon}</span>
+        <div>
+          <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'white' }}>{count}</div>
+          <div style={{ fontSize: '12px', color: '#9ca3af', textTransform: 'uppercase' }}>
+            {category} ({config.ratio}x)
+          </div>
+        </div>
+      </div>
+      <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>{config.description}</p>
+    </button>
+  );
+}
+
+function truthStateTone(state?: string | null) {
+  const normalized = normalizeStrategyValue(state);
+  if (['current', 'fresh', 'complete', 'measured', 'advisory_ready'].includes(normalized)) return '#22c55e';
+  if (['corrupt', 'degraded', 'unavailable', 'error', 'blocked'].includes(normalized)) return '#f87171';
+  if (normalized === 'loading') return '#38bdf8';
+  return '#f59e0b';
+}
+
+function formatMixCounts(counts?: Record<string, number>) {
+  const entries = Object.entries(counts ?? {});
+  if (entries.length === 0) return 'Not measured yet';
+  return entries.map(([key, value]) => `${humanizeFeezieWorkspaceLabel(key)} ${value}`).join(' · ');
+}
+
+function formatMixDeficits(deficits: Record<string, number> | undefined, emptyLabel: string) {
+  const missing = Object.entries(deficits ?? {}).filter(([, value]) => value > 0);
+  if (missing.length === 0) return emptyLabel;
+  return `Deficit: ${missing.map(([key, value]) => `${humanizeFeezieWorkspaceLabel(key)} ${value}`).join(' · ')}`;
+}
+
+function TruthCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) {
+  return (
+    <div style={{ ...miniStatStyle, border: `1px solid ${tone}40`, minHeight: '122px' }}>
+      <p style={{ ...miniStatLabelStyle, color: tone }}>{label}</p>
+      <p style={{ ...miniStatValueStyle, fontSize: '17px', lineHeight: 1.35 }}>{value}</p>
+      <p style={{ ...miniStatDetailStyle, lineHeight: 1.5 }}>{detail}</p>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div style={miniStatStyle}>
+      <p style={miniStatLabelStyle}>{label}</p>
+      <p style={miniStatValueStyle}>{value}</p>
+      <p style={miniStatDetailStyle}>{detail}</p>
+    </div>
+  );
+}
+
+function InlinePill({ label, tone }: { label: string; tone: string }) {
+  return <span style={{ ...pillStyle, border: `1px solid ${tone}55`, backgroundColor: `${tone}18`, color: tone }}>{label}</span>;
+}
+
+function MiniReadoutChip({ label, tone }: { label: string; tone: string }) {
+  return <span style={{ borderRadius: '999px', padding: '4px 8px', border: `1px solid ${tone}55`, color: tone, fontSize: '11px' }}>{label}</span>;
+}
+
+function EmptyMessage({ message }: { message: string }) {
+  return <div style={emptyMessageStyle}>{message}</div>;
+}
+
+function summarizeContent(content?: string) {
+  if (!content) return '';
+  const cleaned = content.replace(/\s+/g, ' ').trim();
+  return cleaned.length > 220 ? `${cleaned.slice(0, 220)}...` : cleaned;
+}
+
+function sectionLabelStyle(tone: string) {
+  return {
+    color: tone,
+    fontSize: '11px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.12em',
+    margin: 0,
+  } as const;
+}
+
+function primaryActionStyle(tone: string) {
+  return {
+    borderRadius: '10px',
+    border: `1px solid ${tone}`,
+    backgroundColor: `${tone}18`,
+    color: 'white',
+    padding: '8px 14px',
+    fontSize: '13px',
+    fontWeight: 700,
+    cursor: 'pointer',
+  } as const;
+}
+
+function secondaryActionStyle(tone: string) {
+  return {
+    borderRadius: '8px',
+    border: `1px solid ${tone}`,
+    backgroundColor: 'transparent',
+    color: tone,
+    padding: '6px 12px',
+    fontSize: '12px',
+    cursor: 'pointer',
+  } as const;
+}
+
+function secondaryLinkStyle(tone: string) {
+  return {
+    borderRadius: '8px',
+    border: `1px solid ${tone}`,
+    backgroundColor: 'transparent',
+    color: tone,
+    padding: '7px 12px',
+    fontSize: '12px',
+    fontWeight: 700,
+    textDecoration: 'none',
+  } as const;
+}
+
+function feedbackButtonStyle(tone: string) {
+  return {
+    borderRadius: '12px',
+    border: `1px solid ${tone}`,
+    background: `${tone}20`,
+    color: tone,
+    padding: '6px 12px',
+    fontSize: '12px',
+    cursor: 'pointer',
+  } as const;
+}
+
+function headerLinkStyle(tone: string) {
+  return {
+    borderRadius: '12px',
+    border: `1px solid ${tone}`,
+    backgroundColor: `${tone}18`,
+    color: 'white',
+    padding: '10px 14px',
+    textDecoration: 'none',
+    fontSize: '13px',
+    fontWeight: 600,
+  } as const;
+}
+
+function statusBannerStyle(active: boolean) {
+  return {
+    padding: '10px 14px',
+    borderRadius: '10px',
+    backgroundColor: active ? 'rgba(37,99,235,0.2)' : 'rgba(34,197,94,0.2)',
+    border: `1px solid ${active ? 'rgba(37,99,235,0.6)' : 'rgba(34,197,94,0.6)'}`,
+    color: '#e0f2fe',
+    fontSize: '13px',
+  } as const;
+}
+
+const workspaceHeaderStyle = {
+  borderRadius: '22px',
+  padding: '24px',
+  background: 'linear-gradient(135deg, rgba(11,19,36,0.96), rgba(4,9,18,0.98))',
+  border: '1px solid rgba(56,189,248,0.18)',
+  boxShadow: '0 26px 72px rgba(0,0,0,0.35)',
+} as const;
+
+const workspaceHeaderLabelStyle = {
+  color: '#38bdf8',
+  letterSpacing: '0.2em',
+  fontSize: '11px',
+  textTransform: 'uppercase',
+  margin: 0,
+} as const;
+
+const panelStyle = {
+  borderRadius: '18px',
+  border: '1px solid #1f2937',
+  backgroundColor: '#050b19',
+  padding: '20px',
+  display: 'grid',
+  gap: '16px',
+} as const;
+
+const miniStatStyle = {
+  padding: '12px 14px',
+  borderRadius: '14px',
+  border: '1px solid rgba(148,163,184,0.14)',
+  backgroundColor: 'rgba(2,6,23,0.65)',
+} as const;
+
+const miniStatLabelStyle = {
+  color: '#94a3b8',
+  fontSize: '11px',
+  textTransform: 'uppercase',
+  letterSpacing: '0.1em',
+  margin: 0,
+} as const;
+
+const miniStatValueStyle = {
+  color: 'white',
+  fontSize: '22px',
+  fontWeight: 700,
+  margin: '4px 0',
+} as const;
+
+const miniStatDetailStyle = {
+  color: '#64748b',
+  fontSize: '12px',
+  lineHeight: 1.45,
+  margin: 0,
+} as const;
+
+const personaBannerStyle = {
+  background: 'linear-gradient(to right, #1e293b, #334155)',
+  borderRadius: '12px',
+  padding: '16px',
+  border: '1px solid #475569',
+} as const;
+
+const personaActiveStyle = {
+  fontSize: '12px',
+  padding: '2px 8px',
+  backgroundColor: 'rgba(59, 130, 246, 0.3)',
+  borderRadius: '4px',
+  color: '#93c5fd',
+} as const;
+
+const categoryCardStyle = {
+  padding: '20px',
+  borderRadius: '12px',
+  textAlign: 'left',
+  cursor: 'pointer',
+} as const;
+
+const generatorToggleStyle = {
+  width: '100%',
+  padding: '16px',
+  borderRadius: '12px',
+  border: '2px dashed #475569',
+  backgroundColor: 'transparent',
+  color: '#9ca3af',
+  fontSize: '16px',
+  cursor: 'pointer',
+} as const;
+
+const generatorPanelStyle = {
+  backgroundColor: '#1e293b',
+  borderRadius: '12px',
+  padding: '24px',
+  border: '1px solid #475569',
+} as const;
+
+const fieldWrapStyle = {
+  display: 'grid',
+  gap: '6px',
+} as const;
+
+const fieldLabelStyle = {
+  display: 'block',
+  fontSize: '14px',
+  color: '#9ca3af',
+} as const;
+
+const fieldStyle = {
+  width: '100%',
+  padding: '12px',
+  borderRadius: '8px',
+  border: '1px solid #475569',
+  backgroundColor: '#0f172a',
+  color: 'white',
+  fontSize: '14px',
+  boxSizing: 'border-box',
+} as const;
+
+const textareaStyle = {
+  ...fieldStyle,
+  resize: 'vertical',
+  minHeight: '120px',
+} as const;
+
+const generatedOptionStyle = {
+  padding: '16px',
+  borderRadius: '8px',
+  backgroundColor: '#0f172a',
+  border: '1px solid #475569',
+  display: 'grid',
+  gap: '12px',
+} as const;
+
+const generatedOptionTextStyle = {
+  whiteSpace: 'pre-wrap',
+  fontSize: '14px',
+  color: '#e2e8f0',
+  margin: 0,
+  fontFamily: 'inherit',
+  maxHeight: '220px',
+  overflow: 'auto',
+} as const;
+
+function brainPromotionLooksErrored(value: string) {
+  const normalized = value.toLowerCase();
+  return normalized.includes('unable') || normalized.includes('failed') || normalized.includes('error');
+}
+
+const pipelineListStyle = {
+  backgroundColor: '#1e293b',
+  borderRadius: '12px',
+  border: '1px solid #475569',
+  overflow: 'hidden',
+} as const;
+
+const pipelineHeaderStyle = {
+  padding: '16px 20px',
+  borderBottom: '1px solid #475569',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+} as const;
+
+const emptyPipelineStyle = {
+  padding: '48px',
+  textAlign: 'center',
+  color: '#6b7280',
+} as const;
+
+const pipelineItemRowStyle = {
+  padding: '16px 20px',
+  borderBottom: '1px solid #374151',
+} as const;
+
+const expandedContentStyle = {
+  marginTop: '12px',
+  padding: '12px',
+  backgroundColor: '#0f172a',
+  borderRadius: '8px',
+} as const;
+
+const expandedContentTextStyle = {
+  whiteSpace: 'pre-wrap',
+  fontSize: '14px',
+  color: '#e2e8f0',
+  fontFamily: 'inherit',
+  margin: 0,
+} as const;
+
+const ingestPanelStyle = {
+  border: '1px solid #334155',
+  borderRadius: '12px',
+  padding: '12px 14px',
+  backgroundColor: '#030712',
+  display: 'grid',
+  gap: '8px',
+} as const;
+
+const recommendationCardStyle = {
+  borderRadius: '12px',
+  border: '1px solid #1f2937',
+  backgroundColor: '#020617',
+  padding: '12px',
+} as const;
+
+const feedCardStyle = {
+  borderRadius: '16px',
+  backgroundColor: '#020617',
+  padding: '16px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '10px',
+} as const;
+
+const platformBadgeStyle = {
+  color: '#38bdf8',
+  fontSize: '12px',
+  border: '1px solid rgba(56,189,248,0.4)',
+  borderRadius: '999px',
+  padding: '2px 10px',
+} as const;
+
+const scoreBadgeStyle = {
+  color: '#fcd34d',
+  fontWeight: 600,
+  fontSize: '12px',
+} as const;
+
+const editorialSummaryStyle = {
+  borderRadius: '12px',
+  border: '1px solid #273449',
+  backgroundColor: '#06101f',
+  padding: '10px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+} as const;
+
+const evalCellStyle = {
+  color: '#94a3b8',
+  fontSize: '11px',
+} as const;
+
+const editorialDraftRowStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: '12px',
+} as const;
+
+const editorialDetailsStyle = {
+  borderRadius: '12px',
+  border: '1px solid #273449',
+  backgroundColor: '#030712',
+  padding: '10px 12px',
+} as const;
+
+const editorialSelectStyle = {
+  ...fieldStyle,
+  width: '220px',
+  padding: '10px 12px',
+  fontSize: '13px',
+} as const;
+
+const approveLineRowStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '10px',
+  borderRadius: '12px',
+  border: '1px solid rgba(148,163,184,0.4)',
+  padding: '8px',
+  backgroundColor: '#030712',
+} as const;
+
+const draftTextStyle = {
+  background: '#030712',
+  padding: '8px 10px',
+  borderRadius: '10px',
+  border: '1px solid #334155',
+  margin: 0,
+  color: '#e2e8f0',
+  fontSize: '13px',
+  lineHeight: 1.55,
+  whiteSpace: 'pre-wrap',
+  flex: 1,
+} as const;
+
+const agentSectionStyle = {
+  borderRadius: '14px',
+  border: '1px solid #1f2937',
+  backgroundColor: '#020617',
+  overflow: 'hidden',
+} as const;
+
+const agentSectionSummaryStyle = {
+  cursor: 'pointer',
+  listStyle: 'none',
+  padding: '14px 16px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: '12px',
+  alignItems: 'center',
+  color: 'white',
+} as const;
+
+const workspaceFileCardStyle = {
+  borderRadius: '12px',
+  border: '1px solid #1f2937',
+  backgroundColor: '#030712',
+  padding: '12px',
+} as const;
+
+const emptyMessageStyle = {
+  borderRadius: '14px',
+  border: '1px dashed #334155',
+  backgroundColor: '#020617',
+  padding: '16px',
+  color: '#64748b',
+  fontSize: '13px',
+  lineHeight: 1.6,
+} as const;
+
+const pillStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  borderRadius: '999px',
+  fontSize: '11px',
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  padding: '5px 10px',
+} as const;

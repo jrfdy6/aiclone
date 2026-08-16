@@ -1,0 +1,197 @@
+name: Public Source Safety
+
+on:
+  push:
+    branches:
+      - main
+      - public-release
+      - "codex/public-source-*"
+    tags:
+      - "public-v*"
+  pull_request:
+    branches:
+      - main
+      - public-release
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  untrusted-pr-application-gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout proposed public source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install public test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Run secretless structural and application gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          DENYLIST_FILE="$(mktemp "$RUNNER_TEMP/aiclone-pr-denylist.XXXXXXXX")"
+          trap 'rm -f -- "$DENYLIST_FILE"' EXIT
+          printf '%s\n' 'public-pr-sentinel-never-publish' > "$DENYLIST_FILE"
+          AI_CLONE_PRIVATE_DENYLIST_FILE="$DENYLIST_FILE" npm run verify:public
+
+  protected-public-source-gate:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: public-release-privacy
+    env:
+      EXPECTED_MANIFEST_SHA256: ${{ vars.AI_CLONE_PUBLIC_MANIFEST_SHA256 }}
+      EXPECTED_LINEAGE_ROOT: ${{ vars.AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT }}
+    steps:
+      - name: Checkout complete proposed lineage
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install public test dependencies before private scan material exists
+        run: |
+          python -m pip install --disable-pip-version-check -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      - name: Verify protected manifest, exact tree, history, privacy, and application
+        shell: bash
+        env:
+          PRIVATE_LITERAL_DENYLIST: ${{ secrets.AI_CLONE_PRIVATE_LITERAL_DENYLIST }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PRIVATE_LITERAL_DENYLIST" || -z "$EXPECTED_MANIFEST_SHA256" || -z "$EXPECTED_LINEAGE_ROOT" ]]; then
+            echo "Protected public-release controls are unavailable." >&2
+            exit 1
+          fi
+          umask 077
+          DENYLIST_FILE="$(mktemp "$RUNNER_TEMP/aiclone-private-literals.XXXXXXXX")"
+          trap 'rm -f -- "$DENYLIST_FILE"' EXIT
+          printf '%s\n' "$PRIVATE_LITERAL_DENYLIST" > "$DENYLIST_FILE"
+          unset PRIVATE_LITERAL_DENYLIST
+
+          python scripts/build_public_release.py verify-source-tree \
+            --private-denylist "$DENYLIST_FILE" \
+            --expected-lineage-root "$EXPECTED_LINEAGE_ROOT" \
+            --expected-git-name "AI Clone Release" \
+            --require-noreply-email
+
+          AI_CLONE_PRIVATE_DENYLIST_FILE="$DENYLIST_FILE" \
+          AI_CLONE_PUBLIC_MANIFEST_SHA256="$EXPECTED_MANIFEST_SHA256" \
+            npm run verify:public
+
+          if [[ "$GITHUB_REF" == refs/tags/public-v* ]]; then
+            python scripts/build_public_release.py verify-release-tag \
+              --tag "$GITHUB_REF_NAME" \
+              --private-denylist "$DENYLIST_FILE" \
+              --expected-git-name "AI Clone Release" \
+              --require-noreply-email
+          fi
+
+  publish-github-release:
+    if: startsWith(github.ref, 'refs/tags/public-v')
+    needs: protected-public-source-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      EXPECTED_LINEAGE_ROOT: ${{ vars.AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT }}
+    steps:
+      - name: Checkout complete verified lineage
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Require every visible ref to belong to the approved public lineage
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          [[ -n "$EXPECTED_LINEAGE_ROOT" ]]
+          [[ "$TAG" =~ ^public-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$(git cat-file -t "refs/tags/$TAG")" == "tag" ]]
+          [[ "$(git rev-parse "refs/tags/$TAG^{}")" == "$(git rev-parse HEAD)" ]]
+
+          ROOTS="$(git rev-list --max-parents=0 HEAD)"
+          ROOT_COUNT="$(printf '%s\n' "$ROOTS" | awk 'NF { count += 1 } END { print count + 0 }')"
+          ROOT="$(printf '%s\n' "$ROOTS" | awk 'NF { print; exit }')"
+          [[ "$ROOT_COUNT" -eq 1 ]]
+          [[ "$ROOT" == "$EXPECTED_LINEAGE_ROOT" ]]
+          git cat-file -e "$ROOT:.public-lineage-root"
+
+          git fetch --force --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git fetch --force --no-tags origin '+refs/pull/*/head:refs/remotes/pull/*'
+
+          while IFS= read -r REF; do
+            [[ "$REF" == "refs/remotes/origin/HEAD" ]] && continue
+            TARGET="$(git rev-parse "$REF^{commit}")"
+            git merge-base --is-ancestor "$ROOT" "$TARGET"
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/origin refs/remotes/pull)
+
+          while IFS= read -r EXISTING_TAG; do
+            [[ "$EXISTING_TAG" =~ ^public-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            [[ "$(git cat-file -t "refs/tags/$EXISTING_TAG")" == "tag" ]]
+            TARGET="$(git rev-list -n 1 "$EXISTING_TAG")"
+            git merge-base --is-ancestor "$ROOT" "$TARGET"
+          done < <(git tag --list)
+
+      - name: Create receipt-derived release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          receipt_path = Path('.public-release/receipt.json')
+          receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+          candidate = receipt['candidate']
+          notes = (
+              f"# {os.environ['GITHUB_REF_NAME']}\n\n"
+              "Verified public-source release.\n\n"
+              f"- File count: {candidate['file_count']}\n"
+              f"- Public tree SHA-256: `{candidate['tree_sha256']}`\n"
+              f"- Manifest SHA-256: `{receipt['manifest']['sha256']}`\n"
+          )
+          Path(os.environ['RUNNER_TEMP'], 'public-release-notes.md').write_text(notes, encoding='utf-8')
+          PY
+
+      - name: Create GitHub Release from the verified annotated tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --notes-file "$RUNNER_TEMP/public-release-notes.md" \
+            --title "$GITHUB_REF_NAME"

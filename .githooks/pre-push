@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+if [[ -z "${AI_CLONE_PRIVATE_DENYLIST_FILE:-}" || ! -f "$AI_CLONE_PRIVATE_DENYLIST_FILE" ]]; then
+  echo "error: AI_CLONE_PRIVATE_DENYLIST_FILE is required for a public push" >&2
+  exit 1
+fi
+
+PUSHED_REF_COUNT=0
+PUSHED_TAG=""
+HEAD_SHA="$(git rev-parse HEAD)"
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+  [[ -n "${LOCAL_REF:-}" ]] || continue
+  PUSHED_REF_COUNT=$((PUSHED_REF_COUNT + 1))
+  if [[ "$LOCAL_SHA" =~ ^0+$ ]]; then
+    echo "error: ref deletion requires the separately approved history-remediation procedure" >&2
+    exit 1
+  fi
+  case "$REMOTE_REF" in
+    refs/heads/codex/public-source-*|refs/heads/main|refs/heads/public-release)
+      if [[ "$LOCAL_SHA" != "$HEAD_SHA" ]]; then
+        echo "error: every pushed public branch must resolve to the verified HEAD" >&2
+        exit 1
+      fi
+      ;;
+    refs/tags/public-v*)
+      if [[ -n "$PUSHED_TAG" ]]; then
+        echo "error: push one reviewed public release tag at a time" >&2
+        exit 1
+      fi
+      PUSHED_TAG="${REMOTE_REF#refs/tags/}"
+      if [[ "$(git rev-parse "$LOCAL_SHA^{}")" != "$HEAD_SHA" ]]; then
+        echo "error: every pushed public tag must peel to the verified HEAD" >&2
+        exit 1
+      fi
+      ;;
+    *)
+      echo "error: the public hook rejects unrecognized branch and tag targets" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "$PUSHED_REF_COUNT" -eq 0 ]]; then
+  echo "error: the public hook received no push ref contract" >&2
+  exit 1
+fi
+
+VERIFY_TREE_ARGS=(
+  verify-source-tree
+  --private-denylist "$AI_CLONE_PRIVATE_DENYLIST_FILE"
+  --expected-git-name "AI Clone Release"
+  --require-noreply-email
+)
+if [[ -n "${AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT:-}" ]]; then
+  VERIFY_TREE_ARGS+=(--expected-lineage-root "$AI_CLONE_PUBLIC_LINEAGE_ROOT_COMMIT")
+fi
+
+echo "Verifying exact public Git tree and complete reachable history..."
+python3 scripts/build_public_release.py "${VERIFY_TREE_ARGS[@]}" >/dev/null
+if [[ -n "$PUSHED_TAG" ]]; then
+  python3 scripts/build_public_release.py verify-release-tag \
+    --tag "$PUSHED_TAG" \
+    --private-denylist "$AI_CLONE_PRIVATE_DENYLIST_FILE" \
+    --expected-git-name "AI Clone Release" \
+    --require-noreply-email >/dev/null
+fi
+
+echo "Running public source safety gate before push..."
+npm run verify:public

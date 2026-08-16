@@ -1,0 +1,12 @@
+node_modules/
+.next/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+!.env.example
+.railway/
+.vercel/
+.public-release/*.tmp
