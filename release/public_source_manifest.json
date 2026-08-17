@@ -12,6 +12,9 @@
     "backend/requirements-dev.txt",
     "backend/requirements.txt",
     "backend/runtime_paths.py",
+    "backend/tests/test_feezie_runtime_context_service.py",
+    "backend/tests/test_feezie_public_lifecycle_smoke.py",
+    "backend/tests/test_local_codex_context_cache_service.py",
     "backend/tests/test_public_release_builder.py",
     "docs/public_github_release_sop.md",
     "docs/public_repository_boundary.md",
@@ -43,7 +46,7 @@
     "release/public.package.json": "package.json",
     "release/public.README.md": "README.md"
   },
-  "inventory_sha256": "b6086472f83e8fd325bdc742f3192288a99a89072ca8720c26eb4cd6f520b38b",
+  "inventory_sha256": "2f460d83c458f2d3a08d59b5b2b946ddb1c7fb64ecbab2dfdcca6c4e8b73371c",
   "excludes": [
     "**/.DS_Store",
     "**/.mypy_cache",
@@ -73,6 +76,9 @@
     "backend/railway.toml",
     "backend/requirements.txt",
     "backend/runtime_paths.py",
+    "backend/tests/test_feezie_runtime_context_service.py",
+    "backend/tests/test_feezie_public_lifecycle_smoke.py",
+    "backend/tests/test_local_codex_context_cache_service.py",
     "docs/public_github_release_sop.md",
     "frontend/Procfile",
     "frontend/app/layout.tsx",

@@ -166,8 +166,11 @@ fi
 "${PUBLIC_SAFE_ENV[@]}" "PYTHONPATH=$PUBLIC_CANDIDATE/backend" "$PUBLIC_PYTHON" -c \
   'from fastapi.testclient import TestClient; from app.main import app; response = TestClient(app).get("/health"); assert response.status_code == 200; assert response.json().get("status") == "healthy"'
 
-"${PUBLIC_SAFE_ENV[@]}" "$PUBLIC_PYTHON" -m pytest -q \
-  "$PUBLIC_CANDIDATE/backend/tests/test_public_release_builder.py"
+"${PUBLIC_SAFE_ENV[@]}" "PYTHONPATH=$PUBLIC_CANDIDATE/backend" "$PUBLIC_PYTHON" -m pytest -q \
+  "$PUBLIC_CANDIDATE/backend/tests/test_public_release_builder.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_local_codex_context_cache_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_feezie_runtime_context_service.py" \
+  "$PUBLIC_CANDIDATE/backend/tests/test_feezie_public_lifecycle_smoke.py"
 
 run_public_npm --prefix "$PUBLIC_CANDIDATE/frontend" ci
 run_public_npm --prefix "$PUBLIC_CANDIDATE/frontend" test

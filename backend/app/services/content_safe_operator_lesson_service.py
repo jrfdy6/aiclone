@@ -272,7 +272,21 @@ def _content_safe_lesson(signal: dict[str, Any]) -> dict[str, Any] | None:
 def _dedupe_lessons(lessons: list[dict[str, Any]]) -> list[dict[str, Any]]:
     deduped: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for lesson in lessons:
+    reserved_dream = next(
+        (
+            lesson
+            for lesson in lessons
+            if str(lesson.get("source_kind") or "") == "dream_cycle"
+            and _normalize_text(lesson.get("macro_thesis"))
+        ),
+        None,
+    )
+    selection_order = (
+        [reserved_dream, *(lesson for lesson in lessons if lesson is not reserved_dream)]
+        if reserved_dream is not None
+        else lessons
+    )
+    for lesson in selection_order:
         key = _normalize_text(lesson.get("macro_thesis")).lower()
         if not key or key in seen:
             continue
@@ -280,7 +294,15 @@ def _dedupe_lessons(lessons: list[dict[str, Any]]) -> list[dict[str, Any]]:
         deduped.append(lesson)
         if len(deduped) >= MAX_LESSONS:
             break
-    return deduped
+    return sorted(
+        deduped,
+        key=lambda item: (
+            1 if item.get("source_route") == "persona_candidate" else 0,
+            1 if item.get("workspace_scope") == "shared_pattern" else 0,
+            str(item.get("created_at") or ""),
+        ),
+        reverse=True,
+    )
 
 
 def resolve_operator_story_report_path() -> Path:

@@ -320,6 +320,41 @@ def test_external_private_denylist_normalizes_case_and_separators(tmp_path: Path
     assert case_variant not in str(captured.value)
 
 
+def test_external_private_denylist_detects_regex_obfuscation_without_echo(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source"
+    app_root = source_root / "app"
+    app_root.mkdir(parents=True)
+    private_value = "Private" + " Organization Fixture"
+    regex_fragment = r"\bPrivate\s+Organization\s+Fixture\b"
+    (app_root / "main.py").write_text(
+        f"PRIVATE_NAME_RE = re.compile(r'{regex_fragment}')\n",
+        encoding="utf-8",
+    )
+    manifest_path, digest = _write_manifest(
+        source_root,
+        includes=["app"],
+        require_private_denylist=True,
+    )
+    denylist_path = tmp_path / "private-denylist.txt"
+    denylist_path.write_text(private_value + "\n", encoding="utf-8")
+
+    with pytest.raises(public_release.PublicReleasePolicyError) as captured:
+        _build(
+            source_root,
+            tmp_path / "candidate",
+            manifest_path,
+            digest,
+            private_denylist_path=denylist_path,
+        )
+
+    message = str(captured.value)
+    assert "private_literal" in message
+    assert private_value not in message
+    assert regex_fragment not in message
+
+
 def test_short_private_literal_matches_only_as_a_whole_word(tmp_path: Path) -> None:
     source_root = tmp_path / "source"
     app_root = source_root / "app"

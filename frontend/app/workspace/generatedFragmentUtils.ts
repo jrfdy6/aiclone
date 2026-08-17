@@ -141,6 +141,7 @@ export type GeneratedContentDiagnostics = {
   llm_provider_trace?: { provider?: string; actual_model?: string; reasoning_effort?: string; status?: string; error?: string }[];
   planned_option_briefs?: GeneratedOptionBrief[];
   content_reservoir_support?: ContentReservoirSupportItem[];
+  grounding_mode?: string;
   intent?: string;
   strategy_contract?: GenerationStrategyReceipt;
   candidate_classification?: GenerationClassificationReceipt;

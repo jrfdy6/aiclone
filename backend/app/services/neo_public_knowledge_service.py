@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Iterable
@@ -17,6 +20,13 @@ DEFAULT_MAX_CONTEXT_CHARS = 3_600
 DEFAULT_MAX_RESPONSE_CHARS = 1_200
 MIN_CONTEXT_CHARS = 256
 MAX_CONTEXT_CHARS = 6_000
+MAX_PUBLIC_PACK_BYTES = 128 * 1024
+PUBLIC_KNOWLEDGE_ENV = "NEO_PUBLIC_KNOWLEDGE_JSON"
+PUBLIC_KNOWLEDGE_STATUS_SCHEMA = "neo_public_knowledge_status/v1"
+APPROVED_PUBLIC_KNOWLEDGE_PACK_VERSION = "1.2.0"
+APPROVED_PUBLIC_KNOWLEDGE_SHA256 = (
+    "8e33cf8ae004d179d9410a2958dbb9181282ce652be4e11650ca8640e4d7755c"
+)
 
 _ENTRY_KINDS = {"bio", "claim", "story", "win"}
 _ROOT_KEYS = {
@@ -321,17 +331,101 @@ def validate_public_knowledge_pack(pack: Any) -> dict[str, Any]:
     return pack
 
 
+def public_knowledge_pack_sha256(pack: dict[str, Any]) -> str:
+    """Hash the validated semantic pack independently of JSON formatting."""
+
+    canonical = json.dumps(
+        pack,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _require_approved_release_identity(pack: dict[str, Any]) -> dict[str, Any]:
+    if pack.get("pack_version") != APPROVED_PUBLIC_KNOWLEDGE_PACK_VERSION:
+        raise NeoPublicKnowledgeError(
+            "Public knowledge pack does not match the approved release receipt."
+        )
+    observed_sha256 = public_knowledge_pack_sha256(pack)
+    if not hmac.compare_digest(observed_sha256, APPROVED_PUBLIC_KNOWLEDGE_SHA256):
+        raise NeoPublicKnowledgeError(
+            "Public knowledge pack does not match the approved release receipt."
+        )
+    return pack
+
+
 def load_public_knowledge_pack() -> dict[str, Any]:
-    """Load only the repository-owned public pack; callers cannot select another source."""
+    """Load the one validated approved-public pack from a closed runtime source."""
+
+    environment_payload = str(os.environ.get(PUBLIC_KNOWLEDGE_ENV) or "").strip()
+    if environment_payload:
+        if len(environment_payload.encode("utf-8")) > MAX_PUBLIC_PACK_BYTES:
+            raise NeoPublicKnowledgeError("Public knowledge pack exceeds its maximum size.")
+        try:
+            payload = json.loads(environment_payload)
+        except json.JSONDecodeError as exc:
+            raise NeoPublicKnowledgeError("Public knowledge pack is invalid JSON.") from exc
+        return _require_approved_release_identity(validate_public_knowledge_pack(payload))
 
     pack_path = resolve_public_knowledge_path()
     try:
-        payload = json.loads(pack_path.read_text(encoding="utf-8"))
+        raw_payload = pack_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise NeoPublicKnowledgeError("Public knowledge pack is unavailable.") from exc
+    if len(raw_payload.encode("utf-8")) > MAX_PUBLIC_PACK_BYTES:
+        raise NeoPublicKnowledgeError("Public knowledge pack exceeds its maximum size.")
+    try:
+        payload = json.loads(raw_payload)
     except json.JSONDecodeError as exc:
         raise NeoPublicKnowledgeError("Public knowledge pack is invalid JSON.") from exc
-    return validate_public_knowledge_pack(payload)
+    return _require_approved_release_identity(validate_public_knowledge_pack(payload))
+
+
+def build_public_knowledge_status() -> dict[str, Any]:
+    """Return aggregate readiness without exposing approved facts or identity."""
+
+    source_mode = (
+        "runtime_environment"
+        if str(os.environ.get(PUBLIC_KNOWLEDGE_ENV) or "").strip()
+        else "local_approved_pack"
+    )
+    try:
+        pack = load_public_knowledge_pack()
+    except (NeoPublicKnowledgeError, OSError, UnicodeError):
+        return {
+            "schema_version": PUBLIC_KNOWLEDGE_STATUS_SCHEMA,
+            "state": "unavailable",
+            "ready": False,
+            "integrity_verified": False,
+            "source_mode": source_mode,
+            "pack_version": None,
+            "entry_count": 0,
+            "review_status": None,
+            "reason_codes": ["approved_public_knowledge_unavailable"],
+            "data_policy": {
+                "aggregate_only": True,
+                "knowledge_content_included": False,
+                "identity_included": False,
+            },
+        }
+    return {
+        "schema_version": PUBLIC_KNOWLEDGE_STATUS_SCHEMA,
+        "state": "ready",
+        "ready": True,
+        "integrity_verified": True,
+        "source_mode": source_mode,
+        "pack_version": pack["pack_version"],
+        "entry_count": len(pack["entries"]),
+        "review_status": pack["review_status"],
+        "reason_codes": [],
+        "data_policy": {
+            "aggregate_only": True,
+            "knowledge_content_included": False,
+            "identity_included": False,
+        },
+    }
 
 
 def _tokenize(value: str) -> set[str]:
@@ -436,6 +530,8 @@ def _select_from_pack(
 ) -> list[dict[str, Any]]:
     query_text = str(query or "")[:1_000]
     query_terms = _tokenize(query_text)
+    identity_terms = set(_TOKEN_RE.findall(str(pack.get("display_name") or "").lower()))
+    query_terms -= identity_terms
     query_phrase = _normalized_phrase(query_text)
 
     ranked = [

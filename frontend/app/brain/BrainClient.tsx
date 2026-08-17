@@ -252,6 +252,9 @@ type WorkspaceFile = {
 };
 
 type SourceAssetInventory = {
+  schema_version?: string;
+  state?: string;
+  available?: boolean;
   items?: {
     asset_id?: string;
     title?: string;
@@ -270,6 +273,10 @@ type SourceAssetInventory = {
 };
 
 type LongFormRoutes = {
+  schema_version?: string;
+  state?: string;
+  available?: boolean;
+  counts?: { total?: number };
   assets_considered?: number;
   segments_total?: number;
   route_counts?: Record<string, number>;
@@ -615,18 +622,14 @@ type SourceIntelligenceIndexSummary = {
     promoted?: number;
     ignored?: number;
   };
-  recent_sources?: {
-    source_id?: string;
-    source_kind?: string;
-    source_class?: string;
-    source_channel?: string;
-    source_type?: string;
-    title?: string;
-    status?: string;
-    raw_path?: string;
-    normalized_path?: string;
-    digest_path?: string;
-  }[];
+  recent_source_count?: number;
+  data_policy?: {
+    projection?: string;
+    source_names_included?: boolean;
+    source_identifiers_included?: boolean;
+    source_paths_included?: boolean;
+    source_excerpts_included?: boolean;
+  };
 };
 
 export type BrainControlPlanePayload = {
@@ -1702,7 +1705,7 @@ function BrainControlPlanePanel({
   const memorySyncItems = (brainMemorySync?.processed_items ?? []).slice(0, 4);
   const pendingReviewCount = personaCounts?.brain_pending_review ?? controlPlane?.summary?.pending_review_count;
   const staleSyncCount = brainMemorySync?.sync_live && !brainMemorySyncFresh ? 1 : 0;
-  const recentSourceCount = sourceIndex?.recent_sources?.length ?? 0;
+  const recentSourceCount = sourceIndex?.recent_source_count ?? 0;
   const activeYouTubeJobs = youtubeIngestJobs.filter((job) =>
     ['queued', 'pending', 'running', 'processing'].includes(job.status.toLowerCase()),
   ).length;
@@ -1945,11 +1948,10 @@ function BrainControlPlanePanel({
         />
         <BriefOverlayBlock
           title="Source Registry"
-          items={(sourceIndex?.recent_sources ?? []).slice(0, 5).map(
-            (source) =>
-              `${humanizeSnakeCase(source.status || 'raw')} · ${source.source_channel || source.source_kind || 'source'} · ${truncateText(source.title || source.source_id || 'Untitled source', 96)}`,
-          )}
-          emptyLabel="No source-intelligence registry entries are visible yet."
+          items={recentSourceCount > 0
+            ? [`${recentSourceCount} recent registry entries are present. Exact names, identifiers, excerpts, and paths remain outside this aggregate view.`]
+            : []}
+          emptyLabel="No aggregate source-intelligence registry state is available yet."
         />
         <BriefOverlayBlock
           title="Primary Routes"
@@ -2629,7 +2631,6 @@ function BrainLongFormIngestPanel({
   youtubeIngestJobs: YouTubeIngestJob[];
   refreshBrainData: () => Promise<void>;
 }) {
-  const recentAssets = (workspaceSnapshot?.source_assets?.items ?? []).slice(0, 4);
   const [queueingUrl, setQueueingUrl] = useState<string | null>(null);
   const [queueStatus, setQueueStatus] = useState<string | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
@@ -2784,8 +2785,10 @@ function BrainLongFormIngestPanel({
             />
             <BriefOverlayBlock
               title="Recent Source Assets"
-              items={recentAssets.map((item) => `${item.title || 'Untitled'} · ${humanizeSnakeCase(item.source_channel || 'manual')}`)}
-              emptyLabel="No long-form assets are visible yet."
+              items={(workspaceSnapshot?.source_assets?.counts?.total ?? 0) > 0
+                ? [`${workspaceSnapshot?.source_assets?.counts?.total ?? 0} source assets are registered. Exact titles, identifiers, and paths remain outside this aggregate view.`]
+                : []}
+              emptyLabel="No aggregate long-form asset state is available yet."
             />
           </div>
         </div>

@@ -63,7 +63,8 @@ SOURCE_LIMITS = {
 _WHITESPACE_RE = re.compile(r"\s+")
 _MARKDOWN_PREFIX_RE = re.compile(r"^[#>*`\-\d.\s]+")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
-_ARTIFACT_TOKEN_RE = re.compile(r"(/Users/[^/\s]+/[^\s,)\]]+)")
+_ARTIFACT_TOKEN_RE = re.compile(r"(/Users/[^/\s`]+/[^\s,)\]`]+)")
+_BOLD_SECTION_HEADING_RE = re.compile(r"^\s*\*\*([^*]+)\*\*\s*:?[\t ]*$")
 _BUILD_PROOF_TERMS = {
     "accepted",
     "artifact",
@@ -195,7 +196,7 @@ def _extract_artifact_paths(*values: str) -> list[str]:
     return artifacts
 
 
-def _section_map(markdown: str) -> dict[str, list[str]]:
+def _section_map(markdown: str, *, bold_headings: bool = False) -> dict[str, list[str]]:
     sections: dict[str, list[str]] = {}
     current = "root"
     for raw_line in markdown.splitlines():
@@ -207,6 +208,13 @@ def _section_map(markdown: str) -> dict[str, list[str]]:
             current = heading or "root"
             sections.setdefault(current, [])
             continue
+        if bold_headings:
+            bold_heading = _BOLD_SECTION_HEADING_RE.fullmatch(line)
+            if bold_heading:
+                heading = _normalize_text(bold_heading.group(1)).lower()
+                current = heading or "root"
+                sections.setdefault(current, [])
+                continue
         sections.setdefault(current, []).append(line.strip())
     return sections
 
@@ -479,13 +487,22 @@ def _daily_brief_signal(path: Path) -> list[dict[str, Any]]:
 def _dream_cycle_signal(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    sections = _section_map(path.read_text(encoding="utf-8", errors="replace"))
-    highlights = sections.get("latest codex handoff highlights", [])
-    learning_lines = sections.get("learning and action items", [])
-    follow_up_lines = sections.get("follow-up actions", [])
-    claim = _first_sentence(" ".join(highlights[:2])) or _first_sentence(" ".join(sections.get("overview", [])[:2]))
-    proof = _normalize_text(" ".join(highlights[:3]))
-    lesson = _normalize_text(" ".join(learning_lines[:2] + follow_up_lines[:1]))
+    latest = _latest_markdown_entry(path.read_text(encoding="utf-8", errors="replace"))
+    sections = _section_map(latest, bold_headings=True)
+    current_findings = sections.get("key findings", [])
+    current_actions = sections.get("actions taken", [])
+    current_next_steps = sections.get("next steps", [])
+    if current_findings or current_actions or current_next_steps:
+        claim = _first_sentence(" ".join(current_findings[:2])) or _first_sentence(" ".join(current_actions[:2]))
+        proof = _normalize_text(" ".join(current_findings[:3] + current_actions[:2]))
+        lesson = _normalize_text(" ".join(current_next_steps[:2]))
+    else:
+        highlights = sections.get("latest codex handoff highlights", [])
+        learning_lines = sections.get("learning and action items", [])
+        follow_up_lines = sections.get("follow-up actions", [])
+        claim = _first_sentence(" ".join(highlights[:2])) or _first_sentence(" ".join(sections.get("overview", [])[:2]))
+        proof = _normalize_text(" ".join(highlights[:3]))
+        lesson = _normalize_text(" ".join(learning_lines[:2] + follow_up_lines[:1]))
     if not claim:
         return []
     artifact_paths = _extract_artifact_paths(proof, lesson)
@@ -578,7 +595,21 @@ def _dedupe_and_rank(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     overflow: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     per_source_counts: dict[str, int] = {}
-    for signal in ranked:
+    reserved_dream = next(
+        (
+            signal
+            for signal in ranked
+            if str(signal.get("source_kind") or "") == "dream_cycle"
+            and _normalize_text(signal.get("claim"))
+        ),
+        None,
+    )
+    selection_order = (
+        [reserved_dream, *(signal for signal in ranked if signal is not reserved_dream)]
+        if reserved_dream is not None
+        else ranked
+    )
+    for signal in selection_order:
         claim = _normalize_text(signal.get("claim"))
         route = str(signal.get("route") or "")
         source_kind = str(signal.get("source_kind") or "unknown")
@@ -599,7 +630,11 @@ def _dedupe_and_rank(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
             deduped.append(signal)
             if len(deduped) >= MAX_SIGNALS:
                 break
-    return deduped
+    return sorted(
+        deduped,
+        key=lambda item: (int(item.get("score") or 0), str(item.get("created_at") or "")),
+        reverse=True,
+    )
 
 
 def build_operator_story_signals_payload(

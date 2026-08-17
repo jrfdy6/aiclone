@@ -1,6 +1,5 @@
 import asyncio
 import os
-import traceback
 import time
 
 from fastapi import FastAPI, Request, status
@@ -74,8 +73,7 @@ try:
     else:
         print("⚠️ Firestore credentials missing", flush=True)
 except Exception as e:
-    print(f"❌ Firebase initialization failed: {e}", flush=True)
-    traceback.print_exc()
+    print(f"❌ Firebase initialization failed [{type(e).__name__}]", flush=True)
     firestore_available = False
 
 default_cors_origins = [
@@ -125,12 +123,16 @@ async def enforce_control_plane_auth(request: Request, call_next):
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"status": "error", "message": "Control plane authentication is not configured."},
+            headers={"Cache-Control": "no-store, max-age=0"},
         )
     if not request_is_authorized(request):
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={"status": "error", "message": "Authentication required."},
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={
+                "Cache-Control": "no-store, max-age=0",
+                "WWW-Authenticate": "Bearer",
+            },
         )
     return await call_next(request)
 
@@ -146,15 +148,21 @@ async def log_requests(request: Request, call_next):
         return response
     except Exception as e:
         process_time = time.time() - start_time
-        print(f"❌ {request.method} {request.url.path} - Error after {process_time:.2f}s: {e}", flush=True)
+        print(
+            f"❌ {request.method} {request.url.path} - Error after {process_time:.2f}s "
+            f"[{type(e).__name__}]",
+            flush=True,
+        )
         raise
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    error_msg = f"❌ Unhandled exception in {request.method} {request.url.path}: {exc}"
+    error_msg = (
+        f"❌ Unhandled exception in {request.method} {request.url.path} "
+        f"[{type(exc).__name__}]"
+    )
     print(error_msg, flush=True)
-    traceback.print_exc()
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -168,13 +176,24 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    print(f"❌ Validation error in {request.method} {request.url.path}: {exc}", flush=True)
+    safe_error_types = sorted(
+        {
+            str(item.get("type") or "validation_error")[:80]
+            for item in exc.errors()
+            if isinstance(item, dict)
+        }
+    )[:16]
+    print(
+        f"❌ Validation error in {request.method} {request.url.path}: "
+        f"count={len(exc.errors())} types={','.join(safe_error_types)}",
+        flush=True,
+    )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "status": "error",
             "message": "Validation error",
-            "errors": exc.errors(),
+            "errors": [{"type": error_type} for error_type in safe_error_types],
         },
         headers=_cors_headers_for_request(request),
     )

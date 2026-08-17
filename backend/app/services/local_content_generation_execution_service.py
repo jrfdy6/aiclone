@@ -693,6 +693,11 @@ def _assigned_role_failure_codes(
                 structured_rule_parts
             )
         )
+        implemented_gate_rule = bool(
+            structured_v2_rule
+            and structured_rule_parts.get("rule posture", "").lower().rstrip(".!?")
+            == "owner-confirmed implemented gate"
+        )
         if structured_v2_rule:
             # V2 leads are semantic, not a forced literal template: the first
             # sentence must carry its assigned action, object, usable boundary,
@@ -705,6 +710,8 @@ def _assigned_role_failure_codes(
             rule_is_leading = any(pattern.search(opening) for pattern in APPLICATION_RULE_LEAD_PATTERNS)
         if not rule_is_leading:
             failures.append("role_a1_application_rule_not_leading")
+        if implemented_gate_rule and not STUDENT_SCIENTIST_ACTION_RE.search(opening or ""):
+            failures.append("role_a1_implemented_action_not_leading")
 
         proof_facet_id = _clean_text(getattr(brief, "proof_facet_id", ""))
         proof_ready = bool(proof_facet_id) or _brief_has_approved_proof(brief)
@@ -745,6 +752,14 @@ def _assigned_role_failure_codes(
 
         application_body = "\n\n".join(application_body_paragraphs)
         body_sentences = content_generation_module._split_sentences(application_body)
+        post_opening_sentences = content_generation_module._split_sentences(
+            "\n\n".join(paragraphs[1:-1])
+        )
+        if implemented_gate_rule and any(
+            STUDENT_SCIENTIST_ACTION_RE.search(sentence or "")
+            for sentence in post_opening_sentences
+        ):
+            failures.append("role_a1_action_restated_after_opening")
         substantive_body_sentence_count = sum(
             len(ROLE_WORD_RE.findall(sentence)) >= 6
             for sentence in body_sentences
@@ -1003,8 +1018,7 @@ def evaluate_draft_distinctness(context_packet: dict[str, Any], options: list[st
 
 
 def _starts_with_persona_bio(option: str) -> bool:
-    first_line = content_generation_module._first_content_line(option)
-    return bool(re.match(r"^owner\b", first_line, flags=re.IGNORECASE))
+    return content_generation_module._starts_with_third_person_persona_bio(option)
 
 
 STUDENT_SCIENTIST_ACTION_RE = re.compile(
@@ -1038,6 +1052,18 @@ STUDENT_SCIENTIST_UNSUPPORTED_RESULT_RE = re.compile(
     r"\b(?:the|this|that|my|our|a|an|new|added|changed|bounded)?\s*"
     r"(?:change|test|check|gate|fix|workflow|system)\s+"
     r"(?:validated|proved|confirmed|worked|fixed|caught|prevented|blocked|stopped|improved|succeeded)\b",
+    flags=re.IGNORECASE,
+)
+STUDENT_SCIENTIST_UNSUPPORTED_SUCCESS_SIGNAL_RE = re.compile(
+    r"\b(?:state|status|signal|indicator|interface)\s+"
+    r"(?:identified|established|proved|confirmed|demonstrated|meant)\s+"
+    r"(?:a\s+)?(?:success|successful\s+(?:result|run|refresh))\b",
+    flags=re.IGNORECASE,
+)
+STUDENT_SCIENTIST_INTERNAL_RUBRIC_RE = re.compile(
+    r"\b(?:bounded\s+(?:comparison|(?:test|proof|evidence)\s+detail)|decision[-\s]?rule\s+basis|"
+    r"owner[-\s]?confirmed\s+(?:implemented\s+gate|lesson|next\s+step)|"
+    r"required\s+(?:anchor|context\s+concept)|proof\s+packet|target\s+job)\b",
     flags=re.IGNORECASE,
 )
 
@@ -1076,10 +1102,17 @@ def _student_scientist_evidence_failures(option: str, evidence_contract: dict[st
         and STUDENT_SCIENTIST_PROBLEM_RE.search(option or "")
     ):
         failures.append("student_scientist_problem_missing")
-    if not (
+    normalized_lesson = _normalized_role_text(observable_lesson)
+    normalized_closing_half = _normalized_role_text(closing_half)
+    exact_lesson_present = bool(
+        normalized_lesson
+        and re.search(rf"(?<![a-z0-9]){re.escape(normalized_lesson)}(?![a-z0-9])", normalized_closing_half)
+    )
+    supported_lesson_paraphrase = bool(
         _assigned_anchor_is_present(closing_half, observable_lesson)
         and STUDENT_SCIENTIST_OBSERVATION_RE.search(closing_half)
-    ):
+    )
+    if not (exact_lesson_present or supported_lesson_paraphrase):
         failures.append("student_scientist_lesson_missing")
 
     if bool(evidence_contract.get("student_scientist_enabled")) and (
@@ -1088,6 +1121,9 @@ def _student_scientist_evidence_failures(option: str, evidence_contract: dict[st
     ):
         failures.append("student_scientist_expert_posturing")
 
+    if STUDENT_SCIENTIST_INTERNAL_RUBRIC_RE.search(option or ""):
+        failures.append("student_scientist_internal_rubric_language")
+
     unsupported_result_claim = STUDENT_SCIENTIST_UNSUPPORTED_RESULT_RE.search(option or "")
     evidence_supports_result = any(
         STUDENT_SCIENTIST_UNSUPPORTED_RESULT_RE.search(value)
@@ -1095,6 +1131,14 @@ def _student_scientist_evidence_failures(option: str, evidence_contract: dict[st
     )
     if unsupported_result_claim and not evidence_supports_result:
         failures.append("student_scientist_unsupported_result_claim")
+
+    unsupported_success_signal = STUDENT_SCIENTIST_UNSUPPORTED_SUCCESS_SIGNAL_RE.search(option or "")
+    evidence_supports_success_signal = any(
+        STUDENT_SCIENTIST_UNSUPPORTED_SUCCESS_SIGNAL_RE.search(value)
+        for value in (concrete_action, exact_problem, observable_lesson)
+    )
+    if unsupported_success_signal and not evidence_supports_success_signal:
+        failures.append("student_scientist_unsupported_success_signal")
 
     closing_bound = bool(
         _assigned_anchor_is_present(closing, observable_lesson)

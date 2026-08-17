@@ -21,6 +21,7 @@ from app.models.neo_guest import (
     NeoWorkerProgress,
 )
 from app.services import neo_guest_service as service
+from app.services import neo_public_knowledge_service
 
 
 router = APIRouter(tags=["Neo Guest"], prefix="/api/neo")
@@ -57,6 +58,14 @@ def _check_access_rate(request: Request) -> None:
     if len(attempts) >= ACCESS_ATTEMPT_LIMIT:
         raise HTTPException(status_code=429, detail="Too many invite attempts. Try again later.", headers={"Retry-After": "900"})
     attempts.append(now)
+
+
+@router.get("/admin/knowledge-status")
+async def public_knowledge_status(response: Response) -> dict:
+    _no_store(response)
+    return await run_in_threadpool(
+        neo_public_knowledge_service.build_public_knowledge_status
+    )
 
 
 @router.post("/guest/access")

@@ -13,12 +13,14 @@ from app.services.brain_response_privacy_service import sanitize_brain_payload
 from app.services.brain_signal_service import list_signals_with_count
 from app.services.workspace_registry_service import REPO_ROOT
 from app.services.workspace_snapshot_store import get_snapshot_payload, list_snapshot_payloads
-from app.services.workspace_snapshot_service import workspace_snapshot_service
+from app.services.workspace_snapshot_service import (
+    project_linkedin_os_snapshot_for_browser,
+    workspace_snapshot_service,
+)
 
 
 ROOT = REPO_ROOT
 SOURCE_INTELLIGENCE_INDEX_FILENAMES = ("index.json", "index.json.txt")
-SOURCE_ASSET_PREVIEW_LIMIT = 12
 SOCIAL_FEED_PREVIEW_LIMIT = 6
 WEEKLY_RECOMMENDATION_PREVIEW_LIMIT = 6
 REACTION_QUEUE_PREVIEW_LIMIT = 6
@@ -27,16 +29,6 @@ BRAIN_WORKSPACE_PREVIEW_TYPES = {
     "content_reservoir": "brain_content_reservoir_summary",
     "long_form_routes": "brain_long_form_routes_summary",
 }
-
-_SOURCE_ASSET_ITEM_KEYS = (
-    "asset_id",
-    "title",
-    "source_channel",
-    "source_type",
-    "source_path",
-    "source_url",
-    "captured_at",
-)
 
 _PLAN_CANDIDATE_KEYS = (
     "title",
@@ -100,40 +92,6 @@ def _compact_items(items: Any, keys: tuple[str, ...], *, limit: int) -> list[dic
         if isinstance(item, dict):
             compacted.append(_pick_dict(item, keys))
     return compacted
-
-
-def _compact_source_assets(payload: Any) -> dict[str, Any] | None:
-    if not isinstance(payload, dict):
-        return None
-    compacted = _pick_dict(payload, ("workspace", "generated_at", "counts"))
-    compacted["items"] = _compact_items(payload.get("items"), _SOURCE_ASSET_ITEM_KEYS, limit=SOURCE_ASSET_PREVIEW_LIMIT)
-    return compacted
-
-
-def _compact_content_reservoir(payload: Any) -> dict[str, Any] | None:
-    if not isinstance(payload, dict):
-        return None
-    compacted = _pick_dict(payload, ("workspace", "generated_at", "counts"))
-    if "counts" not in compacted:
-        items = payload.get("items")
-        compacted["counts"] = {"total": len(items) if isinstance(items, list) else 0}
-    return compacted
-
-
-def _compact_long_form_routes(payload: Any) -> dict[str, Any] | None:
-    if not isinstance(payload, dict):
-        return None
-    return _pick_dict(
-        payload,
-        (
-            "generated_at",
-            "assets_considered",
-            "segments_total",
-            "route_counts",
-            "primary_route_counts",
-            "handoff_lane_counts",
-        ),
-    )
 
 
 def _compact_weekly_plan(payload: Any) -> dict[str, Any] | None:
@@ -207,20 +165,22 @@ def _compact_social_feed(payload: Any) -> dict[str, Any] | None:
 def _compact_workspace_snapshot(snapshot: Any) -> dict[str, Any]:
     if not isinstance(snapshot, dict):
         return {}
+    browser_snapshot = project_linkedin_os_snapshot_for_browser(snapshot)
     compacted: dict[str, Any] = {
-        "workspace_files": snapshot.get("workspace_files") if isinstance(snapshot.get("workspace_files"), list) else [],
-        "doc_entries": snapshot.get("doc_entries") if isinstance(snapshot.get("doc_entries"), list) else [],
-        "weekly_plan": _compact_weekly_plan(snapshot.get("weekly_plan")),
-        "reaction_queue": _compact_reaction_queue(snapshot.get("reaction_queue")),
-        "social_feed": _compact_social_feed(snapshot.get("social_feed")),
-        "feedback_summary": snapshot.get("feedback_summary"),
-        "source_assets": _compact_source_assets(snapshot.get("source_assets")),
-        "content_reservoir": _compact_content_reservoir(snapshot.get("content_reservoir")),
-        "operator_story_signals": snapshot.get("operator_story_signals"),
-        "content_safe_operator_lessons": snapshot.get("content_safe_operator_lessons"),
-        "persona_review_summary": snapshot.get("persona_review_summary"),
-        "long_form_routes": _compact_long_form_routes(snapshot.get("long_form_routes")),
-        "refresh_status": snapshot.get("refresh_status"),
+        "workspace_files": [],
+        "doc_entries": [],
+        "weekly_plan": _compact_weekly_plan(browser_snapshot.get("weekly_plan")),
+        "reaction_queue": _compact_reaction_queue(browser_snapshot.get("reaction_queue")),
+        "social_feed": _compact_social_feed(browser_snapshot.get("social_feed")),
+        "feedback_summary": browser_snapshot.get("feedback_summary"),
+        "source_assets": browser_snapshot.get("source_assets"),
+        "content_reservoir": browser_snapshot.get("content_reservoir"),
+        "operator_story_signals": browser_snapshot.get("operator_story_signals"),
+        "content_safe_operator_lessons": browser_snapshot.get("content_safe_operator_lessons"),
+        "persona_review_summary": browser_snapshot.get("persona_review_summary"),
+        "long_form_routes": browser_snapshot.get("long_form_routes"),
+        "refresh_status": browser_snapshot.get("refresh_status"),
+        "private_runtime_context_status": browser_snapshot.get("private_runtime_context_status"),
     }
     return {key: value for key, value in compacted.items() if value is not None}
 
@@ -231,15 +191,14 @@ def _overlay_local_runner_previews(snapshot: dict[str, Any]) -> dict[str, Any]:
         persisted = list_snapshot_payloads("linkedin-content-os")
     except Exception:
         return snapshot
-    compactors = {
-        "source_assets": _compact_source_assets,
-        "content_reservoir": _compact_content_reservoir,
-        "long_form_routes": _compact_long_form_routes,
-    }
     overlaid = dict(snapshot)
     for response_key, snapshot_type in BRAIN_WORKSPACE_PREVIEW_TYPES.items():
         preview = persisted.get(snapshot_type)
-        compacted = compactors[response_key](preview)
+        compacted = (
+            project_linkedin_os_snapshot_for_browser({response_key: preview}).get(response_key)
+            if isinstance(preview, dict)
+            else None
+        )
         if compacted is not None:
             overlaid[response_key] = compacted
     return overlaid
@@ -280,6 +239,18 @@ def _source_intelligence_index_candidates() -> list[Path]:
     return list(dict.fromkeys(paths))
 
 
+def _browser_timestamp(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+
+
 def _load_source_intelligence_index() -> dict[str, Any] | None:
     index_path = next((path for path in _source_intelligence_index_candidates() if path.exists()), None)
     if index_path is None:
@@ -291,35 +262,28 @@ def _load_source_intelligence_index() -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
     sources = payload.get("sources")
-    recent_sources: list[dict[str, Any]] = []
-    if isinstance(sources, list):
-        for source in sources[:8]:
-            if not isinstance(source, dict):
-                continue
-            recent_sources.append(
-                _pick_dict(
-                    source,
-                    (
-                        "source_id",
-                        "source_kind",
-                        "source_class",
-                        "source_channel",
-                        "source_type",
-                        "title",
-                        "status",
-                        "raw_path",
-                        "normalized_path",
-                        "digest_path",
-                    ),
-                )
-            )
+    recent_source_count = min(len(sources), 8) if isinstance(sources, list) else 0
+    raw_counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
+    safe_counts = {
+        key: int(raw_counts.get(key) or 0)
+        for key in ("total", "digested", "reviewed", "routed", "promoted", "ignored")
+        if isinstance(raw_counts.get(key), int)
+        and not isinstance(raw_counts.get(key), bool)
+        and 0 <= raw_counts.get(key) <= 1_000_000
+    }
     return {
-        "schema_version": payload.get("schema_version"),
-        "generated_at": payload.get("generated_at"),
-        "source_ref": f"knowledge/source-intelligence/{index_path.name}",
+        "schema_version": "source_intelligence_browser_status/v1",
+        "generated_at": _browser_timestamp(payload.get("generated_at")),
         "source_mode": "deployed_snapshot",
-        "counts": payload.get("counts") if isinstance(payload.get("counts"), dict) else {},
-        "recent_sources": recent_sources,
+        "counts": safe_counts,
+        "recent_source_count": recent_source_count,
+        "data_policy": {
+            "projection": "aggregate_status_only",
+            "source_names_included": False,
+            "source_identifiers_included": False,
+            "source_paths_included": False,
+            "source_excerpts_included": False,
+        },
     }
 
 

@@ -11,6 +11,9 @@ from typing import Any
 
 from app.services import persona_delta_service
 from app.services.content_reservoir_service import build_content_reservoir_payload
+from app.services.feezie_runtime_context_service import (
+    build_feezie_private_runtime_context_status,
+)
 from app.services.social_feed_builder_service import (
     build_feed as build_social_feed_runtime_payload,
     discover_linkedin_workspace_root,
@@ -20,6 +23,7 @@ from app.services.social_feed_refresh import social_feed_refresh_service
 from app.services.linkedin_source_lifecycle_service import build_source_lifecycle
 from app.services.linkedin_performance_ledger_service import (
     LinkedinPerformanceLedgerCorruption,
+    build_browser_performance_summary,
     linkedin_performance_ledger_service,
 )
 from app.services.social_long_form_signal_service import build_long_form_route_summary
@@ -391,7 +395,38 @@ SNAPSHOT_DOC_ENTRIES = "doc_entries"
 SNAPSHOT_OPERATOR_STORY_SIGNALS = "operator_story_signals"
 SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS = "content_safe_operator_lessons"
 PRIVATE_INVENTORY_SCHEMA = "privacy_safe_workspace_inventory/v1"
+BROWSER_PRIVATE_GROUNDING_SCHEMA = "feezie_private_grounding_browser_status/v1"
 WORKSPACE_SNAPSHOT_STATUS_SCHEMA = "workspace_editorial_status/v1"
+BROWSER_PRIVATE_GROUNDING_SNAPSHOT_TYPES = (
+    SNAPSHOT_SOURCE_ASSETS,
+    SNAPSHOT_CONTENT_RESERVOIR,
+    SNAPSHOT_OPERATOR_STORY_SIGNALS,
+    SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS,
+    SNAPSHOT_PERSONA_REVIEW_SUMMARY,
+    SNAPSHOT_LONG_FORM_ROUTES,
+)
+BROWSER_PRIVATE_GROUNDING_COUNT_KEYS = {
+    SNAPSHOT_SOURCE_ASSETS: (
+        "total",
+        "long_form_media",
+        "pending_segmentation",
+        "feed_ready",
+        "structured_summary_ready",
+        "lessons_ready",
+        "anecdotes_ready",
+        "quotes_ready",
+        "deep_harvest_ready",
+        "deep_harvest_fragments",
+    ),
+    SNAPSHOT_PERSONA_REVIEW_SUMMARY: (
+        "total",
+        "brain_pending_review",
+        "workspace_saved",
+        "approved_unpromoted",
+        "pending_promotion",
+        "committed",
+    ),
+}
 EDITORIAL_SECTION_STALE_HOURS = {
     SNAPSHOT_WEEKLY_PLAN: 24 * 8,
     SNAPSHOT_REACTION_QUEUE: 48,
@@ -401,6 +436,31 @@ EDITORIAL_SECTION_STALE_HOURS = {
     SNAPSHOT_CONTENT_RESERVOIR: 24 * 8,
     SNAPSHOT_PERSONA_REVIEW_SUMMARY: 24 * 8,
     SNAPSHOT_LONG_FORM_ROUTES: 24 * 8,
+}
+PUBLICATION_PERFORMANCE_BROWSER_KEYS = {
+    "schema_version",
+    "generated_at",
+    "workspace_key",
+    "strategy_contract",
+    "counts",
+    "feedback_completeness",
+    "rolling_topic_mix",
+    "rolling_intent_mix",
+    "initial_pilot",
+    "primary_kpi",
+    "learning_gate",
+    "learning_aggregates",
+    "actionable_gaps",
+    "data_policy",
+}
+PUBLICATION_PERFORMANCE_BROWSER_POLICY = {
+    "aggregate_only": True,
+    "per_publication_rows_included": False,
+    "external_post_links_included": False,
+    "raw_metric_snapshots_included": False,
+    "private_notes_included": False,
+    "audience_identities_included": False,
+    "raw_copy_included": False,
 }
 
 ACTIVITY_STAGE_ORDER = {
@@ -918,6 +978,103 @@ def _privacy_safe_inventory_payload(snapshot_type: str, payload: dict[str, Any] 
             "file_paths_included": False,
         },
     }
+
+
+def _browser_status_timestamp(value: Any) -> str | None:
+    """Return a canonical timestamp without forwarding untrusted source text."""
+
+    parsed: datetime
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _browser_grounding_count(snapshot_type: str, payload: dict[str, Any]) -> int:
+    counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
+    raw_total = counts.get("total")
+    if isinstance(raw_total, int) and not isinstance(raw_total, bool) and 0 <= raw_total <= 1_000_000:
+        return raw_total
+
+    direct_count_keys = {
+        SNAPSHOT_LONG_FORM_ROUTES: "segments_total",
+    }
+    direct_key = direct_count_keys.get(snapshot_type)
+    if direct_key:
+        raw_direct = payload.get(direct_key)
+        if isinstance(raw_direct, int) and not isinstance(raw_direct, bool) and 0 <= raw_direct <= 1_000_000:
+            return raw_direct
+
+    collection_keys = {
+        SNAPSHOT_SOURCE_ASSETS: "items",
+        SNAPSHOT_CONTENT_RESERVOIR: "items",
+        SNAPSHOT_OPERATOR_STORY_SIGNALS: "signals",
+        SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS: "lessons",
+        SNAPSHOT_PERSONA_REVIEW_SUMMARY: "recent",
+        SNAPSHOT_LONG_FORM_ROUTES: "candidates",
+    }
+    collection = payload.get(collection_keys[snapshot_type])
+    return min(len(collection), 1_000_000) if isinstance(collection, list) else 0
+
+
+def _browser_private_grounding_projection(snapshot_type: str, payload: Any) -> dict[str, Any]:
+    """Project private grounding state through a closed aggregate-only schema."""
+
+    available = isinstance(payload, dict)
+    state = "available" if available else "missing" if payload is None else "invalid"
+    source = payload if available else {}
+    source_counts = source.get("counts") if isinstance(source.get("counts"), dict) else {}
+    projected_counts = {
+        "total": _browser_grounding_count(snapshot_type, source),
+    }
+    for key in BROWSER_PRIVATE_GROUNDING_COUNT_KEYS.get(snapshot_type, ()):
+        raw_value = source_counts.get(key)
+        if isinstance(raw_value, int) and not isinstance(raw_value, bool) and 0 <= raw_value <= 1_000_000:
+            projected_counts[key] = raw_value
+    return {
+        "schema_version": BROWSER_PRIVATE_GROUNDING_SCHEMA,
+        "snapshot_type": snapshot_type,
+        "state": state,
+        "available": available,
+        "generated_at": _browser_status_timestamp(source.get("generated_at")),
+        "counts": projected_counts,
+        "data_policy": {
+            "projection": "aggregate_status_only",
+            "raw_content_included": False,
+            "names_included": False,
+            "identifiers_or_hashes_included": False,
+            "filenames_included": False,
+            "paths_included": False,
+            "excerpts_included": False,
+        },
+    }
+
+
+def project_linkedin_os_snapshot_for_browser(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Return the authenticated browser projection without private grounding rows."""
+
+    if not isinstance(snapshot, dict):
+        raise TypeError("Workspace snapshot must be a mapping.")
+    projected = dict(snapshot)
+    for snapshot_type in BROWSER_PRIVATE_GROUNDING_SNAPSHOT_TYPES:
+        projected[snapshot_type] = _browser_private_grounding_projection(
+            snapshot_type,
+            snapshot.get(snapshot_type),
+        )
+    return projected
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -1773,6 +1930,14 @@ def _runtime_snapshot_payload(snapshot_type: str) -> dict[str, Any] | None:
 def _persist_snapshot(snapshot_type: str, payload: dict[str, Any], source: str) -> dict[str, Any]:
     if snapshot_type in {SNAPSHOT_WORKSPACE_FILES, SNAPSHOT_DOC_ENTRIES}:
         payload = _privacy_safe_inventory_payload(snapshot_type, payload)
+    payload_for_storage = payload
+    if snapshot_type == SNAPSHOT_PUBLICATION_PERFORMANCE:
+        payload_for_storage = build_browser_performance_summary(payload)
+        payload_for_storage = build_browser_performance_summary(payload_for_storage)
+        if not _is_closed_publication_performance_projection(payload_for_storage):
+            raise LinkedinPerformanceLedgerCorruption(
+                "Publication performance summary could not be reduced to the privacy-safe projection contract."
+            )
     workspace_key = (
         CANONICAL_FEEZIE_WORKSPACE_KEY
         if snapshot_type in {SNAPSHOT_PUBLICATION_PERFORMANCE, SNAPSHOT_PUBLICATION_PERFORMANCE_STATUS}
@@ -1781,13 +1946,41 @@ def _persist_snapshot(snapshot_type: str, payload: dict[str, Any], source: str) 
     upsert_snapshot(
         workspace_key,
         snapshot_type,
-        payload,
+        payload_for_storage,
         metadata={
             "source": source,
-            "payload_generated_at": payload.get("generated_at"),
+            "payload_generated_at": payload_for_storage.get("generated_at"),
         },
     )
     return payload
+
+
+def _is_local_publication_performance_summary(payload: dict[str, Any]) -> bool:
+    return bool(
+        payload.get("schema_version") == "linkedin_publication_summary/v1"
+        and payload.get("workspace_key") == CANONICAL_FEEZIE_WORKSPACE_KEY
+        and isinstance(payload.get("counts"), dict)
+        and isinstance(payload.get("publication_lifecycle_index"), list)
+    )
+
+
+def _is_closed_publication_performance_projection(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if (
+        set(payload) != PUBLICATION_PERFORMANCE_BROWSER_KEYS
+        or payload.get("schema_version") != "linkedin_publication_summary/v1"
+        or payload.get("workspace_key") != CANONICAL_FEEZIE_WORKSPACE_KEY
+        or not isinstance(payload.get("counts"), dict)
+        or payload.get("data_policy") != PUBLICATION_PERFORMANCE_BROWSER_POLICY
+    ):
+        return False
+    projected = build_browser_performance_summary(payload)
+    if not isinstance(projected, dict):
+        return False
+    normalized = dict(payload)
+    normalized["generated_at"] = projected.get("generated_at")
+    return normalized == projected
 
 
 def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
@@ -1812,11 +2005,10 @@ def _snapshot_is_usable(snapshot_type: str, payload: dict[str, Any]) -> bool:
     if snapshot_type == SNAPSHOT_FEEDBACK_SUMMARY:
         return "total_events" in payload
     if snapshot_type == SNAPSHOT_PUBLICATION_PERFORMANCE:
-        return (
-            payload.get("schema_version") == "linkedin_publication_summary/v1"
-            and payload.get("workspace_key") == CANONICAL_FEEZIE_WORKSPACE_KEY
-            and isinstance(payload.get("counts"), dict)
-            and isinstance(payload.get("publication_lifecycle_index"), list)
+        return _is_local_publication_performance_summary(
+            payload
+        ) or _is_closed_publication_performance_projection(
+            payload
         )
     if snapshot_type == SNAPSHOT_PUBLICATION_PERFORMANCE_STATUS:
         return (
@@ -2204,6 +2396,14 @@ def _load_snapshot(snapshot_type: str) -> dict[str, Any] | None:
     )
     if snapshot_type in {SNAPSHOT_WORKSPACE_FILES, SNAPSHOT_DOC_ENTRIES} and persisted:
         persisted = _privacy_safe_inventory_payload(snapshot_type, persisted)
+    if (
+        snapshot_type == SNAPSHOT_PUBLICATION_PERFORMANCE
+        and persisted
+        and not _is_closed_publication_performance_projection(persisted)
+    ):
+        raise LinkedinPerformanceLedgerCorruption(
+            "Persisted publication performance summary does not match the privacy-safe projection contract."
+        )
     if snapshot_type == SNAPSHOT_WEEKLY_PLAN:
         runtime = _runtime_snapshot_payload(snapshot_type)
         if runtime:
@@ -2335,6 +2535,14 @@ def _load_persisted_snapshot(
         )
     if snapshot_type in {SNAPSHOT_WORKSPACE_FILES, SNAPSHOT_DOC_ENTRIES} and persisted:
         persisted = _privacy_safe_inventory_payload(snapshot_type, persisted)
+    if snapshot_type == SNAPSHOT_PUBLICATION_PERFORMANCE:
+        if persisted and _is_closed_publication_performance_projection(persisted):
+            return persisted
+        if persisted:
+            raise LinkedinPerformanceLedgerCorruption(
+                "Persisted publication performance summary does not match the privacy-safe projection contract."
+            )
+        return None
     if persisted and _snapshot_is_usable(snapshot_type, persisted):
         return persisted
     if persisted and snapshot_type in {SNAPSHOT_PUBLICATION_PERFORMANCE, SNAPSHOT_PUBLICATION_PERFORMANCE_STATUS}:
@@ -2502,6 +2710,90 @@ def _editorial_section_status(
     }
 
 
+def _feedback_section_status(
+    payload: dict[str, Any] | None,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    stale_after_hours = int(EDITORIAL_SECTION_STALE_HOURS[SNAPSHOT_FEEDBACK_SUMMARY])
+    if not isinstance(payload, dict):
+        return {
+            "state": "missing",
+            "available": False,
+            "generated_at": None,
+            "age_hours": None,
+            "stale_after_hours": stale_after_hours,
+            "evidence_state": "missing",
+            "evidence_at": None,
+        }
+    total_events = payload.get("total_events")
+    if isinstance(total_events, bool) or not isinstance(total_events, int) or total_events < 0:
+        return {
+            "state": "corrupt",
+            "available": True,
+            "generated_at": _browser_status_timestamp(payload.get("generated_at")),
+            "age_hours": None,
+            "stale_after_hours": stale_after_hours,
+            "evidence_state": "invalid",
+            "evidence_at": None,
+        }
+    generated = _status_timestamp(payload.get("generated_at"))
+    generated_at = generated.replace(microsecond=0).isoformat() if generated is not None else None
+    if total_events == 0:
+        return {
+            "state": "not_measured",
+            "available": True,
+            "generated_at": generated_at,
+            "age_hours": None,
+            "stale_after_hours": stale_after_hours,
+            "evidence_state": "empty",
+            "evidence_at": None,
+        }
+
+    evidence_at = _status_timestamp(payload.get("latest_event_at"))
+    if evidence_at is None:
+        recent_events = payload.get("recent_events") if isinstance(payload.get("recent_events"), list) else []
+        candidates = [
+            timestamp
+            for event in recent_events
+            if isinstance(event, dict)
+            for timestamp in [_status_timestamp(event.get("recorded_at"))]
+            if timestamp is not None
+        ]
+        evidence_at = max(candidates, default=None)
+    if evidence_at is None:
+        return {
+            "state": "measurement_unverifiable",
+            "available": True,
+            "generated_at": generated_at,
+            "age_hours": None,
+            "stale_after_hours": stale_after_hours,
+            "evidence_state": "present",
+            "evidence_at": None,
+        }
+    future_skew_hours = (evidence_at - now).total_seconds() / 3600
+    if future_skew_hours > 1:
+        return {
+            "state": "corrupt",
+            "available": True,
+            "generated_at": generated_at,
+            "age_hours": None,
+            "stale_after_hours": stale_after_hours,
+            "evidence_state": "invalid",
+            "evidence_at": evidence_at.replace(microsecond=0).isoformat(),
+        }
+    age_hours = round(max(0.0, (now - evidence_at).total_seconds() / 3600), 2)
+    return {
+        "state": "measurement_stale" if age_hours > stale_after_hours else "fresh",
+        "available": True,
+        "generated_at": generated_at,
+        "age_hours": age_hours,
+        "stale_after_hours": stale_after_hours,
+        "evidence_state": "present",
+        "evidence_at": evidence_at.replace(microsecond=0).isoformat(),
+    }
+
+
 def _effective_publication_performance_status(
     summary: dict[str, Any] | None,
     persisted_status: dict[str, Any] | None,
@@ -2568,10 +2860,12 @@ def _build_workspace_editorial_status(
         SNAPSHOT_PERSONA_REVIEW_SUMMARY: persona_review_summary,
         SNAPSHOT_LONG_FORM_ROUTES: long_form_routes,
     }
-    sections = {
-        key: _editorial_section_status(key, payload, now=checked_at)
-        for key, payload in payloads.items()
-    }
+    sections = {}
+    for key, payload in payloads.items():
+        if key == SNAPSHOT_FEEDBACK_SUMMARY:
+            sections[key] = _feedback_section_status(payload, now=checked_at)
+        else:
+            sections[key] = _editorial_section_status(key, payload, now=checked_at)
     sections[SNAPSHOT_PUBLICATION_PERFORMANCE] = {
         "state": publication_performance_status.get("state"),
         "available": publication_performance_status.get("availability") == "available",
@@ -2589,10 +2883,18 @@ def _build_workspace_editorial_status(
     if ((publication_performance_status.get("evidence") or {}).get("state")) == "empty":
         reasons.append("publication_performance_evidence_empty")
     refresh = refresh_status if isinstance(refresh_status, dict) else {}
-    if refresh.get("error"):
+    refresh_started_at = _status_timestamp(refresh.get("started_at"))
+    persisted_feed_generated_at = _status_timestamp((social_feed or {}).get("generated_at"))
+    refresh_error_is_newer = bool(
+        refresh.get("error")
+        and (
+            refresh_started_at is None
+            or persisted_feed_generated_at is None
+            or refresh_started_at >= persisted_feed_generated_at
+        )
+    )
+    if refresh_error_is_newer:
         reasons.append("social_feed_refresh_failed")
-    if not refresh.get("last_run"):
-        reasons.append("social_feed_refresh_not_confirmed")
     for snapshot_type, error in sorted(load_errors.items()):
         reasons.append(f"{snapshot_type}_{error.get('state') or 'degraded'}")
     reasons = list(dict.fromkeys(reasons))
@@ -2600,11 +2902,27 @@ def _build_workspace_editorial_status(
     section_states = {str(section.get("state") or "missing") for section in sections.values()}
     if "corrupt" in section_states or any(item.get("state") == "corrupt" for item in load_errors.values()):
         state, severity = "corrupt", "red"
-    elif "degraded" in section_states or refresh.get("error") or load_errors:
+    elif "degraded" in section_states or refresh_error_is_newer or load_errors:
         state, severity = "degraded", "red"
-    elif "stale" in section_states:
+    elif any(
+        sections[snapshot_type].get("state") == "stale"
+        for snapshot_type in (
+            SNAPSHOT_WEEKLY_PLAN,
+            SNAPSHOT_REACTION_QUEUE,
+            SNAPSHOT_SOCIAL_FEED,
+            SNAPSHOT_SOURCE_ASSETS,
+            SNAPSHOT_CONTENT_RESERVOIR,
+            SNAPSHOT_LONG_FORM_ROUTES,
+        )
+    ):
         state, severity = "stale", "yellow"
-    elif "missing" in section_states or "publication_performance_evidence_empty" in reasons:
+    elif section_states & {
+        "missing",
+        "stale",
+        "not_measured",
+        "measurement_stale",
+        "measurement_unverifiable",
+    } or "publication_performance_evidence_empty" in reasons:
         state, severity = "incomplete", "yellow"
     else:
         state, severity = "current", "green"
@@ -2756,14 +3074,28 @@ class WorkspaceSnapshotService:
             },
         }
 
-    def refresh_persisted_linkedin_os_state(self) -> dict[str, Any]:
+    def refresh_persisted_social_feed_state(self) -> dict[str, Any]:
+        """Refresh only the cloud-safe feed, reaction, and source projections."""
+
+        refreshed = self.refresh_persisted_source_grounding_state()
+        for snapshot_type in (SNAPSHOT_REACTION_QUEUE, SNAPSHOT_SOCIAL_FEED):
+            payload = _runtime_snapshot_payload(snapshot_type)
+            if payload:
+                refreshed[snapshot_type] = _persist_snapshot(snapshot_type, payload, "social_feed_refresh")
+        return refreshed
+
+    def refresh_persisted_linkedin_os_state(
+        self,
+        *,
+        include_persona_review: bool = False,
+    ) -> dict[str, Any]:
         refreshed: dict[str, Any] = {}
         for snapshot_type in (SNAPSHOT_WORKSPACE_FILES, SNAPSHOT_DOC_ENTRIES):
             payload = _runtime_snapshot_payload(snapshot_type)
             if payload and _snapshot_is_usable(snapshot_type, payload):
                 refreshed[snapshot_type] = _persist_snapshot(snapshot_type, payload, "refresh")
 
-        refreshed.update(self.refresh_persisted_source_grounding_state())
+        refreshed.update(self.refresh_persisted_social_feed_state())
 
         long_form_routes = refreshed.get(SNAPSHOT_LONG_FORM_ROUTES) or get_snapshot_payload(
             WORKSPACE_KEY,
@@ -2796,15 +3128,14 @@ class WorkspaceSnapshotService:
                     "refresh",
                 )
 
-        for snapshot_type in (
-            SNAPSHOT_PERSONA_REVIEW_SUMMARY,
-            SNAPSHOT_REACTION_QUEUE,
-            SNAPSHOT_SOCIAL_FEED,
-            SNAPSHOT_FEEDBACK_SUMMARY,
-        ):
-            payload = _runtime_snapshot_payload(snapshot_type)
-            if payload:
-                refreshed[snapshot_type] = _persist_snapshot(snapshot_type, payload, "refresh")
+        if include_persona_review:
+            persona_review_summary = _runtime_snapshot_payload(SNAPSHOT_PERSONA_REVIEW_SUMMARY)
+            if persona_review_summary:
+                refreshed[SNAPSHOT_PERSONA_REVIEW_SUMMARY] = _persist_snapshot(
+                    SNAPSHOT_PERSONA_REVIEW_SUMMARY,
+                    persona_review_summary,
+                    "explicit_persona_refresh",
+                )
 
         try:
             publication_performance = _runtime_snapshot_payload(SNAPSHOT_PUBLICATION_PERFORMANCE)
@@ -2915,14 +3246,15 @@ class WorkspaceSnapshotService:
                     else None
                 ),
             )
-        except Exception as exc:
+        except Exception:
             source_lifecycle = {
                 "schema_version": "source_lifecycle/v1",
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "workspace": WORKSPACE_KEY,
                 "counts": {"total": 0, "by_stage": {}, "by_visibility": {}, "needs_decision": 0, "in_workflow": 0},
                 "items": [],
-                "error": str(exc),
+                "error_type": "source_lifecycle_build_error",
+                "reason_codes": ["source_lifecycle_build_failed"],
             }
         operator_story_signals = safe_load_snapshot(SNAPSHOT_OPERATOR_STORY_SIGNALS)
         content_safe_operator_lessons = safe_load_snapshot(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
@@ -2945,6 +3277,7 @@ class WorkspaceSnapshotService:
             refresh_status=refresh_status,
             load_errors=load_errors,
         )
+        private_runtime_context_status = build_feezie_private_runtime_context_status()
         return {
             "workspace_files": (workspace_files_payload or {}).get("items") if isinstance(workspace_files_payload, dict) else [],
             "doc_entries": (doc_entries_payload or {}).get("items") if isinstance(doc_entries_payload, dict) else [],
@@ -2966,6 +3299,7 @@ class WorkspaceSnapshotService:
             "long_form_routes": long_form_routes,
             "refresh_status": refresh_status,
             "snapshot_status": snapshot_status,
+            "private_runtime_context_status": private_runtime_context_status,
         }
 
 

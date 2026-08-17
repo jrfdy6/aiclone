@@ -44,7 +44,11 @@ class SocialFeedbackService:
 
     def _rebuild_summary(self) -> dict[str, Any]:
         if not FEEDBACK_JSONL_PATH.exists():
-            summary = {"total_events": 0, "generated_at": datetime.now(timezone.utc).isoformat()}
+            summary = {
+                "total_events": 0,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "latest_event_at": None,
+            }
             FEEDBACK_SUMMARY_PATH.write_text(json.dumps(summary, indent=2), encoding="utf-8")
             self._persist_summary_snapshot(summary)
             return summary
@@ -125,6 +129,10 @@ class SocialFeedbackService:
         summary = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "total_events": len(events),
+            "latest_event_at": max(
+                (str(event.get("recorded_at") or "") for event in events),
+                default="",
+            ) or None,
             "decision_counts": decision_counts,
             "lens_counts": lens_counts,
             "stance_counts": stance_counts,

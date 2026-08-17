@@ -24,7 +24,7 @@ while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
     exit 1
   fi
   case "$REMOTE_REF" in
-    refs/heads/codex/public-source-*|refs/heads/main|refs/heads/public-release)
+    refs/heads/codex/public-source-*|refs/heads/public-release)
       if [[ "$LOCAL_SHA" != "$HEAD_SHA" ]]; then
         echo "error: every pushed public branch must resolve to the verified HEAD" >&2
         exit 1

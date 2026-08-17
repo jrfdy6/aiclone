@@ -25,6 +25,12 @@ _PUNCT_RE = re.compile(r"\s+([,.;:])")
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _METRIC_RE = re.compile(r"\b\d+(?:[.,]\d+)?%?\b")
 _SOURCE_ARTIFACT_TOKEN_RE = re.compile(r"\b(?=[A-Za-z0-9_-]{8,}\b)(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b")
+_THIRD_PERSON_PERSONA_BIO_RE = re.compile(
+    r"^(?:the\s+)?owner\s+(?:is|treats|keeps|built|started|learned)\b",
+    re.IGNORECASE,
+)
+_OWNER_TREATS_PREFIX_RE = re.compile(r"^(?:the\s+)?owner\s+treats\s+", re.IGNORECASE)
+_OWNER_PREFIX_RE = re.compile(r"^(?:the\s+)?owner\s+", re.IGNORECASE)
 _INTERNAL_REPLACEMENTS = (
     (re.compile(r"\bAI Clone\b", re.IGNORECASE), "the system"),
     (re.compile(r"\bBrain System\b", re.IGNORECASE), "the system"),
@@ -234,13 +240,7 @@ def _starts_with_third_person_persona_bio(text: str) -> bool:
     normalized = _normalize_text(text)
     if not normalized:
         return False
-    return bool(
-        re.match(
-            r"^(?:owner)\s+(?:is|treats|keeps|built|started|learned)\b",
-            normalized,
-            flags=re.IGNORECASE,
-        )
-    )
+    return bool(_THIRD_PERSON_PERSONA_BIO_RE.match(normalized))
 
 
 def _looks_like_partial_source_fragment(text: str) -> bool:
@@ -498,13 +498,13 @@ def _generalize_internal_claim(*, claim_text: str, topic: str, audience: str) ->
     if any(term in combined for term in ("his approach to ai", "approach to ai", "customer trust")):
         return "AI should strengthen workflows without coming at the expense of customer trust."
     sanitized_text, _ = _sanitize_public_text(claim_text)
-    if sanitized_text.lower().startswith("owner treats "):
-        sanitized_text = re.sub(r"^the owner treats\s+", "", sanitized_text, flags=re.IGNORECASE)
+    if _OWNER_TREATS_PREFIX_RE.match(sanitized_text):
+        sanitized_text = _OWNER_TREATS_PREFIX_RE.sub("", sanitized_text, count=1)
         if " as " in sanitized_text:
             left, right = sanitized_text.split(" as ", 1)
             sanitized_text = f"{left} is {right}"
-    elif sanitized_text.lower().startswith("owner "):
-        sanitized_text = re.sub(r"^the owner\s+", "", sanitized_text, flags=re.IGNORECASE)
+    elif _OWNER_PREFIX_RE.match(sanitized_text):
+        sanitized_text = _OWNER_PREFIX_RE.sub("", sanitized_text, count=1)
     sentences = _split_sentences(sanitized_text)
     if sentences:
         text = sentences[0].rstrip(".")
@@ -542,8 +542,8 @@ def _generalize_story_beat(*, beat_text: str, topic: str, audience: str) -> str:
     if any(term in combined for term in ("daily brief", "weekly brief", "planner", "snapshot", "brain", "ops")):
         return "The useful lesson was not the tooling. It was the clarity that came from one shared source of truth."
     sanitized_text, _ = _sanitize_public_text(beat_text)
-    if sanitized_text.lower().startswith("owner "):
-        sanitized_text = re.sub(r"^the owner\s+", "", sanitized_text, flags=re.IGNORECASE)
+    if _OWNER_PREFIX_RE.match(sanitized_text):
+        sanitized_text = _OWNER_PREFIX_RE.sub("", sanitized_text, count=1)
     sentences = _split_sentences(sanitized_text)
     if sentences:
         text = sentences[0].rstrip(".")

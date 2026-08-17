@@ -38,6 +38,12 @@ import {
   OptionCriticReceipt,
 } from '@/app/workspace/GenerationReceiptPanel';
 import PromotableInlineText from '@/app/workspace/PromotableInlineText';
+import {
+  FeeziePrivateRuntimeStatusBadge,
+  isFeeziePrivateRuntimeContextReady,
+  type FeeziePrivateRuntimeContextStatus,
+  type FeeziePrivateRuntimeLoadState,
+} from '@/app/workspace/FeeziePrivateRuntimeStatus';
 
 type PostingMode = 'post' | 'comment';
 type ContentSourceMode = 'persona_only' | 'reservoir_ranked' | 'selected_source' | 'recent_signals';
@@ -59,6 +65,10 @@ type PreviewItem = {
   comment_draft?: string;
   repost_draft?: string;
   lens_variants?: Record<string, PreviewVariant>;
+};
+
+type PostingWorkspaceSnapshot = {
+  private_runtime_context_status?: FeeziePrivateRuntimeContextStatus;
 };
 
 const AUDIENCE_OPTIONS = [
@@ -157,6 +167,8 @@ function PostingWorkspaceClient() {
   const [brainPromotionStatus, setBrainPromotionStatus] = useState<string | null>(null);
   const [, setPromotingFragmentKey] = useState<string | null>(null);
   const [autoRunKey, setAutoRunKey] = useState<string | null>(null);
+  const [privateRuntimeStatus, setPrivateRuntimeStatus] = useState<FeeziePrivateRuntimeContextStatus | null>(null);
+  const [privateRuntimeLoadState, setPrivateRuntimeLoadState] = useState<FeeziePrivateRuntimeLoadState>('loading');
 
   const clearEvidenceIntake = useCallback(() => {
     setEvidenceAnswers({});
@@ -196,11 +208,32 @@ function PostingWorkspaceClient() {
     setEvidenceAnswerDraft('');
   }, [initialQuery]);
 
+  useEffect(() => {
+    let active = true;
+    setPrivateRuntimeLoadState('loading');
+    void controlApiGet<PostingWorkspaceSnapshot>('/api/workspace/linkedin-os-snapshot')
+      .then((payload) => {
+        if (!active) return;
+        setPrivateRuntimeStatus(payload.private_runtime_context_status ?? null);
+        setPrivateRuntimeLoadState('live');
+      })
+      .catch(() => {
+        if (!active) return;
+        setPrivateRuntimeStatus(null);
+        setPrivateRuntimeLoadState('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const activeSourceCard = topicSourceMode === 'source_card' ? sourceCard : null;
   const effectiveSourceMode = useMemo(
     () => (activeSourceCard ? 'selected_source' : mapGroundingModeToSourceMode(groundingMode)),
     [activeSourceCard, groundingMode],
   );
+  const feezieGenerationReady = privateRuntimeLoadState === 'live'
+    && isFeeziePrivateRuntimeContextReady(privateRuntimeStatus);
 
   const handleTopicSourceModeChange = useCallback(
     (nextMode: TopicSourceMode) => {
@@ -247,6 +280,9 @@ function PostingWorkspaceClient() {
   }, []);
 
   const queueLocalCodexPost = useCallback(async (answers: EvidenceAnswers) => {
+    if (!feezieGenerationReady) {
+      throw new Error('FEEZIE generation stays closed until private runtime context is fully ready.');
+    }
     const { topicToSend, contextToSend } = resolvePostInputs();
     if (!topicToSend.trim()) {
       throw new Error('Choose a source or enter a specific topic before starting the evidence check.');
@@ -285,7 +321,7 @@ function PostingWorkspaceClient() {
     setCodexJobError(null);
     setProviderTrace('local_worker · queued');
     setBrainPromotionStatus(null);
-  }, [activeSourceCard, audience, category, effectiveSourceMode, resolvePostInputs]);
+  }, [activeSourceCard, audience, category, effectiveSourceMode, feezieGenerationReady, resolvePostInputs]);
 
   const resetPostRunState = useCallback(() => {
     setPostError(null);
@@ -573,13 +609,17 @@ function PostingWorkspaceClient() {
     if (!initialQuery.autoplay || autoRunKey === key) {
       return;
     }
-    setAutoRunKey(key);
     if (initialQuery.mode === 'comment') {
+      setAutoRunKey(key);
       void handleGenerateComment();
       return;
     }
+    if (!feezieGenerationReady) {
+      return;
+    }
+    setAutoRunKey(key);
     void handleGeneratePost();
-  }, [autoRunKey, handleGenerateComment, handleGeneratePost, initialQuery]);
+  }, [autoRunKey, feezieGenerationReady, handleGenerateComment, handleGeneratePost, initialQuery]);
 
   async function handleCopy(text: string, label: string) {
     try {
@@ -798,13 +838,17 @@ function PostingWorkspaceClient() {
               <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
                 {GROUNDING_MODE_OPTIONS.find((option) => option.value === groundingMode)?.hint}
               </p>
+              <FeeziePrivateRuntimeStatusBadge
+                status={privateRuntimeStatus}
+                loadState={privateRuntimeLoadState}
+              />
             </div>
             <label style={{ display: 'grid', gap: '6px' }}>
               <span style={{ color: '#cbd5f5', fontSize: '13px' }}>Context</span>
               <textarea value={context} onChange={(event) => { clearEvidenceIntake(); setContext(event.target.value); }} rows={8} style={textareaStyle} />
             </label>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => void handleGeneratePost()} disabled={postLoading || codexInFlight || codexActionLoading !== null} style={primaryButtonStyle('#f97316')}>
+              <button onClick={() => void handleGeneratePost()} disabled={!feezieGenerationReady || postLoading || codexInFlight || codexActionLoading !== null} style={primaryButtonStyle('#f97316')}>
                 {postLoading ? 'Queueing…' : codexInFlight ? 'Running on This Mac…' : 'Queue on This Mac'}
               </button>
               {providerTrace && <span style={{ color: '#94a3b8', fontSize: '12px' }}>Model trace: {providerTrace}</span>}
@@ -823,7 +867,7 @@ function PostingWorkspaceClient() {
                     style={{ ...textareaStyle, minHeight: '88px' }}
                   />
                   <div>
-                    <button type="button" onClick={() => void submitEvidenceClarification()} disabled={postLoading || !evidenceAnswerDraft.trim()} style={primaryButtonStyle('#f59e0b')}>
+                    <button type="button" onClick={() => void submitEvidenceClarification()} disabled={!feezieGenerationReady || postLoading || !evidenceAnswerDraft.trim()} style={primaryButtonStyle('#f59e0b')}>
                       {postLoading ? 'Checking…' : 'Continue evidence check'}
                     </button>
                   </div>
@@ -853,7 +897,7 @@ function PostingWorkspaceClient() {
                         </button>
                       )}
                       {!codexInFlight && ['failed', 'canceled'].includes(codexJobStatus ?? '') && (
-                        <button onClick={() => void handleGeneratePostWithCodex()} disabled={codexActionLoading !== null || postLoading} style={secondaryButtonStyle('#f97316')}>
+                        <button onClick={() => void handleGeneratePostWithCodex()} disabled={!feezieGenerationReady || codexActionLoading !== null || postLoading} style={secondaryButtonStyle('#f97316')}>
                           Retry Local Run
                         </button>
                       )}

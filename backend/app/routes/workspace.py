@@ -36,7 +36,11 @@ from app.services.linkedin_performance_ledger_service import (
 )
 from app.services.workspace_registry_service import WORKSPACES_ROOT, workspace_registry_payload
 from app.services.social_feed_preview_service import social_feed_preview_service
-from app.services.workspace_snapshot_service import workspace_snapshot_service
+from app.services.social_feed_refresh import InvalidRefreshState
+from app.services.workspace_snapshot_service import (
+    project_linkedin_os_snapshot_for_browser,
+    workspace_snapshot_service,
+)
 from app.services.workspace_snapshot_store import get_snapshot_payload
 router = APIRouter(tags=["Workspace"], prefix="/api/workspace")
 
@@ -45,14 +49,55 @@ WORKSPACE_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 WORKSPACE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 
 
-def _serialize_status(status: dict[str, None | bool | datetime | str]) -> dict[str, None | bool | str]:
-    result: dict[str, None | bool | str] = {}
-    for key, value in status.items():
+def _browser_refresh_status(status: dict) -> dict:
+    """Project refresh telemetry without forwarding raw failure text."""
+
+    projected: dict[str, None | bool | str | list[str]] = {
+        "running": status.get("running") is True,
+        "state": "idle",
+        "run_id": None,
+        "queued_at": None,
+        "last_run": None,
+        "started_at": None,
+        "completed_at": None,
+        "error_type": None,
+        "reason_codes": [],
+    }
+    raw_state = str(status.get("state") or "").strip().lower()
+    if raw_state in {"idle", "queued", "running", "succeeded", "failed"}:
+        projected["state"] = raw_state
+    elif status.get("error"):
+        projected["state"] = "failed"
+    elif status.get("running") is True:
+        projected["state"] = "running"
+    elif status.get("last_run"):
+        projected["state"] = "succeeded"
+
+    run_id = str(status.get("run_id") or "").strip()
+    if run_id:
+        projected["run_id"] = run_id
+
+    for key in ("queued_at", "last_run", "started_at", "completed_at"):
+        value = status.get(key)
         if isinstance(value, datetime):
-            result[key] = value.isoformat()
-        else:
-            result[key] = value
-    return result
+            if value.tzinfo is not None:
+                projected[key] = value.astimezone(timezone.utc).isoformat()
+            continue
+        if not isinstance(value, str) or not value.strip():
+            continue
+        text = value.strip()
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            continue
+        if parsed.tzinfo is not None:
+            projected[key] = parsed.astimezone(timezone.utc).isoformat()
+    if status.get("error"):
+        projected["error_type"] = "social_feed_refresh_error"
+        projected["reason_codes"] = ["social_feed_refresh_failed"]
+    return projected
 
 
 def _resolve_workspace_image_target(raw_path: str) -> tuple[str, Path]:
@@ -86,6 +131,8 @@ def _redact_publication_evidence_from_source_lifecycle(value):
         publication_confirmation = value.get("source_kind") == "publication_confirmation"
         for raw_key, item in value.items():
             key = str(raw_key)
+            if key in {"error", "error_message", "exception", "traceback", "error_type"}:
+                continue
             if key in {"publication_url", "publication_id"}:
                 continue
             if publication_confirmation and key in {"source_url", "evidence", "match_keys"}:
@@ -114,6 +161,20 @@ def _redact_publication_evidence_from_source_lifecycle(value):
         )):
             return None
     return value
+
+
+def _browser_source_lifecycle(value: dict) -> dict:
+    failure_present = any(
+        value.get(key)
+        for key in ("error", "error_message", "exception", "traceback", "error_type")
+    )
+    projected = _redact_publication_evidence_from_source_lifecycle(value)
+    if not isinstance(projected, dict):
+        projected = {}
+    if failure_present:
+        projected["error_type"] = "source_lifecycle_build_error"
+        projected["reason_codes"] = ["source_lifecycle_build_failed"]
+    return projected
 
 
 def _exact_lifecycle_response(
@@ -159,18 +220,31 @@ async def get_workspace_registry(response: Response, include_executive: bool = T
 @router.get("/refresh-social-feed")
 async def get_social_feed_refresh_status():
     status = social_feed_refresh_service.get_status()
-    return _serialize_status(status)
+    projected = _browser_refresh_status(status)
+    if projected.get("error_type"):
+        projected["error"] = "Social feed refresh failed."
+    return projected
 
 
 @router.get("/linkedin-os-snapshot")
-async def get_linkedin_os_snapshot():
+async def get_linkedin_os_snapshot(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     try:
         snapshot = await run_in_threadpool(
             workspace_snapshot_service.get_linkedin_os_snapshot,
             persisted_only=True,
         )
+        snapshot = project_linkedin_os_snapshot_for_browser(snapshot)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "schema_version": "workspace_snapshot_error/v1",
+                "error_type": "workspace_snapshot_read_error",
+                "reason_codes": ["workspace_snapshot_unavailable"],
+            },
+            headers={"Cache-Control": "no-store, max-age=0"},
+        ) from exc
     # The browser contract is aggregate-only even if a legacy or mocked
     # snapshot source still carries file rows.  Full bodies, snippets, names,
     # and paths remain local and must never cross this route boundary.
@@ -180,12 +254,12 @@ async def get_linkedin_os_snapshot():
         snapshot.get("publication_performance_summary")
     )
     if isinstance(snapshot.get("source_lifecycle"), dict):
-        snapshot["source_lifecycle"] = _redact_publication_evidence_from_source_lifecycle(
+        snapshot["source_lifecycle"] = _browser_source_lifecycle(
             snapshot["source_lifecycle"]
         )
     refresh_status = snapshot.get("refresh_status")
     if isinstance(refresh_status, dict):
-        snapshot["refresh_status"] = _serialize_status(refresh_status)
+        snapshot["refresh_status"] = _browser_refresh_status(refresh_status)
     return snapshot
 
 
@@ -355,19 +429,27 @@ def get_linkedin_performance_job(card_id: str, response: Response):
 
 @router.post("/refresh-social-feed")
 async def refresh_social_feed(payload: RefreshSocialFeedRequest, background_tasks: BackgroundTasks):
-    status = social_feed_refresh_service.get_status()
-    if status["running"]:
+    try:
+        queued = social_feed_refresh_service.queue_refresh()
+    except InvalidRefreshState:
         raise HTTPException(status_code=409, detail="Social feed refresh already running.")
+    run_id = str(queued.get("run_id") or "")
     background_tasks.add_task(
         social_feed_refresh_service.run_refresh_background,
+        run_id,
         payload.skip_fetch,
         payload.sources,
     )
+    queued_status = _browser_refresh_status(queued)
     return {
         "status": "queued",
+        "state": queued_status.get("state"),
+        "run_id": run_id,
         "skip_fetch": payload.skip_fetch,
         "sources": payload.sources,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "queued_at": queued_status.get("queued_at"),
+        # Kept for the already-deployed frontend while the run-id client rolls out.
+        "started_at": queued_status.get("queued_at"),
     }
 
 

@@ -97,6 +97,12 @@ STORY_TARGETS = {
 AMBIENT_TARGETS = {
     TARGET_BIO,
 }
+REQUIRED_RUNTIME_TARGETS = {
+    TARGET_VOICE,
+    TARGET_CLAIMS,
+    TARGET_GUARDRAILS,
+    TARGET_CONTENT_EXAMPLES,
+}
 
 DOMAIN_KEYWORDS = {
     "ai_systems": {"agent", "agents", "ai", "automation", "brain", "ops", "orchestration", "planner", "prompt", "prompting", "routing", "system", "systems"},
@@ -201,6 +207,49 @@ def _read_text(path: Path) -> str:
     if path.is_symlink() or not path.is_file():
         raise ValueError("Persona bundle context files must be regular non-symlink files.")
     return _strip_frontmatter(path.read_text(encoding="utf-8"))
+
+
+def _canonical_persona_source_present(root: Path) -> bool:
+    """Return whether *root* contains any local canonical persona material.
+
+    The deployable public profile lives below ``public/`` at the same broad
+    persona root, but it is not a canonical generation source.  Treating that
+    public projection as a partial private bundle prevents the validated,
+    persisted FEEZIE runtime context from being used in Railway.
+
+    A manifest or any known canonical target still marks the local bundle as
+    present.  That preserves the fail-closed behavior for genuinely partial
+    local persona sources.
+    """
+
+    if root.is_symlink():
+        raise ValueError("Persona bundle roots must be regular non-symlink directories.")
+    if not root.exists():
+        return False
+    if not root.is_dir():
+        raise ValueError("Persona bundle roots must be directories.")
+    canonical_markers = (
+        "manifest.json",
+        TARGET_VOICE,
+        TARGET_CLAIMS,
+        TARGET_BIO,
+        TARGET_PHILOSOPHY,
+        TARGET_COMMUNICATION,
+        TARGET_DECISION_PRINCIPLES,
+        TARGET_GUARDRAILS,
+        TARGET_CONTENT_EXAMPLES,
+        TARGET_TASTE_EXAMPLES,
+        TARGET_OUTREACH,
+        TARGET_PILLARS,
+        TARGET_CHANNELS,
+        TARGET_RESUME,
+        TARGET_TIMELINE,
+        TARGET_INITIATIVES,
+        TARGET_WINS,
+        TARGET_STORIES,
+        TARGET_EXTERNAL_REFERENCES,
+    )
+    return any((root / relative_path).is_symlink() or (root / relative_path).exists() for relative_path in canonical_markers)
 
 
 def _item_metadata(item: dict[str, Any]) -> dict[str, Any]:
@@ -549,12 +598,48 @@ def _iter_section_chunks(
 def load_bundle_persona_chunks() -> list[dict[str, Any]]:
     state_root = resolve_persona_bundle_state_root()
     seed_root = resolve_persona_bundle_root()
-    if not state_root.exists() and not seed_root.exists():
-        print(
-            f"[bundle_context] roots_missing state={state_root} seed={seed_root}",
-            flush=True,
+    if not _canonical_persona_source_present(state_root) and not _canonical_persona_source_present(seed_root):
+        from app.services.feezie_runtime_context_service import (
+            FeezieRuntimeContextError,
+            load_persisted_feezie_persona_chunks,
         )
-        return []
+
+        try:
+            persisted = load_persisted_feezie_persona_chunks()
+        except FeezieRuntimeContextError:
+            raise
+        except Exception as exc:
+            raise FeezieRuntimeContextError(
+                "Private FEEZIE persona runtime context is unavailable."
+            ) from exc
+        if persisted is None:
+            raise FeezieRuntimeContextError(
+                "Canonical persona files are missing and no private FEEZIE runtime context is available."
+            )
+        return persisted
+
+    # A local persona source is one atomic trust boundary. An absent source may
+    # use the validated persisted projection above; a partially populated local
+    # source must never be blended with that projection or treated as complete.
+    required_text_by_path: dict[str, str] = {}
+    missing_required: list[str] = []
+    for rel_path in sorted(REQUIRED_RUNTIME_TARGETS):
+        read_path = resolve_persona_bundle_read_path(
+            rel_path,
+            state_root=state_root,
+            seed_root=seed_root,
+        )
+        text = _read_text(read_path)
+        if not text:
+            missing_required.append(rel_path)
+        else:
+            required_text_by_path[rel_path] = text
+    if missing_required:
+        from app.services.feezie_runtime_context_service import FeezieRuntimeContextError
+
+        raise FeezieRuntimeContextError(
+            "Canonical persona files are partially present; required runtime persona sources are missing or empty."
+        )
 
     rel_paths = [
         TARGET_VOICE,
@@ -583,7 +668,7 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
             state_root=state_root,
             seed_root=seed_root,
         )
-        text = _read_text(read_path)
+        text = required_text_by_path.get(rel_path) or _read_text(read_path)
         if not text:
             continue
         if rel_path == TARGET_CLAIMS:
@@ -605,18 +690,10 @@ def load_bundle_persona_chunks() -> list[dict[str, Any]]:
         else:
             chunks.extend(_iter_section_chunks(text, rel_path))
     if not chunks:
-        manifest_exists = (seed_root / "manifest.json").exists()
-        file_count = sum(
-            1
-            for root in (state_root, seed_root)
-            if root.exists()
-            for path in root.rglob("*")
-            if path.is_file() and not path.is_symlink()
-        )
-        print(
-            f"[bundle_context] state={state_root} seed={seed_root} manifest={manifest_exists} "
-            f"file_count={file_count} parsed_chunks=0",
-            flush=True,
+        from app.services.feezie_runtime_context_service import FeezieRuntimeContextError
+
+        raise FeezieRuntimeContextError(
+            "Canonical persona files are present but contain no valid runtime context chunks."
         )
     return chunks
 
@@ -699,7 +776,18 @@ def retrieve_bundle_persona_chunks(
     top_k: int = 7,
 ) -> list[dict[str, Any]]:
     overlay_chunks = load_committed_overlay_chunks()
-    bundle_chunks = load_bundle_persona_chunks()
+    try:
+        bundle_chunks = load_bundle_persona_chunks()
+    except Exception as exc:
+        from app.services.feezie_runtime_context_service import FeezieRuntimeContextError
+
+        expected_missing_context = (
+            isinstance(exc, FeezieRuntimeContextError)
+            and str(exc).startswith("Canonical persona files are missing and no private FEEZIE runtime context")
+        )
+        if not overlay_chunks or not expected_missing_context:
+            raise
+        bundle_chunks = []
     items = overlay_chunks + bundle_chunks
     print(
         f"[bundle_context] overlay={len(overlay_chunks)} bundle={len(bundle_chunks)} total={len(items)}",

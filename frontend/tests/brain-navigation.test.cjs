@@ -150,6 +150,14 @@ test('Brain mirrors FEEZIE strategy provenance and recommendation safety metadat
   assert.match(clientSource, /pillarWarnings\.map/);
 });
 
+test('Brain renders private grounding and source registry as aggregate status only', () => {
+  assert.match(clientSource, /recent_source_count\?: number/);
+  assert.doesNotMatch(clientSource, /sourceIndex\?\.recent_sources/);
+  assert.doesNotMatch(clientSource, /recentAssets\.map/);
+  assert.match(clientSource, /Exact names, identifiers, excerpts, and paths remain outside this aggregate view/);
+  assert.match(clientSource, /Exact titles, identifiers, and paths remain outside this aggregate view/);
+});
+
 test('redacts private host paths and credential names from every Brain display string', () => {
   assert.equal(
     normalizeBrainDisplayText('Result in /opt/aiclone/private-runtime/jobs/result.json.'),

@@ -8,6 +8,11 @@ import RequestWorkForm, { type RequestWorkInput, type RequestWorkResult } from '
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { controlApiGet, controlApiPost } from '@/lib/control-api';
 import { normalizeDisplayText } from '@/lib/display-privacy';
+import {
+  type FeedRefreshQueueReceipt,
+  type FeedRefreshStatus,
+  waitForFeedRefreshAttempt,
+} from '@/lib/feed-refresh-polling';
 import { formatUiDate, formatUiDateWithWeekday, formatUiNumber, formatUiTime, formatUiTimestamp } from '@/lib/ui-dates';
 import {
   fallbackWorkspaceRegistry,
@@ -1063,13 +1068,6 @@ type SocialFeed = {
   workspace: string;
   strategy_mode: string;
   items: SocialFeedItem[];
-};
-
-type FeedRefreshStatus = {
-  running: boolean;
-  last_run?: string | null;
-  started_at?: string | null;
-  error?: string | null;
 };
 
 type FeedbackSummary = {
@@ -11186,19 +11184,15 @@ function WorkspacePanel({
       setTimeout(() => setCopyStatus(null), 1500);
     }
   }, []);
-  const waitForFeedRefresh = useCallback(async () => {
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const status = await controlApiGet<FeedRefreshStatus>('/api/workspace/refresh-social-feed', { cache: API_NO_STORE });
-      if (!status.running) {
-        if (status.error) {
-          throw new Error(status.error);
-        }
-        return status;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
-    throw new Error('Feed refresh timed out before the live snapshot updated.');
-  }, []);
+  const waitForFeedRefresh = useCallback(
+    async (receipt: FeedRefreshQueueReceipt) =>
+      waitForFeedRefreshAttempt({
+        receipt,
+        readStatus: () =>
+          controlApiGet<FeedRefreshStatus>('/api/workspace/refresh-social-feed', { cache: API_NO_STORE }),
+      }),
+    [],
+  );
   const refreshSocialFeed = useCallback(async () => {
     setRefreshingFeed(true);
     setRefreshStatus('Refreshing social feed...');
@@ -11212,9 +11206,10 @@ function WorkspacePanel({
         const detail = await res.text();
         throw new Error(detail || 'Unable to queue feed refresh.');
       }
-      const data = await res.json();
-      setRefreshStatus(`Refresh queued${data.started_at ? ` at ${formatUiTime(data.started_at)}` : ''}`);
-      const finalStatus = await waitForFeedRefresh();
+      const data = (await res.json()) as FeedRefreshQueueReceipt;
+      const queuedAt = data.queued_at ?? data.started_at;
+      setRefreshStatus(`Refresh queued${queuedAt ? ` at ${formatUiTime(queuedAt)}` : ''}`);
+      const finalStatus = await waitForFeedRefresh(data);
       await onReloadLiveSnapshot();
       setRefreshStatus(
         `Feed updated${finalStatus.last_run ? ` at ${formatUiTime(finalStatus.last_run)}` : ''}`,

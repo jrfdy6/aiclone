@@ -9,6 +9,7 @@ const composerPath = path.join(frontendRoot, 'app', 'workspace', 'workspace-comp
 const composerSource = fs.readFileSync(composerPath, 'utf8');
 const postingSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'posting', 'page.tsx'), 'utf8');
 const workspaceSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'WorkspaceClient.tsx'), 'utf8');
+const opsSource = fs.readFileSync(path.join(frontendRoot, 'app', 'ops', 'OpsClient.tsx'), 'utf8');
 const contentPipelineSource = fs.readFileSync(path.join(frontendRoot, 'app', 'content-pipeline', 'page.tsx'), 'utf8');
 const brainSource = fs.readFileSync(path.join(frontendRoot, 'app', 'brain', 'BrainClient.tsx'), 'utf8');
 const runtimeChromeSource = fs.readFileSync(path.join(frontendRoot, 'components', 'runtime', 'RuntimeChrome.tsx'), 'utf8');
@@ -19,9 +20,24 @@ const inboxSources = [
 ];
 const promotableSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'PromotableInlineText.tsx'), 'utf8');
 const generationReceiptSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'GenerationReceiptPanel.tsx'), 'utf8');
+const privateRuntimeStatusSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'FeeziePrivateRuntimeStatus.tsx'), 'utf8');
 const fragmentUtilsSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'generatedFragmentUtils.ts'), 'utf8');
 const localVoiceReviewSource = fs.readFileSync(path.join(frontendRoot, 'app', 'workspace', 'localVoiceReview.ts'), 'utf8');
 const controlApiSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'control-api.ts'), 'utf8');
+const feedRefreshPollingSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'feed-refresh-polling.ts'), 'utf8');
+const compiledFeedRefreshPolling = ts.transpileModule(feedRefreshPollingSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+  },
+}).outputText;
+const loadedFeedRefreshPolling = { exports: {} };
+new Function('module', 'exports', 'require', compiledFeedRefreshPolling)(
+  loadedFeedRefreshPolling,
+  loadedFeedRefreshPolling.exports,
+  require,
+);
+const { waitForFeedRefreshAttempt } = loadedFeedRefreshPolling.exports;
 
 test('FEEZIE opens with a bounded Today’s Distribution decision surface', () => {
   assert.match(workspaceSource, /Today&apos;s Distribution/);
@@ -48,6 +64,158 @@ test('workspace separates transport availability from editorial and performance 
   assert.match(workspaceSource, /Next truth-building actions/);
 });
 
+test('both FEEZIE feed controls bind polling to the queued Railway run receipt', () => {
+  for (const source of [workspaceSource, opsSource]) {
+    assert.match(source, /waitForFeedRefreshAttempt\(\{/);
+    assert.match(source, /receipt,/);
+    assert.match(source, /waitForFeedRefresh\(data\)/);
+    assert.doesNotMatch(source, /if \(!status\.running\)/);
+  }
+});
+
+test('feed refresh polling ignores stale idle state before the queued run starts', async () => {
+  const statuses = [
+    {
+      running: false,
+      state: 'succeeded',
+      run_id: 'old-run',
+      started_at: '2026-08-16T13:00:01Z',
+      completed_at: '2026-08-16T13:03:01Z',
+    },
+    {
+      running: true,
+      state: 'running',
+      run_id: 'new-run',
+      started_at: '2026-08-16T14:00:01Z',
+    },
+    {
+      running: false,
+      state: 'succeeded',
+      run_id: 'new-run',
+      started_at: '2026-08-16T14:00:01Z',
+      completed_at: '2026-08-16T14:03:01Z',
+      last_run: '2026-08-16T14:03:01Z',
+    },
+  ];
+  let reads = 0;
+  let sleeps = 0;
+  const result = await waitForFeedRefreshAttempt({
+    receipt: { run_id: 'new-run', queued_at: '2026-08-16T14:00:00Z' },
+    readStatus: async () => statuses[reads++],
+    sleep: async () => {
+      sleeps += 1;
+    },
+    pollIntervalMs: 1,
+    timeoutMs: 3,
+  });
+
+  assert.equal(reads, 3);
+  assert.equal(sleeps, 2);
+  assert.equal(result.last_run, '2026-08-16T14:03:01Z');
+});
+
+test('feed refresh polling accepts a fast terminal result for the matching run', async () => {
+  let reads = 0;
+  let sleeps = 0;
+  const result = await waitForFeedRefreshAttempt({
+    receipt: { run_id: 'fast-run', queued_at: '2026-08-16T14:00:00Z' },
+    readStatus: async () => {
+      reads += 1;
+      return {
+        running: false,
+        state: 'succeeded',
+        run_id: 'fast-run',
+        started_at: '2026-08-16T14:00:00.100Z',
+        completed_at: '2026-08-16T14:00:00.200Z',
+      };
+    },
+    sleep: async () => {
+      sleeps += 1;
+    },
+    pollIntervalMs: 1,
+    timeoutMs: 3,
+  });
+
+  assert.equal(result.run_id, 'fast-run');
+  assert.equal(reads, 1);
+  assert.equal(sleeps, 0);
+});
+
+test('feed refresh polling ignores a stale prior error and returns the matching success', async () => {
+  const statuses = [
+    {
+      running: false,
+      state: 'failed',
+      run_id: 'stale-failure',
+      started_at: '2026-08-16T13:00:01Z',
+      completed_at: '2026-08-16T13:00:02Z',
+      error_type: 'social_feed_refresh_error',
+    },
+    {
+      running: false,
+      state: 'succeeded',
+      run_id: 'current-success',
+      started_at: '2026-08-16T14:00:01Z',
+      completed_at: '2026-08-16T14:00:02Z',
+    },
+  ];
+  let reads = 0;
+  const result = await waitForFeedRefreshAttempt({
+    receipt: { run_id: 'current-success', queued_at: '2026-08-16T14:00:00Z' },
+    readStatus: async () => statuses[reads++],
+    sleep: async () => {},
+    pollIntervalMs: 1,
+    timeoutMs: 2,
+  });
+
+  assert.equal(result.run_id, 'current-success');
+  assert.equal(reads, 2);
+});
+
+test('feed refresh polling reports only a terminal failure bound to the current run', async () => {
+  const statuses = [
+    {
+      running: false,
+      state: 'failed',
+      run_id: 'stale-failure',
+      started_at: '2026-08-16T13:00:01Z',
+      completed_at: '2026-08-16T13:00:02Z',
+      error_type: 'old-private-error',
+    },
+    {
+      running: true,
+      state: 'running',
+      run_id: 'current-failure',
+      started_at: '2026-08-16T14:00:01Z',
+    },
+    {
+      running: false,
+      state: 'failed',
+      run_id: 'current-failure',
+      started_at: '2026-08-16T14:00:01Z',
+      completed_at: '2026-08-16T14:00:02Z',
+      error_type: 'new-private-error',
+    },
+  ];
+  let reads = 0;
+
+  await assert.rejects(
+    waitForFeedRefreshAttempt({
+      receipt: { run_id: 'current-failure', queued_at: '2026-08-16T14:00:00Z' },
+      readStatus: async () => statuses[reads++],
+      sleep: async () => {},
+      pollIntervalMs: 1,
+      timeoutMs: 3,
+    }),
+    (error) => {
+      assert.match(error.message, /Feed refresh failed/);
+      assert.doesNotMatch(error.message, /old-private-error|new-private-error/);
+      return true;
+    },
+  );
+  assert.equal(reads, 3);
+});
+
 test('workspace exposes the bounded critic-guided revision receipt without copy', () => {
   assert.match(generationReceiptSource, /feezie_revision_execution_receipt\/v1/);
   assert.match(fragmentUtilsSource, /contains_post_copy\?: boolean/);
@@ -62,12 +230,34 @@ test('workspace exposes the bounded critic-guided revision receipt without copy'
   assert.doesNotMatch(generationReceiptSource, /original_post_sha256|final_post_sha256|revision_prompt_sha256/);
 });
 
+test('generation receipts disclose the effective grounding mode without private context', () => {
+  assert.match(fragmentUtilsSource, /grounding_mode\?: string/);
+  assert.match(generationReceiptSource, /Grounding \$\{humanize\(diagnostics\.grounding_mode\)\}/);
+  assert.match(generationReceiptSource, /Grounding unavailable/);
+  assert.doesNotMatch(generationReceiptSource, /raw_context|persona_chunks|proof_records/);
+});
+
 test('workspace renders only aggregate grounding inventory in the browser', () => {
   assert.match(workspaceSource, /Private grounding inventory/);
-  assert.match(workspaceSource, /aggregate-only Railway projection/);
-  assert.match(workspaceSource, /raw content stays local/);
+  assert.match(workspaceSource, /authenticated Railway private storage/);
+  assert.match(workspaceSource, /authenticated Railway private context/);
+  assert.match(workspaceSource, /aggregate-only browser projection/);
+  assert.match(workspaceSource, /raw source bodies, filenames, snippets, and local paths stay outside the browser/);
   assert.doesNotMatch(workspaceSource, /workspaceRelativePath/);
   assert.doesNotMatch(workspaceSource, /file\.snippet|file\.content|workspace_files\?:|doc_entries\?:/);
+});
+
+test('both FEEZIE composers show the same aggregate private-runtime readiness receipt', () => {
+  assert.match(workspaceSource, /<FeeziePrivateRuntimeStatusBadge/);
+  assert.match(postingSource, /<FeeziePrivateRuntimeStatusBadge/);
+  assert.match(postingSource, /controlApiGet<PostingWorkspaceSnapshot>\('\/api\/workspace\/linkedin-os-snapshot'\)/);
+  assert.match(privateRuntimeStatusSource, /feezie_private_runtime_context_status\/v1/);
+  assert.match(privateRuntimeStatusSource, /Private context ready/);
+  assert.match(privateRuntimeStatusSource, /Persona .* · Voice .* · Proof .* · Source/);
+  assert.match(workspaceSource, /data-feezie-private-runtime-context-detail="true"/);
+  assert.match(workspaceSource, /Approved voice examples/);
+  assert.match(workspaceSource, /Anonymized proof/);
+  assert.doesNotMatch(privateRuntimeStatusSource, /raw_context|persona_chunks|proof_records|filename|filepath|absolute_path|excerpt/);
 });
 
 test('banked posts seed the privacy-safe performance recorder without sending copy', () => {

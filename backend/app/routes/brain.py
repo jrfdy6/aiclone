@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -44,6 +46,12 @@ from app.services.brain_control_plane_service import build_brain_control_plane
 from app.services.decision_snapshot_service import build_decision_snapshot
 from app.services.donor_repo_boundary_service import build_donor_repo_boundary_report
 from app.services.fallback_policy_service import build_fallback_policy_report
+from app.services.feezie_runtime_context_service import (
+    FeezieRuntimeContextError,
+    FEEZIE_RUNTIME_CONTEXT_SNAPSHOT_TYPE,
+    FEEZIE_RUNTIME_CONTEXT_WORKSPACE_KEY,
+    require_current_feezie_runtime_context_bundle,
+)
 from app.services.portfolio_workspace_snapshot_service import build_portfolio_workspace_snapshot
 from app.services.repo_surface_registry_service import build_repo_surface_registry
 from app.services.truth_lane_cleanup_service import build_truth_lane_cleanup_report
@@ -104,6 +112,26 @@ def _parse_generated_at(value: str) -> datetime:
     if generated_at > datetime.now(timezone.utc) + timedelta(hours=1):
         raise HTTPException(status_code=400, detail="generated_at is too far in the future.")
     return generated_at
+
+
+def _current_snapshot_payload_sha256(snapshot: dict[str, Any]) -> str | None:
+    current_payload = snapshot.get("payload")
+    if not isinstance(current_payload, dict):
+        return None
+    declared = str(current_payload.get("payload_sha256") or "").strip().lower()
+    if len(declared) == 64 and all(character in "0123456789abcdef" for character in declared):
+        return declared
+    try:
+        canonical = json.dumps(
+            current_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _brain_signal_chunk_type(snapshot_id: str, chunk_index: int) -> str:
@@ -599,6 +627,7 @@ def publish_brain_workspace_snapshots(payload: BrainWorkspaceSnapshotSyncRequest
             "publication_performance_summary": payload.publication_performance_summary,
             "publication_performance_status": payload.publication_performance_status,
             "publication_performance_lifecycle": payload.publication_performance_lifecycle,
+            "feezie_runtime_context": payload.feezie_runtime_context,
         }.items()
         if isinstance(value, dict)
     }
@@ -608,11 +637,15 @@ def publish_brain_workspace_snapshots(payload: BrainWorkspaceSnapshotSyncRequest
             if response_key == "publication_performance_lifecycle":
                 identity_token = str(snapshot_payload.get("identity_token") or "").strip().lower()
                 snapshot_type = f"publication_performance_lifecycle:{identity_token}"
+            elif response_key == "feezie_runtime_context":
+                snapshot_type = FEEZIE_RUNTIME_CONTEXT_SNAPSHOT_TYPE
             else:
                 snapshot_type = BRAIN_WORKSPACE_PREVIEW_TYPES[response_key]
             normalized_snapshot_payload = {**snapshot_payload, "generated_at": payload.generated_at}
             if response_key == "publication_performance_lifecycle":
                 target_workspace = "feezie-performance-lifecycle"
+            elif response_key == "feezie_runtime_context":
+                target_workspace = FEEZIE_RUNTIME_CONTEXT_WORKSPACE_KEY
             elif response_key in {"publication_performance_summary", "publication_performance_status"}:
                 target_workspace = "feezie-os"
             else:
@@ -626,9 +659,60 @@ def publish_brain_workspace_snapshots(payload: BrainWorkspaceSnapshotSyncRequest
             )
             if stored_snapshot is None:
                 raise RuntimeError(f"{response_key} storage is unavailable")
+            disposition = "stored" if stored else "stale_or_equal_ignored"
+            if response_key == "feezie_runtime_context":
+                requested_runtime = require_current_feezie_runtime_context_bundle(
+                    normalized_snapshot_payload
+                )
+                requested_hash = str(requested_runtime["payload_sha256"])
+                current_payload = stored_snapshot.get("payload")
+                try:
+                    current_runtime = require_current_feezie_runtime_context_bundle(
+                        current_payload
+                    )
+                except FeezieRuntimeContextError:
+                    if stored:
+                        raise RuntimeError(
+                            "feezie_runtime_context storage did not return the exact current runtime payload"
+                        )
+                    recovered_snapshot = upsert_snapshot(
+                        FEEZIE_RUNTIME_CONTEXT_WORKSPACE_KEY,
+                        FEEZIE_RUNTIME_CONTEXT_SNAPSHOT_TYPE,
+                        requested_runtime,
+                        metadata={
+                            "source": payload.source,
+                            "brain_preview_key": response_key,
+                            "runtime_context_recovery": "invalid_persisted_row",
+                        },
+                    )
+                    if recovered_snapshot is None:
+                        raise RuntimeError("feezie_runtime_context recovery storage is unavailable")
+                    stored_snapshot = recovered_snapshot
+                    stored = True
+                    disposition = "recovered_invalid_runtime"
+                    current_runtime = require_current_feezie_runtime_context_bundle(
+                        stored_snapshot.get("payload")
+                    )
+
+                current_hash = str(current_runtime["payload_sha256"])
+                if stored and current_hash != requested_hash:
+                    raise RuntimeError(
+                        "feezie_runtime_context storage did not acknowledge the requested payload hash"
+                    )
+                if not stored:
+                    disposition = (
+                        "idempotent_same_hash"
+                        if current_hash == requested_hash
+                        else "retained_newer"
+                    )
+            else:
+                current_hash = _current_snapshot_payload_sha256(stored_snapshot)
             results[response_key] = {
+                "workspace_key": target_workspace,
                 "stored": stored,
+                "disposition": disposition,
                 "snapshot_type": snapshot_type,
+                "payload_sha256": current_hash,
                 "snapshot_id": stored_snapshot.get("id"),
                 "updated_at": stored_snapshot.get("updated_at"),
             }

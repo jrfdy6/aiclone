@@ -138,6 +138,7 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
     publication_performance_summary: dict[str, Any] | None = None
     publication_performance_status: dict[str, Any] | None = None
     publication_performance_lifecycle: dict[str, Any] | None = None
+    feezie_runtime_context: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_sync(self) -> "BrainWorkspaceSnapshotSyncRequest":
@@ -151,6 +152,7 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
                 self.publication_performance_summary,
                 self.publication_performance_status,
                 self.publication_performance_lifecycle,
+                self.feezie_runtime_context,
             )
         ):
             raise ValueError("Provide at least one allowlisted Brain workspace snapshot.")
@@ -239,6 +241,21 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
                 lifecycle,
                 path="publication_performance_lifecycle",
             )
+        if self.feezie_runtime_context is not None:
+            from app.services.feezie_runtime_context_service import (
+                FeezieRuntimeContextError,
+                require_current_feezie_runtime_context_bundle,
+            )
+
+            try:
+                validated_runtime_context = require_current_feezie_runtime_context_bundle(
+                    self.feezie_runtime_context
+                )
+            except FeezieRuntimeContextError as exc:
+                raise ValueError("feezie_runtime_context does not match the private runtime contract.") from exc
+            if validated_runtime_context.get("generated_at") != self.generated_at:
+                raise ValueError("feezie_runtime_context generated_at must match the sync envelope.")
+            self.feezie_runtime_context = validated_runtime_context
         return self
 
 

@@ -155,7 +155,13 @@ def _require_approved(frontmatter: dict[str, Any], *, schema: str, path: Path) -
         raise FeeziePositioningContractError(f"FEEZIE contract has no approval date: {path}")
 
 
-def _validate_repo_reference(repo_root: Path, value: Any, *, field: str) -> str:
+def _validate_repo_reference(
+    repo_root: Path,
+    value: Any,
+    *,
+    field: str,
+    allow_missing_under: str | None = None,
+) -> str:
     relative = _clean_text(value)
     if not relative:
         raise FeeziePositioningContractError(f"{field} must name a repository file.")
@@ -164,16 +170,36 @@ def _validate_repo_reference(repo_root: Path, value: Any, *, field: str) -> str:
         candidate.relative_to(repo_root.resolve())
     except ValueError as exc:
         raise FeeziePositioningContractError(f"{field} escapes the repository root.") from exc
-    if not candidate.is_file():
+    missing_private_reference = bool(
+        allow_missing_under
+        and relative.startswith(allow_missing_under)
+        and not candidate.exists()
+    )
+    if not candidate.is_file() and not missing_private_reference:
         raise FeeziePositioningContractError(f"{field} references a missing file: {relative}")
     return relative
 
 
-def _validate_positioning(frontmatter: dict[str, Any], *, repo_root: Path, path: Path) -> dict[str, Any]:
+def _validate_positioning(
+    frontmatter: dict[str, Any],
+    *,
+    repo_root: Path,
+    path: Path,
+    allow_missing_private_identity_files: bool = False,
+) -> dict[str, Any]:
     _require_approved(frontmatter, schema=POSITIONING_SCHEMA, path=path)
     identity_sources = _string_list(frontmatter.get("canonical_identity_sources"), field="canonical_identity_sources")
     for source in identity_sources:
-        _validate_repo_reference(repo_root, source, field="canonical_identity_sources")
+        _validate_repo_reference(
+            repo_root,
+            source,
+            field="canonical_identity_sources",
+            allow_missing_under=(
+                "knowledge/persona/feeze/"
+                if allow_missing_private_identity_files
+                else None
+            ),
+        )
 
     positioning_model = _string_list(frontmatter.get("positioning_model"), field="positioning_model")
     audience_priority = _mapping(frontmatter.get("audience_priority"), field="audience_priority")
@@ -275,7 +301,13 @@ def _validate_positioning(frontmatter: dict[str, Any], *, repo_root: Path, path:
     }
 
 
-def _validate_editorial(frontmatter: dict[str, Any], *, repo_root: Path, path: Path) -> dict[str, Any]:
+def _validate_editorial(
+    frontmatter: dict[str, Any],
+    *,
+    repo_root: Path,
+    path: Path,
+    allow_missing_private_identity_files: bool = False,
+) -> dict[str, Any]:
     _require_approved(frontmatter, schema=EDITORIAL_MIX_SCHEMA, path=path)
     positioning_contract = _validate_repo_reference(
         repo_root,
@@ -286,6 +318,11 @@ def _validate_editorial(frontmatter: dict[str, Any], *, repo_root: Path, path: P
         repo_root,
         frontmatter.get("canonical_pillars"),
         field="canonical_pillars",
+        allow_missing_under=(
+            "knowledge/persona/feeze/"
+            if allow_missing_private_identity_files
+            else None
+        ),
     )
     qualification_runtime = _validate_repo_reference(
         repo_root,
@@ -461,14 +498,28 @@ def _validate_editorial(frontmatter: dict[str, Any], *, repo_root: Path, path: P
     }
 
 
-def _load_feezie_strategy_contract(repo_root_text: str) -> dict[str, Any]:
+def _load_feezie_strategy_contract(
+    repo_root_text: str,
+    *,
+    allow_missing_private_identity_files: bool = False,
+) -> dict[str, Any]:
     repo_root = Path(repo_root_text).resolve()
     positioning_path = repo_root / POSITIONING_CONTRACT_PATH
     editorial_path = repo_root / EDITORIAL_MIX_PATH
     positioning_frontmatter, _, positioning_hash = _parse_markdown_contract(positioning_path)
     editorial_frontmatter, _, editorial_hash = _parse_markdown_contract(editorial_path)
-    positioning = _validate_positioning(positioning_frontmatter, repo_root=repo_root, path=positioning_path)
-    editorial_mix = _validate_editorial(editorial_frontmatter, repo_root=repo_root, path=editorial_path)
+    positioning = _validate_positioning(
+        positioning_frontmatter,
+        repo_root=repo_root,
+        path=positioning_path,
+        allow_missing_private_identity_files=allow_missing_private_identity_files,
+    )
+    editorial_mix = _validate_editorial(
+        editorial_frontmatter,
+        repo_root=repo_root,
+        path=editorial_path,
+        allow_missing_private_identity_files=allow_missing_private_identity_files,
+    )
     if editorial_mix["positioning_contract"] != POSITIONING_CONTRACT_PATH.as_posix():
         raise FeeziePositioningContractError(
             "editorial_mix.positioning_contract must reference the loaded positioning contract."
@@ -496,9 +547,59 @@ def _load_feezie_strategy_contract(repo_root_text: str) -> dict[str, Any]:
     }
 
 
+def _load_persisted_strategy_contract() -> dict[str, Any]:
+    try:
+        from app.services.feezie_runtime_context_service import (
+            FeezieRuntimeContextError,
+            load_persisted_feezie_strategy_contract,
+        )
+    except Exception as exc:
+        raise FeeziePositioningContractError(
+            "Persisted FEEZIE runtime strategy context is unavailable."
+        ) from exc
+
+    try:
+        persisted = load_persisted_feezie_strategy_contract()
+    except FeezieRuntimeContextError as exc:
+        raise FeeziePositioningContractError(
+            "Persisted FEEZIE runtime strategy context is invalid."
+        ) from exc
+    except Exception as exc:
+        raise FeeziePositioningContractError(
+            "Persisted FEEZIE runtime strategy context is unavailable."
+        ) from exc
+    if persisted is None:
+        raise FeeziePositioningContractError(
+            "Required FEEZIE strategy files are missing and no private runtime context is available."
+        )
+    return copy.deepcopy(persisted)
+
+
 def load_feezie_strategy_contract(repo_root: Path | None = None) -> dict[str, Any]:
     resolved_root = (repo_root or _default_repo_root()).resolve()
-    return copy.deepcopy(_load_feezie_strategy_contract(str(resolved_root)))
+    positioning_path = resolved_root / POSITIONING_CONTRACT_PATH
+    editorial_path = resolved_root / EDITORIAL_MIX_PATH
+    if positioning_path.is_file() or editorial_path.is_file():
+        try:
+            return copy.deepcopy(_load_feezie_strategy_contract(str(resolved_root)))
+        except FeeziePositioningContractError:
+            # A privacy-reduced Railway/public checkout intentionally keeps the
+            # approved strategy documents while omitting private persona canon.
+            # Revalidate every other contract field and repository reference;
+            # only missing references beneath the canonical private persona
+            # root are relaxed here.
+            staged_contract = _load_feezie_strategy_contract(
+                str(resolved_root),
+                allow_missing_private_identity_files=True,
+            )
+            persisted = _load_persisted_strategy_contract()
+            if persisted != staged_contract:
+                raise FeeziePositioningContractError(
+                    "Persisted FEEZIE runtime strategy context does not match the staged strategy contracts."
+                )
+            return copy.deepcopy(persisted)
+
+    return _load_persisted_strategy_contract()
 
 
 def build_feezie_generation_disallowed_moves(
@@ -528,4 +629,6 @@ def build_feezie_generation_disallowed_moves(
 
 
 def clear_feezie_strategy_contract_cache() -> None:
-    _load_feezie_strategy_contract.cache_clear()
+    cache_clear = getattr(_load_feezie_strategy_contract, "cache_clear", None)
+    if callable(cache_clear):
+        cache_clear()

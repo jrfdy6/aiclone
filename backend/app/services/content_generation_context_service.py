@@ -573,20 +573,31 @@ def _load_content_reservoir_payload(*, allow_runtime_rebuild: bool = True) -> di
 
 
 def _load_content_safe_operator_lessons_payload(*, allow_runtime_rebuild: bool = True) -> dict[str, Any] | None:
+    def has_lessons(value: Any) -> bool:
+        return bool(
+            isinstance(value, dict)
+            and isinstance(value.get("lessons"), list)
+            and value.get("lessons")
+        )
+
     payload = get_snapshot_payload("linkedin-content-os", "content_safe_operator_lessons")
-    if isinstance(payload, dict) and not allow_runtime_rebuild:
+    if has_lessons(payload) and not allow_runtime_rebuild:
         return payload
     if not allow_runtime_rebuild:
-        return None
+        from app.services.feezie_runtime_context_service import (
+            load_persisted_feezie_anonymized_proof_payload,
+        )
+
+        return load_persisted_feezie_anonymized_proof_payload()
     try:
         from app.services.workspace_snapshot_service import SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS, _load_snapshot
 
         refreshed = _load_snapshot(SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS)
-        if isinstance(refreshed, dict):
+        if has_lessons(refreshed):
             return refreshed
     except Exception:
         pass
-    if isinstance(payload, dict):
+    if has_lessons(payload):
         return payload
     try:
         from app.services.workspace_snapshot_service import workspace_snapshot_service
@@ -596,9 +607,15 @@ def _load_content_safe_operator_lessons_payload(*, allow_runtime_rebuild: bool =
             include_doc_entries=False,
         )
     except Exception:
-        return None
+        snapshot = None
     payload = snapshot.get("content_safe_operator_lessons") if isinstance(snapshot, dict) else None
-    return payload if isinstance(payload, dict) else None
+    if has_lessons(payload):
+        return payload
+    from app.services.feezie_runtime_context_service import (
+        load_persisted_feezie_anonymized_proof_payload,
+    )
+
+    return load_persisted_feezie_anonymized_proof_payload()
 
 
 def _load_source_assets_payload(*, allow_runtime_rebuild: bool = True) -> dict[str, Any] | None:

@@ -1,19 +1,19 @@
 {
-  "builder_version": "2.0.1",
+  "builder_version": "2.0.2",
   "candidate": {
-    "file_count": 415,
+    "file_count": 422,
     "files": [
       {
         "mode": 493,
         "path": ".githooks/pre-push",
-        "sha256": "9e04c69388d185bdfda61d698c3daace8617d7309fb73482f4796e6f8776dfed",
-        "size": 2163
+        "sha256": "4af182caf742e03096b6e27a62e3a88cd9acb0d1686a3f06eed2e8efde5b169e",
+        "size": 2147
       },
       {
         "mode": 420,
         "path": ".github/workflows/public-release.yml",
-        "sha256": "3e7e41291b8349674994925393d945a9d4fc4e996f562ab97df71677a145b99b",
-        "size": 8533
+        "sha256": "f9ac82bd7975a82b7473dc4642a9daf5dcc538892017923139161e0b7aac8173",
+        "size": 8430
       },
       {
         "mode": 420,
@@ -30,14 +30,14 @@
       {
         "mode": 420,
         "path": "README.md",
-        "sha256": "b5738f0d04a57e146854f273d3a05a967c954c03cdac6f62ac23de2c10213794",
-        "size": 3039
+        "sha256": "3e467c1953b89ca4189dab28fe7f036dd70febc2c42c8ec862f0f3cf4e221c34",
+        "size": 5257
       },
       {
         "mode": 420,
         "path": "backend/.env.example",
-        "sha256": "dfa0a0e591e44b55ad29f24316bab1ce7c2df93e001e666b1bb057ec995174cd",
-        "size": 1298
+        "sha256": "069990ca495ee57a0b713b2ac01d008767dc4a7fbf35e4710525e66527346509",
+        "size": 1488
       },
       {
         "mode": 420,
@@ -54,8 +54,8 @@
       {
         "mode": 420,
         "path": "backend/app/main.py",
-        "sha256": "122fa8a2eec2c09ff5215db7f4e2cd6eb8950e962ce1c6edffc6ca3bcf0cdb85",
-        "size": 9867
+        "sha256": "bae0cf682c067e8697b2171fb8c7a1b447eab79aee704cd51b594897db366931",
+        "size": 10407
       },
       {
         "mode": 420,
@@ -96,8 +96,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/brain.py",
-        "sha256": "59098049ea6e0e25ac112a02b950257ab24a6ad7520848a77c2880eef5dcac35",
-        "size": 23137
+        "sha256": "69b5470692656c802723b5a5cf06b7959e5c792ae5764e22d5ab4c4aae363cd5",
+        "size": 24075
       },
       {
         "mode": 420,
@@ -354,8 +354,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/brain.py",
-        "sha256": "07a9008550ada104b4d86e4719e9ba93f4de9e1fdc5647dfdffc712a6277ad2c",
-        "size": 33661
+        "sha256": "2c0855c9be00b6e8049e7b8a460734196185c0f1d024ab19cdff98559a20aa57",
+        "size": 37562
       },
       {
         "mode": 420,
@@ -402,8 +402,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/content_generation.py",
-        "sha256": "c68e5d4a80e4df4cb45ec9f5ea02f30cf508841c292e3125f1cb96a39b67a482",
-        "size": 433313
+        "sha256": "1993f99d9df857ce9aa0fb6a4808ea5a3f29ba4ecb8339d6c216d418013b4d4f",
+        "size": 440432
       },
       {
         "mode": 420,
@@ -498,8 +498,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/neo_guest.py",
-        "sha256": "3e22a7b6a236f97370afb24988b64e39fa4321e0bc2d406f16d998e2249a45b9",
-        "size": 9934
+        "sha256": "92cb55f30dd3599ac67f6c4d0ae5e2d1464b5b400507be1106e7340b4932f6f4",
+        "size": 10225
       },
       {
         "mode": 420,
@@ -654,8 +654,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/workspace.py",
-        "sha256": "88ddd444027935685a3491525e977374a37627460e829916e6f687d37adcc2b0",
-        "size": 16996
+        "sha256": "f67702d052c78ccff0dc1982582c04fc546c8348c557700628cf134422dcc218",
+        "size": 20134
       },
       {
         "mode": 420,
@@ -720,8 +720,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/automation_service.py",
-        "sha256": "64c2bb75c494b36d6470fb592323cb986b139534a8f09f067387f8b8f147ddb4",
-        "size": 59676
+        "sha256": "b73678d6973e19b6abf7711eaeb03b55181abcdbfcf0a1a63e674e8dc3e3b1ff",
+        "size": 59840
       },
       {
         "mode": 420,
@@ -732,8 +732,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/brain_control_plane_service.py",
-        "sha256": "82bb6e3a56ce22d6a87da8afa3620b0d8636ff7abace0d640286c4ad115debfc",
-        "size": 13736
+        "sha256": "36ec9e5d950722d04502e61078445c83a3df26106fd5ff8312db4256a2d922e0",
+        "size": 12781
       },
       {
         "mode": 420,
@@ -804,8 +804,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/content_generation_context_service.py",
-        "sha256": "dd833162d2a000bdae8e687a9db489c45bed66287b52b8382a161523c29a10c5",
-        "size": 88790
+        "sha256": "8ce2f47d021765bde89626a48f3b3c33ea94da3ad3445fb3c539faec81b588d6",
+        "size": 89340
       },
       {
         "mode": 420,
@@ -828,8 +828,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/content_release_policy_service.py",
-        "sha256": "8d341e0c89c0642a58d2eb5afdfcb45b64fcf0280b6e0dce475177bf12e778e1",
-        "size": 37208
+        "sha256": "d2319e676ce6ff9386665f1c93b5002aaeda3ca4c11f381984dac731b1de2e45",
+        "size": 37320
       },
       {
         "mode": 420,
@@ -840,8 +840,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/content_safe_operator_lesson_service.py",
-        "sha256": "8ee724f4b15ae87200253a109a088f1cd44034d368b026bc46f58a5bdc2ddae2",
-        "size": 17287
+        "sha256": "2fcde32d0f37124e9dd77bf00307ba1a93c72bdc40f05fa7a4ccd39156a4c48c",
+        "size": 18000
       },
       {
         "mode": 420,
@@ -942,8 +942,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/feezie_evidence_readiness_service.py",
-        "sha256": "d1988999ac26016ad756216cfaea3616918ba66dbc4ec1d28bd1b93d8c651c06",
-        "size": 18392
+        "sha256": "b3267739a357e5ce4172e59d97ce950e3dfbc07276e697fe9925f0a0ec07cef7",
+        "size": 26354
       },
       {
         "mode": 420,
@@ -960,8 +960,14 @@
       {
         "mode": 420,
         "path": "backend/app/services/feezie_positioning_contract_service.py",
-        "sha256": "bb064d182083ceb8bf1874f450e16ee46479e55adeb330c11cdf9b72949cc198",
-        "size": 25830
+        "sha256": "79d1229554344d26589c343f6bd917f97c0135c89d7c34f80a1029faf6e3c5ea",
+        "size": 29185
+      },
+      {
+        "mode": 420,
+        "path": "backend/app/services/feezie_runtime_context_service.py",
+        "sha256": "0c544f4c9e3e9d3596e828f876f720e04436becf9835bd9fe0a76b4ec90ff8ca",
+        "size": 42873
       },
       {
         "mode": 420,
@@ -1026,8 +1032,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/local_codex_context_cache_service.py",
-        "sha256": "4cf75b28144fad8d150243308707169a84288b327dafc4bbc2f5662fb8c1b55a",
-        "size": 6578
+        "sha256": "49ffe0dfcce838573b3711c64e36192e178c424a118d0c3c230b9b928b0737bd",
+        "size": 13229
       },
       {
         "mode": 420,
@@ -1038,8 +1044,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/local_content_generation_execution_service.py",
-        "sha256": "e4b6863d0b134816cf0abe0dcac790fa08efe813b67d89986145bc2f624282f0",
-        "size": 69671
+        "sha256": "4f5b30d700b4d82687009aeae7a3b89a65dd8a5e12a777b732cc6aa48cdfaa5a",
+        "size": 71941
       },
       {
         "mode": 420,
@@ -1068,8 +1074,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/neo_public_knowledge_service.py",
-        "sha256": "75268f51fa40141a97b50d423b804f2a41f1904e5f09065954eefe93de9b7c57",
-        "size": 19471
+        "sha256": "c0447b60f39b1dcb88072788f15cb16eaa2a8450329824999b7e6a8bb4636d91",
+        "size": 23178
       },
       {
         "mode": 420,
@@ -1104,8 +1110,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/operator_story_signal_service.py",
-        "sha256": "e7e876700dc068c902da5c6538ced8381cec962f7481584269dce50e7e4e51fa",
-        "size": 26257
+        "sha256": "e9945d6d967aee199d035355f5645292448389e0472b3d7b3135ff3cb696ae25",
+        "size": 27842
       },
       {
         "mode": 420,
@@ -1146,8 +1152,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/persona_bundle_context_service.py",
-        "sha256": "e007a19b0c4a177ce24ab64bb0b754d146eaec573bbc9561f83850402bcae690",
-        "size": 28141
+        "sha256": "10aa5b321d93f76f1ac0f0fc55c2d257a677ff8fd2fb305522dc22ab428a26b6",
+        "size": 31630
       },
       {
         "mode": 420,
@@ -1242,8 +1248,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/portfolio_workspace_snapshot_service.py",
-        "sha256": "e00dc04b59ce534719dcdfe778d9d491678d36b83803eabdf0c8bda4ddfc34b4",
-        "size": 35469
+        "sha256": "ecc78a8ffa927c3edf62349bcd39398e76640eb36ba120b50818041b3e5c87d3",
+        "size": 35531
       },
       {
         "mode": 420,
@@ -1446,14 +1452,14 @@
       {
         "mode": 420,
         "path": "backend/app/services/social_feed_refresh.py",
-        "sha256": "2280c4ad6f24bb3767e23508ebb7c4956228ea39a4424e0d0fa4d6f8137604ac",
-        "size": 3071
+        "sha256": "1a9c047741e57f47796bd6dab8361f764fdb02f3ffaccf265ff4dbe04c7b213a",
+        "size": 5019
       },
       {
         "mode": 420,
         "path": "backend/app/services/social_feedback_service.py",
-        "sha256": "b6b91c7e46b90dfd82c017cce5748bdf34a8070474ceb478de4a829afce77dce",
-        "size": 7414
+        "sha256": "60d2a4d2200866f1246a0a118f2dd66211bc27468d2d6c64912ad136f93c358e",
+        "size": 7664
       },
       {
         "mode": 420,
@@ -1638,8 +1644,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_service.py",
-        "sha256": "d6e9dc25b42b833a349b2d9f642313f1fba7ad88ef5a1799f23707e4937e4d24",
-        "size": 124906
+        "sha256": "b11303b2128b015385628e865bf3bda9cca97500abf7a7cdb8605af8c0b59d5c",
+        "size": 137635
       },
       {
         "mode": 420,
@@ -1703,21 +1709,39 @@
       },
       {
         "mode": 420,
+        "path": "backend/tests/test_feezie_public_lifecycle_smoke.py",
+        "sha256": "069a3adba32595a0105e9fcbe4b6f1cca17b0050d6ba2d2d1b39433f75830223",
+        "size": 39764
+      },
+      {
+        "mode": 420,
+        "path": "backend/tests/test_feezie_runtime_context_service.py",
+        "sha256": "3af410dee57784f29a116a902bc3708d29339ec775b14da7e1941cf1bba7ecd6",
+        "size": 33851
+      },
+      {
+        "mode": 420,
+        "path": "backend/tests/test_local_codex_context_cache_service.py",
+        "sha256": "00fdeed1e06f0b0ea120c1d6c2257a3d5e39b4f6957a825d9ed0fe2de0365c6a",
+        "size": 10663
+      },
+      {
+        "mode": 420,
         "path": "backend/tests/test_public_release_builder.py",
-        "sha256": "ce7bcc88efb787e1d8ad33f9208381b346d56772a7847eedcb922febe0226e25",
-        "size": 25649
+        "sha256": "a1476cc1492afa6886b628b207f25b19ade501f0b51d53968c63e0b278b6c5c3",
+        "size": 26792
       },
       {
         "mode": 420,
         "path": "docs/public_github_release_sop.md",
-        "sha256": "68a319ca15093c985cc3d82ed91020ec510d4dcf40f7fc174e2f3e3e2397b6bd",
-        "size": 6622
+        "sha256": "c0dc1f5ecc257620a517c22d75493e653c591e6d706a6d0790267a0d5d4579cc",
+        "size": 9095
       },
       {
         "mode": 420,
         "path": "docs/public_repository_boundary.md",
-        "sha256": "a886ac5c4292bd2582541a15e394901550483a1fa16459121a3b408674224d65",
-        "size": 5132
+        "sha256": "31f1e747fb8e58ced0484f5c0c93785b009b183266a986171a4aa0006e910d4e",
+        "size": 9756
       },
       {
         "mode": 420,
@@ -1812,8 +1836,8 @@
       {
         "mode": 420,
         "path": "frontend/app/brain/BrainClient.tsx",
-        "sha256": "c81536d29dda3f475e3281286af750bc58a66ebfab40d681a9d19a9fd8a48953",
-        "size": 401717
+        "sha256": "13124a292b97eaa55a5dc80bd190899f904a6c2593faee1b0d1c5c9232443cab",
+        "size": 401831
       },
       {
         "mode": 420,
@@ -2010,8 +2034,8 @@
       {
         "mode": 420,
         "path": "frontend/app/ops/OpsClient.tsx",
-        "sha256": "80092052c2b97a00c6b8001467cb216382107bdf279d1b26bd19a7064bbdf317",
-        "size": 802576
+        "sha256": "2d680baa0b30a751a1359cbcf133ced51aa73891fb4c8d0d4dfec8ded48b28f3",
+        "size": 802413
       },
       {
         "mode": 420,
@@ -2111,9 +2135,15 @@
       },
       {
         "mode": 420,
+        "path": "frontend/app/workspace/FeeziePrivateRuntimeStatus.tsx",
+        "sha256": "d9456c2d96f2529f2361a61591b8d20b4ccfd46899319bce40885c1bcea4d753",
+        "size": 6324
+      },
+      {
+        "mode": 420,
         "path": "frontend/app/workspace/GenerationReceiptPanel.tsx",
-        "sha256": "b6a4f665ee65306c7f7e61e51a70cfcf7b44113c560d52a5e5a934266b6d2a5c",
-        "size": 11119
+        "sha256": "565742b8d825fa7b4d76aeece9773c423c6360b93605a93810806cfbcce6cf25",
+        "size": 11231
       },
       {
         "mode": 420,
@@ -2130,14 +2160,14 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/WorkspaceClient.tsx",
-        "sha256": "0b51ad8a24707d158ce8271a6bda948aa0d2a6634d1e9dbdcafb9b72167df662",
-        "size": 222821
+        "sha256": "edaf4be61d08ae404d01c7c13c3a670a6423434803babd957564c8d9f9b4b795",
+        "size": 226651
       },
       {
         "mode": 420,
         "path": "frontend/app/workspace/generatedFragmentUtils.ts",
-        "sha256": "727d04af262ef3ef035ecb294d20e203ccbc5ec93e1fe958aa77c3cf9c5cd970",
-        "size": 11051
+        "sha256": "781219cb5e2cfa40f1ff33303228e2fe2930a978273f4d18e5b174410da96724",
+        "size": 11078
       },
       {
         "mode": 420,
@@ -2154,8 +2184,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/posting/page.tsx",
-        "sha256": "94dfb876ddcfb09563d18aa666af48682a7a07de51a86163d7e43ccfc8b2ef7a",
-        "size": 52646
+        "sha256": "7a2256a143e58de8f44386d38a42725f967f40a6bd62060c5a541c7bfc1b019e",
+        "size": 54409
       },
       {
         "mode": 420,
@@ -2285,6 +2315,12 @@
       },
       {
         "mode": 420,
+        "path": "frontend/lib/feed-refresh-polling.ts",
+        "sha256": "00913bef19dda9d6f22dc1ad842332541a9c7d6a1dfe84310d1962baf9c86aa6",
+        "size": 2945
+      },
+      {
+        "mode": 420,
         "path": "frontend/lib/firestore-server.ts",
         "sha256": "d7e7a2153bebe647a8edaa305d7713ecdf03049742360d94ee2f002a99cdd8dc",
         "size": 1884
@@ -2394,8 +2430,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/brain-navigation.test.cjs",
-        "sha256": "5063c80ba1d2b8a5e0f928a608c26fbf4a2d27ca7efedc277852bfce44add4eb",
-        "size": 16208
+        "sha256": "75208c65641683e5ccb755d74ea518ac278809e2652a8fcf2b93384423f48e9e",
+        "size": 16716
       },
       {
         "mode": 420,
@@ -2414,6 +2450,12 @@
         "path": "frontend/tests/executive-decisions.test.cjs",
         "sha256": "4b0632e489c93bd2a39d188c90ed560311ec04758d29a7660a86d005d47ee837",
         "size": 7565
+      },
+      {
+        "mode": 420,
+        "path": "frontend/tests/feezie-private-runtime-readiness.test.cjs",
+        "sha256": "5fd91fccf7cf2f93ab4bd99897fa68e6e026de26c7f454e4bc684a0976435aee",
+        "size": 6060
       },
       {
         "mode": 420,
@@ -2448,8 +2490,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/workspace-control-plane.test.cjs",
-        "sha256": "c70cfb973fa9c3b53ca9a7df044aa99a8b58b891fbb8874f68dfcd9a270b1cd9",
-        "size": 26948
+        "sha256": "421c42fcb6c7c5dccf0f4e6cde63458d76fc33d2d39d65baf169cc879f915064",
+        "size": 33543
       },
       {
         "mode": 420,
@@ -2466,14 +2508,14 @@
       {
         "mode": 420,
         "path": "release/public_source_manifest.json",
-        "sha256": "2487a45e2768fc0c08335bf26c6672ac9ef1b8d39c2bd7e9e0ae95e5b4f37e25",
-        "size": 2762
+        "sha256": "42daf14429181300d1a27c9e750a75c54483ca935d35473940e1274aa36724fe",
+        "size": 3126
       },
       {
         "mode": 493,
         "path": "scripts/build_public_release.py",
-        "sha256": "729c55d8c6513cb52957fa190dc9014dc06ba63fd7518487c5abca69aa55e4f2",
-        "size": 54898
+        "sha256": "790865dcdf61ce782338359a2fcfbd7615b6080fe66b75a3b39a181e5ecfc6ae",
+        "size": 55706
       },
       {
         "mode": 493,
@@ -2490,19 +2532,19 @@
       {
         "mode": 493,
         "path": "scripts/verify_public_release.sh",
-        "sha256": "4ee95689f8fab29832808dbf366e6f29fc981d49c19dd8600228483cb731b98d",
-        "size": 8042
+        "sha256": "1e258dfcfb4d7ae3640898381746c361db6bb9fceb0c5d36e4b9320ac8fd66a6",
+        "size": 8314
       }
     ],
-    "tree_sha256": "eb606afde71372c543295f3c5c10a6bfac45df6ccd23a75f580bc5710ef82479"
+    "tree_sha256": "497d719275f436ffdac0218e06d1f457c3077990a05730bd592e5d9b8a51bd58"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
-    "sha256": "2487a45e2768fc0c08335bf26c6672ac9ef1b8d39c2bd7e9e0ae95e5b4f37e25"
+    "sha256": "42daf14429181300d1a27c9e750a75c54483ca935d35473940e1274aa36724fe"
   },
   "policy": {
     "content_scan": "high_confidence_public_boundary/v1",
-    "inventory_sha256": "b6086472f83e8fd325bdc742f3192288a99a89072ca8720c26eb4cd6f520b38b",
+    "inventory_sha256": "2f460d83c458f2d3a08d59b5b2b946ddb1c7fb64ecbab2dfdcca6c4e8b73371c",
     "private_denylist_applied": true,
     "private_denylist_required": true
   },

@@ -6,6 +6,11 @@ import { useSearchParams } from 'next/navigation';
 import { RuntimePage } from '@/components/runtime/RuntimeChrome';
 import { controlApiGet, controlApiPatch, controlApiPost } from '@/lib/control-api';
 import {
+  type FeedRefreshQueueReceipt,
+  type FeedRefreshStatus,
+  waitForFeedRefreshAttempt,
+} from '@/lib/feed-refresh-polling';
+import {
   codexJobStatusHint,
   codexJobStatusLabel,
   codexJobStatusTone,
@@ -37,6 +42,12 @@ import LinkedinPerformanceRecorder, {
   type LinkedinPerformanceVerifiedLifecycle,
 } from '@/app/workspace/LinkedinPerformanceRecorder';
 import PromotableInlineText from '@/app/workspace/PromotableInlineText';
+import {
+  FeeziePrivateRuntimeStatusBadge,
+  humanizeFeezieRuntimeReason,
+  isFeeziePrivateRuntimeContextReady,
+  type FeeziePrivateRuntimeContextStatus,
+} from '@/app/workspace/FeeziePrivateRuntimeStatus';
 import {
   buildLocalVoiceReviewPacket,
   downloadLocalVoiceReviewPacket,
@@ -339,6 +350,7 @@ type WeeklyPlanPortfolioLearning = {
 };
 
 type WorkspaceSnapshot = {
+  private_runtime_context_status?: FeeziePrivateRuntimeContextStatus;
   snapshot_status?: {
     schema_version?: string;
     checked_at?: string;
@@ -581,13 +593,6 @@ type LinkedinWorkspaceSurfaceProps = {
   embedded?: boolean;
   initialSnapshot?: WorkspaceSnapshot | null;
   initialOwnerReviewItems?: unknown[] | null;
-};
-
-type FeedRefreshStatus = {
-  running: boolean;
-  last_run?: string | null;
-  started_at?: string | null;
-  error?: string | null;
 };
 
 type LinkedinPerformanceLifecycleResponse = {
@@ -1522,6 +1527,9 @@ export function LinkedinWorkspaceSurface({
     setEvidenceClarification(null);
     setEvidenceAnswerDraft('');
   }, []);
+  const feezieGenerationReady = snapshotState === 'live'
+    && snapshotError === null
+    && isFeeziePrivateRuntimeContextReady(snapshot?.private_runtime_context_status);
 
   const feedItems = useMemo(() => [...manualFeedItems, ...(snapshot?.social_feed?.items ?? [])], [manualFeedItems, snapshot?.social_feed?.items]);
   const selectedSignal = useMemo(() => feedItems.find((item) => item.id === selectedFeedId) ?? null, [feedItems, selectedFeedId]);
@@ -2030,28 +2038,28 @@ export function LinkedinWorkspaceSurface({
     topicSourceMode,
   ]);
 
-  const waitForFeedRefresh = useCallback(async () => {
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const status = await controlApiGet<FeedRefreshStatus>('/api/workspace/refresh-social-feed');
-      if (!status.running) {
-        if (status.error) throw new Error(status.error);
-        return status;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
-    throw new Error('Feed refresh timed out before the snapshot updated.');
-  }, []);
+  const waitForFeedRefresh = useCallback(
+    async (receipt: FeedRefreshQueueReceipt) =>
+      waitForFeedRefreshAttempt({
+        receipt,
+        readStatus: () => controlApiGet<FeedRefreshStatus>('/api/workspace/refresh-social-feed'),
+        timeoutMessage:
+          'Feed refresh did not report a terminal state within four minutes. The Railway job may still be running; reload the workspace before retrying.',
+      }),
+    [],
+  );
 
   const refreshSocialFeed = useCallback(async () => {
     setRefreshingFeed(true);
     setRefreshStatus('Refreshing feed...');
     try {
-      const data = await controlApiPost<{ started_at?: string }>('/api/workspace/refresh-social-feed', {
+      const data = await controlApiPost<FeedRefreshQueueReceipt>('/api/workspace/refresh-social-feed', {
         skip_fetch: false,
         sources: 'safe',
       });
-      setRefreshStatus(`Refresh queued${data.started_at ? ` at ${formatUiTime(data.started_at)}` : ''}`);
-      const finalStatus = await waitForFeedRefresh();
+      const queuedAt = data.queued_at ?? data.started_at;
+      setRefreshStatus(`Refresh queued${queuedAt ? ` at ${formatUiTime(queuedAt)}` : ''}`);
+      const finalStatus = await waitForFeedRefresh(data);
       await loadSnapshot();
       setRefreshStatus(`Feed updated${finalStatus.last_run ? ` at ${formatUiTime(finalStatus.last_run)}` : ''}`);
     } catch (error) {
@@ -2114,6 +2122,9 @@ export function LinkedinWorkspaceSurface({
   }, []);
 
   const queueLocalCodexGeneration = useCallback(async (answers: EvidenceAnswers) => {
+    if (!feezieGenerationReady) {
+      throw new Error('FEEZIE generation stays closed until private runtime context is fully ready.');
+    }
     const { topicToSend, contextToSend } = resolveGenerationSeed();
     if (!topicToSend.trim()) {
       throw new Error('Choose a source or enter a specific topic before starting the evidence check.');
@@ -2152,7 +2163,7 @@ export function LinkedinWorkspaceSurface({
     setProviderTrace('local_worker · queued');
     setCodexJobError(null);
     setBrainPromotionStatus(null);
-  }, [activeCategory, activeSourceCard, audience, effectiveSourceMode, generatorType, resolveGenerationSeed]);
+  }, [activeCategory, activeSourceCard, audience, effectiveSourceMode, feezieGenerationReady, generatorType, resolveGenerationSeed]);
 
   const resetGeneratedRunState = useCallback(() => {
     setGeneratorError(null);
@@ -3180,10 +3191,14 @@ export function LinkedinWorkspaceSurface({
                 <p style={{ color: '#64748b', fontSize: '12px', margin: 0 }}>
                   {GROUNDING_MODE_OPTIONS.find((option) => option.value === groundingMode)?.hint}
                 </p>
+                <FeeziePrivateRuntimeStatusBadge
+                  status={snapshot?.private_runtime_context_status}
+                  loadState={snapshotError ? 'error' : snapshotState}
+                />
               </div>
 
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <button onClick={() => void generateContent()} disabled={generating || codexInFlight || codexActionLoading !== null} style={primaryActionStyle('#f97316')}>
+                <button onClick={() => void generateContent()} disabled={!feezieGenerationReady || generating || codexInFlight || codexActionLoading !== null} style={primaryActionStyle('#f97316')}>
                   {generating ? 'Queueing…' : codexInFlight ? 'Running via Local Codex…' : 'Queue Local Codex'}
                 </button>
               </div>
@@ -3201,7 +3216,7 @@ export function LinkedinWorkspaceSurface({
                     style={{ ...textareaStyle, minHeight: '88px' }}
                   />
                   <div>
-                    <button type="button" onClick={() => void submitEvidenceClarification()} disabled={generating || !evidenceAnswerDraft.trim()} style={primaryActionStyle('#f59e0b')}>
+                    <button type="button" onClick={() => void submitEvidenceClarification()} disabled={!feezieGenerationReady || generating || !evidenceAnswerDraft.trim()} style={primaryActionStyle('#f59e0b')}>
                       {generating ? 'Checking…' : 'Continue evidence check'}
                     </button>
                   </div>
@@ -3233,7 +3248,7 @@ export function LinkedinWorkspaceSurface({
                         </button>
                       )}
                       {!codexInFlight && ['failed', 'canceled'].includes(codexJobStatus ?? '') && (
-                        <button onClick={() => void generateContentWithCodex()} disabled={codexActionLoading !== null || generating} style={secondaryActionStyle('#f97316')}>
+                        <button onClick={() => void generateContentWithCodex()} disabled={!feezieGenerationReady || codexActionLoading !== null || generating} style={secondaryActionStyle('#f97316')}>
                           Retry Local Codex
                         </button>
                       )}
@@ -4233,14 +4248,57 @@ export function LinkedinWorkspaceSurface({
             <p style={sectionLabelStyle('#fbbf24')}>3 Agent System</p>
             <h2 style={{ fontSize: '24px', color: 'white', margin: '4px 0' }}>Private grounding inventory</h2>
             <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: 1.6, maxWidth: '860px' }}>
-              FEEZIE uses local workspace files, plans, research, and persona material for grounding. Railway and the browser receive aggregate inventory and freshness receipts only; raw bodies, filenames, snippets, and local paths stay on your Mac.
+              FEEZIE builds bounded, validated context from approved private sources and stores that context in authenticated Railway private storage. The browser receives aggregate inventory and readiness receipts only; raw source bodies, filenames, snippets, and local paths stay outside the browser.
             </p>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
               <InlinePill label={`${privateWorkspaceRecordCount} private records inventoried`} tone="#38bdf8" />
-              <InlinePill label="aggregate-only Railway projection" tone="#22c55e" />
-              <InlinePill label="raw content stays local" tone="#fbbf24" />
+              <InlinePill label="authenticated Railway private context" tone="#22c55e" />
+              <InlinePill label="aggregate-only browser projection" tone="#fbbf24" />
+            </div>
+            <div style={{ marginTop: '12px' }}>
+              <FeeziePrivateRuntimeStatusBadge
+                status={snapshot?.private_runtime_context_status}
+                loadState={snapshotError ? 'error' : snapshotState}
+              />
             </div>
           </div>
+
+          {snapshot?.private_runtime_context_status?.schema_version === 'feezie_private_runtime_context_status/v1' ? (
+            <div
+              data-feezie-private-runtime-context-detail="true"
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}
+            >
+              <TruthCard
+                label="Persona canon"
+                value={snapshot.private_runtime_context_status.persona_canon?.ready ? 'Ready' : 'Not ready'}
+                detail={`${snapshot.private_runtime_context_status.persona_canon?.count ?? 0} bounded canon records`}
+                tone={snapshot.private_runtime_context_status.persona_canon?.ready ? '#34d399' : '#fbbf24'}
+              />
+              <TruthCard
+                label="Approved voice examples"
+                value={snapshot.private_runtime_context_status.approved_voice_examples?.ready ? 'Ready' : 'Not ready'}
+                detail={`${snapshot.private_runtime_context_status.approved_voice_examples?.count ?? 0} approved examples`}
+                tone={snapshot.private_runtime_context_status.approved_voice_examples?.ready ? '#34d399' : '#fbbf24'}
+              />
+              <TruthCard
+                label="Anonymized proof"
+                value={snapshot.private_runtime_context_status.anonymized_proof?.ready ? 'Ready' : 'Not ready'}
+                detail={`${snapshot.private_runtime_context_status.anonymized_proof?.count ?? 0} public-safe proof records`}
+                tone={snapshot.private_runtime_context_status.anonymized_proof?.ready ? '#34d399' : '#fbbf24'}
+              />
+              <TruthCard
+                label="Source grounding"
+                value={snapshot.private_runtime_context_status.source_grounding?.ready ? 'Ready' : 'Not ready'}
+                detail={`Strategy ${snapshot.private_runtime_context_status.source_grounding?.strategy_contract_present ? 'present' : 'missing'} · integrity ${snapshot.private_runtime_context_status.source_grounding?.content_integrity_valid ? 'valid' : 'invalid'}`}
+                tone={snapshot.private_runtime_context_status.source_grounding?.ready ? '#34d399' : '#fbbf24'}
+              />
+            </div>
+          ) : null}
+          {(snapshot?.private_runtime_context_status?.reason_codes?.length ?? 0) > 0 ? (
+            <p style={{ color: '#fbbf24', fontSize: '12px', lineHeight: 1.5, margin: 0 }}>
+              Readiness reasons: {snapshot?.private_runtime_context_status?.reason_codes?.map(humanizeFeezieRuntimeReason).join(' · ')}
+            </p>
+          ) : null}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
             {Object.entries(snapshot?.snapshot_status?.sections ?? {}).map(([key, section]) => (

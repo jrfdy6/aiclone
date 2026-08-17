@@ -2401,9 +2401,23 @@ def _starts_with_third_person_persona_bio(text: str) -> bool:
     first_line = _first_content_line(text)
     if not first_line:
         return False
+    subject = r"(?:owner|[A-Z][A-Za-z'’.-]*(?:\s+[A-Z][A-Za-z'’.-]*){0,2})"
     return bool(
         re.match(
-            r"^(?:owner)\s+(?:is|treats|keeps|built|started|learned)\b",
+            rf"^{subject}\s+(?:treats|keeps|built|started|learned)\b",
+            first_line,
+            flags=re.IGNORECASE,
+        )
+        or re.match(
+            rf"^{subject}\s+(?:is|was)\s+(?:(?:an?|the)\s+)?(?:"
+            r"ai\s+practitioner|technology\s+builder|tech\s+builder|education\s+operations\s+leader|"
+            r"operator|builder|founder|leader|professional|entrepreneur|technologist|engineer|product\s+manager"
+            r")\b",
+            first_line,
+            flags=re.IGNORECASE,
+        )
+        or re.match(
+            rf"^{subject}\s+(?:is|was)\s+building\s+at\s+the\s+intersection\b",
             first_line,
             flags=re.IGNORECASE,
         )
@@ -3219,6 +3233,14 @@ def _resolve_feezie_generation_classification(
     if not career_signal and canonical_pillar in pillar_index:
         career_signal = str(pillar_index[canonical_pillar].get("career_signal") or "") or None
     employer_proximity = selected("employer_proximity")
+    if not employer_proximity and re.search(
+        r"\bpersonal\s+AI\s+Clone\s+build\b",
+        str(req.context or ""),
+        flags=re.IGNORECASE,
+    ):
+        # This exact owner-authored phrase is an explicit classification signal;
+        # broader free-text inference remains intentionally disabled.
+        employer_proximity = "personal_build"
     employer_safety = selected("employer_safety")
     proof_posture = selected("proof_posture")
     treatment = selected("treatment")
@@ -3465,6 +3487,7 @@ def _feezie_evidence_readiness(
     answer_payload = req.evidence_answers.model_dump(exclude_none=True) if req.evidence_answers is not None else {}
     return evaluate_feezie_evidence_readiness(
         topic=req.topic,
+        owner_context=req.context,
         owner_answers=answer_payload,
         source_card=source_card_payload,
         content_signal_chunks=_content_signal_chunks(content_context),
@@ -3546,6 +3569,99 @@ _FEEZIE_PROBLEM_CONSEQUENCE_RE = re.compile(
     r"(?:,\s*so\s+|;\s*so\s+|\bwhich\s+meant\s+)(?P<consequence>.+)$",
     flags=re.IGNORECASE,
 )
+_FEEZIE_IMPLEMENTED_GATE_RELATION_RE = re.compile(
+    r"\b(?P<relation>only\s+when|only\s+if|unless|without|before|until|when)\b",
+    flags=re.IGNORECASE,
+)
+_FEEZIE_IMPLEMENTED_GATE_VERB_RE = re.compile(
+    r"\b(?P<verb>accepts?|accepted|adds?|added|advances?|advanced|allows?|allowed|checks?|checked|"
+    r"counts?|counted|keeps?|kept|publishes?|published|queues?|queued|releases?|released|"
+    r"requires?|required|trusts?|trusted|treats?|treated|uses?|used|validates?|validated)\b",
+    flags=re.IGNORECASE,
+)
+_FEEZIE_GATE_VERB_BASE = {
+    "accepted": "accept",
+    "accepts": "accept",
+    "added": "add",
+    "adds": "add",
+    "advanced": "advance",
+    "advances": "advance",
+    "allowed": "allow",
+    "allows": "allow",
+    "checked": "check",
+    "checks": "check",
+    "counted": "count",
+    "counts": "count",
+    "keeps": "keep",
+    "kept": "keep",
+    "published": "publish",
+    "publishes": "publish",
+    "queued": "queue",
+    "queues": "queue",
+    "released": "release",
+    "releases": "release",
+    "required": "require",
+    "requires": "require",
+    "trusted": "trust",
+    "trusts": "trust",
+    "treated": "treat",
+    "treats": "treat",
+    "used": "use",
+    "uses": "use",
+    "validated": "validate",
+    "validates": "validate",
+}
+
+
+def _feezie_lesson_focus_clause(recognition: str) -> str:
+    """Prefer the decisive supported clause over a broad setup clause."""
+
+    clauses = [
+        clause.strip(" -,:;.!?")
+        for clause in re.split(r"\s*;\s*|(?<=[.!?])\s+", str(recognition or ""))
+        if clause.strip(" -,:;.!?")
+    ]
+    for clause in reversed(clauses):
+        if (
+            _FEEZIE_SEPARATE_FOCUS_RE.match(clause)
+            or _FEEZIE_NOT_FOCUS_RE.match(clause)
+            or _FEEZIE_COMPARATIVE_FOCUS_RE.match(clause)
+        ):
+            return clause
+    return clauses[-1] if clauses else ""
+
+
+def _feezie_clean_focus_operand(value: str) -> str:
+    cleaned = " ".join(str(value or "").split()).strip(" -,:;.!?")
+    cleaned = re.sub(r"^(?:a|an|the)\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+by\s+(?:itself|themselves)$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" -,:;.!?")
+
+
+def _feezie_implemented_gate_projection(concrete_action: str) -> tuple[str, str, str] | None:
+    """Project an action/object/boundary only when the owner's action states one."""
+
+    action = " ".join(str(concrete_action or "").split()).strip()
+    relation_match = _FEEZIE_IMPLEMENTED_GATE_RELATION_RE.search(action)
+    if relation_match is None:
+        return None
+    prefix = action[: relation_match.start()].strip(" -,:;.!?")
+    boundary_tail = action[relation_match.end():].strip(" -,:;.!?")
+    verb_matches = list(_FEEZIE_IMPLEMENTED_GATE_VERB_RE.finditer(prefix))
+    if not verb_matches or len(re.findall(r"[A-Za-z0-9]+", boundary_tail)) < 2:
+        return None
+    verb_match = verb_matches[-1]
+    decision_action = _FEEZIE_GATE_VERB_BASE.get(
+        verb_match.group("verb").lower(),
+        verb_match.group("verb").lower(),
+    )
+    decision_object = prefix[verb_match.end():].strip(" -,:;.!?")
+    if not 1 <= len(re.findall(r"[A-Za-z0-9]+", decision_object)) <= 18:
+        return None
+    relation = " ".join(relation_match.group("relation").lower().split())
+    if relation == "only when":
+        relation = "only if"
+    return decision_action, decision_object, f"{relation} {boundary_tail}"
 
 
 def _feezie_role_safe_lesson_projection(observable_lesson: str) -> tuple[str, str]:
@@ -3563,15 +3679,22 @@ def _feezie_role_safe_lesson_projection(observable_lesson: str) -> tuple[str, st
     if len(re.findall(r"[A-Za-z0-9]+", recognition)) < 3:
         raise ValueError("FEEZIE observable lesson cannot produce a bounded recognition signal.")
 
-    focus_match = _FEEZIE_SEPARATE_FOCUS_RE.match(recognition)
+    focus_clause = _feezie_lesson_focus_clause(recognition)
+    focus_match = _FEEZIE_SEPARATE_FOCUS_RE.match(focus_clause)
     if focus_match:
-        decision_object = focus_match.group("focus")
-    elif (not_match := _FEEZIE_NOT_FOCUS_RE.match(recognition)):
-        decision_object = f"{not_match.group('left')} and {not_match.group('right')}"
-    elif (comparison := _FEEZIE_COMPARATIVE_FOCUS_RE.match(recognition)):
-        decision_object = f"{comparison.group('left')} and {comparison.group('right')}"
+        decision_object = _feezie_clean_focus_operand(focus_match.group("focus"))
+    elif (not_match := _FEEZIE_NOT_FOCUS_RE.match(focus_clause)):
+        decision_object = (
+            f"{_feezie_clean_focus_operand(not_match.group('left'))} and "
+            f"{_feezie_clean_focus_operand(not_match.group('right'))}"
+        )
+    elif (comparison := _FEEZIE_COMPARATIVE_FOCUS_RE.match(focus_clause)):
+        decision_object = (
+            f"{_feezie_clean_focus_operand(comparison.group('left'))} and "
+            f"{_feezie_clean_focus_operand(comparison.group('right'))}"
+        )
     else:
-        anchors = _semantic_anchor_candidates(recognition)
+        anchors = _semantic_anchor_candidates(focus_clause or recognition)
         if len(anchors) < 2:
             raise ValueError("FEEZIE observable lesson cannot produce a source-bound decision object.")
         decision_object = f"{anchors[0]} and {anchors[1]}"
@@ -3579,6 +3702,44 @@ def _feezie_role_safe_lesson_projection(observable_lesson: str) -> tuple[str, st
     if not 2 <= len(re.findall(r"[A-Za-z0-9]+", decision_object)) <= 18:
         raise ValueError("FEEZIE decision object is outside the bounded role contract.")
     return recognition + ".", decision_object
+
+
+def _feezie_application_rule_projection(
+    *,
+    concrete_action: str,
+    observable_lesson: str,
+) -> tuple[str, str, str, str]:
+    """Return a source-bound application gate without inventing a future action."""
+
+    full_lesson = " ".join(str(observable_lesson or "").split()).strip()
+    future_split = _FEEZIE_OWNER_FUTURE_BOUNDARY_RE.search(full_lesson)
+    recognition, lesson_object = _feezie_role_safe_lesson_projection(full_lesson)
+    if future_split is not None:
+        future_tail = full_lesson[future_split.start():].strip(" -,:;.!?")
+        boundary_match = _FEEZIE_IMPLEMENTED_GATE_RELATION_RE.search(future_tail)
+        if boundary_match is not None:
+            boundary_tail = future_tail[boundary_match.end():].strip(" -,:;.!?")
+            if len(re.findall(r"[A-Za-z0-9]+", boundary_tail)) >= 2:
+                relation = " ".join(boundary_match.group("relation").lower().split())
+                if relation == "only when":
+                    relation = "only if"
+                return "check", lesson_object, f"{relation} {boundary_tail}", "owner-confirmed next step"
+
+    implemented_gate = _feezie_implemented_gate_projection(concrete_action)
+    if implemented_gate is not None:
+        decision_action, decision_object, boundary = implemented_gate
+        return decision_action, decision_object, boundary, "owner-confirmed implemented gate"
+
+    focus_clause = _feezie_lesson_focus_clause(recognition)
+    comparison = _FEEZIE_COMPARATIVE_FOCUS_RE.match(focus_clause)
+    if comparison is not None:
+        left = _feezie_clean_focus_operand(comparison.group("left"))
+        right = _feezie_clean_focus_operand(comparison.group("right"))
+        return "prioritize", left, f"before {right}", "owner-confirmed observation"
+
+    # A fully source-bound fallback is intentionally less forceful than an
+    # invented owner commitment. The critic can still withhold weak prose.
+    return "check", lesson_object, f"when {focus_clause}", "owner-confirmed observation"
 
 
 def _feezie_problem_consequence_projection(exact_problem: str) -> str:
@@ -3606,10 +3767,15 @@ def _bind_publish_ready_evidence_to_briefs(
     concrete_action = str(evidence_contract["concrete_action"]).strip()
     exact_problem = str(evidence_contract["exact_problem"]).strip()
     observable_lesson = str(evidence_contract["observable_lesson"]).strip()
-    recognition_basis, decision_object = _feezie_role_safe_lesson_projection(observable_lesson)
+    recognition_basis, _lesson_object = _feezie_role_safe_lesson_projection(observable_lesson)
+    decision_action, decision_object, decision_boundary, rule_posture = _feezie_application_rule_projection(
+        concrete_action=concrete_action,
+        observable_lesson=observable_lesson,
+    )
     consequence_basis = _feezie_problem_consequence_projection(exact_problem)
     problem_anchors = _semantic_anchor_candidates(exact_problem)
-    lesson_anchors = _semantic_anchor_candidates(recognition_basis)
+    lesson_focus = _feezie_lesson_focus_clause(recognition_basis)
+    lesson_anchors = _semantic_anchor_candidates(lesson_focus or recognition_basis)
     if len(problem_anchors) < 2 or len(lesson_anchors) < 2:
         raise ValueError("FEEZIE evidence needs at least two substantive problem and lesson terms.")
 
@@ -3632,8 +3798,8 @@ def _bind_publish_ready_evidence_to_briefs(
     )
     application.consequence_basis = consequence_basis
     application.decision_rule_basis = (
-        f"Decision action: check | decision object: {decision_object} | "
-        "boundary: before the next draft | rule posture: owner-confirmed next step."
+        f"Decision action: {decision_action} | decision object: {decision_object} | "
+        f"boundary: {decision_boundary} | rule posture: {rule_posture}."
     )
 
 
@@ -3921,7 +4087,12 @@ def queue_local_codex_job(req: LocalCodexJobCreateRequest) -> dict[str, Any]:
         workspace_slug=req.workspace_slug,
         request_payload=cache_request_payload,
     )
-    cached = load_cached_context_packet(cache_key=cache_key)
+    cached = load_cached_context_packet(
+        cache_key=cache_key,
+        workspace_slug=req.workspace_slug,
+        snapshot_hash=snapshot_hash,
+        request_payload=cache_request_payload,
+    )
     context_packet = cached.get("context_packet") if isinstance(cached, dict) else None
     cached_evidence = context_packet.get("evidence_contract") if isinstance(context_packet, dict) else None
     cached_remote_context = context_packet.get("remote_execution_context") if isinstance(context_packet, dict) else None
@@ -7788,7 +7959,7 @@ def _rewrite_persona_bio_opening(option: str, brief: ContentOptionBrief) -> str:
     remaining_sentences = [
         sentence
         for sentence in first_paragraph_sentences
-        if not re.match(r"^(?:owner)\s+(?:is|treats|keeps|built|started|learned)\b", sentence, flags=re.IGNORECASE)
+        if not _starts_with_third_person_persona_bio(sentence)
     ]
     replacement = _opening_line_from_brief(brief) or _public_safe_claim_from_brief(brief)
     if replacement:

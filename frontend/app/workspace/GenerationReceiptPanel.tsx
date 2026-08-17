@@ -81,6 +81,7 @@ export function GenerationReceiptSummary({ diagnostics }: { diagnostics?: Genera
   );
   const tone = readinessTone(readiness?.status, readiness?.ready);
   const badges = [
+    diagnostics.grounding_mode ? `Grounding ${humanize(diagnostics.grounding_mode)}` : 'Grounding unavailable',
     diagnostics.intent ? `Intent ${humanize(diagnostics.intent)}` : null,
     strategy?.contract_hash ? `Contract ${strategy.contract_hash.slice(0, 8)}` : 'Contract unavailable',
     classification?.canonical_pillar ? `Pillar ${humanize(classification.canonical_pillar)}` : null,

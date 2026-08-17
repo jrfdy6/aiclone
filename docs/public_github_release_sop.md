@@ -1,5 +1,9 @@
 # Public GitHub Release SOP
 
+> Status: supporting public-source reference. In the private canonical
+> workspace, `SOPs/public_github_release_sop.md` is the indexed active procedure
+> and owns current ticket, authorization, and deployment status.
+
 ## Purpose
 
 Publish deployable AI Clone source without publishing personal identity, credentials, private operating data, or contaminated Git ancestry.
@@ -70,15 +74,27 @@ An unrelated-history pull request is not a safe promotion mechanism. Review happ
 
 ## Historical remediation
 
-Before calling the repository clean:
+Before calling the owner-controlled public source clean and deployable:
 
 1. revoke or rotate every credential reported by GitHub secret scanning;
 2. confirm the clean public branch is complete and deployable;
 3. obtain exact owner approval for the named branches and tags to delete or rewrite;
 4. change the default branch to the clean public branch;
 5. delete contaminated legacy branches and tags;
-6. close or resolve GitHub secret-scanning alerts only after rotation and ref remediation are verified;
-7. rescan all remaining GitHub heads, tags, release tags, and pull refs.
+6. classify GitHub secret-scanning alerts accurately after rotation or
+   revocation is verified;
+7. rescan all current owner-controlled GitHub heads, tags, and release tags.
+
+GitHub Support determined on 2026-08-17 that rotation or revocation is
+sufficient and that no pull-ref purge or history rewrite is required. Ticket
+`#4669337` was updated; its closure is not a publishing,
+deployment-source-connection, or Release gate. GitHub-owned pull refs 1-4 remain
+truthful historical residue, so do not attest that every server-owned
+historical ref belongs to the approved single-root lineage. Before reconnecting
+a GitHub deployment source or creating a `public-v*` tag or Release, require the
+exact sanitized tree/receipt, protected checks, current owner-controlled
+head/tag ancestry and secret scans, runtime-readiness gates, and explicit owner
+authorization.
 
 History deletion is destructive and does not remove copies held by forks, caches, or prior clones. Credential rotation remains mandatory.
 
@@ -90,7 +106,9 @@ History deletion is destructive and does not remove copies held by forks, caches
 - Every visible tag must also belong to that lineage before the automated release job can proceed.
 - Every visible tag must match the `public-vMAJOR.MINOR.PATCH` convention. A
   nonconforming legacy tag must be deleted after exact approval, not repointed.
-- Every remaining remote head and pull ref must descend from the approved root.
+- Every owner-controlled remote head and release tag must descend from the
+  approved root. GitHub-owned pull refs are historical evidence, not release
+  inputs.
 - The public verification workflow must pass on the tagged commit.
 - Release notes and source archives must be generated from that exact tag.
 - Never create a GitHub Release from a legacy or snapshot tag.
@@ -102,7 +120,28 @@ History deletion is destructive and does not remove copies held by forks, caches
 - Railway frontend root: `frontend/`
 - Vercel root: `frontend/`
 - Platform credentials and private runtime inputs stay in platform-managed secrets or authenticated storage.
+- Neo guest facts stay outside Git. Before connecting a GitHub-sourced Railway
+  backend, inject the exact approved `neo_public_knowledge_pack/v1` JSON as
+  `NEO_PUBLIC_KNOWLEDGE_JSON` and require the protected aggregate knowledge
+  status to be ready, digest-bound to the reviewed release, integrity verified,
+  and populated. Never print or commit the value; invalid, unbound, or missing
+  runtime JSON blocks migration. Run
+  `REQUIRE_NEO_RUNTIME_ENVIRONMENT=1 npm run verify:production` for this source
+  migration so a staged-file fallback cannot count as proof.
 - A verified private runtime-data channel for owner-specific behavior is a prerequisite to connecting either deployment platform to GitHub, not a prerequisite to building or reviewing the public source branch.
+- Before connection or reconnection, the local public-source and deterministic
+  clean-checkout gates must prove: 36-hour private-runtime freshness with only
+  5 minutes of future skew; `checked_at`, persisted `context_generated_at`,
+  `age_seconds`, and `stale_after_seconds: 129600`; exact Brain sync
+  workspace/type/payload-hash/disposition validation; the bound owner-only
+  local context cache; and closed aggregate-only browser projections for
+  `source_assets`, `content_reservoir`, `operator_story_signals`,
+  `content_safe_operator_lessons`, `persona_review_summary`, and
+  `long_form_routes` in both Workspace and Brain.
+- Changing a deployment source is privileged production work and requires exact
+  owner approval naming the platform, service, `public-release` branch, project
+  root, and rollout order. Passing local gates does not authorize connection or
+  deployment.
 - A GitHub-triggered deploy must prove owner-specific runtime context readiness after deploy. Generic fallback behavior is not an acceptable substitute for FEEZIE quality.
 - Until that readiness contract passes, use the existing receipt-bound staged Railway deployment procedure and do not claim that GitHub is the active deployment source.
 - A GitHub Release certifies public source safety; it does not certify owner-specific production context or FEEZIE output quality.

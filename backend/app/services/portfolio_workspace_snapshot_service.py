@@ -361,7 +361,8 @@ def _safe_snapshot_types(workspace_key: str, root_slug: str) -> dict[str, list[s
             visible_types = sorted(
                 snapshot_type
                 for snapshot_type in payloads
-                if not snapshot_type.startswith("publication_performance_lifecycle:")
+                if snapshot_type != "feezie_runtime_context"
+                and not snapshot_type.startswith("publication_performance_lifecycle:")
             )
             if visible_types:
                 result[key] = visible_types

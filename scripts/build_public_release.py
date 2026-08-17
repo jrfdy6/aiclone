@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "release" / "public_source_manifest.json"
 MANIFEST_SCHEMA = "aiclone_public_source_manifest/v2"
 RECEIPT_SCHEMA = "aiclone_public_release/v2"
-BUILDER_VERSION = "2.0.1"
+BUILDER_VERSION = "2.0.2"
 METADATA_DIR = ".public-release"
 RECEIPT_NAME = "receipt.json"
 MANIFEST_COPY_NAME = "manifest.json"
@@ -202,6 +202,9 @@ _RESERVED_EMAIL_SUFFIXES = (
     ".invalid",
     ".localhost",
     ".test",
+)
+_REGEX_STRUCTURAL_ESCAPE_RE = re.compile(
+    r"\\(?:[AbBdDsSwWZ]|[fnrtv]|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})"
 )
 
 
@@ -434,12 +437,26 @@ def _normalize_private_text(value: str) -> str:
     return re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE).strip()
 
 
+def _normalize_regex_obfuscated_private_text(value: str) -> str:
+    """Remove regex-only structure that could split a denylisted literal."""
+
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    normalized = _REGEX_STRUCTURAL_ESCAPE_RE.sub(" ", normalized)
+    normalized = normalized.replace("_", " ")
+    return re.sub(r"[^\w]+", " ", normalized, flags=re.UNICODE).strip()
+
+
 def _contains_private_literal(value: str, private_literals: Sequence[str]) -> bool:
-    normalized_lines = [
-        normalized
-        for line in (value.splitlines() or [value])
-        if (normalized := _normalize_private_text(line))
-    ]
+    normalized_lines: list[str] = []
+    seen_normalized_lines: set[str] = set()
+    for line in value.splitlines() or [value]:
+        for normalized in (
+            _normalize_private_text(line),
+            _normalize_regex_obfuscated_private_text(line),
+        ):
+            if normalized and normalized not in seen_normalized_lines:
+                seen_normalized_lines.add(normalized)
+                normalized_lines.append(normalized)
     for normalized_value in normalized_lines:
         padded_value = f" {normalized_value} "
         for literal in private_literals:
