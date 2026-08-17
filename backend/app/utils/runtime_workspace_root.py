@@ -27,14 +27,19 @@ def resolve_runtime_workspace_root(current_file: str | Path) -> Path:
         if resolved in seen:
             continue
         seen.add(resolved)
-        has_runtime_helper = (resolved / "scripts" / "runtime_paths.py").is_file()
+        has_checkout_runtime_helper = (
+            resolved / "scripts" / "runtime_paths.py"
+        ).is_file()
+        has_service_runtime_helper = (resolved / "runtime_paths.py").is_file()
         has_checkout_app = (resolved / "backend" / "app" / "main.py").is_file()
         has_flattened_app = (resolved / "app" / "main.py").is_file()
-        if has_runtime_helper and (
+        if has_checkout_runtime_helper and (
             has_checkout_app
             or has_flattened_app
             or (resolved / "knowledge").is_dir()
             or (resolved / "workspaces").is_dir()
         ):
+            return resolved
+        if has_service_runtime_helper and has_flattened_app:
             return resolved
     raise RuntimeError("Unable to resolve the AI Clone runtime root from required staging markers.")

@@ -30,6 +30,7 @@ from app.services.linkedin_performance_ledger_service import (
     LinkedinPerformanceLedgerService,
     linkedin_content_version_sha256,
 )
+from app.utils.runtime_workspace_root import resolve_runtime_workspace_root
 
 
 PUBLIC_STRATEGY_HASH = "a" * 64
@@ -48,6 +49,24 @@ PUBLIC_OPTIONS = (
         "Verify the evidence boundary before approval."
     ),
 )
+
+
+def test_clean_public_backend_root_resolves_without_private_staging_markers() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        service_root = Path(temp_dir) / "service"
+        module_path = service_root / "app" / "services" / "example.py"
+        module_path.parent.mkdir(parents=True)
+        module_path.touch()
+        (service_root / "app" / "main.py").touch()
+        (service_root / "runtime_paths.py").touch()
+
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "pathlib.Path.cwd",
+            return_value=service_root / "elsewhere",
+        ):
+            resolved = resolve_runtime_workspace_root(module_path)
+
+    assert resolved == service_root.resolve()
 
 
 def _synthetic_public_knowledge_pack() -> dict:

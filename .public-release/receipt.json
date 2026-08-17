@@ -1680,8 +1680,8 @@
       {
         "mode": 420,
         "path": "backend/app/utils/runtime_workspace_root.py",
-        "sha256": "b3b25a41fdc7e2a23de06b4bc393fd1d1d846b24a844144d0fa54f62c9512082",
-        "size": 1356
+        "sha256": "868b872e0fee10996e00046df7b233ca7e7b6d84ce0f2a0c930c400fb896b638",
+        "size": 1564
       },
       {
         "mode": 420,
@@ -1710,8 +1710,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_feezie_public_lifecycle_smoke.py",
-        "sha256": "069a3adba32595a0105e9fcbe4b6f1cca17b0050d6ba2d2d1b39433f75830223",
-        "size": 39764
+        "sha256": "8903288eeb007fc8e1d0d7a1267a55acb8cd9f6a1aca7bff85a0dcf7893a97d7",
+        "size": 40551
       },
       {
         "mode": 420,
@@ -2536,7 +2536,7 @@
         "size": 8314
       }
     ],
-    "tree_sha256": "497d719275f436ffdac0218e06d1f457c3077990a05730bd592e5d9b8a51bd58"
+    "tree_sha256": "77d6a98284bc50dc2c99556e58a62d6f4cd50f0929c18d3f9b3ff965d4ccee52"
   },
   "manifest": {
     "name": "aiclone-public-deploy",
