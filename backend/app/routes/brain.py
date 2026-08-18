@@ -65,6 +65,7 @@ from app.services.workspace_snapshot_store import (
     upsert_snapshot,
     upsert_snapshot_monotonic,
 )
+from app.services.workspace_snapshot_service import workspace_snapshot_service
 from app.services.youtube_watchlist_service import build_persisted_youtube_watchlist_payload
 
 router = APIRouter(tags=["Brain"], prefix="/api/brain")
@@ -631,6 +632,30 @@ def publish_brain_workspace_snapshots(payload: BrainWorkspaceSnapshotSyncRequest
         }.items()
         if isinstance(value, dict)
     }
+    if payload.persona_review_refresh == "recompute_db_owned":
+        # Defense in depth for callers that bypass Pydantic construction: the
+        # DB-owned recompute is a single-purpose capability, never an option on
+        # a multi-snapshot write request.
+        if snapshots:
+            raise HTTPException(
+                status_code=400,
+                detail="persona_review_refresh cannot be mixed with workspace snapshots.",
+            )
+        try:
+            receipt = workspace_snapshot_service.recompute_and_persist_persona_review_summary(
+                request_generated_at=payload.generated_at,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Brain workspace snapshot storage is unavailable.",
+            ) from exc
+        return {
+            "message": "Brain persona review summary recomputed from database-owned state.",
+            "stored": bool(receipt.get("stored")),
+            "snapshots": {"persona_review_summary": receipt},
+        }
+
     results: dict[str, dict[str, Any]] = {}
     try:
         for response_key, snapshot_payload in snapshots.items():

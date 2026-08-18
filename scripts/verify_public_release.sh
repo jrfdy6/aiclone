@@ -33,7 +33,8 @@ PUBLIC_CANDIDATE="$PUBLIC_RELEASE_TMP/candidate"
 PUBLIC_TEST_HOME="$PUBLIC_RELEASE_TMP/empty-home"
 PUBLIC_TEST_SECRETS="$PUBLIC_RELEASE_TMP/empty-secrets"
 PUBLIC_PRESERVED_STAGING="$PUBLIC_RELEASE_TMP/preserved-candidate"
-mkdir -p "$PUBLIC_TEST_HOME" "$PUBLIC_TEST_SECRETS"
+PUBLIC_BACKEND_SERVICE_ROOT="$PUBLIC_RELEASE_TMP/backend-service"
+mkdir -p "$PUBLIC_TEST_HOME" "$PUBLIC_TEST_SECRETS" "$PUBLIC_BACKEND_SERVICE_ROOT"
 : > "$PUBLIC_TEST_HOME/npmrc"
 trap 'rm -rf -- "$PUBLIC_RELEASE_TMP"' EXIT
 
@@ -163,8 +164,16 @@ fi
   "$PUBLIC_CANDIDATE/backend/runtime_paths.py" \
   "$PUBLIC_CANDIDATE/scripts"
 
-"${PUBLIC_SAFE_ENV[@]}" "PYTHONPATH=$PUBLIC_CANDIDATE/backend" "$PUBLIC_PYTHON" -c \
-  'from fastapi.testclient import TestClient; from app.main import app; response = TestClient(app).get("/health"); assert response.status_code == 200; assert response.json().get("status") == "healthy"'
+# Railway builds the backend with rootDirectory=/backend, so its container has
+# app/main.py and runtime_paths.py but no outer repository markers. Exercise
+# that exact flattened service-root layout instead of importing through the
+# full candidate tree, which can hide root-resolution packaging failures.
+cp -R "$PUBLIC_CANDIDATE/backend/." "$PUBLIC_BACKEND_SERVICE_ROOT/"
+(
+  cd "$PUBLIC_BACKEND_SERVICE_ROOT"
+  "${PUBLIC_SAFE_ENV[@]}" "PYTHONPATH=$PUBLIC_BACKEND_SERVICE_ROOT" "$PUBLIC_PYTHON" -c \
+    'from fastapi.testclient import TestClient; from app.main import app; response = TestClient(app).get("/health"); assert response.status_code == 200; assert response.json().get("status") == "healthy"'
+)
 
 "${PUBLIC_SAFE_ENV[@]}" "PYTHONPATH=$PUBLIC_CANDIDATE/backend" "$PUBLIC_PYTHON" -m pytest -q \
   "$PUBLIC_CANDIDATE/backend/tests/test_public_release_builder.py" \

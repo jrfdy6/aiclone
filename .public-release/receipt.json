@@ -96,8 +96,8 @@
       {
         "mode": 420,
         "path": "backend/app/models/brain.py",
-        "sha256": "69b5470692656c802723b5a5cf06b7959e5c792ae5764e22d5ab4c4aae363cd5",
-        "size": 24075
+        "sha256": "6528d3233f6a3d0d81d869b7dbb576f25edc04e3c1a8d0b9a03f44bc42b5f055",
+        "size": 24461
       },
       {
         "mode": 420,
@@ -354,8 +354,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/brain.py",
-        "sha256": "2c0855c9be00b6e8049e7b8a460734196185c0f1d024ab19cdff98559a20aa57",
-        "size": 37562
+        "sha256": "67b138d2963880b3e0b079c4683c304139f53219d5e816ad1cda70502421c5fd",
+        "size": 38709
       },
       {
         "mode": 420,
@@ -1644,8 +1644,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/workspace_snapshot_service.py",
-        "sha256": "b11303b2128b015385628e865bf3bda9cca97500abf7a7cdb8605af8c0b59d5c",
-        "size": 137635
+        "sha256": "5b64d62e1713d4025981c6e31f0645ac417bba3665172db56ad704992f17fcbb",
+        "size": 157350
       },
       {
         "mode": 420,
@@ -1710,8 +1710,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_feezie_public_lifecycle_smoke.py",
-        "sha256": "8903288eeb007fc8e1d0d7a1267a55acb8cd9f6a1aca7bff85a0dcf7893a97d7",
-        "size": 40551
+        "sha256": "49c38f1e3503e4fb98323f08dedbad0aebb8bf5bf175a471195c3408c2ab1e22",
+        "size": 42182
       },
       {
         "mode": 420,
@@ -2532,11 +2532,11 @@
       {
         "mode": 493,
         "path": "scripts/verify_public_release.sh",
-        "sha256": "1e258dfcfb4d7ae3640898381746c361db6bb9fceb0c5d36e4b9320ac8fd66a6",
-        "size": 8314
+        "sha256": "dfbb500405a65f233d72a1727e7ef5d3599d15b14bfd8e441ace9f2b41c93963",
+        "size": 8832
       }
     ],
-    "tree_sha256": "77d6a98284bc50dc2c99556e58a62d6f4cd50f0929c18d3f9b3ff965d4ccee52"
+    "tree_sha256": "eabacdea0283060c9b596131e8a4943f4221d4d662fa8b7dcccf406ca1d98749"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

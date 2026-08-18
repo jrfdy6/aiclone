@@ -129,7 +129,7 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["brain_workspace_snapshots/v1"] = "brain_workspace_snapshots/v1"
-    generated_at: str
+    generated_at: str = Field(min_length=1, max_length=64)
     workspace: Literal["linkedin-content-os"] = "linkedin-content-os"
     source: Literal["codex_local_runner"] = "codex_local_runner"
     source_assets: dict[str, Any] | None = None
@@ -139,22 +139,27 @@ class BrainWorkspaceSnapshotSyncRequest(BaseModel):
     publication_performance_status: dict[str, Any] | None = None
     publication_performance_lifecycle: dict[str, Any] | None = None
     feezie_runtime_context: dict[str, Any] | None = None
+    persona_review_refresh: Literal["recompute_db_owned"] | None = None
 
     @model_validator(mode="after")
     def validate_sync(self) -> "BrainWorkspaceSnapshotSyncRequest":
         _validate_generated_at(self.generated_at)
-        if not any(
-            value is not None
-            for value in (
-                self.source_assets,
-                self.content_reservoir,
-                self.long_form_routes,
-                self.publication_performance_summary,
-                self.publication_performance_status,
-                self.publication_performance_lifecycle,
-                self.feezie_runtime_context,
-            )
-        ):
+        snapshot_values = (
+            self.source_assets,
+            self.content_reservoir,
+            self.long_form_routes,
+            self.publication_performance_summary,
+            self.publication_performance_status,
+            self.publication_performance_lifecycle,
+            self.feezie_runtime_context,
+        )
+        if self.persona_review_refresh is not None:
+            if any(value is not None for value in snapshot_values):
+                raise ValueError(
+                    "persona_review_refresh is capability-exclusive and cannot be mixed with snapshots."
+                )
+            return self
+        if not any(value is not None for value in snapshot_values):
             raise ValueError("Provide at least one allowlisted Brain workspace snapshot.")
         if self.publication_performance_summary is not None:
             summary = self.publication_performance_summary

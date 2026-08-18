@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
+
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from app.services import persona_delta_service
 from app.services.content_reservoir_service import build_content_reservoir_payload
@@ -26,6 +31,7 @@ from app.services.linkedin_performance_ledger_service import (
     build_browser_performance_summary,
     linkedin_performance_ledger_service,
 )
+from app.services.open_brain_db import get_pool
 from app.services.social_long_form_signal_service import build_long_form_route_summary
 from app.services.social_persona_review_service import social_persona_review_service
 from app.services.social_source_asset_service import build_source_asset_inventory
@@ -394,6 +400,7 @@ SNAPSHOT_WORKSPACE_FILES = "workspace_files"
 SNAPSHOT_DOC_ENTRIES = "doc_entries"
 SNAPSHOT_OPERATOR_STORY_SIGNALS = "operator_story_signals"
 SNAPSHOT_CONTENT_SAFE_OPERATOR_LESSONS = "content_safe_operator_lessons"
+PERSONA_REVIEW_REFRESH_LOCK_KEY = "aiclone:linkedin-content-os:persona-review-summary"
 PRIVATE_INVENTORY_SCHEMA = "privacy_safe_workspace_inventory/v1"
 BROWSER_PRIVATE_GROUNDING_SCHEMA = "feezie_private_grounding_browser_status/v1"
 WORKSPACE_SNAPSHOT_STATUS_SCHEMA = "workspace_editorial_status/v1"
@@ -1700,24 +1707,11 @@ def _persona_review_stage(status: str, metadata: dict[str, Any] | None) -> str:
     return normalized or "draft"
 
 
-def _build_persona_review_summary_payload() -> dict[str, Any] | None:
-    sync_result: dict[str, Any] | None = None
-    source_assets_payload = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
-    if source_assets_payload:
-        try:
-            sync_result = social_persona_review_service.sync_long_form_worldview_reviews(
-                repo_root=ROOT,
-                source_assets=source_assets_payload,
-                transcripts_root=_transcripts_root(),
-                ingestions_root=_ingestions_root(),
-            )
-        except Exception:
-            sync_result = None
-
-    try:
-        deltas = persona_delta_service.list_deltas(limit=200)
-    except Exception:
-        deltas = []
+def _build_persona_review_summary_from_deltas(
+    deltas: list[Any],
+    *,
+    sync_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
 
     stage_counts = {
         "brain_pending_review": 0,
@@ -1789,6 +1783,389 @@ def _build_persona_review_summary_payload() -> dict[str, Any] | None:
             "created": [],
         },
     }
+
+
+def _build_persona_review_summary_payload() -> dict[str, Any] | None:
+    sync_result: dict[str, Any] | None = None
+    source_assets_payload = _load_snapshot(SNAPSHOT_SOURCE_ASSETS)
+    if source_assets_payload:
+        try:
+            sync_result = social_persona_review_service.sync_long_form_worldview_reviews(
+                repo_root=ROOT,
+                source_assets=source_assets_payload,
+                transcripts_root=_transcripts_root(),
+                ingestions_root=_ingestions_root(),
+            )
+        except Exception:
+            sync_result = None
+
+    try:
+        # This filesystem-capable compatibility path cannot prove a global
+        # total once the bounded read is full.  Refuse to publish a seemingly
+        # current partial summary; the DB-owned command below performs the
+        # exact aggregate used by Railway.
+        deltas = persona_delta_service.list_deltas(limit=201)
+    except Exception:
+        return None
+    if len(deltas) > 200:
+        return None
+    return _build_persona_review_summary_from_deltas(deltas, sync_result=sync_result)
+
+
+def _snapshot_payload_sha256(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+_PERSONA_REVIEW_DB_AGGREGATE_SQL = """
+    WITH normalized AS (
+        SELECT
+            id::text AS id,
+            COALESCE(persona_target, 'unknown') AS persona_target,
+            COALESCE(trait, '') AS trait,
+            COALESCE(NULLIF(LOWER(BTRIM(status)), ''), 'draft') AS normalized_status,
+            COALESCE(metadata, '{}'::jsonb) AS metadata,
+            created_at,
+            committed_at
+        FROM persona_deltas
+    ),
+    flags AS (
+        SELECT
+            *,
+            COALESCE(NULLIF(BTRIM(metadata->>'review_source'), ''), 'unknown') AS review_source,
+            NULLIF(BTRIM(metadata->>'target_file'), '') AS target_file,
+            NULLIF(BTRIM(metadata->>'belief_relation'), '') AS belief_relation,
+            NULLIF(BTRIM(metadata->>'approval_state'), '') AS approval_state,
+            NULLIF(BTRIM(metadata->>'sync_state'), '') AS sync_state,
+            NULLIF(BTRIM(metadata->>'primary_route'), '') AS primary_route,
+            CASE jsonb_typeof(metadata->'pending_promotion')
+                WHEN 'boolean' THEN (metadata->>'pending_promotion')::boolean
+                WHEN 'string' THEN LOWER(BTRIM(metadata->>'pending_promotion')) IN ('1', 'true', 'yes', 'y', 'on')
+                WHEN 'number' THEN (metadata->>'pending_promotion')::numeric <> 0
+                WHEN 'array' THEN jsonb_array_length(metadata->'pending_promotion') > 0
+                WHEN 'object' THEN metadata->'pending_promotion' <> '{}'::jsonb
+                ELSE FALSE
+            END AS pending_promotion,
+            CASE jsonb_typeof(metadata->'weak_source_fragment')
+                WHEN 'boolean' THEN (metadata->>'weak_source_fragment')::boolean
+                WHEN 'string' THEN LOWER(BTRIM(metadata->>'weak_source_fragment')) IN ('1', 'true', 'yes', 'y', 'on')
+                WHEN 'number' THEN (metadata->>'weak_source_fragment')::numeric <> 0
+                WHEN 'array' THEN jsonb_array_length(metadata->'weak_source_fragment') > 0
+                WHEN 'object' THEN metadata->'weak_source_fragment' <> '{}'::jsonb
+                ELSE FALSE
+            END AS weak_source_fragment,
+            (
+                CASE WHEN jsonb_typeof(metadata->'talking_points') = 'array'
+                    THEN jsonb_array_length(metadata->'talking_points') ELSE 0 END > 0
+                OR CASE WHEN jsonb_typeof(metadata->'frameworks') = 'array'
+                    THEN jsonb_array_length(metadata->'frameworks') ELSE 0 END > 0
+                OR CASE WHEN jsonb_typeof(metadata->'anecdotes') = 'array'
+                    THEN jsonb_array_length(metadata->'anecdotes') ELSE 0 END > 0
+                OR CASE WHEN jsonb_typeof(metadata->'phrase_candidates') = 'array'
+                    THEN jsonb_array_length(metadata->'phrase_candidates') ELSE 0 END > 0
+                OR CASE WHEN jsonb_typeof(metadata->'stats') = 'array'
+                    THEN jsonb_array_length(metadata->'stats') ELSE 0 END > 0
+            ) AS has_selectable_promotion_metadata
+        FROM normalized
+    ),
+    classified AS (
+        SELECT
+            *,
+            CASE
+                WHEN normalized_status = 'committed' THEN 'committed'
+                WHEN pending_promotion THEN 'pending_promotion'
+                WHEN normalized_status = 'approved'
+                    AND (
+                        review_source = 'linkedin_workspace.feed_quote'
+                        OR approval_state = 'approved_from_workspace'
+                    ) THEN 'workspace_saved'
+                WHEN NOT (
+                    review_source = 'long_form_media.segment'
+                    AND (
+                        COALESCE(sync_state, '') LIKE 'stale\\_%' ESCAPE '\\'
+                        OR weak_source_fragment
+                        OR (primary_route IS NOT NULL AND primary_route <> 'belief_evidence')
+                    )
+                ) AND (
+                    normalized_status IN ('draft', 'pending', 'in_review')
+                    OR (
+                        normalized_status = 'reviewed'
+                        AND has_selectable_promotion_metadata
+                        AND NOT pending_promotion
+                    )
+                ) THEN 'brain_pending_review'
+                WHEN normalized_status = 'approved' THEN 'approved_unpromoted'
+                ELSE normalized_status
+            END AS stage
+        FROM flags
+    )
+    SELECT
+        (SELECT COUNT(*)::bigint FROM classified) AS total,
+        COALESCE((
+            SELECT jsonb_object_agg(grouped.item_key, grouped.item_count)
+            FROM (
+                SELECT stage AS item_key, COUNT(*)::bigint AS item_count
+                FROM classified
+                GROUP BY stage
+            ) AS grouped
+        ), '{}'::jsonb) AS stage_counts,
+        COALESCE((
+            SELECT jsonb_object_agg(grouped.item_key, grouped.item_count)
+            FROM (
+                SELECT normalized_status AS item_key, COUNT(*)::bigint AS item_count
+                FROM classified
+                GROUP BY normalized_status
+            ) AS grouped
+        ), '{}'::jsonb) AS status_counts,
+        COALESCE((
+            SELECT jsonb_object_agg(grouped.item_key, grouped.item_count)
+            FROM (
+                SELECT review_source AS item_key, COUNT(*)::bigint AS item_count
+                FROM classified
+                GROUP BY review_source
+            ) AS grouped
+        ), '{}'::jsonb) AS review_source_counts,
+        COALESCE((
+            SELECT jsonb_object_agg(grouped.item_key, grouped.item_count)
+            FROM (
+                SELECT target_file AS item_key, COUNT(*)::bigint AS item_count
+                FROM classified
+                WHERE target_file IS NOT NULL
+                GROUP BY target_file
+            ) AS grouped
+        ), '{}'::jsonb) AS target_file_counts,
+        COALESCE((
+            SELECT jsonb_object_agg(grouped.item_key, grouped.item_count)
+            FROM (
+                SELECT belief_relation AS item_key, COUNT(*)::bigint AS item_count
+                FROM classified
+                WHERE belief_relation IS NOT NULL
+                GROUP BY belief_relation
+            ) AS grouped
+        ), '{}'::jsonb) AS belief_relation_counts,
+        COALESCE((
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id', recent.id,
+                    'trait', recent.trait,
+                    'persona_target', recent.persona_target,
+                    'status', recent.normalized_status,
+                    'stage', recent.stage,
+                    'review_source', recent.review_source,
+                    'target_file', recent.target_file,
+                    'belief_relation', recent.belief_relation,
+                    'approval_state', recent.approval_state,
+                    'created_at', recent.created_at,
+                    'committed_at', recent.committed_at
+                )
+                ORDER BY recent.created_at DESC NULLS LAST, recent.id DESC
+            )
+            FROM (
+                SELECT *
+                FROM classified
+                ORDER BY created_at DESC NULLS LAST, id DESC
+                LIMIT 12
+            ) AS recent
+        ), '[]'::jsonb) AS recent,
+        clock_timestamp() AS observation_generated_at
+"""
+
+
+_PERSONA_REVIEW_MONOTONIC_UPSERT_SQL = """
+    INSERT INTO workspace_snapshots (id, workspace_key, snapshot_type, payload, metadata)
+    VALUES (%s, %s, %s, %s, %s)
+    ON CONFLICT (workspace_key, snapshot_type) DO UPDATE
+    SET payload = EXCLUDED.payload,
+        metadata = COALESCE(workspace_snapshots.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+        updated_at = NOW()
+    WHERE CASE
+        WHEN COALESCE(workspace_snapshots.payload->>'generated_at', '') ~
+             '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
+        THEN (workspace_snapshots.payload->>'generated_at')::timestamptz
+        ELSE '-infinity'::timestamptz
+    END < %s
+    RETURNING id, workspace_key, snapshot_type, payload, metadata, created_at, updated_at
+"""
+
+
+def _validated_persona_refresh_request_generated_at(value: str) -> datetime:
+    if not isinstance(value, str) or not value.strip() or len(value) > 64:
+        raise ValueError("Persona refresh request_generated_at must be a bounded ISO-8601 timestamp.")
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError("Persona refresh request_generated_at must be a valid ISO-8601 timestamp.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("Persona refresh request_generated_at must be timezone-aware.")
+    parsed = parsed.astimezone(timezone.utc)
+    if parsed > datetime.now(timezone.utc) + timedelta(hours=1):
+        raise ValueError("Persona refresh request_generated_at is too far in the future.")
+    return parsed
+
+
+def _exact_count_map(value: Any, *, label: str) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"Persona review aggregate {label} is unavailable.")
+    counts: dict[str, int] = {}
+    for raw_key, raw_count in value.items():
+        if isinstance(raw_count, bool):
+            raise RuntimeError(f"Persona review aggregate {label} is invalid.")
+        try:
+            count = int(raw_count)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"Persona review aggregate {label} is invalid.") from exc
+        if count < 0:
+            raise RuntimeError(f"Persona review aggregate {label} is invalid.")
+        counts[str(raw_key)] = count
+    return counts
+
+
+def _build_db_owned_persona_review_summary(aggregate: Any) -> tuple[dict[str, Any], datetime]:
+    if not isinstance(aggregate, dict):
+        raise RuntimeError("Persona review aggregate is unavailable.")
+    raw_total = aggregate.get("total")
+    if isinstance(raw_total, bool):
+        raise RuntimeError("Persona review aggregate total is invalid.")
+    try:
+        total = int(raw_total)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Persona review aggregate total is invalid.") from exc
+    if total < 0:
+        raise RuntimeError("Persona review aggregate total is invalid.")
+
+    stage_counts = _exact_count_map(aggregate.get("stage_counts"), label="stage_counts")
+    status_counts = _exact_count_map(aggregate.get("status_counts"), label="status_counts")
+    review_source_counts = _exact_count_map(
+        aggregate.get("review_source_counts"),
+        label="review_source_counts",
+    )
+    target_file_counts = _exact_count_map(
+        aggregate.get("target_file_counts"),
+        label="target_file_counts",
+    )
+    belief_relation_counts = _exact_count_map(
+        aggregate.get("belief_relation_counts"),
+        label="belief_relation_counts",
+    )
+    if (
+        sum(stage_counts.values()) != total
+        or sum(status_counts.values()) != total
+        or sum(review_source_counts.values()) != total
+    ):
+        raise RuntimeError("Persona review aggregate completeness check failed.")
+
+    recent = aggregate.get("recent")
+    if (
+        not isinstance(recent, list)
+        or len(recent) != min(total, 12)
+        or any(not isinstance(item, dict) for item in recent)
+    ):
+        raise RuntimeError("Persona review aggregate recent rows are invalid.")
+
+    observed_at = aggregate.get("observation_generated_at")
+    if isinstance(observed_at, str):
+        normalized_observed_at = observed_at[:-1] + "+00:00" if observed_at.endswith("Z") else observed_at
+        try:
+            observed_at = datetime.fromisoformat(normalized_observed_at)
+        except ValueError as exc:
+            raise RuntimeError("Persona review observation timestamp is invalid.") from exc
+    if not isinstance(observed_at, datetime) or observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        raise RuntimeError("Persona review observation timestamp is invalid.")
+    observed_at = observed_at.astimezone(timezone.utc)
+
+    payload = {
+        "generated_at": observed_at.isoformat(),
+        "workspace": WORKSPACE_KEY,
+        "counts": {
+            "total": total,
+            "brain_pending_review": stage_counts.get("brain_pending_review", 0),
+            "workspace_saved": stage_counts.get("workspace_saved", 0),
+            "approved_unpromoted": stage_counts.get("approved_unpromoted", 0),
+            "pending_promotion": stage_counts.get("pending_promotion", 0),
+            "committed": stage_counts.get("committed", 0),
+        },
+        "status_counts": status_counts,
+        "review_source_counts": review_source_counts,
+        "target_file_counts": target_file_counts,
+        "belief_relation_counts": belief_relation_counts,
+        "recent": recent,
+        "long_form_sync": {
+            "assets_considered": 0,
+            "created_count": 0,
+            "skipped_existing": 0,
+            "skipped_no_segments": 0,
+            "resolved_stale": 0,
+            "created": [],
+        },
+    }
+    return payload, observed_at
+
+
+def _load_exact_persona_review_summary(cursor: Any) -> tuple[dict[str, Any], datetime]:
+    cursor.execute(_PERSONA_REVIEW_DB_AGGREGATE_SQL)
+    return _build_db_owned_persona_review_summary(cursor.fetchone())
+
+
+def _snapshot_row_from_db(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    return {
+        "id": str(row.get("id") or ""),
+        "workspace_key": row.get("workspace_key"),
+        "snapshot_type": row.get("snapshot_type"),
+        "payload": row.get("payload") or {},
+        "metadata": row.get("metadata") or {},
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def _upsert_persona_review_summary_monotonic(
+    cursor: Any,
+    payload: dict[str, Any],
+    *,
+    observation_generated_at: datetime,
+    request_generated_at: str,
+) -> tuple[dict[str, Any] | None, bool]:
+    cursor.execute(
+        _PERSONA_REVIEW_MONOTONIC_UPSERT_SQL,
+        (
+            str(uuid4()),
+            WORKSPACE_KEY,
+            SNAPSHOT_PERSONA_REVIEW_SUMMARY,
+            Jsonb(payload),
+            Jsonb(
+                {
+                    "source": "db_owned_persona_review_refresh",
+                    "payload_generated_at": payload.get("generated_at"),
+                    "request_generated_at": request_generated_at,
+                }
+            ),
+            observation_generated_at,
+        ),
+    )
+    stored_row = cursor.fetchone()
+    if stored_row is not None:
+        return _snapshot_row_from_db(stored_row), True
+
+    cursor.execute(
+        """
+        SELECT id, workspace_key, snapshot_type, payload, metadata, created_at, updated_at
+        FROM workspace_snapshots
+        WHERE workspace_key = %s AND snapshot_type = %s
+        """,
+        (WORKSPACE_KEY, SNAPSHOT_PERSONA_REVIEW_SUMMARY),
+    )
+    return _snapshot_row_from_db(cursor.fetchone()), False
 
 
 def _build_source_assets_from_persona_review() -> dict[str, Any] | None:
@@ -2944,6 +3321,77 @@ def _build_workspace_editorial_status(
 
 
 class WorkspaceSnapshotService:
+    def recompute_and_persist_persona_review_summary(
+        self,
+        *,
+        request_generated_at: str,
+    ) -> dict[str, Any]:
+        """Recompute the private persona summary from Railway-owned DB state.
+
+        This command path deliberately does not accept a caller-provided
+        summary and does not run the filesystem-backed long-form synchronizer.
+        One advisory-locked transaction reads an exact DB aggregate and stores
+        it with a server observation timestamp through a monotonic compare-and-
+        set.  The caller timestamp binds the receipt but never orders the DB
+        observation.  Any read, completeness, or storage failure propagates.
+        """
+
+        _validated_persona_refresh_request_generated_at(request_generated_at)
+        pool = get_pool()
+        with pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (PERSONA_REVIEW_REFRESH_LOCK_KEY,),
+                )
+                payload, observation_generated_at = _load_exact_persona_review_summary(cursor)
+                requested_hash = _snapshot_payload_sha256(payload)
+                stored_snapshot, stored = _upsert_persona_review_summary_monotonic(
+                    cursor,
+                    payload,
+                    observation_generated_at=observation_generated_at,
+                    request_generated_at=request_generated_at,
+                )
+                if not isinstance(stored_snapshot, dict):
+                    raise RuntimeError("Persona review summary storage is unavailable.")
+                if (
+                    stored_snapshot.get("workspace_key") != WORKSPACE_KEY
+                    or stored_snapshot.get("snapshot_type") != SNAPSHOT_PERSONA_REVIEW_SUMMARY
+                ):
+                    raise RuntimeError("Persona review summary storage returned the wrong snapshot identity.")
+
+                stored_payload = stored_snapshot.get("payload")
+                if not isinstance(stored_payload, dict) or _browser_status_timestamp(
+                    stored_payload.get("generated_at")
+                ) is None:
+                    raise RuntimeError("Persona review summary storage returned an invalid observation.")
+                stored_hash = _snapshot_payload_sha256(stored_payload)
+                if stored and stored_hash != requested_hash:
+                    raise RuntimeError("Persona review summary storage did not acknowledge the recomputed payload.")
+
+                snapshot_id = str(stored_snapshot.get("id") or "").strip()
+                updated_at = stored_snapshot.get("updated_at")
+                if not snapshot_id or not updated_at:
+                    raise RuntimeError("Persona review summary storage receipt is incomplete.")
+                receipt = {
+                    "workspace_key": WORKSPACE_KEY,
+                    "stored": stored,
+                    "disposition": (
+                        "stored"
+                        if stored
+                        else "idempotent_same_observation"
+                        if stored_hash == requested_hash
+                        else "retained_newer"
+                    ),
+                    "snapshot_type": SNAPSHOT_PERSONA_REVIEW_SUMMARY,
+                    "payload_sha256": stored_hash,
+                    "snapshot_id": snapshot_id,
+                    "updated_at": updated_at,
+                    "request_generated_at": request_generated_at,
+                }
+            conn.commit()
+        return receipt
+
     def redact_persisted_private_inventories(self) -> dict[str, int]:
         """Replace exact legacy file snapshots with aggregate-only projections.
 

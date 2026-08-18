@@ -18,7 +18,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 import pytest
 
+from app.models import BrainWorkspaceSnapshotSyncRequest
 from app.main import validation_exception_handler
+from app.routes import brain as brain_routes
 from app.routes import content_generation
 from app.services import linkedin_owner_review_service as owner_review_service
 from app.services import (
@@ -309,6 +311,52 @@ def test_validation_error_response_and_logs_never_echo_submitted_private_context
     assert response.body == b'{"status":"error","message":"Validation error","errors":[{"type":"value_error"}]}'
     for prohibited in (canary.lower(), "persona_chunks", "anonymized_proof_records", '"input"'):
         assert prohibited not in combined
+
+
+def test_public_workspace_persona_refresh_is_command_only_and_receipt_only() -> None:
+    request_generated_at = "2026-08-17T12:00:00Z"
+    request = BrainWorkspaceSnapshotSyncRequest(
+        generated_at=request_generated_at,
+        persona_review_refresh="recompute_db_owned",
+    )
+    receipt = {
+        "workspace_key": "linkedin-content-os",
+        "stored": True,
+        "disposition": "stored",
+        "snapshot_type": "persona_review_summary",
+        "payload_sha256": "b" * 64,
+        "snapshot_id": "public-safe-persona-receipt",
+        "updated_at": "2026-08-17T12:01:00Z",
+        "request_generated_at": request_generated_at,
+    }
+    with patch.object(
+        brain_routes.workspace_snapshot_service,
+        "recompute_and_persist_persona_review_summary",
+        return_value=receipt,
+    ) as recompute:
+        response = brain_routes.publish_brain_workspace_snapshots(request)
+
+    recompute.assert_called_once_with(request_generated_at=request_generated_at)
+    assert response["snapshots"] == {"persona_review_summary": receipt}
+    assert set(receipt) == {
+        "workspace_key",
+        "stored",
+        "disposition",
+        "snapshot_type",
+        "payload_sha256",
+        "snapshot_id",
+        "updated_at",
+        "request_generated_at",
+    }
+    rendered = json.dumps(response)
+    for prohibited in (
+        "persona_review_refresh",
+        "brain_pending_review",
+        "recent",
+        "trait",
+        "persona_target",
+    ):
+        assert prohibited not in rendered
 
 
 def _public_evidence_readiness() -> dict:
