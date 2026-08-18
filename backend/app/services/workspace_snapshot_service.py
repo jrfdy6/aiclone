@@ -19,6 +19,7 @@ from app.services import persona_delta_service
 from app.services.content_reservoir_service import build_content_reservoir_payload
 from app.services.feezie_runtime_context_service import (
     build_feezie_private_runtime_context_status,
+    load_persisted_feezie_strategy_contract,
 )
 from app.services.social_feed_builder_service import (
     build_feed as build_social_feed_runtime_payload,
@@ -3566,7 +3567,7 @@ def _load_persisted_snapshot(
 
 
 def _load_current_feezie_strategy_contract() -> dict[str, Any] | None:
-    """Load the validated contract without making snapshot reads depend on its presence."""
+    """Load the validated current contract without trusting the weekly plan itself."""
 
     try:
         from app.services.feezie_positioning_contract_service import (
@@ -3585,14 +3586,16 @@ def _load_current_feezie_strategy_contract() -> dict[str, Any] | None:
         Path.cwd() / "backend",
     )
     seen: set[Path] = set()
+    saw_local_strategy_file = False
     for candidate in candidates:
         resolved = candidate.expanduser().resolve()
         if resolved in seen:
             continue
         seen.add(resolved)
-        if not (resolved / POSITIONING_CONTRACT_PATH).is_file():
-            continue
-        if not (resolved / EDITORIAL_MIX_PATH).is_file():
+        positioning_exists = (resolved / POSITIONING_CONTRACT_PATH).is_file()
+        editorial_exists = (resolved / EDITORIAL_MIX_PATH).is_file()
+        saw_local_strategy_file = saw_local_strategy_file or positioning_exists or editorial_exists
+        if not (positioning_exists and editorial_exists):
             continue
         try:
             return load_feezie_strategy_contract(resolved)
@@ -3601,7 +3604,18 @@ def _load_current_feezie_strategy_contract() -> dict[str, Any] | None:
             # contract must read as unavailable rather than falling through to
             # a potentially unrelated checkout.
             return None
-    return None
+
+    # A partial local pair is broken canonical state, not permission to use an
+    # older mirror. Privacy-reduced Railway images, however, intentionally ship
+    # neither private strategy document. Their current comparison comes from
+    # the fresh, exact-receipt-validated private runtime bundle synced by the
+    # same signed action as the weekly projection.
+    if saw_local_strategy_file:
+        return None
+    try:
+        return load_persisted_feezie_strategy_contract()
+    except Exception:
+        return None
 
 
 def _strategy_contract_freshness(

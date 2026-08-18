@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 from copy import deepcopy
 from contextlib import ExitStack
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -274,6 +275,95 @@ def test_signed_weekly_recommendation_remains_lifecycle_visible_without_source_p
     rendered = json.dumps(browser_snapshot)
     assert "/Users/" not in rendered
     assert "source_path" not in json.dumps(browser_snapshot["weekly_plan"]["recommendations"][0])
+
+
+def test_strategy_freshness_uses_verified_runtime_contract_when_local_files_are_absent() -> None:
+    contract_hash = "b" * 64
+    weekly_plan = _synthetic_signed_weekly_plan(title="A current strategy recommendation")
+    weekly_plan["strategy_contract"]["contract_hash"] = contract_hash
+    runtime_contract = {
+        "contract_hash": contract_hash,
+        "positioning": {"approved_at": "2026-08-17T12:00:00+00:00"},
+        "editorial_mix": {"approved_at": "2026-08-17T13:00:00+00:00"},
+    }
+
+    with patch.object(Path, "is_file", return_value=False), patch(
+        "app.services.feezie_positioning_contract_service.load_feezie_strategy_contract",
+        side_effect=AssertionError("No local strategy loader is allowed without a complete local pair."),
+    ) as local_loader, patch.object(
+        workspace_snapshot_module,
+        "load_persisted_feezie_strategy_contract",
+        return_value=runtime_contract,
+    ) as runtime_loader:
+        freshness = workspace_snapshot_module._strategy_contract_freshness(
+            weekly_plan,
+            now=datetime.fromisoformat("2026-08-18T02:00:00+00:00"),
+        )
+
+    local_loader.assert_not_called()
+    runtime_loader.assert_called_once_with()
+    assert freshness == {
+        "state": "current",
+        "planned_hash": contract_hash,
+        "current_hash": contract_hash,
+        "approved_at": "2026-08-17T13:00:00+00:00",
+        "checked_at": "2026-08-18T02:00:00+00:00",
+    }
+
+
+def test_partial_or_invalid_local_strategy_never_falls_back_to_runtime_mirror() -> None:
+    def partial_pair(path: Path) -> bool:
+        return path.name == "positioning_contract.md"
+
+    with patch.object(Path, "is_file", new=partial_pair), patch.object(
+        workspace_snapshot_module,
+        "load_persisted_feezie_strategy_contract",
+        side_effect=AssertionError("A partial local pair must fail closed."),
+    ) as runtime_loader:
+        assert workspace_snapshot_module._load_current_feezie_strategy_contract() is None
+    runtime_loader.assert_not_called()
+
+    with patch.object(Path, "is_file", return_value=True), patch(
+        "app.services.feezie_positioning_contract_service.load_feezie_strategy_contract",
+        side_effect=RuntimeError("invalid local strategy"),
+    ) as local_loader, patch.object(
+        workspace_snapshot_module,
+        "load_persisted_feezie_strategy_contract",
+        side_effect=AssertionError("An invalid complete local pair must fail closed."),
+    ) as runtime_loader:
+        assert workspace_snapshot_module._load_current_feezie_strategy_contract() is None
+    local_loader.assert_called_once()
+    runtime_loader.assert_not_called()
+
+
+def test_runtime_strategy_mismatch_or_validation_failure_stays_fail_closed() -> None:
+    weekly_plan = _synthetic_signed_weekly_plan(title="A strategy comparison recommendation")
+    planned_hash = weekly_plan["strategy_contract"]["contract_hash"]
+    different_hash = "c" * 64
+
+    with patch.object(Path, "is_file", return_value=False), patch.object(
+        workspace_snapshot_module,
+        "load_persisted_feezie_strategy_contract",
+        return_value={
+            "contract_hash": different_hash,
+            "positioning": {"approved_at": "2026-08-17T12:00:00+00:00"},
+            "editorial_mix": {"approved_at": "2026-08-17T13:00:00+00:00"},
+        },
+    ):
+        stale = workspace_snapshot_module._strategy_contract_freshness(weekly_plan)
+    assert stale["state"] == "stale"
+    assert stale["planned_hash"] == planned_hash
+    assert stale["current_hash"] == different_hash
+
+    with patch.object(Path, "is_file", return_value=False), patch.object(
+        workspace_snapshot_module,
+        "load_persisted_feezie_strategy_contract",
+        side_effect=RuntimeError("invalid, stale, or unavailable runtime context"),
+    ):
+        unavailable = workspace_snapshot_module._strategy_contract_freshness(weekly_plan)
+    assert unavailable["state"] == "unavailable"
+    assert unavailable["planned_hash"] == planned_hash
+    assert unavailable["current_hash"] is None
 
 
 def test_clean_public_backend_root_resolves_without_private_staging_markers() -> None:
