@@ -89,6 +89,10 @@ FEEZIE_REVISION_RECEIPT_VERSION = "feezie_revision_execution_receipt/v1"
 FEEZIE_REMOTE_EXECUTION_CONTEXT_VERSION = "feezie_remote_execution_context/v1"
 FEEZIE_REMOTE_PROMPT_POLICY_VERSION = "feezie_remote_prompt_policy/v4"
 FEEZIE_CODEX_EXECUTION_PROFILE_VERSION = "feezie_codex_execution_profile/v1"
+FEEZIE_REMOTE_JOB_PACKET_VERSION = "feezie_remote_job_packet/v1"
+FEEZIE_COMPLETION_RESULT_VERSION = "feezie_completion_result/v1"
+FEEZIE_COMPLETION_ARTIFACT_VERSION = "feezie_completion_artifact/v1"
+CODEX_COMPLETION_RESULT_VERSION = "codex_completion_result/v1"
 FEEZIE_CODEX_MODEL = "gpt-5.6-sol"
 
 CORE_BUNDLE_PATHS = {
@@ -2940,6 +2944,66 @@ def _source_card_identity_digest(source_card: LocalCodexSourceCard | None) -> st
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _feezie_remote_source_card_projection(
+    source_card: LocalCodexSourceCard | None,
+) -> Dict[str, Any]:
+    """Project only public-safe source metadata needed by downstream owner review.
+
+    The Railway job is a remote execution envelope, not a private source archive.
+    Stable source identifiers, local paths, target files, arbitrary provenance, raw
+    proof fields, and owner clarification fields therefore stay outside the job.
+    A digest preserves cache/source identity without retaining those inputs.
+    """
+
+    if source_card is None:
+        return {}
+
+    projected: Dict[str, Any] = {}
+    text_fields = (
+        "title",
+        "summary",
+        "hook",
+        "owner_reaction",
+        "route_reason",
+        "priority_lane",
+        "source_kind",
+        "section",
+    )
+    for field_name in text_fields:
+        value = anonymize_feezie_public_text(
+            _public_source_card_text(
+                getattr(source_card, field_name, None),
+                source_card=source_card,
+                limit=1200,
+            ),
+            limit=1200,
+        )
+        if value:
+            projected[field_name] = value
+
+    source_url = _public_source_card_url(source_card.source_url)
+    if source_url:
+        projected["source_url"] = source_url
+
+    identity_digest = _source_card_identity_digest(source_card)
+    if identity_digest:
+        projected["source_identity_sha256"] = identity_digest
+    return projected
+
+
+def _feezie_private_request_identity_digest(req: LocalCodexJobCreateRequest) -> str:
+    """Bind cache identity to private inputs without persisting their contents."""
+
+    serialized = json.dumps(
+        req.model_dump(exclude_none=True),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def _public_source_card_text(
     value: Any,
     *,
@@ -3270,9 +3334,21 @@ def _resolve_feezie_generation_classification(
         "publish_posture": str(source_card.publish_posture or "").strip() if source_card is not None else None,
         "audience": (str(source_card.audience or "").strip() if source_card is not None else "") or req.audience,
         "generation_audience": req.audience,
-        "audience_consequence": str(source_card.audience_consequence or "").strip() if source_card is not None else None,
-        "distinct_thesis": str(source_card.distinct_thesis or "").strip() if source_card is not None else None,
-        "why_now": str(source_card.why_now or "").strip() if source_card is not None else None,
+        "audience_consequence": (
+            anonymize_feezie_public_text(source_card.audience_consequence, limit=500)
+            if source_card is not None
+            else None
+        ),
+        "distinct_thesis": (
+            anonymize_feezie_public_text(source_card.distinct_thesis, limit=500)
+            if source_card is not None
+            else None
+        ),
+        "why_now": (
+            anonymize_feezie_public_text(source_card.why_now, limit=500)
+            if source_card is not None
+            else None
+        ),
         "development_status": str(source_card.development_status or "").strip() if source_card is not None else None,
         "source_freshness": source_freshness,
         "classification_state": "complete" if not missing else "owner_review_required",
@@ -3281,14 +3357,26 @@ def _resolve_feezie_generation_classification(
 
 
 def _local_codex_cache_request_payload(req: LocalCodexJobCreateRequest) -> Dict[str, Any]:
-    payload = req.model_dump()
-    source_card_digest = _source_card_identity_digest(req.source_card)
-    if source_card_digest:
-        public_context = _local_codex_request_context(req)
-        payload["context"] = "\n\n".join(
-            part for part in (public_context, f"Source card identity: sha256:{source_card_digest}") if part
-        )
-    return payload
+    """Return a cache fingerprint that cannot become a second private source store."""
+
+    request_digest = _feezie_private_request_identity_digest(req)
+    user_digest = hashlib.sha256(str(req.user_id or "").encode("utf-8")).hexdigest()
+    return {
+        "user_id": f"sha256:{user_digest}",
+        "topic": anonymize_feezie_public_text(req.topic, limit=320),
+        "context": f"private-input-sha256:{request_digest}",
+        "content_type": req.content_type,
+        "category": req.category,
+        "tone": "direct_curiosity_evidence_led",
+        "audience": req.audience,
+        "source_mode": req.source_mode,
+        "canonical_pillar": req.canonical_pillar,
+        "career_signal": req.career_signal,
+        "employer_proximity": req.employer_proximity,
+        "employer_safety": req.employer_safety,
+        "proof_posture": req.proof_posture,
+        "treatment": req.treatment,
+    }
 
 
 def _build_local_codex_idempotency_key(
@@ -3647,6 +3735,9 @@ def _feezie_implemented_gate_projection(concrete_action: str) -> tuple[str, str,
         return None
     prefix = action[: relation_match.start()].strip(" -,:;.!?")
     boundary_tail = action[relation_match.end():].strip(" -,:;.!?")
+    # Bind the gate to its own clause. Later implementation sentences are
+    # evidence context, not part of the decision boundary.
+    boundary_tail = re.split(r"(?<=[.!?])\s+", boundary_tail, maxsplit=1)[0].strip(" -,:;.!?")
     verb_matches = list(_FEEZIE_IMPLEMENTED_GATE_VERB_RE.finditer(prefix))
     if not verb_matches or len(re.findall(r"[A-Za-z0-9]+", boundary_tail)) < 2:
         return None
@@ -3790,9 +3881,9 @@ def _bind_publish_ready_evidence_to_briefs(
     diagnosis.recognition_anchor_terms = lesson_anchors[:2]
 
     application.framing_mode = "bounded_evidence_application"
-    application.primary_claim = observable_lesson
+    application.primary_claim = consequence_basis
     application.proof_packet = concrete_action
-    application.story_beat = observable_lesson
+    application.story_beat = recognition_basis
     application.required_context_concepts = (
         f"Concrete action: {concrete_action} | Exact problem: {exact_problem}"
     )
@@ -3848,15 +3939,25 @@ def _build_local_codex_context_packet(
     )
     if classification["employer_safety"] == "blocked":
         raise ValueError("FEEZIE generation is blocked by the owner-approved employer-safety classification.")
+    safe_topic = anonymize_feezie_public_text(req.topic, limit=320)
     distinct_thesis = (
-        _public_source_card_text(req.source_card.distinct_thesis, source_card=req.source_card)
+        anonymize_feezie_public_text(req.source_card.distinct_thesis, limit=500)
         if req.source_card is not None and req.source_card.distinct_thesis
         else ""
     )
     local_primary_claims = _local_codex_primary_claims(
-        topic=distinct_thesis or req.topic,
+        topic=distinct_thesis or safe_topic,
         audience=req.audience,
-        primary_claims=content_context.primary_claims,
+        primary_claims=[
+            value
+            for value in (
+                distinct_thesis,
+                safe_topic,
+                str(evidence_contract.get("exact_problem") or ""),
+                str(evidence_contract.get("observable_lesson") or ""),
+            )
+            if value
+        ],
     )
     # The owner-confirmed triplet is the only proof every draft may rely on. It is
     # already public-safe and prevents a ranked but unrelated reservoir item from
@@ -3921,14 +4022,14 @@ PUBLISH-READY EVIDENCE CONTRACT:
 - Author posture: {evidence_contract['author_posture']}
 
 EVIDENCE-BINDING RULES:
-- Both drafts must name the real artifact, action, change, test, or decision above in first-person bounded language.
-- Both drafts must state the exact observed problem or failure above. Do not dilute it into a broad category claim.
-- Both drafts must land on the observable lesson above and, when available, the next bounded test. The payoff must come from this evidence, never a slogan.
+- The evidence triplet is a factual ceiling, not one shared outline for both drafts. The assigned role decides where each supported fact belongs.
+- The diagnosis draft uses the action as bounded proof, explains the exact observed problem, and lands on the observable lesson as recognition.
+- The application draft leads with the supported gate, uses the action and problem only as decision context, records the lesson as a bounded learning observation, and lands on the decision boundary or concrete consequence rather than repeating the diagnosis payoff.
 - Write as the person running and documenting a bounded experiment, not as an expert teaching a universal framework.
 - Do not tell leaders, teams, builders, or the reader what they must, should, need to, or have to do.
 - Do not use universal authority claims such as `always`, `never`, `everyone`, `the best`, or `the real systems`.
 - Use exactly 3 or 4 short paragraphs and 85 to 150 words per draft.
-- The closing paragraph must tie directly to the observed lesson or exact problem; an abstract maxim is not publishable.
+- The closing paragraph must fulfill its assigned role and remain directly traceable to the evidence; an abstract maxim is not publishable.
 - Do not invent a result, metric, person, employer, or causal outcome beyond this contract.
 """
     prompt += f"""
@@ -3957,12 +4058,39 @@ FINAL RESPONSE CONTRACT:
 - No commentary outside the JSON object.
 - Do not edit files or attempt to save anything locally.
 """
+    # The bridge reconstructs writer and critic prompts from the typed remote-safe
+    # fields below. Persisting the much larger locally assembled prompt would copy
+    # persona excerpts, source previews, and private provenance into Railway even
+    # though current FEEZIE execution never reads them.
+    remote_bootstrap_prompt = (
+        "FEEZIE remote-safe execution packet. Reconstruct each isolated writer and critic prompt "
+        "only from remote_execution_context, evidence_contract, planned_option_briefs, and the "
+        "declared draft and revision contracts."
+    )
+    projected_evidence_contract = {
+        key: evidence_contract[key]
+        for key in (
+            "schema_version",
+            "status",
+            "author_posture",
+            "concrete_action",
+            "exact_problem",
+            "observable_lesson",
+            "field_sources",
+            "retrieved_record_id_sha256",
+            "missing_fields",
+            "contract_sha256",
+        )
+        if key in evidence_contract
+    }
+    projected_evidence_contract["student_scientist_enabled"] = student_scientist_enabled
     return {
+        "packet_schema_version": FEEZIE_REMOTE_JOB_PACKET_VERSION,
         "workspace_slug": req.workspace_slug,
-        "prompt": prompt.strip(),
+        "prompt": remote_bootstrap_prompt,
         "remote_execution_context": {
             "schema_version": FEEZIE_REMOTE_EXECUTION_CONTEXT_VERSION,
-            "topic": anonymize_feezie_public_text(req.topic, limit=320),
+            "topic": safe_topic,
             "audience": req.audience,
             "intent": req.category,
             "tone": "direct_curiosity_evidence_led",
@@ -3980,8 +4108,6 @@ FINAL RESPONSE CONTRACT:
             "source_bodies_excluded": True,
             "allowed_evidence": ["remote_execution_context", "publish_ready_evidence_contract"],
         },
-        "source_card": _source_card_payload(req.source_card) or None,
-        "source_card_public_context": _source_card_public_context(req.source_card) or None,
         "requested_model": codex_execution_profile["writer"]["model"],
         "codex_execution_profile": codex_execution_profile,
         "expected_option_count": FEEZIE_CODEX_DRAFT_OPTION_COUNT,
@@ -4006,57 +4132,98 @@ FINAL RESPONSE CONTRACT:
             "fresh_blind_critic_required_after_revision": True,
         },
         "portfolio_learning": portfolio_learning,
-        "evidence_contract": {
-            **evidence_contract,
-            "student_scientist_enabled": student_scientist_enabled,
-        },
+        "evidence_contract": projected_evidence_contract,
         "intent": req.category,
         "strategy_contract": strategy_contract,
         "candidate_classification": classification,
         "grounding_mode": effective_grounding_mode,
         "grounding_reason": effective_grounding_reason,
         "primary_claims": local_primary_claims,
-        "raw_primary_claims": content_context.raw_primary_claims,
-        "public_safe_primary_claims": content_context.public_safe_primary_claims,
         "proof_packets": local_proof_packets,
-        "raw_proof_packets": content_context.raw_proof_packets,
-        "public_safe_proof_packets": content_context.public_safe_proof_packets,
-        "raw_story_beats": content_context.raw_story_beats,
-        "public_safe_story_beats": content_context.public_safe_story_beats,
-        "content_release_policy": content_context.content_release_policy,
         "story_beats": local_story_beats,
-        "disallowed_moves": content_context.disallowed_moves,
         "approved_references": approved_references,
-        "voice_directives": voice_directives,
         "planned_option_briefs": _serialize_content_option_briefs(briefs),
-        "topic_anchor_preview": [
-            _render_anchor_chunk(item)[:220]
-            for item in local_topic_anchor_chunks[:4]
-        ],
-        "core_chunk_preview": [
-            _render_anchor_chunk(item)[:220]
-            for item in content_context.core_chunks[:4]
-        ],
-        "proof_anchor_preview": [
-            _render_anchor_chunk(item)[:220]
-            for item in local_proof_anchor_chunks[:4]
-        ],
-        "content_signal_source": _content_signal_source(content_context),
-        "content_signal_preview": [
-            str(item.get("chunk") or "")[:220]
-            for item in _content_signal_chunks(content_context)[:6]
-        ],
-        "content_signal_count": len(_content_signal_chunks(content_context)),
-        "content_signal_support": _serialize_content_signal_support(content_context),
-        "content_reservoir_preview": [
-            str(item.get("chunk") or "")[:220]
-            for item in _content_signal_chunks(content_context)[:6]
-        ],
-        "content_reservoir_count": len(_content_signal_chunks(content_context)),
-        "content_reservoir_support": _serialize_content_signal_support(content_context),
-        "persona_context_summary": content_context.persona_context_summary,
-        "examples_used": [c.get("metadata", {}).get("source", "")[:50] for c in content_context.example_chunks[:3]],
     }
+
+
+def _feezie_remote_request_payload(
+    req: LocalCodexJobCreateRequest,
+    context_packet: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build the closed request envelope persisted with a Railway FEEZIE job."""
+
+    remote_context = (
+        dict(context_packet.get("remote_execution_context") or {})
+        if isinstance(context_packet.get("remote_execution_context"), dict)
+        else {}
+    )
+    classification = (
+        dict(context_packet.get("candidate_classification") or {})
+        if isinstance(context_packet.get("candidate_classification"), dict)
+        else {}
+    )
+    payload: Dict[str, Any] = {
+        "packet_schema_version": FEEZIE_REMOTE_JOB_PACKET_VERSION,
+        "workspace_slug": req.workspace_slug,
+        "topic": str(remote_context.get("topic") or "").strip(),
+        "content_type": req.content_type,
+        "category": str(remote_context.get("intent") or req.category).strip(),
+        "tone": str(remote_context.get("tone") or "direct_curiosity_evidence_led").strip(),
+        "audience": str(remote_context.get("audience") or req.audience).strip(),
+        "source_mode": req.source_mode,
+        "canonical_pillar": str(classification.get("canonical_pillar") or "unclassified"),
+        "career_signal": str(classification.get("career_signal") or "unclassified"),
+        "employer_proximity": str(classification.get("employer_proximity") or "unclassified"),
+        "employer_safety": str(classification.get("employer_safety") or "owner_review_required"),
+        "proof_posture": str(classification.get("proof_posture") or "verified_public"),
+    }
+    treatment = str(classification.get("treatment") or "").strip()
+    if treatment:
+        payload["treatment"] = treatment
+    source_card = _feezie_remote_source_card_projection(req.source_card)
+    if source_card:
+        payload["source_card"] = source_card
+    return payload
+
+
+def _assert_feezie_remote_job_payload_safe(value: Any) -> None:
+    """Fail closed if a closed Railway job packet regains raw/private fields."""
+
+    forbidden_keys = {
+        "context",
+        "evidence_answers",
+        "source_path",
+        "target_file",
+        "provenance",
+        "source_card_public_context",
+        "persona_context_summary",
+        "examples_used",
+        "content_signal_support",
+        "content_reservoir_support",
+    }
+
+    def validate(node: Any) -> None:
+        if isinstance(node, dict):
+            for raw_key, child in node.items():
+                key = str(raw_key).strip().lower()
+                exclusion_receipt = key.startswith("raw_") and key.endswith("_excluded") and child is True
+                if key in forbidden_keys or (key.startswith("raw_") and not exclusion_receipt):
+                    raise ValueError("FEEZIE remote job payload retained a raw or private field.")
+                validate(child)
+            return
+        if isinstance(node, list):
+            for child in node:
+                validate(child)
+
+    validate(value)
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    if re.search(
+        r"(?:/Users|/home|/private|/tmp)/|[A-Za-z]:\\|"
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        encoded,
+        flags=re.IGNORECASE,
+    ):
+        raise ValueError("FEEZIE remote job payload retained a private path or email address.")
 
 
 def _persist_job_artifacts(job_id: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -4081,7 +4248,6 @@ def _persist_job_artifacts(job_id: str, items: list[dict[str, Any]]) -> list[dic
 
 
 def queue_local_codex_job(req: LocalCodexJobCreateRequest) -> dict[str, Any]:
-    request_payload = req.model_dump(exclude_none=True)
     cache_request_payload = _local_codex_cache_request_payload(req)
     cache_key, snapshot_hash = build_context_cache_key(
         workspace_slug=req.workspace_slug,
@@ -4100,6 +4266,7 @@ def queue_local_codex_job(req: LocalCodexJobCreateRequest) -> dict[str, Any]:
     cached_execution_profile = context_packet.get("codex_execution_profile") if isinstance(context_packet, dict) else None
     cache_hit = bool(
         isinstance(context_packet, dict)
+        and context_packet.get("packet_schema_version") == FEEZIE_REMOTE_JOB_PACKET_VERSION
         and isinstance(cached_evidence, dict)
         and cached_evidence.get("schema_version") == EVIDENCE_CONTRACT_VERSION
         and all(str(cached_evidence.get(key) or "").strip() for key in EVIDENCE_KEYS)
@@ -4138,6 +4305,7 @@ def queue_local_codex_job(req: LocalCodexJobCreateRequest) -> dict[str, Any]:
             content_context=content_context,
             evidence_contract=dict(evidence_readiness.get("contract") or {}),
         )
+        _assert_feezie_remote_job_payload_safe(context_packet)
         write_cached_context_packet(
             cache_key=cache_key,
             workspace_slug=req.workspace_slug,
@@ -4151,9 +4319,12 @@ def queue_local_codex_job(req: LocalCodexJobCreateRequest) -> dict[str, Any]:
     context_packet["cache_key"] = cache_key
     context_packet["snapshot_hash"] = snapshot_hash
     context_packet["cache_hit"] = cache_hit
+    request_payload = _feezie_remote_request_payload(req, context_packet)
+    _assert_feezie_remote_job_payload_safe(request_payload)
+    _assert_feezie_remote_job_payload_safe(context_packet)
     job = create_codex_job(
         workspace_slug=req.workspace_slug,
-        requested_by=req.user_id,
+        requested_by="owner",
         request_payload=request_payload,
         context_packet=context_packet,
         idempotency_key=_build_local_codex_idempotency_key(req, context_cache_key=cache_key),
@@ -4384,8 +4555,12 @@ def _validate_feezie_revision_execution_receipt(
         "canonical_order_preserved",
         "retry_allowed",
         "initial_critic_call_count",
+        "initial_critic_status",
+        "initial_critic_reason",
         "revision_call_count",
         "final_critic_call_count",
+        "final_critic_status",
+        "final_critic_reason",
         "original_pair_sha256",
         "final_pair_sha256",
         "initial_critic_receipt_sha256",
@@ -4420,6 +4595,18 @@ def _validate_feezie_revision_execution_receipt(
     final_critic_calls = bounded_count("final_critic_call_count", maximum=1)
     if initial_critic_calls != 1:
         raise ValueError("The FEEZIE revision receipt must record exactly one initial critic attempt.")
+    initial_critic_status = str(receipt.get("initial_critic_status") or "").strip().lower()
+    final_critic_status = str(receipt.get("final_critic_status") or "").strip().lower()
+    if initial_critic_status not in {"completed", "unavailable", "not_run"}:
+        raise ValueError("The FEEZIE revision receipt has an invalid initial critic status.")
+    if final_critic_status not in {"completed", "unavailable", "not_run"}:
+        raise ValueError("The FEEZIE revision receipt has an invalid final critic status.")
+    for reason_key in ("initial_critic_reason", "final_critic_reason"):
+        reason_value = str(receipt.get(reason_key) or "").strip()
+        if len(reason_value) > 160 or (
+            reason_value and re.fullmatch(r"[a-z0-9_:-]{1,160}", reason_value) is None
+        ):
+            raise ValueError("The FEEZIE revision receipt has an invalid critic reason code.")
 
     failure_code = str(receipt.get("failure_code") or "").strip().lower()
     if failure_code and re.fullmatch(r"[a-z0-9_:-]{1,96}", failure_code) is None:
@@ -4565,6 +4752,8 @@ def _validate_feezie_revision_execution_receipt(
         if (
             revision_calls != 0
             or final_critic_calls != 0
+            or initial_critic_status != "completed"
+            or final_critic_status != "completed"
             or original_pair_sha != final_pair_sha
             or not _valid_feezie_sha256(initial_critic_sha)
             or initial_critic_sha != final_critic_sha
@@ -4576,6 +4765,8 @@ def _validate_feezie_revision_execution_receipt(
         if (
             revision_calls not in {1, 2}
             or final_critic_calls != 1
+            or initial_critic_status != "completed"
+            or final_critic_status != "completed"
             or not _valid_feezie_sha256(initial_critic_sha)
             or not _valid_feezie_sha256(final_critic_sha)
             or initial_critic_sha == final_critic_sha
@@ -4893,24 +5084,972 @@ def _validate_feezie_codex_completion_result(
     return result_payload
 
 
+def _completion_text(value: Any, *, limit: int = 1200) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def _completion_text_list(value: Any, *, limit: int = 32, item_limit: int = 500) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        text
+        for text in (_completion_text(item, limit=item_limit) for item in value[:limit])
+        if text
+    ]
+
+
+def _codex_worker_receipt(worker_id: Any) -> str:
+    """Preserve worker lease equality without storing a caller-supplied identity."""
+
+    normalized = str(worker_id or "").strip()
+    return f"worker-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _project_feezie_draft_contract(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    return {
+        key: raw.get(key)
+        for key in (
+            "schema_version",
+            "required_option_count",
+            "maximum_option_count",
+            "meaningful_difference_required",
+            "independent_writer_calls_required",
+            "writer_calls_per_option",
+            "independent_critic_required",
+            "critic_reviews_per_option",
+            "hook_variants_per_option",
+        )
+        if raw.get(key) is not None
+    }
+
+
+def _project_feezie_revision_contract(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    return {
+        key: raw.get(key)
+        for key in (
+            "schema_version",
+            "enabled",
+            "trigger",
+            "revision_calls_per_non_ready_option",
+            "model_retries_per_revision",
+            "preserve_ready_sibling_exactly",
+            "fresh_blind_critic_required_after_revision",
+        )
+        if raw.get(key) is not None
+    }
+
+
+def _project_feezie_distinctness_receipt(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    projected: Dict[str, Any] = {
+        key: raw.get(key)
+        for key in (
+            "schema_version",
+            "passed",
+            "required_option_count",
+            "actual_option_count",
+        )
+        if raw.get(key) is not None
+    }
+    reason = _completion_text(raw.get("reason"), limit=800)
+    if reason:
+        projected["reason"] = reason
+    projected["failed_reasons"] = _completion_text_list(
+        raw.get("failed_reasons"), limit=32, item_limit=160
+    )
+    pairs: List[Dict[str, Any]] = []
+    for item in raw.get("pairs") or []:
+        if not isinstance(item, dict):
+            continue
+        pairs.append(
+            {
+                key: item.get(key)
+                for key in (
+                    "left_option_index",
+                    "right_option_index",
+                    "sequence_similarity",
+                    "term_containment",
+                    "shingle_jaccard",
+                    "opening_signatures_match",
+                    "passed",
+                )
+                if item.get(key) is not None
+            }
+            | {
+                "failed_reasons": _completion_text_list(
+                    item.get("failed_reasons"), limit=16, item_limit=160
+                )
+            }
+        )
+    projected["pairs"] = pairs[:6]
+    return projected
+
+
+def _project_feezie_option_review(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    projected: Dict[str, Any] = {
+        key: raw.get(key)
+        for key in (
+            "option_index",
+            "score",
+            "verdict",
+            "editorially_ready",
+            "deterministic_quality_passed",
+            "deterministic_score",
+            "deterministic_threshold",
+            "deterministic_blocked",
+        )
+        if raw.get(key) is not None
+    }
+    critic_option_id = _completion_text(raw.get("critic_option_id"), limit=40)
+    if re.fullmatch(r"draft_[0-9a-f]{16}", critic_option_id):
+        projected["critic_option_id"] = critic_option_id
+    dimensions = raw.get("dimension_scores") if isinstance(raw.get("dimension_scores"), dict) else {}
+    projected["dimension_scores"] = {
+        key: dimensions.get(key)
+        for key in ("truth", "safety", "intent", "voice", "hook")
+        if dimensions.get(key) is not None
+    }
+    projected["issues"] = _completion_text_list(raw.get("issues"), limit=16, item_limit=500)
+    projected["hook_variants"] = _completion_text_list(
+        raw.get("hook_variants"),
+        limit=FEEZIE_CODEX_HOOK_VARIANT_COUNT,
+        item_limit=500,
+    )
+    projected["deterministic_blocking_reasons"] = _completion_text_list(
+        raw.get("deterministic_blocking_reasons"), limit=32, item_limit=160
+    )
+    return projected
+
+
+def _project_feezie_blind_critic_receipt(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    projected = {
+        key: raw.get(key)
+        for key in (
+            "schema_version",
+            "independent_execution",
+            "opaque_identity_used",
+            "original_numbering_withheld_from_critic",
+            "original_order_withheld_from_critic",
+            "writer_option_plan_withheld_from_critic",
+            "deterministic_shuffle",
+            "non_identity_permutation",
+            "order_strategy",
+            "option_count",
+            "job_scope_sha256",
+            "mapping_commitment_sha256",
+            "contains_draft_copy",
+            "opaque_role_contracts_used",
+            "contains_role_payload_copy",
+            "role_contract_commitment_sha256",
+        )
+        if raw.get(key) is not None
+    }
+    projected["critic_order"] = [
+        {
+            "critic_option_id": _completion_text(item.get("critic_option_id"), limit=40),
+            "canonical_option_index": item.get("canonical_option_index"),
+        }
+        for item in (raw.get("critic_order") or [])[:FEEZIE_CODEX_DRAFT_OPTION_COUNT]
+        if isinstance(item, dict)
+    ]
+    return projected
+
+
+def _project_feezie_critic_receipt(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    projected: Dict[str, Any] = {
+        "status": _completion_text(raw.get("status"), limit=40),
+        "reviews": [
+            _project_feezie_option_review(item)
+            for item in (raw.get("reviews") or [])[:FEEZIE_CODEX_DRAFT_OPTION_COUNT]
+            if isinstance(item, dict)
+        ],
+        "draft_distinctness": _project_feezie_distinctness_receipt(
+            raw.get("draft_distinctness")
+        ),
+    }
+    reason = _completion_text(raw.get("reason"), limit=160)
+    if reason:
+        projected["reason"] = reason
+    failure_stage = _completion_text(raw.get("failure_stage"), limit=80)
+    if failure_stage:
+        projected["failure_stage"] = failure_stage
+    exception_class = _completion_text(raw.get("exception_class"), limit=80)
+    if exception_class:
+        projected["exception_class"] = exception_class
+    if raw.get("attempt_count") == 1:
+        projected["attempt_count"] = 1
+    message = _completion_text(raw.get("message"), limit=240)
+    if message:
+        projected["message"] = message
+    if isinstance(raw.get("blind_review_receipt"), dict):
+        projected["blind_review_receipt"] = _project_feezie_blind_critic_receipt(
+            raw.get("blind_review_receipt")
+        )
+    return projected
+
+
+def _closed_feezie_critic_receipt(value: Any) -> Dict[str, Any]:
+    """Validate the exact bounded critic shape, then preserve its hash verbatim."""
+
+    if not isinstance(value, dict):
+        raise ValueError("The FEEZIE critic receipt is missing.")
+    raw = dict(value)
+    status = str(raw.get("status") or "").strip().lower()
+    if status == "completed":
+        if set(raw) != {
+            "status",
+            "draft_distinctness",
+            "blind_review_receipt",
+            "reviews",
+        }:
+            raise ValueError("The completed FEEZIE critic receipt is unbounded.")
+        distinctness = raw.get("draft_distinctness")
+        if (
+            not isinstance(distinctness, dict)
+            or set(distinctness) != {"passed", "reason"}
+            or not isinstance(distinctness.get("passed"), bool)
+            or not str(distinctness.get("reason") or "").strip()
+            or len(str(distinctness.get("reason") or "")) > 800
+        ):
+            raise ValueError("The completed FEEZIE critic distinctness receipt is unbounded.")
+        reviews = raw.get("reviews")
+        if not isinstance(reviews, list) or len(reviews) != FEEZIE_CODEX_DRAFT_OPTION_COUNT:
+            raise ValueError("The completed FEEZIE critic review coverage is invalid.")
+        review_keys = {
+            "option_index",
+            "critic_option_id",
+            "score",
+            "verdict",
+            "dimension_scores",
+            "issues",
+            "hook_variants",
+        }
+        for review in reviews:
+            if not isinstance(review, dict) or set(review) != review_keys:
+                raise ValueError("A completed FEEZIE critic option receipt is unbounded.")
+            issues = review.get("issues")
+            hooks = review.get("hook_variants")
+            if (
+                not isinstance(issues, list)
+                or len(issues) > 6
+                or any(not isinstance(item, str) or not item.strip() or len(item) > 500 for item in issues)
+                or not isinstance(hooks, list)
+                or len(hooks) != FEEZIE_CODEX_HOOK_VARIANT_COUNT
+                or any(not isinstance(item, str) or not item.strip() or len(item) > 500 for item in hooks)
+            ):
+                raise ValueError("A completed FEEZIE critic copy receipt exceeds its bounds.")
+    elif status in {"unavailable", "not_run"}:
+        allowed_keys = {
+            "status",
+            "reason",
+            "failure_stage",
+            "exception_class",
+            "attempt_count",
+            "message",
+            "reviews",
+        }
+        if (
+            not set(raw).issubset(allowed_keys)
+            or set(raw) - {"failure_stage", "exception_class", "attempt_count", "message"}
+            != {"status", "reason", "reviews"}
+            or raw.get("reviews") != []
+        ):
+            raise ValueError("The unavailable FEEZIE critic receipt is unbounded.")
+        reason = str(raw.get("reason") or "").strip()
+        failure_stage = str(raw.get("failure_stage") or "").strip()
+        exception_class = str(raw.get("exception_class") or "").strip()
+        message = str(raw.get("message") or "").strip()
+        if re.fullmatch(r"[a-z0-9_:-]{1,160}", reason) is None:
+            raise ValueError("The unavailable FEEZIE critic reason code is invalid.")
+        if failure_stage and re.fullmatch(r"[a-z0-9_:-]{1,80}", failure_stage) is None:
+            raise ValueError("The unavailable FEEZIE critic failure stage is invalid.")
+        if exception_class and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{0,79}", exception_class) is None:
+            raise ValueError("The unavailable FEEZIE critic exception class is invalid.")
+        allowed_messages = {
+            "Independent critic failed closed at a bounded execution stage.",
+            "Final independent critic failed closed at a bounded execution stage.",
+            "Independent critic timed out and failed closed.",
+            "Final independent critic timed out and failed closed.",
+            "Revision failed before an admissible final critic verdict.",
+        }
+        if message and message not in allowed_messages:
+            raise ValueError("The unavailable FEEZIE critic message is not a generic stage receipt.")
+        if "attempt_count" in raw and raw.get("attempt_count") != 1:
+            raise ValueError("The unavailable FEEZIE critic attempt receipt is invalid.")
+    else:
+        raise ValueError("The FEEZIE critic receipt has an unsupported status.")
+    _assert_feezie_completion_payload_safe({"critic_review": raw})
+    return json.loads(json.dumps(raw, ensure_ascii=True))
+
+
+def _project_feezie_voice_contamination_receipt(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    projected = {
+        key: raw.get(key)
+        for key in (
+            "schema_version",
+            "passed",
+            "exemplar_count",
+            "evaluated_option_count",
+            "blocked_option_count",
+            "contains_exemplar_text",
+        )
+        if raw.get(key) is not None
+    }
+    projected["blocker_codes"] = _completion_text_list(
+        raw.get("blocker_codes"), limit=32, item_limit=160
+    )
+    option_results: List[Dict[str, Any]] = []
+    for item in raw.get("option_results") or []:
+        if not isinstance(item, dict):
+            continue
+        findings = [
+            {
+                key: finding.get(key)
+                for key in ("code", "reference_id_sha256", "match_sha256", "matched_token_count")
+                if finding.get(key) is not None
+            }
+            for finding in (item.get("findings") or [])[:32]
+            if isinstance(finding, dict)
+        ]
+        option_results.append(
+            {
+                "option_index": item.get("option_index"),
+                "passed": item.get("passed"),
+                "blocker_codes": _completion_text_list(
+                    item.get("blocker_codes"), limit=32, item_limit=160
+                ),
+                "findings": findings,
+            }
+        )
+    projected["option_results"] = option_results[:FEEZIE_CODEX_DRAFT_OPTION_COUNT]
+    return projected
+
+
+def _project_feezie_quality_gate(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    projected: Dict[str, Any] = {
+        key: raw.get(key)
+        for key in (
+            "schema_version",
+            "passed",
+            "selection_admission_passed",
+            "required_option_count",
+            "evaluated_option_count",
+        )
+        if raw.get(key) is not None
+    }
+    projected["failed_reasons"] = _completion_text_list(
+        raw.get("failed_reasons"), limit=64, item_limit=180
+    )
+    shared = raw.get("shared_constraints") if isinstance(raw.get("shared_constraints"), dict) else {}
+    projected["shared_constraints"] = {
+        key: shared.get(key)
+        for key in ("passed", "required_option_count", "evaluated_option_count")
+        if shared.get(key) is not None
+    } | {
+        "failed_reasons": _completion_text_list(
+            shared.get("failed_reasons"), limit=32, item_limit=180
+        )
+    }
+    projected["option_results"] = [
+        {
+            key: item.get(key)
+            for key in ("option_index", "passed", "score", "threshold")
+            if item.get(key) is not None
+        }
+        | {
+            "failed_reasons": _completion_text_list(
+                item.get("failed_reasons"), limit=32, item_limit=180
+            )
+        }
+        for item in (raw.get("option_results") or [])[:FEEZIE_CODEX_DRAFT_OPTION_COUNT]
+        if isinstance(item, dict)
+    ]
+    projected["draft_distinctness"] = _project_feezie_distinctness_receipt(
+        raw.get("draft_distinctness")
+    )
+    if isinstance(raw.get("voice_exemplar_contamination"), dict):
+        projected["voice_exemplar_contamination"] = _project_feezie_voice_contamination_receipt(
+            raw.get("voice_exemplar_contamination")
+        )
+    return projected
+
+
+def _project_feezie_revision_execution(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    projected = {
+        key: raw.get(key)
+        for key in (
+            "schema_version",
+            "status",
+            "failure_code",
+            "canonical_order_preserved",
+            "retry_allowed",
+            "initial_critic_call_count",
+            "initial_critic_status",
+            "initial_critic_reason",
+            "revision_call_count",
+            "final_critic_call_count",
+            "final_critic_status",
+            "final_critic_reason",
+            "original_pair_sha256",
+            "final_pair_sha256",
+            "initial_critic_receipt_sha256",
+            "final_critic_receipt_sha256",
+            "contains_post_copy",
+            "contains_critic_issue_copy",
+        )
+        if raw.get(key) is not None
+    }
+    projected["options"] = [
+        {
+            key: item.get(key)
+            for key in (
+                "canonical_option_index",
+                "action",
+                "attempt_count",
+                "original_post_sha256",
+                "final_post_sha256",
+                "revision_prompt_sha256",
+                "bounded_findings_sha256",
+                "role_contract_sha256",
+                "attempt_output_sha256",
+                "changed",
+                "error_code",
+            )
+            if item.get(key) is not None
+        }
+        for item in (raw.get("options") or [])[:FEEZIE_CODEX_DRAFT_OPTION_COUNT]
+        if isinstance(item, dict)
+    ]
+    return projected
+
+
+def _project_feezie_editorial_readiness(value: Any) -> Dict[str, Any]:
+    raw = dict(value) if isinstance(value, dict) else {}
+    projected = {
+        key: raw.get(key)
+        for key in (
+            "ready",
+            "status",
+            "critic_status",
+            "ready_score_threshold",
+            "quality_gate_schema_version",
+            "deterministic_quality_receipt_valid",
+            "deterministic_quality_gate_passed",
+            "batch_all_options_quality_passed",
+            "shared_constraints_passed",
+            "selection_admission_passed",
+            "voice_exemplar_contamination_passed",
+            "semantic_distinctness_passed",
+            "ready_option_count",
+        )
+        if raw.get(key) is not None
+    }
+    projected["draft_distinctness"] = _project_feezie_distinctness_receipt(
+        raw.get("draft_distinctness")
+    )
+    projected["option_reviews"] = [
+        _project_feezie_option_review(item)
+        for item in (raw.get("option_reviews") or [])[:FEEZIE_CODEX_DRAFT_OPTION_COUNT]
+        if isinstance(item, dict)
+    ]
+    projected["blocking_reasons"] = _completion_text_list(
+        raw.get("blocking_reasons"), limit=64, item_limit=180
+    )
+    return projected
+
+
+def _project_feezie_completion_result(
+    *,
+    job: Dict[str, Any],
+    result_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Persist only the public drafts and closed quality/critic receipts."""
+
+    packet = job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}
+    request_payload = job.get("request_payload") if isinstance(job.get("request_payload"), dict) else {}
+    diagnostics = (
+        dict(result_payload.get("diagnostics") or {})
+        if isinstance(result_payload.get("diagnostics"), dict)
+        else {}
+    )
+    options = [
+        str(option).strip()
+        for option in (result_payload.get("options") or [])
+        if isinstance(option, str) and str(option).strip()
+    ][:FEEZIE_CODEX_DRAFT_OPTION_COUNT]
+    traces: List[Dict[str, Any]] = []
+    for item in diagnostics.get("llm_provider_trace") or []:
+        if not isinstance(item, dict):
+            continue
+        trace = {
+            key: _completion_text(item.get(key), limit=160)
+            for key in (
+                "provider",
+                "actual_model",
+                "reasoning_effort",
+                "status",
+                "error_code",
+                "failure_stage",
+            )
+            if _completion_text(item.get(key), limit=160)
+        }
+        if trace:
+            traces.append(trace)
+
+    strategy = packet.get("strategy_contract") if isinstance(packet.get("strategy_contract"), dict) else {}
+    classification = (
+        packet.get("candidate_classification")
+        if isinstance(packet.get("candidate_classification"), dict)
+        else {}
+    )
+    source_freshness = (
+        classification.get("source_freshness")
+        if isinstance(classification.get("source_freshness"), dict)
+        else {}
+    )
+    classification_projection = {
+        key: _completion_text(classification.get(key), limit=1200)
+        for key in (
+            "canonical_pillar",
+            "career_signal",
+            "employer_proximity",
+            "employer_safety",
+            "proof_posture",
+            "treatment",
+            "publish_posture",
+            "audience",
+            "generation_audience",
+            "audience_consequence",
+            "distinct_thesis",
+            "why_now",
+            "development_status",
+            "classification_state",
+        )
+        if _completion_text(classification.get(key), limit=1200)
+    }
+    missing_fields = _completion_text_list(
+        classification.get("missing_fields"), limit=32, item_limit=120
+    )
+    if missing_fields:
+        classification_projection["missing_fields"] = missing_fields
+    if source_freshness:
+        classification_projection["source_freshness"] = {
+            key: (
+                source_freshness.get(key)
+                if key in {"age_days", "current_claim_allowed"}
+                else _completion_text(source_freshness.get(key), limit=120)
+            )
+            for key in (
+                "state",
+                "declared_state",
+                "temporality",
+                "published_at",
+                "observed_at",
+                "dated_at",
+                "date_origin",
+                "age_days",
+                "current_claim_allowed",
+            )
+            if source_freshness.get(key) is not None
+        }
+
+    revision_execution = _project_feezie_revision_execution(
+        diagnostics.get("revision_execution")
+    )
+    critic_review = _closed_feezie_critic_receipt(diagnostics.get("critic_review"))
+    editorial_readiness = _project_feezie_editorial_readiness(
+        diagnostics.get("editorial_readiness")
+    )
+    projected_diagnostics: Dict[str, Any] = {
+        "grounding_mode": str(packet.get("grounding_mode") or "proof_ready"),
+        "generation_strategy": "codex_terminal",
+        "intent": str(packet.get("intent") or request_payload.get("category") or "value"),
+        "strategy_contract": {
+            key: _completion_text(strategy.get(key), limit=160)
+            for key in ("schema_version", "contract_hash", "approved_at")
+            if _completion_text(strategy.get(key), limit=160)
+        },
+        "candidate_classification": classification_projection,
+        "planned_option_briefs": [
+            {
+                key: item.get(key)
+                for key in (
+                    "option_number",
+                    "framing_mode",
+                    "primary_claim",
+                    "proof_packet",
+                    "story_beat",
+                )
+                if item.get(key) not in (None, "")
+            }
+            for item in (packet.get("planned_option_briefs") or [])[:FEEZIE_CODEX_DRAFT_OPTION_COUNT]
+            if isinstance(item, dict)
+        ],
+        "llm_provider_trace": traces[:12],
+        "source_mode": request_payload.get("source_mode"),
+        "draft_contract": _project_feezie_draft_contract(packet.get("draft_contract")),
+        "revision_contract": _project_feezie_revision_contract(packet.get("revision_contract")),
+        "revision_execution": revision_execution,
+        "draft_distinctness": _project_feezie_distinctness_receipt(
+            diagnostics.get("draft_distinctness")
+        ),
+        "quality_gate": _project_feezie_quality_gate(diagnostics.get("quality_gate")),
+        "technical_completion": {
+            "status": "completed",
+            "writer_status": "completed",
+            "draft_count": len(options),
+            "drafts_preserved": True,
+            **(
+                {"revision_status": revision_execution.get("status")}
+                if revision_execution.get("status")
+                else {}
+            ),
+        },
+        "critic_review": critic_review,
+        "editorial_readiness": editorial_readiness,
+    }
+    if revision_execution:
+        _validate_feezie_revision_execution_receipt(
+            receipt=revision_execution,
+            final_options=options,
+            critic_review=critic_review,
+            readiness=editorial_readiness,
+        )
+    projected = {
+        "schema_version": FEEZIE_COMPLETION_RESULT_VERSION,
+        "success": True,
+        "options": options,
+        "diagnostics": projected_diagnostics,
+    }
+    _assert_feezie_completion_payload_safe(projected)
+    return projected
+
+
+def _project_generic_codex_completion_result(result_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep intended output plus bounded operational metadata for non-FEEZIE jobs."""
+
+    diagnostics = (
+        dict(result_payload.get("diagnostics") or {})
+        if isinstance(result_payload.get("diagnostics"), dict)
+        else {}
+    )
+    traces: List[Dict[str, Any]] = []
+    for item in diagnostics.get("llm_provider_trace") or []:
+        if not isinstance(item, dict):
+            continue
+        trace = {
+            key: _completion_text(item.get(key), limit=160)
+            for key in ("provider", "actual_model", "reasoning_effort", "status", "error_code", "failure_stage")
+            if _completion_text(item.get(key), limit=160)
+        }
+        if trace:
+            traces.append(trace)
+    projected_diagnostics = {
+        key: _completion_text(diagnostics.get(key), limit=160)
+        for key in (
+            "grounding_mode",
+            "generation_strategy",
+            "draft_mode",
+            "draft_type",
+            "source_mode",
+        )
+        if _completion_text(diagnostics.get(key), limit=160)
+    }
+    projected_diagnostics["llm_provider_trace"] = traces[:8]
+    return {
+        "schema_version": CODEX_COMPLETION_RESULT_VERSION,
+        "success": True,
+        "options": [
+            str(option).strip()
+            for option in (result_payload.get("options") or [])
+            if isinstance(option, str) and str(option).strip()
+        ][:3],
+        "diagnostics": projected_diagnostics,
+    }
+
+
+def _assert_feezie_completion_payload_safe(value: Any) -> None:
+    _assert_feezie_remote_job_payload_safe(value)
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    if len(encoded.encode("utf-8")) > 256 * 1024:
+        raise ValueError("FEEZIE completion result exceeds the closed receipt size bound.")
+    if re.search(
+        r"\b(?:sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+        r"AKIA[A-Z0-9]{16})\b|\b(?:api[ _-]?key|authorization|password|secret|token)"
+        r"\s*(?::|=|\bis\b)\s*\S+|<VOICE_EXAMPLE_|<INFLUENCE_CARD_|"
+        r"^(?:TOPIC|PROOF|STORY) ANCHORS?:|^TARGET WRITER JOB:",
+        encoded,
+        flags=re.IGNORECASE | re.MULTILINE,
+    ):
+        raise ValueError("FEEZIE completion result retained a credential, prompt, or source body marker.")
+
+
+def _feezie_completion_artifacts(
+    *,
+    result_payload: Dict[str, Any],
+    initial_critic_receipt: Dict[str, Any] | None = None,
+) -> List[Dict[str, Any]]:
+    """Rebuild approved artifacts from the projected result; never trust worker content."""
+
+    diagnostics = result_payload.get("diagnostics") if isinstance(result_payload.get("diagnostics"), dict) else {}
+    artifact_specs: tuple[tuple[str, str, Any], ...] = (
+        *(
+            (
+                (
+                    "editorial_critic_initial",
+                    "initial-editorial-critic-review.json",
+                    initial_critic_receipt,
+                ),
+            )
+            if isinstance(initial_critic_receipt, dict)
+            else ()
+        ),
+        (
+            "quality_gate",
+            "quality-gate.json",
+            diagnostics.get("quality_gate"),
+        ),
+        (
+            "editorial_critic",
+            "editorial-critic-review.json",
+            diagnostics.get("critic_review"),
+        ),
+        (
+            "revision_execution",
+            "revision-execution-receipt.json",
+            diagnostics.get("revision_execution"),
+        ),
+    )
+    items: List[Dict[str, Any]] = []
+    for kind, filename, content in artifact_specs:
+        if not isinstance(content, dict) or not content:
+            continue
+        envelope = {
+            "schema_version": FEEZIE_COMPLETION_ARTIFACT_VERSION,
+            "kind": kind,
+            "receipt": content,
+        }
+        _assert_feezie_completion_payload_safe(envelope)
+        items.append(
+            {
+                "kind": kind,
+                "label": filename,
+                "filename": filename,
+                "mime_type": "application/json",
+                "content": json.dumps(envelope, ensure_ascii=True, indent=2) + "\n",
+            }
+        )
+    return items
+
+
+def _feezie_initial_critic_receipt_from_artifacts(
+    *,
+    requested_artifacts: List[Dict[str, Any]],
+    result_payload: Dict[str, Any],
+    required: bool,
+) -> Dict[str, Any] | None:
+    """Read only the exact initial-critic artifact and bind it to its receipt hash."""
+
+    candidates = [
+        item
+        for item in requested_artifacts
+        if isinstance(item, dict)
+        and str(item.get("kind") or "").strip().lower() == "editorial_critic"
+        and str(item.get("label") or "").strip() == "initial-editorial-critic-review.json"
+    ]
+    if not candidates:
+        if required:
+            raise ValueError("FEEZIE completion requires the initial independent-critic artifact.")
+        return None
+    if len(candidates) != 1:
+        raise ValueError("FEEZIE completion received multiple initial independent-critic artifacts.")
+    candidate = candidates[0]
+    if (
+        str(candidate.get("filename") or "").strip()
+        != "initial-editorial-critic-review.json"
+        or str(candidate.get("mime_type") or "").strip().lower() != "application/json"
+    ):
+        raise ValueError("The initial independent-critic artifact metadata is invalid.")
+    content = candidate.get("content")
+    if not isinstance(content, str) or len(content.encode("utf-8")) > 64 * 1024:
+        raise ValueError("The initial independent-critic artifact exceeds its size bound.")
+    try:
+        parsed = json.loads(content)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("The initial independent-critic artifact is not valid JSON.") from exc
+    initial_receipt = _closed_feezie_critic_receipt(parsed)
+    diagnostics = result_payload.get("diagnostics") if isinstance(result_payload.get("diagnostics"), dict) else {}
+    revision_execution = (
+        diagnostics.get("revision_execution")
+        if isinstance(diagnostics.get("revision_execution"), dict)
+        else {}
+    )
+    expected_sha = str(
+        revision_execution.get("initial_critic_receipt_sha256") or ""
+    ).strip().lower()
+    if expected_sha:
+        if not secrets.compare_digest(expected_sha, _feezie_json_sha256(initial_receipt)):
+            raise ValueError("The initial independent-critic artifact does not match its revision receipt.")
+    elif str(initial_receipt.get("status") or "").strip().lower() == "completed":
+        raise ValueError("A completed initial critic is missing its revision-receipt commitment.")
+    return initial_receipt
+
+
+def _safe_feezie_artifact_preview(
+    *,
+    job: Dict[str, Any],
+    artifact: Dict[str, Any],
+) -> str | None:
+    """Expose only artifacts that exactly match a server-owned closed envelope."""
+
+    artifact_id = str(artifact.get("artifact_id") or "")
+    artifact_kind = str(artifact.get("kind") or "").strip().lower()
+    if not artifact_id:
+        return None
+    expected_metadata = {
+        "context_packet": ("context-packet.json", "application/json"),
+        "request_payload": ("request-payload.json", "application/json"),
+        "editorial_critic_initial": (
+            "initial-editorial-critic-review.json",
+            "application/json",
+        ),
+        "quality_gate": ("quality-gate.json", "application/json"),
+        "editorial_critic": ("editorial-critic-review.json", "application/json"),
+        "revision_execution": ("revision-execution-receipt.json", "application/json"),
+    }
+    metadata = expected_metadata.get(artifact_kind)
+    if metadata is None:
+        return None
+    expected_filename, expected_mime_type = metadata
+    if (
+        str(artifact.get("label") or "") != expected_filename
+        or str(artifact.get("filename") or "") != expected_filename
+        or str(artifact.get("mime_type") or "") != expected_mime_type
+    ):
+        return None
+    try:
+        content = read_job_artifact_content(
+            job_id=str(job.get("id") or ""),
+            artifact_id=artifact_id,
+        )
+        parsed = json.loads(content or "")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    if artifact_kind in {"context_packet", "request_payload"}:
+        expected = job.get(artifact_kind)
+        if (
+            not isinstance(expected, dict)
+            or expected.get("packet_schema_version") != FEEZIE_REMOTE_JOB_PACKET_VERSION
+            or parsed != expected
+        ):
+            return None
+        try:
+            _assert_feezie_remote_job_payload_safe(parsed)
+        except ValueError:
+            return None
+        return str(content)[:2000]
+
+    result_payload = job.get("result_payload")
+    if (
+        not isinstance(result_payload, dict)
+        or result_payload.get("schema_version") != FEEZIE_COMPLETION_RESULT_VERSION
+    ):
+        return None
+    if artifact_kind == "editorial_critic_initial":
+        if set(parsed) != {"schema_version", "kind", "receipt"} or (
+            parsed.get("schema_version") != FEEZIE_COMPLETION_ARTIFACT_VERSION
+            or parsed.get("kind") != artifact_kind
+        ):
+            return None
+        try:
+            initial_receipt = _closed_feezie_critic_receipt(parsed.get("receipt"))
+        except ValueError:
+            return None
+        diagnostics = (
+            result_payload.get("diagnostics")
+            if isinstance(result_payload.get("diagnostics"), dict)
+            else {}
+        )
+        revision_execution = (
+            diagnostics.get("revision_execution")
+            if isinstance(diagnostics.get("revision_execution"), dict)
+            else {}
+        )
+        expected_sha = str(
+            revision_execution.get("initial_critic_receipt_sha256") or ""
+        ).strip().lower()
+        if expected_sha:
+            if not secrets.compare_digest(
+                expected_sha,
+                _feezie_json_sha256(initial_receipt),
+            ):
+                return None
+        elif str(initial_receipt.get("status") or "").strip().lower() == "completed":
+            return None
+        return str(content)[:2000]
+    try:
+        expected_items = _feezie_completion_artifacts(
+            result_payload=result_payload,
+        )
+    except ValueError:
+        return None
+    matching_items = [
+        item for item in expected_items if str(item.get("kind") or "") == artifact_kind
+    ]
+    if len(matching_items) != 1:
+        return None
+    expected_item = matching_items[0]
+    try:
+        expected_payload = json.loads(str(expected_item.get("content") or ""))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if parsed != expected_payload:
+        return None
+    return str(content)[:2000]
+
+
 def _build_local_codex_status_response(job: Dict[str, Any]) -> LocalCodexJobStatusResponse:
+    closed_feezie_job = bool(_feezie_draft_contract(job))
     result_payload = job.get("result_payload")
     result: ContentGenerationResponse | None = None
     if isinstance(result_payload, dict):
         try:
+            if closed_feezie_job:
+                if result_payload.get("schema_version") != FEEZIE_COMPLETION_RESULT_VERSION:
+                    raise ValueError("Legacy FEEZIE result is not safe to expose.")
+                expected_result = _project_feezie_completion_result(
+                    job=job,
+                    result_payload=result_payload,
+                )
+                if expected_result != result_payload:
+                    raise ValueError("FEEZIE result does not match the closed completion schema.")
             result = ContentGenerationResponse(**result_payload)
-        except Exception:
+        except (TypeError, ValueError):
             result = None
+    error_message = _trim_job_error(job.get("error_message"))
+    if closed_feezie_job and error_message:
+        error_message = "Local generation failed."
     return LocalCodexJobStatusResponse(
         success=True,
         job_id=str(job.get("id") or ""),
         workspace_slug=str(job.get("workspace_slug") or ""),
         status=str(job.get("status") or "pending"),
-        requested_by=str(job.get("requested_by") or ""),
+        requested_by=None if closed_feezie_job else str(job.get("requested_by") or ""),
         created_at=str(job.get("created_at") or ""),
         started_at=str(job.get("started_at") or ""),
         completed_at=str(job.get("completed_at") or ""),
-        error_message=_trim_job_error(job.get("error_message")),
+        error_message=error_message,
         result=result,
         artifact_count=len([item for item in (job.get("artifacts") or []) if isinstance(item, dict)]),
     )
@@ -9793,7 +10932,19 @@ async def claim_local_codex_job(
 ):
     _require_local_codex_token(x_local_codex_token)
     try:
-        job = claim_next_codex_job(worker_id=req.worker_id, workspace_slug=req.workspace_slug)
+        worker_receipt = _codex_worker_receipt(req.worker_id)
+        job = claim_next_codex_job(
+            worker_id=worker_receipt,
+            workspace_slug=req.workspace_slug,
+        )
+        if not job:
+            # A job claimed before this privacy boundary may still carry the
+            # former raw worker id. Resume it once, then completion rewrites the
+            # lease to the opaque receipt.
+            job = claim_next_codex_job(
+                worker_id=req.worker_id,
+                workspace_slug=req.workspace_slug,
+            )
         if not job:
             return LocalCodexJobClaimResponse(success=True, job_available=False)
         return LocalCodexJobClaimResponse(
@@ -10135,11 +11286,18 @@ async def get_local_codex_job_artifacts(job_id: str):
         artifacts = list_job_artifacts(job_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    job = get_codex_job(job_id) or {}
+    closed_feezie_job = bool(_feezie_draft_contract(job))
     rendered: list[LocalCodexJobArtifactResponse] = []
     for artifact in artifacts:
         artifact_id = str(artifact.get("artifact_id") or "")
+        artifact_kind = str(artifact.get("kind") or "")
         preview = None
-        if artifact_id:
+        if closed_feezie_job:
+            preview = _safe_feezie_artifact_preview(job=job, artifact=artifact)
+            if preview is None:
+                continue
+        elif artifact_id:
             try:
                 content = read_job_artifact_content(job_id=job_id, artifact_id=artifact_id)
             except ValueError:
@@ -10149,7 +11307,7 @@ async def get_local_codex_job_artifacts(job_id: str):
         rendered.append(
             LocalCodexJobArtifactResponse(
                 artifact_id=artifact_id,
-                kind=str(artifact.get("kind") or ""),
+                kind=artifact_kind,
                 label=str(artifact.get("label") or ""),
                 filename=str(artifact.get("filename") or ""),
                 mime_type=str(artifact.get("mime_type") or "text/plain"),
@@ -10189,16 +11347,37 @@ async def complete_local_codex_job(
             command_stdout=req.command_stdout,
             command_stderr=req.command_stderr,
         )
+    is_feezie_job = bool(_feezie_draft_contract(job))
     try:
         result_payload = _validate_feezie_codex_completion_result(job=job, result_payload=result_payload)
+        if is_feezie_job:
+            result_payload = _project_feezie_completion_result(
+                job=job,
+                result_payload=result_payload,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        if is_feezie_job:
+            initial_critic_receipt = _feezie_initial_critic_receipt_from_artifacts(
+                requested_artifacts=req.artifacts,
+                result_payload=result_payload,
+                required=bool(_feezie_revision_contract(job)),
+            )
+            artifact_items = _feezie_completion_artifacts(
+                result_payload=result_payload,
+                initial_critic_receipt=initial_critic_receipt,
+            )
+        else:
+            artifact_items = req.artifacts
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     completed = complete_codex_job(
         job_id=job_id,
-        worker_id=req.worker_id,
+        worker_id=_codex_worker_receipt(req.worker_id),
         result_payload=result_payload,
     )
-    artifacts = _persist_job_artifacts(job_id, req.artifacts)
+    artifacts = _persist_job_artifacts(job_id, artifact_items)
     if artifacts:
         completed = append_job_artifacts(job_id=job_id, artifacts=artifacts)
     return _build_local_codex_status_response(completed)
@@ -10211,11 +11390,19 @@ async def fail_local_codex_job(
     x_local_codex_token: str | None = Header(default=None, alias="X-Local-Codex-Token"),
 ):
     _require_local_codex_token(x_local_codex_token)
+    job = get_codex_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Local Codex job not found")
+    closed_feezie_job = bool(_feezie_draft_contract(job))
     try:
         failed = fail_codex_job(
             job_id=job_id,
-            worker_id=req.worker_id,
-            error_message=req.error_message,
+            worker_id=_codex_worker_receipt(req.worker_id),
+            error_message=(
+                "Local generation failed."
+                if closed_feezie_job
+                else _trim_job_error(req.error_message) or "Local generation failed."
+            ),
         )
         return _build_local_codex_status_response(failed)
     except ValueError as exc:

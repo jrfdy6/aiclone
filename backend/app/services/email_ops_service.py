@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import os
 import re
 import base64
 from datetime import datetime, timedelta, timezone
@@ -42,6 +43,13 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 EMAIL_THREADS_CACHE = DATA_DIR / "email_threads.json"
+
+OWNER_DISPLAY_NAME_ENV = "AI_CLONE_OWNER_DISPLAY_NAME"
+_NEUTRAL_OWNER_DISPLAY_NAME = "the owner"
+_SIGNATURE_BLOCK_MAX_CHARS = 240
+_SIGNATURE_BLOCK_MAX_LINES = 3
+_SIGNATURE_LINE_MAX_CHARS = 120
+_UNSAFE_SIGNATURE_CHARACTER_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f<>]")
 
 WORKSPACE_ALIAS_MAP: dict[str, tuple[str, Optional[str]]] = {
     "agc": ("agc", None),
@@ -314,7 +322,7 @@ def _hydrate_codex_job_result(thread: EmailThread) -> tuple[EmailThread, bool]:
         candidate = next((option for option in options if isinstance(option, str) and option.strip()), "")
         normalized_candidate = normalize_generated_email_body(
             candidate,
-            signature_block=_signature_for_workspace(updated.workspace_key),
+            signature_block=_signature_for_codex_job(job, workspace_key=updated.workspace_key),
         )
         if normalized_candidate:
             updated.draft_subject = updated.draft_subject or f"Re: {updated.subject}"
@@ -1129,14 +1137,49 @@ def _default_draft_type(thread: EmailThread) -> str:
     return "acknowledge"
 
 
+def _bounded_signature_block(value: object, *, fallback: str) -> str:
+    raw = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not raw or len(raw) > _SIGNATURE_BLOCK_MAX_CHARS or _UNSAFE_SIGNATURE_CHARACTER_RE.search(raw):
+        return fallback
+    lines = [" ".join(line.split()) for line in raw.split("\n") if line.strip()]
+    if not lines or len(lines) > _SIGNATURE_BLOCK_MAX_LINES:
+        return fallback
+    if any(len(line) > _SIGNATURE_LINE_MAX_CHARS for line in lines):
+        return fallback
+    return "\n".join(lines)
+
+
+def _configured_owner_display_name() -> str:
+    configured = str(os.getenv(OWNER_DISPLAY_NAME_ENV) or "")
+    if "\n" in configured or "\r" in configured:
+        return _NEUTRAL_OWNER_DISPLAY_NAME
+    return _bounded_signature_block(configured, fallback=_NEUTRAL_OWNER_DISPLAY_NAME)
+
+
 def _signature_for_workspace(workspace_key: str) -> str:
+    owner_display_name = _configured_owner_display_name()
     if workspace_key == "agc":
-        return "the owner\nConsulting Team"
+        return f"{owner_display_name}\nConsulting Team"
     if workspace_key == "fusion-os":
         return "Fusion Team"
     if workspace_key == "feezie-os":
-        return "the owner"
+        return owner_display_name
     return "Operations"
+
+
+def _signature_for_codex_job(job: dict, *, workspace_key: str) -> str:
+    fallback = _signature_for_workspace(workspace_key)
+    context_packet = job.get("context_packet") if isinstance(job.get("context_packet"), dict) else {}
+    email_packet = (
+        context_packet.get("email_drafting_packet")
+        if isinstance(context_packet.get("email_drafting_packet"), dict)
+        else {}
+    )
+    for candidate in (email_packet.get("signature_block"), context_packet.get("signature_block")):
+        normalized = _bounded_signature_block(candidate, fallback="")
+        if normalized:
+            return normalized
+    return fallback
 
 
 def _draft_body(thread: EmailThread, draft_type: str) -> str:

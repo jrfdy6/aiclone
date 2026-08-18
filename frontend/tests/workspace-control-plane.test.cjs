@@ -26,6 +26,34 @@ const localVoiceReviewSource = fs.readFileSync(path.join(frontendRoot, 'app', 'w
 const controlApiSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'control-api.ts'), 'utf8');
 const feedRefreshPollingSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'feed-refresh-polling.ts'), 'utf8');
 const feezieWorkspaceSyncSource = fs.readFileSync(path.join(frontendRoot, 'lib', 'feezie-workspace-sync.ts'), 'utf8');
+const compiledGenerationReceipt = ts.transpileModule(generationReceiptSource, {
+  compilerOptions: {
+    jsx: ts.JsxEmit.ReactJSX,
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+  },
+}).outputText;
+const loadedGenerationReceipt = { exports: {} };
+new Function('module', 'exports', 'require', compiledGenerationReceipt)(
+  loadedGenerationReceipt,
+  loadedGenerationReceipt.exports,
+  (specifier) => {
+    if (specifier === '@/app/workspace/generatedFragmentUtils') {
+      return {
+        criticReviewForOption: (readiness, optionIndex) => readiness?.option_reviews?.find(
+          (review) => review.option_index === optionIndex + 1,
+        ),
+        editorialReadinessLabel: () => 'Test readiness',
+      };
+    }
+    return require(specifier);
+  },
+);
+const {
+  buildCriticCoverageLabel,
+  buildCriticReceiptState,
+  deterministicPlanDraftBlockers,
+} = loadedGenerationReceipt.exports;
 const compiledFeedRefreshPolling = ts.transpileModule(feedRefreshPollingSource, {
   compilerOptions: {
     module: ts.ModuleKind.CommonJS,
@@ -332,10 +360,176 @@ test('workspace exposes the bounded critic-guided revision receipt without copy'
   assert.match(generationReceiptSource, /Revision completed/);
   assert.match(generationReceiptSource, /fresh critic/);
   assert.match(generationReceiptSource, /Revision stopped closed/);
-  assert.match(generationReceiptSource, /No option can advance from the earlier critic/);
+  assert.match(generationReceiptSource, /No option can advance without an admissible final critic receipt/);
   assert.match(generationReceiptSource, /Original preserved/);
   assert.match(generationReceiptSource, /Revised once/);
   assert.doesNotMatch(generationReceiptSource, /original_post_sha256|final_post_sha256|revision_prompt_sha256/);
+});
+
+test('generation receipt separates deterministic plan and draft blockers from critic availability', () => {
+  const blockers = deterministicPlanDraftBlockers({
+    quality_gate: {
+      failed_reasons: [
+        'planned_application_decision_gate_missing',
+        'role_a1_application_rule_not_leading',
+      ],
+    },
+    draft_distinctness: {
+      failed_reasons: [
+        'planned_application_decision_gate_missing',
+        'drafts_too_similar',
+      ],
+    },
+  });
+
+  assert.deepEqual(blockers, [
+    { code: 'planned_application_decision_gate_missing', stage: 'Plan' },
+    { code: 'role_a1_application_rule_not_leading', stage: 'Draft' },
+    { code: 'drafts_too_similar', stage: 'Draft' },
+  ]);
+  assert.match(generationReceiptSource, /Deterministic plan\/draft blockers/);
+  assert.match(generationReceiptSource, /Critic availability:/);
+  assert.match(generationReceiptSource, /Other editorial blockers:/);
+});
+
+test('failed revision receipt states exactly which critic stage is unavailable or did not run', () => {
+  const baseDiagnostics = {
+    revision_contract: { schema_version: 'feezie_critic_guided_revision_contract/v1' },
+    draft_contract: {
+      schema_version: 'feezie_draft_contract/v1',
+      required_option_count: 2,
+      hook_variants_per_option: 8,
+    },
+    critic_review: {
+      status: 'unavailable',
+      reason: 'revision_failed_before_final_critic',
+      reviews: [
+        { option_index: 1, hook_variants: Array.from({ length: 8 }, (_, index) => `Stale hook 1.${index}`) },
+        { option_index: 2, hook_variants: Array.from({ length: 8 }, (_, index) => `Stale hook 2.${index}`) },
+      ],
+    },
+    editorial_readiness: { critic_status: 'unavailable' },
+  };
+
+  const revisionFailed = {
+    ...baseDiagnostics,
+    revision_execution: {
+      schema_version: 'feezie_revision_execution_receipt/v1',
+      status: 'failed',
+      failure_code: 'revision_option_2_timeout',
+      initial_critic_call_count: 1,
+      revision_call_count: 1,
+      final_critic_call_count: 0,
+    },
+  };
+  const revisionFailedState = buildCriticReceiptState(revisionFailed);
+  assert.deepEqual(revisionFailedState.badges, [
+    'Initial critic completed',
+    'Final critic not run after revision failure',
+  ]);
+  assert.equal(revisionFailedState.reviewReceiptUsable, false);
+  assert.equal(buildCriticCoverageLabel(revisionFailed, revisionFailedState), 'Final reviews unavailable · hooks unavailable');
+
+  const initialUnavailableState = buildCriticReceiptState({
+    ...baseDiagnostics,
+    revision_execution: {
+      schema_version: 'feezie_revision_execution_receipt/v1',
+      status: 'failed',
+      failure_code: 'initial_critic_failed',
+      initial_critic_call_count: 1,
+      revision_call_count: 0,
+      final_critic_call_count: 0,
+    },
+  });
+  assert.deepEqual(initialUnavailableState.badges, [
+    'Initial critic unavailable',
+    'Final critic not run after revision failure',
+  ]);
+
+  const initialNotRunState = buildCriticReceiptState({
+    ...baseDiagnostics,
+    revision_execution: {
+      schema_version: 'feezie_revision_execution_receipt/v1',
+      status: 'failed',
+      failure_code: 'revision_orchestration_failed',
+      initial_critic_call_count: 0,
+      revision_call_count: 0,
+      final_critic_call_count: 0,
+    },
+  });
+  assert.deepEqual(initialNotRunState.badges, [
+    'Initial critic not run',
+    'Final critic not run after revision failure',
+  ]);
+
+  const finalUnavailableState = buildCriticReceiptState({
+    ...baseDiagnostics,
+    critic_review: { status: 'unavailable', reason: 'final_critic_timeout', reviews: [] },
+    revision_execution: {
+      schema_version: 'feezie_revision_execution_receipt/v1',
+      status: 'failed',
+      failure_code: 'final_critic_failed',
+      initial_critic_call_count: 1,
+      revision_call_count: 1,
+      final_critic_call_count: 1,
+    },
+  });
+  assert.deepEqual(finalUnavailableState.badges, [
+    'Initial critic completed',
+    'Final critic unavailable after revision',
+  ]);
+
+  const rejectedFinalReceipt = {
+    ...baseDiagnostics,
+    critic_review: { ...baseDiagnostics.critic_review, status: 'completed' },
+    editorial_readiness: { critic_status: 'completed' },
+    revision_execution: {
+      schema_version: 'feezie_revision_execution_receipt/v1',
+      status: 'failed',
+      failure_code: 'final_critic_not_independent',
+      initial_critic_call_count: 1,
+      revision_call_count: 1,
+      final_critic_call_count: 1,
+    },
+  };
+  const rejectedFinalState = buildCriticReceiptState(rejectedFinalReceipt);
+  assert.deepEqual(rejectedFinalState.badges, [
+    'Initial critic completed',
+    'Final critic receipt rejected after revision',
+  ]);
+  assert.equal(rejectedFinalState.reviewReceiptUsable, false);
+  assert.equal(buildCriticCoverageLabel(rejectedFinalReceipt, rejectedFinalState), 'Final reviews unavailable · hooks unavailable');
+});
+
+test('generation receipt reports complete review and hook coverage only from an admissible critic receipt', () => {
+  const reviews = [1, 2].map((optionIndex) => ({
+    option_index: optionIndex,
+    hook_variants: Array.from({ length: 8 }, (_, hookIndex) => `Hook ${optionIndex}.${hookIndex}`),
+  }));
+  const diagnostics = {
+    revision_contract: { schema_version: 'feezie_critic_guided_revision_contract/v1' },
+    revision_execution: {
+      schema_version: 'feezie_revision_execution_receipt/v1',
+      status: 'completed',
+      initial_critic_call_count: 1,
+      revision_call_count: 1,
+      final_critic_call_count: 1,
+    },
+    draft_contract: {
+      schema_version: 'feezie_draft_contract/v1',
+      required_option_count: 2,
+      hook_variants_per_option: 8,
+    },
+    critic_review: { status: 'completed', reviews },
+    editorial_readiness: { critic_status: 'completed', option_reviews: reviews },
+  };
+  const state = buildCriticReceiptState(diagnostics);
+
+  assert.equal(state.reviewReceiptUsable, true);
+  assert.equal(buildCriticCoverageLabel(diagnostics, state), 'Final reviews 2/2 · 8 hooks each');
+  assert.match(generationReceiptSource, /Hook lab complete/);
+  assert.match(generationReceiptSource, /Hook lab incomplete/);
+  assert.doesNotMatch(generationReceiptSource, /Critic \+ hooks/);
 });
 
 test('generation receipts disclose the effective grounding mode without private context', () => {

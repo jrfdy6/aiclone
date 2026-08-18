@@ -36,8 +36,8 @@
       {
         "mode": 420,
         "path": "backend/.env.example",
-        "sha256": "069990ca495ee57a0b713b2ac01d008767dc4a7fbf35e4710525e66527346509",
-        "size": 1488
+        "sha256": "c887dcb3f1039baf9bc037fb217a96e8674de30ba9e292b4b5e03cfd8628e880",
+        "size": 1666
       },
       {
         "mode": 420,
@@ -402,8 +402,8 @@
       {
         "mode": 420,
         "path": "backend/app/routes/content_generation.py",
-        "sha256": "1993f99d9df857ce9aa0fb6a4808ea5a3f29ba4ecb8339d6c216d418013b4d4f",
-        "size": 440432
+        "sha256": "76d8fc716bc3b814a021f8e5d83db1eec1198440302ac990b75ec1f80ef8e0f0",
+        "size": 485949
       },
       {
         "mode": 420,
@@ -900,8 +900,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/email_ops_service.py",
-        "sha256": "d5c9c31365ea1e93fc43cbff265843310fd1e97242c616851ad92682e7e30270",
-        "size": 62288
+        "sha256": "d38f14d34c174ebf92330150506783738fa03fc24681932e89375b18efd1d0d5",
+        "size": 64161
       },
       {
         "mode": 420,
@@ -942,8 +942,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/feezie_evidence_readiness_service.py",
-        "sha256": "b3267739a357e5ce4172e59d97ce950e3dfbc07276e697fe9925f0a0ec07cef7",
-        "size": 26354
+        "sha256": "59b9ef653443ffb8d3b3d0585eab2860cd568e1227d08830dd2433f89565d1eb",
+        "size": 27393
       },
       {
         "mode": 420,
@@ -1044,8 +1044,8 @@
       {
         "mode": 420,
         "path": "backend/app/services/local_content_generation_execution_service.py",
-        "sha256": "4f5b30d700b4d82687009aeae7a3b89a65dd8a5e12a777b732cc6aa48cdfaa5a",
-        "size": 71941
+        "sha256": "81fe543b767bf7b62083d4d777658e995cd27b0dd4c8dd85eef82dcd9cc80f0c",
+        "size": 73680
       },
       {
         "mode": 420,
@@ -1710,8 +1710,8 @@
       {
         "mode": 420,
         "path": "backend/tests/test_feezie_public_lifecycle_smoke.py",
-        "sha256": "87d901a8c1c7cc8d413d24aef9428530cdf294c9b09c77e23828499afc23dd40",
-        "size": 55838
+        "sha256": "8339360e1781dca4ab58517a419ce01a89ef28d23aa1172b9d88a0bdea4282a1",
+        "size": 59392
       },
       {
         "mode": 420,
@@ -2142,8 +2142,8 @@
       {
         "mode": 420,
         "path": "frontend/app/workspace/GenerationReceiptPanel.tsx",
-        "sha256": "565742b8d825fa7b4d76aeece9773c423c6360b93605a93810806cfbcce6cf25",
-        "size": 11231
+        "sha256": "8678d1126c53fcbb52ef04c9f502e33aac374e48ae6088f3e875f860a2bc1dcc",
+        "size": 18954
       },
       {
         "mode": 420,
@@ -2496,8 +2496,8 @@
       {
         "mode": 420,
         "path": "frontend/tests/workspace-control-plane.test.cjs",
-        "sha256": "3753212676ce22c1505e9c946a04061328476872e5d2aa648c3d219fc42dc1a5",
-        "size": 37335
+        "sha256": "b3ee7435b7cc2e25630312883cc05d4a8c7c94203f4e76efaca08c5c1ebc47d9",
+        "size": 44493
       },
       {
         "mode": 420,
@@ -2542,7 +2542,7 @@
         "size": 8832
       }
     ],
-    "tree_sha256": "aeefe9e570edae8f8e4ce67372d24dec635d299804d9881b6d459a3932af125f"
+    "tree_sha256": "7b1655c872839b7adbb6bf26a52c93c0a06c75d915ed9264616ab087d7722857"
   },
   "manifest": {
     "name": "aiclone-public-deploy",

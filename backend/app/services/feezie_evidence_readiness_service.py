@@ -24,18 +24,18 @@ _METRIC_RE = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?%?(?!\w)")
 _SPACE_RE = re.compile(r"\s+")
 _PUNCT_SPACE_RE = re.compile(r"\s+([,.;:!?])")
 _LABELED_EVIDENCE_RE = re.compile(
-    r"(?<![A-Za-z0-9_])(?P<label>observable[ \t]+lesson|action|problem)[ \t]*:",
+    r"(?<![A-Za-z0-9_])(?P<label>observable[ \t]+lesson|lesson|action|problem)[ \t]*:",
     re.IGNORECASE,
 )
 _TRAILING_POST_INSTRUCTION_RE = re.compile(
     r"(?:^|(?<=[.!?])\s+|[\r\n]+)"
     r"(?=(?:"
-    r"keep[ \t]+(?:the|this)[ \t]+post\b|"
+    r"keep[ \t]+(?:it|the[ \t]+post|this[ \t]+post)\b|"
     r"signal[ \t]+that\b|"
     r"write[ \t]+(?:the|this)[ \t]+post\b|"
     r"(?:the|this)[ \t]+post[ \t]+should\b|"
-    r"do[ \t]+not[ \t]+(?:mention|name|say|imply|discuss)\b|"
-    r"don['’]t[ \t]+(?:mention|name|say|imply|discuss)\b|"
+    r"do[ \t]+not[ \t]+(?:invent|mention|name|say|imply|discuss)\b|"
+    r"don['’]t[ \t]+(?:invent|mention|name|say|imply|discuss)\b|"
     r"avoid[ \t]+(?:mentioning|naming|saying|implying|discussing)\b|"
     r"tone[ \t]*:|audience[ \t]*:"
     r"))",
@@ -44,10 +44,14 @@ _TRAILING_POST_INSTRUCTION_RE = re.compile(
 _LABELED_EVIDENCE_KEYS = {
     "action": "concrete_action",
     "problem": "exact_problem",
+    "lesson": "observable_lesson",
     "observable lesson": "observable_lesson",
 }
 _KNOWN_INTERNAL_REPLACEMENTS = (
-    (re.compile(r"\bAI\s+Clone\b", re.IGNORECASE), "my AI system"),
+    (re.compile(r"\bFEEZIE[ \t]+refresh\b", re.IGNORECASE), "content refresh"),
+    (re.compile(r"\bRailway[ \t]+frontend\b", re.IGNORECASE), "production frontend"),
+    (re.compile(r"\bCodex(?:[ \t]+Terminal|[ \t]+runner)?\b", re.IGNORECASE), "the local coding runner"),
+    (re.compile(r"\bAI\s+Clone\b", re.IGNORECASE), "AI system"),
     (re.compile(r"\bFeezie\s+OS\b", re.IGNORECASE), "the content system"),
     (re.compile(r"\bFEEZIE\b", re.IGNORECASE), "the content system"),
     (re.compile(r"\bDream\s+Cycle\b", re.IGNORECASE), "an internal review cycle"),
@@ -55,12 +59,26 @@ _KNOWN_INTERNAL_REPLACEMENTS = (
     (re.compile(r"\bNeo\b", re.IGNORECASE), "an internal review agent"),
     (re.compile(r"\bYoda\b", re.IGNORECASE), "an internal review agent"),
     (re.compile(r"\bOpenClaw\b", re.IGNORECASE), "an internal agent"),
-    (re.compile(r"\bRailway\b", re.IGNORECASE), "the hosted application"),
-    (re.compile(r"\bCodex\b", re.IGNORECASE), "the local coding runner"),
+    (re.compile(r"\bRailway\b", re.IGNORECASE), "the hosting platform"),
     (re.compile(r"\bfusion-os\b", re.IGNORECASE), "an internal workspace"),
     (re.compile(r"\blinkedin-content-os\b", re.IGNORECASE), "the content workflow"),
     (re.compile(r"\bshared_ops\b", re.IGNORECASE), "the shared workflow"),
 )
+
+
+def _repair_public_replacement_grammar(value: str) -> str:
+    """Repair articles and duplicated nouns introduced by safe-name projection."""
+
+    repaired = value
+    repairs = (
+        (r"\b(the|a|an)\s+the\s+(?=(?:content system|hosting platform|local coding runner)\b)", r"\1 "),
+        (r"\b(?:my|our|your|his|her|their)\s+my\s+(?=AI system\b)", lambda match: match.group(0).split()[0] + " "),
+        (r"\blive\s+the\s+(?=(?:hosting platform|production frontend)\b)", "live "),
+        (r"\bthe local coding runner\s+(?:runner|terminal)\b", "the local coding runner"),
+    )
+    for pattern, replacement in repairs:
+        repaired = re.sub(pattern, replacement, repaired, flags=re.IGNORECASE)
+    return repaired
 
 
 def _configured_private_replacements() -> tuple[tuple[re.Pattern[str], str], ...]:
@@ -194,6 +212,7 @@ def _clean_text(value: Any, *, privacy_mode: bool = False, limit: int = 1200) ->
     text = _TOKEN_RE.sub("a private identifier", text)
     for pattern, replacement in _KNOWN_INTERNAL_REPLACEMENTS:
         text = pattern.sub(replacement, text)
+    text = _repair_public_replacement_grammar(text)
     if privacy_mode:
         for pattern, replacement in _configured_private_replacements():
             text = pattern.sub(replacement, text)

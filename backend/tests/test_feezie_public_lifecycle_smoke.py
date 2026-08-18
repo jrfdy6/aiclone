@@ -702,6 +702,15 @@ def _public_context_packet() -> dict:
             "critic_reviews_per_option": 1,
             "hook_variants_per_option": 8,
         },
+        "revision_contract": {
+            "schema_version": "feezie_critic_guided_revision_contract/v1",
+            "enabled": True,
+            "trigger": "non_ready_after_initial_blind_critic",
+            "revision_calls_per_non_ready_option": 1,
+            "model_retries_per_revision": 0,
+            "preserve_ready_sibling_exactly": True,
+            "fresh_blind_critic_required_after_revision": True,
+        },
         "intent": "value",
         "strategy_contract": {
             "schema_version": "feezie_positioning_contract/v1",
@@ -822,8 +831,16 @@ def _precomputed_public_result() -> dict:
         readiness_reviews.append(
             {
                 "option_index": option_index,
+                "critic_option_id": f"draft_{option_index:016x}",
                 "score": 9,
                 "verdict": "ready",
+                "dimension_scores": {
+                    "truth": 9,
+                    "safety": 9,
+                    "intent": 9,
+                    "voice": 9,
+                    "hook": 9,
+                },
                 "editorially_ready": True,
                 "deterministic_quality_passed": True,
                 "deterministic_blocked": False,
@@ -835,6 +852,30 @@ def _precomputed_public_result() -> dict:
             }
         )
 
+    critic_review = {
+        "status": "completed",
+        "blind_review_receipt": _blind_critic_receipt(),
+        "draft_distinctness": {
+            "passed": True,
+            "reason": "The drafts use diagnosis and application treatments.",
+        },
+        "reviews": critic_reviews,
+    }
+    option_hashes = [
+        hashlib.sha256(option.strip().encode("utf-8")).hexdigest()
+        for option in PUBLIC_OPTIONS
+    ]
+    pair_sha = hashlib.sha256(
+        json.dumps(option_hashes, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    critic_sha = hashlib.sha256(
+        json.dumps(
+            critic_review,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
     return {
         "success": True,
         "options": list(PUBLIC_OPTIONS),
@@ -871,14 +912,42 @@ def _precomputed_public_result() -> dict:
                 "draft_count": 2,
                 "drafts_preserved": True,
             },
-            "critic_review": {
-                "status": "completed",
-                "blind_review_receipt": _blind_critic_receipt(),
-                "draft_distinctness": {
-                    "passed": True,
-                    "reason": "The drafts use diagnosis and application treatments.",
-                },
-                "reviews": critic_reviews,
+            "critic_review": critic_review,
+            "revision_execution": {
+                "schema_version": "feezie_revision_execution_receipt/v1",
+                "status": "not_required",
+                "failure_code": "",
+                "canonical_order_preserved": True,
+                "retry_allowed": False,
+                "initial_critic_call_count": 1,
+                "initial_critic_status": "completed",
+                "initial_critic_reason": "",
+                "revision_call_count": 0,
+                "final_critic_call_count": 0,
+                "final_critic_status": "completed",
+                "final_critic_reason": "",
+                "original_pair_sha256": pair_sha,
+                "final_pair_sha256": pair_sha,
+                "initial_critic_receipt_sha256": critic_sha,
+                "final_critic_receipt_sha256": critic_sha,
+                "options": [
+                    {
+                        "canonical_option_index": option_index,
+                        "action": "preserved",
+                        "attempt_count": 0,
+                        "original_post_sha256": option_hashes[option_index - 1],
+                        "final_post_sha256": option_hashes[option_index - 1],
+                        "revision_prompt_sha256": "",
+                        "bounded_findings_sha256": "",
+                        "role_contract_sha256": str(option_index) * 64,
+                        "attempt_output_sha256": "",
+                        "changed": False,
+                        "error_code": "",
+                    }
+                    for option_index in (1, 2)
+                ],
+                "contains_post_copy": False,
+                "contains_critic_issue_copy": False,
             },
             "editorial_readiness": {
                 "ready": True,
@@ -1242,6 +1311,19 @@ def test_public_safe_precomputed_feezie_result_traverses_lifecycle_without_side_
                     json={
                         "worker_id": "public-smoke-worker",
                         "result_payload": result_payload,
+                        "artifacts": [
+                            {
+                                "kind": "editorial_critic",
+                                "label": "initial-editorial-critic-review.json",
+                                "filename": "initial-editorial-critic-review.json",
+                                "mime_type": "application/json",
+                                "content": json.dumps(
+                                    result_payload["diagnostics"]["critic_review"],
+                                    indent=2,
+                                )
+                                + "\n",
+                            }
+                        ],
                     },
                 )
                 assert complete_response.status_code == 200, complete_response.text
@@ -1252,7 +1334,7 @@ def test_public_safe_precomputed_feezie_result_traverses_lifecycle_without_side_
                 polled = poll_response.json()
                 assert polled["status"] == "completed"
                 assert polled["result"]["options"] == list(PUBLIC_OPTIONS)
-                assert "llm_provider_trace" not in polled["result"]["diagnostics"]
+                assert polled["result"]["diagnostics"]["llm_provider_trace"] == []
 
                 review_response = client.post(
                     f"/api/content-generation/codex-jobs/{job_id}/send-to-review",

@@ -12,6 +12,33 @@ from app.routes import content_generation as content_generation_module
 LOCAL_TEMPLATE_PROVIDER = "local_template"
 LOCAL_TEMPLATE_MODEL = "local-template-v1"
 DETERMINISTIC_QUALITY_GATE_VERSION = "feezie_deterministic_quality_gate/v2"
+APPLICATION_GATE_RELATIONS = (
+    "before",
+    "until",
+    "unless",
+    "without",
+    "when",
+    "only if",
+    "only when",
+)
+APPLICATION_GATE_RELATION_RE = re.compile(
+    r"\b(?:only\s+(?:if|when)|before|until|unless|without|when)\b",
+    flags=re.IGNORECASE,
+)
+APPLICATION_DERIVED_RULE_ACTIONS = frozenset(
+    {
+        "accept",
+        "advance",
+        "approve",
+        "check",
+        "confirm",
+        "require",
+        "review",
+        "test",
+        "use",
+        "verify",
+    }
+)
 LOCAL_TEMPLATE_STOCK_LINES = {
     "the prompt is not the system. the workflow is.",
     "the edge comes from clarity, not from piling on more tools.",
@@ -449,6 +476,34 @@ def _structured_application_rule_parts(value: Any) -> dict[str, str]:
     return parts
 
 
+def _application_gate_relation_is_present(value: Any) -> bool:
+    return bool(APPLICATION_GATE_RELATION_RE.search(_clean_text(value)))
+
+
+def _structured_application_gate_is_valid(value: Any) -> bool:
+    """Validate the same structured application gate accepted by the writer contract."""
+
+    parts = _structured_application_rule_parts(value)
+    required_parts = {
+        "decision action",
+        "decision object",
+        "boundary",
+        "rule posture",
+    }
+    if not required_parts.issubset(parts):
+        return False
+    if not _application_gate_relation_is_present(parts["boundary"]):
+        return False
+
+    action = _normalized_role_text(parts["decision action"])
+    if not action or not _significant_role_terms(parts["decision object"]):
+        return False
+    posture = _normalized_role_text(parts["rule posture"]).rstrip(" .!?")
+    if posture == "derived principle" and action not in APPLICATION_DERIVED_RULE_ACTIONS:
+        return False
+    return True
+
+
 def _role_term_families(terms: set[str]) -> set[str]:
     """Return conservative inflection families for semantic role matching."""
 
@@ -483,12 +538,16 @@ def _assigned_application_rule_is_present(opening: str, basis: str) -> bool:
     object_terms = set(_significant_role_terms(parts["decision object"]))
     boundary_terms = set(_significant_role_terms(parts["boundary"])) - {
         "before",
+        "if",
+        "only",
         "reliance",
+        "unless",
+        "until",
         "visible",
+        "when",
+        "without",
     }
-    relation_present = bool(
-        re.search(r"\b(?:after|before|once|only\s+if|unless|until|when|without)\b", opening, flags=re.IGNORECASE)
-    )
+    relation_present = _application_gate_relation_is_present(opening)
     return bool(
         _role_terms_overlap(action_terms, opening_terms)
         and _role_terms_overlap(object_terms, opening_terms)
@@ -735,7 +794,12 @@ def _assigned_role_failure_codes(
             application_body_paragraphs + ([closing] if closing else [])
         )
         primary_claim = _clean_text(getattr(brief, "primary_claim", ""))
-        if primary_claim and any(
+        # V3 application briefs intentionally use the observed problem/consequence
+        # as body context while the opening owns the decision gate.  Treating that
+        # required context as a reconstructed thesis makes a valid implemented-gate
+        # draft impossible.  The causal-pattern and gate checks above still keep the
+        # application role from collapsing back into diagnosis.
+        if not role_payload_v3 and primary_claim and any(
             _opening_restates_primary_claim(sentence, primary_claim)
             for sentence in content_generation_module._split_sentences(application_argument)
         ):
@@ -910,16 +974,11 @@ def evaluate_draft_distinctness(context_packet: dict[str, Any], options: list[st
                                 f"option_{brief_index + 1}_planned_{field}_missing"
                             )
                 diagnosis_focus = _normalized_role_text(briefs[0].get("mechanism_focus"))
-                application_focus = _normalized_role_text(briefs[1].get("decision_rule_basis"))
+                application_basis = _clean_text(briefs[1].get("decision_rule_basis"))
+                application_focus = _normalized_role_text(application_basis)
                 if diagnosis_focus and diagnosis_focus == application_focus:
                     failed_reasons.append("planned_role_payloads_not_distinct")
-                if application_focus and (
-                    not re.search(r"\b(?:before|until|unless|without|only if)\b", application_focus)
-                    or not re.search(
-                        r"\b(?:accept|advance|approve|check|gate|require|review|rule|test|use|verify)\b",
-                        application_focus,
-                    )
-                ):
+                if application_basis and not _structured_application_gate_is_valid(application_basis):
                     failed_reasons.append("planned_application_decision_gate_missing")
                 proof_inventory = {
                     _normalized_role_text(packet)
